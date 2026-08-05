@@ -17,6 +17,11 @@ from typing import Any, TypeVar, cast, get_type_hints
 import pytest
 from session_generation_test_support import build_test_projection
 
+import pipy_harness.native.extension_hooks as extension_hooks_module
+import pipy_harness.native.extension_runtime as extension_runtime_module
+import pipy_harness.native.extensions.message_routing as message_routing_module
+import pipy_harness.native.session_generation as session_generation_module
+import pipy_harness.native.tool_loop_session as tool_loop_session_module
 from pipy_harness.extensions import ToolResult
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
@@ -52,8 +57,6 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     ExtensionActivationBatch,
-    GenerationMessageRetirement,
-    GenerationMessageRouting,
     QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredMessageRenderer,
@@ -62,6 +65,10 @@ from pipy_harness.native.extension_runtime import (
     dispatch_extension_command,
 )
 from pipy_harness.native.extension_types import ProviderContext
+from pipy_harness.native.extensions.message_routing import (
+    GenerationMessageRetirement,
+    GenerationMessageRouting,
+)
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.package_resources import PackageResourceRoots
@@ -540,7 +547,7 @@ def test_production_runtime_composes_exact_queue_owner_mutex_and_outboxes(
     assert ref.lock is projected.user.mutex is projected.custom.mutex is lock
     assert owner.mutex is lock
     assert ref.current.runtime.message_routing is owner is runtime.message_routing
-    assert owner is runtime.activation_hosts[0].message_routing
+    assert owner is runtime.activation_hosts[0]._message_routing
     assert owner.user_outbox is projected.user.storage is runtime.outbox
     assert owner.custom_outbox is projected.custom.storage is runtime.custom_outbox
     assert not hasattr(projected.user, "close")
@@ -583,7 +590,7 @@ def test_uninstalled_retire_is_a_direct_fallback_noop_and_mismatches_refuse(
         message_outbox=runtime.outbox,
         custom_message_outbox=runtime.custom_outbox,
     )
-    assert batch.message_routing is runtime.message_routing is host.message_routing
+    assert batch.message_routing is runtime.message_routing is host._message_routing
 
     foreign = GenerationMessageRouting([], [], mutex=runtime.message_routing.mutex)
     with pytest.raises(ValueError, match="owner must match every host"):
@@ -2529,12 +2536,136 @@ def _base_name(node: ast.expr) -> str:
     return node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
 
 
+def _old_message_routing_importers(
+    repo_root: Path, moved_names: tuple[str, ...]
+) -> list[str]:
+    old_importers = []
+    for root_name in ("src", "tests"):
+        for path in (repo_root / root_name).rglob("*.py"):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == "pipy_harness.native.extension_runtime"
+                    and any(alias.name in moved_names for alias in node.names)
+                ):
+                    old_importers.append(path.relative_to(repo_root).as_posix())
+    return old_importers
+
+
+def _message_routing_definition_owners(
+    native_root: Path, moved_names: tuple[str, ...]
+) -> dict[str, list[str]]:
+    owners: dict[str, list[str]] = {name: [] for name in moved_names}
+    for path in native_root.rglob("*.py"):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                if node.name in owners:
+                    owners[node.name].append(path.relative_to(native_root).as_posix())
+    return owners
+
+
+def test_generation_message_routing_cluster_has_one_authoritative_owner() -> None:
+    moved_names = (
+        "_MessageDelivery",
+        "_DrainedMessageDelivery",
+        "_DeliveryValue",
+        "_RLOCK_TYPE",
+        "OrderedMessageDeliveryGate",
+        "GenerationMessageReservation",
+        "GenerationMessageRetirement",
+        "GenerationMessageRouting",
+        "_reserved_message_delivery",
+        "_routing_for_activation_batch",
+    )
+    for name in moved_names:
+        assert name in vars(message_routing_module)
+        assert not hasattr(extension_runtime_module, name)
+
+    for name in moved_names[4:]:
+        assert getattr(message_routing_module, name).__module__ == (
+            message_routing_module.__name__
+        )
+
+    repo_root = Path(__file__).parents[1]
+    assert _old_message_routing_importers(repo_root, moved_names) == []
+
+    assert vars(extension_runtime_module)["_message_routing"] is message_routing_module
+    assert (
+        vars(extension_hooks_module)["GenerationMessageRouting"]
+        is vars(session_generation_module)["GenerationMessageRouting"]
+        is GenerationMessageRouting
+        is message_routing_module.GenerationMessageRouting
+    )
+    assert (
+        vars(tool_loop_session_module)["GenerationMessageRetirement"]
+        is vars(session_generation_module)["GenerationMessageRetirement"]
+        is GenerationMessageRetirement
+        is message_routing_module.GenerationMessageRetirement
+    )
+
+    owner_path = Path(message_routing_module.__file__ or "")
+    owner_source = owner_path.read_text(encoding="utf-8")
+    assert not any(
+        forbidden in owner_source
+        for forbidden in (
+            "_ActivationApi",
+            "ActivatedExtension",
+            "_ExtensionRuntime",
+            "extension_runtime",
+        )
+    )
+    owner = ast.parse(owner_source)
+    assert _message_routing_definition_owners(
+        owner_path.parents[1], moved_names[4:]
+    ) == {name: ["extensions/message_routing.py"] for name in moved_names[4:]}
+
+    routing = next(
+        node
+        for node in owner.body
+        if isinstance(node, ast.ClassDef) and node.name == "GenerationMessageRouting"
+    )
+    assert [
+        node.name for node in routing.body if isinstance(node, ast.FunctionDef)
+    ] == [
+        "__init__",
+        "user_outbox",
+        "custom_outbox",
+        "mutex",
+        "_bind_session_mutex",
+        "_observe",
+        "_locked",
+        "_pending_fifo",
+        "accept",
+        "_install_candidate_route",
+        "release_pending",
+        "_append_live_user",
+        "_append_live_custom",
+        "_deliver_live_drain",
+        "mark_retired_locked",
+        "retire",
+        "route_drain",
+    ]
+    runtime_owner = ast.parse(
+        Path(extension_runtime_module.__file__ or "").read_text(encoding="utf-8")
+    )
+    activation_api = next(
+        node
+        for node in runtime_owner.body
+        if isinstance(node, ast.ClassDef) and node.name == "_ActivationApi"
+    )
+    assert not any(
+        isinstance(node, ast.FunctionDef) and node.name == "message_routing"
+        for node in activation_api.body
+    )
+
+
 def test_r3c2_forbids_registries_identity_discovery_and_list_magic() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
     texts = {
         name: (root / name).read_text()
         for name in (
             "extension_runtime.py",
+            "extensions/message_routing.py",
             "session_generation.py",
             "extension_hooks.py",
             "tui.py",
@@ -2542,11 +2673,7 @@ def test_r3c2_forbids_registries_identity_discovery_and_list_magic() -> None:
         )
     }
     combined = "".join(texts.values())
-    route = (
-        texts["extension_runtime.py"]
-        .split("class GenerationMessageRouting:", 1)[1]
-        .split("_RegistrationValue", 1)[0]
-    )
+    route = texts["extensions/message_routing.py"]
     assert not any(
         token in combined for token in ("WeakValueDictionary", "current_for")
     )
@@ -2654,7 +2781,9 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
 
     release = next(
         node
-        for node in owner("extension_runtime.py", "GenerationMessageRouting").body
+        for node in owner(
+            "extensions/message_routing.py", "GenerationMessageRouting"
+        ).body
         if isinstance(node, ast.FunctionDef) and node.name == "release_pending"
     )
     assert not any(

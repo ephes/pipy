@@ -111,7 +111,7 @@ _SIZE_RATCHET = {
 # Nothing else under `native/` may quietly become the next god file while the
 # named two are being burned down. Set at today's largest non-ratcheted module
 # (`extension_runtime.py`, itself scheduled for deletion).
-_NATIVE_FILE_CEILING = 3137
+_NATIVE_FILE_CEILING = 2849
 
 
 def _line_count(path: Path) -> int:

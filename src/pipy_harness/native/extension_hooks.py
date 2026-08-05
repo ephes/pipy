@@ -95,7 +95,6 @@ from pipy_harness.native.extension_runtime import (
     LIFECYCLE_EVENTS,
     ActivatedExtension,
     ExtensionActivationBatch,
-    GenerationMessageRouting,
     HookHandler,
     _dispose_activation_results,
     _ExtensionRuntime,
@@ -142,6 +141,7 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions.command_context import _CommandContext
+from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_generation import (
     FrozenStagedDeliveryBatch,

@@ -37,7 +37,6 @@ from pipy_harness.native.extension_loader import _run_awaitable
 from pipy_harness.native.extension_runtime import (
     _ACTIVATION_LIFECYCLE_TOKEN,
     ActivatedExtension,
-    GenerationMessageRouting,
     QueuedCustomMessage,
     QueuedUserMessage,
     _ActivationApi,
@@ -48,6 +47,7 @@ from pipy_harness.native.extension_runtime import (
     parse_extension_flag_tokens,
 )
 from pipy_harness.native.extension_types import _ActivationError
+from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
@@ -1061,7 +1061,7 @@ def _reload_owners(ref: SessionGenerationRef, emitter: Any = None):
 def _empty_runtime(
     host: _ActivationApi, *additional_hosts: _ActivationApi
 ) -> _ExtensionRuntime:
-    message_routing = host.message_routing
+    message_routing = host._message_routing
     return _ExtensionRuntime(
         commands={},
         menu_names=(),
@@ -1229,14 +1229,14 @@ def test_activation_host_reader_inventory_has_one_meaning_per_field() -> None:
         readers(path, "_activation_api") for path in native_root.rglob("*.py")
     )
     assert readers(runtime_path, "_pending_activation") == {
+        "_activation_message_routings",
         "_dispose_activation_results",
         "_finalize_preloaded_extension",
-        "_routing_for_activation_batch",
     }
     assert readers(runtime_path, "_activation_host") == {
+        "_activation_message_routings",
         "_dispose_activation_results",
         "_finalize_provider_catalog_results",
-        "_routing_for_activation_batch",
     }
     assert readers(hooks_path, "_activation_host") == {"_compose_extension_runtime"}
     assert readers(runtime_path, "activation_hosts") == {
@@ -1821,7 +1821,7 @@ def test_candidate_publication_refuses_an_open_host_and_remains_disposable() -> 
     committed.register_flag(ExtensionFlag("first", "boolean", default=True))
     committed._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     committed._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
-    routing = committed.message_routing
+    routing = committed._message_routing
     open_host = _host(
         outbox=routing.user_outbox,
         custom_outbox=routing.custom_outbox,
@@ -1852,7 +1852,7 @@ def test_mixed_corrupted_candidate_disposes_unpublished_siblings_only() -> None:
     published_runtime = _empty_runtime(published)
     assert _ExtensionCandidate(published_runtime).publish() is True
 
-    routing = published.message_routing
+    routing = published._message_routing
     sibling = _host(
         outbox=routing.user_outbox,
         custom_outbox=routing.custom_outbox,

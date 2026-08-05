@@ -30,11 +30,11 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionTool,
-    GenerationMessageRouting,
     RegisteredCommand,
     RegisteredShortcut,
     _ExtensionRuntime,
 )
+from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.execution_projections import (

@@ -169,13 +169,13 @@ from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
     ExtensionActivationBatch,
-    GenerationMessageRetirement,
     QueuedCustomMessage,
     QueuedUserMessage,
     _ExtensionCandidate,
     normalize_shortcut_key,
     parse_extension_flag_tokens,
 )
+from pipy_harness.native.extensions.message_routing import GenerationMessageRetirement
 from pipy_harness.native.file_references import (
     FileReferenceResolution,
     resolve_file_references,

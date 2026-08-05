@@ -42,8 +42,6 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSink,
 )
 from pipy_harness.native.extension_runtime import (
-    GenerationMessageRetirement,
-    GenerationMessageRouting,
     HookHandler,
     RegisteredCommand,
     RegisteredEntryRenderer,
@@ -60,6 +58,10 @@ from pipy_harness.native.extension_types import (
     QueuedUserMessage,
     RegisteredFlag,
     RegisteredProvider,
+)
+from pipy_harness.native.extensions.message_routing import (
+    GenerationMessageRetirement,
+    GenerationMessageRouting,
 )
 from pipy_harness.native.tool_capabilities import ToolCapabilityState
 from pipy_harness.native.tools import ToolPort
