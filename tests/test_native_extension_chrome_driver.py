@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
 )
@@ -19,7 +21,7 @@ class _FakeDriver:
 
 
 class _FakeUi:
-    """Records the set_extension_* calls the driver delegates."""
+    """Records calls through the driver's extracted owner ports."""
 
     def __init__(self):
         self.extension_status = {"s": "v"}
@@ -32,6 +34,25 @@ class _FakeUi:
         self.retirement_scopes = []
         self.editor_factory = None
         self.editor_component = None
+        self.tools_expanded = False
+        self.listeners = []
+        self._chrome = SimpleNamespace(
+            component=SimpleNamespace(
+                set_status=self.set_extension_status,
+                set_widget=self.set_extension_widget,
+                set_header=self.set_extension_header,
+                set_title=self.set_extension_title,
+                set_working_indicator=self.set_extension_working_indicator,
+                set_working_message=self.set_extension_working_message,
+                set_working_visible=self.set_extension_working_visible,
+            ),
+            footer=SimpleNamespace(set_footer=self.set_extension_footer),
+            listeners=SimpleNamespace(add=self.add_extension_terminal_input_listener),
+        )
+        self._transcript = SimpleNamespace(
+            set_hidden_thinking_label=self.set_extension_hidden_thinking_label,
+            set_tools_expanded=self.set_tools_expanded,
+        )
 
     def reconcile_extension_chrome(self, snapshot, *, retirement_scope):
         assert callable(retirement_scope)
@@ -55,8 +76,36 @@ class _FakeUi:
     def set_extension_working_indicator(self, frames, interval_ms):
         self.calls.append(("indicator", frames, interval_ms))
 
+    def set_extension_status(self, key, text):
+        self.calls.append(("status", key, text))
+
+    def set_extension_working_message(self, message=None):
+        self.calls.append(("working-message", message))
+
+    def set_extension_working_visible(self, visible):
+        self.calls.append(("working-visible", visible))
+
     def set_extension_hidden_thinking_label(self, label=None):
         self.calls.append(("hidden-thinking-label", label))
+
+    def add_extension_terminal_input_listener(self, handler):
+        self.calls.append(("listener", handler))
+        self.listeners.append(handler)
+        disposed = False
+
+        def dispose():
+            nonlocal disposed
+            if disposed:
+                return
+            disposed = True
+            self.listeners.remove(handler)
+            self.calls.append(("listener-disposed", handler))
+
+        return dispose
+
+    def set_tools_expanded(self, expanded):
+        self.tools_expanded = bool(expanded)
+        self.calls.append(("tools-expanded", self.tools_expanded))
 
     def get_input_text(self):
         return self.input_text
@@ -93,6 +142,53 @@ def test_driver_delegates_all_five(tmp_path):
     kinds = [c[0] for c in ui.calls]
     assert kinds == ["widget", "header", "title", "indicator", "hidden-thinking-label"]
     assert ui.calls[0] == ("widget", "k", ["a"], "below_editor")
+
+
+def test_driver_delegates_sticky_chrome_owner_operations(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+
+    driver.set_status("build", "ready")
+    driver.set_working_message("Waiting")
+    driver.set_working_visible(False)
+
+    assert ui.calls == [
+        ("status", "build", "ready"),
+        ("working-message", "Waiting"),
+        ("working-visible", False),
+    ]
+
+
+def test_driver_listener_owner_registers_invokes_and_disposes(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    seen = []
+
+    def handler(key):
+        seen.append(key)
+        return {"data": key.upper()}
+
+    dispose = driver.add_terminal_input_listener(handler)
+
+    assert ui.calls == [("listener", handler)]
+    assert ui.listeners[0]("x") == {"data": "X"}
+    assert seen == ["x"]
+
+    dispose()
+    dispose()
+    assert ui.listeners == []
+    assert ui.calls == [("listener", handler), ("listener-disposed", handler)]
+
+
+def test_driver_tools_expanded_uses_transcript_owner_verb(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+
+    assert driver.get_tools_expanded() is False
+    driver.set_tools_expanded(1)
+
+    assert driver.get_tools_expanded() is True
+    assert ui.calls == [("tools-expanded", True)]
 
 
 def test_driver_footer_delegates_snapshot_to_terminal_ui(tmp_path):

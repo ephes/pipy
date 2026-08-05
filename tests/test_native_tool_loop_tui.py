@@ -29,6 +29,7 @@ from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
+from pipy_harness.native.frame_renderer import visible_len as _visible_len_allow_sgr
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
@@ -52,7 +53,6 @@ from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
     ToolLoopTerminalUi,
-    _visible_len_allow_sgr,
     run_project_trust_selector,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
@@ -272,10 +272,10 @@ def test_tui_keeps_working_region_below_assistant_stream(tmp_path: Path):
 def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.footer_lines = ("workspace", "model")
-    ui.set_extension_status("build", "green")
-    ui.set_extension_status("lint", "run\rning")
-    ui.set_extension_status("zeta", "queued")
-    ui.set_extension_status("alpha", "\x1b[31mred")
+    ui._chrome.component.set_status("build", "green")
+    ui._chrome.component.set_status("lint", "run\rning")
+    ui._chrome.component.set_status("zeta", "queued")
+    ui._chrome.component.set_status("alpha", "\x1b[31mred")
     ui.input_text = "next"
 
     frame = ui.render_lines(width=72, height=14, pad=False)
@@ -396,14 +396,14 @@ def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
     renderer = ui.create_tool_loop_renderer()
     adapter = RenderingAgentEventAdapter(renderer)
 
-    ui.set_extension_working_message("Checking")
+    ui._chrome.component.set_working_message("Checking")
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     frame = _wait_for_frame_text(ui, "Checking")
     assert "Checking" in frame
     assert "Working..." not in frame
 
     adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
-    ui.set_extension_working_visible(False)
+    ui._chrome.component.set_working_visible(False)
     renderer.show_working()
     frame = "\n".join(ui.render_lines(width=72, height=14))
     assert "Checking" not in frame

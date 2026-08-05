@@ -76,6 +76,19 @@ class _FakeTerminalUi:
         self.reconciles: list[ExtensionChromeSnapshot] = []
         self.retirement_scopes: list[Callable[[], AbstractContextManager[None]]] = []
         self.semantic_committed = False
+        self._chrome = SimpleNamespace(
+            component=SimpleNamespace(
+                set_widget=self.set_extension_widget,
+                set_header=self.set_extension_header,
+                set_title=self.set_extension_title,
+                set_working_indicator=self.set_extension_working_indicator,
+            ),
+            footer=SimpleNamespace(set_footer=self.set_extension_footer),
+            listeners=SimpleNamespace(add=self.add_extension_terminal_input_listener),
+        )
+        self._transcript = SimpleNamespace(
+            set_hidden_thinking_label=self.set_extension_hidden_thinking_label
+        )
 
     def reconcile_extension_chrome(
         self,
@@ -554,7 +567,7 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
     wait_entered = threading.Event()
     guard_checks: list[tuple[str, object]] = []
 
-    original_set_title = ui.set_extension_title
+    original_set_title = ui._chrome.component.set_title
 
     def blocking_guarded_title(title: str | None) -> None:
         _assert_driver_guard_released(driver)
@@ -575,7 +588,7 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
         guard_checks.append(("reconcile", snapshot.title))
         return original_reconcile(snapshot, retirement_scope=retirement_scope)
 
-    ui.set_extension_title = blocking_guarded_title  # type: ignore[method-assign]
+    ui._chrome.component.set_title = blocking_guarded_title  # type: ignore[method-assign]
     ui.reconcile_extension_chrome = guarded_reconcile  # type: ignore[method-assign]
 
     writer_errors: list[BaseException] = []
@@ -879,7 +892,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
     assert ui.get_editor_component() is candidate.snapshot().editor_component
     assert new_editor.text == "safe built-in draft"
     assert ui.get_input_text() == "safe built-in draft"
-    assert ui.extension_title == "new"
+    assert ui._chrome.record.title == "new"
     assert disposed == ["old"]
     assert "must stay bounded" not in terminal.getvalue()
     assert result.retired_sink is not None

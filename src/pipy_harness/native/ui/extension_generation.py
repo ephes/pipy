@@ -26,7 +26,10 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSnapshot,
     ExtensionChromeState,
 )
+from pipy_harness.native.ui.components.footer import FooterComponent
+from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
 
 
 class _Retirement(Protocol):
@@ -355,3 +358,61 @@ class ExtensionGenerationOwner:
             if result is not None:
                 listener_disposers.update(result)
         return listener_disposers
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionChromeOwners:
+    """One facade handle for extension state and its extracted effect owners."""
+
+    record: ExtensionChromeState
+    component: ExtensionChromeComponent
+    footer: FooterComponent
+    listeners: TerminalInputListeners
+    generation: ExtensionGenerationOwner
+
+
+def build_extension_chrome_owners(
+    record: ExtensionChromeState,
+    paint_lock: PaintLock,
+    repaint: Callable[[], None],
+    *,
+    component: ExtensionChromeComponent,
+    footer: FooterComponent,
+    listeners: TerminalInputListeners,
+    custom_editor_active: Callable[[], bool],
+    read_input_text: Callable[[], str],
+    current_custom_editor_component: Callable[[], object | None],
+    clear_autocomplete: Callable[[], None],
+    clear_custom_editor: Callable[[], None],
+    restore_editor_text: Callable[[str], None],
+    reset_hidden_thinking_label: Callable[[], None],
+    add_autocomplete_provider: Callable[[object], None],
+    set_editor_component: Callable[[object | None], None],
+    set_hidden_thinking_label: Callable[[str | None], None],
+) -> ExtensionChromeOwners:
+    """Build the concrete owner graph from narrow sibling/facade ports."""
+
+    generation = ExtensionGenerationOwner(
+        record,
+        paint_lock,
+        repaint,
+        dispose_region=component.dispose_region,
+        custom_editor_active=custom_editor_active,
+        read_input_text=read_input_text,
+        current_custom_editor_component=current_custom_editor_component,
+        clear_autocomplete=clear_autocomplete,
+        clear_custom_editor=clear_custom_editor,
+        restore_editor_text=restore_editor_text,
+        restore_title=component.restore_title,
+        reset_hidden_thinking_label=reset_hidden_thinking_label,
+        set_widget=component.set_widget,
+        set_header=component.set_header,
+        set_footer=footer.set_footer,
+        set_title=component.set_title,
+        set_indicator=component.set_working_indicator,
+        add_listener=listeners.add,
+        add_autocomplete_provider=add_autocomplete_provider,
+        set_editor_component=set_editor_component,
+        set_hidden_thinking_label=set_hidden_thinking_label,
+    )
+    return ExtensionChromeOwners(record, component, footer, listeners, generation)

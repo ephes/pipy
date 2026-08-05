@@ -503,7 +503,7 @@ def test_overlay_snapshot_does_not_execute_hidden_extension_chrome(
             renders.append(width)
             return ["chrome"]
 
-    ui.set_extension_widget("widget", lambda _tui, _theme: Component())
+    ui._chrome.component.set_widget("widget", lambda _tui, _theme: Component())
     ui._overlays.supersede("model")
     before = len(renders)
 

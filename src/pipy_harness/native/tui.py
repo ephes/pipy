@@ -9,7 +9,6 @@ full/live rows and deterministic terminal paint plans.
 
 from __future__ import annotations
 
-import inspect
 import os
 import select
 import shlex
@@ -17,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import termios
-import time
 from collections.abc import (
     Callable,
     Iterable,
@@ -50,7 +48,6 @@ from pipy_harness.native.editor_state import (
     QueuedInputKind,
 )
 from pipy_harness.native.extension_chrome_state import (
-    ChromeRegion,
     ExtensionChromeCommitToken,
     ExtensionChromeEvent,
     ExtensionChromePrepareInput,
@@ -60,7 +57,6 @@ from pipy_harness.native.extension_chrome_state import (
 )
 from pipy_harness.native.extension_runtime import (
     ExtensionTool,
-    FooterData,
     ToolRenderDetailsSink,
 )
 from pipy_harness.native.frame_renderer import (
@@ -83,9 +79,6 @@ from pipy_harness.native.frame_renderer import (
     block_lines as render_block_lines,
 )
 from pipy_harness.native.frame_renderer import (
-    clip_custom_text as _clip_custom_overlay_text,
-)
-from pipy_harness.native.frame_renderer import (
     clip_text as render_clip_text,
 )
 from pipy_harness.native.frame_renderer import (
@@ -105,9 +98,6 @@ from pipy_harness.native.frame_renderer import (
 )
 from pipy_harness.native.frame_renderer import (
     style_line as render_styled_line,
-)
-from pipy_harness.native.frame_renderer import (
-    visible_len as render_visible_len,
 )
 from pipy_harness.native.keybindings import (
     KeybindingsManager,
@@ -140,14 +130,10 @@ from pipy_harness.native.session_tree_commands import (
 )
 from pipy_harness.native.terminal_driver import (
     _RESIZE_POLL_SECONDS,
-    _TITLE_MAX_CHARS,
     TerminalDriver,
 )
 from pipy_harness.native.themes import NativeThemeStore, select_theme
-from pipy_harness.native.tool_renderers import (
-    build_tool_render_theme,
-    render_chrome_component,
-)
+from pipy_harness.native.tool_renderers import build_tool_render_theme
 from pipy_harness.native.ui.autocomplete import (
     AutocompleteComponent,
     CommandSurface,
@@ -172,6 +158,7 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionInputComponent,
     ExtensionSelectComponent,
 )
+from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.model_selector import (
     ModelSelectorComponent,
     model_selector_region_lines,
@@ -201,12 +188,17 @@ from pipy_harness.native.ui.components.tree_selector import (
     TreeSelectorComponent,
     tree_selector_region_lines,
 )
-from pipy_harness.native.ui.extension_generation import ExtensionGenerationOwner
+from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
+from pipy_harness.native.ui.extension_generation import (
+    ExtensionChromeOwners,
+    build_extension_chrome_owners,
+)
 from pipy_harness.native.ui.key_specs import (
     matches_key_specs,
     resolved_key_specs,
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import (
@@ -346,19 +338,23 @@ class _LiveExtensionUiDriver:
                 retirement_scope=self._retiring_disposal_route,
             )
         if kind == "widget":
-            self._terminal_ui.set_extension_widget(
+            self._terminal_ui._chrome.component.set_widget(  # noqa: SLF001
                 cast(str, values[0]), values[1], placement=cast(str, values[2])
             )
         elif kind == "header":
-            self._terminal_ui.set_extension_header(values[0])
+            self._terminal_ui._chrome.component.set_header(values[0])  # noqa: SLF001
         elif kind == "footer":
-            self._terminal_ui.set_extension_footer(values[0])
+            self._terminal_ui._chrome.footer.set_footer(values[0])  # noqa: SLF001
         elif kind == "title":
-            self._terminal_ui.set_extension_title(cast(str, values[0]))
+            self._terminal_ui._chrome.component.set_title(  # noqa: SLF001
+                cast(str, values[0])
+            )
         elif kind == "indicator":
-            self._terminal_ui.set_extension_working_indicator(values[0], values[1])
+            self._terminal_ui._chrome.component.set_working_indicator(  # noqa: SLF001
+                values[0], values[1]
+            )
         elif kind == "hidden-thinking-label":
-            self._terminal_ui.set_extension_hidden_thinking_label(
+            self._terminal_ui._transcript.set_hidden_thinking_label(  # noqa: SLF001
                 cast("str | None", values[0])
             )
         elif kind == "autocomplete":
@@ -366,7 +362,7 @@ class _LiveExtensionUiDriver:
         elif kind == "editor-component":
             self._terminal_ui.set_editor_component(values[0])
         elif kind == "listener":
-            return self._terminal_ui.add_extension_terminal_input_listener(
+            return self._terminal_ui._chrome.listeners.add(  # noqa: SLF001
                 cast("Callable[[str], object]", values[1])
             )
         return None
@@ -384,13 +380,17 @@ class _LiveExtensionUiDriver:
         return self._terminal_ui.run_extension_confirm(title, message)
 
     def set_status(self, key: str, text: str | None) -> None:
-        self._terminal_ui.set_extension_status(key, text)
+        self._terminal_ui._chrome.component.set_status(key, text)  # noqa: SLF001
 
     def set_working_message(self, message: str | None = None) -> None:
-        self._terminal_ui.set_extension_working_message(message)
+        self._terminal_ui._chrome.component.set_working_message(  # noqa: SLF001
+            message
+        )
 
     def set_working_visible(self, visible: bool) -> None:
-        self._terminal_ui.set_extension_working_visible(visible)
+        self._terminal_ui._chrome.component.set_working_visible(  # noqa: SLF001
+            visible
+        )
 
     def set_widget(self, key: str, content: object, placement: str) -> None:
         self._route_sink_operation(
@@ -438,7 +438,9 @@ class _LiveExtensionUiDriver:
     def set_tools_expanded(self, expanded: bool) -> None:
         # The terminal UI's verb bundles the retained rich-row rerender with
         # the flag write, so the two writers can never disagree on refresh.
-        self._terminal_ui.set_tools_expanded(bool(expanded))
+        self._terminal_ui._transcript.set_tools_expanded(  # noqa: SLF001
+            bool(expanded)
+        )
 
     def add_autocomplete_provider(self, factory: object) -> None:
         self._route_sink_operation(ChromeHandoffOperation("autocomplete", (factory,)))
@@ -519,17 +521,6 @@ class _GenerationExtensionUiDriver:
         return self._sink.snapshot().editor_component
 
 
-_WIDGET_MAX_LINES = 10
-_WIDGET_MAX_COUNT = 16
-_HEADER_MAX_LINES = 8
-_FOOTER_MAX_LINES = 4
-# ``_TITLE_MAX_CHARS`` and ``_RESIZE_POLL_SECONDS`` are owned by and imported
-# from ``native.terminal_driver`` (which owns the terminal-title write and the
-# resize/size lifecycle); the UI reuses the former to cap its cached title
-# state and the latter as its resize-polling select timeout.
-_INDICATOR_MAX_FRAMES = 32
-
-
 class _ExtensionChromeTuiHandle:
     """Small Pi-shaped TUI handle passed to extension chrome factories."""
 
@@ -537,12 +528,7 @@ class _ExtensionChromeTuiHandle:
         self._ui = ui
 
     def requestRender(self, force: bool = False) -> None:  # noqa: N802 - Pi API
-        """Request a live repaint without producing a provider turn.
-
-        Pi accepts a ``force`` flag that clears its incremental renderer state.
-        Pipy's live-region renderer already repaints the full frame; the flag is
-        accepted for API shape and currently needs no distinct handling.
-        """
+        """Request a live repaint without producing a provider turn."""
 
         del force
         try:
@@ -556,21 +542,6 @@ class _ExtensionChromeTuiHandle:
         """Pythonic alias for extensions that prefer snake_case."""
 
         self.requestRender(force)
-
-
-def _visible_len_allow_sgr(text: str) -> int:
-    """Compatibility export for terminal-screen and TUI characterization tests."""
-
-    return render_visible_len(text)
-
-
-def _safe_extension_status_key(key: str) -> str | None:
-    text = sanitize_label_text(str(key)).strip()
-    if not text:
-        return None
-    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in text)
-    cleaned = cleaned.strip("-_.")
-    return cleaned[:64] or None
 
 
 class _CustomEditorKeybindings:
@@ -652,10 +623,10 @@ class ToolLoopTerminalUi:
     # the Ctrl+O/Ctrl+T view flags (``ui/components/transcript.py``). The
     # facade keeps thin verb delegates and two read-only flag projections.
     _transcript: TranscriptComponent = field(init=False)
-    # Single owner for extension chrome values and listener/branch ledgers.
-    # The facade retains all locking, factory/component execution, rendering,
-    # terminal-title effects, filesystem branch reads, and disposal calls.
-    _chrome: ExtensionChromeState = field(init=False)
+    # One composition handle groups the dependency-neutral extension record,
+    # its three effect owners, and the ordered generation owner. This replaces
+    # the pre-slice record handle without growing facade state.
+    _chrome: ExtensionChromeOwners = field(init=False)
     available_provider_count: int = 0
     # Single owner for the slash menu, the @/path completion popup, the
     # published CommandSurface (names/descriptions/extension shortcut keys),
@@ -710,7 +681,7 @@ class ToolLoopTerminalUi:
     def __post_init__(self) -> None:
         self._editor = EditorState()
         self._overlays = OverlayState()
-        self._chrome = ExtensionChromeState()
+        chrome_record = ExtensionChromeState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
         self._autocomplete = AutocompleteComponent(
             self._editor,
@@ -730,6 +701,63 @@ class ToolLoopTerminalUi:
             render_theme=lambda: build_tool_render_theme(
                 chrome_style_for(self.terminal_stream)
             ),
+        )
+        chrome = ExtensionChromeComponent(
+            chrome_record,
+            self._paint_lock,
+            self.paint,
+            tui_handle=_ExtensionChromeTuiHandle(self),
+            region_width=lambda: self._driver.size()[0],
+            render_theme=lambda: build_tool_render_theme(
+                chrome_style_for(self.terminal_stream)
+            ),
+            push_title=self._driver.push_title,
+            write_title=self._driver.write_title,
+            restore_title=self._driver.restore_title,
+            clear_working_text=self._transcript.discard_working_text,
+        )
+        footer = FooterComponent(
+            chrome_record,
+            self._paint_lock,
+            self.paint,
+            cwd=self.cwd,
+            available_provider_count=lambda: self.available_provider_count,
+            build_region=chrome.build_region,
+            dispose_region=chrome.dispose_region,
+            render_region=chrome.render_region,
+        )
+        listeners = TerminalInputListeners(chrome_record, self._paint_lock, self.paint)
+
+        def clear_autocomplete() -> None:
+            self._editor.autocomplete_provider_factories.clear()
+            self._editor.close_autocomplete()
+
+        def clear_custom_editor() -> None:
+            self._custom_editor_factory = None
+            self._custom_editor_component = None
+            self._custom_editor_active = False
+
+        def restore_editor_text(text: str) -> None:
+            self._editor.set_buffer(text)
+            self._editor.pending_initial_text = text
+
+        self._chrome = build_extension_chrome_owners(
+            chrome_record,
+            self._paint_lock,
+            self.paint,
+            component=chrome,
+            footer=footer,
+            listeners=listeners,
+            custom_editor_active=lambda: self._custom_editor_active,
+            read_input_text=self.get_input_text,
+            current_custom_editor_component=lambda: self._custom_editor_component,
+            clear_autocomplete=clear_autocomplete,
+            clear_custom_editor=clear_custom_editor,
+            restore_editor_text=restore_editor_text,
+            reset_hidden_thinking_label=self._transcript.reset_hidden_thinking_label,
+            add_autocomplete_provider=self.add_extension_autocomplete_provider,
+            set_editor_component=self.set_editor_component,
+            set_hidden_thinking_label=self._transcript.set_hidden_thinking_label,
         )
 
     # Narrow compatibility projections keep the product facade and existing
@@ -883,176 +911,6 @@ class ToolLoopTerminalUi:
         else:
             self._overlays.close("custom")
 
-    @property
-    def extension_status(self) -> dict[str, str]:
-        return self._chrome.statuses
-
-    @extension_status.setter
-    def extension_status(self, value: dict[str, str]) -> None:
-        self._chrome.statuses = value
-
-    @property
-    def extension_widgets_above(self) -> dict[str, ChromeRegion]:
-        return self._chrome.widgets_above
-
-    @extension_widgets_above.setter
-    def extension_widgets_above(self, value: dict[str, ChromeRegion]) -> None:
-        self._chrome.widgets_above = value
-
-    @property
-    def extension_widgets_below(self) -> dict[str, ChromeRegion]:
-        return self._chrome.widgets_below
-
-    @extension_widgets_below.setter
-    def extension_widgets_below(self, value: dict[str, ChromeRegion]) -> None:
-        self._chrome.widgets_below = value
-
-    @property
-    def extension_header(self) -> ChromeRegion | None:
-        return self._chrome.header
-
-    @extension_header.setter
-    def extension_header(self, value: ChromeRegion | None) -> None:
-        self._chrome.header = value
-
-    @property
-    def extension_footer(self) -> ChromeRegion | None:
-        return self._chrome.footer
-
-    @extension_footer.setter
-    def extension_footer(self, value: ChromeRegion | None) -> None:
-        self._chrome.footer = value
-
-    @property
-    def extension_title(self) -> str | None:
-        return self._chrome.title
-
-    @extension_title.setter
-    def extension_title(self, value: str | None) -> None:
-        self._chrome.title = value
-
-    @property
-    def _extension_footer_factory(self) -> object | None:
-        return self._chrome.footer_factory
-
-    @_extension_footer_factory.setter
-    def _extension_footer_factory(self, value: object | None) -> None:
-        self._chrome.footer_factory = value
-
-    @property
-    def _extension_footer_branch(self) -> str | None:
-        return self._chrome.footer_branch
-
-    @_extension_footer_branch.setter
-    def _extension_footer_branch(self, value: str | None) -> None:
-        self._chrome.footer_branch = value
-
-    @property
-    def _footer_branch_callbacks(self) -> dict[int, Callable[[], object]]:
-        return self._chrome.footer_branch_callbacks
-
-    @_footer_branch_callbacks.setter
-    def _footer_branch_callbacks(self, value: dict[int, Callable[[], object]]) -> None:
-        self._chrome.footer_branch_callbacks = value
-
-    @property
-    def _footer_branch_callback_next_id(self) -> int:
-        return self._chrome.footer_branch_callback_next_id
-
-    @_footer_branch_callback_next_id.setter
-    def _footer_branch_callback_next_id(self, value: int) -> None:
-        self._chrome.footer_branch_callback_next_id = value
-
-    @property
-    def _footer_branch_slots(self) -> tuple[int, ...]:
-        return self._chrome.footer_branch_slots
-
-    @_footer_branch_slots.setter
-    def _footer_branch_slots(self, value: tuple[int, ...]) -> None:
-        self._chrome.footer_branch_slots = value
-
-    @property
-    def _footer_branch_rebuild_slots(self) -> tuple[int, ...] | None:
-        return self._chrome.footer_branch_rebuild_slots
-
-    @_footer_branch_rebuild_slots.setter
-    def _footer_branch_rebuild_slots(self, value: tuple[int, ...] | None) -> None:
-        self._chrome.footer_branch_rebuild_slots = value
-
-    @property
-    def _footer_branch_rebuild_index(self) -> int:
-        return self._chrome.footer_branch_rebuild_index
-
-    @_footer_branch_rebuild_index.setter
-    def _footer_branch_rebuild_index(self, value: int) -> None:
-        self._chrome.footer_branch_rebuild_index = value
-
-    @property
-    def _footer_branch_rebuild_active_ids(self) -> frozenset[int]:
-        return self._chrome.footer_branch_rebuild_active_ids
-
-    @_footer_branch_rebuild_active_ids.setter
-    def _footer_branch_rebuild_active_ids(self, value: frozenset[int]) -> None:
-        self._chrome.footer_branch_rebuild_active_ids = value
-
-    @property
-    def _footer_branch_rebuild_new_slots(self) -> list[int]:
-        return self._chrome.footer_branch_rebuild_new_slots
-
-    @_footer_branch_rebuild_new_slots.setter
-    def _footer_branch_rebuild_new_slots(self, value: list[int]) -> None:
-        self._chrome.footer_branch_rebuild_new_slots = value
-
-    @property
-    def _footer_branch_rebuild_fire_ids(self) -> list[int]:
-        return self._chrome.footer_branch_rebuild_fire_ids
-
-    @_footer_branch_rebuild_fire_ids.setter
-    def _footer_branch_rebuild_fire_ids(self, value: list[int]) -> None:
-        self._chrome.footer_branch_rebuild_fire_ids = value
-
-    @property
-    def _footer_branch_last_check(self) -> float:
-        return self._chrome.footer_branch_last_check
-
-    @_footer_branch_last_check.setter
-    def _footer_branch_last_check(self, value: float) -> None:
-        self._chrome.footer_branch_last_check = value
-
-    @property
-    def _footer_branch_check_interval(self) -> float:
-        return self._chrome.footer_branch_check_interval
-
-    @_footer_branch_check_interval.setter
-    def _footer_branch_check_interval(self, value: float) -> None:
-        self._chrome.footer_branch_check_interval = value
-
-    @property
-    def _extension_terminal_input_listeners(self) -> dict[int, Callable[[str], object]]:
-        return self._chrome.terminal_input_listeners
-
-    @_extension_terminal_input_listeners.setter
-    def _extension_terminal_input_listeners(
-        self, value: dict[int, Callable[[str], object]]
-    ) -> None:
-        self._chrome.terminal_input_listeners = value
-
-    @property
-    def _extension_terminal_input_next_id(self) -> int:
-        return self._chrome.terminal_input_next_id
-
-    @_extension_terminal_input_next_id.setter
-    def _extension_terminal_input_next_id(self, value: int) -> None:
-        self._chrome.terminal_input_next_id = value
-
-    @property
-    def _extension_terminal_input_last_replaced(self) -> bool:
-        return self._chrome.terminal_input_last_replaced
-
-    @_extension_terminal_input_last_replaced.setter
-    def _extension_terminal_input_last_replaced(self, value: bool) -> None:
-        self._chrome.terminal_input_last_replaced = value
-
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
         if input_stream is not sys.stdin or terminal_stream is not sys.stderr:
@@ -1096,7 +954,7 @@ class ToolLoopTerminalUi:
                 key = self._read_key_polling_resize(fd)
                 if key is None:
                     return ""
-                key = self._apply_extension_terminal_input_listeners(key)
+                key = self._chrome.listeners.apply(key)
                 if self._custom_editor_active:
                     submitted = self._handle_custom_editor_key(key)
                     if submitted is not None:
@@ -1240,7 +1098,7 @@ class ToolLoopTerminalUi:
                     self.paint()
                     continue
                 if key.isprintable() and (
-                    len(key) == 1 or self._extension_terminal_input_last_replaced
+                    len(key) == 1 or self._chrome.listeners.last_replaced
                 ):
                     self._insert_input_text(key)
                     self.paint()
@@ -2036,374 +1894,14 @@ class ToolLoopTerminalUi:
         )
         return result == "Yes"
 
-    def set_extension_status(self, key: str, text: str | None) -> None:
-        """Set or clear an extension status row in the live frame."""
-
-        safe_key = _safe_extension_status_key(key)
-        if safe_key is None:
-            return
-        with self._paint_lock:
-            self._chrome.set_status(
-                safe_key, None if text is None else sanitize_label_text(str(text))
-            )
-        self.paint()
-
-    def _chrome_theme(self) -> object:
-        return build_tool_render_theme(chrome_style_for(self.terminal_stream))
-
-    @staticmethod
-    def _call_chrome_factory(
-        source: object, args: tuple[object, ...], legacy_args: tuple[object, ...]
-    ) -> object:
-        """Call a chrome factory using Pi-shaped args when its arity allows it."""
-
-        try:
-            sig = inspect.signature(cast(Callable[..., object], source))
-        except (TypeError, ValueError):
-            return cast(Callable[..., object], source)(*args)
-        try:
-            sig.bind(*args)
-        except TypeError:
-            sig.bind(*legacy_args)
-            return cast(Callable[..., object], source)(*legacy_args)
-        return cast(Callable[..., object], source)(*args)
-
-    def _build_region(
-        self, source: object, *, footer_data: object | None, max_lines: int
-    ) -> ChromeRegion | None:
-        """Build a region by rendering ``source`` at the current width.
-
-        A callable ``source`` is a factory (built once); a bare component object
-        (callable ``render``) is retained directly. BOTH are reactive — their
-        ``render(width)`` is re-called for each frame, their optional
-        ``invalidate()`` runs on resize, and ``dispose()`` runs on replace/clear.
-        A ``str``/``Sequence[str]`` source is static."""
-        width, _height = self._driver.size()
-        component: object | None = None
-        is_factory = False
-        render_source: object = source
-        if callable(source) and not isinstance(source, (str, bytes, bytearray)):
-            theme = self._chrome_theme()
-            tui_handle = _ExtensionChromeTuiHandle(self)
-            try:
-                if footer_data is not None:
-                    component = self._call_chrome_factory(
-                        source, (tui_handle, theme, footer_data), (theme, footer_data)
-                    )
-                else:
-                    component = self._call_chrome_factory(
-                        source, (tui_handle, theme), (theme,)
-                    )
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - a bad factory falls back
-                return None
-            is_factory = True
-            render_source = lambda: component  # noqa: E731
-        elif not isinstance(source, (str, bytes, bytearray)) and callable(
-            getattr(source, "render", None)
-        ):
-            # A bare ChromeComponent object: reactive + lifecycle-managed.
-            component = source
-            is_factory = True
-            render_source = lambda: component  # noqa: E731
-        lines = render_chrome_component(render_source, width=width, max_lines=max_lines)
-        if lines is None:
-            return None
-        return ChromeRegion(
-            source=source,
-            component=component,
-            snapshot=tuple(lines),
-            width=width,
-            is_factory=is_factory,
-        )
-
-    @staticmethod
-    def _dispose_region(region: ChromeRegion | None) -> None:
-        if region is None or region.component is None:
-            return
-        dispose = getattr(region.component, "dispose", None)
-        if callable(dispose):
-            try:
-                dispose()
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - dispose must not break paint
-                pass
-
-    def set_extension_widget(
-        self, key: str, content: object, *, placement: str = "above_editor"
-    ) -> None:
-        safe_key = _safe_extension_status_key(key)
-        if safe_key is None:
-            return
-        target, other = self._chrome.widget_maps(placement)
-        with self._paint_lock:
-            if (
-                content is not None
-                and safe_key not in target
-                and len(target) >= _WIDGET_MAX_COUNT
-            ):
-                return
-            self._dispose_region(target.get(safe_key))
-            self._dispose_region(other.pop(safe_key, None))
-            if content is None:
-                target.pop(safe_key, None)
-            else:
-                region = self._build_region(
-                    content, footer_data=None, max_lines=_WIDGET_MAX_LINES
-                )
-                if region is None:
-                    target.pop(safe_key, None)
-                else:
-                    target[safe_key] = region
-        self.paint()
-
-    def _detect_extension_footer_branch(self) -> str | None:
-        """Return the current git branch label for live footer data."""
-
-        candidate: Path | None = self.cwd
-        while candidate is not None and candidate != candidate.parent:
-            head = candidate / ".git" / "HEAD"
-            try:
-                text = head.read_text(encoding="utf-8")
-            except OSError:
-                candidate = candidate.parent
-                continue
-            text = text.strip()
-            if text.startswith("ref: refs/heads/"):
-                return text.split("refs/heads/", 1)[1]
-            if text:
-                return "detached"
-            return None
-        return None
-
-    def register_footer_branch_change_callback(
-        self, callback: Callable[[], object]
-    ) -> Callable[[], None]:
-        """Register a Pi-shaped footer branch-change callback."""
-
-        # Reentrancy matters here: a footer factory may call onBranchChange
-        # while _build_region already holds this lock during set/rebuild.
-        with self._paint_lock:
-            generation, callback_id = self._chrome.register_footer_branch_callback(
-                callback
-            )
-
-        disposed = False
-
-        def dispose() -> None:
-            nonlocal disposed
-            if disposed:
-                return
-            disposed = True
-            with self._paint_lock:
-                self._chrome.remove_footer_branch_callback(generation, callback_id)
-
-        return dispose
-
-    def _footer_data_snapshot(self) -> FooterData:
-        branch = self._detect_extension_footer_branch()
-        self._chrome.footer_branch = branch
-        return FooterData(
-            git_branch=branch,
-            extension_statuses=dict(self.extension_status),
-            available_provider_count=int(self.available_provider_count or 0),
-            branch_change_registrar=self.register_footer_branch_change_callback,
-        )
-
-    def _clear_footer_branch_callbacks(self) -> None:
-        self._chrome.clear_footer_branch_callbacks()
-
-    def _refresh_extension_footer_branch(self, *, force: bool = False) -> None:
-        factory = self._chrome.footer_factory
-        if factory is None:
-            return
-        now = time.monotonic()
-        if (
-            not force
-            and now - self._chrome.footer_branch_last_check
-            < self._chrome.footer_branch_check_interval
-        ):
-            return
-        self._chrome.footer_branch_last_check = now
-        branch = self._detect_extension_footer_branch()
-        if not force and branch == self._chrome.footer_branch:
-            return
-        with self._paint_lock:
-            self._chrome.begin_footer_rebuild(branch)
-            self._dispose_region(self._chrome.footer)
-            try:
-                self._chrome.footer = self._build_region(
-                    factory,
-                    footer_data=FooterData(
-                        git_branch=branch,
-                        extension_statuses=dict(self.extension_status),
-                        available_provider_count=int(
-                            self.available_provider_count or 0
-                        ),
-                        branch_change_registrar=self.register_footer_branch_change_callback,
-                    ),
-                    max_lines=_FOOTER_MAX_LINES,
-                )
-                callbacks = self._chrome.finish_footer_rebuild()
-            finally:
-                self._chrome.abort_footer_rebuild()
-        for callback in callbacks:
-            try:
-                callback()
-            except Exception:  # noqa: BLE001 - one bad footer callback must not stop repaints
-                continue
-        self.paint()
-
-    def poll_extension_footer_branch(self) -> None:
-        """Check for branch changes for tests and live input-loop ticks."""
-
-        self._refresh_extension_footer_branch(force=False)
-
-    def set_extension_header(self, factory: object | None) -> None:
-        with self._paint_lock:
-            self._dispose_region(self._chrome.header)
-            if factory is None:
-                self._chrome.header = None
-            else:
-                self._chrome.header = self._build_region(
-                    factory, footer_data=None, max_lines=_HEADER_MAX_LINES
-                )
-        self.paint()
-
-    def set_extension_footer(
-        self, factory: object | None, footer_data: object | None = None
-    ) -> None:
-        with self._paint_lock:
-            self._dispose_region(self._chrome.footer)
-            self._clear_footer_branch_callbacks()
-            self._chrome.footer_factory = factory
-            if factory is None:
-                self._chrome.footer = None
-                self._chrome.footer_branch = None
-            else:
-                fd = (
-                    footer_data
-                    if footer_data is not None
-                    else self._footer_data_snapshot()
-                )
-                if isinstance(fd, FooterData):
-                    # Seed from the same detector used by the poller so the
-                    # first poll does not rebuild solely because an external
-                    # driver formatted its snapshot differently.
-                    self._chrome.footer_branch = self._detect_extension_footer_branch()
-                self._chrome.footer = self._build_region(
-                    factory, footer_data=fd, max_lines=_FOOTER_MAX_LINES
-                )
-        self.paint()
-
-    def set_extension_title(self, title: str | None) -> None:
-        with self._paint_lock:
-            if title is None:
-                self._chrome.title = None
-                self._driver.restore_title()
-            else:
-                self._driver.push_title()
-                self._chrome.title = sanitize_label_text(str(title))[:_TITLE_MAX_CHARS]
-                self._driver.write_title(self._chrome.title)
-        # title is OS-level; no frame repaint needed.
-
-    def set_extension_working_indicator(
-        self, frames: object, interval_ms: object
-    ) -> None:
-        with self._paint_lock:
-            cleaned: tuple[str, ...] | None = None
-            replace_frames = frames is None
-            if frames is not None:
-                try:
-                    cleaned = tuple(
-                        sanitize_label_text(str(f))
-                        for f in list(cast(Iterable[object], frames))[
-                            :_INDICATOR_MAX_FRAMES
-                        ]
-                    )
-                    replace_frames = True
-                except (TypeError, ValueError):
-                    # A non-iterable / bad frames leaves the current indicator
-                    # unchanged rather than raising into the extension handler.
-                    pass
-            try:
-                interval = (
-                    None
-                    if interval_ms is None
-                    else max(10.0, float(cast(Any, interval_ms)))
-                )
-            except (TypeError, ValueError):
-                interval = None
-            self._chrome.set_indicator(
-                frames=cleaned,
-                interval_ms=interval,
-                replace_frames=replace_frames,
-            )
-        self.paint()
-
-    def add_extension_terminal_input_listener(
-        self, handler: Callable[[str], object]
-    ) -> Callable[[], None]:
-        """Register a Pi-shaped live terminal-input listener.
-
-        The returned disposer is idempotent. Listener failures are handled by
-        :meth:`_apply_extension_terminal_input_listeners` so a bad extension
-        cannot break the editor loop.
-        """
-
-        if not callable(handler):
-            return lambda: None
-        generation, listener_id = self._chrome.register_terminal_input_listener(handler)
-
-        def dispose() -> None:
-            self._chrome.remove_terminal_input_listener(generation, listener_id)
-
-        return dispose
-
-    def _apply_extension_terminal_input_listeners(self, key: str) -> str | None:
-        self._chrome.terminal_input_last_replaced = False
-        if not self._chrome.terminal_input_listeners:
-            return key
-        current = key
-        for handler in tuple(self._chrome.terminal_input_listeners.values()):
-            try:
-                result = handler(current)
-            except Exception:  # noqa: BLE001 - extension hooks fail soft
-                continue
-            consume = False
-            replacement: object = None
-            has_replacement = False
-            if isinstance(result, Mapping):
-                consume = bool(result.get("consume"))
-                if "data" in result:
-                    replacement = result.get("data")
-                    has_replacement = True
-            elif result is not None:
-                consume = bool(getattr(result, "consume", False))
-                if hasattr(result, "data"):
-                    replacement = getattr(result, "data")
-                    has_replacement = True
-            if consume:
-                return None
-            if has_replacement:
-                current = "" if replacement is None else str(replacement)
-                self._chrome.terminal_input_last_replaced = True
-        if current == "":
-            return None
-        return current
-
     def clear_extension_chrome(
         self,
         *,
         retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> None:
-        """Retire the accepted extension UI generation through its named owner."""
+        """Retire accepted extension UI through its ordered owner."""
 
-        _extension_generation_owner(self).retire_generation(
-            retirement_scope=retirement_scope
-        )
+        self._chrome.generation.retire_generation(retirement_scope=retirement_scope)
 
     def reconcile_extension_chrome(
         self,
@@ -2411,30 +1909,11 @@ class ToolLoopTerminalUi:
         *,
         retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> dict[int, Callable[[], None]]:
-        """Replace accepted extension UI state through its named owner."""
+        """Replace accepted extension UI through its ordered owner."""
 
-        return _extension_generation_owner(self).reconcile_generation(
-            snapshot,
-            retirement_scope=retirement_scope,
+        return self._chrome.generation.reconcile_generation(
+            snapshot, retirement_scope=retirement_scope
         )
-
-    def set_extension_working_message(self, message: str | None = None) -> None:
-        """Set the sticky working label used by future provider turns."""
-
-        with self._paint_lock:
-            self._chrome.set_working_message(
-                None if message is None else sanitize_label_text(str(message))
-            )
-        self.paint()
-
-    def set_extension_working_visible(self, visible: bool) -> None:
-        """Show or hide the sticky working row for future provider turns."""
-
-        with self._paint_lock:
-            self._chrome.set_working_visible(bool(visible))
-            if not self._chrome.working_visible:
-                self._transcript.discard_working_text()
-        self.paint()
 
     # -- interactive session picker (/resume + -r overlay) ------------------
 
@@ -2552,9 +2031,6 @@ class ToolLoopTerminalUi:
     def set_tools_expanded(self, expanded: bool) -> None:
         self._transcript.set_tools_expanded(expanded)
 
-    def set_extension_hidden_thinking_label(self, label: str | None = None) -> None:
-        self._transcript.set_hidden_thinking_label(label)
-
     def add_notice(self, text: str) -> None:
         self._transcript.add_notice(text)
 
@@ -2588,7 +2064,7 @@ class ToolLoopTerminalUi:
 
         return TuiToolLoopRenderer(
             transcript=self._transcript,
-            chrome=self._chrome,
+            chrome=self._chrome.record,
             terminal_stream=self.terminal_stream,
             frame_width=lambda: self._driver.size()[0],
             tool_renderers=tool_renderers,
@@ -2784,11 +2260,11 @@ class ToolLoopTerminalUi:
             )
         )
         pending = tuple(self._pending_region_lines(width))
-        status = tuple(self._extension_status_lines(width))
-        header = tuple(self._extension_header_lines(width))
-        above = tuple(self._extension_widgets_lines("above_editor", width))
-        below = tuple(self._extension_widgets_lines("below_editor", width))
-        custom_footer = self._extension_footer_lines(width)
+        status = tuple(self._chrome.component.status_lines(width))
+        header = tuple(self._chrome.component.header_lines(width))
+        above = tuple(self._chrome.component.widget_lines("above_editor", width))
+        below = tuple(self._chrome.component.widget_lines("below_editor", width))
+        custom_footer = self._chrome.footer.lines(width)
         footer = (
             tuple(custom_footer)
             if custom_footer is not None
@@ -2899,123 +2375,6 @@ class ToolLoopTerminalUi:
             )
         )
         return lines
-
-    def _render_region_lines(
-        self, region: ChromeRegion, *, width: int, max_lines: int
-    ) -> tuple[str, ...] | None:
-        """Return the region's snapshot lines (UNCLIPPED; the caller width-clips
-        each line at frame-build time), or ``None`` when a factory re-render
-        failed (the caller then drops the region — fail soft). Factory/component
-        regions re-render every frame (component retained, not re-invoked), and
-        invalidate on width changes; static regions keep their original lines
-        unchanged, so narrowing-then-widening is non-lossy."""
-        if not region.is_factory:
-            return region.snapshot
-        if region.component is None:
-            return region.snapshot
-        if region.width != width:
-            invalidate = getattr(region.component, "invalidate", None)
-            if callable(invalidate):
-                try:
-                    invalidate()
-                except (KeyboardInterrupt, SystemExit):
-                    raise
-                except BaseException:  # noqa: BLE001
-                    pass
-        lines = render_chrome_component(
-            lambda: region.component, width=width, max_lines=max_lines
-        )
-        if lines is None:
-            return None
-        region.snapshot = tuple(lines)
-        region.width = width
-        return region.snapshot
-
-    def _clip_custom(self, text: str, width: int) -> str:
-        cleaned = _sanitize_custom_overlay_text(text)
-        if _visible_len_allow_sgr(cleaned) <= width:
-            return cleaned
-        return _clip_custom_overlay_text(cleaned, width)
-
-    def _extension_header_lines(self, width: int) -> list[_FrameLine]:
-        if self._chrome.header is None:
-            return []
-        with self._paint_lock:
-            lines = self._render_region_lines(
-                self._chrome.header, width=width, max_lines=_HEADER_MAX_LINES
-            )
-            if lines is None:
-                self._dispose_region(self._chrome.header)
-                self._chrome.header = None
-                return []
-        return [
-            _FrameLine(self._clip_custom(line, width), "chrome_custom")
-            for line in lines
-        ]
-
-    def _extension_widgets_lines(self, placement: str, width: int) -> list[_FrameLine]:
-        regions = (
-            self.extension_widgets_below
-            if placement == "below_editor"
-            else self.extension_widgets_above
-        )
-        if not regions:
-            return []
-        out: list[_FrameLine] = []
-        failed: list[str] = []
-        with self._paint_lock:
-            for key, region in regions.items():  # insertion order
-                lines = self._render_region_lines(
-                    region, width=width, max_lines=_WIDGET_MAX_LINES
-                )
-                if lines is None:
-                    failed.append(key)
-                    continue
-                for line in lines:
-                    out.append(
-                        _FrameLine(self._clip_custom(line, width), "chrome_custom")
-                    )
-            for key in failed:
-                self._dispose_region(regions.pop(key, None))
-        return out
-
-    def _extension_footer_lines(self, width: int) -> list[_FrameLine] | None:
-        """Return custom footer rows, or None to fall back to the built-in footer."""
-        if self._chrome.footer is None:
-            return None
-        with self._paint_lock:
-            lines = self._render_region_lines(
-                self._chrome.footer, width=width, max_lines=_FOOTER_MAX_LINES
-            )
-            if lines is None:
-                self._dispose_region(self._chrome.footer)
-                self._chrome.footer = None
-                return None
-        return [
-            _FrameLine(self._clip_custom(line, width), "chrome_custom")
-            for line in lines
-        ]
-
-    def _extension_status_lines(self, width: int) -> list[_FrameLine]:
-        """Render bounded extension status rows above the footer."""
-
-        if not self.extension_status:
-            return []
-        with self._paint_lock:
-            items = tuple(sorted(self.extension_status.items()))
-        rows: list[_FrameLine] = []
-        for key, raw_value in items[:3]:
-            value = sanitize_label_text(raw_value)
-            rows.append(_FrameLine(self._clip(f"  {key}: {value}", width), "notice"))
-        hidden = len(items) - len(rows)
-        if hidden > 0:
-            rows.append(
-                _FrameLine(
-                    self._clip(f"  ... +{hidden} extension status rows", width),
-                    "slash_menu_scroll",
-                )
-            )
-        return rows
 
     def _styled_line(self, line: _FrameLine, *, style: ChromeStyle, width: int) -> str:
         return render_styled_line(line, style, width)
@@ -3211,7 +2570,7 @@ class ToolLoopTerminalUi:
         """
 
         while True:
-            self.poll_extension_footer_branch()
+            self._chrome.footer.poll_branch()
             self._poll_resize_repaint()
             if self._driver.has_pending_input():
                 return self._read_driver_key(self._driver.read_key(fd))
@@ -3535,50 +2894,6 @@ class ToolLoopTerminalUi:
         """
 
         return self.input_text.lstrip().startswith("!")
-
-
-def _clear_generation_autocomplete(ui: ToolLoopTerminalUi) -> None:
-    ui._editor.autocomplete_provider_factories.clear()
-    ui._editor.close_autocomplete()
-
-
-def _clear_generation_custom_editor(ui: ToolLoopTerminalUi) -> None:
-    ui._custom_editor_factory = None
-    ui._custom_editor_component = None
-    ui._custom_editor_active = False
-
-
-def _restore_generation_editor_text(ui: ToolLoopTerminalUi, text: str) -> None:
-    ui._editor.set_buffer(text)
-    ui._editor.pending_initial_text = text
-
-
-def _extension_generation_owner(ui: ToolLoopTerminalUi) -> ExtensionGenerationOwner:
-    return ExtensionGenerationOwner(
-        ui._chrome,
-        ui._paint_lock,
-        ui.paint,
-        dispose_region=ui._dispose_region,
-        custom_editor_active=lambda: ui._custom_editor_active,
-        read_input_text=ui.get_input_text,
-        current_custom_editor_component=lambda: ui._custom_editor_component,
-        clear_autocomplete=lambda: _clear_generation_autocomplete(ui),
-        clear_custom_editor=lambda: _clear_generation_custom_editor(ui),
-        restore_editor_text=lambda text: _restore_generation_editor_text(ui, text),
-        restore_title=ui._driver.restore_title,
-        reset_hidden_thinking_label=ui._transcript.reset_hidden_thinking_label,
-        set_widget=lambda key, content, placement: ui.set_extension_widget(
-            key, content, placement=placement
-        ),
-        set_header=ui.set_extension_header,
-        set_footer=ui.set_extension_footer,
-        set_title=ui.set_extension_title,
-        set_indicator=ui.set_extension_working_indicator,
-        add_listener=ui.add_extension_terminal_input_listener,
-        add_autocomplete_provider=ui.add_extension_autocomplete_provider,
-        set_editor_component=ui.set_editor_component,
-        set_hidden_thinking_label=ui.set_extension_hidden_thinking_label,
-    )
 
 
 def run_project_trust_selector(

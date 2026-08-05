@@ -44,10 +44,10 @@ class TestThinkingFold:
         ui = _ui(tmp_path)
         ui.set_thinking_hidden(True)
         ui.append_reasoning("SECRET-THOUGHT")
-        ui.set_extension_hidden_thinking_label("Still thinking")
+        ui._transcript.set_hidden_thinking_label("Still thinking")
         assert "Still thinking" in _frame_text(ui)
         assert "SECRET-THOUGHT" not in _frame_text(ui)
-        ui.set_extension_hidden_thinking_label()
+        ui._transcript.set_hidden_thinking_label()
         assert "Thinking..." in _frame_text(ui)
 
     def test_visible_reasoning_rendered_live(self, tmp_path: Path) -> None:

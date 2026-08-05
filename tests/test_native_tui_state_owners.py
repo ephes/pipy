@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import termios
 import tty
-from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
 
@@ -725,39 +724,21 @@ def test_chrome_clear_retires_generation_hooks_but_retains_sticky_values() -> No
     assert fresh_callback_id in state.footer_branch_callbacks
 
 
-def test_facade_assignable_chrome_projections_write_through_by_identity(
-    tmp_path: Path,
-) -> None:
+def test_chrome_record_projections_are_deleted_from_the_facade(tmp_path: Path) -> None:
     ui = ToolLoopTerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
-    region = ChromeRegion(["line"], None, ("line",), 80, False)
-    statuses = {"status": "value"}
-    above = {"above": region}
-    below = {"below": region}
-    callbacks: dict[int, Callable[[], object]] = {4: lambda: None}
-    listeners: dict[int, Callable[[str], object]] = {7: lambda key: key}
 
-    ui.extension_status = statuses
-    ui.extension_widgets_above = above
-    ui.extension_widgets_below = below
-    ui._footer_branch_callbacks = callbacks
-    ui._extension_terminal_input_listeners = listeners
-    ui._footer_branch_check_interval = 1.5
-
-    assert ui.extension_status is statuses is ui._chrome.statuses
-    assert ui.extension_widgets_above is above is ui._chrome.widgets_above
-    assert ui.extension_widgets_below is below is ui._chrome.widgets_below
-    assert (
-        ui._footer_branch_callbacks is callbacks is ui._chrome.footer_branch_callbacks
-    )
-    assert (
-        ui._extension_terminal_input_listeners
-        is listeners
-        is ui._chrome.terminal_input_listeners
-    )
-    assert ui._footer_branch_check_interval == ui._chrome.footer_branch_check_interval
-    assert ui._footer_branch_check_interval == 1.5
+    assert not {
+        "extension_status",
+        "extension_widgets_above",
+        "extension_widgets_below",
+        "extension_header",
+        "extension_footer",
+        "extension_title",
+        "_footer_branch_callbacks",
+        "_extension_terminal_input_listeners",
+    } & set(dir(ui))
 
 
 def test_facade_overlay_end_detaches_assignable_live_containers(
@@ -845,10 +826,16 @@ def test_footer_rebuild_abort_resets_without_publishing_partial_slots() -> None:
     _assert_footer_rebuild_reset(state)
 
 
-def test_terminal_facade_stores_only_the_two_extracted_owners() -> None:
+def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
+    tmp_path: Path,
+) -> None:
     names = {item.name for item in fields(ToolLoopTerminalUi)}
     assert {"_editor", "_overlays", "_chrome"} <= names
     assert not names & {
+        "_extension_chrome",
+        "_extension_footer",
+        "_terminal_input_listeners",
+        "_extension_generation",
         "model_selector_open",
         "settings_dialog_rows",
         "tree_selector_rows",
@@ -861,3 +848,16 @@ def test_terminal_facade_stores_only_the_two_extracted_owners() -> None:
         "extension_widgets_above",
         "extension_title",
     }
+
+    ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
+    )
+    owners = ui._chrome
+    assert owners.component._record is owners.record  # noqa: SLF001
+    assert owners.footer._record is owners.record  # noqa: SLF001
+    assert owners.listeners._record is owners.record  # noqa: SLF001
+    assert owners.generation._record is owners.record  # noqa: SLF001
+    assert owners.component._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert owners.footer._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert owners.listeners._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert owners.generation._paint_lock is ui._paint_lock  # noqa: SLF001
