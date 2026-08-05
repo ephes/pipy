@@ -42,10 +42,8 @@ from pipy_harness.native.extension_runtime import (
     QueuedUserMessage,
     _ActivationApi,
     _ActivationCleanup,
-    _ContributionNames,
     _ExtensionCandidate,
     _ExtensionRuntime,
-    _normalize_contribution_names,
     activate_extension_batch,
     parse_extension_flag_tokens,
 )
@@ -447,20 +445,6 @@ def test_dataclass_normalization_preserves_callbacks_renderers_and_defaults() ->
     assert oauth.modify_models is oauth_callback
     assert provider.default_model == "model"
     assert flag.default == "kept"
-
-
-def test_contribution_name_normalization_preserves_each_named_category() -> None:
-    names = _ContributionNames(
-        commands=("command",),
-        tools=("tool",),
-        providers=("provider",),
-        shortcuts=("shortcut",),
-        flags=("flag",),
-        message_renderers=("message",),
-        entry_renderers=("entry",),
-    )
-
-    assert _normalize_contribution_names(names) == names
 
 
 def _class_d_calls(api: _ActivationApi) -> tuple[tuple[str, Callable[[], object]], ...]:
