@@ -1,14 +1,13 @@
-"""The value types of the extension-chrome ownership transaction.
+"""Extension-chrome ownership handoff and factory repaint handle.
 
 Chrome ownership changes hands when a reload candidate attaches: writes that
 arrive while ownership is undecided are queued on a handoff, then either replayed
-onto the accepted sink or discarded with the refused candidate. These five
-records are that transaction's vocabulary, and they are declaration-only -- no
-behaviour, no terminal, no session.
+onto the accepted sink or discarded with the refused candidate. The five public
+records are that transaction's vocabulary; :class:`ExtensionChromeRouter` owns
+its routing and reconciliation.
 
-They are public here because the transaction that consumes them is moving out of
-the terminal-UI shell; a leading underscore would only mean "private to a file
-they no longer live in".
+The private Pi-shaped handle passed to chrome factories retains only an injected
+repaint callable, so neither terminal nor session facades cross into this owner.
 """
 
 from __future__ import annotations
@@ -72,6 +71,29 @@ class ChromeRoutingLease:
 
     source: str
     sink: ExtensionChromeSink
+
+
+class _ExtensionChromeTuiHandle:
+    """Small Pi-shaped TUI handle passed to extension chrome factories."""
+
+    def __init__(self, request_render: Callable[[], None]) -> None:
+        self._request_render = request_render
+
+    def requestRender(self, force: bool = False) -> None:  # noqa: N802 - Pi API
+        """Request a live repaint without producing a provider turn."""
+
+        del force
+        try:
+            self._request_render()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a repaint request is fail-soft
+            return
+
+    def request_render(self, force: bool = False) -> None:
+        """Pythonic alias for extensions that prefer snake_case."""
+
+        self.requestRender(force)
 
 
 class ExtensionChromeRouter:

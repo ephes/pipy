@@ -123,6 +123,9 @@ from pipy_harness.native.ui.chrome_handoff import (
     ChromeHandoffOperation,
     ExtensionChromeRouter,
 )
+from pipy_harness.native.ui.chrome_handoff import (
+    _ExtensionChromeTuiHandle as _ChromeTuiHandle,
+)
 from pipy_harness.native.ui.clipboard_images import ClipboardConfig, ClipboardImages
 from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
@@ -501,29 +504,6 @@ class _GenerationExtensionUiDriver:
         return self._sink.snapshot().editor_component
 
 
-class _ExtensionChromeTuiHandle:
-    """Small Pi-shaped TUI handle passed to extension chrome factories."""
-
-    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
-        self._ui = ui
-
-    def requestRender(self, force: bool = False) -> None:  # noqa: N802 - Pi API
-        """Request a live repaint without producing a provider turn."""
-
-        del force
-        try:
-            self._ui.request_extension_chrome_render()
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - a repaint request is fail-soft
-            return
-
-    def request_render(self, force: bool = False) -> None:
-        """Pythonic alias for extensions that prefer snake_case."""
-
-        self.requestRender(force)
-
-
 @dataclass(slots=True)
 class ToolLoopTerminalUi:
     """Stateful terminal frame for the native tool-loop REPL.
@@ -680,7 +660,7 @@ class ToolLoopTerminalUi:
             chrome_record,
             self._paint_lock,
             self.paint,
-            tui_handle=_ExtensionChromeTuiHandle(self),
+            tui_handle=_ChromeTuiHandle(self.request_extension_chrome_render),
             region_width=lambda: self._driver.size()[0],
             render_theme=lambda: build_tool_render_theme(
                 chrome_style_for(self.terminal_stream)
