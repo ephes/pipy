@@ -42,7 +42,6 @@ from functools import partial
 from pathlib import Path
 from typing import ClassVar, TextIO
 
-import pipy_harness.native.chrome as _chrome
 import pipy_harness.native.tool_renderers as _tool_renderers
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
@@ -108,11 +107,7 @@ from pipy_harness.native.changelog import (
     read_changelog_entries,
 )
 from pipy_harness.native.chrome import (
-    BottomStatusFields,
     _ChromeFooterEffects,
-    chrome_width,
-    format_bottom_status_line,
-    print_bottom_status_block,
     print_input_separator,
     print_startup_chrome,
 )
@@ -153,10 +148,7 @@ from pipy_harness.native.coding.session_controller import (
     LoopStepSignal,
     _CallableCodingCommandEffects,
 )
-from pipy_harness.native.coding.state import (
-    CodingSessionState,
-    CodingSessionUsageSnapshot,
-)
+from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import (
@@ -1553,14 +1545,12 @@ class NativeToolReplSession:
                 ),
             )
         )
-        # Terminal chrome owns the footer effect adapter. Inject the session's
-        # current bound methods so its formatting seams remain monkeypatchable
-        # without chrome importing this composition root or the concrete TUI.
+        # Terminal chrome owns footer composition and receives the live provider
+        # state so runtime thinking-level changes remain visible.
         footer = _ChromeFooterEffects(
-            footer_text=self._footer_text,
-            print_footer=self._print_footer,
             cwd=cwd,
             coding_state=coding_state,
+            provider_state=self.provider_state,
             error_stream=error_stream,
             terminal_ui=terminal_ui,
             repl_runtime=repl_input,
@@ -1696,9 +1686,9 @@ class NativeToolReplSession:
         # emit a pre-loop frame for non-slash-menu runtimes. This avoids a
         # duplicate cwd/status row above the prompt area in TTY sessions,
         # while keeping the captured-stream/plain case visible on immediate
-        # EOF. `_print_footer` re-emits it after each submission.
+        # EOF. Chrome re-emits it after each submission.
         if footer.legacy_footer_enabled():
-            self._print_footer(
+            footer._print_footer(
                 error_stream,
                 cwd=cwd,
                 provider_name=coding_state.provider_name,
@@ -1876,127 +1866,6 @@ class NativeToolReplSession:
             keybindings_manager=keybindings_manager,
             include_workspace_defaults=include_workspace_defaults,
             clipboard_config=clipboard_config,
-        )
-
-    def _effort_label(self, provider_name: str, model_id: str) -> str:
-        """Reasoning-effort label, preferring the live runtime thinking level.
-
-        When the user has cycled the thinking level with Shift+Tab (or selected
-        a ``model:level`` reference), the provider state carries the runtime
-        level and the footer reflects it; otherwise it falls back to the
-        model's default effort label.
-        """
-
-        state = self.provider_state
-        level = (
-            state.current_thinking_level()
-            if isinstance(state, NativeReplProviderState)
-            else None
-        )
-        if isinstance(level, str) and level:
-            return level
-        return _chrome._effort_label_for(provider_name, model_id)
-
-    def _footer_text(
-        self,
-        *,
-        cwd: Path,
-        provider_name: str,
-        model_id: str,
-        user_turn_count: int,
-        tool_invocation_count: int,
-        error_stream: TextIO | None = None,
-        usage_snapshot: CodingSessionUsageSnapshot | None = None,
-    ) -> str:
-        plan_label = "sub" if provider_name == "openai-codex" else "api"
-        budget = _chrome._context_budget_for(provider_name, model_id)
-        used_pct = 0.0
-        if budget.token_budget > 0:
-            if usage_snapshot is not None and usage_snapshot.last_total_tokens > 0:
-                used_pct = (
-                    100.0
-                    * usage_snapshot.last_total_tokens
-                    / float(budget.token_budget)
-                )
-            else:
-                estimated_tokens = self._estimated_context_tokens(
-                    tool_invocation_count=tool_invocation_count,
-                    user_turn_count=user_turn_count,
-                )
-                used_pct = 100.0 * estimated_tokens / float(budget.token_budget)
-            used_pct = min(used_pct, 999.9)
-        cost_label = (
-            f"${usage_snapshot.usage.cost_usd:.3f}"
-            if usage_snapshot is not None
-            else "$0.000"
-        )
-        cache_hit_percent = (
-            usage_snapshot.cache_hit_percent if usage_snapshot is not None else None
-        )
-        usage = usage_snapshot.usage if usage_snapshot is not None else None
-        fields = BottomStatusFields(
-            cwd_label="",
-            cost_label=cost_label,
-            plan_label=plan_label,
-            context_used_pct=used_pct,
-            context_budget_label=budget.budget_label,
-            context_budget_suffix="auto",
-            provider_name=provider_name,
-            model_id=model_id,
-            effort_label=self._effort_label(provider_name, model_id),
-            tokens_in=(usage.input_tokens if usage else 0),
-            tokens_out=(usage.output_tokens if usage else 0),
-            tokens_reasoning=(usage.reasoning_tokens if usage else 0),
-            tokens_cache_read=(usage.cache_read_tokens if usage else 0),
-            tokens_cache_write=(usage.cache_write_tokens if usage else 0),
-            cache_hit_percent=cache_hit_percent,
-        )
-        status_width = max(20, chrome_width(error_stream))
-        status_line = format_bottom_status_line(status_width, fields)
-        cwd_label = _chrome._friendly_cwd_label(cwd)
-        return f"{cwd_label}\n{status_line}"
-
-    def _estimated_context_tokens(
-        self, *, tool_invocation_count: int, user_turn_count: int
-    ) -> float:
-        """Cheap upper-bound estimate for the prompt's context-window draw.
-
-        We do not parse provider usage telemetry yet; until that lands the
-        bottom-status meter shows a deterministic rough estimate that
-        grows with tool invocations and user turns. This matches Pi's
-        ``used%/budget`` shape without inventing fake exact counts.
-        """
-
-        per_turn_tokens = 2_000.0
-        per_tool_tokens = 1_500.0
-        return (
-            user_turn_count * per_turn_tokens + tool_invocation_count * per_tool_tokens
-        )
-
-    def _print_footer(
-        self,
-        error_stream: TextIO,
-        *,
-        cwd: Path,
-        provider_name: str,
-        model_id: str,
-        user_turn_count: int,
-        tool_invocation_count: int,
-        usage_snapshot: CodingSessionUsageSnapshot | None = None,
-    ) -> None:
-        print_input_separator(error_stream)
-        footer = self._footer_text(
-            cwd=cwd,
-            provider_name=provider_name,
-            model_id=model_id,
-            user_turn_count=user_turn_count,
-            tool_invocation_count=tool_invocation_count,
-            error_stream=error_stream,
-            usage_snapshot=usage_snapshot,
-        )
-        cwd_label, _, status_line = footer.partition("\n")
-        print_bottom_status_block(
-            error_stream, cwd_label=cwd_label, status_line=status_line
         )
 
 

@@ -15,6 +15,7 @@ from typing import TextIO, cast
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.repl.view_actions import cycle_thinking_level_action
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -48,6 +49,21 @@ def _session(state: NativeReplProviderState) -> NativeToolReplSession:
 
 def _tree(tmp_path: Path) -> NativeSessionTree:
     return NativeSessionTree.create(tmp_path, persist=False)
+
+
+class _Runtime:
+    runtime_label = "plain"
+
+
+def _footer(session: NativeToolReplSession, tmp_path: Path) -> _ChromeFooterEffects:
+    return _ChromeFooterEffects(
+        cwd=tmp_path,
+        coding_state=session._coding_state,
+        provider_state=session.provider_state,
+        error_stream=io.StringIO(),
+        terminal_ui=None,
+        repl_runtime=_Runtime(),
+    )
 
 
 def _codex_state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
@@ -151,6 +167,7 @@ class TestThinkingCycle:
     def test_footer_effort_label_reflects_runtime_level(self, tmp_path: Path) -> None:
         state = _state(tmp_path, "gpt-5.5")
         session = _session(state)
-        assert session._effort_label("openai", "gpt-5.5") in {"high", "default"}
+        footer = _footer(session, tmp_path)
+        assert footer._effort_label("openai", "gpt-5.5") in {"high", "default"}
         state.assign_thinking_level("low")
-        assert session._effort_label("openai", "gpt-5.5") == "low"
+        assert footer._effort_label("openai", "gpt-5.5") == "low"

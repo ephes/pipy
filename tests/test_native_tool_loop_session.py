@@ -57,6 +57,7 @@ from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
@@ -284,7 +285,7 @@ def _record_footer_in_trace(
     trace: list[AgentEvent | tuple[str, AgentUsage, int]],
 ) -> None:
     def record_footer(
-        self: NativeToolReplSession,
+        self: _ChromeFooterEffects,
         error_stream: TextIO,
         *,
         cwd: Path,
@@ -305,7 +306,7 @@ def _record_footer_in_trace(
             )
         )
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
 
 def _assert_usage_trace_order(
@@ -409,27 +410,58 @@ def test_footer_paths_read_constant_time_state_scalars(
         for node in session_class.body
         if isinstance(node, ast.FunctionDef) and node.name == "run"
     )
-    # The footer-text and legacy-footer refresh bodies are owned by chrome's
-    # `_ChromeFooterEffects`; `run()` keeps only the inline pre-loop legacy-footer
-    # paint. The four injected/inline footer calls still read the same
-    # constant-time state scalars.
+    # Chrome owns the whole footer cluster. The old session path and the two
+    # former injected-callable protocols/fields are absent rather than retained
+    # as compatibility seams.
+    footer_members = {
+        "_effort_label",
+        "_footer_text",
+        "_estimated_context_tokens",
+        "_print_footer",
+    }
+    session_methods = {
+        node.name for node in session_class.body if isinstance(node, ast.FunctionDef)
+    }
+    assert footer_members.isdisjoint(session_methods)
     assert not any(
-        isinstance(node, ast.ClassDef) and node.name == "_FooterEffects"
-        for node in syntax.body
+        isinstance(node, ast.ClassDef)
+        and node.name
+        in {"_FooterEffects", "_FooterTextCallable", "_PrintFooterCallable"}
+        for node in (*syntax.body, *chrome_syntax.body)
     )
     footer_effects_class = next(
         node
         for node in chrome_syntax.body
         if isinstance(node, ast.ClassDef) and node.name == "_ChromeFooterEffects"
     )
-    footer_calls = [
-        node
-        for scope in (run_method, footer_effects_class)
-        for node in ast.walk(scope)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in {"footer_text", "print_footer", "_print_footer"}
-    ]
+    chrome_methods = {
+        node.name
+        for node in footer_effects_class.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    assert footer_members <= chrome_methods
+    chrome_fields = {
+        node.target.id
+        for node in footer_effects_class.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+    assert {"footer_text", "print_footer"}.isdisjoint(chrome_fields)
+
+    # The four production calls that source state still read the same
+    # constant-time coding-state scalars.
+    footer_calls = []
+    for scope in (run_method, footer_effects_class):
+        for node in ast.walk(scope):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"_footer_text", "_print_footer"}
+            ):
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+            provider_name = keywords.get("provider_name")
+            if isinstance(provider_name, ast.Attribute):
+                footer_calls.append(node)
     assert len(footer_calls) == 4
     for call in footer_calls:
         keywords = {keyword.arg: keyword.value for keyword in call.keywords}
@@ -467,8 +499,16 @@ def test_footer_paths_read_constant_time_state_scalars(
         provider=FakeNativeProvider(supports_tool_calls=True)
     )
     state = session._coding_state
-    monkeypatch.setattr(tool_loop_session, "chrome_width", lambda _stream: 120)
-    footer = session._footer_text(
+    footer_effects = chrome._ChromeFooterEffects(
+        cwd=tmp_path,
+        coding_state=state,
+        provider_state=session.provider_state,
+        error_stream=io.StringIO(),
+        terminal_ui=None,
+        repl_runtime=cast(Any, None),
+    )
+    monkeypatch.setattr(chrome, "chrome_width", lambda _stream: 120)
+    footer = footer_effects._footer_text(
         cwd=tmp_path,
         provider_name=state.provider_name,
         model_id=state.model_id,
@@ -2152,7 +2192,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
         "pipy_harness.native.repl.provider_config_commands.emit_diagnostic",
         record_diagnostic,
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     result = NativeToolReplSession(
@@ -3372,7 +3412,7 @@ def test_new_command_applies_standard_footer_without_provider_turn(
     def record_footer(*_args: object, **kwargs: object) -> None:
         footer_kwargs.append(kwargs)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     NativeToolReplSession(provider=provider).run(
@@ -3396,7 +3436,7 @@ def test_tree_commands_apply_standard_footer_without_provider_turn(
     def record_footer(*_args: object, **kwargs: object) -> None:
         footer_kwargs.append(kwargs)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     NativeToolReplSession(provider=provider).run(
@@ -3420,7 +3460,7 @@ def test_resume_commands_apply_standard_footer_without_provider_turn(
     def record_footer(*_args: object, **kwargs: object) -> None:
         footer_kwargs.append(kwargs)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     NativeToolReplSession(provider=provider).run(
@@ -3444,7 +3484,7 @@ def test_fork_and_clone_commands_apply_standard_footer_without_provider_turn(
     def record_footer(*_args: object, **kwargs: object) -> None:
         footer_kwargs.append(kwargs)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     NativeToolReplSession(provider=provider).run(
@@ -3474,7 +3514,7 @@ def test_trust_command_preserves_outer_trim_bubble_and_standard_footer(
     def record_user_message(_renderer: object, text: str) -> None:
         rendered_user_messages.append(text)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     monkeypatch.setattr(
         loop_module._ToolLoopRenderer,
         "render_user_message",
@@ -3506,7 +3546,7 @@ def test_provider_control_commands_apply_usage_aware_footer(
     def record_footer(*_args: object, **kwargs: object) -> None:
         footer_kwargs.append(kwargs)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     NativeToolReplSession(provider=provider).run(
@@ -3530,7 +3570,7 @@ def test_headless_command_kernel_exit_emits_no_command_footer(
     def record_footer(*_args: object, **_kwargs: object) -> None:
         footer_calls.append(None)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
     NativeToolReplSession(provider=provider).run(

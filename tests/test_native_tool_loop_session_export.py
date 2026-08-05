@@ -25,6 +25,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.export_distribution import NativeExportError
 from pipy_harness.native.prompt_history import PromptHistoryStore
@@ -178,7 +179,7 @@ def test_composition_preserves_raw_bubbles_and_export_path_routing(
     monkeypatch.setattr(
         loop_module._ToolLoopRenderer, "render_user_message", render_user_message
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     commands = (
         ' \t/export "quoted export.jsonl" ignored \t\n'
         "/export 'quoted page.html' trailing\n"
@@ -296,7 +297,7 @@ def test_empty_and_in_memory_exports_report_controlled_errors_then_footer(
         trace.append("footer")
         print("FOOTER", file=error_stream)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     _result, rendered = _run_captured(
         NativeToolReplSession(
             provider=_RecordingProvider(),
@@ -334,7 +335,7 @@ def test_controlled_export_error_is_terminal_sanitized_before_standard_footer(
         print("STANDARD FOOTER", file=error_stream)
 
     monkeypatch.setattr(transfer_module, "export_native_session_to_html", fail_export)
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
 
     _result, rendered = _run_captured(
         NativeToolReplSession(
@@ -386,7 +387,7 @@ def test_uncontrolled_export_failure_cuts_off_diagnostic_and_retains_file(
     monkeypatch.setattr(
         transfer_module, "export_native_session_to_html", fail_after_write
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     errors = io.StringIO()
     session = NativeToolReplSession(
         provider=provider,

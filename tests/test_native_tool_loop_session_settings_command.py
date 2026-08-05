@@ -17,6 +17,7 @@ from pipy_harness.native import (
     ProviderResult,
 )
 from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.commands import CodingCommandOutcome
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.prompt_history import PromptHistoryStore
@@ -173,7 +174,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
     monkeypatch.setattr(
         config_commands, "tool_loop_settings_overlay_lines", overlay_lines
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     provider = _RecordingProvider()
 
     _run_captured(
@@ -234,7 +235,7 @@ def test_unexpected_settings_projection_failures_cut_off_footer_and_provider(
             raise RuntimeError("unexpected overlay failure")
         return ["FIRST SETTINGS LINE", "PRIVATE LATER LINE"]
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     # The overlay builder binds where its *caller* lives, which is now the
     # provider-configuration family's own module.
     monkeypatch.setattr(

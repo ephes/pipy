@@ -28,6 +28,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.diagnostics import emit_diagnostic
@@ -432,7 +433,7 @@ def test_tree_gate_denial_or_error_cuts_off_mutation_with_standard_footer(
     def record_footer(*_args: object, **_kwargs: object) -> None:
         footer_calls.append(None)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = _SeenProvider()
     _out, err = _run(
         NativeToolReplSession(provider=provider, native_session=tree),
@@ -464,7 +465,7 @@ def test_tree_gate_controlled_fatal_cuts_off_handler_and_footer(
     def record_footer(*_args: object, **_kwargs: object) -> None:
         footer_calls.append(None)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
     with pytest.raises(fatal):
         _run(
@@ -521,7 +522,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
         "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
     _out, err = _run(
         NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
@@ -576,7 +577,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
         "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
     _run(
         NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
@@ -634,7 +635,7 @@ def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
         "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
     with pytest.raises(RuntimeError, match="rebuild failed"):
         _run(
@@ -740,7 +741,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(
-        NativeToolReplSession, "_print_footer", lambda *_a, **_k: trace.append("footer")
+        _ChromeFooterEffects, "_print_footer", lambda *_a, **_k: trace.append("footer")
     )
 
     provider = TracingProvider()
@@ -841,7 +842,7 @@ def test_new_switch_gate_blocks_before_create_and_applies_footer(
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     footer_calls: list[None] = []
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footer_calls.append(None),
     )
@@ -869,7 +870,7 @@ def test_new_switch_gate_controlled_fatal_cuts_off_create_and_footer(
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     footer_calls: list[None] = []
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footer_calls.append(None),
     )
@@ -955,7 +956,7 @@ def test_new_storage_failure_cuts_off_later_effects(
         lambda *_args: trace.append("diagnostic"),
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: trace.append("footer"),
     )
@@ -985,7 +986,7 @@ def test_name_command_queries_sets_and_persists_without_provider_turn(
     def record_footer(*_args: object, **_kwargs: object) -> None:
         footer_calls.append(None)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     unsafe_name = "nm\x1b[31mEVIL\x07"
     _out, err = _run(
         NativeToolReplSession(provider=provider, native_session=tree),
@@ -1327,7 +1328,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: trace.append("footer"),
     )
@@ -1370,7 +1371,7 @@ def test_direct_resume_of_active_path_still_gates_and_reopens(
     )
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footer_calls.append(None),
     )
@@ -1413,7 +1414,7 @@ def test_resume_switch_gate_denial_or_error_cuts_off_open_with_footer(
 
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footer_calls.append(None),
     )
@@ -1452,7 +1453,7 @@ def test_resume_switch_gate_fatal_cuts_off_open_and_footer(
 
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footer_calls.append(None),
     )
@@ -1525,7 +1526,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(TranscriptComponent, "redraw_custom_entries", redraw)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: trace.append("footer"),
     )

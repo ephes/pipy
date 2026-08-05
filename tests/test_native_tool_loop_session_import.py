@@ -26,6 +26,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.export_distribution import (
@@ -216,7 +217,7 @@ def test_composition_preserves_raw_bubbles_outer_trim_and_path_routing(
     monkeypatch.setattr(
         loop_module._ToolLoopRenderer, "render_user_message", render_user_message
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     commands = (
         ' \t/import "quoted source.bundle" --yes ignored \t\n'
         "/import unquoted.data --yes trailing\n"
@@ -640,7 +641,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     monkeypatch.setattr(
         "pipy_harness.native.repl.collaborators.emit_diagnostic", diagnostic
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     monkeypatch.setattr(
         _ExtensionLifecycleAgentEventAdapter, "fire_lifecycle", fire_lifecycle
     )
@@ -743,7 +744,7 @@ def test_controlled_import_error_is_sanitized_and_gets_footer(
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footers.append(None),
     )
@@ -776,7 +777,7 @@ def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
     source, _ = _import_source(tmp_path, cwd)
     footers: list[None] = []
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footers.append(None),
     )
@@ -835,7 +836,7 @@ def test_uncontrolled_rebuild_failure_retains_import_copy_without_success_footer
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footers.append(None),
     )
@@ -885,7 +886,7 @@ def test_uncontrolled_diagnostic_and_footer_failures_retain_completed_switch(
     monkeypatch.setattr(
         "pipy_harness.native.repl.collaborators.emit_diagnostic", diagnostic
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
 
     with pytest.raises(RuntimeError, match=f"{failure} failed"):
         _run(

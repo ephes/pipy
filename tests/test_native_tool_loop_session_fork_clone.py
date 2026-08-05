@@ -21,6 +21,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.diagnostics import emit_diagnostic
@@ -318,7 +319,7 @@ def test_fork_gate_denial_or_error_has_standard_footer_and_no_copy(
     _write_fork_gate(cwd, body, target=leaf.id)
     footers: list[None] = []
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footers.append(None),
     )
@@ -345,7 +346,7 @@ def test_fork_gate_fatal_cuts_off_copy_and_command_footer(
     _write_fork_gate(cwd, f"        raise {fatal.__name__}()\n", target=leaf.id)
     footers: list[None] = []
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: footers.append(None),
     )
@@ -566,7 +567,7 @@ def test_fork_failure_timing_cuts_off_later_effects(
         lambda *_args, **_kwargs: trace.append("diagnostic"),
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        _ChromeFooterEffects,
         "_print_footer",
         lambda *_args, **_kwargs: trace.append("footer"),
     )

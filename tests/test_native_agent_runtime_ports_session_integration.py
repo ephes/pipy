@@ -41,6 +41,7 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.agent_adapters import AppendProductMessage
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding import (
     CodingInputQueue,
     CodingInputSelection,
@@ -297,7 +298,7 @@ def test_registered_whitespace_wake_keeps_blank_local_behavior(
     def record_footer(*_args: object, **_kwargs: object) -> None:
         footer_calls.append(None)
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     input_stream = WhitespaceWakeInput()
     provider = _ScriptProvider((_result("unused"),))
 
@@ -548,7 +549,7 @@ def test_product_session_usage_port_preserves_run_and_session_scopes(
     monkeypatch.setattr(
         loop_module, "NativeAgentUsagePublisher", RecordingUsagePublisher
     )
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     call = ProviderToolCall("usage-call", "echo", '{"text":"ok"}')
     provider = _ScriptProvider(
         (

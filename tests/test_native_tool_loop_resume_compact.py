@@ -18,6 +18,7 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -185,7 +186,7 @@ def test_manual_compaction_persistence_failure_precedes_diagnostic_and_footer(
         footer_count_before_failure.append(len(footer_calls))
         raise RuntimeError("compaction persistence failed")
 
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     monkeypatch.setattr(tree, "append_compaction", fail_compaction_write)
 
     with pytest.raises(RuntimeError, match="compaction persistence failed"):
