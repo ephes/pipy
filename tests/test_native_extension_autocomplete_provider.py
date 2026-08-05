@@ -233,7 +233,7 @@ def test_extension_autocomplete_provider_can_append_at_suggestion(
         def apply_completion(self, *args):
             return self.current.apply_completion(*args)
 
-    ui.add_extension_autocomplete_provider(lambda current: Wrapper(current))
+    ui._autocomplete.add_extension_provider(lambda current: Wrapper(current))
     _type(ui, "see @config")
 
     assert ui.autocomplete.autocomplete_open
@@ -280,7 +280,7 @@ def test_extension_autocomplete_provider_custom_apply_controls_insertion(
         def apply_completion(self, lines, cursor_line, cursor_col, item, prefix):
             return {"text": "set by provider", "cursor": 3}
 
-    ui.add_extension_autocomplete_provider(lambda current: Provider(current))
+    ui._autocomplete.add_extension_provider(lambda current: Provider(current))
     _type(ui, "ask @x")
     assert ui.autocomplete.autocomplete_open
     ui.autocomplete.accept_selection()
@@ -304,7 +304,7 @@ def test_extension_autocomplete_provider_can_veto_forced_path_completion(
         def get_suggestions(self, *args):  # pragma: no cover - veto prevents call
             raise AssertionError("must not call suggestions")
 
-    ui.add_extension_autocomplete_provider(lambda current: Provider(current))
+    ui._autocomplete.add_extension_provider(lambda current: Provider(current))
     _type(ui, "./s")
 
     assert ui.autocomplete.attempt_path_completion() is False
@@ -318,7 +318,7 @@ def test_broken_extension_autocomplete_provider_falls_back(tmp_path: Path) -> No
         def get_suggestions(self, *args):
             raise RuntimeError("boom")
 
-    ui.add_extension_autocomplete_provider(lambda _current: Broken())
+    ui._autocomplete.add_extension_provider(lambda _current: Broken())
     _type(ui, "@config")
 
     assert ui.autocomplete.autocomplete_open
@@ -342,7 +342,7 @@ def test_no_op_edit_keys_do_not_execute_extension_completion_lookup(
             return current
 
     factory = Factory()
-    ui.add_extension_autocomplete_provider(factory)
+    ui._autocomplete.add_extension_provider(factory)
     provider = object()
     ui.input_editor.editor_state.open_autocomplete(
         items=(CompletionItem("kept", "Kept"),),
@@ -372,7 +372,7 @@ def test_empty_character_insert_keeps_edit_boundary_and_completion_refresh(
             return None
 
     provider = Provider()
-    ui.add_extension_autocomplete_provider(lambda _current: provider)
+    ui._autocomplete.add_extension_provider(lambda _current: provider)
     ui.input_editor.editor_state.set_buffer("draft", cursor=2)
     ui.input_editor.editor_state.history_nav_index = 1
     ui.input_editor.editor_state.history_draft = "old"
@@ -409,7 +409,7 @@ def test_empty_extension_suggestion_closes_popup_and_provider_binding(
             return AutocompleteSuggestion((), "x", 0, "at")
 
     provider = Provider()
-    ui.add_extension_autocomplete_provider(lambda _current: provider)
+    ui._autocomplete.add_extension_provider(lambda _current: provider)
     _type(ui, "@x")
 
     assert not ui.autocomplete.autocomplete_open
@@ -491,7 +491,7 @@ def test_directory_reopen_uses_accepted_snapshot_after_provider_mutation(
             return None
 
     provider = Provider()
-    ui.add_extension_autocomplete_provider(lambda _current: provider)
+    ui._autocomplete.add_extension_provider(lambda _current: provider)
     ui.input_editor.editor_state.set_buffer("./scr")
     ui.input_editor.editor_state.open_autocomplete(
         items=(CompletionItem("./scripts/", "scripts/"),),

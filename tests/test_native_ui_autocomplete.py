@@ -18,6 +18,38 @@ from pipy_harness.native.ui.autocomplete import (
     AutocompleteComponent,
     CommandSurface,
 )
+from pipy_harness.native.ui.components.custom_editor import (
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
+)
+from pipy_harness.native.ui.paint_lock import PaintLock
+
+
+def _custom_owner(
+    editor: EditorState, component: object | None = None
+) -> CustomEditorOwner:
+    def noop() -> None:
+        return None
+
+    return CustomEditorOwner(
+        CustomEditorState(component=component, active=component is not None),
+        editor,
+        PaintLock(),
+        noop,
+        host=object(),
+        theme=lambda: object(),
+        keybindings_manager=lambda: None,
+        effects=CustomEditorEffects(
+            restore_input_text=lambda _text: None,
+            clear_initial_text=noop,
+            enqueue_follow_up=lambda _text: None,
+            restore_pending=noop,
+            paste_clipboard_image=noop,
+            external_editor=lambda _text: None,
+            autocomplete_provider=lambda: None,
+        ),
+    )
 
 
 class _Harness:
@@ -26,12 +58,12 @@ class _Harness:
     def __init__(self, tmp_path: Path, *, custom_editor: object | None = None) -> None:
         self.editor = EditorState()
         self.repaints = 0
-        self.custom_editor = custom_editor
+        self.custom_editor = _custom_owner(self.editor, custom_editor)
         self.component = AutocompleteComponent(
             self.editor,
             cwd=tmp_path,
             repaint=self._repaint,
-            custom_editor_component=lambda: self.custom_editor,
+            custom_editor=self.custom_editor,
             surface=CommandSurface(
                 names=("/hotkeys", "/model", "/settings"),
                 descriptions={"/model": "Pick a model"},
@@ -80,11 +112,12 @@ def test_replace_command_surface_swaps_all_three_parts_together(
 def test_default_surface_is_empty_and_max_visible_defaults_to_five(
     tmp_path: Path,
 ) -> None:
+    editor = EditorState()
     component = AutocompleteComponent(
-        EditorState(),
+        editor,
         cwd=tmp_path,
         repaint=lambda: None,
-        custom_editor_component=lambda: None,
+        custom_editor=_custom_owner(editor),
     )
 
     assert component.command_names == ()
@@ -210,19 +243,9 @@ def test_add_extension_provider_ignores_non_callables(tmp_path: Path) -> None:
     assert harness.editor.autocomplete_provider_factories == []
 
 
-def test_forward_without_factories_or_setter_is_a_no_op(tmp_path: Path) -> None:
+def test_owner_forward_without_component_or_setter_is_a_no_op(tmp_path: Path) -> None:
     harness = _Harness(tmp_path)
 
-    # No factories registered: nothing to forward even with a valid setter.
-    calls: list[object] = []
-
-    class _CustomEditor:
-        def set_autocomplete_provider(self, provider: object) -> None:
-            calls.append(provider)
-
-    harness.component.forward_to_custom_editor(_CustomEditor())
-    assert calls == []
-
-    # A component without a setter never raises.
-    harness.editor.autocomplete_provider_factories.append(lambda base: base)
-    harness.component.forward_to_custom_editor(object())
+    harness.custom_editor.forward_autocomplete_provider(object())
+    inert = _custom_owner(harness.editor, object())
+    inert.forward_autocomplete_provider(object())

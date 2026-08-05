@@ -491,7 +491,9 @@ def test_pty_extension_shortcut_returns_sentinel(
 ) -> None:
     # A registered extension shortcut key decoded by read_line returns
     # the HOTKEY_EXTENSION_SHORTCUT sentinel the session dispatches.
-    from pipy_harness.native.tui import HOTKEY_EXTENSION_SHORTCUT_PREFIX
+    from pipy_harness.native.ui.components.custom_editor import (
+        HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    )
 
     monkeypatch.setenv("TERM", "xterm-256color")
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(

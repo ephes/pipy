@@ -19,10 +19,8 @@ from typing import TextIO
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.repl_state import NativeReplProviderState
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.tui import (
-    HOTKEY_TOGGLE_TOOLS,
-    ToolLoopTerminalUi,
-)
+from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.custom_editor import HOTKEY_TOGGLE_TOOLS
 
 
 def toggle_view_fold(

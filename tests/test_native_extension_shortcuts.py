@@ -243,7 +243,9 @@ def test_shortcut_send_user_message_triggers_a_turn(tmp_path, monkeypatch) -> No
     from pipy_harness.models import HarnessStatus
     from pipy_harness.native import ProviderResult
     from pipy_harness.native.tool_loop_session import NativeToolReplSession
-    from pipy_harness.native.tui import HOTKEY_EXTENSION_SHORTCUT_PREFIX
+    from pipy_harness.native.ui.components.custom_editor import (
+        HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    )
 
     @dataclass
     class _CapturingProvider:

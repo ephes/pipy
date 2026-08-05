@@ -251,7 +251,7 @@ class TestPathCompletion:
                 return current
 
         factory = Factory()
-        ui.add_extension_autocomplete_provider(factory)
+        ui._autocomplete.add_extension_provider(factory)
         _type(ui, "/ho")
         factory.calls = 0
 

@@ -287,6 +287,12 @@ from pipy_harness.native.tools import (
 )
 from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.tui import (
+    TURN_ABORTED as TURN_ABORTED,
+)
+from pipy_harness.native.tui import ToolLoopTerminalUi, _LiveExtensionUiDriver
+from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.ui.clipboard_images import create_clipboard_config
+from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_CYCLE_NEXT,
     HOTKEY_MODEL_CYCLE_PREV,
@@ -294,14 +300,7 @@ from pipy_harness.native.tui import (
     HOTKEY_THINKING_CYCLE,
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
-    ToolLoopTerminalUi,
-    _LiveExtensionUiDriver,
 )
-from pipy_harness.native.tui import (
-    TURN_ABORTED as TURN_ABORTED,
-)
-from pipy_harness.native.ui import RenderingAgentEventAdapter
-from pipy_harness.native.ui.clipboard_images import create_clipboard_config
 from pipy_harness.native.ui.components.custom_entry_renderer import CustomEntryRenderer
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.version_check import pipy_version

@@ -26,7 +26,10 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSnapshot,
     ExtensionChromeState,
 )
+from pipy_harness.native.ui.autocomplete import AutocompleteComponent
+from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 from pipy_harness.native.ui.components.footer import FooterComponent
+from pipy_harness.native.ui.components.input_editor import InputEditor
 from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
@@ -115,18 +118,15 @@ class _ChromeParticipant:
 class _EditorRetirement:
     had_custom_editor: bool
     current_text: str | None
-    current_component: Callable[[], object | None]
-    clear_autocomplete: Callable[[], None]
-    clear_custom_editor: Callable[[], None]
-    restore_editor_text: Callable[[str], None]
+    editor: InputEditor
+    autocomplete: AutocompleteComponent
+    owner: CustomEditorOwner
     custom_editor: object | None = None
 
     def detach(self) -> None:
-        self.custom_editor = (
-            self.current_component() if self.had_custom_editor else None
-        )
-        self.clear_autocomplete()
-        self.clear_custom_editor()
+        self.custom_editor = self.owner.component if self.had_custom_editor else None
+        self.autocomplete.clear_generation_state()
+        self.owner.clear_generation_state()
 
     def dispose(self) -> None:
         if self.custom_editor is None:
@@ -141,55 +141,44 @@ class _EditorRetirement:
                 pass
 
     def finalize(self) -> None:
-        self.clear_autocomplete()
-        self.clear_custom_editor()
+        self.autocomplete.clear_generation_state()
+        self.owner.clear_generation_state()
         if self.had_custom_editor:
             assert self.current_text is not None
-            self.restore_editor_text(self.current_text)
+            self.editor.restore_generation_text(self.current_text)
 
 
 class _EditorParticipant:
     def __init__(
         self,
         *,
-        custom_editor_active: Callable[[], bool],
-        read_input_text: Callable[[], str],
-        current_custom_editor_component: Callable[[], object | None],
-        clear_autocomplete: Callable[[], None],
-        clear_custom_editor: Callable[[], None],
-        restore_editor_text: Callable[[str], None],
-        add_autocomplete_provider: Callable[[object], None],
-        set_editor_component: Callable[[object | None], None],
+        editor: InputEditor,
+        autocomplete: AutocompleteComponent,
+        custom_editor: CustomEditorOwner,
     ) -> None:
-        self._custom_editor_active = custom_editor_active
-        self._read_input_text = read_input_text
-        self._current_custom_editor_component = current_custom_editor_component
-        self._clear_autocomplete = clear_autocomplete
-        self._clear_custom_editor = clear_custom_editor
-        self._restore_editor_text = restore_editor_text
-        self._add_autocomplete_provider = add_autocomplete_provider
-        self._set_editor_component = set_editor_component
+        self._editor = editor
+        self._autocomplete = autocomplete
+        self._custom_editor = custom_editor
 
     def retire_generation(self) -> _Retirement:
         # Reading custom text can call trusted extension code.  It precedes all
         # state detachment and intentionally runs without the paint lock.
-        had_custom_editor = self._custom_editor_active()
-        current_text = self._read_input_text() if had_custom_editor else None
+        had_custom_editor = self._custom_editor.active
+        current_text = self._editor.get_input_text() if had_custom_editor else None
         return _EditorRetirement(
             had_custom_editor,
             current_text,
-            self._current_custom_editor_component,
-            self._clear_autocomplete,
-            self._clear_custom_editor,
-            self._restore_editor_text,
+            self._editor,
+            self._autocomplete,
+            self._custom_editor,
         )
 
     def reconcile_generation(
         self, snapshot: ExtensionChromeSnapshot
     ) -> Mapping[int, Callable[[], None]] | None:
         for factory in snapshot.autocomplete_providers:
-            self._add_autocomplete_provider(factory)
-        self._set_editor_component(snapshot.editor_component)
+            self._autocomplete.add_extension_provider(factory)
+        self._custom_editor.set_editor_component(snapshot.editor_component)
         return None
 
 
@@ -261,12 +250,9 @@ class ExtensionGenerationOwner:
         repaint: Callable[[], None],
         *,
         dispose_region: Callable[[ChromeRegion], None],
-        custom_editor_active: Callable[[], bool],
-        read_input_text: Callable[[], str],
-        current_custom_editor_component: Callable[[], object | None],
-        clear_autocomplete: Callable[[], None],
-        clear_custom_editor: Callable[[], None],
-        restore_editor_text: Callable[[str], None],
+        editor: InputEditor,
+        autocomplete: AutocompleteComponent,
+        custom_editor: CustomEditorOwner,
         restore_title: Callable[[], None],
         reset_hidden_thinking_label: Callable[[], None],
         set_widget: Callable[[str, object, str], None],
@@ -275,8 +261,6 @@ class ExtensionGenerationOwner:
         set_title: Callable[[str], None],
         set_indicator: Callable[[object, object], None],
         add_listener: Callable[[Callable[[str], object]], Callable[[], None]],
-        add_autocomplete_provider: Callable[[object], None],
-        set_editor_component: Callable[[object | None], None],
         set_hidden_thinking_label: Callable[[str | None], None],
     ) -> None:
         self._record = record
@@ -294,14 +278,9 @@ class ExtensionGenerationOwner:
                 add_listener=add_listener,
             ),
             _EditorParticipant: _EditorParticipant(
-                custom_editor_active=custom_editor_active,
-                read_input_text=read_input_text,
-                current_custom_editor_component=current_custom_editor_component,
-                clear_autocomplete=clear_autocomplete,
-                clear_custom_editor=clear_custom_editor,
-                restore_editor_text=restore_editor_text,
-                add_autocomplete_provider=add_autocomplete_provider,
-                set_editor_component=set_editor_component,
+                editor=editor,
+                autocomplete=autocomplete,
+                custom_editor=custom_editor,
             ),
             _TranscriptParticipant: _TranscriptParticipant(
                 reset_hidden_thinking_label=reset_hidden_thinking_label,
@@ -379,15 +358,10 @@ def build_extension_chrome_owners(
     component: ExtensionChromeComponent,
     footer: FooterComponent,
     listeners: TerminalInputListeners,
-    custom_editor_active: Callable[[], bool],
-    read_input_text: Callable[[], str],
-    current_custom_editor_component: Callable[[], object | None],
-    clear_autocomplete: Callable[[], None],
-    clear_custom_editor: Callable[[], None],
-    restore_editor_text: Callable[[str], None],
+    editor: InputEditor,
+    autocomplete: AutocompleteComponent,
+    custom_editor: CustomEditorOwner,
     reset_hidden_thinking_label: Callable[[], None],
-    add_autocomplete_provider: Callable[[object], None],
-    set_editor_component: Callable[[object | None], None],
     set_hidden_thinking_label: Callable[[str | None], None],
 ) -> ExtensionChromeOwners:
     """Build the concrete owner graph from narrow sibling/facade ports."""
@@ -397,12 +371,9 @@ def build_extension_chrome_owners(
         paint_lock,
         repaint,
         dispose_region=component.dispose_region,
-        custom_editor_active=custom_editor_active,
-        read_input_text=read_input_text,
-        current_custom_editor_component=current_custom_editor_component,
-        clear_autocomplete=clear_autocomplete,
-        clear_custom_editor=clear_custom_editor,
-        restore_editor_text=restore_editor_text,
+        editor=editor,
+        autocomplete=autocomplete,
+        custom_editor=custom_editor,
         restore_title=component.restore_title,
         reset_hidden_thinking_label=reset_hidden_thinking_label,
         set_widget=component.set_widget,
@@ -411,8 +382,6 @@ def build_extension_chrome_owners(
         set_title=component.set_title,
         set_indicator=component.set_working_indicator,
         add_listener=listeners.add,
-        add_autocomplete_provider=add_autocomplete_provider,
-        set_editor_component=set_editor_component,
         set_hidden_thinking_label=set_hidden_thinking_label,
     )
     return ExtensionChromeOwners(record, component, footer, listeners, generation)

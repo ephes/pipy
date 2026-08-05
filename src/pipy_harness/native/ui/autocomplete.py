@@ -29,10 +29,9 @@ Ownership decisions, recorded:
   pre-extraction facade did; the injected ``repaint`` callable performs its
   own locking. The overlay components lock because their records are shared
   with concurrent painters mid-transition; nothing here changes that split.
-- ``custom_editor_component`` is an injected zero-argument callable because
-  the live custom-editor component is (for now) owned by the terminal-UI
-  shell; the callable retires when ``ui/components/custom_editor.py`` owns
-  that record (decomposition plan slice 24).
+- The live custom-editor owner is injected directly. Provider publication can
+  therefore forward to the current component without a component-discovery
+  callback or a facade hop.
 
 The workspace root is taken by value rather than as a handle to the terminal
 UI: the root is the only thing completion needs, and the shell's ``cwd`` is
@@ -64,6 +63,7 @@ from pipy_harness.native.editor_completion import (
 )
 from pipy_harness.native.editor_state import CompletionItem, CompletionMode, EditorState
 from pipy_harness.native.frame_renderer import FrameLine, clip_text
+from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 
 
 class BuiltinAutocompleteProvider:
@@ -158,14 +158,14 @@ class AutocompleteComponent:
         *,
         cwd: Path,
         repaint: Callable[[], None],
-        custom_editor_component: Callable[[], object | None],
+        custom_editor: CustomEditorOwner,
         surface: CommandSurface | None = None,
         max_visible: int = 5,
     ) -> None:
         self._editor = editor
         self._cwd = cwd
         self._repaint = repaint
-        self._custom_editor_component = custom_editor_component
+        self._custom_editor = custom_editor
         self._surface = surface if surface is not None else CommandSurface()
         self._max_visible = max_visible
 
@@ -267,25 +267,28 @@ class AutocompleteComponent:
 
     # --- provider registry ---------------------------------------------------
 
+    def clear_generation_state(self) -> None:
+        """Detach extension providers and close their active popup."""
+
+        self._editor.autocomplete_provider_factories.clear()
+        self._editor.close_autocomplete()
+
     def add_extension_provider(self, factory: object) -> None:
         if callable(factory):
             self._editor.autocomplete_provider_factories.append(factory)
-            component = self._custom_editor_component()
-            if component is not None:
-                self.forward_to_custom_editor(component)
+            if self._custom_editor.active:
+                self._custom_editor.forward_autocomplete_provider(
+                    self.resolved_provider()
+                )
 
-    def forward_to_custom_editor(self, component: object) -> None:
-        setter = getattr(component, "set_autocomplete_provider", None) or getattr(
-            component, "setAutocompleteProvider", None
-        )
-        if not callable(setter) or not self._editor.autocomplete_provider_factories:
-            return
-        try:
-            setter(self._provider())
-        except Exception:  # noqa: BLE001 - fail-soft extension UI adapter
-            pass
+    def custom_editor_provider(self) -> object | None:
+        """Return the current provider only when extensions contributed one."""
 
-    def _provider(self) -> object:
+        if not self._editor.autocomplete_provider_factories:
+            return None
+        return self.resolved_provider()
+
+    def resolved_provider(self) -> object:
         provider: object = BuiltinAutocompleteProvider(self._cwd)
         for factory in self._editor.autocomplete_provider_factories:
             try:
@@ -301,7 +304,7 @@ class AutocompleteComponent:
     def _suggestions(self, *, force: bool) -> AutocompleteSuggestion | None:
         cursor = self._editor.effective_cursor()
         lines, cursor_line, cursor_col = cursor_to_line_col(self._editor.text, cursor)
-        provider = self._provider()
+        provider = self.resolved_provider()
         if force:
             try:
                 should = call_provider_method(

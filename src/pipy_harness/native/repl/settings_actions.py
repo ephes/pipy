@@ -41,11 +41,13 @@ from pipy_harness.native.themes import (
     select_theme,
 )
 from pipy_harness.native.tui import (
-    HOTKEY_TOGGLE_THINKING,
-    HOTKEY_TOGGLE_TOOLS,
     ModelSelectorOption,
     SettingsRow,
     ToolLoopTerminalUi,
+)
+from pipy_harness.native.ui.components.custom_editor import (
+    HOTKEY_TOGGLE_THINKING,
+    HOTKEY_TOGGLE_TOOLS,
 )
 
 

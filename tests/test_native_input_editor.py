@@ -15,6 +15,11 @@ import pytest
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.frame_renderer import InputSnapshot, input_lines
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.custom_editor import (
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
+)
 from pipy_harness.native.ui.components.input_editor import (
     EditingKeyContext,
     InputEditor,
@@ -25,6 +30,30 @@ from pipy_harness.native.ui.paint_lock import PaintLock
 _COMMANDS = ("/hotkeys", "/model", "/settings")
 
 
+def _custom_owner(state: EditorState, lock: PaintLock) -> CustomEditorOwner:
+    def noop() -> None:
+        return None
+
+    return CustomEditorOwner(
+        CustomEditorState(),
+        state,
+        lock,
+        noop,
+        host=object(),
+        theme=lambda: object(),
+        keybindings_manager=lambda: None,
+        effects=CustomEditorEffects(
+            restore_input_text=lambda _text: None,
+            clear_initial_text=noop,
+            enqueue_follow_up=lambda _text: None,
+            restore_pending=noop,
+            paste_clipboard_image=noop,
+            external_editor=lambda _text: None,
+            autocomplete_provider=lambda: None,
+        ),
+    )
+
+
 def _owner(
     state: EditorState | None = None,
     *,
@@ -33,15 +62,15 @@ def _owner(
 ) -> InputEditor:
     paint_events = paints if paints is not None else []
     refresh_events = refreshes if refreshes is not None else []
+    editor = state if state is not None else EditorState()
+    lock = PaintLock()
     return InputEditor(
-        state if state is not None else EditorState(),
-        PaintLock(),
+        editor,
+        lock,
         lambda: paint_events.append("paint"),
         command_names=lambda: _COMMANDS,
         refresh_autocomplete=lambda: refresh_events.append("refresh"),
-        custom_editor_active=lambda: False,
-        custom_editor_text=lambda: "",
-        set_custom_editor_text=lambda _text: None,
+        custom_editor=_custom_owner(editor, lock),
         insert_paste=lambda _text: None,
     )
 
@@ -199,9 +228,7 @@ def test_record_transition_is_atomic_and_callbacks_run_outside_lock() -> None:
         lambda: outside("paint"),
         command_names=command_names,
         refresh_autocomplete=lambda: outside("refresh"),
-        custom_editor_active=lambda: False,
-        custom_editor_text=lambda: "",
-        set_custom_editor_text=lambda _text: outside("custom"),
+        custom_editor=_custom_owner(state, cast(PaintLock, lock)),
         insert_paste=lambda _text: outside("paste"),
     )
 

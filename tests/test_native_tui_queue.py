@@ -13,6 +13,11 @@ import pytest
 
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.tui import TURN_STEERED, ToolLoopTerminalUi
+from pipy_harness.native.ui.components.custom_editor import (
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
+)
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.pending_messages import PendingMessages
 
@@ -35,6 +40,7 @@ class _InterleavingPaintLock(PaintLock):
         self.depth = 0
         self.entries = 0
         self.on_release: Callable[[], None] | None = None
+        self.skip_releases = 0
 
     def __enter__(self) -> bool:
         entered = super().__enter__()
@@ -51,6 +57,9 @@ class _InterleavingPaintLock(PaintLock):
         self.depth -= 1
         super().__exit__(exc_type, exc, traceback)
         if self.depth == 0 and self.on_release is not None:
+            if self.skip_releases:
+                self.skip_releases -= 1
+                return
             callback = self.on_release
             self.on_release = None
             callback()
@@ -169,44 +178,66 @@ def test_restore_is_one_atomic_transition_with_callbacks_outside_lock(
         assert lock.depth == 0
         events.append(event)
 
-    def active() -> bool:
-        outside_lock("active")
-        return custom_active
+    class Component:
+        def get_text(self) -> str:
+            outside_lock("get-custom-text")
+            return "draft"
 
-    def custom_text() -> str:
-        outside_lock("get-custom-text")
-        return "draft"
+        def set_text(self, text: str) -> None:
+            outside_lock(f"set-custom-text:{text}")
 
-    def set_custom_text(text: str) -> None:
-        outside_lock(f"set-custom-text:{text}")
+    record = CustomEditorState(
+        component=Component() if custom_active else None,
+        active=custom_active,
+    )
 
+    def noop() -> None:
+        return None
+
+    custom_editor = CustomEditorOwner(
+        record,
+        editor,
+        lock,
+        noop,
+        host=object(),
+        theme=lambda: object(),
+        keybindings_manager=lambda: None,
+        effects=CustomEditorEffects(
+            restore_input_text=lambda _text: None,
+            clear_initial_text=noop,
+            enqueue_follow_up=lambda _text: None,
+            restore_pending=noop,
+            paste_clipboard_image=noop,
+            external_editor=lambda _text: None,
+            autocomplete_provider=lambda: None,
+        ),
+    )
     owner = PendingMessages(
         editor,
         lock,
         lambda: outside_lock("repaint"),
-        custom_editor_active=active,
-        custom_editor_text=custom_text,
-        set_custom_editor_text=set_custom_text,
+        custom_editor=custom_editor,
         refresh_slash_menu=lambda: outside_lock("refresh"),
     )
     lock.on_release = lambda: owner.enqueue_follow_up("concurrent")
+    lock.skip_releases = 2 if custom_active else 1
     entries_before = lock.entries
 
     owner.restore_pending_to_editor()
 
-    assert lock.entries - entries_before == 2  # restore plus simulated owner operation
+    expected_entries = 5 if custom_active else 3
+    assert lock.entries - entries_before == expected_entries
     assert editor.text == ("initial\n\ndraft" if custom_active else "initial")
     assert [message.content for message in editor.pending_messages()] == ["concurrent"]
     if custom_active:
         assert events == [
-            "active",
             "get-custom-text",
             "repaint",
             f"set-custom-text:{editor.text}",
             "repaint",
         ]
     else:
-        assert events == ["active", "repaint", "refresh", "repaint"]
+        assert events == ["repaint", "refresh", "repaint"]
 
 
 def test_pending_region_keeps_input_footer_in_frame(tmp_path: Path) -> None:

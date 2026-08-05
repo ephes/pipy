@@ -4,13 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TypeVar
 
+from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import (
     ChromeRegion,
     ExtensionChromeSnapshot,
     ExtensionChromeState,
 )
+from pipy_harness.native.ui.autocomplete import AutocompleteComponent
+from pipy_harness.native.ui.components.custom_editor import (
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
+)
+from pipy_harness.native.ui.components.input_editor import InputEditor
 from pipy_harness.native.ui.extension_generation import (
     EXTENSION_GENERATION_PARTICIPANTS,
     ExtensionGenerationOwner,
@@ -32,23 +41,67 @@ def _owner(
     custom_editor_active: bool = False,
     current_component: object | None = None,
 ) -> ExtensionGenerationOwner:
+    editor_state = EditorState(text="custom draft")
+    paint_lock = PaintLock()
+
+    def noop() -> None:
+        return None
+
+    custom_editor = CustomEditorOwner(
+        CustomEditorState(
+            component=current_component if custom_editor_active else None,
+            active=custom_editor_active,
+        ),
+        editor_state,
+        paint_lock,
+        noop,
+        host=object(),
+        theme=lambda: object(),
+        keybindings_manager=lambda: None,
+        effects=CustomEditorEffects(
+            restore_input_text=lambda _text: None,
+            clear_initial_text=noop,
+            enqueue_follow_up=lambda _text: None,
+            restore_pending=noop,
+            paste_clipboard_image=noop,
+            external_editor=lambda _text: None,
+            autocomplete_provider=lambda: None,
+        ),
+    )
+    autocomplete = AutocompleteComponent(
+        editor_state,
+        cwd=Path("."),
+        repaint=noop,
+        custom_editor=custom_editor,
+    )
+    input_editor = InputEditor(
+        editor_state,
+        paint_lock,
+        noop,
+        command_names=lambda: (),
+        refresh_autocomplete=noop,
+        custom_editor=custom_editor,
+        insert_paste=lambda _text: None,
+    )
+    autocomplete.clear_generation_state = lambda: events.append("clear-autocomplete")  # type: ignore[method-assign]
+    autocomplete.add_extension_provider = lambda _factory: events.append("autocomplete")  # type: ignore[assignment,method-assign]
+    custom_editor.clear_generation_state = lambda: events.append("clear-custom-editor")  # type: ignore[method-assign]
+    custom_editor.set_editor_component = lambda _factory: events.append("editor")  # type: ignore[assignment,method-assign]
+
+    def restore_editor_text(text: str) -> None:
+        events.append(f"restore-editor:{text}")
+
+    input_editor.restore_generation_text = restore_editor_text  # type: ignore[method-assign]
     return ExtensionGenerationOwner(
         record,
-        PaintLock(),
+        paint_lock,
         lambda: events.append("repaint"),
         dispose_region=lambda region: events.append(
             f"dispose-region:{region.snapshot[0]}"
         ),
-        custom_editor_active=lambda: _record(
-            events, "custom-editor-active", custom_editor_active
-        ),
-        read_input_text=lambda: _record(events, "read-input-text", "custom draft"),
-        current_custom_editor_component=lambda: _record(
-            events, "detach-custom-editor", current_component
-        ),
-        clear_autocomplete=lambda: events.append("clear-autocomplete"),
-        clear_custom_editor=lambda: events.append("clear-custom-editor"),
-        restore_editor_text=lambda text: events.append(f"restore-editor:{text}"),
+        editor=input_editor,
+        autocomplete=autocomplete,
+        custom_editor=custom_editor,
         restore_title=lambda: events.append("restore-title"),
         reset_hidden_thinking_label=lambda: events.append("reset-thinking"),
         set_widget=lambda key, _content, placement: events.append(
@@ -63,8 +116,6 @@ def _owner(
             f"listener:{handler('probe')}",
             lambda: events.append("dispose-listener"),
         ),
-        add_autocomplete_provider=lambda _factory: events.append("autocomplete"),
-        set_editor_component=lambda _factory: events.append("editor"),
         set_hidden_thinking_label=lambda label: events.append(f"thinking:{label}"),
     )
 
@@ -117,9 +168,6 @@ def test_retirement_preserves_detach_dispose_finalize_order() -> None:
     owner.retire_generation(retirement_scope=retirement_scope)
 
     assert events == [
-        "custom-editor-active",
-        "read-input-text",
-        "detach-custom-editor",
         "clear-autocomplete",
         "clear-custom-editor",
         "scope-enter",
@@ -162,7 +210,6 @@ def test_reconcile_retires_first_then_installs_snapshot_in_order() -> None:
     disposers = _owner(record, events).reconcile_generation(snapshot)
 
     assert events == [
-        "custom-editor-active",
         "clear-autocomplete",
         "clear-custom-editor",
         "clear-autocomplete",

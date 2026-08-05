@@ -363,7 +363,7 @@ def test_facade_custom_editor_snapshot_preserves_rows_cursor_and_window(
 ) -> None:
     ui = _ui(tmp_path)
     component = _RowsEditor([f"row{index}" for index in range(10)])
-    ui.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
 
     snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=False)
     direct = render_live_region(snapshot)
@@ -391,7 +391,7 @@ def test_facade_full_frame_does_not_finish_custom_editor_rows_twice(
 ) -> None:
     ui = _ui(tmp_path)
     component = _RowsEditor(["ONCE\rRESOLVED"])
-    ui.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
 
     def non_idempotent_finish(text: str, width: int) -> str:
         del width
@@ -412,7 +412,7 @@ def test_facade_custom_editor_keeps_head_plain_control_policy_at_narrow_width(
 ) -> None:
     ui = _ui(tmp_path)
     component = _RowsEditor(["\x1b[31mRED\x1b[0m", "A\rB\x1b]0;X\x07"])
-    ui.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
 
     snapshot = ui._frame_snapshot(width=6, height=6, include_session_picker=False)
     snapshot_rows = snapshot.input.custom_rows
@@ -420,7 +420,7 @@ def test_facade_custom_editor_keeps_head_plain_control_policy_at_narrow_width(
     owner_rows = ui.input_editor.input_frame_lines(
         6,
         max_rows=2,
-        custom_rows=tuple(ui._custom_editor_frame_lines(6, max_rows=2)),
+        custom_rows=tuple(ui._custom_editor.frame_lines(6, max_rows=2)),
     )
 
     assert snapshot_rows is not None
@@ -441,11 +441,11 @@ def test_input_owner_treats_zero_as_one_row(tmp_path: Path) -> None:
 
     ordinary = ui.input_editor.input_frame_lines(3, max_rows=0)
     component = _RowsEditor(["first", "second"])
-    ui.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
     custom = ui.input_editor.input_frame_lines(
         6,
         max_rows=0,
-        custom_rows=tuple(ui._custom_editor_frame_lines(6, max_rows=0)),
+        custom_rows=tuple(ui._custom_editor.frame_lines(6, max_rows=0)),
     )
 
     assert len(ordinary) == len(custom) == 1

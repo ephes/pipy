@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from pipy_harness.native.editor_state import EditorState, QueuedInputKind
 from pipy_harness.native.frame_renderer import FrameLine, clip_text
+from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 _PENDING_REGION_MAX_ROWS = 6
@@ -26,17 +27,13 @@ class PendingMessages:
         paint_lock: PaintLock,
         repaint: Callable[[], None],
         *,
-        custom_editor_active: Callable[[], bool],
-        custom_editor_text: Callable[[], str],
-        set_custom_editor_text: Callable[[str], None],
+        custom_editor: CustomEditorOwner,
         refresh_slash_menu: Callable[[], None],
     ) -> None:
         self._editor = editor
         self._paint_lock = paint_lock
         self._repaint = repaint
-        self._custom_editor_active = custom_editor_active
-        self._custom_editor_text = custom_editor_text
-        self._set_custom_editor_text = set_custom_editor_text
+        self._custom_editor = custom_editor
         self._refresh_slash_menu = refresh_slash_menu
 
     def enqueue_steering(self, text: str) -> None:
@@ -63,15 +60,15 @@ class PendingMessages:
     def restore_pending_to_editor(self) -> None:
         """Restore drain then queued lanes ahead of the current editor draft."""
 
-        custom_active = self._custom_editor_active()
-        custom_text = self._custom_editor_text() if custom_active else None
+        custom_active = self._custom_editor.active
+        custom_text = self._custom_editor.text() if custom_active else None
         with self._paint_lock:
             restored = self._editor.restore_pending_to_editor(custom_text=custom_text)
             restored_text = self._editor.text
         if not restored:
             return
         if custom_active:
-            self._set_custom_editor_text(restored_text)
+            self._custom_editor.set_text(restored_text)
         else:
             self._refresh_slash_menu()
         self._repaint()

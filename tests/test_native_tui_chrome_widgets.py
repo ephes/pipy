@@ -119,8 +119,8 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     ui._chrome.component.set_working_message("sticky")
     ui._chrome.component.set_working_visible(False)
     ui._chrome.listeners.add(lambda key: None)
-    ui.add_extension_autocomplete_provider(lambda base: base)
-    ui.set_editor_component(lambda *_args: object())
+    ui._autocomplete.add_extension_provider(lambda base: base)
+    ui._custom_editor.set_editor_component(lambda *_args: object())
     ui._transcript.set_hidden_thinking_label("Folded")
     ui.clear_extension_chrome()
     assert ui._chrome.record.widgets_above == {}
@@ -131,7 +131,7 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui._chrome.record.title is None
     assert ui._chrome.record.terminal_input_listeners == {}
     assert ui.input_editor.editor_state.autocomplete_provider_factories == []
-    assert ui.get_editor_component() is None
+    assert ui._custom_editor.factory is None
     assert ui._transcript.hidden_thinking_label == "Thinking..."
     assert ui._chrome.record.statuses == {"status": "value"}
     assert ui._chrome.record.working_message == "sticky"
@@ -181,13 +181,13 @@ def test_reconcile_clears_active_custom_editor_and_round_trips_its_text():
 
     component = _Editor()
     ui.input_editor.set_input_text("built-in draft")
-    ui.set_editor_component(lambda *_args: component)
+    ui._custom_editor.set_editor_component(lambda *_args: component)
     component.text = "custom draft"
 
     ui.reconcile_extension_chrome(ExtensionChromeSnapshot())
 
     assert disposed == ["custom draft"]
-    assert ui.get_editor_component() is None
+    assert ui._custom_editor.factory is None
     assert ui.input_editor.get_input_text() == "custom draft"
     assert ui._transcript.hidden_thinking_label == "Thinking..."
 
@@ -207,7 +207,7 @@ def test_clear_propagates_custom_editor_text_interrupt_before_detach(interrupt_t
             return ["editor"]
 
     factory = lambda *_args: _Editor()  # noqa: E731
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
     ui._chrome.component.set_widget("kept", ["kept"])
     generation = ui._chrome.record.generation
 
@@ -215,7 +215,7 @@ def test_clear_propagates_custom_editor_text_interrupt_before_detach(interrupt_t
         ui.clear_extension_chrome()
 
     assert ui._chrome.record.generation == generation
-    assert ui.get_editor_component() is factory
+    assert ui._custom_editor.factory is factory
     assert "kept" in ui._chrome.record.widgets_above
 
 
@@ -262,7 +262,7 @@ def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa
             observe_lock("editor-dispose")
 
     ui._chrome.component.set_widget("region", lambda _theme: _Region())
-    ui.set_editor_component(lambda *_args: _Editor())
+    ui._custom_editor.set_editor_component(lambda *_args: _Editor())
     ui._chrome.component.set_title("extension")
     driver_type = type(ui._driver)
     original_restore = driver_type.restore_title
@@ -505,7 +505,7 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
     assert ui._chrome.record.title == snapshot.title
     assert ui._chrome.record.header is not None
     assert ui._chrome.record.header.source is snapshot.header
-    assert ui.get_editor_component() is snapshot.editor_component
+    assert ui._custom_editor.factory is snapshot.editor_component
     assert ui.input_editor.editor_state.autocomplete_provider_factories == [
         candidate_autocomplete
     ]

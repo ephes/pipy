@@ -15,6 +15,7 @@ from pathlib import Path
 
 from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.editor_state import EditorState
+from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -55,8 +56,7 @@ class ClipboardImages:
         command_names: Callable[[], tuple[str, ...]],
         refresh_autocomplete: Callable[[], None],
         add_notice: Callable[[str], None],
-        custom_editor_text: Callable[[], str | None],
-        set_custom_editor_text: Callable[[str], None],
+        custom_editor: CustomEditorOwner,
     ) -> None:
         self._editor = editor
         self._paint_lock = paint_lock
@@ -66,8 +66,7 @@ class ClipboardImages:
         self._command_names = command_names
         self._refresh_autocomplete = refresh_autocomplete
         self._add_notice = add_notice
-        self._custom_editor_text = custom_editor_text
-        self._set_custom_editor_text = set_custom_editor_text
+        self._custom_editor = custom_editor
         self._image_count = 0
 
     @property
@@ -149,9 +148,9 @@ class ClipboardImages:
             return
         reference = f'"{path}"' if " " in str(path) else str(path)
         insertion = f"@image:{reference} "
-        custom_text = self._custom_editor_text()
+        custom_text = self._custom_editor.text() if self._custom_editor.active else None
         if custom_text is not None:
-            self._set_custom_editor_text(f"{custom_text}{insertion}")
+            self._custom_editor.set_text(f"{custom_text}{insertion}")
             self._repaint()
             return
         self._insert_editor_text(insertion)

@@ -5,21 +5,30 @@ import os
 import shlex
 import sys
 from collections.abc import Callable, Iterator
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.native.clipboard import ImageClipboardResult
+from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsManager
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import (
+from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.clipboard_images import ClipboardConfig
+from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    HOTKEY_MODEL_CYCLE_NEXT,
+    HOTKEY_MODEL_CYCLE_PREV,
     HOTKEY_MODEL_SELECT,
     HOTKEY_THINKING_CYCLE,
-    ToolLoopTerminalUi,
+    HOTKEY_TOGGLE_THINKING,
+    HOTKEY_TOGGLE_TOOLS,
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
     _CustomEditorKeybindings,
 )
-from pipy_harness.native.ui.clipboard_images import ClipboardConfig
+from pipy_harness.native.ui.paint_lock import PaintLock
 
 
 class _TtyBuffer:
@@ -104,6 +113,20 @@ class _CustomEditor:
         self.autocomplete_provider = provider
 
 
+class _TrackingLock:
+    def __init__(self) -> None:
+        self.depth = 0
+        self.entries = 0
+
+    def __enter__(self) -> bool:
+        self.depth += 1
+        self.entries += 1
+        return True
+
+    def __exit__(self, *_args: object) -> None:
+        self.depth -= 1
+
+
 class _IdentityAutocompleteProvider:
     def get_suggestions(
         self, lines: object, line: int, col: int, context: object
@@ -118,6 +141,123 @@ class _CamelActionCustomEditor(_CustomEditor):
         super().__init__()
         del self.action_handlers
         self.actionHandlers: dict[str, object] = {}
+
+
+def test_terminal_wires_one_custom_owner_to_exact_shared_state_and_lock(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    owner = ui._custom_editor
+
+    assert tuple(field.name for field in fields(CustomEditorState)) == (
+        "factory",
+        "component",
+        "active",
+        "submitted",
+        "changed_text",
+        "action",
+        "exit_requested",
+    )
+    assert owner.editor_state is ui.input_editor.editor_state
+    assert owner._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert ui.input_editor._custom_editor is owner  # noqa: SLF001
+    assert ui.pending_messages._custom_editor is owner  # noqa: SLF001
+    assert ui.clipboard_images._custom_editor is owner  # noqa: SLF001
+    assert ui._autocomplete._custom_editor is owner  # noqa: SLF001
+    assert not any(
+        hasattr(ui, name)
+        for name in (
+            "_custom_editor_factory",
+            "_custom_editor_component",
+            "_custom_editor_active",
+            "_custom_editor_submitted",
+            "_custom_editor_changed_text",
+            "_custom_editor_action",
+            "_custom_editor_exit_requested",
+        )
+    )
+
+
+def test_owner_transitions_are_single_section_and_callbacks_are_unlocked() -> None:
+    editor = EditorState(text="seed")
+    lock = _TrackingLock()
+    events: list[str] = []
+
+    def outside(event: str) -> None:
+        assert lock.depth == 0
+        events.append(event)
+
+    def external(text: str) -> str | None:
+        outside(f"external:{text}")
+        return None
+
+    effects = CustomEditorEffects(
+        restore_input_text=lambda text: outside(f"restore:{text}"),
+        clear_initial_text=lambda: outside("clear-initial"),
+        enqueue_follow_up=lambda text: outside(f"follow:{text}"),
+        restore_pending=lambda: outside("restore-pending"),
+        paste_clipboard_image=lambda: outside("paste-image"),
+        external_editor=external,
+        autocomplete_provider=lambda: None,
+    )
+    owner = CustomEditorOwner(
+        CustomEditorState(),
+        editor,
+        cast(PaintLock, lock),
+        lambda: outside("repaint"),
+        host=object(),
+        theme=lambda: object(),
+        keybindings_manager=lambda: None,
+        effects=effects,
+    )
+    component = _CustomEditor()
+    owner.set_editor_component(lambda *_args: component)
+    events.clear()
+
+    entries = lock.entries
+    assert component.on_change is not None
+    component.on_change("changed")
+    assert lock.entries - entries == 1
+    assert owner.state.changed_text == "changed"
+    assert editor.text == "changed"
+
+    entries = lock.entries
+    owner.queue_action("app.tools.expand")
+    assert lock.entries - entries == 1
+    assert owner.state.action == "app.tools.expand"
+
+    entries = lock.entries
+    owner.clear_generation_state()
+    assert lock.entries - entries == 1
+    assert owner.state == CustomEditorState()
+    assert events == []
+
+
+def test_owner_hotkey_action_matrix_preserves_draft(tmp_path: Path) -> None:
+    expected = {
+        "app.model.cycleForward": HOTKEY_MODEL_CYCLE_NEXT,
+        "app.model.cycleBackward": HOTKEY_MODEL_CYCLE_PREV,
+        "app.model.select": HOTKEY_MODEL_SELECT,
+        "app.thinking.cycle": HOTKEY_THINKING_CYCLE,
+        "app.tools.expand": HOTKEY_TOGGLE_TOOLS,
+        "app.thinking.toggle": HOTKEY_TOGGLE_THINKING,
+    }
+    for action, sentinel in expected.items():
+        ui = _ui(tmp_path)
+        component = _CustomEditor()
+
+        def handle_input(_key: str, *, action: str = action) -> None:
+            handler = component.action_handlers[action]
+            assert callable(handler)
+            handler()
+
+        component.handle_input = handle_input  # type: ignore[assignment,method-assign]
+        ui.input_editor.set_input_text("draft")
+        ui._custom_editor.set_editor_component(lambda *_args: component)
+
+        assert ui._custom_editor.handle_key("key") == sentinel
+        assert ui.input_editor.pending_initial_text == "draft"
+        assert component.text == ""
 
 
 def test_custom_editor_read_line_routes_keys_only_to_custom_component(
@@ -138,7 +278,7 @@ def test_custom_editor_read_line_routes_keys_only_to_custom_component(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     assert ui.read_line("> ") == "x\n"
 
@@ -194,7 +334,7 @@ def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     assert ui.read_line("> ") == "\x00pipy-hotkey:model-cycle-next\n"
     assert ui.input_editor.pending_initial_text == "draft"
@@ -219,8 +359,8 @@ def test_custom_editor_read_line_forwards_resolved_autocomplete_provider(
     )
 
     ui.input_editor.set_input_text("seed")
-    ui.add_extension_autocomplete_provider(lambda base: provider)
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._autocomplete.add_extension_provider(lambda base: provider)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == "seed\n"
 
@@ -235,27 +375,27 @@ def test_custom_editor_component_renders_routes_keys_and_submits(
     ui = _ui(tmp_path)
     component = _CustomEditor()
     ui.input_editor.set_input_text("seed")
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
-    assert ui.get_editor_component() is not None
+    assert ui._custom_editor.factory is not None
     assert "custom editor: seed" in "\n".join(ui.render_lines(width=72, height=12))
 
-    assert ui._handle_custom_editor_key("!") is None
+    assert ui._custom_editor.handle_key("!") is None
     assert component.keys == ["!"]
     assert ui.input_editor.get_input_text() == "seed!"
-    assert ui._handle_custom_editor_key("enter") == "seed!"
+    assert ui._custom_editor.handle_key("enter") == "seed!"
 
 
 def test_custom_editor_component_clear_preserves_text(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
     ui.input_editor.set_input_text("before")
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
-    assert ui._handle_custom_editor_key("+") is None
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
+    assert ui._custom_editor.handle_key("+") is None
 
-    ui.set_editor_component(None)
+    ui._custom_editor.set_editor_component(None)
 
-    assert ui.get_editor_component() is None
+    assert ui._custom_editor.factory is None
     assert ui.input_editor.get_input_text() == "before+"
     assert "before+" in "\n".join(ui.render_lines(width=72, height=12))
 
@@ -267,9 +407,9 @@ def test_custom_editor_component_factory_failure_falls_back(tmp_path: Path) -> N
     def bad_factory(tui: object, theme: object, keybindings: object) -> object:
         raise RuntimeError("boom")
 
-    ui.set_editor_component(bad_factory)
+    ui._custom_editor.set_editor_component(bad_factory)
 
-    assert ui.get_editor_component() is bad_factory
+    assert ui._custom_editor.factory is bad_factory
     assert ui.input_editor.get_input_text() == "kept"
 
 
@@ -282,9 +422,9 @@ def test_custom_editor_component_none_return_still_reports_factory(
     def empty_factory(tui: object, theme: object, keybindings: object) -> object | None:
         return None
 
-    ui.set_editor_component(empty_factory)
+    ui._custom_editor.set_editor_component(empty_factory)
 
-    assert ui.get_editor_component() is empty_factory
+    assert ui._custom_editor.factory is empty_factory
     assert ui.input_editor.get_input_text() == "kept"
 
 
@@ -293,8 +433,8 @@ def test_custom_editor_receives_latest_autocomplete_provider(tmp_path: Path) -> 
     provider = object()
     component = _CustomEditor()
 
-    ui.add_extension_autocomplete_provider(lambda base: provider)
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._autocomplete.add_extension_provider(lambda base: provider)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert component.autocomplete_provider is provider
 
@@ -327,7 +467,7 @@ def test_custom_editor_component_app_action_preserves_text_for_next_prompt(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == f"{HOTKEY_THINKING_CYCLE}\n"
     assert ui.input_editor.pending_initial_text == "a"
@@ -346,7 +486,7 @@ def test_custom_editor_keybindings_expose_pi_style_bindings(tmp_path: Path) -> N
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     keybindings = component.keybindings
     assert keybindings is not None
@@ -368,7 +508,7 @@ def test_custom_editor_keybindings_match_real_decoded_keys(tmp_path: Path) -> No
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     keybindings = component.keybindings
     assert keybindings is not None
@@ -412,7 +552,7 @@ def test_custom_editor_component_model_select_preserves_draft(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     assert ui.read_line("> ") == f"{HOTKEY_MODEL_SELECT}\n"
     assert ui.input_editor.pending_initial_text == "draft"
@@ -446,7 +586,7 @@ def test_custom_editor_component_follow_up_queues_and_clears_draft(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == "\n"
     assert ui.pending_messages.has_pending_messages()
@@ -467,9 +607,9 @@ def test_custom_editor_component_empty_follow_up_does_not_queue(
             handler()
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
-    assert ui._handle_custom_editor_key("alt-enter") is None
+    assert ui._custom_editor.handle_key("alt-enter") is None
     assert not ui.pending_messages.has_pending_messages()
 
 
@@ -491,13 +631,13 @@ def test_custom_editor_component_dequeue_preserves_current_draft(
             component.on_submit(component.text)
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
     component.set_text("draft")
 
-    assert ui._handle_custom_editor_key("alt-up") is None
+    assert ui._custom_editor.handle_key("alt-up") is None
     assert ui.input_editor.get_input_text() == "queued\n\ndraft"
     assert ui.input_editor.pending_initial_text == "queued\n\ndraft"
-    assert ui._handle_custom_editor_key("enter") == "queued\n\ndraft"
+    assert ui._custom_editor.handle_key("enter") == "queued\n\ndraft"
     assert ui.input_editor.pending_initial_text is None
 
 
@@ -514,7 +654,7 @@ def test_restore_without_queue_snapshots_custom_editor_without_changing_state(
             raise AssertionError("custom editor snapshot fails soft")
 
     component = HostileEditor()
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
     ui.pending_messages.enqueue_steering("already drained")
     ui.pending_messages.promote_pending_to_drain()
     assert ui.pending_messages.take_next_drain() == "already drained"
@@ -538,7 +678,7 @@ def test_restore_prefill_precedence_ignores_custom_editor_snapshot(
             raise AssertionError("custom editor snapshot fails soft")
 
     component = HostileEditor()
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
     ui.input_editor.set_input_text("prefill")
     ui.pending_messages.enqueue_steering("queued")
 
@@ -561,7 +701,7 @@ def test_restore_reads_custom_editor_once_when_its_draft_is_required(
             return super().get_text()
 
     component = CountingEditor()
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
     component.set_text("custom draft")
     ui.pending_messages.enqueue_steering("queued")
 
@@ -590,11 +730,11 @@ def test_custom_editor_component_follow_up_clears_restored_prefill(
             handler()
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
-    assert ui._handle_custom_editor_key("alt-up") is None
+    assert ui._custom_editor.handle_key("alt-up") is None
     assert ui.input_editor.pending_initial_text == "queued"
-    assert ui._handle_custom_editor_key("alt-enter") is None
+    assert ui._custom_editor.handle_key("alt-enter") is None
     assert ui.input_editor.pending_initial_text is None
     assert ui.input_editor.get_input_text() == ""
 
@@ -617,11 +757,11 @@ def test_custom_editor_component_interrupt_clears_restored_prefill(
             component.on_escape()
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
-    assert ui._handle_custom_editor_key("alt-up") is None
+    assert ui._custom_editor.handle_key("alt-up") is None
     assert ui.input_editor.pending_initial_text == "queued"
-    assert ui._handle_custom_editor_key("escape") is None
+    assert ui._custom_editor.handle_key("escape") is None
     assert ui.input_editor.pending_initial_text is None
     assert ui.input_editor.get_input_text() == ""
 
@@ -632,7 +772,7 @@ def test_custom_editor_component_restore_survives_next_read_line(
     ui = _ui(tmp_path)
     component = _CustomEditor()
     ui.pending_messages.enqueue_follow_up("queued")
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     ui.pending_messages.restore_pending_to_editor()
 
@@ -675,14 +815,14 @@ def test_custom_editor_component_exit_only_when_empty(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == "x\n"
 
     component = _CustomEditor()
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys = iter(("ctrl-d",))
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == ""
 
@@ -702,11 +842,11 @@ def test_custom_editor_component_exit_flag_does_not_leak(tmp_path: Path) -> None
             component.on_submit(component.text)
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
-    assert ui._handle_custom_editor_key("ctrl-d") == ""
+    assert ui._custom_editor.handle_key("ctrl-d") == ""
     component.set_text("next")
-    assert ui._handle_custom_editor_key("enter") == "next"
+    assert ui._custom_editor.handle_key("enter") == "next"
 
 
 def test_custom_editor_component_preserves_existing_escape_callback(
@@ -723,12 +863,12 @@ def test_custom_editor_component_preserves_existing_escape_callback(
             component.on_escape()
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert component.on_escape is component.onEscape
-    assert ui._handle_custom_editor_key("escape") is None
+    assert ui._custom_editor.handle_key("escape") is None
     assert seen == ["custom"]
-    assert ui._custom_editor_action is None
+    assert ui._custom_editor.action is None
 
 
 def test_custom_editor_component_paste_image_inserts_into_component(
@@ -759,9 +899,9 @@ def test_custom_editor_component_paste_image_inserts_into_component(
             paste()
 
     component.handle_input = handle_input  # type: ignore[method-assign]
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
-    assert ui._handle_custom_editor_key("ctrl-v") is None
+    assert ui._custom_editor.handle_key("ctrl-v") is None
     assert component.get_text().startswith("@image:")
     assert ui.input_editor.get_input_text() == component.get_text()
 
@@ -788,7 +928,7 @@ def test_custom_editor_component_extension_shortcut_routes_to_session(
     ui.autocomplete.replace_command_surface(
         replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl+x"}))
     )
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl+x\n"
 
@@ -796,9 +936,9 @@ def test_custom_editor_component_extension_shortcut_routes_to_session(
 def test_custom_editor_component_ignores_non_callable_factory(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
 
-    ui.set_editor_component(object())
+    ui._custom_editor.set_editor_component(object())
 
-    assert ui.get_editor_component() is None
+    assert ui._custom_editor.factory is None
 
 
 def test_custom_editor_keybindings_include_external_editor_and_overrides(
@@ -813,7 +953,7 @@ def test_custom_editor_keybindings_include_external_editor_and_overrides(
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     assert component.keybindings is not None
     assert "app.editor.external" in component.action_handlers
@@ -833,7 +973,7 @@ def test_custom_editor_keybindings_include_external_editor_and_overrides(
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(override_factory)
+    ui._custom_editor.set_editor_component(override_factory)
 
     assert component.keybindings is not None
     assert default.keys_for("app.editor.external") == ["ctrl+g"]
@@ -848,7 +988,7 @@ def test_custom_editor_keybindings_include_external_editor_and_overrides(
 
     ui.keybindings_manager = KeybindingsManager({"app.editor.external": []})
     component = _CustomEditor()
-    ui.set_editor_component(override_factory)
+    ui._custom_editor.set_editor_component(override_factory)
     assert component.keybindings is not None
     assert getattr(component.keybindings, "keys_for")("app.editor.external") == []
     assert not getattr(component.keybindings, "matches")(
@@ -873,7 +1013,7 @@ def test_custom_editor_keybindings_manager_preserves_other_default_actions(
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     assert component.keybindings is not None
     assert getattr(component.keybindings, "keys_for")("app.model.cycleForward") == [
@@ -909,7 +1049,7 @@ def test_custom_editor_keybindings_manager_matches_all_default_action_aliases(
         component.keybindings = keybindings
         return component
 
-    ui.set_editor_component(factory)
+    ui._custom_editor.set_editor_component(factory)
 
     assert component.keybindings is not None
     expected = {
@@ -934,7 +1074,7 @@ def test_custom_editor_keybindings_manager_matches_all_default_action_aliases(
 
 
 def test_custom_editor_keybinding_actions_exist_in_default_table() -> None:
-    actions = (*_CustomEditorKeybindings._HANDLER_ACTIONS, "app.clipboard.pasteImage")
+    actions = (*_CustomEditorKeybindings.HANDLER_ACTIONS, "app.clipboard.pasteImage")
 
     assert all(action in DEFAULT_KEYBINDINGS for action in actions)
 
@@ -992,11 +1132,11 @@ def test_custom_editor_external_editor_action_updates_draft_on_success(
         )
         ui.input_editor.set_input_text("seed")
         component.handle_input = handle_input  # type: ignore[method-assign]
-        ui.set_editor_component(factory)
-        assert ui._handle_custom_editor_key("ctrl-g") is None
+        ui._custom_editor.set_editor_component(factory)
+        assert ui._custom_editor.handle_key("ctrl-g") is None
         assert component.get_text() == "edited:seed"
         assert ui.input_editor.get_input_text() == "edited:seed"
-        assert ui._custom_editor_submitted is None
+        assert ui._custom_editor.submitted is None
         assert paints
 
 
@@ -1016,12 +1156,12 @@ def test_custom_editor_external_editor_action_preserves_draft_without_editor(
     component.handle_input = handle_input  # type: ignore[method-assign]
     monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.delenv("EDITOR", raising=False)
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
-    assert ui._handle_custom_editor_key("ctrl-g") is None
+    assert ui._custom_editor.handle_key("ctrl-g") is None
     assert component.get_text() == "seed"
     assert ui.input_editor.get_input_text() == "seed"
-    assert ui._custom_editor_submitted is None
+    assert ui._custom_editor.submitted is None
 
 
 def test_custom_editor_external_editor_action_preserves_draft_on_failure(
@@ -1059,11 +1199,13 @@ def test_custom_editor_external_editor_action_preserves_draft_on_failure(
         )
         ui.input_editor.set_input_text("seed")
         component.handle_input = handle_input  # type: ignore[method-assign]
-        ui.set_editor_component(lambda tui, theme, keybindings: component)
-        assert ui._handle_custom_editor_key("ctrl-g") is None
+        ui._custom_editor.set_editor_component(
+            lambda tui, theme, keybindings: component
+        )
+        assert ui._custom_editor.handle_key("ctrl-g") is None
         assert component.get_text() == "seed"
         assert ui.input_editor.get_input_text() == "seed"
-        assert ui._custom_editor_submitted is None
+        assert ui._custom_editor.submitted is None
 
 
 def test_default_editor_external_editor_action_updates_draft_on_success(

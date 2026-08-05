@@ -49,7 +49,6 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import (
-    HOTKEY_MODEL_SELECT,
     ModelSelectorOption,
     SettingsRow,
     ToolLoopTerminalUi,
@@ -58,6 +57,12 @@ from pipy_harness.native.tui import (
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.autocomplete import AutocompleteComponent
 from pipy_harness.native.ui.clipboard_images import ClipboardImages
+from pipy_harness.native.ui.components.custom_editor import (
+    HOTKEY_MODEL_SELECT,
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
+)
 from pipy_harness.native.ui.components.input_editor import InputEditor
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
@@ -131,42 +136,67 @@ class _ExitOnlyUi:
         # command surface and reads queue/clipboard wiring through owner handles.
         editor = EditorState()
         paint_lock = PaintLock()
+
+        def noop() -> None:
+            return None
+
+        self.custom_editor = CustomEditorOwner(
+            CustomEditorState(),
+            editor,
+            paint_lock,
+            noop,
+            host=self,
+            theme=lambda: object(),
+            keybindings_manager=lambda: None,
+            effects=CustomEditorEffects(
+                restore_input_text=lambda text: self.input_editor.set_input_text(text),
+                clear_initial_text=lambda: self.input_editor.clear_initial_text(),
+                enqueue_follow_up=lambda text: self.pending_messages.enqueue_follow_up(
+                    text
+                ),
+                restore_pending=lambda: (
+                    self.pending_messages.restore_pending_to_editor()
+                ),
+                paste_clipboard_image=lambda: (
+                    self.clipboard_images.paste_clipboard_image()
+                ),
+                external_editor=lambda _text: None,
+                autocomplete_provider=lambda: (
+                    self.autocomplete.custom_editor_provider()
+                ),
+            ),
+        )
         self.autocomplete = AutocompleteComponent(
             editor,
             cwd=Path("."),
-            repaint=lambda: None,
-            custom_editor_component=lambda: None,
+            repaint=noop,
+            custom_editor=self.custom_editor,
         )
         self.pending_messages = PendingMessages(
             editor,
             paint_lock,
-            lambda: None,
-            custom_editor_active=lambda: False,
-            custom_editor_text=lambda: "",
-            set_custom_editor_text=lambda _text: None,
-            refresh_slash_menu=lambda: None,
+            noop,
+            custom_editor=self.custom_editor,
+            refresh_slash_menu=noop,
         )
         self.clipboard_images = ClipboardImages(
             editor,
             paint_lock,
-            lambda: None,
+            noop,
             cwd=Path("."),
             config=None,
             command_names=lambda: (),
-            refresh_autocomplete=lambda: None,
+            refresh_autocomplete=noop,
             add_notice=lambda _text: None,
-            custom_editor_text=lambda: None,
-            set_custom_editor_text=lambda _text: None,
+            custom_editor=self.custom_editor,
         )
         self.input_editor = InputEditor(
             editor,
             paint_lock,
-            lambda: None,
+            noop,
             command_names=lambda: (),
-            refresh_autocomplete=lambda: None,
-            custom_editor_active=lambda: False,
-            custom_editor_text=lambda: "",
-            set_custom_editor_text=lambda _text: None,
+            refresh_autocomplete=noop,
+            custom_editor=self.custom_editor,
             insert_paste=self.clipboard_images.insert_paste,
         )
 

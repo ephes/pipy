@@ -58,6 +58,15 @@ class _FakeUi:
             set_hidden_thinking_label=self.set_extension_hidden_thinking_label,
             set_tools_expanded=self.set_tools_expanded,
         )
+        self._autocomplete = SimpleNamespace(
+            add_extension_provider=lambda factory: self.calls.append(
+                ("autocomplete", factory)
+            )
+        )
+        self._custom_editor = SimpleNamespace(
+            factory=None,
+            set_editor_component=self.set_editor_component,
+        )
 
     def reconcile_extension_chrome(self, snapshot, *, retirement_scope):
         assert callable(retirement_scope)
@@ -127,12 +136,10 @@ class _FakeUi:
     def set_editor_component(self, factory):
         self.calls.append(("set-editor-component", factory))
         self.editor_factory = factory if callable(factory) else None
+        self._custom_editor.factory = self.editor_factory
         self.editor_component = (
             factory(self, self.theme, self.keybindings) if callable(factory) else None
         )
-
-    def get_editor_component(self):
-        return self.editor_factory
 
 
 def test_driver_delegates_all_five(tmp_path):

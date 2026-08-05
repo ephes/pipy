@@ -89,6 +89,13 @@ class _FakeTerminalUi:
         self._transcript = SimpleNamespace(
             set_hidden_thinking_label=self.set_extension_hidden_thinking_label
         )
+        self._autocomplete = SimpleNamespace(
+            add_extension_provider=self.add_extension_autocomplete_provider
+        )
+        self._custom_editor = SimpleNamespace(
+            set_editor_component=self.set_editor_component,
+            factory=None,
+        )
 
     def reconcile_extension_chrome(
         self,
@@ -889,7 +896,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
     assert result.accepted
     assert result.diagnostic is None
     assert driver.owns_sink(candidate)
-    assert ui.get_editor_component() is candidate.snapshot().editor_component
+    assert ui._custom_editor.factory is candidate.snapshot().editor_component
     assert new_editor.text == "safe built-in draft"
     assert ui.input_editor.get_input_text() == "safe built-in draft"
     assert ui._chrome.record.title == "new"

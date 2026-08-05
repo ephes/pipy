@@ -8,10 +8,10 @@ from typing import TextIO, cast
 
 from pipy_harness.native.repl.view_actions import toggle_view_fold
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.tui import (
+from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
-    ToolLoopTerminalUi,
 )
 
 

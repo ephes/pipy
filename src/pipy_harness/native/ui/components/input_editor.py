@@ -26,6 +26,7 @@ from pipy_harness.native.frame_renderer import (
     display_input_text,
     input_lines,
 )
+from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 
@@ -59,9 +60,7 @@ class InputEditor:
         *,
         command_names: Callable[[], tuple[str, ...]],
         refresh_autocomplete: Callable[[], None],
-        custom_editor_active: Callable[[], bool],
-        custom_editor_text: Callable[[], str],
-        set_custom_editor_text: Callable[[str], None],
+        custom_editor: CustomEditorOwner,
         insert_paste: Callable[[str], None],
     ) -> None:
         self._editor = editor
@@ -69,9 +68,7 @@ class InputEditor:
         self._repaint = repaint
         self._command_names = command_names
         self._refresh_autocomplete = refresh_autocomplete
-        self._custom_editor_active = custom_editor_active
-        self._custom_editor_text = custom_editor_text
-        self._set_custom_editor_text = set_custom_editor_text
+        self._custom_editor = custom_editor
         self._insert_paste = insert_paste
 
     @property
@@ -165,16 +162,12 @@ class InputEditor:
     # -- public editor boundary ---------------------------------------------
 
     def get_input_text(self) -> str:
-        if self._custom_editor_active():
-            return self._custom_editor_text()
-        with self._paint_lock:
-            pending = self._editor.pending_initial_text
-            return self._editor.text if pending is None else pending
+        return self._custom_editor.input_text()
 
     def set_input_text(self, text: str) -> None:
         value = str(text)
-        if self._custom_editor_active():
-            self._set_custom_editor_text(value)
+        if self._custom_editor.active:
+            self._custom_editor.set_text(value)
         with self._paint_lock:
             self._editor.stage_initial_text(value)
 
@@ -237,6 +230,13 @@ class InputEditor:
     def clear_initial_text(self) -> None:
         with self._paint_lock:
             self._editor.clear_initial_text()
+
+    def restore_generation_text(self, text: str) -> None:
+        """Atomically restore the built-in buffer and next-line prefill."""
+
+        with self._paint_lock:
+            self._editor.set_buffer(text)
+            self._editor.pending_initial_text = text
 
     # -- paste hand-off ------------------------------------------------------
 

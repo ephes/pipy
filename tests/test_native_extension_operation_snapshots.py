@@ -70,6 +70,12 @@ from pipy_harness.native.tools import (
     ToolRequest,
 )
 from pipy_harness.native.ui.autocomplete import AutocompleteComponent
+from pipy_harness.native.ui.components.custom_editor import (
+    CustomEditorEffects,
+    CustomEditorOwner,
+    CustomEditorState,
+)
+from pipy_harness.native.ui.paint_lock import PaintLock
 
 
 def _runtime(lock: threading.RLock) -> _ExtensionRuntime:
@@ -410,11 +416,34 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
                 generation_ref.publish(new)
             return generation_ref.current
 
+    editor = EditorState()
+
+    def noop() -> None:
+        return None
+
+    custom_editor = CustomEditorOwner(
+        CustomEditorState(),
+        editor,
+        PaintLock(),
+        noop,
+        host=object(),
+        theme=lambda: object(),
+        keybindings_manager=lambda: None,
+        effects=CustomEditorEffects(
+            restore_input_text=lambda _text: None,
+            clear_initial_text=noop,
+            enqueue_follow_up=lambda _text: None,
+            restore_pending=noop,
+            paste_clipboard_image=noop,
+            external_editor=lambda _text: None,
+            autocomplete_provider=lambda: None,
+        ),
+    )
     autocomplete = AutocompleteComponent(
-        EditorState(),
+        editor,
         cwd=tmp_path,
-        repaint=lambda: None,
-        custom_editor_component=lambda: None,
+        repaint=noop,
+        custom_editor=custom_editor,
     )
     terminal_ui = SimpleNamespace(autocomplete=autocomplete)
     effect = SimpleNamespace(
