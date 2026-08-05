@@ -11,8 +11,8 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentFailure, ProductContent
 from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.coding.result import (
-    NativeToolReplResult,
-    build_repl_result,
+    CodingSessionResult,
+    build_coding_session_result,
 )
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 
@@ -57,7 +57,7 @@ def test_failed_projection_maps_non_image_subset_and_carries_error() -> None:
         provider_failure=AgentFailure("Ignored", ProductContent("ignored"))
     )
 
-    result = build_repl_result(
+    result = build_coding_session_result(
         snapshot,
         status=HarnessStatus.FAILED,
         exit_code=1,
@@ -67,7 +67,7 @@ def test_failed_projection_maps_non_image_subset_and_carries_error() -> None:
         error_message="tool-loop ended",
     )
 
-    assert result == NativeToolReplResult(
+    assert result == CodingSessionResult(
         status=HarnessStatus.FAILED,
         exit_code=1,
         started_at=_STARTED_AT,
@@ -102,7 +102,7 @@ def test_succeeded_projection_maps_image_and_provider_failure() -> None:
         provider_failure=AgentFailure("ProviderFailure", ProductContent("boom"))
     )
 
-    result = build_repl_result(
+    result = build_coding_session_result(
         snapshot,
         status=HarnessStatus.SUCCEEDED,
         exit_code=0,
@@ -110,7 +110,7 @@ def test_succeeded_projection_maps_image_and_provider_failure() -> None:
         ended_at=_ENDED_AT,
     )
 
-    assert result == NativeToolReplResult(
+    assert result == CodingSessionResult(
         status=HarnessStatus.SUCCEEDED,
         exit_code=0,
         started_at=_STARTED_AT,
@@ -142,7 +142,7 @@ def test_succeeded_projection_maps_image_and_provider_failure() -> None:
 def test_succeeded_projection_without_provider_failure() -> None:
     snapshot = _populated_snapshot(provider_failure=None)
 
-    result = build_repl_result(
+    result = build_coding_session_result(
         snapshot,
         status=HarnessStatus.SUCCEEDED,
         exit_code=0,
@@ -167,7 +167,7 @@ def test_projection_rejects_non_exact_snapshot() -> None:
     )
 
     with pytest.raises(TypeError):
-        build_repl_result(
+        build_coding_session_result(
             imposter,
             status=HarnessStatus.SUCCEEDED,
             exit_code=0,
@@ -176,7 +176,7 @@ def test_projection_rejects_non_exact_snapshot() -> None:
         )
 
     with pytest.raises(TypeError):
-        build_repl_result(
+        build_coding_session_result(
             cast(CodingSessionResultSnapshot, object()),
             status=HarnessStatus.SUCCEEDED,
             exit_code=0,
@@ -189,7 +189,7 @@ def test_projection_rejects_unsupported_status() -> None:
     snapshot = _populated_snapshot()
 
     with pytest.raises(ValueError):
-        build_repl_result(
+        build_coding_session_result(
             snapshot,
             status=HarnessStatus.RUNNING,
             exit_code=0,

@@ -27,8 +27,8 @@ import pytest
 
 from pipy_harness.adapters import (
     PipyNativeAdapter,
-    PipyNativeToolReplAdapter,
 )
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native.models import (
@@ -258,7 +258,7 @@ def test_tool_loop_round_trip_AGENTS_md_reaches_system_prompt_and_archive_exclud
     workspace_with_agents_md: Path, tmp_path: Path
 ) -> None:
     provider = _CapturingToolFakeProvider()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("hello\n"),
         output_stream=io.StringIO(),

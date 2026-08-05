@@ -1,7 +1,7 @@
 """Hard conformance gate for input / before_agent_start / send_user_message
 (slice 6).
 
-Drives the real `NativeToolReplSession.run` with a recording provider and
+Drives the real `CodingSession.run` with a recording provider and
 asserts the slice-6 invariants from `docs/extension-api.md`:
 
 1. an `input` hook transforms the prompt the provider sees;
@@ -31,8 +31,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -75,7 +75,7 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 def _run(workspace: Path, prompt: str) -> _Recorder:
     provider = _Recorder()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     session.run(
         workspace_root=workspace,
         input_stream=io.StringIO(prompt),

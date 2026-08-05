@@ -561,7 +561,7 @@ def test_product_composition_deleted_superseded_queue_state_and_helpers() -> Non
     native_root = Path(__file__).resolve().parents[1] / "src/pipy_harness/native"
     source = "\n".join(
         (native_root / relative).read_text(encoding="utf-8")
-        for relative in ("tool_loop_session.py", "repl/loop_step.py")
+        for relative in ("coding/session.py", "repl/loop_step.py")
     )
 
     for obsolete in (

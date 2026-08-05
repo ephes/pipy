@@ -4,14 +4,14 @@ An extension command and an extension hook are exercised end to end against
 fake ``ExtensionCodingSessionControl`` (coding-session) and
 ``ExtensionModelRuntimeControl`` (model-runtime) ports and a plain in-memory
 conversation snapshot — with no real terminal, no ``ToolLoopTerminalUi``, and no
-concrete ``NativeToolReplSession`` product session. This proves the host ports
+concrete ``CodingSession`` product session. This proves the host ports
 are sufficient to drive extension dispatch: everything the handler reaches
 (``complete`` / ``append_entry`` / session-name / label / ``send_message`` /
 ``set_active_tools`` / the conversation view / the read-only session-manager
 view) is satisfied by the two frozen ports plus an optional detached session
 tree.
 
-Deliberately imports neither ``tool_loop_session`` nor ``tui``.
+Deliberately imports neither the concrete coding session nor ``tui``.
 """
 
 from __future__ import annotations

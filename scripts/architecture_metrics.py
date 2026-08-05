@@ -17,7 +17,7 @@ JsonValue: TypeAlias = (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-TOOL_LOOP_SESSION = Path("src/pipy_harness/native/tool_loop_session.py")
+CODING_SESSION = Path("src/pipy_harness/native/coding/session.py")
 TUI = Path("src/pipy_harness/native/tui.py")
 TYPE_IGNORE_RE = re.compile(r"#\s*type:\s*ignore\b")
 RUFF_C901_COMMAND = (
@@ -191,7 +191,7 @@ def collect_metrics(repo_root: Path = REPO_ROOT) -> dict[str, JsonValue]:
     repo_root = repo_root.resolve()
     src_root = repo_root / "src"
     tests_root = repo_root / "tests"
-    tool_loop_path = repo_root / TOOL_LOOP_SESSION
+    coding_session_path = repo_root / CODING_SESSION
     tui_path = repo_root / TUI
     tui_source = tui_path.read_text(encoding="utf-8")
     tui_fields = class_state_fields(tui_source, "ToolLoopTerminalUi")
@@ -206,7 +206,7 @@ def collect_metrics(repo_root: Path = REPO_ROOT) -> dict[str, JsonValue]:
         "physical_lines": {
             "src_python": _python_physical_lines(src_root),
             "tests_python": _python_physical_lines(tests_root),
-            "tool_loop_session": _physical_lines(tool_loop_path),
+            "coding_session": _physical_lines(coding_session_path),
             "tui": _physical_lines(tui_path),
         },
         "src_type_ignores": type_ignore_count,

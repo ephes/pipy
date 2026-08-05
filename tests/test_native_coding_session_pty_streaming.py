@@ -21,9 +21,9 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
-    NativeToolReplSession,
     ProviderToolCall,
 )
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -115,7 +115,7 @@ def test_pty_tool_loop_streams_and_renders_tool_block(
         ),
         programmable_text_chunks=text_chunks,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={"noop": _NoOpTool()},
         tool_budget=5,

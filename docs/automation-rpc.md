@@ -19,7 +19,7 @@ Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
 `events.py` the projection sink protocol, `serialize.py` the canonical-message
 to Pi-message representation, `run_modes.py` the
 `--mode json`/`--print` one-shot drivers, `rpc.py` the long-lived RPC server);
-the real `NativeToolReplSession.run` loop emits canonical events into this
+the real `CodingSession.run` loop emits canonical events into this
 projection via its fixed synchronous composite; the CLI wiring is `pipy repl
 --mode json|rpc` / `--print` in `src/pipy_harness/cli.py`.
 
@@ -141,7 +141,7 @@ in `packages/coding-agent/src/modes/print-mode.ts`.
 The event union is Pi's `AgentSessionEvent` =
 `AgentEvent ∪ session-extension events`. Pipy must emit the full set with the
 same `type` discriminators and semantically equivalent payload fields, sourced
-from pipy's own native session/tool-loop event model (`tool_loop_session.py`,
+from pipy's own native session/tool-loop event model (`coding/session.py`,
 `ProviderPort`), not a literal TypeScript port.
 
 Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
@@ -653,7 +653,7 @@ surface — Pi's `RpcClient` equivalent. They are complementary:
 - `--mode rpc` is for non-Python or process-isolated callers that want Pi's
   exact JSONL protocol, asynchronous events, and mid-turn control.
 - Both reuse the **same** native runtime (`PipyNativeAdapter`,
-  `NativeToolReplSession`, `ProviderPort`, the native session tree). The RPC
+  `CodingSession`, `ProviderPort`, the native session tree). The RPC
   loop is a thin JSONL transport + dispatch layer over the same session object
   the SDK and CLI already drive; it must not fork the runtime.
 - `StreamChunkSink` (the existing streaming hook) is the in-process analogue of

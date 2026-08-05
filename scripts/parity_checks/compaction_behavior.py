@@ -1,6 +1,6 @@
 """Parity row E2 behavior check: live in-session compaction.
 
-Drives the product tool-loop REPL through the real ``PipyNativeToolReplAdapter``
+Drives the product tool-loop REPL through the real ``CodingSessionAdapter``
 with several plain user turns and an explicit ``/compact`` command, then proves
 the adapter emits a ``native.session.compacted`` event whose safe counters show
 context was actually compacted (a positive ``compaction_count`` and at least one
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import mkdtemp
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native.agent import (
@@ -77,7 +77,7 @@ def _adapter_compaction_observation() -> tuple[
 ]:
     sink = _RecordingEventSink()
     provider = _PlainToolProvider()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO(
             "SENSITIVE_OLD_A\nSENSITIVE_OLD_B\nrecent-c\nrecent-d\n"

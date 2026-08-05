@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.native.agent import (
     AgentEvent,
     AssistantTextDelta,
@@ -29,10 +29,10 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.automation.rpc import NativeRpcServer
 from pipy_harness.native.automation.run_modes import run_json_mode
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import AutomationFakeProvider, FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -164,7 +164,7 @@ def _run_events(
     tools: dict[str, ToolPort] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     sink = _CollectingSink()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=tools or {},
         automation_observer=sink,
@@ -201,7 +201,7 @@ def _event_trace(events: Iterable[dict[str, Any]]) -> list[str]:
 def test_tool_loop_exposes_one_mode_neutral_canonical_trace(tmp_path: Path) -> None:
     canonical = _CanonicalCollectingSink()
     automation = _CollectingSink()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(
             supports_tool_calls=True,
             programmable_text_chunks=("hello", " world"),
@@ -328,7 +328,7 @@ def test_tool_loop_order_contract(
 def test_json_mode_preserves_real_loop_order_with_mode_boundaries(
     tmp_path: Path,
 ) -> None:
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(
             supports_tool_calls=True,
             programmable_text_chunks=("hello", " world"),
@@ -380,7 +380,7 @@ def test_rpc_queues_steering_before_follow_up_and_settles_once(tmp_path: Path) -
     provider = _BlockingFirstProvider(release)
     canonical = _CanonicalCollectingSink()
     server = NativeRpcServer(
-        adapter=PipyNativeToolReplAdapter(
+        adapter=CodingSessionAdapter(
             provider=provider,
             agent_event_sink=canonical,
         ),
@@ -438,7 +438,7 @@ def test_rpc_abort_reaches_provider_and_closes_the_event_lifecycle(
     provider = AutomationFakeProvider(block_timeout_seconds=30.0)
     stdout = io.BytesIO()
     server = NativeRpcServer(
-        adapter=PipyNativeToolReplAdapter(provider=provider),
+        adapter=CodingSessionAdapter(provider=provider),
         cwd=tmp_path,
         native_session=NativeSessionTree.create(tmp_path, persist=False),
         stdin=io.StringIO(commands + "\n"),
@@ -497,7 +497,7 @@ def test_extension_lifecycle_brackets_queued_continuation(tmp_path: Path) -> Non
         "        api.on(name, observe)\n",
         encoding="utf-8",
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True, final_text="done"),
         tool_registry={},
     )

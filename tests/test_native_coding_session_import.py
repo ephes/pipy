@@ -12,11 +12,9 @@ from typing import TextIO, cast
 
 import pytest
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import (
-    NativeToolReplResult,
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
@@ -29,6 +27,8 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.coding.result import CodingSessionResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_native_branch_to_jsonl,
@@ -143,10 +143,10 @@ def _import_source(
 
 
 def _run(
-    session: NativeToolReplSession,
+    session: CodingSession,
     cwd: Path,
     commands: str | _FailingPromptStream,
-) -> tuple[NativeToolReplResult, str, str]:
+) -> tuple[CodingSessionResult, str, str]:
     output = io.StringIO()
     error = io.StringIO()
     result = session.run(
@@ -207,7 +207,7 @@ def test_composition_preserves_raw_bubbles_outer_trim_and_path_routing(
         bubbles.append(text)
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         _error_stream: TextIO,
         **kwargs: object,
     ) -> None:
@@ -227,7 +227,7 @@ def test_composition_preserves_raw_bubbles_outer_trim_and_path_routing(
     )
 
     result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -257,7 +257,7 @@ def test_import_empty_argument_reports_usage_without_confirmation(
     active = _active_tree(tmp_path, cwd)
 
     result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -295,7 +295,7 @@ def test_yes_is_an_exact_case_sensitive_whitespace_token(
     source, _ = _import_source(tmp_path, cwd)
 
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -319,7 +319,7 @@ def test_confirmation_accepts_y_or_yes_case_insensitively(
     source, _ = _import_source(tmp_path, cwd)
 
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -344,7 +344,7 @@ def test_confirmation_decline_blank_and_eof_cancel(
     source, _ = _import_source(tmp_path, cwd)
 
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -372,7 +372,7 @@ def test_confirmation_read_errors_cancel(
     )
 
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -401,7 +401,7 @@ def test_missing_cwd_requires_second_prompt_even_with_yes_and_rewrites_copy_only
     active = _active_tree(tmp_path, cwd)
 
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -446,7 +446,7 @@ def test_missing_cwd_second_prompt_decline_cancels(
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", missing_cwd)
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -485,7 +485,7 @@ def test_missing_cwd_second_prompt_read_errors_cancel(
         f"/import {source} --yes\n", lambda: error_factory("prompt failed")
     )
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -522,7 +522,7 @@ def test_missing_cwd_second_import_error_is_controlled(
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail_twice)
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -567,7 +567,7 @@ def test_session_before_switch_runs_once_before_import_and_can_veto(
     monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", import_session)
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -622,7 +622,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     footer_count = 0
 
     def footer(
-        _session: NativeToolReplSession, _error_stream: TextIO, **_kwargs: object
+        _session: CodingSession, _error_stream: TextIO, **_kwargs: object
     ) -> None:
         nonlocal footer_count
         footer_count += 1
@@ -647,7 +647,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     )
 
     _result, _output, _error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -694,7 +694,7 @@ def test_import_uses_persistent_and_default_destination_stores_with_collisions(
     persistent = _active_tree(tmp_path, cwd)
 
     _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=persistent,
             settings_manager=_settings(tmp_path, cwd),
@@ -714,7 +714,7 @@ def test_import_uses_persistent_and_default_destination_stores_with_collisions(
     )
     ephemeral = _active_tree(tmp_path, cwd, persist=False)
     _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=ephemeral,
             settings_manager=_settings(tmp_path, cwd),
@@ -749,7 +749,7 @@ def test_controlled_import_error_is_sanitized_and_gets_footer(
         lambda *_args, **_kwargs: footers.append(None),
     )
     _result, _output, error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=active,
             settings_manager=_settings(tmp_path, cwd),
@@ -798,7 +798,7 @@ def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
 
     with pytest.raises(OSError, match=f"{failure} failed"):
         _run(
-            NativeToolReplSession(
+            CodingSession(
                 provider=_RecordingProvider(),
                 native_session=active,
                 settings_manager=_settings(tmp_path, cwd),
@@ -843,7 +843,7 @@ def test_uncontrolled_rebuild_failure_retains_import_copy_without_success_footer
 
     with pytest.raises(RuntimeError, match="rebuild failed"):
         _run(
-            NativeToolReplSession(
+            CodingSession(
                 provider=_RecordingProvider(),
                 native_session=active,
                 settings_manager=_settings(tmp_path, cwd),
@@ -876,7 +876,7 @@ def test_uncontrolled_diagnostic_and_footer_failures_retain_completed_switch(
             raise RuntimeError("diagnostic failed")
 
     def footer(
-        _session: NativeToolReplSession, _error_stream: TextIO, **_kwargs: object
+        _session: CodingSession, _error_stream: TextIO, **_kwargs: object
     ) -> None:
         nonlocal footer_count
         footer_count += 1
@@ -890,7 +890,7 @@ def test_uncontrolled_diagnostic_and_footer_failures_retain_completed_switch(
 
     with pytest.raises(RuntimeError, match=f"{failure} failed"):
         _run(
-            NativeToolReplSession(
+            CodingSession(
                 provider=_RecordingProvider(),
                 native_session=active,
                 settings_manager=_settings(tmp_path, cwd),
@@ -930,7 +930,7 @@ def test_import_has_no_provider_tool_prompt_history_agent_or_archive_effects(
 
     monkeypatch.setattr(ops_module, "dispatch_input_hooks", reject_input_hook)
     result, _output, _error = _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             native_session=active,
             prompt_history_store=history,
@@ -965,7 +965,7 @@ def test_live_import_path_and_transcript_stay_out_of_finalized_metadata_archive(
     )
     provider = _RecordingProvider()
     errors = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         tool_registry={},
         input_stream=io.StringIO(f'/import "{source}" --yes\n/exit\n'),
@@ -1039,7 +1039,7 @@ def test_uncontrolled_import_failure_is_bounded_in_finalized_metadata_archive(
         raise PermissionError(raw_message)
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail_import)
-    direct_session = NativeToolReplSession(
+    direct_session = CodingSession(
         provider=_RecordingProvider(),
         native_session=active,
         settings_manager=_settings(tmp_path, cwd),
@@ -1050,7 +1050,7 @@ def test_uncontrolled_import_failure_is_bounded_in_finalized_metadata_archive(
     assert str(exc_info.value) == raw_message
     assert str(source) in str(exc_info.value)
 
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=_RecordingProvider(),
         tool_registry={},
         input_stream=io.StringIO(f'/import "{source}" --yes\n'),

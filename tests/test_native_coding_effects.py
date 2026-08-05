@@ -20,6 +20,7 @@ from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.coding.session import production_tool_registry
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.extension_hooks import (
     _compose_extension_runtime,
@@ -62,7 +63,6 @@ from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import production_tool_registry
 from pipy_harness.native.ui.components.custom_entry_renderer import (
     CustomEntryRenderer,
     CustomRendererProjectionSnapshot,

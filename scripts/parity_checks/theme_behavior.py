@@ -1,6 +1,6 @@
 """Parity row D7 behavior check: theme / color-scheme selection.
 
-Drives the ACTUAL product theme picker — ``NativeToolReplSession._open_theme_selector``,
+Drives the ACTUAL product theme picker — ``CodingSession._open_theme_selector``,
 the ``/settings`` dialog's "Theme" action — with a stub selector that chooses the
 ``ocean`` theme. This proves the picker is wired to ``select_theme`` (not just
 that the function exists) and that the selected theme changes the rendered chrome
@@ -27,12 +27,12 @@ import re
 import tempfile
 from pathlib import Path
 
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.repl.settings_actions import open_theme_selector
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_PLAIN
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.themes import resolve_palette
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 _PI_SEPARATOR = resolve_palette("pi").separator_truecolor
 _OCEAN_SEPARATOR = resolve_palette("ocean").separator_truecolor
@@ -81,8 +81,8 @@ class _StubThemeSelectorUi:
         self.notices.append(message)
 
 
-def _new_session() -> NativeToolReplSession:
-    return NativeToolReplSession(
+def _new_session() -> CodingSession:
+    return CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={},
         input_runtime=REPL_INPUT_RUNTIME_PLAIN,

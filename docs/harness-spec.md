@@ -577,7 +577,7 @@ Privacy: the resource body, expanded prompt, and command text are never
 archived. Resource lifecycle metadata is limited to safe fields
 (`resource_kind`, `name`, `path_label`, `sha256`, `byte_length`, `truncated`,
 `resource_label`); the product tool-loop path returns `resource_invocation_count`
-in `NativeToolReplResult`. Resource invocations are excluded from the local
+in `CodingSessionResult`. Resource invocations are excluded from the local
 prompt history. (The opt-in `--archive-transcript` transcript sidecar has since been
 **removed**; the native session tree is the transcript — see
 [session-tree.md](/session-tree/) and `/export`.) The `[Skills]`
@@ -1466,7 +1466,7 @@ Boundaries (`pipy_harness.native.image_attachment`):
   counts plus each loaded image's media type, byte count, and sha256 — crosses
   the archive boundary
   (`image_attachment_count`/`image_attachment_loaded_count`/`image_attachment_failed_count`
-  on `NativeToolReplResult`, forwarded into `AdapterResult.metadata` and thus
+  on `CodingSessionResult`, forwarded into `AdapterResult.metadata` and thus
   the finalized record, in the tool loop — alongside the matching
   `file_reference_*` counters). The raw base64 image bytes live only on the
   in-memory provider request and are not written to the immutable full-content
@@ -1476,7 +1476,7 @@ Boundaries (`pipy_harness.native.image_attachment`):
 
 Phase 3.1b preserves one characterized fatal-result exception: when three
 malformed tool calls terminate a turn after an image was successfully attached
-to its first provider request, `NativeToolReplResult` retains zero-default image
+to its first provider request, `CodingSessionResult` retains zero-default image
 counters. Correcting those public adapter/archive metadata values requires a
 dedicated compatibility slice with JSON, adapter, and archive contract coverage;
 the coding-session state extraction does not change them.
@@ -1557,7 +1557,7 @@ accepted-abort latch; its executor callback is registered before the RPC provide
 starts, preserving actual acceptance-before-completion order even if waiter
 observation is delayed. Phase 2.2a did not itself extract the full provider/tool
 cycle; the later completed Phase 2.2b moved that cycle into the canonical
-`AgentLoop`, while product composition remains in `NativeToolReplSession` and
+`AgentLoop`, while product composition remains in `CodingSession` and
 its typed collaborators. The old `_ProviderTurnCompletion`, delta
 sink helpers, headless/TUI completion helpers, and active-turn cancellation
 helper are removed rather than retained as a second implementation.
@@ -1686,7 +1686,7 @@ This module is mechanical rather than a product policy or persistence layer. It
 does not choose threshold defaults, enable compaction, format the counts-only
 summary, inject the summary into a provider request, invoke extension hooks,
 emit diagnostics, aggregate run-result counters, or append a durable compaction
-entry. `NativeToolReplSession` retains each of those responsibilities, including
+entry. `CodingSession` retains each of those responsibilities, including
 the exact existing summary text and `firstKeptEntryId` session-tree behavior.
 The canonical result has no archive serializer; metadata-only workflow fields
 remain explicit allowlists outside `native.agent`. The canonical package does
@@ -1752,7 +1752,7 @@ Static, recursive, import-order, and fresh-process gates keep both the canonical
 policy and product adapters free of terminal/UI, session/persistence,
 extension-runtime, concrete provider/tool, automation, capture, and
 metadata-archive dependencies. Queue/RPC lifecycle, persistence, rendering,
-and compaction remain in `NativeToolReplSession`; the single-run cycle moved in
+and compaction remain in `CodingSession`; the single-run cycle moved in
 2.2b.5c and the queued-input handoff closed in 2.2b.5d.
 
 Phase 2.2b.5c moves that actual single-run cycle into
@@ -1777,7 +1777,7 @@ emits a run-effect append: durable product-session persistence is a live
 projection inside each mode's fixed agent-event composite
 (`ProductSessionEventProjection` forwarding each `AppendProductMessage` through
 the `NativeProductSessionActionSink` to `product_session.append_message`), not a
-reusable-loop effect. `NativeToolReplSession.run()` now invokes
+reusable-loop effect. `CodingSession.run()` now invokes
 the canonical loop instead of containing a second provider/tool cycle. The
 canonical module imports no terminal/UI, extension runtime, automation/archive,
 session/persistence, provider construction, concrete provider/tool, or product
@@ -1840,7 +1840,7 @@ the explicit provider/model labels form one atomic binding: product selection
 and construction stay outside, while footer, requests, extension completion,
 and final result projections observe the same state. History snapshots are
 immutable tuples and append/replace transitions retain the exact canonical
-message objects. The `NativeToolReplSession(provider=...)` argument is consumed
+message objects. The `CodingSession(provider=...)` argument is consumed
 once to seed the persistent coding state and is not retained as a parallel
 field. Later runs reuse the state-owned port directly, including after a setup
 exception; the read-only `provider_port` projection observes that same owner.
@@ -1918,7 +1918,7 @@ The headless kernel classifies only already-stripped, locally eligible product
 input. It owns blank input, `/exit`, `/quit`, `/hotkeys`, `/changelog`, `/copy`,
 and `/session`; all other input returns the exact unhandled outcome to the one
 remaining imperative precedence skeleton. No migrated command retains a second
-branch in `NativeToolReplSession.run()`.
+branch in `CodingSession.run()`.
 
 The composition interpreter preserves the characterized presentation order.
 An ordinary non-empty local command is rendered as the submitted user bubble
@@ -2163,7 +2163,7 @@ facing or in-memory result may retain detail, but durable
 `harness.run.exception` JSONL and derived Markdown retain only the bounded
 exception type and fixed lifecycle metadata—never raw exception text, paths, or
 session content. This archive projection does not change direct exception
-propagation from `NativeToolReplSession`. This ownership move intentionally
+propagation from `CodingSession`. This ownership move intentionally
 preserves the current gaps from the target interaction: confirmations use the direct input/output
 streams in both live and captured mode, missing cwd uses a second yes/no prompt,
 success emits no post-switch `session_start(reason=resume)` lifecycle event,
@@ -2222,7 +2222,7 @@ projection remain deferred behind this boundary. Because a UI projection now liv
 `native.agent_adapters` no longer defines the renderer protocol or rendering
 adapter and is import-gated to forbid depending on `native.ui`; the `native.ui`
 import boundary forbids depending on `coding.state`, `coding.session`, or
-`tool_loop_session`. No CLI/JSON/RPC/session/extension format, event ordering, or
+`coding.session`. No CLI/JSON/RPC/session/extension format, event ordering, or
 terminal behavior changes; the terminal driver is Slice 4.2 (below) and
 extension-UI relocation is Slice 6.4.
 
@@ -2390,7 +2390,7 @@ composition, Pi-shaped allow/exclude/no-tools/no-builtins filters through the
 frozen `ToolFilterOptions`, active-name replacement, extension-registry reload,
 workspace `ToolContext`, and executor reconstruction. Concrete production-tool
 construction remains at the product composition root; the facade never imports
-concrete tools. `NativeToolReplSession` continues to own tool budgets,
+concrete tools. `CodingSession` continues to own tool budgets,
 malformed-call streaks, extension preflight/result hooks and their ordering,
 canonical event publication, persistence, provider-request construction, and
 terminal/RPC wait adaptation.

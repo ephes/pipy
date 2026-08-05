@@ -42,15 +42,17 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 44's explicit stopping point.
-`native/tui.py` is 1,466 physical lines and `native/tool_loop_session.py` is
-336 (down from 1,238 in slice 44), so both former god files are below the
-2,400-line bar. `NativeToolReplSession.run()` is a 67 AST-line/C901-5 facade;
-its production composition is now frozen value-returning phases in the measured
-1,392-line `native/repl/wiring.py`, sharing one named `SessionStateLock`, and the
-session file's C901 pin is removed. The native ceiling remains 2,488. Slice 45 remains
-next and retains ownership of the residual moves/renames. Slice 44 is internal
-architecture only, so no changelog or release note applies.
+**Program status:** Landed through slice 45. The residual product facade now lives
+only at `native/coding/session.py::CodingSession`, with
+`CodingSessionResult` and `CodingSessionAdapter`; the retired
+`native/tool_loop_session.py`, `NativeToolReplSession`, `NativeToolReplResult`,
+and `PipyNativeToolReplAdapter` have no compatibility surfaces.
+`native/repl/command_router.py` owns the four closed action inventories and
+`BuiltinCommandInterpreter`. `native/tui.py` is 1,466 physical lines, the
+coding-session facade is 336 lines with a 67 AST-line/C901-5 `run`, and the
+native ceiling remains 2,488. Slice 46 is next; no slice-45 milestone checkpoint
+is added, and this behavior-preserving architecture/public-Python rename needs
+no changelog or release note.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

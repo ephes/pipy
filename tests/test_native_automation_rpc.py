@@ -23,7 +23,7 @@ import pytest
 
 import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.repl.wiring as loop_module
-from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunStarted,
@@ -145,7 +145,7 @@ class _RpcClient:
         self._error_stream = open(os.devnull, "w")
 
         self.canonical = _CanonicalCollectingSink()
-        adapter = PipyNativeToolReplAdapter(
+        adapter = CodingSessionAdapter(
             provider=(
                 provider
                 if provider is not None
@@ -234,7 +234,7 @@ def client(tmp_path: Path):
         c.close()
 
 
-def _provider_state_adapter(tmp_path: Path) -> PipyNativeToolReplAdapter:
+def _provider_state_adapter(tmp_path: Path) -> CodingSessionAdapter:
     catalog = ProviderCatalogState(
         models_json_path=tmp_path / "models.json",
         auth_store=AuthStore(path=tmp_path / "auth.json"),
@@ -246,7 +246,7 @@ def _provider_state_adapter(tmp_path: Path) -> PipyNativeToolReplAdapter:
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
-    return PipyNativeToolReplAdapter(provider_state=state)
+    return CodingSessionAdapter(provider_state=state)
 
 
 def test_set_thinking_level_updates_provider_state_before_construction(
@@ -378,7 +378,7 @@ def test_prompt_racing_agent_end_is_reserved_not_stranded(
     tmp_path: Path,
 ) -> None:
     stdout = io.BytesIO()
-    adapter = PipyNativeToolReplAdapter(provider=AutomationFakeProvider())
+    adapter = CodingSessionAdapter(provider=AutomationFakeProvider())
     tree = NativeSessionTree.create(tmp_path, persist=False)
     server = NativeRpcServer(
         adapter=adapter,
@@ -880,7 +880,7 @@ def test_aborted_turn_emits_balanced_lifecycle(client) -> None:
 
 
 def _direct_server(tmp_path: Path, tree: NativeSessionTree):
-    adapter = PipyNativeToolReplAdapter(provider=AutomationFakeProvider())
+    adapter = CodingSessionAdapter(provider=AutomationFakeProvider())
     buf = io.BytesIO()
     server = NativeRpcServer(
         adapter=adapter,

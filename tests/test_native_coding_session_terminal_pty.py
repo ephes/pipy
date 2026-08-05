@@ -39,9 +39,10 @@ from pty_sync import (
 )
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import AgentAssistantMessage, AgentToolResultMessage
 from pipy_harness.native.clipboard import ClipboardResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderResult, ProviderToolCall
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
@@ -248,13 +249,13 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         clipboard_copy=recorder,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -452,13 +453,13 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -577,9 +578,9 @@ def test_pty_inline_tui_slash_menu_is_honest(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -687,9 +688,9 @@ def _run_editor_pty(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -819,9 +820,9 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1079,13 +1080,13 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1186,9 +1187,9 @@ def test_pty_resize_repaints_inline_with_overlay_open(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1334,9 +1335,9 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1460,9 +1461,9 @@ def test_pty_resize_rewraps_long_input_and_keeps_footer_pinned(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1578,7 +1579,7 @@ def _start_pty_repl_session(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
@@ -1586,7 +1587,7 @@ def _start_pty_repl_session(
         native_session=native_session,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2242,9 +2243,9 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2377,11 +2378,9 @@ def test_pty_at_file_picker_ranks_and_accepts(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
-        provider=cast(ProviderPort, provider), tool_registry={}
-    )
+    session = CodingSession(provider=cast(ProviderPort, provider), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2470,11 +2469,9 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
-        provider=cast(ProviderPort, provider), tool_registry={}
-    )
+    session = CodingSession(provider=cast(ProviderPort, provider), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2597,9 +2594,9 @@ def test_pty_slash_quit_during_local_shell_output_exits(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2690,9 +2687,9 @@ def test_pty_slash_quit_during_model_bash_tool_output_exits(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2811,9 +2808,9 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2917,13 +2914,13 @@ def test_pty_thinking_and_model_cycle_hotkeys(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=cast(ProviderPort, provider),
         tool_registry={},
         provider_state=state,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3016,11 +3013,9 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
-        provider=cast(ProviderPort, provider), tool_registry={}
-    )
+    session = CodingSession(provider=cast(ProviderPort, provider), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3114,11 +3109,9 @@ def test_pty_never_enables_mouse_tracking(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
-        provider=cast(ProviderPort, provider), tool_registry={}
-    )
+    session = CodingSession(provider=cast(ProviderPort, provider), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3240,11 +3233,9 @@ def test_pty_steering_and_follow_up_queue_and_drain_order(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
-        provider=cast(ProviderPort, provider), tool_registry={}
-    )
+    session = CodingSession(provider=cast(ProviderPort, provider), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3357,13 +3348,13 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
         cwd=tmp_path,
         clipboard_config=clipboard_config,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=cast(ProviderPort, provider),
         tool_registry={},
         clipboard_image_read=read_image,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3453,14 +3444,14 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=cast(ProviderPort, provider),
         tool_registry={},
         provider_state=state,
         settings_manager=settings,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui

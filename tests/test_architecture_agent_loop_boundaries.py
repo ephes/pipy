@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPO_ROOT / "src"
 LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
-TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
+CODING_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/coding/session.py"
 REPL_WIRING_PATH = SOURCE_ROOT / "pipy_harness/native/repl/wiring.py"
 REPL_LOOP_STEP_PATH = SOURCE_ROOT / "pipy_harness/native/repl/loop_step.py"
 AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
@@ -32,7 +32,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.coding",
     "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extensions",
-    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.coding.session",
     "pipy_harness.native.session",
     "pipy_harness.native.session_resume",
     "pipy_harness.native.session_tree",
@@ -322,7 +322,7 @@ def test_run_coordinator_assembles_agent_loop_without_inline_policy_cycle() -> N
     coordinator_refs = set(_import_references(AGENT_RUN_PATH))
     assert "pipy_harness.native.agent.loop.AgentLoop" in coordinator_refs
 
-    session_refs = set(_import_references(TOOL_LOOP_SESSION_PATH))
+    session_refs = set(_import_references(CODING_SESSION_PATH))
     assert "pipy_harness.native.agent.loop.AgentLoop" not in session_refs
     for module_refs in (coordinator_refs, session_refs):
         assert module_refs.isdisjoint(
@@ -352,8 +352,8 @@ def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
         filename=str(REPL_LOOP_STEP_PATH),
     )
     session_tree = ast.parse(
-        TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
-        filename=str(TOOL_LOOP_SESSION_PATH),
+        CODING_SESSION_PATH.read_text(encoding="utf-8"),
+        filename=str(CODING_SESSION_PATH),
     )
     repl_step = next(
         node
@@ -368,7 +368,7 @@ def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
         isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
         for node in session_tree.body
     )
-    assert "pipy_harness.native.tool_loop_session" not in _import_references(
+    assert "pipy_harness.native.coding.session" not in _import_references(
         REPL_LOOP_STEP_PATH
     )
     former_callbacks = {
@@ -565,7 +565,7 @@ def test_product_session_composes_run_coordinator() -> None:
 def test_queued_input_handoff_has_no_split_kind_side_channel() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (LOOP_PATH, REPL_LOOP_STEP_PATH, TOOL_LOOP_SESSION_PATH, RPC_PATH)
+        for path in (LOOP_PATH, REPL_LOOP_STEP_PATH, CODING_SESSION_PATH, RPC_PATH)
     )
     for obsolete_symbol in (
         "_QueuedDeliverySource",
@@ -595,8 +595,8 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
     assert hasattr(CodingSessionController, "run_loop")
 
     session_tree = ast.parse(
-        TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
-        filename=str(TOOL_LOOP_SESSION_PATH),
+        CODING_SESSION_PATH.read_text(encoding="utf-8"),
+        filename=str(CODING_SESSION_PATH),
     )
     run_loop_calls = [
         node
@@ -610,7 +610,7 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
         and node.func.value.value.id == "delegation"
     ]
     assert run_loop_calls, (
-        "NativeToolReplSession.run must delegate to loop_controller.run_loop(...)"
+        "CodingSession.run must delegate to loop_controller.run_loop(...)"
     )
     # The delegation passes the per-iteration step and the post-loop finalize as
     # ports; the controller — not the monolith — owns the ``while True``.
@@ -619,8 +619,8 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
 
     # The controller now fires the once-only true-idle settle through its own
     # settled emitter; the monolith must not fire it directly anymore.
-    monolith_source = TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8")
-    assert "emitter.agent_settled()" not in monolith_source
+    session_source = CODING_SESSION_PATH.read_text(encoding="utf-8")
+    assert "emitter.agent_settled()" not in session_source
 
     controller_source = SESSION_CONTROLLER_PATH.read_text(encoding="utf-8")
     assert "self._emitter.agent_settled()" in controller_source
@@ -649,7 +649,7 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
     assert run_def.end_lineno is not None
     run_ast_lines = run_def.end_lineno - run_def.lineno + 1
     assert run_ast_lines <= 67, (
-        "NativeToolReplSession.run grew above its 67 ast-line slice-44 ratchet; "
+        "CodingSession.run grew above its 67 ast-line slice-44 ratchet; "
         f"measured {run_ast_lines}"
     )
 
@@ -787,9 +787,12 @@ def test_repl_wiring_owns_frozen_value_returning_phases() -> None:
         )
         assert isinstance(frozen, ast.Constant) and frozen.value is True
 
-    wiring_source = REPL_WIRING_PATH.read_text(encoding="utf-8")
-    assert "pipy_harness.native.tool_loop_session" not in wiring_source
-    assert "NativeToolReplSession" not in wiring_source
+    wiring_imports = set(_import_references(REPL_WIRING_PATH))
+    assert "pipy_harness.native.coding.session" not in wiring_imports
+    assert not any(
+        isinstance(node, ast.Name) and node.id == "CodingSession"
+        for node in ast.walk(wiring_tree)
+    )
 
     session_wiring = records["SessionWiring"]
     assert not any(

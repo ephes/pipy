@@ -19,7 +19,7 @@ from typing import get_type_hints
 import pytest
 
 from pipy_harness import sdk
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.models import HarnessStatus, RunRequest, RunResult
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
@@ -208,7 +208,7 @@ def test_raw_native_product_session_is_distinct_from_metadata_workflow_archive(
             (),
         ),
     )
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         tool_registry={"private_output": _PrivateOutputTool()},
         input_stream=io.StringIO(f"{_PRIVATE_PROMPT}\n/exit\n"),
@@ -287,7 +287,7 @@ def _run_private_native_product_session(
             (),
         ),
     )
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         tool_registry={"private_output": _PrivateOutputTool()},
         input_stream=io.StringIO(f"{_PRIVATE_PROMPT}\n/exit\n"),

@@ -11,7 +11,8 @@ import pipy_harness
 from pipy_harness import models, sdk
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, HarnessStatus, RunRequest, RunResult
-from pipy_harness.native import NativeRunOutput, NativeToolReplResult, ProviderResult
+from pipy_harness.native import NativeRunOutput, ProviderResult
+from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.status import HarnessStatus as CanonicalHarnessStatus
 from pipy_session.recorder import SessionRecord
@@ -50,7 +51,7 @@ def test_public_run_model_type_hints_resolve_at_runtime() -> None:
     assert get_type_hints(RunResult)["record"] is SessionRecord
     assert get_type_hints(ProviderResult)["status"] is CanonicalHarnessStatus
     assert get_type_hints(NativeRunOutput)["status"] is CanonicalHarnessStatus
-    assert get_type_hints(NativeToolReplResult)["status"] is CanonicalHarnessStatus
+    assert get_type_hints(CodingSessionResult)["status"] is CanonicalHarnessStatus
 
 
 def test_make_native_run_request_fills_pipy_native_defaults(tmp_path: Path) -> None:

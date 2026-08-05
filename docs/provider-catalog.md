@@ -1244,7 +1244,7 @@ uv run pytest tests/test_native_models_json*.py
 uv run pytest tests/test_native_oauth*.py
 uv run pytest tests/test_native_provider_construction*.py
 uv run pytest tests/test_harness_native_cli.py -k "list_models or models or thinking"
-uv run pytest tests/test_native_tool_loop_tui_pty.py -k "model"
+uv run pytest tests/test_native_coding_session_terminal_pty.py -k "model"
 just check
 ```
 

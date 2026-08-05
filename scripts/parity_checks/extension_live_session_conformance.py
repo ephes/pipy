@@ -1,6 +1,6 @@
 """Hard conformance gate for extension live-session hooks (slice 13).
 
-Drives the real `NativeToolReplSession.run` with local Python extensions and
+Drives the real `CodingSession.run` with local Python extensions and
 stub providers to prove Pi-shaped live-session extension behavior:
 
 1. `before_provider_request` can transform a request and explicitly narrow its
@@ -30,11 +30,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
+from pipy_harness.native.coding.session import (
+    CodingSession,
     production_tool_registry,
 )
+from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ def _run_request_hook(workspace: Path) -> Check:
         "            available_tools=('bash',))\n",
     )
     provider = _CapturingProvider()
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider, tool_registry=production_tool_registry()
     ).run(
         workspace_root=workspace,
@@ -156,7 +156,7 @@ def _run_user_bash(workspace: Path) -> Check:
         "exclude_from_context=False)\n",
     )
     provider = _CapturingProvider()
-    result = NativeToolReplSession(provider=provider, tool_registry={}).run(
+    result = CodingSession(provider=provider, tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("!echo real\nask\n"),
         output_stream=io.StringIO(),
@@ -184,7 +184,7 @@ def _run_compact_gate(workspace: Path) -> Check:
         "        return SessionDecision(allow=False, reason='no compact')\n",
     )
     err = io.StringIO()
-    result = NativeToolReplSession(provider=_CapturingProvider(), tool_registry={}).run(
+    result = CodingSession(provider=_CapturingProvider(), tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("/compact\n"),
         output_stream=io.StringIO(),
@@ -219,7 +219,7 @@ def _run_dynamic_tools(workspace: Path) -> Check:
         "        handler=lambda _ctx, _params: ToolResult(content='late')))\n",
     )
     provider = _DynamicProvider()
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     ).run(
         workspace_root=workspace,

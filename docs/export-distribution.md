@@ -316,7 +316,7 @@ memory failure detail may remain available, but the metadata-only archive stores
 only its bounded exception type and fixed lifecycle metadata. Raw exception
 text, paths, and imported session content never enter either durable JSONL or
 derived Markdown. This archive projection does not change direct exception
-propagation from `NativeToolReplSession`.
+propagation from `CodingSession`.
 
 Usage error (no path) prints `Usage: /import <path.jsonl>`, matching Pi.
 

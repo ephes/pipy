@@ -19,6 +19,7 @@ from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
 )
@@ -44,7 +45,6 @@ from pipy_harness.native.session_tree import (
     CustomMessageEntry,
     NativeSessionTree,
 )
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -833,7 +833,7 @@ def test_extension_custom_entry_runs_through_the_session(tmp_path, monkeypatch) 
     )
     provider = _CapturingProvider()
     native_session = NativeSessionTree.create(tmp_path, persist=False)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=native_session,
@@ -873,7 +873,7 @@ def test_extension_command_runs_through_the_session(tmp_path, monkeypatch) -> No
         encoding="utf-8",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     error_stream = StringIO()
 
     result = session.run(
@@ -910,7 +910,7 @@ def test_extension_send_message_trigger_turn_runs_provider_turn(
     )
     provider = _CapturingProvider()
     native_session = NativeSessionTree.create(tmp_path, persist=False)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=native_session,
@@ -953,7 +953,7 @@ def test_extension_trigger_turn_preserves_exact_trailing_newlines(
         encoding="utf-8",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,
@@ -992,7 +992,7 @@ def test_extension_send_message_steer_and_follow_up_queue_provider_prompts(
     )
     provider = _CapturingProvider()
     native_session = NativeSessionTree.create(tmp_path, persist=False)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=native_session,
@@ -1038,7 +1038,7 @@ def test_extension_send_message_next_turn_injects_next_provider_context(
         encoding="utf-8",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,
@@ -1076,7 +1076,7 @@ def test_extension_send_message_next_turn_is_not_long_lived_history(
         encoding="utf-8",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,
@@ -1125,7 +1125,7 @@ def test_extension_send_message_trigger_turn_requires_strict_true(
     )
     provider = _CapturingProvider()
     native_session = NativeSessionTree.create(tmp_path, persist=False)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=native_session,
@@ -1167,7 +1167,7 @@ def test_extension_send_message_next_turn_clears_on_session_switch(
         encoding="utf-8",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,

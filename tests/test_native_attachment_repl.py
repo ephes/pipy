@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 _B64 = base64.b64encode(_PNG).decode("ascii")
@@ -62,7 +62,7 @@ def test_tool_loop_repl_attaches_image_without_leaking_bytes(
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     (tmp_path / "shot.png").write_bytes(_PNG)
     provider = _CapturingProvider(tool_capable=True)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
     )

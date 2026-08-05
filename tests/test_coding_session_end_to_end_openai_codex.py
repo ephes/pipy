@@ -1,7 +1,7 @@
 """End-to-end tool-loop test against the OpenAI Codex Responses transport.
 
-Parallel to `tests/test_tool_loop_end_to_end.py` (OpenRouter) and
-`tests/test_tool_loop_end_to_end_openai.py` (OpenAI Platform Responses)
+Parallel to `tests/test_coding_session_end_to_end.py` (OpenRouter) and
+`tests/test_coding_session_end_to_end_openai.py` (OpenAI Platform Responses)
 for the OpenAI Codex subscription Responses streaming endpoint: the
 loop sends messages and tool declarations to Codex, the (stubbed)
 SSE transport returns a streamed `function_call`, the loop dispatches
@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
 from pipy_harness.native.openai_codex_provider import (
@@ -183,7 +183,7 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
     )
     output_stream = io.StringIO()
     error_stream = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("please read notes.txt\n"),
         output_stream=output_stream,

@@ -1,7 +1,7 @@
 """Parity row D8 behavior check: image/binary attachment loading.
 
 Seeds a workspace PNG and drives the product tool-loop REPL
-(``NativeToolReplSession``) with a real ``@image:`` prompt, capturing the
+(``CodingSession``) with a real ``@image:`` prompt, capturing the
 ``ProviderRequest`` the provider receives. It proves:
 
   * the image reaches the provider as a bounded, type-validated attachment
@@ -26,10 +26,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.providers.anthropic_messages import AnthropicResponseParseError
 from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 _B64 = base64.b64encode(_PNG).decode("ascii")
@@ -74,7 +74,7 @@ def _run(prompt: str, *, seed_png: bool, seed_blob: bool):
     if seed_blob:
         (cwd / "blob.bin").write_bytes(b"\x00\x01\x02 not an image at all")
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     result = session.run(
         workspace_root=cwd,
         input_stream=io.StringIO(f"{prompt}\n/exit\n"),

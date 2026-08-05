@@ -1,5 +1,5 @@
 """Tests for the Pi-parity streaming, tool-block rendering, and reference-root
-inspection slice on top of `NativeToolReplSession`.
+inspection slice on top of `CodingSession`.
 
 These tests cover behavior the previous tool-loop suite did not pin:
 
@@ -32,7 +32,6 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
@@ -56,6 +55,7 @@ from pipy_harness.native.agent.tools import (
     ToolInterruptWaiter,
 )
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import (
@@ -137,7 +137,7 @@ def _run_loop(
         programmable_tool_calls=tool_calls_script,
         programmable_text_chunks=text_chunks,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=dict(tool_registry),
         tool_budget=5,
@@ -615,7 +615,7 @@ def test_streamed_completion_bytes_and_order_ignore_provider_final_text(
             ):
                 observed_output.append(output_stream.getvalue())
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=DivergentFinalTextProvider(
             programmable_text_chunks=("canonical-delta-owned",),
             supports_tool_calls=True,
@@ -649,7 +649,7 @@ def test_buffered_assistant_is_rendered_before_later_event_sinks(
             ):
                 observed_output.append(output_stream.getvalue())
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(
             final_text="buffered answer", supports_tool_calls=True
         ),
@@ -735,7 +735,7 @@ def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
     )
     first_call = ProviderToolCall("call-A", "noop", "{}")
     second_call = ProviderToolCall("call-B", "noop", "{}")
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(
             supports_tool_calls=True,
             programmable_tool_calls=((first_call,), (second_call,), ()),

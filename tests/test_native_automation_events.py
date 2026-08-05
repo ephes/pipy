@@ -1,6 +1,6 @@
 """Tests for the Pi-shaped session-event surface of the real tool loop.
 
-`NativeToolReplSession` accepts an optional ``automation_observer`` sink. When
+`CodingSession` accepts an optional ``automation_observer`` sink. When
 present, the *real* tool loop (the same loop the CLI/TUI drive) emits Pi's
 ``AgentSessionEvent`` vocabulary — ``agent_start``/``turn_start``/
 ``message_start``/``message_update`` (with an ``assistantMessageEvent``
@@ -17,9 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -85,7 +85,7 @@ class _StreamingTool:
         )
 
 
-def _drive(session: NativeToolReplSession, prompt: str, tmp_path: Path) -> None:
+def _drive(session: CodingSession, prompt: str, tmp_path: Path) -> None:
     session.run(
         workspace_root=tmp_path,
         input_stream=io.StringIO(prompt + "\n"),
@@ -100,7 +100,7 @@ def test_emits_canonical_no_tool_event_sequence(tmp_path: Path) -> None:
         supports_tool_calls=True,
         programmable_text_chunks=("SEEN:", "ROOT"),
     )
-    session = NativeToolReplSession(provider=provider, automation_observer=sink)
+    session = CodingSession(provider=provider, automation_observer=sink)
 
     _drive(session, "ROOT", tmp_path)
 
@@ -132,7 +132,7 @@ def test_text_deltas_concatenate_to_final_message(tmp_path: Path) -> None:
         supports_tool_calls=True,
         programmable_text_chunks=("SEEN:", "ROOT"),
     )
-    session = NativeToolReplSession(provider=provider, automation_observer=sink)
+    session = CodingSession(provider=provider, automation_observer=sink)
 
     _drive(session, "ROOT", tmp_path)
 
@@ -162,7 +162,7 @@ def test_message_start_has_empty_assistant_content(tmp_path: Path) -> None:
         supports_tool_calls=True,
         programmable_text_chunks=("hi",),
     )
-    session = NativeToolReplSession(provider=provider, automation_observer=sink)
+    session = CodingSession(provider=provider, automation_observer=sink)
 
     _drive(session, "ROOT", tmp_path)
 
@@ -180,7 +180,7 @@ def test_agent_end_carries_messages_and_will_retry_false(tmp_path: Path) -> None
         supports_tool_calls=True,
         programmable_text_chunks=("done",),
     )
-    session = NativeToolReplSession(provider=provider, automation_observer=sink)
+    session = CodingSession(provider=provider, automation_observer=sink)
 
     _drive(session, "ROOT", tmp_path)
 
@@ -204,7 +204,7 @@ def test_emits_tool_execution_events_in_order(tmp_path: Path) -> None:
         programmable_tool_calls=((call,), ()),
         final_text="all done",
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={"echo": _EchoTool()},
         automation_observer=sink,
@@ -243,7 +243,7 @@ def test_emits_tool_execution_update_for_streaming_tool(tmp_path: Path) -> None:
         programmable_tool_calls=((call,), ()),
         final_text="all done",
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={"stream": _StreamingTool()},
         automation_observer=sink,

@@ -21,7 +21,7 @@ import pytest
 from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import NativeToolReplSession
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.terminal_screen import parse_ansi_screen
@@ -124,13 +124,13 @@ def test_pty_resume_and_compact(
         cwd=tmp_path,
     )
     provider = _SeqProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         resume_context=_resume_context(),
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui

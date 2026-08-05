@@ -1,7 +1,7 @@
 """Real-PTY integration test for extension chrome regions (slice B).
 
 This boots the actual product TUI (`ToolLoopTerminalUi.read_line` over a real
-pseudo-TTY via `NativeToolReplSession.run`, like the slice-17/cancellation PTY
+pseudo-TTY via `CodingSession.run`, like the slice-17/cancellation PTY
 tests) rather than poking `_frame_lines()` internals. It proves the contract
 that matters once the regions are woven into the live paint path: with a custom
 header, an above-editor widget, and a custom footer set, the painted frame
@@ -20,7 +20,8 @@ from typing import TextIO, cast
 import pytest
 from pty_sync import wait_for_input_ready_after
 
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native import FakeNativeProvider
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
@@ -74,9 +75,9 @@ def test_pty_chrome_header_widget_and_footer_render_with_input(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui

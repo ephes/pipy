@@ -1,7 +1,7 @@
 """Headless run->result projection for one product coding session.
 
 This module owns the shutdown transition's ownership boundary: the bounded,
-metadata-only ``NativeToolReplResult`` returned by ``NativeToolReplSession.run``
+metadata-only ``CodingSessionResult`` returned by ``CodingSession.run``
 and the pure projection that maps a :class:`CodingSessionResultSnapshot` into it.
 No prompts, model text, tool payloads, file contents, or diffs cross this
 boundary.
@@ -17,8 +17,8 @@ from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 
 
 @dataclass(frozen=True, slots=True)
-class NativeToolReplResult:
-    """Bounded result returned by `NativeToolReplSession.run`.
+class CodingSessionResult:
+    """Bounded result returned by `CodingSession.run`.
 
     The fields are deliberately small and metadata-only. No prompts, model
     text, tool payloads, file contents, or diffs cross this boundary.
@@ -50,7 +50,7 @@ class NativeToolReplResult:
     provider_failure_message: str | None = None
 
 
-def build_repl_result(
+def build_coding_session_result(
     snapshot: CodingSessionResultSnapshot,
     *,
     status: HarnessStatus,
@@ -59,11 +59,11 @@ def build_repl_result(
     ended_at: datetime,
     error_type: str | None = None,
     error_message: str | None = None,
-) -> NativeToolReplResult:
+) -> CodingSessionResult:
     """Project a coding-session result snapshot into a bounded run result.
 
-    ``build_repl_result`` reproduces the two shutdown transitions of
-    ``NativeToolReplSession.run`` exactly:
+    ``build_coding_session_result`` reproduces the two shutdown transitions of
+    ``CodingSession.run`` exactly:
 
     * The terminate-session ``FAILED`` path maps the non-image counter subset
       and carries the loop failure through ``error_type``/``error_message``; it
@@ -81,7 +81,7 @@ def build_repl_result(
     if type(snapshot) is not CodingSessionResultSnapshot:
         raise TypeError("snapshot must be an exact CodingSessionResultSnapshot")
     if status is HarnessStatus.FAILED:
-        return NativeToolReplResult(
+        return CodingSessionResult(
             status=HarnessStatus.FAILED,
             exit_code=exit_code,
             started_at=started_at,
@@ -104,7 +104,7 @@ def build_repl_result(
         )
     if status is HarnessStatus.SUCCEEDED:
         provider_failure = snapshot.provider_failure
-        return NativeToolReplResult(
+        return CodingSessionResult(
             status=HarnessStatus.SUCCEEDED,
             exit_code=exit_code,
             started_at=started_at,
@@ -136,6 +136,6 @@ def build_repl_result(
 
 
 __all__ = [
-    "NativeToolReplResult",
-    "build_repl_result",
+    "CodingSessionResult",
+    "build_coding_session_result",
 ]

@@ -15,6 +15,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_tool_result_hooks,
     extension_event_hooks,
@@ -27,10 +31,6 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
-)
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
 )
 
 
@@ -212,7 +212,7 @@ def test_tool_result_hook_transforms_through_session(tmp_path, monkeypatch) -> N
         arguments_json=json.dumps({"command": "cat note.txt"}),
     )
     provider = _Stub([_result(tool_calls=(call,)), _result(final_text="ok")])
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     )
 

@@ -6,7 +6,7 @@ mirroring Pi's ``runRpcMode`` (`packages/coding-agent/src/modes/rpc/rpc-mode.ts`
 
 Design (stdlib only, composes — does not fork — the runtime):
 
-- The same ``NativeToolReplSession.run`` loop the CLI/TUI use runs on a worker
+- The same ``CodingSession.run`` loop the CLI/TUI use runs on a worker
   thread, fed prompts through a blocking line channel. The native session tree
   is the durable source of truth and the introspection source for
   ``get_state``/``get_messages``/``get_session_stats``.

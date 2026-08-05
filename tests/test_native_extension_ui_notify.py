@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
@@ -25,7 +26,6 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.extensions.command_context import make_extension_context
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 def _make_workspace(tmp_path: Path) -> Path:
@@ -132,7 +132,7 @@ def test_hook_notify_surfaces_in_the_session(tmp_path, monkeypatch) -> None:
         "        ctx.ui.notify('AGENT_STARTING_NOW')\n",
         encoding="utf-8",
     )
-    session = NativeToolReplSession(provider=_FinalText(), tool_registry={})
+    session = CodingSession(provider=_FinalText(), tool_registry={})
     error_stream = io.StringIO()
 
     session.run(
@@ -156,7 +156,7 @@ def test_command_notify_still_surfaces(tmp_path, monkeypatch) -> None:
         "    api.register_command('st', 'status', status)\n",
         encoding="utf-8",
     )
-    session = NativeToolReplSession(provider=_FinalText(), tool_registry={})
+    session = CodingSession(provider=_FinalText(), tool_registry={})
     error_stream = io.StringIO()
 
     session.run(
@@ -180,7 +180,7 @@ def test_command_notify_sanitizes_terminal_controls(tmp_path, monkeypatch) -> No
         "    api.register_command('st', 'status', status)\n",
         encoding="utf-8",
     )
-    session = NativeToolReplSession(provider=_FinalText(), tool_registry={})
+    session = CodingSession(provider=_FinalText(), tool_registry={})
     error_stream = io.StringIO()
 
     session.run(

@@ -140,7 +140,7 @@ are not themselves agent-visible tools.
 | B5 | write | ✅ | `test -f src/pipy_harness/native/tools/write.py` |
 | B6 | edit | ✅ | `test -f src/pipy_harness/native/tools/edit.py` |
 | B7 | bash | ✅ | `uv run python scripts/parity_checks/bash_behavior.py` |
-| B8 | exact seven-tool manifest/order; no second edit path | ✅ | `uv run pytest -q tests/test_native_tool_loop_session.py::test_production_tool_inventories_match_exact_pi_manifest` |
+| B8 | exact seven-tool manifest/order; no second edit path | ✅ | `uv run pytest -q tests/test_native_coding_session.py::test_production_tool_inventories_match_exact_pi_manifest` |
 | B9 | automatic output bounding | ✅ | Focused read/bash/provider-output bound tests; see `scripts/parity_score.sh`. |
 
 **Per-tool acceptance:** B1-B7 expose classes implementing `ToolPort` and are
@@ -167,10 +167,10 @@ row was dropped.
 | C4 | Session persistence | ✅ | `uv run pipy-session list --help \| grep -q list` |
 | C5 | Session catalog (list/search/inspect) | ✅ | `uv run pipy-session list && uv run pipy-session search --help` |
 | C6 | Provider port abstraction | ✅ | `test -f src/pipy_harness/native/provider.py` |
-| C7 | Tool port + registry | ✅ | `grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q 'production_tool_registry' src/pipy_harness/native/tool_loop_session.py` |
+| C7 | Tool port + registry | ✅ | `grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q 'production_tool_registry' src/pipy_harness/native/coding/session.py` |
 | C8 | Workspace context (AGENTS.md/pipy.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
 | C9 | System prompt composition | ✅ | `grep -q 'system_prompt' src/pipy_harness/native/workspace_context.py` |
-| C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/tool_loop_session.py` |
+| C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/coding/session.py` |
 | C11 | .git default-deny + symlink resolution | ✅ | `grep -q '_resolved_relative_label' src/pipy_harness/native/read_only_tool.py` |
 | C13 | JSON output mode | ✅ | `uv run pipy repl --help \| grep -q -- '--mode'` |
 | C14 | Streaming output (provider→stdout) | ✅ | `grep -q StreamChunkSink src/pipy_harness/native/provider.py && grep -q -- '--stream' src/pipy_harness/cli.py` |
@@ -183,11 +183,11 @@ row was dropped.
 | D1 | Parent-walk for instruction files | ✅ | `grep -q 'parent' src/pipy_harness/native/workspace_context.py` |
 | D2 | Per-file + total byte caps | ✅ | `grep -q 'byte_cap' src/pipy_harness/native/workspace_context.py` |
 | D3 | Global config root (PIPY_CONFIG_HOME) | ✅ | `grep -q 'PIPY_CONFIG_HOME' src/pipy_harness/native/workspace_context.py` |
-| D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by `tool_loop_session.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
-| D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` (templates are invoked as `/<name>`, not `/template <name>`) to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. The tool-loop REPL imports the dispatcher. See `scripts/parity_score.sh`. |
-| D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; the tool-loop REPL imports the dispatcher. See `scripts/parity_score.sh`. |
-| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q '_open_theme_selector' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the real `/settings` theme picker `_open_theme_selector` with a stub selector choosing `ocean` — proving the picker is wired to `select_theme`; the pipy-only `/theme` command was removed — and proves the selected palette changes the rendered chrome: default `pi` separator, `ocean` after, while NO_COLOR / non-TTY always force plain output) |
-| D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the tool-loop REPL with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the metadata-first result records only safe counters — never the raw base64) |
+| D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by `native/repl/collaborators.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
+| D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` (templates are invoked as `/<name>`, not `/template <name>`) to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. The REPL collaborators import the dispatcher. See `scripts/parity_score.sh`. |
+| D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; the REPL collaborators import the dispatcher. See `scripts/parity_score.sh`. |
+| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q 'def open_theme_selector' …/repl/settings_actions.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the real `/settings` theme picker with a stub selector choosing `ocean` — proving the picker is wired to `select_theme`; the pipy-only `/theme` command was removed — and proves the selected palette changes the rendered chrome: default `pi` separator, `ocean` after, while NO_COLOR / non-TTY always force plain output) |
+| D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/repl/loop_step.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the coding session with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the metadata-first result records only safe counters — never the raw base64) |
 
 Post-baseline source-loading flags are not part of this legacy 49-row
 denominator. They are tracked under the extension/package platform surface
@@ -202,11 +202,11 @@ persisted filters are disabled.
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
 | E1 | Session resume (replay from record) | ✅ | `test -f src/pipy_harness/native/session_resume.py \|\| grep -rq 'def resume' src/pipy_harness/native/` |
-| E2 | Session compaction (summarize/trim retained context) | ✅ | **behavior check**: `grep -q compact_agent_history …/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py` (drives the tool-loop adapter with `/compact`; proves a `native.session.compacted` event with positive compaction/dropped-group counters and that canonical history compaction never orphans a tool result). Focused product regressions also prove automatic compaction operates on durable history while multiple `deliverAs=nextTurn` messages remain a detached identity overlay on every provider iteration of exactly the next run, absent from its canonical result, additional product `MessageEntry` records, and the metadata-only archive; the original bounded `CustomMessageEntry` remains durable. |
+| E2 | Session compaction (summarize/trim retained context) | ✅ | **behavior check**: `grep -q compact_agent_history …/coding/session.py && uv run python scripts/parity_checks/compaction_behavior.py` (drives the tool-loop adapter with `/compact`; proves a `native.session.compacted` event with positive compaction/dropped-group counters and that canonical history compaction never orphans a tool result). Focused product regressions also prove automatic compaction operates on durable history while multiple `deliverAs=nextTurn` messages remain a detached identity overlay on every provider iteration of exactly the next run, absent from its canonical result, additional product `MessageEntry` records, and the metadata-only archive; the original bounded `CustomMessageEntry` remains durable. |
 | E3 | Session branching/forking | ✅ | **behavior check**: `grep -q build_session_lineage …/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py` (seeds a parent, runs `--branch`, proves safe lineage metadata is recorded and the parent stays byte-for-byte immutable) |
 | E4 | Session export/share | ✅ | `uv run python scripts/parity_checks/export_distribution_conformance.py --json` |
 | E5 | Dynamic provider/model swap mid-session | ✅ | **behavior check**: `uv run python scripts/parity_checks/dynamic_provider_behavior.py` (drives the tool-loop REPL through the shared `NativeReplProviderState`; proves a mid-session `/model` switch rebinds the live provider/model in subsequent turns, the availability gate refuses an unavailable target with the prior selection preserved, the tool-loop clears the provider-visible conversation on a successful switch and preserves it on a refused one, and `/model` itself creates no provider/tool/archive side effects) |
-| E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/tool_loop_session.py` |
+| E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/coding/session.py` |
 | E7 | RPC mode / SDK embedding | ✅ | `test -f src/pipy_harness/sdk.py` |
 
 ## Legacy Gate Scoring
@@ -242,7 +242,7 @@ red after the 2026-05-26 audit cleanup removed their dormant helper
 modules (no runtime consumer existed). They are now ✅ because the
 helpers were reintroduced **with** a runtime consumer: the
 `pipy_harness.native.resources` registry/dispatcher is wired into the
-bounded tool loop / product TUI (`tool_loop_session.py`). Their Verify
+bounded tool loop / product TUI through `native/repl/collaborators.py`. Their Verify
 commands were upgraded from `test -f path` / `grep` rubber-stamps to
 **behavior checks** that seed a resource in a trusted temp workspace and assert
 the dispatcher resolves it to a bounded provider turn (see

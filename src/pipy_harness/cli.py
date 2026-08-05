@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pipy_harness.adapters import (
     PipyNativeAdapter,
-    PipyNativeToolReplAdapter,
     SubprocessAdapter,
 )
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import (
     RunRequest,
@@ -1138,7 +1138,7 @@ def main(argv: list[str] | None = None) -> int:
             # branch or native-session resolution, so the rejection never
             # depends on a downstream code path being reached.
             _validate_native_session_flags(args)
-            repl_adapter: PipyNativeToolReplAdapter
+            repl_adapter: CodingSessionAdapter
             # The native product session tree (Pi-style --session/--fork/-c/-r)
             # is the product session source; the old metadata-only --resume
             # RECORD / --branch LABEL repl flags were retired in favour of it.
@@ -2177,7 +2177,7 @@ def _tool_repl_adapter_for(
     auto_trust_on_reload_cwd: Path | None = None,
     initial_extension_batch: ExtensionActivationBatch | None = None,
     tool_registry: dict[str, ToolPort] | None = None,
-) -> PipyNativeToolReplAdapter:
+) -> CodingSessionAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     if catalog_state is None:
         catalog_state = _build_catalog_state(
@@ -2216,7 +2216,7 @@ def _tool_repl_adapter_for(
         provider_state.selection = normalize_repl_fake_selection(
             _fallback_default_selection(provider_state)
         )
-    return PipyNativeToolReplAdapter(
+    return CodingSessionAdapter(
         provider_state=provider_state,
         tool_budget=tool_budget,
         instruction_loader=(
@@ -2432,7 +2432,7 @@ def _run_repl_automation(
     )
     from pipy_harness.native.session_tree import NativeSessionTree
 
-    if not isinstance(repl_adapter, PipyNativeToolReplAdapter):
+    if not isinstance(repl_adapter, CodingSessionAdapter):
         raise ValueError(
             "--mode json/rpc and --print require a tool-capable native provider "
             "(the automation event stream is produced by the tool loop)"

@@ -1,6 +1,6 @@
 """Slice 10: golden conformance extension product-path proof.
 
-Drives the real `NativeToolReplSession.run` with the golden conformance
+Drives the real `CodingSession.run` with the golden conformance
 extension (`docs/examples/extensions/pipy-extension-conformance.py`) and a
 deterministic provider that calls the registered `conformance_probe` tool.
 A single `/pipy-extension-conformance` trigger exercises command + tool
@@ -19,14 +19,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
-)
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
 )
 
 _GOLDEN = (
@@ -114,7 +114,7 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
     )
 
     provider = _ConformanceProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     )
     error_stream = io.StringIO()

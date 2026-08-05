@@ -24,12 +24,12 @@ from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.repl.command_menu import (
     tool_loop_command_descriptions,
     tool_loop_command_names,
 )
 from pipy_harness.native.resources import WorkspaceResources
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.ui.autocomplete import CommandSurface
 
@@ -142,9 +142,9 @@ def _drive_session(
         )
     )
     provider = _CapturingToolProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui

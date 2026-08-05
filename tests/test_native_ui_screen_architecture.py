@@ -61,7 +61,9 @@ def test_screen_has_no_session_or_facade_backedge() -> None:
     source = SCREEN_PATH.read_text(encoding="utf-8")
     assert "native.tui" not in source
     assert "native.repl" not in source
-    assert "native.tool_loop_session" not in source
+    retired_module = "native.tool_" + "loop_session"
+    assert retired_module not in source
+    assert "native.coding.session" not in source
 
 
 def test_paint_lock_requires_the_one_explicit_production_rlock() -> None:

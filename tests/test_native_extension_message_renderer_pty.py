@@ -1,6 +1,6 @@
 """Real-PTY color test for rich extension message renderers (slice C).
 
-Boots a real PTY-backed `NativeToolReplSession` with an extension that
+Boots a real PTY-backed `CodingSession` with an extension that
 registers a 2-arg component message renderer and a `/mkcard` command calling
 `ctx.append_entry`. On a real terminal the live `ui_driver` runs the registered
 renderer, commits the component under the SGR-preserving `custom_message_custom`
@@ -27,8 +27,8 @@ import pytest
 from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 # A 2-arg `(entry, ctx)` durable-entry renderer takes the rich styled path: it
@@ -137,9 +137,9 @@ def test_rich_message_renderer_color_visible_over_pty(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=_Provider(), tool_registry={})
+    session = CodingSession(provider=_Provider(), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
     )

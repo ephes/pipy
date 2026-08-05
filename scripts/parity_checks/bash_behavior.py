@@ -33,7 +33,7 @@ def _fail(message: str) -> None:
 
 
 def main() -> int:
-    from pipy_harness.native.tool_loop_session import production_tool_registry
+    from pipy_harness.native.coding.session import production_tool_registry
     from pipy_harness.native.tools.base import (
         ToolContext,
         ToolRequest,

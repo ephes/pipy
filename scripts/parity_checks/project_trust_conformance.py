@@ -23,7 +23,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipy_harness.cli import KNOWN_SUBCOMMANDS, build_parser, route_argv
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native import FakeNativeProvider
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.project_trust import (
@@ -276,7 +277,7 @@ def _reload_persistence_check(root: Path) -> Check:
     settings = SettingsManager.for_workspace(cwd, project_trusted=True)
 
     with patch.dict(os.environ, {"PIPY_CONFIG_HOME": str(config)}):
-        session = NativeToolReplSession(
+        session = CodingSession(
             provider=FakeNativeProvider(supports_tool_calls=True),
             tool_registry={},
             auto_trust_on_reload_cwd=cwd,
@@ -301,7 +302,7 @@ def _reload_persistence_check(root: Path) -> Check:
         inherited_cwd = root / "reload" / "inherited" / "project"
         (inherited_cwd / ".pipy" / "skills").mkdir(parents=True)
         store.set(inherited_cwd.parent, False)
-        inherited_session = NativeToolReplSession(
+        inherited_session = CodingSession(
             provider=FakeNativeProvider(supports_tool_calls=True),
             tool_registry={},
             auto_trust_on_reload_cwd=inherited_cwd,

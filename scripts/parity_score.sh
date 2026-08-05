@@ -61,7 +61,7 @@ check B7  "bash"        big    "uv run python scripts/parity_checks/bash_behavio
 # edit-diff row into the durable parity criterion: the production registry,
 # provider schema names, prompt inventory, and extension reservations must all
 # expose exactly Pi's seven tools in provider-visible order.
-check B8  "7-tool manifest" small  "uv run pytest -q tests/test_native_tool_loop_session.py::test_production_tool_inventories_match_exact_pi_manifest"
+check B8  "7-tool manifest" small  "uv run pytest -q tests/test_native_coding_session.py::test_production_tool_inventories_match_exact_pi_manifest"
 # Pi keeps output truncation internal rather than advertising another agent
 # tool. Exercise pipy's independent read, bash, and provider-visible result
 # bounds instead of checking for a model-facing helper module.
@@ -75,10 +75,10 @@ check C3  "REPL mode"                small  "uv run pipy repl --help 2>&1 | grep
 check C4  "Session persistence"      small  "uv run pipy-session list --help 2>&1 | grep -q list"
 check C5  "Session catalog"          small  "uv run pipy-session search --help 2>&1 | grep -q search"
 check C6  "Provider port"            small  "test -f src/pipy_harness/native/provider.py"
-check C7  "Tool port + registry"     small  "grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q production_tool_registry src/pipy_harness/native/tool_loop_session.py"
+check C7  "Tool port + registry"     small  "grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q production_tool_registry src/pipy_harness/native/coding/session.py"
 check C8  "Workspace context"        small  "test -f src/pipy_harness/native/workspace_context.py"
 check C9  "System prompt"            small  "grep -q system_prompt src/pipy_harness/native/workspace_context.py"
-check C10 "Tool budget"              small  "grep -q tool_budget src/pipy_harness/native/tool_loop_session.py"
+check C10 "Tool budget"              small  "grep -q tool_budget src/pipy_harness/native/coding/session.py"
 check C11 ".git default-deny"        small  "grep -q _resolved_relative_label src/pipy_harness/native/read_only_tool.py"
 # C12 (transcript sidecar) was retired with the no-tool REPL: the native
 # session tree IS the full transcript, so the opt-in `transcripts.py` sidecar
@@ -95,8 +95,8 @@ check D3 "PIPY_CONFIG_HOME"          small  "grep -q PIPY_CONFIG_HOME src/pipy_h
 # D4/D5/D6 are behavior checks, not file-existence rubber-stamps: each asserts
 # the resource dispatcher is wired into the product tool-loop REPL AND that it
 # resolves a seeded workspace resource to a bounded provider turn. Recreating a
-# dormant helper module cannot satisfy them. (The no-tool REPL was retired, so
-# the dispatcher is wired only into tool_loop_session.py now.)
+# dormant helper module cannot satisfy them. (The no-tool REPL was retired; the
+# product coding session now reaches the dispatcher through repl/collaborators.py.)
 check D4 "Skills loading"            small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_SKILL_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'skills'; p.mkdir(parents=True); _=(p/'demo.md').write_text(chr(10).join(['---','name: demo','---','SKILLBODY',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/skill demo',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'SKILLBODY' in x.provider_text else 1)\""
 check D5 "Prompt templates"          small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_TEMPLATE_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'templates'; p.mkdir(parents=True); _=(p/'rev.md').write_text(chr(10).join(['---','name: rev','---','review ARGS='+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/rev hello',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'ARGS=hello' in x.provider_text else 1)\""
 check D6 "Custom slash commands"     small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_COMMAND_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'commands'; p.mkdir(parents=True); _=(p/'dep.md').write_text(chr(10).join(['---','name: dep','---','deploy '+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/dep prod',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'deploy prod' in x.provider_text else 1)\""

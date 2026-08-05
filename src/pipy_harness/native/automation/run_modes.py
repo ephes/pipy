@@ -19,7 +19,7 @@ import io
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
-from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, RunRequest
 from pipy_harness.native.automation.jsonl import JsonlWriter
@@ -131,7 +131,7 @@ class _NullEventSink:
         return None
 
 
-def _run_oneshot(adapter: PipyNativeToolReplAdapter, cwd: Path) -> AdapterResult:
+def _run_oneshot(adapter: CodingSessionAdapter, cwd: Path) -> AdapterResult:
     request = RunRequest(
         agent="pipy-native",
         slug="automation",
@@ -147,7 +147,7 @@ def _run_oneshot(adapter: PipyNativeToolReplAdapter, cwd: Path) -> AdapterResult
 
 def run_json_mode(
     *,
-    adapter: PipyNativeToolReplAdapter,
+    adapter: CodingSessionAdapter,
     prompt: str,
     cwd: Path,
     native_session: Any,
@@ -184,7 +184,7 @@ def run_json_mode(
 
 def run_print_mode(
     *,
-    adapter: PipyNativeToolReplAdapter,
+    adapter: CodingSessionAdapter,
     prompt: str,
     cwd: Path,
     stdout: TextIO,

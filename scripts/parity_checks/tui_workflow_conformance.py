@@ -65,15 +65,13 @@ os.environ.setdefault("TERM", "xterm-256color")
 os.environ.pop("NO_COLOR", None)
 
 from pipy_harness.models import CapturePolicy, HarnessStatus, RunRequest  # noqa: E402
-from pipy_harness.native import (  # noqa: E402
-    NativeToolReplSession,
-)
 from pipy_harness.native.agent import (  # noqa: E402
     AgentAssistantMessage,
     AgentUserMessage,
 )
 from pipy_harness.native.cancellation import ProviderCancelledError  # noqa: E402
 from pipy_harness.native.clipboard import ImageClipboardResult  # noqa: E402
+from pipy_harness.native.coding.session import CodingSession  # noqa: E402
 from pipy_harness.native.models import ProviderRequest, ProviderResult  # noqa: E402
 from pipy_harness.native.provider import ProviderPort  # noqa: E402
 from pipy_harness.native.repl_state import (  # noqa: E402
@@ -246,10 +244,10 @@ class _PtyRun:
         if clipboard_image_read is not None:
             kwargs["clipboard_image_read"] = clipboard_image_read
         self.provider = provider
-        self._session = NativeToolReplSession(provider=provider, **kwargs)
+        self._session = CodingSession(provider=provider, **kwargs)
         self._workspace = workspace
-        self._orig_build = NativeToolReplSession._build_terminal_ui
-        NativeToolReplSession._build_terminal_ui = (  # type: ignore[assignment]
+        self._orig_build = CodingSession._build_terminal_ui
+        CodingSession._build_terminal_ui = (  # type: ignore[assignment]
             lambda _self, input_stream, error_stream, workspace, resources=None, **_k: (
                 self.ui
             )
@@ -332,7 +330,7 @@ class _PtyRun:
         except OSError:
             pass
         self._worker.join(timeout=8.0)
-        NativeToolReplSession._build_terminal_ui = self._orig_build  # type: ignore[assignment]
+        CodingSession._build_terminal_ui = self._orig_build  # type: ignore[assignment]
         try:
             self._terminal.flush()
             self._terminal.close()
@@ -620,9 +618,7 @@ def _check_non_tty_fallback(base: Path) -> Check:
     ws.mkdir(parents=True)
     provider = _FakeProvider("NONTTY_DONE")
     tree = NativeSessionTree.create(ws, session_dir=base / "native-nontty")
-    session = NativeToolReplSession(
-        provider=cast(ProviderPort, provider), native_session=tree
-    )
+    session = CodingSession(provider=cast(ProviderPort, provider), native_session=tree)
     err = io.StringIO()
     script = "\n".join(
         ["/scoped-models", "/settings", "/hotkeys", "real question", "/exit", ""]
@@ -658,7 +654,7 @@ def _check_archive_privacy(base: Path) -> Check:
     the metadata archive (the native transcript keeps them; the archive does
     not). Exercises all four payload kinds the gate's item 12 claims."""
 
-    from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+    from pipy_harness.adapters.native import CodingSessionAdapter
     from pipy_harness.runner import FileSessionRecorder, HarnessRunner
 
     archive_root = base / "archive"
@@ -676,7 +672,7 @@ def _check_archive_privacy(base: Path) -> Check:
         b"\x89PNG\r\n\x1a\n" + secret_image_marker.encode("ascii") + b"\x00" * 32
     )
     tree = NativeSessionTree.create(ws, session_dir=native_dir)
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=_FakeProvider(secret_provider),
         native_session=tree,
         input_stream=io.StringIO(

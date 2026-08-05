@@ -21,6 +21,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.cancellation import ProviderCancelledError
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
 )
@@ -35,7 +36,6 @@ from pipy_harness.native.session_tree import (
     MessageEntry,
     NativeSessionTree,
 )
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -210,7 +210,7 @@ def test_auto_compaction_keeps_identity_overlay_on_every_provider_iteration(
     provider = _ScriptProvider(calls=((_call('{"text":"tool-result"}'),), (), ()))
     sink = _EventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={"echo": _EchoTool()},
         native_session=tree,
@@ -350,7 +350,7 @@ def test_compacted_run_result_is_anchored_and_excludes_overlay_for_every_outcome
         )
     sink = _EventSink()
 
-    NativeToolReplSession(
+    CodingSession(
         provider=provider,
         tool_registry={"echo": _EchoTool()},
         native_session=_seed_tree(tmp_path),

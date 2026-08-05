@@ -15,6 +15,7 @@ from io import StringIO
 from pathlib import Path
 
 from pipy_harness.native import FakeNativeProvider
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_runtime import (
     RESERVED_SHORTCUT_KEYS,
     activate_extensions,
@@ -26,7 +27,6 @@ from pipy_harness.native.extensions.dispatch import (
     extension_shortcuts,
 )
 from pipy_harness.native.keybindings import KeybindingsManager
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
@@ -244,7 +244,7 @@ def test_shortcut_send_user_message_triggers_a_turn(tmp_path, monkeypatch) -> No
 
     from pipy_harness.models import HarnessStatus
     from pipy_harness.native import ProviderResult
-    from pipy_harness.native.tool_loop_session import NativeToolReplSession
+    from pipy_harness.native.coding.session import CodingSession
     from pipy_harness.native.ui.components.custom_editor import (
         HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     )
@@ -290,7 +290,7 @@ def activate(api):
 """,
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     error_stream = StringIO()
     result = session.run(
         workspace_root=tmp_path,
@@ -331,13 +331,13 @@ def activate(api):
 
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
             terminal_ui
         ),
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         keybindings_manager=KeybindingsManager({"app.editor.external": "Ctrl+X"}),

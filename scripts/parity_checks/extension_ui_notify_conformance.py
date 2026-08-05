@@ -1,6 +1,6 @@
 """Hard conformance gate for extension UI notifications (slice 9).
 
-Drives the real `NativeToolReplSession.run` and asserts the slice-9
+Drives the real `CodingSession.run` and asserts the slice-9
 invariants from `docs/extension-api.md`:
 
 1. a command handler's `ctx.ui.notify` surfaces to the live UI;
@@ -29,9 +29,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extensions.command_context import make_extension_context
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -69,7 +69,7 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 
 def _run(workspace: Path, prompt: str) -> str:
-    session = NativeToolReplSession(provider=_FinalText(), tool_registry={})
+    session = CodingSession(provider=_FinalText(), tool_registry={})
     error_stream = io.StringIO()
     session.run(
         workspace_root=workspace,

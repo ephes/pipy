@@ -3,7 +3,7 @@
 Proves the live ``/model`` capability in the product tool-loop REPL through the
 shared ``NativeReplProviderState`` boundary — not a dead wrapper module.
 
-Tool-loop product path (driven via ``NativeToolReplSession.run`` with captured
+Tool-loop product path (driven via ``CodingSession.run`` with captured
 streams, recording every ``ProviderRequest``):
 
   * a successful switch rebinds the live provider/model AND clears the
@@ -27,13 +27,13 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
 )
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -117,7 +117,7 @@ def _tool_loop_requests() -> list[ProviderRequest]:
         model_runtime=ModelRuntime(catalog=catalog),
     )
     cwd = Path(tempfile.mkdtemp())
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=probe.factory(initial_selection),
         tool_registry={},
         provider_state=provider_state,

@@ -98,7 +98,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.automation",
     "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extensions",
-    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.coding.session",
     "pipy_harness.native.session",
     "pipy_harness.native.session_resume",
     "pipy_harness.native.session_tree",

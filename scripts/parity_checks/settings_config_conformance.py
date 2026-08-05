@@ -26,10 +26,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native.changelog import changelog_startup, parse_changelog
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.keybindings import (
     APP_KEYBINDINGS,
@@ -47,7 +48,6 @@ from pipy_harness.native.settings import (
     settings_report_lines,
 )
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.version_check import update_check_enabled
 
 
@@ -94,7 +94,7 @@ def _run_tool_adapter(
 ) -> _RecordingSink:
     """Drive the tool-loop adapter end-to-end (composes the system prompt)."""
 
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,  # type: ignore[arg-type]
         input_stream=io.StringIO(inputs),
         output_stream=io.StringIO(),
@@ -144,7 +144,7 @@ def _run_session(
         if provider is not None
         else FakeNativeProvider(supports_tool_calls=True, final_text="ok")
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=prov,
         settings_manager=settings_manager,
         **session_kwargs,  # type: ignore[arg-type]

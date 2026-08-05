@@ -96,8 +96,8 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # The previous architecture program shrank these two files and they grew ~14%
 # straight back, because every gate in this repository constrains *direction*
 # (no new complex function, no new boundary violation) and none constrains
-# *mass*. `tool_loop_session.py` in particular is protected as the apex of the
-# import DAG, which means nothing gates what it accretes.
+# *mass*. The concrete coding session in particular is protected as the apex
+# of the import DAG, which means nothing gates what it accretes.
 #
 # These bounds are the mass gate for the god-file decomposition
 # (docs/plans/2026-08-03-god-file-decomposition-plan.md). Lower them in any
@@ -105,7 +105,7 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # is a slice that put code back.
 _SIZE_RATCHET = {
     "src/pipy_harness/native/tui.py": 1466,
-    "src/pipy_harness/native/tool_loop_session.py": 336,
+    "src/pipy_harness/native/coding/session.py": 336,
 }
 
 # Nothing else under `native/` may quietly become the next god file while the
@@ -118,11 +118,58 @@ def _line_count(path: Path) -> int:
     return len(path.read_text(encoding="utf-8").splitlines())
 
 
-def test_slice_44_removes_the_session_composition_c901_pin() -> None:
+def test_coding_session_has_no_composition_c901_pin() -> None:
     config = tomllib.loads(_read("pyproject.toml"))
     per_file_ignores = config["tool"]["ruff"]["lint"]["per-file-ignores"]
 
-    assert "src/pipy_harness/native/tool_loop_session.py" not in per_file_ignores
+    assert "src/pipy_harness/native/coding/session.py" not in per_file_ignores
+    retired_path = "src/pipy_harness/native/tool_" + "loop_session.py"
+    assert retired_path not in per_file_ignores
+
+
+def test_slice_45_owns_the_session_and_command_router_exactly_once() -> None:
+    retired_path = "src/pipy_harness/native/tool_" + "loop_session.py"
+    old_session = REPO_ROOT / retired_path
+    session = _read("src/pipy_harness/native/coding/session.py")
+    router = _read("src/pipy_harness/native/repl/command_router.py")
+    collaborators = _read("src/pipy_harness/native/repl/collaborators.py")
+    wiring = _read("src/pipy_harness/native/repl/wiring.py")
+
+    assert not old_session.exists()
+    assert session.count("class CodingSession:") == 1
+    assert "class BuiltinCommandInterpreter:" in router
+    assert "class BuiltinCommandInterpreter:" not in collaborators
+    assert "from pipy_harness.native.repl.command_router import " in wiring
+    assert "from pipy_harness.native.coding.session import " not in wiring
+
+
+def test_slice_45_retires_old_session_surfaces_and_test_filenames() -> None:
+    forbidden = (
+        "NativeTool" + "ReplSession",
+        "NativeTool" + "ReplResult",
+        "PipyNativeTool" + "ReplAdapter",
+        "build_" + "repl_result",
+        "pipy_harness.native.tool_" + "loop_session",
+        "native/tool_" + "loop_session.py",
+    )
+    scanned = [
+        *REPO_ROOT.joinpath("src").rglob("*.py"),
+        *REPO_ROOT.joinpath("scripts").rglob("*.py"),
+        *REPO_ROOT.joinpath("tests").rglob("*.py"),
+    ]
+
+    assert not {
+        str(path.relative_to(REPO_ROOT)): retired
+        for path in scanned
+        for retired in forbidden
+        if retired in path.read_text(encoding="utf-8")
+    }
+    assert not [
+        path.name
+        for path in REPO_ROOT.joinpath("tests").glob("*.py")
+        if "tool_" + "loop" in path.name
+        or "pipy_native_tool_" + "repl_adapter" in path.name
+    ]
 
 
 def test_decomposition_size_ratchet_never_grows() -> None:

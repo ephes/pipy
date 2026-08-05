@@ -14,7 +14,7 @@ test:
 
 # Run a bounded, cross-platform real-PTY smoke suite.
 test-pty-smoke:
-    uv run pytest tests/test_native_tool_loop_pty_streaming.py tests/test_native_tui_chrome_pty.py tests/test_native_project_trust_tui_pty.py
+    uv run pytest tests/test_native_coding_session_pty_streaming.py tests/test_native_tui_chrome_pty.py tests/test_native_project_trust_tui_pty.py
 
 # Run lint checks.
 lint:

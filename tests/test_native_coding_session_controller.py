@@ -36,7 +36,7 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchResolution,
 )
 from pipy_harness.native.coding.input_queue import CodingInputQueue
-from pipy_harness.native.coding.result import NativeToolReplResult
+from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.session_controller import (
     CodingLoopStep,
     CodingLoopStepKind,
@@ -952,9 +952,9 @@ class _LogEmitter:
 
 def _repl_result(
     status: HarnessStatus = HarnessStatus.SUCCEEDED,
-) -> NativeToolReplResult:
+) -> CodingSessionResult:
     now = datetime.now(UTC)
-    return NativeToolReplResult(
+    return CodingSessionResult(
         status=status,
         exit_code=0 if status is HarnessStatus.SUCCEEDED else 1,
         started_at=now,
@@ -972,7 +972,7 @@ def _run_loop_controller(log: list[str]) -> CodingSessionController:
     )
 
 
-def _never_finalize() -> NativeToolReplResult:  # pragma: no cover - guard only
+def _never_finalize() -> CodingSessionResult:  # pragma: no cover - guard only
     raise AssertionError("finalize must not run on a RETURN_RESULT exit")
 
 
@@ -992,7 +992,7 @@ def test_run_loop_iterates_then_finalizes_in_order() -> None:
         log.append("step")
         return next(signals)
 
-    def finalize() -> NativeToolReplResult:
+    def finalize() -> CodingSessionResult:
         log.append("finalize")
         return result
 
@@ -1191,7 +1191,7 @@ def test_run_loop_rejects_non_callable_ports() -> None:
     def ok_step() -> LoopStepSignal:
         return LoopStepSignal.break_loop()
 
-    def ok_finalize() -> NativeToolReplResult:
+    def ok_finalize() -> CodingSessionResult:
         return _repl_result()
 
     def noop() -> None:
@@ -1273,9 +1273,9 @@ def test_run_loop_rejects_non_callable_ports() -> None:
 
 
 def test_loop_step_signal_invariants() -> None:
-    # RETURN_RESULT requires an exact NativeToolReplResult; the other kinds carry
+    # RETURN_RESULT requires an exact CodingSessionResult; the other kinds carry
     # no result.
-    with pytest.raises(TypeError, match="exact NativeToolReplResult"):
+    with pytest.raises(TypeError, match="exact CodingSessionResult"):
         LoopStepSignal(LoopStepSignalKind.RETURN_RESULT)
     with pytest.raises(ValueError, match="only RETURN_RESULT carries a result"):
         LoopStepSignal(LoopStepSignalKind.CONTINUE, _repl_result())

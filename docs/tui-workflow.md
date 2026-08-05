@@ -7,7 +7,7 @@ thinking-level hotkeys, `Ctrl+O`/`Ctrl+T` folding, queued steering/follow-up,
 true cancellation, clipboard/drag image paste, the `/scoped-models` + `/hotkeys`
 overlays and new `/settings` rows, and the mouse-selection invariant) and are
 proven by `scripts/parity_checks/tui_workflow_conformance.py --json` plus the
-real-PTY product-path tests in `tests/test_native_tool_loop_tui_pty.py`. This
+real-PTY product-path tests in `tests/test_native_coding_session_terminal_pty.py`. This
 document remains the behavioral source of truth for the track.
 
 This document defines the pipy target for reaching real feature parity with
@@ -179,7 +179,7 @@ Pipy current state (the boundaries this track extends):
 - `src/pipy_harness/native/agent/provider_turn.py` — `ProviderTurnExecutor` owns the
   per-turn `CancelToken`, provider worker, cancellation/completion ordering,
   bounded cleanup, and late-delta admission gate.
-- `src/pipy_harness/native/tool_loop_session.py` — the composition-owned TUI
+- `src/pipy_harness/native/coding/session.py` — the composition-owned TUI
   wait adapter translates `wait_for_active_turn_interrupt` outcomes into the
   executor's typed interruption vocabulary. True provider-request cancellation
   has **shipped** across this boundary: Escape/Ctrl-C close the in-flight
@@ -369,7 +369,7 @@ start of the **next normal prompt submit**, not automatically on `agent_end`.
 `Esc` aborts a running bash command (`session.abortBash`). The startup hints
 read `! to run bash` and `!! to run bash (no context)`.
 
-**Pipy target** (extends `tool_loop_session.py` submit dispatch + `tui.py`):
+**Pipy target** (extends `coding/session.py` submit dispatch + `tui.py`):
 recognize a submitted line whose first non-space character is `!` as a local
 shell shortcut handled before any provider turn. `!cmd` runs `cmd` through the
 existing real-bash execution boundary (the same bounded streaming shell used by
@@ -493,7 +493,7 @@ abort/escape path also restores queued messages to the editor before aborting.
 Extension commands execute immediately rather than queueing. When idle,
 `Alt+Enter` behaves like Enter.
 
-**Pipy target** (extends `tool_loop_session.py` turn loop + `tui.py`): add a
+**Pipy target** (extends `coding/session.py` turn loop + `tui.py`): add a
 pipy-owned per-session message queue with two lanes, steering and follow-up.
 Submitting a non-command line during an active turn enqueues it as a steering
 message; the active-turn input watcher (today `wait_for_active_turn_interrupt`,
@@ -670,7 +670,7 @@ adds no metadata and `ProviderCancelledError` carries no provider payload.
 that proves `cancel()` interrupts a blocked `read()`, and a fake-HTTP proof
 that an adapter forwards the token), direct `ProviderTurnExecutor` and
 composition-adapter Escape/Ctrl-C tests, a session-honesty test in
-`tests/test_native_tool_loop_*`, and a real-PTY product test
+`tests/test_native_coding_session_*`, and a real-PTY product test
 (`test_pty_active_turn_interrupt_cancels_and_returns_to_prompt`) that drives the
 actual Escape and Ctrl-C key sequences during a live turn and asserts the
 aborted state plus a usable follow-up prompt.
@@ -683,7 +683,7 @@ rather than only hiding chunks that keep arriving.
 
 - Pipy-owned Python boundaries only. This is not a TypeScript port and not a
   port of `@earendil-works/pi-tui`. Behaviors are delivered through pipy's
-  `ToolLoopTerminalUi`, `repl_input`, `tool_loop_session`, `ProviderPort`, and
+  `ToolLoopTerminalUi`, `repl_input`, `coding.session`, `ProviderPort`, and
   the existing `file_references` / `image_attachment` / `clipboard` /
   provider-state / native-session-tree boundaries.
 - Stdlib-only. No new runtime dependency. The completion scorer, file walk, image
@@ -769,7 +769,7 @@ steering interruption.
 
 ### Real-PTY test contracts
 
-Mirror pipy's existing `tests/test_native_tool_loop_tui_pty.py` real-PTY
+Mirror pipy's existing `tests/test_native_coding_session_terminal_pty.py` real-PTY
 approach (drive the real product command in a PTY, replay output through
 `pipy_harness.native.terminal_screen`, assert on visible rows/columns/cursor,
 viewport/scroll state, and SGR cell attributes). Add product-path PTY tests at
@@ -862,7 +862,7 @@ Before treating implementation as complete, run:
 
 ```sh
 uv run python scripts/parity_checks/tui_workflow_conformance.py --json
-uv run pytest tests/test_native_tool_loop_tui_pty.py
+uv run pytest tests/test_native_coding_session_terminal_pty.py
 uv run pytest tests/test_native_repl_pty_chrome.py
 just check
 ```

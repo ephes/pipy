@@ -52,8 +52,8 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.result import (
-    NativeToolReplResult,
-    build_repl_result,
+    CodingSessionResult,
+    build_coding_session_result,
 )
 from pipy_harness.native.coding.session_controller import (
     CodingLoopStepKind,
@@ -553,7 +553,7 @@ def _phase_f2_run_and_settle(
     except Exception:  # noqa: BLE001 - the run failure retains precedence
         pass
     return LoopStepSignal.return_result(
-        build_repl_result(
+        build_coding_session_result(
             result_snapshot,
             status=HarnessStatus.FAILED,
             exit_code=1,
@@ -594,14 +594,14 @@ class _ReplLoopStep:
         coding_state: CodingSessionState,
         repl_input: "ToolLoopTerminalUi | NativeReplInput",
         started_at: datetime,
-    ) -> NativeToolReplResult:
+    ) -> CodingSessionResult:
         try:
             repl_input.close()
         except Exception:  # noqa: BLE001 - teardown close is best-effort
             pass
         ended_at = datetime.now(UTC)
         result_snapshot = coding_state.result_snapshot()
-        return build_repl_result(
+        return build_coding_session_result(
             result_snapshot,
             status=HarnessStatus.SUCCEEDED,
             exit_code=0,

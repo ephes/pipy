@@ -15,7 +15,7 @@ from typing import TextIO, cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentCancellationReason,
@@ -28,6 +28,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.clipboard import ClipboardResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.frame_renderer import visible_len as _visible_len_allow_sgr
@@ -1516,7 +1517,7 @@ def test_model_command_direct_reference_rebinds_next_turn(
         model_id="openai/gpt",
         env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
@@ -1551,7 +1552,7 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
         model_id="openai/gpt",
         env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
@@ -1584,7 +1585,7 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
         lambda self, done_event, abort_event, **kwargs: TURN_SETTLED,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1622,7 +1623,7 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
         env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
     )
     initial_reference = provider_state.current_selection().reference
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
@@ -1644,7 +1645,7 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _cancel_selector)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -1680,7 +1681,7 @@ def test_model_command_refuses_non_tool_capable_selection(
         model_id="openai/gpt",
         env={"OPENROUTER_API_KEY": "k"},
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
@@ -1720,7 +1721,7 @@ def test_model_command_refusal_restores_unavailable_previous_selection(
         model_id="gpt-5.5",
         env={},  # openai is unavailable per env checks; fake is always available
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
@@ -1767,7 +1768,7 @@ def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
     )
     provider_state.thinking_level = "low"
     previous_selection = provider_state.current_selection()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider_state.current_provider(),
         provider_state=provider_state,
         tool_registry={},
@@ -1844,13 +1845,13 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2165,7 +2166,7 @@ def test_persistent_history_records_prompt_when_enabled(tmp_path: Path):
     store = PromptHistoryStore(tmp_path / "history.json")
     store.set_enabled(True)
     seen: list[tuple[str, str]] = []
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_history_recording_provider(seen),
         tool_registry={},
         prompt_history_store=store,
@@ -2189,7 +2190,7 @@ def test_persistent_history_skips_recording_when_disabled(tmp_path: Path):
 
     store = PromptHistoryStore(tmp_path / "history.json")  # disabled by default
     seen: list[tuple[str, str]] = []
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_history_recording_provider(seen),
         tool_registry={},
         prompt_history_store=store,
@@ -2223,13 +2224,13 @@ def test_persistent_history_seeds_tui_recall_when_enabled(
         lambda self, prompt_label, *, footer=None: "",  # immediate EOF
     )
     seen: list[tuple[str, str]] = []
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_history_recording_provider(seen),
         tool_registry={},
         prompt_history_store=store,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2264,13 +2265,13 @@ def test_disabled_store_does_not_seed_tui_recall(
         lambda self, prompt_label, *, footer=None: "",
     )
     seen: list[tuple[str, str]] = []
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_history_recording_provider(seen),
         tool_registry={},
         prompt_history_store=store,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2320,14 +2321,14 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
         prompt_history_store=store,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2430,14 +2431,14 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _fake_model_selector)
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
         settings_manager=settings,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2548,13 +2549,13 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
     monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _fake_model_selector)
 
     # Build the session with no provider_state, forcing the static fallback.
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         settings_manager=settings,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2643,14 +2644,14 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
         ToolLoopTerminalUi, "run_scoped_models_selector", _fake_scope_selector
     )
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
         settings_manager=settings,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2685,7 +2686,7 @@ def test_persistent_history_contents_stay_out_of_session_archive(tmp_path: Path)
     store = PromptHistoryStore(history_path)
     store.set_enabled(True)
     seen: list[tuple[str, str]] = []
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_history_recording_provider(seen),
         tool_registry={},
         prompt_history_store=store,
@@ -2772,14 +2773,14 @@ def test_tui_copy_command_is_local_only_when_nothing_to_copy(
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
         clipboard_copy=recorder,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2831,14 +2832,14 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
             TURN_SETTLED,
         )[1],
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
         clipboard_copy=recorder,
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -2870,7 +2871,7 @@ def test_tool_loop_plain_settings_command_is_read_only(
     monkeypatch.setenv("NO_COLOR", "1")
     provider = _CountingProvider()
     provider_state = _read_only_provider_state(tmp_path, provider)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
@@ -2898,12 +2899,12 @@ def test_tui_session_does_not_print_legacy_separator(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     ui = _ExitOnlyUi()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3345,7 +3346,7 @@ def _raising_auth_session(
     tmp_path: Path,
     trace: list[str],
     failure: BaseException,
-) -> tuple[NativeToolReplSession, _CountingProvider, ToolLoopTerminalUi]:
+) -> tuple[CodingSession, _CountingProvider, ToolLoopTerminalUi]:
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
@@ -3371,7 +3372,7 @@ def _raising_auth_session(
         persist_defaults=False,
     )
     return (
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             provider_state=provider_state,
             tool_registry={},
@@ -3440,7 +3441,7 @@ def _install_auth_trace(
     monkeypatch.setattr(ToolLoopTerminalUi, "add_notice", record_notice)
     monkeypatch.setattr(CodingSessionState, "rebind_provider", record_rebind)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3469,13 +3470,13 @@ def test_tui_login_refreshes_availability_without_provider_turn(
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3520,13 +3521,13 @@ def test_tui_logout_removes_credentials_without_provider_turn(
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=provider_state,
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui
@@ -3738,13 +3739,13 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "wait_for_active_turn_interrupt", _fake_interrupt
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=cast(ProviderPort, provider),
         provider_state=provider_state,
         tool_registry={},
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
             ui

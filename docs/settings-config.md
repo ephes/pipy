@@ -1089,7 +1089,7 @@ uv run python scripts/parity_checks/settings_config_conformance.py --json
 uv run pytest tests/test_native_settings*.py
 uv run pytest tests/test_native_keybindings*.py
 uv run pytest tests/test_native_settings_repl*.py
-uv run pytest tests/test_native_tool_loop_tui_pty.py -k "settings or reload or hotkeys"
+uv run pytest tests/test_native_coding_session_terminal_pty.py -k "settings or reload or hotkeys"
 just check
 ```
 

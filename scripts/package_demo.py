@@ -1,6 +1,6 @@
 """Deterministic TUI demo runner for installed-package runtime composition.
 
-Launches a real `NativeToolReplSession` (real TUI, real settings, real
+Launches a real `CodingSession` (real TUI, real settings, real
 package discovery / theme registry / resource dispatch) with a *scripted*
 provider so the flow is fully deterministic for tmux UI verification — no
 network, no auth. The demo assumes the workspace already has the example
@@ -66,9 +66,9 @@ def main(argv: list[str]) -> int:
         return 2
     workspace = Path(argv[1]).expanduser().resolve()
 
-    from pipy_harness.native.tool_loop_session import NativeToolReplSession
+    from pipy_harness.native.coding.session import CodingSession
 
-    session = NativeToolReplSession(provider=_ScriptedProvider(), tool_registry={})
+    session = CodingSession(provider=_ScriptedProvider(), tool_registry={})
     session.run(
         workspace_root=workspace,
         input_stream=sys.stdin,

@@ -1,6 +1,6 @@
 """Product-path tests for `/hotkeys` in the native tool-loop REPL.
 
-These drive the real `NativeToolReplSession.run` command loop with the
+These drive the real `CodingSession.run` command loop with the
 deterministic fake provider (captured-stream fallback) and assert that
 `/hotkeys` renders from the resolved keybinding manager — both an injected
 manager and the default `<config>/keybindings.json` discovery path — rather than
@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.keybindings import KeybindingsManager
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
-def _run(session: NativeToolReplSession, inputs: str, tmp_path: Path) -> str:
+def _run(session: CodingSession, inputs: str, tmp_path: Path) -> str:
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -32,7 +32,7 @@ def _run(session: NativeToolReplSession, inputs: str, tmp_path: Path) -> str:
 
 
 def test_hotkeys_renders_grouped_table_from_default_bindings(tmp_path: Path) -> None:
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         keybindings_manager=KeybindingsManager(user_bindings={}),
     )
@@ -45,7 +45,7 @@ def test_hotkeys_renders_grouped_table_from_default_bindings(tmp_path: Path) -> 
 
 
 def test_hotkeys_reflects_injected_user_override(tmp_path: Path) -> None:
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         keybindings_manager=KeybindingsManager(
             user_bindings={"app.model.cycleForward": "ctrl+j"}
@@ -67,8 +67,6 @@ def test_hotkeys_reads_edited_keybindings_json_from_config_home(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     # No injected manager: the session loads <config>/keybindings.json itself.
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True)
-    )
+    session = CodingSession(provider=FakeNativeProvider(supports_tool_calls=True))
     out = _run(session, "/hotkeys\n/exit\n", workspace)
     assert "Ctrl+Y" in out

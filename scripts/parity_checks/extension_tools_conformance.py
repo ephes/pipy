@@ -1,6 +1,6 @@
 """Hard conformance gate for extension tool registration (slice 7).
 
-Drives the real `NativeToolReplSession.run` with a stub provider that
+Drives the real `CodingSession.run` with a stub provider that
 calls an extension-registered tool, and asserts the slice-7 invariants
 from `docs/extension-api.md`:
 
@@ -30,6 +30,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
 )
@@ -41,10 +45,6 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
-)
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
 )
 
 
@@ -101,7 +101,7 @@ def _call(tool_name: str, args: dict):
 
 def _run(workspace: Path, call: ProviderToolCall):
     provider = _Stub([_result(tool_calls=(call,)), _result(final_text="ok")])
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     )
     result = session.run(

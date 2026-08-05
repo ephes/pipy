@@ -17,7 +17,6 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
@@ -31,6 +30,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import (
     ExtensionModelRuntimeControl,
@@ -103,9 +103,7 @@ def _canonical_history_bytes(message: AgentMessage) -> int:
     return total
 
 
-def _run(
-    session: NativeToolReplSession, cwd: Path, user_inputs: str
-) -> tuple[str, str]:
+def _run(session: CodingSession, cwd: Path, user_inputs: str) -> tuple[str, str]:
     out = io.StringIO()
     err = io.StringIO()
     session.run(
@@ -196,7 +194,7 @@ def test_tool_loop_persists_raw_turns_to_native_session_file(
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
 
     _run(session, cwd, "ROOT\nMAIN\n/exit\n")
 
@@ -226,7 +224,7 @@ def test_tool_loop_context_reconstructed_from_resumed_tree(
 
     reopened = NativeSessionTree.open(seed.path)
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=reopened)
+    session = CodingSession(provider=provider, native_session=reopened)
 
     _run(session, cwd, "MORE\n/exit\n")
 
@@ -245,7 +243,7 @@ def test_tool_loop_default_session_is_ephemeral(tmp_path: Path) -> None:
 
     cwd = _workspace(tmp_path)
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     # Should run without creating any persistent native session file.
     _run(session, cwd, "hello\n/exit\n")
     # Provider still saw the turn through an in-memory tree.
@@ -270,7 +268,7 @@ def test_canonical_tree_branch_scenario(tmp_path: Path) -> None:
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
 
     # default-filter visible order after ROOT/MAIN:
     #   1 ROOT(user) 2 SEEN:ROOT(asst) 3 MAIN(user) 4 SEEN:ROOT,MAIN(asst)
@@ -337,7 +335,7 @@ def test_tree_outer_dispatch_gate_matrix_preserves_full_argument_target(
 
     provider = _SeenProvider()
     _run(
-        NativeToolReplSession(provider=provider, native_session=tree),
+        CodingSession(provider=provider, native_session=tree),
         cwd,
         "\n".join(
             [
@@ -378,9 +376,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
     scripted = iter(("/tree", "/exit"))
     original_gate = ops_module.dispatch_session_before_hooks
 
-    def build_terminal_ui(
-        self: NativeToolReplSession, **_kwargs: object
-    ) -> ToolLoopTerminalUi:
+    def build_terminal_ui(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
         del self
         return terminal_ui
 
@@ -399,12 +395,12 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
-    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build_terminal_ui)
+    monkeypatch.setattr(CodingSession, "_build_terminal_ui", build_terminal_ui)
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
     monkeypatch.setattr(commands_module, "run_tree_command", handle_tree)
 
     provider = _SeenProvider()
-    _run(NativeToolReplSession(provider=provider, native_session=tree), cwd, "")
+    _run(CodingSession(provider=provider, native_session=tree), cwd, "")
 
     assert trace == ["hook:tree:None"]
     assert handled_arguments == [""]
@@ -436,7 +432,7 @@ def test_tree_gate_denial_or_error_cuts_off_mutation_with_standard_footer(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = _SeenProvider()
     _out, err = _run(
-        NativeToolReplSession(provider=provider, native_session=tree),
+        CodingSession(provider=provider, native_session=tree),
         cwd,
         "/tree label 1 changed\n/exit\n",
     )
@@ -469,7 +465,7 @@ def test_tree_gate_controlled_fatal_cuts_off_handler_and_footer(
 
     with pytest.raises(fatal):
         _run(
-            NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+            CodingSession(provider=_SeenProvider(), native_session=tree),
             cwd,
             "/tree label 1 changed\n",
         )
@@ -525,7 +521,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
     _out, err = _run(
-        NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+        CodingSession(provider=_SeenProvider(), native_session=tree),
         cwd,
         "/tree filter default\n/tree mystery\n/exit\n",
     )
@@ -580,7 +576,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
 
     _run(
-        NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+        CodingSession(provider=_SeenProvider(), native_session=tree),
         cwd,
         f"/tree select {leaf.id}\n/exit\n",
     )
@@ -639,7 +635,7 @@ def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
 
     with pytest.raises(RuntimeError, match="rebuild failed"):
         _run(
-            NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+            CodingSession(provider=_SeenProvider(), native_session=tree),
             cwd,
             f"/tree select {selected.id}\n",
         )
@@ -653,7 +649,7 @@ def test_name_session_new_and_resume_roundtrip(tmp_path: Path) -> None:
     session_dir = tmp_path / "sessions"
     tree = NativeSessionTree.create(cwd, session_dir=session_dir)
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
 
     _out, err = _run(
         session,
@@ -746,7 +742,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
 
     provider = TracingProvider()
     _out, err = _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         "/new\nFRESH\n/exit\n",
     )
@@ -798,7 +794,7 @@ def test_new_command_preserves_ephemeral_session_policy(
     monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
     provider = _SeenProvider()
     _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         "/new\n/exit\n",
     )
@@ -849,7 +845,7 @@ def test_new_switch_gate_blocks_before_create_and_applies_footer(
     provider = _SeenProvider()
 
     _out, err = _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         "/new\n/exit\n",
     )
@@ -879,7 +875,7 @@ def test_new_switch_gate_controlled_fatal_cuts_off_create_and_footer(
         KeyboardInterrupt if fatal == "KeyboardInterrupt" else SystemExit
     ):
         _run(
-            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            CodingSession(provider=_SeenProvider(), native_session=active),
             cwd,
             "/new\n",
         )
@@ -963,7 +959,7 @@ def test_new_storage_failure_cuts_off_later_effects(
 
     with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
         _run(
-            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            CodingSession(provider=_SeenProvider(), native_session=active),
             cwd,
             "/new\n",
         )
@@ -989,7 +985,7 @@ def test_name_command_queries_sets_and_persists_without_provider_turn(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     unsafe_name = "nm\x1b[31mEVIL\x07"
     _out, err = _run(
-        NativeToolReplSession(provider=provider, native_session=tree),
+        CodingSession(provider=provider, native_session=tree),
         cwd,
         f"/name\n/name alpha   beta\n/name\n/name {unsafe_name}\n/exit\n",
     )
@@ -1023,7 +1019,7 @@ def test_fork_creates_new_session_file_with_parent(tmp_path: Path) -> None:
     session_dir = tmp_path / "sessions"
     tree = NativeSessionTree.create(cwd, session_dir=session_dir)
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
 
     _run(session, cwd, "\n".join(["ROOT", "MAIN", "/fork 1", "/exit", ""]))
 
@@ -1041,7 +1037,7 @@ def test_tree_select_with_summary_records_branch_summary(tmp_path: Path) -> None
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
 
     # Build ROOT/MAIN, then re-pick the ROOT user message (index 1) WITH a
     # branch summary of the abandoned MAIN branch, then submit ALT.
@@ -1074,7 +1070,7 @@ def test_resume_rename_and_delete_with_confirmation(tmp_path: Path) -> None:
 
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=active)
+    session = CodingSession(provider=provider, native_session=active)
     _out, err = _run(
         session,
         cwd,
@@ -1125,9 +1121,7 @@ def _install_resume_terminal(
     )
     scripted = iter(commands)
 
-    def build_terminal_ui(
-        self: NativeToolReplSession, **_kwargs: object
-    ) -> ToolLoopTerminalUi:
+    def build_terminal_ui(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
         del self
         return terminal_ui
 
@@ -1150,7 +1144,7 @@ def _install_resume_terminal(
         del accept_queue, accept_commands
         return "settled"
 
-    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build_terminal_ui)
+    monkeypatch.setattr(CodingSession, "_build_terminal_ui", build_terminal_ui)
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "wait_for_active_turn_interrupt", wait_for_turn
@@ -1196,7 +1190,7 @@ def test_resume_local_management_is_ungated_and_archive_safe(
     provider = _SeenProvider()
 
     _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         "\n".join(
             [
@@ -1254,7 +1248,7 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     provider = _SeenProvider()
 
-    _run(NativeToolReplSession(provider=provider, native_session=active), cwd, "")
+    _run(CodingSession(provider=provider, native_session=active), cwd, "")
 
     assert trace == []
     assert open_calls == []
@@ -1334,7 +1328,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     )
     provider = _SeenProvider()
 
-    _run(NativeToolReplSession(provider=provider, native_session=active), cwd, "")
+    _run(CodingSession(provider=provider, native_session=active), cwd, "")
 
     expected_switch = [
         f"hook:switch:{selected.path}",
@@ -1378,7 +1372,7 @@ def test_direct_resume_of_active_path_still_gates_and_reopens(
     provider = _SeenProvider()
 
     _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         f"/resume {active.path}\n/exit\n",
     )
@@ -1421,7 +1415,7 @@ def test_resume_switch_gate_denial_or_error_cuts_off_open_with_footer(
     provider = _SeenProvider()
 
     _out, err = _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         f"/resume {selected.path}\n/exit\n",
     )
@@ -1460,7 +1454,7 @@ def test_resume_switch_gate_fatal_cuts_off_open_and_footer(
 
     with pytest.raises(fatal):
         _run(
-            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            CodingSession(provider=_SeenProvider(), native_session=active),
             cwd,
             f"/resume {selected.path}\n",
         )
@@ -1533,7 +1527,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
 
     with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
         _run(
-            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            CodingSession(provider=_SeenProvider(), native_session=active),
             cwd,
             "",
         )
@@ -1557,7 +1551,7 @@ def test_resume_success_diagnostic_is_sanitized_and_local(
     provider = _SeenProvider()
 
     _out, err = _run(
-        NativeToolReplSession(provider=provider, native_session=active),
+        CodingSession(provider=provider, native_session=active),
         cwd,
         f"/resume {selected.path}\n/exit\n",
     )
@@ -1572,7 +1566,7 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
     session_dir = tmp_path / "sessions"
     tree = NativeSessionTree.create(cwd, session_dir=session_dir)
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
 
     # Four user turns then /compact -> a durable compaction entry is appended.
     _run(
@@ -1714,7 +1708,7 @@ def test_session_status_and_resume_listing_sanitize_name(tmp_path: Path) -> None
     tree = NativeSessionTree.create(cwd, session_dir=session_dir)
     # A name with an ESC sequence (e.g. set via --name or a shared file).
     tree.append_session_info("nm\x1b[31mEVIL\x07")
-    session = NativeToolReplSession(provider=_SeenProvider(), native_session=tree)
+    session = CodingSession(provider=_SeenProvider(), native_session=tree)
 
     _out, err = _run(session, cwd, "/session\n/resume\n/exit\n")
     assert "\x1b" not in err
@@ -1751,7 +1745,7 @@ def test_diagnostics_sanitize_crafted_session_file_fields(tmp_path: Path) -> Non
         json.dumps(header) + "\n" + json.dumps(entry) + "\n", encoding="utf-8"
     )
     tree = NativeSessionTree.open(crafted)
-    session = NativeToolReplSession(provider=_SeenProvider(), native_session=tree)
+    session = CodingSession(provider=_SeenProvider(), native_session=tree)
 
     _out, err = _run(session, cwd, "/session\n/tree\n/resume\n/exit\n")
     assert "\x1b" not in err
@@ -1789,7 +1783,7 @@ def test_resume_open_rename_and_tree_notices_sanitize_crafted_id(
         json.dumps(header) + "\n" + json.dumps(entry) + "\n", encoding="utf-8"
     )
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
-    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
+    session = CodingSession(provider=_SeenProvider(), native_session=active)
 
     # Open the crafted file by absolute path (a relative sibling ref does not
     # resolve), then report status, label + select its entry, and rename it —

@@ -12,16 +12,16 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
 from pipy_harness.native.automation.run_modes import run_print_mode
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.provider import StreamChunkSink
 
 
@@ -33,7 +33,7 @@ def test_provider_failure_keeps_repl_alive_with_visible_diagnostic(
         status=HarnessStatus.FAILED,
         metadata={"response_status": "rate_limited"},
     )
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     input_stream = io.StringIO("hello\n")
     output_stream = io.StringIO()
     error_stream = io.StringIO()
@@ -107,7 +107,7 @@ def test_exhausted_transport_failure_leaves_repl_usable_for_next_prompt(
     tmp_path: Path,
 ) -> None:
     provider = _FailOnceProvider()
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     output_stream = io.StringIO()
     error_stream = io.StringIO()
 
@@ -137,7 +137,7 @@ def test_print_mode_returns_stable_transport_failure_diagnostic(
     stderr = io.StringIO()
 
     exit_code = run_print_mode(
-        adapter=PipyNativeToolReplAdapter(provider=_FailOnceProvider()),
+        adapter=CodingSessionAdapter(provider=_FailOnceProvider()),
         prompt="first",
         cwd=tmp_path,
         stdout=stdout,

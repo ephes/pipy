@@ -1,9 +1,9 @@
-"""The REPL tier: the loop that drives one interactive coding session.
+"""The REPL tier: composition collaborators for one coding session.
 
-This package is being carved out of `native/tool_loop_session.py`, which is the
-composition root and the apex of the import DAG. Modules here may reach the
-terminal UI and the session's collaborators; nothing they own may be reached
-*from* the tiers below, and the boundary tests enforce both directions.
+The concrete ``native.coding.session`` facade may reach this package, but this
+tier never imports back into that product session. Modules here may reach the
+terminal UI and injected collaborators; lower tiers remain isolated by the
+boundary tests.
 """
 
 from __future__ import annotations

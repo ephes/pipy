@@ -12,7 +12,6 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
@@ -24,6 +23,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import SessionDecision
 from pipy_harness.native.session_tree import (
@@ -73,7 +73,7 @@ def _workspace(tmp_path: Path) -> Path:
     return cwd
 
 
-def _run(session: NativeToolReplSession, cwd: Path, inputs: str) -> tuple[str, str]:
+def _run(session: CodingSession, cwd: Path, inputs: str) -> tuple[str, str]:
     output = io.StringIO()
     error = io.StringIO()
     session.run(
@@ -137,7 +137,7 @@ def _install_terminal(
     )
     scripted = iter(commands)
 
-    def build(self: NativeToolReplSession, **_kwargs: object) -> ToolLoopTerminalUi:
+    def build(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
         del self
         return terminal
 
@@ -158,7 +158,7 @@ def _install_terminal(
         del self, done_event, abort_event
         return "settled"
 
-    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build)
+    monkeypatch.setattr(CodingSession, "_build_terminal_ui", build)
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "wait_for_active_turn_interrupt", wait_for_turn
@@ -188,7 +188,7 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
     provider = _RecordingProvider()
 
     _output, error = _run(
-        NativeToolReplSession(provider=provider, native_session=tree),
+        CodingSession(provider=provider, native_session=tree),
         cwd,
         "/fork missing\n/exit\n",
     )
@@ -224,7 +224,7 @@ def test_unresolved_fork_target_stops_before_gate_and_copy(
     )
 
     _output, error = _run(
-        NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+        CodingSession(provider=_RecordingProvider(), native_session=tree),
         cwd,
         "/fork missing\n/exit\n",
     )
@@ -244,7 +244,7 @@ def test_bare_fork_and_clone_gate_on_current_leaf(tmp_path: Path, command: str) 
     provider = _RecordingProvider()
 
     _run(
-        NativeToolReplSession(provider=provider, native_session=tree),
+        CodingSession(provider=provider, native_session=tree),
         cwd,
         f"{command}\n/exit\n",
     )
@@ -271,7 +271,7 @@ def test_fork_accepts_resolvable_assistant_entry_as_explicit_target(
     )
 
     _run(
-        NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+        CodingSession(provider=_RecordingProvider(), native_session=tree),
         cwd,
         f"/fork {assistant.id}\n/exit\n",
     )
@@ -288,7 +288,7 @@ def test_clone_accepts_empty_persistent_tree_and_none_target(tmp_path: Path) -> 
     _write_fork_gate(cwd, "        return SessionDecision(allow=True)\n", target=None)
 
     _run(
-        NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+        CodingSession(provider=_RecordingProvider(), native_session=tree),
         cwd,
         "/clone\n/exit\n",
     )
@@ -325,7 +325,7 @@ def test_fork_gate_denial_or_error_has_standard_footer_and_no_copy(
     )
 
     _output, error = _run(
-        NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+        CodingSession(provider=_RecordingProvider(), native_session=tree),
         cwd,
         "/fork\n/exit\n",
     )
@@ -353,7 +353,7 @@ def test_fork_gate_fatal_cuts_off_copy_and_command_footer(
 
     with pytest.raises(fatal):
         _run(
-            NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+            CodingSession(provider=_RecordingProvider(), native_session=tree),
             cwd,
             "/fork\n",
         )
@@ -436,7 +436,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
     )
     provider = _RecordingProvider()
 
-    _run(NativeToolReplSession(provider=provider, native_session=tree), cwd, "")
+    _run(CodingSession(provider=provider, native_session=tree), cwd, "")
 
     command_start = trace.index(f"gate:fork:{leaf.id}")
     assert trace[command_start : command_start + 6] == [
@@ -476,7 +476,7 @@ def test_fork_copies_only_active_branch_with_fresh_identity_and_metadata(
     assert tree.path is not None
 
     _run(
-        NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+        CodingSession(provider=_RecordingProvider(), native_session=tree),
         cwd,
         "/fork\n/exit\n",
     )
@@ -574,7 +574,7 @@ def test_fork_failure_timing_cuts_off_later_effects(
 
     with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
         _run(
-            NativeToolReplSession(provider=_RecordingProvider(), native_session=tree),
+            CodingSession(provider=_RecordingProvider(), native_session=tree),
             cwd,
             "/fork\n",
         )
@@ -602,7 +602,7 @@ def test_fork_diagnostic_sanitizes_returned_session_id(
     provider = _RecordingProvider()
 
     _output, error = _run(
-        NativeToolReplSession(provider=provider, native_session=tree),
+        CodingSession(provider=provider, native_session=tree),
         cwd,
         "/fork\n/exit\n",
     )

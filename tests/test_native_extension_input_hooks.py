@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_input_hooks,
@@ -27,7 +28,6 @@ from pipy_harness.native.extensions.collectors import (
 )
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 class _RecordingProvider:
@@ -304,7 +304,7 @@ def test_input_hook_transforms_provider_prompt_through_session(
         encoding="utf-8",
     )
     provider = _RecordingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,
@@ -331,7 +331,7 @@ def test_before_agent_start_injects_system_prompt_through_session(
         encoding="utf-8",
     )
     provider = _RecordingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,
@@ -357,7 +357,7 @@ def test_send_user_message_triggers_a_turn_through_session(
         encoding="utf-8",
     )
     provider = _RecordingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     # The command issues no provider turn; the enqueued message does.
     session.run(
@@ -387,7 +387,7 @@ def test_send_user_message_slash_is_a_prompt_not_a_command(
         encoding="utf-8",
     )
     provider = _RecordingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,
@@ -421,7 +421,7 @@ def test_send_user_message_from_a_hook_is_scheduled(tmp_path, monkeypatch) -> No
         encoding="utf-8",
     )
     provider = _RecordingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,
@@ -450,7 +450,7 @@ def test_before_agent_start_non_string_is_failsafe(tmp_path, monkeypatch) -> Non
         encoding="utf-8",
     )
     provider = _RecordingProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     session.run(
         workspace_root=tmp_path,

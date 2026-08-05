@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.native.automation.run_modes import (
     resolve_app_mode,
     run_json_mode,
@@ -51,12 +51,12 @@ def test_resolve_app_mode_matches_pi_precedence(
     )
 
 
-def _tool_adapter() -> PipyNativeToolReplAdapter:
+def _tool_adapter() -> CodingSessionAdapter:
     provider = FakeNativeProvider(
         supports_tool_calls=True,
         programmable_text_chunks=("SEEN:", "ROOT"),
     )
-    return PipyNativeToolReplAdapter(provider=provider)
+    return CodingSessionAdapter(provider=provider)
 
 
 def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:

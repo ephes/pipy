@@ -5,7 +5,7 @@ component and a plain :class:`ExtensionChromeState` record (no terminal
 shell, no PTY) to prove the collapsed port: spinner and working chrome read
 straight off the chrome record, every commit lands on the transcript, and the
 frame width / styling stream arrive as injected values. Frame-level and
-extension-renderer coverage lives in ``test_native_tool_loop_tui.py``,
+extension-renderer coverage lives in ``test_native_coding_session_terminal.py``,
 ``test_native_extension_tool_renderer.py`` and its PTY sibling.
 """
 

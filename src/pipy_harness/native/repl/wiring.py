@@ -76,9 +76,7 @@ from pipy_harness.native.coding.product_session import (
     CodingProductSessionContext,
     CodingProductSessionCoordinator,
 )
-from pipy_harness.native.coding.result import (
-    NativeToolReplResult,
-)
+from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.session_controller import (
     CodingCommandEffects,
     CodingSessionController,
@@ -113,15 +111,13 @@ from pipy_harness.native.project_trust import (
     has_trust_requiring_project_resources,
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
-from pipy_harness.native.repl.collaborators import (
-    BuiltinCommandInterpreter,
-    SessionCollaborators,
-)
+from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.command_menu import (
     published_command_surface,
     tool_loop_command_descriptions,
     tool_loop_command_names,
 )
+from pipy_harness.native.repl.command_router import BuiltinCommandInterpreter
 from pipy_harness.native.repl.execution_projections import (
     SessionExecutionProjections,
     apply_startup_provider_projection,
@@ -232,7 +228,7 @@ class SessionWiringInput:
 class _LoopDelegation:
     loop_controller: CodingSessionController
     step_once: Callable[[], LoopStepSignal]
-    finalize: Callable[[], NativeToolReplResult]
+    finalize: Callable[[], CodingSessionResult]
     fire_session_start: Callable[[], None]
     fire_session_shutdown: Callable[[], None]
     consume_settle_pending: Callable[[], bool]
@@ -242,7 +238,7 @@ class _LoopDelegation:
 
 @dataclass(frozen=True, slots=True)
 class SessionWiring:
-    startup_failure: NativeToolReplResult | None
+    startup_failure: CodingSessionResult | None
     delegation: _LoopDelegation | None
 
 
@@ -371,8 +367,8 @@ class _ExtensionCustomEntryRunState:
 
 def _fail_startup(
     coding_state: CodingSessionState, error_type: str, message: str
-) -> NativeToolReplResult:
-    return NativeToolReplResult(
+) -> CodingSessionResult:
+    return CodingSessionResult(
         status=HarnessStatus.FAILED,
         exit_code=2,
         started_at=(now := datetime.now(UTC)),
@@ -386,7 +382,7 @@ def _fail_startup(
 
 def _prepare_startup(
     inputs: SessionWiringInput,
-) -> _StartupPhase | NativeToolReplResult:
+) -> _StartupPhase | CodingSessionResult:
     cwd = inputs.cwd
     error_stream = inputs.error_stream
     candidate = inputs.candidate
@@ -505,7 +501,7 @@ def _attach_extensions(
     inputs: SessionWiringInput,
     startup: _StartupPhase,
     provider_binding: _ProviderMutationBinding,
-) -> _ExtensionPhase | NativeToolReplResult:
+) -> _ExtensionPhase | CodingSessionResult:
     cwd = startup.cwd
     coding_state = startup.coding_state
     session_state_lock = startup.session_state_lock
@@ -1366,10 +1362,10 @@ def wire_session(inputs: SessionWiringInput) -> SessionWiring:
 
     provider_binding = _ProviderMutationBinding()
     startup = _prepare_startup(inputs)
-    if isinstance(startup, NativeToolReplResult):
+    if isinstance(startup, CodingSessionResult):
         return SessionWiring(startup_failure=startup, delegation=None)
     extension = _attach_extensions(inputs, startup, provider_binding)
-    if isinstance(extension, NativeToolReplResult):
+    if isinstance(extension, CodingSessionResult):
         return SessionWiring(startup_failure=extension, delegation=None)
     product = _compose_product_session(inputs, startup, extension, provider_binding)
     runtime = _compose_runtime_adapters(inputs, startup, extension, product)

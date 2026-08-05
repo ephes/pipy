@@ -12,6 +12,7 @@ from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.agent import AgentEventSink
 from pipy_harness.native.automation.events import AutomationEventSink
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extensions.contracts import (
     ExtensionActivationBatch,
 )
@@ -39,9 +40,6 @@ from pipy_harness.native.skills import SkillFile, compose_skills_system_block
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-)
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.workspace_context import (
@@ -136,12 +134,12 @@ class PipyNativeAdapter:
         )
 
 
-class PipyNativeToolReplAdapter:
+class CodingSessionAdapter:
     """Run a bounded native pipy tool-loop REPL through an injected provider.
 
     This adapter is the product REPL behind `pipy repl --agent pipy-native`.
     It constructs a
-    `NativeToolReplSession` with the current production tool registry (which
+    `CodingSession` with the current production tool registry (which
     holds only `read` at this slice) and the configured tool budget, and
     runs the loop against an injected provider.
 
@@ -159,7 +157,7 @@ class PipyNativeToolReplAdapter:
         *,
         provider_state: NativeReplProviderState | None = None,
         tool_registry: dict[str, ModelDrivenToolPort] | None = None,
-        tool_budget: int = NativeToolReplSession.DEFAULT_TOOL_BUDGET,
+        tool_budget: int = CodingSession.DEFAULT_TOOL_BUDGET,
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
@@ -183,9 +181,7 @@ class PipyNativeToolReplAdapter:
         initial_extension_batch: ExtensionActivationBatch | None = None,
     ) -> None:
         if provider is None and provider_state is None:
-            raise ValueError(
-                "PipyNativeToolReplAdapter requires provider or provider_state"
-            )
+            raise ValueError("CodingSessionAdapter requires provider or provider_state")
         # Positional prompts (`pipy "<prompt>"`) that seed the interactive
         # session's first user turn(s); empty for bare/piped-stdin invocations.
         self.initial_messages = tuple(initial_messages)
@@ -230,11 +226,11 @@ class PipyNativeToolReplAdapter:
         for root in reference_roots:
             if not isinstance(root, Path):
                 raise ValueError(
-                    "PipyNativeToolReplAdapter reference_roots entries must be Path"
+                    "CodingSessionAdapter reference_roots entries must be Path"
                 )
             if not root.is_absolute():
                 raise ValueError(
-                    "PipyNativeToolReplAdapter reference_roots entries must be absolute"
+                    "CodingSessionAdapter reference_roots entries must be absolute"
                 )
         self.reference_roots = tuple(reference_roots)
 
@@ -341,7 +337,7 @@ class PipyNativeToolReplAdapter:
                 **resolved_prompt.safe_metadata(),
             },
         )
-        session = NativeToolReplSession(
+        session = CodingSession(
             provider=provider,
             provider_state=self.provider_state,
             tool_registry=self.tool_registry,
@@ -428,18 +424,14 @@ class PipyNativeToolReplAdapter:
         if self.provider_state is not None:
             return self.provider_state.current_selection()
         if self.provider is None:
-            raise ValueError(
-                "PipyNativeToolReplAdapter requires provider or provider_state"
-            )
+            raise ValueError("CodingSessionAdapter requires provider or provider_state")
         return NativeModelSelection(self.provider.name, self.provider.model_id)
 
     def _current_provider(self) -> ProviderPort:
         if self.provider is not None:
             return self.provider
         if self.provider_state is None:
-            raise ValueError(
-                "PipyNativeToolReplAdapter requires provider or provider_state"
-            )
+            raise ValueError("CodingSessionAdapter requires provider or provider_state")
         return self.provider_state.current_provider()
 
     def _discover_skill_files(

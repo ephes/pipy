@@ -1028,7 +1028,7 @@ class SessionGenerationSnapshot:
 class SessionGenerationRef:
     """The session's single synchronization boundary and generation pointer.
 
-    One `NativeToolReplSession.run()` owns exactly one of these. Its ``lock``
+    One `CodingSession.run()` owns exactly one of these. Its ``lock``
     is *the* session mutex: every field that a detached worker can reach — the
     live generation pointer here, and the tool-capability state pointer that is
     constructed with this same lock — is read and written under it. A lock that

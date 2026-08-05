@@ -11,11 +11,9 @@ from typing import TextIO
 
 import pytest
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import (
-    NativeToolReplResult,
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
@@ -27,6 +25,8 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.result import CodingSessionResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.export_distribution import NativeExportError
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -117,12 +117,12 @@ def _branched_tree(tmp_path: Path, *, persist: bool = True) -> NativeSessionTree
 
 
 def _run_captured(
-    session: NativeToolReplSession,
+    session: CodingSession,
     cwd: Path,
     commands: str,
     *,
     system_prompt: str = "",
-) -> tuple[NativeToolReplResult, str]:
+) -> tuple[CodingSessionResult, str]:
     errors = io.StringIO()
     result = session.run(
         workspace_root=cwd,
@@ -169,7 +169,7 @@ def test_composition_preserves_raw_bubbles_and_export_path_routing(
         bubbles.append(text)
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         _error_stream: TextIO,
         **kwargs: object,
     ) -> None:
@@ -191,7 +191,7 @@ def test_composition_preserves_raw_bubbles_and_export_path_routing(
     )
 
     result, rendered = _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=tree,
             settings_manager=_settings(tmp_path, cwd),
@@ -227,7 +227,7 @@ def test_exports_preserve_full_product_content_shape_and_redact_credentials(
     jsonl_path = cwd / "active-branch.jsonl"
 
     _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=tree,
             settings_manager=_settings(tmp_path, cwd),
@@ -290,7 +290,7 @@ def test_empty_and_in_memory_exports_report_controlled_errors_then_footer(
     trace: list[str] = []
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         error_stream: TextIO,
         **_kwargs: object,
     ) -> None:
@@ -299,7 +299,7 @@ def test_empty_and_in_memory_exports_report_controlled_errors_then_footer(
 
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     _result, rendered = _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=tree,
             settings_manager=_settings(tmp_path, cwd),
@@ -327,7 +327,7 @@ def test_controlled_export_error_is_terminal_sanitized_before_standard_footer(
         raise NativeExportError("unsafe\x1b[31m path\nsecond line")
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         error_stream: TextIO,
         **_kwargs: object,
     ) -> None:
@@ -338,7 +338,7 @@ def test_controlled_export_error_is_terminal_sanitized_before_standard_footer(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
 
     _result, rendered = _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             native_session=tree,
             settings_manager=_settings(tmp_path, cwd),
@@ -378,7 +378,7 @@ def test_uncontrolled_export_failure_cuts_off_diagnostic_and_retains_file(
         raise OSError(f"unexpected {retained_body.lower()} write failure")
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         _error_stream: TextIO,
         **_kwargs: object,
     ) -> None:
@@ -389,7 +389,7 @@ def test_uncontrolled_export_failure_cuts_off_diagnostic_and_retains_file(
     )
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     errors = io.StringIO()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         native_session=tree,
         settings_manager=_settings(tmp_path, cwd),
@@ -438,7 +438,7 @@ def test_export_has_no_input_session_history_agent_or_provider_effects(
     monkeypatch.setattr(ops_module, "dispatch_input_hooks", reject_input_hook)
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", reject_input_clear)
     result, _rendered = _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             native_session=tree,
             prompt_history_store=history,
@@ -470,7 +470,7 @@ def test_live_export_content_and_path_stay_out_of_finalized_metadata_archive(
     export_path = cwd / f"{_PATH_MARKER}.html"
     provider = _RecordingProvider()
     errors = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         tool_registry={},
         input_stream=io.StringIO(f'/export "{export_path}"\n/exit\n'),

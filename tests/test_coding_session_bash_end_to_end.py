@@ -1,6 +1,6 @@
 """Product-path tool-loop tests for the registered ``bash`` tool.
 
-These drive ``NativeToolReplSession.run`` with a scripted tool-capable
+These drive ``CodingSession.run`` with a scripted tool-capable
 provider and the real ``production_tool_registry`` so the test exercises the
 exact dispatch the product uses: provider emits a ``bash`` tool call, the loop
 runs it through the sandbox, feeds the observation back, and the provider
@@ -18,17 +18,17 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.coding.result import NativeToolReplResult
+from pipy_harness.native.coding.result import CodingSessionResult
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
 )
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
-)
 
 
 class _StubToolProvider:
@@ -76,9 +76,9 @@ def _provider_result(
 
 def _run(
     *, results: list[ProviderResult], workspace: Path
-) -> tuple[NativeToolReplResult, str, _StubToolProvider]:
+) -> tuple[CodingSessionResult, str, _StubToolProvider]:
     provider = _StubToolProvider(results)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
         tool_budget=10,

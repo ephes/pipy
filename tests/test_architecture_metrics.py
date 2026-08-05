@@ -6,6 +6,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO_ROOT / "scripts" / "architecture_metrics.py"
 _spec = importlib.util.spec_from_file_location("architecture_metrics", MODULE_PATH)
@@ -160,3 +162,25 @@ def test_physical_lines_match_newline_delimited_baseline(tmp_path: Path) -> None
     path.write_bytes(b"one\ntwo\nunterminated")
 
     assert architecture_metrics._physical_lines(path) == 2
+
+
+def test_metrics_publish_the_coding_session_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    native = tmp_path / "src/pipy_harness/native"
+    (native / "coding").mkdir(parents=True)
+    (tmp_path / "tests").mkdir()
+    (native / "coding/session.py").write_text("# facade\n", encoding="utf-8")
+    (native / "tui.py").write_text(
+        "class ToolLoopTerminalUi:\n    pass\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        architecture_metrics,
+        "_ruff_c901_counts",
+        lambda _repo_root: {"repository": 0, "src": 0},
+    )
+
+    metrics = architecture_metrics.collect_metrics(tmp_path)
+
+    assert metrics["physical_lines"]["coding_session"] == 1
+    assert "tool_" + "loop_session" not in metrics["physical_lines"]

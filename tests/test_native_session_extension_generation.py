@@ -17,12 +17,12 @@ from typing import Any, TypeVar, cast, get_type_hints
 import pytest
 from session_generation_test_support import build_test_projection
 
+import pipy_harness.native.coding.session as coding_session_module
 import pipy_harness.native.extension_hooks as extension_hooks_module
 import pipy_harness.native.extension_runtime as extension_runtime_module
 import pipy_harness.native.extensions.message_routing as message_routing_module
 import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.session_generation as session_generation_module
-import pipy_harness.native.tool_loop_session as tool_loop_session_module
 from pipy_harness.extensions import ToolResult
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
@@ -38,6 +38,7 @@ from pipy_harness.native.catalog_state import (
 )
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.coding.session import _build_detached_reload_effects
 from pipy_harness.native.coding.session_controller import (
     CodingSessionController,
     LoopStepSignal,
@@ -122,7 +123,6 @@ from pipy_harness.native.tool_capabilities import (
     ToolCapabilityState,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import _build_detached_reload_effects
 from pipy_harness.native.tools import (
     ToolContext,
     ToolPort,
@@ -2597,7 +2597,7 @@ def test_generation_message_routing_cluster_has_one_authoritative_owner() -> Non
         is GenerationMessageRouting
         is message_routing_module.GenerationMessageRouting
     )
-    assert not hasattr(tool_loop_session_module, "GenerationMessageRetirement")
+    assert not hasattr(coding_session_module, "GenerationMessageRetirement")
     assert (
         vars(loop_step_module)["GenerationMessageRetirement"]
         is vars(session_generation_module)["GenerationMessageRetirement"]
@@ -2906,7 +2906,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ("OrderedDeliveryToken", sg, reserve),
         (
             "build_prepared_reload_effects",
-            "native/tool_loop_session.py",
+            "native/coding/session.py",
             ("function:_build_detached_reload_effects",),
         ),
         (

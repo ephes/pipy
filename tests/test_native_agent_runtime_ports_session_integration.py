@@ -47,6 +47,7 @@ from pipy_harness.native.coding import (
     CodingInputSelection,
     CodingInputSource,
 )
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.models import (
     ProviderRequest,
@@ -55,7 +56,6 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -164,7 +164,7 @@ def _result(
 
 
 def _run(
-    session: NativeToolReplSession,
+    session: CodingSession,
     tmp_path: Path,
     prompts: str,
 ) -> None:
@@ -180,7 +180,7 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
     provider = _ScriptProvider((_result("done"),))
 
     _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             initial_messages=("seed\n\n",),
         ),
@@ -248,7 +248,7 @@ def test_registered_input_wake_bypasses_local_command_kernel(
 
     input_stream = WakeInput()
     provider = _ScriptProvider((_result("done"),))
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
 
     session.run(
         workspace_root=tmp_path,
@@ -302,7 +302,7 @@ def test_registered_whitespace_wake_keeps_blank_local_behavior(
     input_stream = WhitespaceWakeInput()
     provider = _ScriptProvider((_result("unused"),))
 
-    result = NativeToolReplSession(provider=provider).run(
+    result = CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=cast(TextIO, input_stream),
         output_stream=io.StringIO(),
@@ -345,7 +345,7 @@ def test_registered_eof_wake_runs_exact_queued_input_before_shutdown(
 
     input_stream = EofWakeInput()
     provider = _ScriptProvider((_result("done"),))
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
 
     session.run(
         workspace_root=tmp_path,
@@ -422,7 +422,7 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
     tree = NativeSessionTree.create(tmp_path, persist=False)
 
     _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             tool_registry={"echo": _EchoTool()},
             native_session=tree,
@@ -491,7 +491,7 @@ def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
     )
     canonical = _CollectingSink()
     _run(
-        NativeToolReplSession(provider=provider, agent_event_sink=canonical),
+        CodingSession(provider=provider, agent_event_sink=canonical),
         tmp_path,
         "prompt\n",
     )
@@ -532,7 +532,7 @@ def test_product_session_usage_port_preserves_run_and_session_scopes(
             self._delegate.publish(publication)
 
     def record_footer(
-        _self: NativeToolReplSession,
+        _self: CodingSession,
         _stream: TextIO,
         *,
         cwd: Path,
@@ -568,7 +568,7 @@ def test_product_session_usage_port_preserves_run_and_session_scopes(
     )
     canonical = _CollectingSink(trace=trace)
     _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             tool_registry={"echo": _EchoTool()},
             agent_event_sink=canonical,
@@ -661,7 +661,7 @@ def test_product_queue_port_preserves_priority_kind_and_original_hooked_content(
     canonical = _CollectingSink()
     session_tree = NativeSessionTree.create(tmp_path, persist=False)
     _run(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             initial_messages=("seed-first\n\n",),
             agent_event_sink=canonical,
@@ -786,7 +786,7 @@ def test_retained_handoffs_survive_higher_priority_resource_run_fifo(
     monkeypatch.setattr(loop_module, "CodingInputQueue", ResourceInjectingQueue)
     canonical = _CollectingSink()
     input_stream = ThresholdInput()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         initial_messages=("seed",),
         agent_event_sink=canonical,
@@ -826,7 +826,7 @@ def test_product_persistence_failure_observes_state_first_append(
     provider = _ScriptProvider((_result("unused"),))
     tree = NativeSessionTree.create(tmp_path, persist=False)
     canonical = _CollectingSink()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, native_session=tree, agent_event_sink=canonical
     )
     observed: list[AgentMessage] = []
@@ -907,7 +907,7 @@ def test_usage_publisher_failure_stops_before_completion_failure_or_next_request
     canonical = _CollectingSink()
     with pytest.raises(RuntimeError, match="usage publication failed"):
         _run(
-            NativeToolReplSession(
+            CodingSession(
                 provider=provider,
                 tool_registry={"echo": _EchoTool()},
                 agent_event_sink=canonical,

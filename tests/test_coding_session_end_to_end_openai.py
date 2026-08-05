@@ -1,6 +1,6 @@
 """End-to-end tool-loop test against the OpenAI Responses transport.
 
-Parallel to `tests/test_tool_loop_end_to_end.py` for OpenRouter: the
+Parallel to `tests/test_coding_session_end_to_end.py` for OpenRouter: the
 loop sends messages and tool declarations to OpenAI Responses, the
 (stubbed) provider returns a `function_call` output, the loop dispatches
 it through the production registry's `read` tool, the loop sends the
@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
 from pipy_harness.native.providers.openai_responses import (
@@ -85,7 +85,7 @@ def test_openai_tool_loop_dispatches_read_and_returns_final_text(tmp_path: Path)
     )
     output_stream = io.StringIO()
     error_stream = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("please read notes.txt\n"),
         output_stream=output_stream,

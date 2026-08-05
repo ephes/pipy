@@ -218,7 +218,7 @@ class AgentTurnStatusPresentationAdapter:
 class ReplLoopScope:
     """The run-scope collaborators one REPL loop iteration reads.
 
-    These values are bound once per ``NativeToolReplSession.run()`` and never
+    These values are bound once per ``CodingSession.run()`` and never
     reassigned for the life of that run, so they travel as one frozen record
     instead of ~36 separate keyword arguments threaded through
     ``functools.partial``. The run's *mutable* control state is deliberately

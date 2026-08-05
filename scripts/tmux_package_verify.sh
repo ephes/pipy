@@ -6,7 +6,7 @@
 # goal. The harness:
 #   1. installs the example `demo-pack` package into a fresh workspace with the
 #      real `pipy install <path> -l` CLI,
-#   2. launches a real NativeToolReplSession (scripted provider — no
+#   2. launches a real CodingSession (scripted provider — no
 #      network/auth) in a tmux pane via scripts/package_demo.py,
 #   3. proves via the package runtime APIs that the package theme is selectable,
 #   4. asserts via capture-pane that:

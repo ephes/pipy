@@ -1,6 +1,6 @@
 """Hard conformance gate for the extension tool_call policy hook (slice 4).
 
-Drives the real `NativeToolReplSession.run` with a stub tool provider and
+Drives the real `CodingSession.run` with a stub tool provider and
 the production tool registry, plus the real hook dispatcher, and asserts
 the slice-4 invariants from `docs/extension-api.md`:
 
@@ -32,6 +32,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_tool_call_hooks,
     extension_tool_call_hooks,
@@ -45,10 +49,6 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
-)
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
 )
 
 
@@ -101,7 +101,7 @@ def _run_bash(workspace: Path, command: str):
         arguments_json=json.dumps({"command": command}),
     )
     provider = _Stub([_result(tool_calls=(call,)), _result(final_text="done")])
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=10
     )
     error_stream = io.StringIO()

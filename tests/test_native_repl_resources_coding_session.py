@@ -1,6 +1,6 @@
 """Product-path tests for resource loading in the bounded tool loop.
 
-These drive `NativeToolReplSession.run` with captured streams (no TTY,
+These drive `CodingSession.run` with captured streams (no TTY,
 so no terminal UI) through the real dispatch boundary, proving that:
 
 - a skill / template / custom command produces the intended bounded
@@ -19,10 +19,10 @@ from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.command_menu import tool_loop_command_names
 from pipy_harness.native.resources import WorkspaceResources
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -96,7 +96,7 @@ def _seed(tmp_path: Path) -> None:
 def _run(tmp_path, monkeypatch, script, *, history=None):
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     provider = CapturingToolProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         prompt_history_store=history,

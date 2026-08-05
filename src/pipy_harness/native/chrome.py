@@ -1,6 +1,6 @@
 """Shared Pi-parity terminal chrome for the native REPL.
 
-The bounded tool-loop REPL (`NativeToolReplSession`) renders this
+The bounded tool-loop REPL (`CodingSession`) renders this
 visual frame: title with a single-space indent, dim controls strip,
 loaded `[Context]` listing (workspace + ancestor + global
 ``AGENTS.md`` discovery), separator-framed prompt area, and a two-row

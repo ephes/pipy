@@ -1,4 +1,4 @@
-"""Slice 4 tests: `NativeToolReplSession` skeleton.
+"""Slice 4 tests: `CodingSession` skeleton.
 
 These tests pin the loop's behavior using a test-only `_FixtureTool` that
 echoes its `text` argument back. The production tool registry stays empty;
@@ -28,8 +28,6 @@ from pipy_harness.extensions import ExtensionCapabilityError
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
-    NativeToolReplResult,
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
@@ -58,6 +56,8 @@ from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumul
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.chrome import _ChromeFooterEffects
+from pipy_harness.native.coding.result import CodingSessionResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
@@ -369,12 +369,12 @@ def _run_session(
     user_inputs: tuple[str, ...] = ("/exit",),
     tmp_path: Path,
     tool_budget: int = 10,
-) -> tuple[NativeToolReplResult, str, str]:
+) -> tuple[CodingSessionResult, str, str]:
     provider = FakeNativeProvider(
         supports_tool_calls=True,
         programmable_tool_calls=tool_calls_script,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=dict(tool_registry or {}),
         tool_budget=tool_budget,
@@ -395,11 +395,11 @@ def test_footer_paths_read_constant_time_state_scalars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.chrome as chrome
+    import pipy_harness.native.coding.session as coding_session
     import pipy_harness.native.repl.loop_step as loop_step
     import pipy_harness.native.repl.wiring as repl_wiring
-    import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    module_path = tool_loop_session.__file__
+    module_path = coding_session.__file__
     wiring_path = repl_wiring.__file__
     loop_step_path = loop_step.__file__
     chrome_path = chrome.__file__
@@ -414,7 +414,7 @@ def test_footer_paths_read_constant_time_state_scalars(
     session_class = next(
         node
         for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "NativeToolReplSession"
+        if isinstance(node, ast.ClassDef) and node.name == "CodingSession"
     )
     run_method = next(
         node
@@ -509,9 +509,7 @@ def test_footer_paths_read_constant_time_state_scalars(
     ]
     assert len(result_snapshot_calls) == 2
 
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True)
-    )
+    session = CodingSession(provider=FakeNativeProvider(supports_tool_calls=True))
     state = session._coding_state
     footer_effects = chrome._ChromeFooterEffects(
         cwd=tmp_path,
@@ -535,13 +533,13 @@ def test_footer_paths_read_constant_time_state_scalars(
 
 
 def test_session_command_family_has_one_narrow_composition_root_executor() -> None:
-    import pipy_harness.native.repl.collaborators as collaborators
+    import pipy_harness.native.repl.command_router as command_router
     import pipy_harness.native.repl.session_commands as session_commands
 
     # The family and the interpreter that routes to it own separate modules.
     module_path = session_commands.__file__
-    collaborators_path = collaborators.__file__
-    assert module_path is not None and collaborators_path is not None
+    router_path = command_router.__file__
+    assert module_path is not None and router_path is not None
     effects_class = next(
         node
         for node in ast.parse(Path(module_path).read_text(encoding="utf-8")).body
@@ -580,7 +578,7 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
 
     interpreter_class = next(
         node
-        for node in ast.parse(Path(collaborators_path).read_text(encoding="utf-8")).body
+        for node in ast.parse(Path(router_path).read_text(encoding="utf-8")).body
         if isinstance(node, ast.ClassDef) and node.name == "BuiltinCommandInterpreter"
     )
     interpret_method = next(
@@ -623,13 +621,13 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
 
 
 def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
-    import pipy_harness.native.repl.collaborators as collaborators
+    import pipy_harness.native.repl.command_router as command_router
     import pipy_harness.native.repl.provider_config_commands as config_commands
 
     # The family and the interpreter that routes to it own separate modules.
     module_path = config_commands.__file__
-    collaborators_path = collaborators.__file__
-    assert module_path is not None and collaborators_path is not None
+    router_path = command_router.__file__
+    assert module_path is not None and router_path is not None
     effects_class = next(
         node
         for node in ast.parse(Path(module_path).read_text(encoding="utf-8")).body
@@ -667,7 +665,7 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
 
     interpreter_class = next(
         node
-        for node in ast.parse(Path(collaborators_path).read_text(encoding="utf-8")).body
+        for node in ast.parse(Path(router_path).read_text(encoding="utf-8")).body
         if isinstance(node, ast.ClassDef) and node.name == "BuiltinCommandInterpreter"
     )
     interpret_method = next(
@@ -726,14 +724,14 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
 
 
 def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None:
-    import pipy_harness.native.repl.collaborators as collaborators
+    import pipy_harness.native.repl.command_router as command_router
     import pipy_harness.native.repl.reload as reload_module
     import pipy_harness.native.repl.session_transfer as session_transfer
 
     # Both families own their own module, and so does the interpreter that
     # routes to them.
     classes: dict[str, ast.ClassDef] = {}
-    for module in (collaborators, session_transfer, reload_module):
+    for module in (command_router, session_transfer, reload_module):
         module_path = module.__file__
         assert module_path is not None
         syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
@@ -1143,7 +1141,7 @@ def test_composition_keeps_callback_counters_and_rebinds_final_history(
         return ClipboardResult(True, "test", len(text.encode()), "test clipboard")
 
     monkeypatch.setattr(agent_run, "AgentLoop", _ComposedAgentLoop)
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         clipboard_copy=copy_answer,
     ).run(
@@ -1208,7 +1206,7 @@ def test_canonical_usage_order_and_scope_cover_success_and_provider_failure(
     trace: list[AgentEvent | tuple[str, AgentUsage, int]] = []
     canonical = _CollectingAgentEventSink(trace=trace)
     _record_footer_in_trace(monkeypatch, trace)
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={"echo": _FixtureEchoTool()},
         agent_event_sink=canonical,
@@ -1257,7 +1255,7 @@ def test_product_pricing_lookup_is_injected_into_session_and_run_usage(
         ((usage, ()),), name="openai-codex", model_id=model_id
     )
 
-    result = NativeToolReplSession(provider=provider, tool_registry={}).run(
+    result = CodingSession(provider=provider, tool_registry={}).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("priced\n"),
         output_stream=io.StringIO(),
@@ -1323,7 +1321,7 @@ def test_production_request_does_not_advertise_or_dispatch_removed_tool(
             (None, ()),
         )
     )
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
     ).run(
@@ -1348,14 +1346,14 @@ def test_session_rejects_provider_without_tool_call_capability():
     provider = FakeNativeProvider(supports_tool_calls=False)
 
     with pytest.raises(ValueError, match="supports_tool_calls"):
-        NativeToolReplSession(provider=provider)
+        CodingSession(provider=provider)
 
 
 def test_session_rejects_fake_provider_when_capability_not_flipped():
     provider = FakeNativeProvider()
 
     with pytest.raises(ValueError, match="supports_tool_calls"):
-        NativeToolReplSession(provider=provider)
+        CodingSession(provider=provider)
 
 
 # --------------------------- tool budget validation -------------------------
@@ -1365,13 +1363,13 @@ def test_session_rejects_tool_budget_outside_supported_range():
     provider = FakeNativeProvider(supports_tool_calls=True)
 
     with pytest.raises(ValueError, match=r"\[1, 200\]"):
-        NativeToolReplSession(provider=provider, tool_budget=0)
+        CodingSession(provider=provider, tool_budget=0)
     with pytest.raises(ValueError, match=r"\[1, 200\]"):
-        NativeToolReplSession(provider=provider, tool_budget=201)
+        CodingSession(provider=provider, tool_budget=201)
 
 
 def test_session_tool_budget_cap_is_the_canonical_agent_maximum() -> None:
-    assert NativeToolReplSession.MAX_TOOL_BUDGET is MAX_AGENT_TOOL_BUDGET
+    assert CodingSession.MAX_TOOL_BUDGET is MAX_AGENT_TOOL_BUDGET
     assert MAX_AGENT_TOOL_BUDGET == 200
 
 
@@ -1379,7 +1377,7 @@ def test_session_rejects_non_int_tool_budget():
     provider = FakeNativeProvider(supports_tool_calls=True)
 
     with pytest.raises(TypeError, match="tool_budget"):
-        NativeToolReplSession(provider=provider, tool_budget=True)
+        CodingSession(provider=provider, tool_budget=True)
 
 
 @dataclass(slots=True)
@@ -1642,7 +1640,7 @@ def test_malformed_fatal_result_keeps_legacy_zero_image_counters(
         )
     )
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={"echo": _FixtureEchoTool()},
     ).run(
@@ -1680,7 +1678,7 @@ def test_malformed_streak_persists_across_accepted_runs_until_fatal(
     )
     canonical = _CollectingAgentEventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={"echo": _FixtureEchoTool()},
         agent_event_sink=canonical,
@@ -1808,7 +1806,7 @@ def test_inner_iteration_cap_is_tool_budget_plus_two_and_exhaustion_is_nontermin
     )
     canonical = _CollectingAgentEventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={"echo": _FixtureEchoTool()},
         tool_budget=1,
@@ -1857,7 +1855,7 @@ def test_final_text_is_printed_when_no_tool_calls(tmp_path: Path):
         programmable_tool_calls=script,
         final_text="hello world",
     )
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     input_stream = io.StringIO("hi\n")
     output_stream = io.StringIO()
     error_stream = io.StringIO()
@@ -1882,7 +1880,7 @@ def test_final_text_is_printed_when_no_tool_calls(tmp_path: Path):
 
 def test_session_ends_at_eof_with_zero_turns(tmp_path: Path):
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     input_stream = io.StringIO("")
     output_stream = io.StringIO()
     error_stream = io.StringIO()
@@ -1902,7 +1900,7 @@ def test_session_ends_at_eof_with_zero_turns(tmp_path: Path):
 def test_native_tool_repl_result_has_only_metadata_fields():
     from dataclasses import fields
 
-    field_names = {field.name for field in fields(NativeToolReplResult)}
+    field_names = {field.name for field in fields(CodingSessionResult)}
 
     forbidden = {
         "arguments",
@@ -1945,7 +1943,7 @@ def test_compaction_enabled_false_disables_auto_compaction(tmp_path, monkeypatch
         supports_tool_calls=True,
         final_text="answer",
     )
-    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    session = CodingSession(provider=provider, settings_manager=manager)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -1972,7 +1970,7 @@ def test_compaction_enabled_true_allows_auto_compaction(tmp_path, monkeypatch):
         project_path=tmp_path / ".pipy" / "settings.json",
     )
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="answer")
-    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    session = CodingSession(provider=provider, settings_manager=manager)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -2053,7 +2051,7 @@ def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
     seen: list = []
     state = _scoped_models_state(tmp_path, seen)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, provider_state=state, settings_manager=manager
     )
     catalog = state.model_runtime.catalog
@@ -2134,7 +2132,7 @@ def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(
     seen: list = []
     state = _scoped_models_state(tmp_path, seen)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, provider_state=state, settings_manager=manager
     )
     before = state.current_selection().reference
@@ -2191,7 +2189,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
         diagnostics.append(message)
 
     def record_footer(
-        self: NativeToolReplSession,
+        self: CodingSession,
         error_stream: TextIO,
         **kwargs: object,
     ) -> None:
@@ -2209,7 +2207,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider, settings_manager=manager, tool_registry={}
     ).run(
         workspace_root=tmp_path,
@@ -2238,7 +2236,7 @@ def test_model_change_constructs_a_distinct_usage_accumulator(
     constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
     seen: list[tuple[str, str]] = []
     state = _scoped_models_state(tmp_path, seen)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True), provider_state=state
     )
 
@@ -2266,7 +2264,7 @@ def test_model_command_does_not_append_deferred_model_change_entry(
     seen: list[tuple[str, str]] = []
     state = _scoped_models_state(tmp_path, seen)
     tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         provider_state=state,
         native_session=tree,
@@ -2308,7 +2306,7 @@ def test_model_command_does_not_dispatch_deferred_extension_model_select(
     state = _scoped_models_state(tmp_path, seen)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         provider_state=state,
         tool_registry={},
@@ -2333,7 +2331,7 @@ def test_state_owned_provider_survives_setup_failure_for_the_next_run(
 ) -> None:
     seen: list[tuple[str, str]] = []
     state = _scoped_models_state(tmp_path, seen)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         provider_state=state,
     )
@@ -2372,7 +2370,7 @@ def test_static_settings_projection_uses_the_state_owned_provider(
     tmp_path: Path,
 ) -> None:
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
 
     result = session.run(
         workspace_root=tmp_path,
@@ -2392,7 +2390,7 @@ def test_auth_change_constructs_a_distinct_usage_accumulator(
     constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
     seen: list[tuple[str, str]] = []
     state = _scoped_models_state(tmp_path, seen)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True), provider_state=state
     )
 
@@ -2428,7 +2426,7 @@ def test_reload_rereads_edited_settings_without_provider_turn(tmp_path, monkeypa
     settings_path.write_text(json.dumps({"theme": "ocean"}), encoding="utf-8")
 
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    session = CodingSession(provider=provider, settings_manager=manager)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -2457,7 +2455,7 @@ def test_reload_malformed_settings_keeps_prior_and_warns(tmp_path):
     )
     settings_path.write_text("{broken", encoding="utf-8")
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    session = CodingSession(provider=provider, settings_manager=manager)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -2494,7 +2492,7 @@ def test_reload_refreshes_extension_entry_renderers(
         encoding="utf-8",
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     terminal_stream = _TtyBuffer()
     terminal_ui = ToolLoopTerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
@@ -2509,7 +2507,7 @@ def test_reload_refreshes_extension_entry_renderers(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
             terminal_ui
@@ -2560,7 +2558,7 @@ def test_repeated_rejected_headless_reloads_do_not_refire_retained_session_start
         encoding="utf-8",
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         resource_options=RuntimeResourceOptions(extension_flag_tokens=("--keep",)),
@@ -2604,7 +2602,7 @@ def test_reload_fires_session_start_reload_for_new_extension_generation(
         encoding="utf-8",
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     error_stream = io.StringIO()
 
     session.run(
@@ -2696,7 +2694,7 @@ def test_successful_reload_publishes_one_coherent_generation_across_real_consume
 
     monkeypatch.setattr(FakeNativeProvider, "complete", record_request)
     errors = io.StringIO()
-    result = NativeToolReplSession(provider=provider, tool_registry={}).run(
+    result = CodingSession(provider=provider, tool_registry={}).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO(
             "/flip-generation\n/reload\n/probe-generation\nuse the tool\n/exit\n"
@@ -2794,14 +2792,14 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
             terminal_ui
         ),
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=reopened,
@@ -2889,9 +2887,9 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
             terminal_ui
@@ -2977,7 +2975,7 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
         persist_defaults=False,
     )
     provider = state.current_provider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=state,
         tool_registry={"echo": _FixtureEchoTool()},
@@ -3072,9 +3070,7 @@ def test_reload_tool_capability_fallback_refreshes_accepted_or_retained_generati
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
-    session = NativeToolReplSession(
-        provider=state.current_provider(), provider_state=state
-    )
+    session = CodingSession(provider=state.current_provider(), provider_state=state)
     if reject_candidate:
         session.resource_options = RuntimeResourceOptions(
             extension_flag_tokens=("--needs-value=x",)
@@ -3153,7 +3149,7 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=state.current_provider(),
         provider_state=state,
     )
@@ -3234,7 +3230,7 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=state.current_provider(),
         provider_state=state,
     )
@@ -3258,7 +3254,7 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
 
 def test_changelog_command_renders_without_provider_turn(tmp_path):
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -3292,7 +3288,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
     error_stream = io.StringIO()
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO(
             "\n/hotkeys\n/changelog\n/copy\n/session\n"
@@ -3340,7 +3336,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
 
 
 def test_provider_control_commands_use_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3350,7 +3346,7 @@ def test_provider_control_commands_use_only_typed_interpreter_dispatch() -> None
 
 
 def test_new_command_uses_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3359,7 +3355,7 @@ def test_new_command_uses_only_typed_interpreter_dispatch() -> None:
 
 
 def test_session_tree_command_uses_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3369,7 +3365,7 @@ def test_session_tree_command_uses_only_typed_interpreter_dispatch() -> None:
 
 
 def test_session_resume_command_uses_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3379,7 +3375,7 @@ def test_session_resume_command_uses_only_typed_interpreter_dispatch() -> None:
 
 
 def test_session_fork_and_clone_commands_use_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3390,7 +3386,7 @@ def test_session_fork_and_clone_commands_use_only_typed_interpreter_dispatch() -
 
 
 def test_trust_command_uses_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3399,7 +3395,7 @@ def test_trust_command_uses_only_typed_interpreter_dispatch() -> None:
 
 
 def test_export_command_uses_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3409,7 +3405,7 @@ def test_export_command_uses_only_typed_interpreter_dispatch() -> None:
 
 
 def test_import_command_uses_only_typed_interpreter_dispatch() -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session as loop_module
 
     module_path = loop_module.__file__
     assert module_path is not None
@@ -3429,7 +3425,7 @@ def test_new_command_applies_standard_footer_without_provider_turn(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/new\n/exit\n"),
         output_stream=io.StringIO(),
@@ -3453,7 +3449,7 @@ def test_tree_commands_apply_standard_footer_without_provider_turn(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/tree\n/tree filter user-only\n/exit\n"),
         output_stream=io.StringIO(),
@@ -3477,7 +3473,7 @@ def test_resume_commands_apply_standard_footer_without_provider_turn(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/resume\n/resume named\n/exit\n"),
         output_stream=io.StringIO(),
@@ -3501,7 +3497,7 @@ def test_fork_and_clone_commands_apply_standard_footer_without_provider_turn(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/fork\n/fork 1\n/clone\n/exit\n"),
         output_stream=io.StringIO(),
@@ -3535,7 +3531,7 @@ def test_trust_command_preserves_outer_trim_bubble_and_standard_footer(
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
     error_stream = io.StringIO()
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/trust   \n/exit\n"),
         output_stream=io.StringIO(),
@@ -3561,7 +3557,7 @@ def test_provider_control_commands_apply_usage_aware_footer(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/model\n/scoped-models\n/login\n/logout\n/exit\n"),
         output_stream=io.StringIO(),
@@ -3585,7 +3581,7 @@ def test_headless_command_kernel_exit_emits_no_command_footer(
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/exit\n"),
         output_stream=io.StringIO(),
@@ -3610,7 +3606,7 @@ def test_startup_changelog_shows_new_entries_on_version_bump(tmp_path):
         global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
     )
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    session = CodingSession(provider=provider, settings_manager=manager)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -3635,7 +3631,7 @@ def test_startup_changelog_first_run_records_version_shows_nothing(tmp_path):
         global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
     )
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    session = CodingSession(provider=provider, settings_manager=manager)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -3655,7 +3651,7 @@ def _run_local_commands(tmp_path: Path, script: str) -> str:
     """Drive the tool-loop session over a local-command script, return stderr."""
 
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -3729,7 +3725,7 @@ def test_tool_filter_options_filter_provider_visible_tools(tmp_path: Path):
                 tool_calls=(),
             )
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=RecordingProvider(),
         tool_registry={"echo": _FixtureEchoTool()},
         tool_filter_options=ToolFilterOptions(allow=("echo",)),
@@ -3795,7 +3791,7 @@ def test_unfiltered_tool_visibility_includes_extension_tools_added_by_reload(
                 tool_calls=(),
             )
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=RecordingProvider(), tool_registry={"echo": _FixtureEchoTool()}
     )
     result = session.run(
@@ -3857,7 +3853,7 @@ def test_reload_reports_configured_extension_tool_that_disappeared(
 
     error_stream = io.StringIO()
     output_stream = io.StringIO()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=RecordingProvider(),
         tool_registry={"echo": _FixtureEchoTool()},
         tool_filter_options=ToolFilterOptions(allow=("disappearing",)),
@@ -3880,7 +3876,7 @@ def test_reload_reports_configured_extension_tool_that_disappeared(
 
 
 def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"echo": _FixtureEchoTool()},
         tool_filter_options=ToolFilterOptions(exclude=("missing",)),
@@ -3912,9 +3908,7 @@ def test_extension_command_persists_session_name_and_label(
     )
     tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
     provider = FakeNativeProvider(supports_tool_calls=True)
-    session = NativeToolReplSession(
-        provider=provider, tool_registry={}, native_session=tree
-    )
+    session = CodingSession(provider=provider, tool_registry={}, native_session=tree)
 
     session.run(
         workspace_root=tmp_path,
@@ -4057,7 +4051,7 @@ def test_command_dispatch_precedence_kernel_resource_extension_fallback(
     )
 
     provider = _RecordingToolProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
     error_stream = io.StringIO()
     result = session.run(
         workspace_root=tmp_path,
@@ -4177,7 +4171,7 @@ def test_lifecycle_hook_contexts_expose_no_model_runtime_controls(
     )
 
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
     session.run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/reload\n/exit\n"),
@@ -4246,7 +4240,7 @@ def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
     )
 
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         resource_options=RuntimeResourceOptions(
             extension_flag_tokens=("--needs-value=x",),
@@ -4295,9 +4289,9 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
     import pipy_harness.native.session_generation as generation
     from pipy_harness.native.extension_runtime import _ExtensionCandidate
 
-    signature = inspect.signature(NativeToolReplSession.run)
+    signature = inspect.signature(CodingSession.run)
     assert "candidate" not in signature.parameters
-    assert signature.return_annotation == "NativeToolReplResult"
+    assert signature.return_annotation == "CodingSessionResult"
     source = inspect.getsource(repl_wiring._attach_extensions)
     assert source.count("SessionExtensionGeneration(") == 1
     monkeypatch.setattr(_ExtensionCandidate, "publish", lambda _candidate: False)
@@ -4360,7 +4354,7 @@ def test_a_malformed_startup_flag_disposes_the_unpublished_candidate(
         "    api.register_command('candidate-only', 'candidate', lambda c, a: None)\n",
         encoding="utf-8",
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True, final_text="ok"),
         resource_options=RuntimeResourceOptions(
             extension_flag_tokens=("--needs-value",),

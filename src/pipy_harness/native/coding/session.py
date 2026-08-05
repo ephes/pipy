@@ -1,6 +1,6 @@
 """Bounded model-driven REPL session skeleton.
 
-Slice 4 of the Tool-Loop Parity Track introduces a small `NativeToolReplSession`
+Slice 4 of the Tool-Loop Parity Track introduces a small `CodingSession`
 class that wires the slice 2 contracts (`ToolDefinition`, `ToolRequest`,
 `ToolExecutionResult`, `ToolPort`, `ToolContext`, `validate_arguments`) and the
 slice 3 provider extension (`ProviderPort.supports_tool_calls`,
@@ -50,7 +50,7 @@ from pipy_harness.native.clipboard import (
     copy_to_clipboard,
     read_clipboard_image,
 )
-from pipy_harness.native.coding.result import NativeToolReplResult
+from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.extension_runtime import _ExtensionCandidate
 from pipy_harness.native.extensions.contracts import ExtensionActivationBatch
@@ -102,7 +102,7 @@ def _build_detached_reload_effects(
 
 
 @dataclass
-class NativeToolReplSession:
+class CodingSession:
     """Bounded model-driven tool loop, slice 4 skeleton.
 
     `tool_registry` defaults to the empty production registry; tests pass a
@@ -231,10 +231,10 @@ class NativeToolReplSession:
         system_prompt: str = "",
         provider_name: str | None = None,
         model_id: str | None = None,
-    ) -> NativeToolReplResult:
+    ) -> CodingSessionResult:
         cwd = workspace_root or self.workspace_root
         if cwd is None:
-            raise ValueError("NativeToolReplSession.run requires a workspace_root")
+            raise ValueError("CodingSession.run requires a workspace_root")
         cwd = cwd.expanduser().resolve()
         if not cwd.is_dir():
             raise ValueError(f"workspace_root is not a directory: {cwd}")
@@ -331,6 +331,6 @@ class NativeToolReplSession:
 
 
 __all__ = [
-    "NativeToolReplSession",
+    "CodingSession",
     "production_tool_registry",
 ]

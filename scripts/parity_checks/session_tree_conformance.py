@@ -61,6 +61,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_tree import (
     LabelEntry,
@@ -72,7 +73,6 @@ from pipy_harness.native.session_tree_commands import (
     list_native_sessions,
     resolve_startup_session,
 )
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 class _SeenProvider:
@@ -116,7 +116,7 @@ def _drive(
     provider: _SeenProvider | None = None,
 ) -> _SeenProvider:
     provider = provider or _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
     session.run(
         workspace_root=cwd,
         input_stream=io.StringIO(script),
@@ -130,7 +130,7 @@ def _drive_capture(
     tree: NativeSessionTree, cwd: Path, script: str
 ) -> tuple[_SeenProvider, str]:
     provider = _SeenProvider()
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
     err = io.StringIO()
     session.run(
         workspace_root=cwd,
@@ -796,7 +796,7 @@ def _resume_picker_product_checks(base: Path) -> list[Check]:
     to_delete = NativeSessionTree.create(cwd, session_dir=session_dir)
     to_delete.append_message(AgentUserMessage(content=ProductContent("DELETE_ME")))
 
-    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
+    session = CodingSession(provider=_SeenProvider(), native_session=active)
     ui = _ScriptedPickerUi(
         rename_target=to_rename.path,
         delete_target=to_delete.path,
@@ -827,7 +827,7 @@ def _check_archive_privacy(base: Path) -> tuple[bool, str]:
     """Run the product runtime through HarnessRunner and verify the
     ``pipy-session`` metadata archive contains no raw prompt body."""
 
-    from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+    from pipy_harness.adapters.native import CodingSessionAdapter
     from pipy_harness.runner import FileSessionRecorder, HarnessRunner
 
     archive_root = base / "archive"
@@ -837,7 +837,7 @@ def _check_archive_privacy(base: Path) -> tuple[bool, str]:
     cwd.mkdir(parents=True, exist_ok=True)
     secret = "SECRET_PROMPT_BODY_DO_NOT_ARCHIVE"
     tree = NativeSessionTree.create(cwd, session_dir=native_dir)
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=_SeenProvider(),
         native_session=tree,
         input_stream=io.StringIO(f"{secret}\n/exit\n"),

@@ -10,7 +10,7 @@ delegating every mutating operation to an optional live `ExtensionUiDriver`
 only when a UI is available and never blocking otherwise.
 
 This module imports only the `extension_types` contracts and the `native.themes`
-registry helpers, so it never reaches the product session (`tool_loop_session`)
+registry helpers, so it never reaches the product session (`native.coding.session`)
 or the terminal UI (`tui`). The context and dispatch owners import
 `_CollectingUi` from here for invocation contexts, while `extension_runtime`
 uses it for `_ActivationApi`; the live `_LiveExtensionUiDriver` that binds

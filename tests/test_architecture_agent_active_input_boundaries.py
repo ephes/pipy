@@ -71,7 +71,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.terminal_input",
     "pipy_harness.native.terminal_screen",
     "pipy_harness.native.themes",
-    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.coding.session",
     "pipy_harness.native.tool_renderers",
     "pipy_harness.native.tools",
     "pipy_harness.native.tui",

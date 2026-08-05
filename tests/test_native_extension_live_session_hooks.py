@@ -15,6 +15,10 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentUserMessage
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_before_provider_headers_hooks,
     dispatch_before_provider_request_hooks,
@@ -30,10 +34,6 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
-)
 
 
 class _CapturingProvider:
@@ -248,7 +248,7 @@ def test_before_provider_request_hook_transforms_product_request(
         "        return ProviderRequestTransform(user_prompt=event.user_prompt + '::hook')\n",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
     )
@@ -288,7 +288,7 @@ def test_provider_request_tool_override_cannot_widen_filtered_active_snapshot(
         "        return ProviderRequestTransform(available_tools=('bash',))\n",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
         tool_filter_options=ToolFilterOptions(allow=("read",)),
@@ -340,7 +340,7 @@ def test_provider_request_hooks_intersect_serially_in_prior_order(
     )
     provider = _CapturingProvider()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
     ).run(
@@ -397,7 +397,7 @@ def test_set_active_tools_during_hook_applies_only_to_next_request_snapshot(
             )
 
     provider = TwoRequestProvider()
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
         tool_filter_options=ToolFilterOptions(allow=("read",)),
@@ -461,7 +461,7 @@ def test_each_provider_iteration_starts_with_fresh_request_policy(
             )
 
     provider = TwoRequestProvider()
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
     ).run(
@@ -495,7 +495,7 @@ def test_before_provider_headers_hook_mutates_product_http_headers(
         "        event.headers['X-Session-Id'] = ctx.session_manager.get_session_id()\n",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
     )
@@ -535,7 +535,7 @@ def test_before_provider_headers_hooks_refresh_after_reload(
         "    api.register_command('flip-header', 'change header generation', flip)\n",
     )
     provider = _CapturingProvider()
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
     )
@@ -570,7 +570,7 @@ def test_user_bash_hook_synthetic_result_reaches_next_prompt_context(
     )
     provider = _CapturingProvider()
     err = io.StringIO()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,
@@ -603,7 +603,7 @@ def test_session_before_compact_hook_blocks_product_command(
     )
     provider = _CapturingProvider()
     err = io.StringIO()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,

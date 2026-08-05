@@ -17,12 +17,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
 )
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -102,7 +102,7 @@ def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
         persist_defaults=False,
         model_runtime=ModelRuntime(catalog=catalog),
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=probe.factory(initial),
         tool_registry={},
         provider_state=state,

@@ -27,11 +27,11 @@ from pipy_harness.native.agent_request import (
     NativeProviderRequestHookContext,
     prepare_provider_request,
 )
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_runtime import ProviderRequestTransform
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -279,7 +279,7 @@ def test_hidden_registered_call_is_rejected_before_hooks_or_execution(
     tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
     output = io.StringIO()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={"echo": _NamedTool("echo", invoked, "forbidden-live-output")},
         tool_filter_options=ToolFilterOptions(no_tools=True),
@@ -375,7 +375,7 @@ def test_hidden_extension_tool_skips_custom_renderers_for_malformed_arguments(
     sink = _EventSink()
     error_stream = io.StringIO()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={},
         tool_filter_options=ToolFilterOptions(no_tools=True),
@@ -425,7 +425,7 @@ def test_hidden_first_consumes_budget_before_following_valid_call(
     )
     sink = _EventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={
             "echo": _NamedTool("echo", invoked),
@@ -490,7 +490,7 @@ def test_mixed_valid_then_hidden_calls_execute_and_reject_in_response_order(
     )
     sink = _EventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={
             "echo": _NamedTool("echo", invoked),
@@ -536,7 +536,7 @@ def test_budget_exhaustion_precedes_request_authorization(tmp_path: Path) -> Non
     )
     sink = _EventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={
             "echo": _NamedTool("echo", invoked),
@@ -579,7 +579,7 @@ def test_unauthorized_call_does_not_reset_consecutive_malformed_streak(
     sink = _EventSink()
     error_stream = io.StringIO()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={
             "echo": _NamedTool("echo", invoked),
@@ -661,7 +661,7 @@ def test_tool_added_by_first_call_is_not_authorized_later_in_same_response(
     )
     sink = _EventSink()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={},
         agent_event_sink=sink,
@@ -744,7 +744,7 @@ def test_tool_activated_by_call_runs_with_custom_renderers_on_next_request(
     sink = _EventSink()
     error_stream = io.StringIO()
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={},
         agent_event_sink=sink,

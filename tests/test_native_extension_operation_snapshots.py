@@ -14,11 +14,12 @@ import pytest
 from session_generation_test_support import build_test_projection
 
 import pipy_harness.native.repl.wiring as repl_wiring
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
@@ -721,7 +722,7 @@ def test_provider_header_callback_is_request_local_across_switch_and_reload(
         return fake_complete(provider, request, **kwargs)
 
     monkeypatch.setattr(FakeNativeProvider, "complete", complete)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         settings_manager=settings,
         tool_registry={},
@@ -761,7 +762,7 @@ def test_projectionless_startup_fails_without_install_or_publication(
     for name in ("SessionGenerationRef", "publish_candidate_ownership"):
         monkeypatch.setattr(repl_wiring, name, pytest.fail)
     errors = io.StringIO()
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
     ).run(
         workspace_root=tmp_path,
@@ -782,7 +783,7 @@ def test_r4a_writer_drain_and_staged_delivery_inventory_is_complete() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
     definitions = [
         node.name
-        for name in "extension_runtime extension_hooks session_generation tool_loop_session tui ui/components/custom_entry_renderer".split()
+        for name in "extension_runtime extension_hooks session_generation coding/session tui ui/components/custom_entry_renderer".split()
         for node in ast.walk(
             ast.parse((root / f"{name}.py").read_text(encoding="utf-8"))
         )
@@ -815,7 +816,7 @@ def test_r4c_deletes_all_converted_legacy_sources_and_equivalence_arms() -> None
     loop_source = "\n".join(
         (root / relative).read_text(encoding="utf-8")
         for relative in (
-            "src/pipy_harness/native/tool_loop_session.py",
+            "src/pipy_harness/native/coding/session.py",
             "src/pipy_harness/native/repl/loop_step.py",
         )
     )
@@ -902,7 +903,7 @@ def test_r4a_production_source_has_no_direct_converted_family_dispatch_reads() -
         for name in (
             "repl/extension_operations.py",
             "repl/loop_step.py",
-            "tool_loop_session.py",
+            "coding/session.py",
         )
     )
     dispatchers = set(

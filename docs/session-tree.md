@@ -25,7 +25,7 @@ Implementation map:
   concerns.
 - Runtime wiring + concrete effects for `/session`, `/name`, `/new`, `/tree`,
   `/resume`, `/fork`, `/clone`, durable `/compact`, and branch summaries:
-  `src/pipy_harness/native/tool_loop_session.py`.
+  `src/pipy_harness/native/coding/session.py`.
 - Live-TTY `/tree` selector and the interactive session picker overlay
   (`ToolLoopTerminalUi.run_tree_selector`, `run_session_picker`, and the
   standalone `run_startup_session_picker`) in
@@ -615,8 +615,8 @@ uv run python scripts/parity_checks/session_tree_conformance.py --json
 uv run python scripts/parity_checks/session_tree_pi_comparison.py --json
 uv run pytest tests/test_native_session_tree*.py tests/test_native_session_resolution.py
 uv run pytest tests/test_native_session_picker*.py tests/test_native_startup_session_cli.py
-uv run pytest tests/test_native_tool_loop_session_tree*.py
-uv run pytest tests/test_native_tool_loop_tui_pty.py -k tree
+uv run pytest tests/test_native_coding_session_tree*.py
+uv run pytest tests/test_native_coding_session_terminal_pty.py -k tree
 just check
 ```
 

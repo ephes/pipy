@@ -1041,7 +1041,7 @@ class NativeSessionTree:
 
         Called by the product TUI's Shift+Tab thinking-level cycle and the
         ``/settings`` "cycle thinking level" action (see
-        ``NativeToolReplSession._cycle_thinking_level``), so the chosen reasoning
+        ``CodingSession._cycle_thinking_level``), so the chosen reasoning
         level is durable across resume; runs no provider turn.
         """
 

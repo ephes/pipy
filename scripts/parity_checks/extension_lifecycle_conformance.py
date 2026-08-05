@@ -1,6 +1,6 @@
 """Hard conformance gate for extension lifecycle events (slice 5).
 
-Drives the real `NativeToolReplSession.run` with a final-text provider and
+Drives the real `CodingSession.run` with a final-text provider and
 an extension that records every lifecycle event, then asserts the slice-5
 invariants from `docs/extension-api.md`:
 
@@ -30,8 +30,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -88,7 +88,7 @@ def run_checks(workspace: Path, proof: Path) -> list[Check]:
         encoding="utf-8",
     )
 
-    session = NativeToolReplSession(provider=_FinalText(), tool_registry={})
+    session = CodingSession(provider=_FinalText(), tool_registry={})
     result = session.run(
         workspace_root=workspace,
         input_stream=io.StringIO("hello\n"),

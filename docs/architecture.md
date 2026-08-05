@@ -105,7 +105,7 @@ the metadata archive are injected or remain outside it.
 
 ## Product composition and one-shot runtime
 
-`native/tool_loop_session.py` is the interactive product composition root. It
+`native/coding/session.py` is the interactive product composition root. It
 constructs settings and trust state, catalog-backed providers, tools,
 extensions, the private session tree, event projections, automation or terminal
 input, and the headless coding/agent collaborators. Dynamic command effects and
@@ -199,7 +199,7 @@ and archive behavior rather than merely remove duplication. Its fixture-shaped
 `native.tool.ToolPort`, patch apply, and verification boundaries do not match
 canonical model-driven tool execution and are deliberately not adapted into
 it. Product one-shot `--mode json` and `--print` already use
-`PipyNativeToolReplAdapter` and the canonical coding/agent loop; they are not
+`CodingSessionAdapter` and the canonical coding/agent loop; they are not
 served by this compatibility runtime.
 
 `pipy_harness.runner.HarnessRunner` and the adapter ports continue to support
@@ -297,7 +297,7 @@ mutex identity before construction and failure injection cannot reach a live
 reference or adapter. R1's mutable activation-host ownership state, settings,
 keybindings, resources, and a settings adapter are absent.
 
-`tool_loop_session.py` now contains the projected, legacy-port, and candidate-
+`coding/session.py` now contains the projected, legacy-port, and candidate-
 composition adapters plus the production startup/reload orchestration that
 installs routes, fires candidate lifecycle, prepares and accepts a generation,
 and delivers its staged batch. On reload the first publication gate remains

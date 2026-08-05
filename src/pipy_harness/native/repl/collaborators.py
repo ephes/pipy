@@ -1,14 +1,10 @@
-"""One run's collaborators, assembled once, and the router that reaches them.
+"""One run's collaborators, assembled once for the command families.
 
 `SessionCollaborators` is the factory the composition root hands to a run: it
 holds the narrow ports each command family needs and builds those families on
 demand, so the families themselves never see the session object -- they see the
-handful of values they actually use.
-
-`BuiltinCommandInterpreter` is the fan-out. One classified command outcome goes
-in; exactly one family executes it. Keeping the routing separate from the
-families is what stops a command growing a second owner: a new action has to be
-claimed by exactly one `execute`, and the inventory tests hold that line.
+handful of values they actually use. Closed built-in fan-out lives in
+``native.repl.command_router``.
 """
 
 from __future__ import annotations
@@ -36,10 +32,6 @@ from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.commands import (
-    CodingCommandAction,
-    CodingCommandFooterPolicy,
-    CodingCommandOutcome,
-    CodingCommandOutcomeKind,
     ExtensionDispatchResolution,
     ResourceDispatchKind,
     ResourceDispatchResolution,
@@ -90,96 +82,7 @@ from pipy_harness.native.ui.components.custom_entry_renderer import (
 )
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
-_SESSION_COMMAND_ACTIONS = frozenset(
-    {
-        CodingCommandAction.SHOW_SESSION_STATUS,
-        CodingCommandAction.COMPACT,
-        CodingCommandAction.SESSION_NAME,
-        CodingCommandAction.NEW_SESSION,
-        CodingCommandAction.SESSION_TREE,
-        CodingCommandAction.SESSION_RESUME,
-        CodingCommandAction.SESSION_FORK,
-        CodingCommandAction.SESSION_CLONE,
-    }
-)
-
-
-_PROVIDER_CONFIGURATION_COMMAND_ACTIONS = frozenset(
-    {
-        CodingCommandAction.SHOW_HOTKEYS,
-        CodingCommandAction.SHOW_CHANGELOG,
-        CodingCommandAction.COPY_LAST_ANSWER,
-        CodingCommandAction.SETTINGS,
-        CodingCommandAction.TRUST_PROJECT,
-        CodingCommandAction.MODEL,
-        CodingCommandAction.SCOPED_MODELS,
-        CodingCommandAction.LOGIN,
-        CodingCommandAction.LOGOUT,
-    }
-)
-
-
-_TRANSFER_COMMAND_ACTIONS = frozenset(
-    {
-        CodingCommandAction.SESSION_EXPORT,
-        CodingCommandAction.SESSION_IMPORT,
-        CodingCommandAction.SESSION_SHARE,
-    }
-)
-
-
-_RELOAD_COMMAND_ACTIONS = frozenset({CodingCommandAction.RELOAD})
-
-
 _EXTENSION_COMPLETE_MAX_CHARS = 100 * 1024
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class BuiltinCommandInterpreter:
-    """Composition-root handler that owns the built-in command effect chain.
-
-    The controller classifies the built-in>resource>extension precedence and, for
-    a continuing built-in, invokes this handler through the already-wired
-    :meth:`CodingCommandEffects.interpret_builtin` port (symmetric with the
-    resource and extension dispatch ports). :meth:`interpret` receives the run's
-    four closed effect-family ports. Footer policy stays here so every family
-    retains the same success/exception timing.
-    """
-
-    session_effects: SessionCommandEffects
-    provider_configuration_effects: ProviderConfigurationCommandEffects
-    transfer_effects: TransferCommandEffects
-    reload_effects: ReloadCommandEffects
-    refresh_legacy_footer: Callable[[], None]
-    refresh_legacy_footer_with_usage: Callable[[], None]
-
-    def interpret(
-        self,
-        command_outcome: CodingCommandOutcome,
-    ) -> None:
-        if command_outcome.kind is not CodingCommandOutcomeKind.CONTINUE:
-            return
-        action = command_outcome.action
-        if action in _PROVIDER_CONFIGURATION_COMMAND_ACTIONS:
-            self.provider_configuration_effects.execute(command_outcome)
-        elif action in _SESSION_COMMAND_ACTIONS:
-            self.session_effects.execute(command_outcome)
-        elif action in _TRANSFER_COMMAND_ACTIONS:
-            self.transfer_effects.execute(command_outcome)
-        elif action in _RELOAD_COMMAND_ACTIONS:
-            self.reload_effects.execute(command_outcome)
-        elif action is None:
-            # Empty input is a classified continuing local no-op whose footer
-            # still refreshes through the same closed policy below.
-            pass
-        else:
-            raise AssertionError("continuing built-in has no effect-family owner")
-        if command_outcome.footer_policy is CodingCommandFooterPolicy.STANDARD:
-            self.refresh_legacy_footer()
-        elif command_outcome.footer_policy is CodingCommandFooterPolicy.USAGE_AWARE:
-            self.refresh_legacy_footer_with_usage()
-        else:
-            raise AssertionError("handled command requires a closed footer policy")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -193,7 +96,7 @@ class SessionCollaborators:
     ``resolve_session_file``/session-name-setter/``_extension_complete``/
     ``_extension_custom_driver``/provider-request/tool-policy-hook/
     ``_dispatch_resource_effect``/``_dispatch_extension_effect`` closures nested in
-    ``NativeToolReplSession.run()``. They reach one another densely (extension
+    ``CodingSession.run()``. They reach one another densely (extension
     dispatch calls the completion, custom driver, and session-name setters;
     ``extension_session_allows``/``summarize_branch`` call ``diag``/
     ``active_provider_header_callback``), so the handler is a frozen, slotted,

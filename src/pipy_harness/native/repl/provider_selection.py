@@ -100,7 +100,7 @@ class ProviderMutationEffects:
     ``apply_model_selection``/``apply_auth_change``/``apply_compaction``/
     ``_append_durable_compaction``/``extension_set_active_tools``/
     ``extension_set_model``/``extension_set_thinking_level`` closures nested in
-    ``NativeToolReplSession.run()``. They call one another densely (the compaction
+    ``CodingSession.run()``. They call one another densely (the compaction
     hook path and ``extension_set_model`` re-enter the peer effects), so the
     handler is a frozen, slotted, keyword-only dataclass that holds the run's
     mutable control-state holder ``ctl`` (its ``session_tree`` and canonical

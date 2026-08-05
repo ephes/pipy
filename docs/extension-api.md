@@ -1306,7 +1306,7 @@ primitive follow-on then added `ctx.ui.select`, `ctx.ui.input`,
 while non-interactive runs return cancel/default values and record status
 deterministically without blocking. These are covered by
 `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty,shortcuts}.py`,
-`tests/test_native_tool_loop_tui.py`, `tests/test_example_answer_extension.py`,
+`tests/test_native_coding_session_terminal.py`, `tests/test_example_answer_extension.py`,
 and the live `scripts/tmux_answer_verify.sh`.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
@@ -1328,12 +1328,12 @@ and the live `scripts/tmux_answer_verify.sh`.
    `/reload` re-activation. Implemented as
    `pipy_harness.native.extension_runtime.dispatch_extension_command` +
    `extension_command_map` + a mode-aware `CommandContext`/`ExtensionUi`, wired
-   into `tool_loop_session`.
+   into `coding.session`.
 4. `tool_call` policy hook — **landed**: extensions register
    `@api.on("tool_call")` to inspect live parsed tool inputs and block built-in
    tool calls with safe reasons. Implemented as `api.on(...)` +
    `ToolBlock`/`ToolCallEvent` + `dispatch_tool_call_hooks`/`extension_tool_call_hooks`,
-   wired into the `tool_loop_session` tool loop (first block wins; crashing hook
+   wired into the `coding.session` tool loop (first block wins; crashing hook
    fails closed; raw inputs inspected live but not archived).
 5. Lifecycle foundation — **landed**: emit `session_start`, `session_shutdown`,
    `agent_start`, `turn_start`, `turn_end`, `agent_end`, and true-idle
@@ -1352,7 +1352,7 @@ and the live `scripts/tmux_answer_verify.sh`.
    `BeforeAgentStartEvent`/`BeforeAgentStartResult`, `QueuedUserMessage`,
    `dispatch_input_hooks`/`dispatch_before_agent_start_hooks`,
    `api.send_user_message` + `drain_user_messages`, wired into the
-   `tool_loop_session` prompt/turn path. Pi-shaped custom messages also now
+   `coding.session` prompt/turn path. Pi-shaped custom messages also now
    ship for local session/display use: `api.send_message` / `api.sendMessage`
    and command/shortcut `ctx.send_message` / `ctx.sendMessage` accept
    `{customType, content, display?, details?}` plus optional `triggerTurn` /
@@ -1365,7 +1365,7 @@ and the live `scripts/tmux_answer_verify.sh`.
    bounded tool loop using existing JSON-schema validation and output bounds.
    Implemented as `ExtensionTool`/`ToolResult`/`RegisteredTool` +
    `api.register_tool` + `extension_tools` + the `_ExtensionToolPort` adapter
-   wired into `tool_loop_session`'s per-run tool registry.
+   wired into `coding.session`'s per-run tool registry.
 8. Tool result hooks — **landed** (`tool_result` transforms): an extension
    `@api.on("tool_result")` handler transforms the bounded observation
    (`ToolResultEvent`/`ToolResultTransform` + `dispatch_tool_result_hooks`)

@@ -17,6 +17,10 @@ from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentToolResultMessage
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
 )
@@ -28,10 +32,6 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
-)
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
 )
 
 
@@ -182,7 +182,7 @@ def test_model_can_call_an_extension_tool(tmp_path, monkeypatch) -> None:
         arguments_json=json.dumps({"text": "hi there"}),
     )
     provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     )
 
@@ -230,7 +230,7 @@ def test_extension_tool_additive_activation_marks_its_result(
         arguments_json="{}",
     )
     provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     )
 
@@ -300,7 +300,7 @@ def test_extension_tool_replacement_and_failure_do_not_mark_results(
         provider = _StubProvider(
             [_result(tool_calls=(call,)), _result(final_text="ok")]
         )
-        session = NativeToolReplSession(
+        session = CodingSession(
             provider=provider,
             tool_registry=production_tool_registry(),
             tool_budget=5,
@@ -346,7 +346,7 @@ def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:
         arguments_json=json.dumps({}),
     )
     provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider, tool_registry=production_tool_registry(), tool_budget=5
     )
 

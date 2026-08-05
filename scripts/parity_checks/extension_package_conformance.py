@@ -59,6 +59,7 @@ from pipy_harness.cli import (
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult, themes
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extensions.packages import (
     discover_extensions,
     safe_extension_metadata,
@@ -77,7 +78,6 @@ from pipy_harness.native.settings import (
     project_settings_path,
 )
 from pipy_harness.native.theme_files import build_theme_registry
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -671,7 +671,7 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
     )
 
     trigger_provider = _CapturingProvider()
-    NativeToolReplSession(provider=trigger_provider, tool_registry={}).run(
+    CodingSession(provider=trigger_provider, tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("/trigger-custom custom prompt\n"),
         output_stream=io.StringIO(),
@@ -679,7 +679,7 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
     )
 
     next_provider = _CapturingProvider()
-    NativeToolReplSession(provider=next_provider, tool_registry={}).run(
+    CodingSession(provider=next_provider, tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("/queue-custom custom context\nreal prompt\n"),
         output_stream=io.StringIO(),
@@ -687,7 +687,7 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
     )
 
     stream_provider = _CapturingProvider()
-    NativeToolReplSession(provider=stream_provider, tool_registry={}).run(
+    CodingSession(provider=stream_provider, tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("/stream-custom steer content\n"),
         output_stream=io.StringIO(),

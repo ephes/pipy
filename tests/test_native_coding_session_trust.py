@@ -11,8 +11,9 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import NativeToolReplSession, ProviderRequest, ProviderResult
+from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
     ProjectTrustError,
@@ -115,7 +116,7 @@ def _install_terminal(
     )
     scripted = iter(commands)
 
-    def build(self: NativeToolReplSession, **_kwargs: object) -> ToolLoopTerminalUi:
+    def build(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
         del self
         return terminal
 
@@ -135,13 +136,13 @@ def _install_terminal(
         finally:
             trace.append("external-io-resume")
 
-    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build)
+    monkeypatch.setattr(CodingSession, "_build_terminal_ui", build)
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
     monkeypatch.setattr(ToolLoopTerminalUi, "external_io_suspension", suspend)
     return terminal
 
 
-def _run_live(session: NativeToolReplSession, cwd: Path) -> tuple[str, str]:
+def _run_live(session: CodingSession, cwd: Path) -> tuple[str, str]:
     output = io.StringIO()
     error = io.StringIO()
     session.run(
@@ -169,22 +170,20 @@ def test_captured_trust_refuses_exactly_without_reading_underlying_stdin(
     cwd = _workspace(tmp_path)
     scripted = _ScriptedCapturedInput(("/trust\n", "/exit\n"))
 
-    def build_input(
-        self: NativeToolReplSession, **_kwargs: object
-    ) -> _ScriptedCapturedInput:
+    def build_input(self: CodingSession, **_kwargs: object) -> _ScriptedCapturedInput:
         del self
         return scripted
 
     def construct_store() -> _TrustStore:
         raise AssertionError("captured /trust must not construct the trust store")
 
-    monkeypatch.setattr(NativeToolReplSession, "_build_repl_input", build_input)
+    monkeypatch.setattr(CodingSession, "_build_repl_input", build_input)
     monkeypatch.setattr(selector_module, "ProjectTrustStore", construct_store)
     provider = _RecordingProvider()
     error = io.StringIO()
     underlying_input = io.StringIO("PRIVATE CAPTURED INPUT")
 
-    NativeToolReplSession(provider=provider).run(
+    CodingSession(provider=provider).run(
         workspace_root=cwd,
         input_stream=underlying_input,
         output_stream=io.StringIO(),
@@ -245,7 +244,7 @@ def test_live_trust_success_orders_effects_and_keeps_runtime_state_unchanged(
     provider = _RecordingProvider()
 
     output, error = _run_live(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             settings_manager=settings,
         ),
@@ -290,7 +289,7 @@ def test_live_trust_cancel_skips_write_and_success_then_refreshes_footer(
     monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
 
     _run_live(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             settings_manager=_settings(tmp_path, cwd, trusted=True),
         ),
@@ -332,7 +331,7 @@ def test_project_trust_errors_are_live_only_sanitized_and_cut_off_later_effects(
     monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
 
     output, error = _run_live(
-        NativeToolReplSession(
+        CodingSession(
             provider=_RecordingProvider(),
             settings_manager=_settings(tmp_path, cwd, trusted=False),
         ),
@@ -385,7 +384,7 @@ def test_interrupts_propagate_before_later_trust_effects_or_footer(
 
     with pytest.raises(exception_type):
         _run_live(
-            NativeToolReplSession(
+            CodingSession(
                 provider=_RecordingProvider(),
                 settings_manager=_settings(tmp_path, cwd, trusted=False),
             ),
@@ -439,7 +438,7 @@ def test_trust_has_no_session_extension_history_archive_or_provider_effects(
     provider = _RecordingProvider()
 
     _run_live(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             native_session=tree,
             prompt_history_store=history,

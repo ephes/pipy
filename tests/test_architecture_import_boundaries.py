@@ -34,6 +34,7 @@ class BoundaryRule:
     source_package: str
     forbidden_imports: tuple[str, ...]
     reason: str
+    excluded_source_modules: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,7 +113,7 @@ _AGENT_USAGE_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.extensions",
     "pipy_harness.native.ui",
     "pipy_harness.native.tui",
-    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.coding.session",
     "pipy_harness.native.session",
     "pipy_harness.native.session_resume",
     "pipy_harness.native.session_tree",
@@ -161,7 +162,7 @@ _AGENT_HISTORY_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.terminal_driver",
     "pipy_harness.native.terminal_input",
     "pipy_harness.native.terminal_screen",
-    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.coding.session",
     "pipy_harness.native.session",
     "pipy_harness.native.session_resume",
     "pipy_harness.native.session_tree",
@@ -219,7 +220,7 @@ _CODING_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.terminal_input",
     "pipy_harness.native.terminal_screen",
     "pipy_harness.native.tool_renderers",
-    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.coding.session",
     "pipy_harness.native.provider_construction",
     "pipy_harness.native.providers",
     "pipy_harness.native.session",
@@ -332,7 +333,6 @@ _CODING_STATE_ALLOWED_DIRECT_IMPORTS = frozenset(
 _CODING_PRODUCT_SESSION_FORBIDDEN_IMPORTS = (
     *_CODING_STATE_FORBIDDEN_IMPORTS,
     "pipy_harness.native.cancellation",
-    "pipy_harness.native.coding.session",
     "pipy_harness.native.models",
     "pipy_harness.native.provider",
     "pipy_harness.native.tools",
@@ -367,7 +367,6 @@ _CODING_COMMANDS_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.coding.command_registry",
     "pipy_harness.native.coding.input_queue",
     "pipy_harness.native.coding.product_session",
-    "pipy_harness.native.coding.session",
     "pipy_harness.native.coding.state",
     "pipy_harness.native.export_distribution",
     "pipy_harness.native.models",
@@ -422,7 +421,6 @@ _CODING_AGENT_RUN_FORBIDDEN_IMPORTS = (
     *_CODING_STATE_FORBIDDEN_IMPORTS,
     "pipy_harness.native.coding.commands",
     "pipy_harness.native.coding.product_session",
-    "pipy_harness.native.coding.session",
     "pipy_harness.native.provider",
 )
 
@@ -606,7 +604,7 @@ _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.coding.input_queue.CodingInputSelection",
         "pipy_harness.native.coding.input_queue.CodingInputSource",
         "pipy_harness.native.coding.result",
-        "pipy_harness.native.coding.result.NativeToolReplResult",
+        "pipy_harness.native.coding.result.CodingSessionResult",
         "pipy_harness.native.coding.state",
         "pipy_harness.native.coding.state.CodingSessionState",
     }
@@ -756,7 +754,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.coding",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.session",
             "pipy_harness.native.session_resume",
@@ -790,7 +788,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.coding",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.session",
             "pipy_harness.native.session_resume",
@@ -814,7 +812,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.runner",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.session_tree",
             "pipy_harness.native.extension_hooks",
@@ -885,10 +883,11 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.coding",
         forbidden_imports=_CODING_FORBIDDEN_IMPORTS,
         reason=(
-            "the headless coding-session controller must depend on injected "
-            "ports rather than UI/ANSI, archive, extension implementation, "
-            "persistence, concrete providers/tools, or the old composition monolith"
+            "headless coding modules must depend on injected ports rather than "
+            "UI/ANSI, archive, extension implementation, persistence, concrete "
+            "providers/tools, or the product composition root"
         ),
+        excluded_source_modules=("pipy_harness.native.coding.session",),
     ),
     BoundaryRule(
         source_package="pipy_harness.native.coding.state",
@@ -985,7 +984,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.repl",
         forbidden_imports=(
             "pipy_session",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
         ),
         reason=(
             "the REPL tier is being carved out of the composition root, so it "
@@ -999,7 +998,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.startup_selectors",
         forbidden_imports=(
             "pipy_session",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
         ),
         reason=(
@@ -1013,7 +1012,6 @@ ARCHITECTURE_RULES = (
         forbidden_imports=(
             "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
-            "pipy_harness.native.tool_loop_session",
             "pipy_harness.native.repl",
             "pipy_harness.native.tui",
         ),
@@ -1037,7 +1035,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.extension_chrome_state",
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.session",
             "pipy_session",
@@ -1062,7 +1060,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.terminal_driver",
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
@@ -1086,7 +1084,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.tui",
         forbidden_imports=(
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
         ),
         reason=(
@@ -1097,7 +1095,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.session_tree_commands",
         forbidden_imports=(
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
@@ -1110,7 +1108,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.tool_renderers",
         forbidden_imports=(
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
@@ -1128,7 +1126,6 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.tui",
             "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
-            "pipy_harness.native.tool_loop_session",
             "pipy_harness.native.repl",
         ),
         reason=(
@@ -1140,14 +1137,14 @@ ARCHITECTURE_RULES = (
         BoundaryRule(
             source_package=host_module,
             forbidden_imports=(
-                "pipy_harness.native.tool_loop_session",
+                "pipy_harness.native.coding.session",
                 "pipy_harness.native.repl",
             ),
             reason=(
                 "extension activation and host-port modules define ports against "
                 "coding-session / model-runtime interfaces (extension_types value "
-                "objects) and must never import the concrete "
-                "NativeToolReplSession product session in tool_loop_session"
+                "objects) and must never import the concrete CodingSession product "
+                "session"
             ),
         )
         for host_module in (
@@ -1160,7 +1157,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.extension_ui",
         forbidden_imports=(
-            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
@@ -1169,9 +1166,9 @@ ARCHITECTURE_RULES = (
             "the headless extension UI bridge (_CollectingUi and the "
             "lines_component chrome helpers) must depend only on the "
             "extension_types contracts and the native.themes registry, never on "
-            "the concrete product session (tool_loop_session) or the terminal UI "
-            "(tui); the live _LiveExtensionUiDriver is owned by tui alongside "
-            "the ToolLoopTerminalUi boundary it binds"
+            "the concrete CodingSession or the terminal UI (tui); the live "
+            "_LiveExtensionUiDriver is owned by tui alongside the "
+            "ToolLoopTerminalUi boundary it binds"
         ),
     ),
 )
@@ -1344,6 +1341,8 @@ def _evaluate_rule(source_root: Path, rule: BoundaryRule) -> list[BoundaryViolat
 
     violations: list[BoundaryViolation] = []
     for path in source_files:
+        if _module_name(source_root, path) in rule.excluded_source_modules:
+            continue
         references = _import_references(source_root, path)
         for prefix in rule.forbidden_imports:
             matching = next(
@@ -1491,7 +1490,7 @@ def test_agent_rule_recursively_governs_tool_executor_module(tmp_path: Path) -> 
         """\
 import pipy_harness.native.tui
 import pipy_harness.native.extension_runtime
-import pipy_harness.native.tool_loop_session
+import pipy_harness.native.coding.session
 """,
     )
     agent_rule = next(
@@ -1508,7 +1507,7 @@ import pipy_harness.native.tool_loop_session
     } == {
         (executor_path, "pipy_harness.native.tui", 1),
         (executor_path, "pipy_harness.native.extension_runtime", 2),
-        (executor_path, "pipy_harness.native.tool_loop_session", 3),
+        (executor_path, "pipy_harness.native.coding.session", 3),
     }
 
 
@@ -1524,7 +1523,7 @@ import pipy_harness.capture
 import pipy_harness.native.automation
 import pipy_harness.native.extension_runtime
 import pipy_harness.native.tui
-import pipy_harness.native.tool_loop_session
+import pipy_harness.native.coding.session
 import pipy_harness.native.provider_construction
 import pipy_harness.native.providers.openai_responses
 import pipy_session
@@ -1546,7 +1545,7 @@ import pipy_session
         (provider_turn_path, "pipy_harness.native.automation", 2),
         (provider_turn_path, "pipy_harness.native.extension_runtime", 3),
         (provider_turn_path, "pipy_harness.native.tui", 4),
-        (provider_turn_path, "pipy_harness.native.tool_loop_session", 5),
+        (provider_turn_path, "pipy_harness.native.coding.session", 5),
         (provider_turn_path, "pipy_harness.native.provider_construction", 6),
         (provider_turn_path, "pipy_harness.native.providers.openai_responses", 7),
         (provider_turn_path, "pipy_session", 8),
@@ -1563,7 +1562,7 @@ def test_agent_and_usage_rules_recursively_govern_usage_module(
         """\
 import pipy_harness.capture
 import pipy_harness.native.tui
-import pipy_harness.native.tool_loop_session
+import pipy_harness.native.coding.session
 import pipy_harness.native.provider_registry
 import pipy_harness.native.catalog
 import pipy_harness.native.provider
@@ -1593,7 +1592,7 @@ import pipy_harness.native.repl_state
     } == {
         (usage_path, "pipy_harness.capture", 1),
         (usage_path, "pipy_harness.native.tui", 2),
-        (usage_path, "pipy_harness.native.tool_loop_session", 3),
+        (usage_path, "pipy_harness.native.coding.session", 3),
         (usage_path, "pipy_harness.native.providers.openai_responses", 9),
         (usage_path, "pipy_session", 10),
     }
@@ -1603,7 +1602,7 @@ import pipy_harness.native.repl_state
     } == {
         (usage_path, "pipy_harness.capture", 1),
         (usage_path, "pipy_harness.native.tui", 2),
-        (usage_path, "pipy_harness.native.tool_loop_session", 3),
+        (usage_path, "pipy_harness.native.coding.session", 3),
         (usage_path, "pipy_harness.native.provider_registry", 4),
         (usage_path, "pipy_harness.native.catalog", 5),
         (usage_path, "pipy_harness.native.provider", 6),
@@ -1628,7 +1627,7 @@ def test_agent_and_history_rules_recursively_govern_history_module(
 import pipy_harness.capture
 import pipy_harness.native.agent_adapters
 import pipy_harness.native.tui
-import pipy_harness.native.tool_loop_session
+import pipy_harness.native.coding.session
 import pipy_harness.native.session_tree
 import pipy_harness.native.provider
 import pipy_harness.native.catalog
@@ -1655,7 +1654,7 @@ import pipy_session
     } == {
         (history_path, "pipy_harness.capture", 1),
         (history_path, "pipy_harness.native.tui", 3),
-        (history_path, "pipy_harness.native.tool_loop_session", 4),
+        (history_path, "pipy_harness.native.coding.session", 4),
         (history_path, "pipy_harness.native.session_tree", 5),
         (history_path, "pipy_harness.native.providers.openai_responses", 10),
         (history_path, "pipy_session", 11),
@@ -1667,7 +1666,7 @@ import pipy_session
         (history_path, "pipy_harness.capture", 1),
         (history_path, "pipy_harness.native.agent_adapters", 2),
         (history_path, "pipy_harness.native.tui", 3),
-        (history_path, "pipy_harness.native.tool_loop_session", 4),
+        (history_path, "pipy_harness.native.coding.session", 4),
         (history_path, "pipy_harness.native.session_tree", 5),
         (history_path, "pipy_harness.native.provider", 6),
         (history_path, "pipy_harness.native.catalog", 7),
@@ -2221,7 +2220,7 @@ def test_isolated_provider_turn_executor_import_stays_headless_in_either_order(
         "pipy_harness.native.extensions",
         "pipy_harness.native.ui",
         "pipy_harness.native.tui",
-        "pipy_harness.native.tool_loop_session",
+        "pipy_harness.native.coding.session",
         "pipy_harness.native.session",
         "pipy_harness.native.session_compaction",
         "pipy_harness.native.session_resume",
@@ -3491,13 +3490,13 @@ assert "pipy_harness.native.coding.command_registry" not in sys.modules
     assert completed.returncode == 0, completed.stderr
 
 
-def test_tool_loop_provider_access_is_state_backed_across_run_and_settings() -> None:
-    session_path = SOURCE_ROOT / "pipy_harness" / "native" / "tool_loop_session.py"
+def test_coding_session_provider_access_is_state_backed() -> None:
+    session_path = SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "session.py"
     tree = ast.parse(session_path.read_text(encoding="utf-8"))
     session_class = next(
         node
         for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "NativeToolReplSession"
+        if isinstance(node, ast.ClassDef) and node.name == "CodingSession"
     )
     governed_methods = {
         "run",
@@ -3550,11 +3549,8 @@ def test_tool_loop_provider_access_is_state_backed_across_run_and_settings() -> 
         pytest.param(
             "pipy_harness.native.ui",
             "from pipy_harness.native.agent.events import AgentEvent\n",
-            (
-                "from pipy_harness.native.tool_loop_session import "
-                "NativeToolReplSession\n"
-            ),
-            "pipy_harness.native.tool_loop_session",
+            "from pipy_harness.native.coding.session import CodingSession\n",
+            "pipy_harness.native.coding.session",
             id="ui",
         ),
         pytest.param(
@@ -3591,12 +3587,40 @@ def test_each_planned_package_boundary_activates_on_a_synthetic_tree(
     assert violations[0].imported_module == expected_import
 
 
+def test_coding_package_rule_excludes_only_the_concrete_session(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    session_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.session",
+        "import pipy_harness.native.tui\n",
+    )
+    sibling_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.sibling",
+        "import pipy_harness.native.tui\n",
+    )
+    coding_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding"
+    )
+
+    assert coding_rule.excluded_source_modules == (
+        "pipy_harness.native.coding.session",
+    )
+    violations = _evaluate_rule(source_root, coding_rule)
+    assert {violation.path for violation in violations} == {sibling_path}
+    assert session_path not in {violation.path for violation in violations}
+
+
 def test_rule_is_inactive_until_its_source_package_exists(tmp_path: Path) -> None:
     source_root = tmp_path / "src"
     _write_module(
         source_root,
         "pipy_harness.native.tui",
-        "from pipy_harness.native.tool_loop_session import NativeToolReplSession\n",
+        "from pipy_harness.native.coding.session import CodingSession\n",
     )
     ui_rule = next(
         rule
@@ -3609,12 +3633,12 @@ def test_rule_is_inactive_until_its_source_package_exists(tmp_path: Path) -> Non
     _write_module(
         source_root,
         "pipy_harness.native.ui.terminal",
-        "from pipy_harness.native.tool_loop_session import NativeToolReplSession\n",
+        "from pipy_harness.native.coding.session import CodingSession\n",
     )
 
     violations = _evaluate_rule(source_root, ui_rule)
     assert len(violations) == 1
-    assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
+    assert violations[0].imported_module == "pipy_harness.native.coding.session"
 
 
 def test_frame_renderer_rule_blocks_terminal_driver(tmp_path: Path) -> None:
@@ -3642,7 +3666,7 @@ def test_tui_rule_blocks_the_product_session_root(tmp_path: Path) -> None:
     source_path = _write_module(
         source_root,
         "pipy_harness.native.tui",
-        "from pipy_harness.native.tool_loop_session import NativeToolReplSession\n",
+        "from pipy_harness.native.coding.session import CodingSession\n",
     )
     tui_rule = next(
         rule
@@ -3654,15 +3678,15 @@ def test_tui_rule_blocks_the_product_session_root(tmp_path: Path) -> None:
 
     assert len(violations) == 1
     assert violations[0].path == source_path
-    assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
+    assert violations[0].imported_module == "pipy_harness.native.coding.session"
 
 
 @pytest.mark.parametrize(
     ("forbidden_import", "expected_import"),
     [
         (
-            "from pipy_harness.native.tool_loop_session import NativeToolReplSession",
-            "pipy_harness.native.tool_loop_session",
+            "from pipy_harness.native.coding.session import CodingSession",
+            "pipy_harness.native.coding.session",
         ),
         (
             "from pipy_harness.native.repl.loop_step import ReplLoopStep",

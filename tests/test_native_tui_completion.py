@@ -3,7 +3,7 @@
 These drive ``ToolLoopTerminalUi`` state transitions and ``render_lines`` (the
 inspectable frame the real paint path also composes) to prove the popup opens,
 ranks, navigates, and accepts. The observable live-region behavior over a real
-PTY is covered in ``tests/test_native_tool_loop_tui_pty.py``.
+PTY is covered in ``tests/test_native_coding_session_terminal_pty.py``.
 """
 
 from __future__ import annotations

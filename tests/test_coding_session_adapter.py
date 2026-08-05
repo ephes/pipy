@@ -1,8 +1,8 @@
 """Tests for the tool-loop product REPL adapter.
 
-These tests pin that `PipyNativeToolReplAdapter` is rejected when the selected
+These tests pin that `CodingSessionAdapter` is rejected when the selected
 provider has `supports_tool_calls=False`, that `--tool-budget` is honored, and
-that the adapter wires `NativeToolReplSession` against the production tool
+that the adapter wires `CodingSession` against the production tool
 registry while keeping its archive metadata metadata-only.
 """
 
@@ -15,13 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
 from pipy_harness.native import (
     FakeNativeProvider,
     ProviderToolCall,
 )
+from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
@@ -73,10 +74,10 @@ def test_repl_explicit_fake_provider_resolves_to_tool_capable_selection(
         )
 
 
-def test_pipy_native_tool_repl_adapter_requires_tool_capable_provider(
+def test_coding_session_adapter_requires_tool_capable_provider(
     tmp_path: Path,
 ):
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=False),
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
@@ -99,7 +100,7 @@ def test_pipy_native_tool_repl_adapter_requires_tool_capable_provider(
         )
 
 
-def test_pipy_native_tool_repl_adapter_runs_with_fake_provider(tmp_path: Path):
+def test_coding_session_adapter_runs_with_fake_provider(tmp_path: Path):
     call = ProviderToolCall(
         provider_correlation_id="call_test",
         tool_name="read",
@@ -112,7 +113,7 @@ def test_pipy_native_tool_repl_adapter_runs_with_fake_provider(tmp_path: Path):
         final_text="done",
     )
     output_stream = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("read notes\n"),
         output_stream=output_stream,
@@ -156,11 +157,10 @@ class _RecordingSession:
         from datetime import UTC, datetime
 
         from pipy_harness.models import HarnessStatus
-        from pipy_harness.native.coding.result import NativeToolReplResult
 
         type(self).last_run_kwargs = dict(kwargs)
         now = datetime.now(UTC)
-        return NativeToolReplResult(
+        return CodingSessionResult(
             status=HarnessStatus.SUCCEEDED,
             exit_code=0,
             started_at=now,
@@ -183,7 +183,7 @@ def _write_skill(skills_dir: Path, *, name: str, description: str, body: str) ->
 def _run_adapter_with_spy(adapter, prepared, monkeypatch):
     import pipy_harness.adapters.native as native_mod
 
-    monkeypatch.setattr(native_mod, "NativeToolReplSession", _RecordingSession)
+    monkeypatch.setattr(native_mod, "CodingSession", _RecordingSession)
     _RecordingSession.last_init_kwargs = None
     _RecordingSession.last_run_kwargs = None
     adapter.run(prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy())
@@ -218,7 +218,7 @@ def test_system_prompt_includes_skill_block_when_read_available(
     skill_path = _write_skill(
         skills_dir, name="lint", description="Lint the code", body="lint body"
     )
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
         input_stream=io.StringIO(""),
@@ -240,7 +240,7 @@ def test_system_prompt_omits_skill_block_when_read_excluded(
 ):
     skills_dir = tmp_path / ".pipy" / "skills"
     _write_skill(skills_dir, name="lint", description="Lint the code", body="lint body")
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={},
         input_stream=io.StringIO(""),
@@ -259,7 +259,7 @@ def test_skill_dirs_added_to_reference_roots(tmp_path: Path, monkeypatch):
 
     skills_dir = tmp_path / ".pipy" / "skills"
     _write_skill(skills_dir, name="lint", description="Lint the code", body="lint body")
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
         input_stream=io.StringIO(""),
@@ -298,7 +298,7 @@ def test_adapter_without_settings_fails_closed_for_project_resources(
     (tmp_path / ".pipy" / "settings.json").write_text(
         json.dumps({"packages": [str(project_package)]}), encoding="utf-8"
     )
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
         input_stream=io.StringIO(""),
@@ -356,7 +356,7 @@ def test_model_can_read_global_skill_body_via_reference_roots(
     )
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
 
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
         input_stream=io.StringIO(""),
@@ -428,7 +428,7 @@ def test_model_can_read_workspace_skill_body_under_ignored_pipy_dir(
         description="Improve parity loop",
         body="WORKSPACE SKILL BODY: drain lessons",
     )
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
         input_stream=io.StringIO(""),
@@ -458,9 +458,9 @@ def test_model_can_read_workspace_skill_body_under_ignored_pipy_dir(
     assert "WORKSPACE SKILL BODY" in result.output_text
 
 
-def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path):
+def test_coding_session_adapter_metadata_is_metadata_only(tmp_path: Path):
     provider = FakeNativeProvider(supports_tool_calls=True)
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
@@ -524,7 +524,7 @@ def test_skill_advertisement_matches_canonical_read_visibility(
         description="Demo skill",
         body="Load me with read.",
     )
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),

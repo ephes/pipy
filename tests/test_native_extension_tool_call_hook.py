@@ -16,6 +16,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_tool_call_hooks,
     extension_tool_call_hooks,
@@ -29,10 +33,6 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
-)
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
 )
 
 
@@ -262,7 +262,7 @@ def test_tool_call_hook_blocks_through_the_session(tmp_path, monkeypatch) -> Non
     provider = _StubToolProvider(
         [_result(tool_calls=(call,)), _result(final_text="done")]
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
         tool_budget=10,
@@ -311,7 +311,7 @@ def test_blocked_calls_consume_the_tool_budget(tmp_path, monkeypatch) -> None:
     provider = _StubToolProvider(
         [_result(tool_calls=calls), _result(final_text="done")]
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
         tool_budget=1,

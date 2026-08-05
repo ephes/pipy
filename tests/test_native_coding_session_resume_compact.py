@@ -9,16 +9,17 @@ from pathlib import Path
 
 import pytest
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
-from pipy_harness.native import NativeToolReplSession, ProviderToolCall
+from pipy_harness.native import ProviderToolCall
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,
     AgentUserMessage,
 )
 from pipy_harness.native.chrome import _ChromeFooterEffects
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -82,7 +83,7 @@ def _resume_context() -> ResumeContext:
 def test_tool_loop_resume_seeds_system_prompt_and_banner(tmp_path: Path) -> None:
     provider = _RecordingToolProvider()
     error_stream = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("hi\n"),
         output_stream=io.StringIO(),
@@ -118,7 +119,7 @@ def test_tool_loop_manual_compact_reduces_history_and_keeps_protocol(
     tmp_path: Path,
 ) -> None:
     provider = _RecordingToolProvider()
-    session = NativeToolReplSession(provider=provider, tool_budget=3)
+    session = CodingSession(provider=provider, tool_budget=3)
     # Four plain turns build four user-turn groups, then /compact, then a fifth
     # turn whose request we inspect.
     input_stream = io.StringIO("a\nb\nc\nd\n/compact\ne\n/exit\n")
@@ -169,7 +170,7 @@ def test_manual_compaction_persistence_failure_precedes_diagnostic_and_footer(
 ) -> None:
     provider = _RecordingToolProvider()
     tree = NativeSessionTree.create(tmp_path, persist=False)
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    session = CodingSession(provider=provider, native_session=tree)
     error_stream = io.StringIO()
     footer_calls: list[None] = []
     error_before_failure: list[str] = []
@@ -222,7 +223,7 @@ def test_tool_loop_auto_compaction_changes_the_same_provider_request(
     )
     provider = _RecordingToolProvider()
     error_stream = io.StringIO()
-    result = NativeToolReplSession(provider=provider, tool_budget=3).run(
+    result = CodingSession(provider=provider, tool_budget=3).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("old-a\nold-b\nrecent\n/exit\n"),
         output_stream=io.StringIO(),
@@ -261,7 +262,7 @@ def test_tool_loop_compaction_with_tool_calls_no_orphans(tmp_path: Path) -> None
     # Turn 1 emits a tool call then a final answer (2 provider calls). Turns
     # 2-4 are plain. Then /compact, then a fifth plain turn.
     provider = _RecordingToolProvider(call_script=((read_call,), ()))
-    session = NativeToolReplSession(provider=provider, tool_budget=3)
+    session = CodingSession(provider=provider, tool_budget=3)
     input_stream = io.StringIO("read it\nb\nc\nd\n/compact\ne\n/exit\n")
     result = session.run(
         workspace_root=tmp_path,
@@ -285,7 +286,7 @@ def test_tool_loop_compaction_with_tool_calls_no_orphans(tmp_path: Path) -> None
 def test_tool_loop_adapter_emits_compaction_event(tmp_path: Path) -> None:
     provider = _RecordingToolProvider()
     sink = _RecordingEventSink()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("a\nb\nc\nd\n/compact\n/exit\n"),
         output_stream=io.StringIO(),

@@ -1,6 +1,6 @@
 """Hard conformance gate for extension command dispatch (slice 3).
 
-Drives the real `NativeToolReplSession.run` with the deterministic fake
+Drives the real `CodingSession.run` with the deterministic fake
 provider in a temporary workspace, and asserts the slice-3 invariants
 from `docs/extension-api.md`:
 
@@ -37,6 +37,7 @@ from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
 )
@@ -44,7 +45,6 @@ from pipy_harness.native.extension_runtime import activate_extensions
 from pipy_harness.native.extensions.dispatch import extension_command_map
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_tree import CustomEntry, NativeSessionTree
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -127,7 +127,7 @@ def run_checks(workspace: Path) -> list[Check]:
 
     provider = _Provider()
     native_session = NativeSessionTree.create(workspace, persist=False)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=native_session,

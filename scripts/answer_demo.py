@@ -1,6 +1,6 @@
 """Deterministic TUI demo runner for the example `answer` extension.
 
-Launches a real `NativeToolReplSession` (real TUI, real extension discovery /
+Launches a real `CodingSession` (real TUI, real extension discovery /
 activation / dispatch / overlay) with a *scripted* provider so the `/answer`
 flow is fully deterministic for tmux UI verification — no network, no auth.
 
@@ -79,9 +79,9 @@ def main(argv: list[str]) -> int:
         return 2
     workspace = Path(argv[1]).expanduser().resolve()
 
-    from pipy_harness.native.tool_loop_session import NativeToolReplSession
+    from pipy_harness.native.coding.session import CodingSession
 
-    session = NativeToolReplSession(provider=_ScriptedProvider(), tool_registry={})
+    session = CodingSession(provider=_ScriptedProvider(), tool_registry={})
     session.run(
         workspace_root=workspace,
         input_stream=sys.stdin,

@@ -1,6 +1,6 @@
 """Headless controller for a product coding session's outer transitions.
 
-This module owns the outer transitions of ``NativeToolReplSession.run``. The
+This module owns the outer transitions of ``CodingSession.run``. The
 loop skeleton and start/shutdown lifecycle live in
 :meth:`CodingSessionController.run_loop`: the controller fires ``session_start``,
 runs the ``while True`` skeleton itself — calling the injected per-iteration
@@ -64,7 +64,7 @@ from pipy_harness.native.coding.input_queue import (
     CodingInputSelection,
     CodingInputSource,
 )
-from pipy_harness.native.coding.result import NativeToolReplResult
+from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.state import CodingSessionState
 
 _NOT_HANDLED_COMMAND_NOTICE = (
@@ -262,20 +262,20 @@ class LoopStepSignal:
     ``CONTINUE`` re-enters the loop (the composition step handled the iteration
     itself), ``BREAK`` ends the loop through the ``finalize`` port (the post-loop
     ``SUCCEEDED`` projection), and ``RETURN_RESULT`` ends the loop returning the
-    exact bounded :class:`NativeToolReplResult` the step already built (the
+    exact bounded :class:`CodingSessionResult` the step already built (the
     terminate ``FAILED`` projection). ``result`` is carried only for
     ``RETURN_RESULT``.
     """
 
     kind: LoopStepSignalKind
-    result: NativeToolReplResult | None = None
+    result: CodingSessionResult | None = None
 
     def __post_init__(self) -> None:
         if type(self.kind) is not LoopStepSignalKind:
             raise TypeError("kind must be an exact LoopStepSignalKind")
         if self.kind is LoopStepSignalKind.RETURN_RESULT:
-            if type(self.result) is not NativeToolReplResult:
-                raise TypeError("RETURN_RESULT requires an exact NativeToolReplResult")
+            if type(self.result) is not CodingSessionResult:
+                raise TypeError("RETURN_RESULT requires an exact CodingSessionResult")
         elif self.result is not None:
             raise ValueError("only RETURN_RESULT carries a result")
 
@@ -288,7 +288,7 @@ class LoopStepSignal:
         return cls(LoopStepSignalKind.BREAK)
 
     @classmethod
-    def return_result(cls, result: NativeToolReplResult) -> LoopStepSignal:
+    def return_result(cls, result: CodingSessionResult) -> LoopStepSignal:
         return cls(LoopStepSignalKind.RETURN_RESULT, result)
 
 
@@ -324,13 +324,13 @@ class CodingSessionController:
         self,
         *,
         step_once: Callable[[], LoopStepSignal],
-        finalize: Callable[[], NativeToolReplResult],
+        finalize: Callable[[], CodingSessionResult],
         fire_session_start: Callable[[], None],
         fire_session_shutdown: Callable[[], None],
         consume_settle_pending: Callable[[], bool],
         close_extension_session: Callable[[], None],
         clear_extension_chrome: Callable[[], None],
-    ) -> NativeToolReplResult:
+    ) -> CodingSessionResult:
         """Own the ``while True`` skeleton and the start/shutdown lifecycle.
 
         The controller owns the loop skeleton and the lifecycle bookends of one
@@ -340,7 +340,7 @@ class CodingSessionController:
         :class:`LoopStepSignal` — ``CONTINUE`` re-enters the loop, ``BREAK`` ends
         it through the injected ``finalize`` port (the post-loop ``SUCCEEDED``
         projection), and ``RETURN_RESULT`` ends it returning the exact bounded
-        :class:`NativeToolReplResult` the step already built (the terminate
+        :class:`CodingSessionResult` the step already built (the terminate
         ``FAILED`` projection). On every exit path (normal return, fatal return,
         or a propagated exception) it guarantees the once-only true-idle settle,
         the ``session_shutdown`` fire, terminal extension-session close, and the
@@ -612,7 +612,7 @@ def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
 def _require_run_loop_ports(
     *,
     step_once: Callable[[], LoopStepSignal],
-    finalize: Callable[[], NativeToolReplResult],
+    finalize: Callable[[], CodingSessionResult],
     fire_session_start: Callable[[], None],
     fire_session_shutdown: Callable[[], None],
     consume_settle_pending: Callable[[], bool],

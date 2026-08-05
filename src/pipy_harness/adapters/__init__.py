@@ -1,13 +1,13 @@
 """Harness adapter implementations."""
 
 from pipy_harness.adapters.native import (
+    CodingSessionAdapter,
     PipyNativeAdapter,
-    PipyNativeToolReplAdapter,
 )
 from pipy_harness.adapters.subprocess import SubprocessAdapter
 
 __all__ = [
     "PipyNativeAdapter",
-    "PipyNativeToolReplAdapter",
+    "CodingSessionAdapter",
     "SubprocessAdapter",
 ]

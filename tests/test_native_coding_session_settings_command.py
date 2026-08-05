@@ -11,8 +11,6 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
-    NativeToolReplResult,
-    NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
@@ -20,6 +18,8 @@ from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.commands import CodingCommandOutcome
 from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.result import CodingSessionResult
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl_state import StaticNativeReplProviderState
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -77,12 +77,12 @@ def _settings(tmp_path: Path, cwd: Path) -> SettingsManager:
 
 
 def _run_captured(
-    session: NativeToolReplSession,
+    session: CodingSession,
     cwd: Path,
     inputs: str,
     *,
     error_stream: TextIO | None = None,
-) -> tuple[NativeToolReplResult, str]:
+) -> tuple[CodingSessionResult, str]:
     errors = error_stream or io.StringIO()
     result = session.run(
         workspace_root=cwd,
@@ -100,7 +100,7 @@ def test_captured_settings_projects_current_provider_in_sanitized_order(
     cwd = _workspace(tmp_path)
     provider = _RecordingProvider(name="api_key=private", model_id="current-model")
     state = StaticNativeReplProviderState(provider)
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         provider_state=state,
         settings_manager=_settings(tmp_path, cwd),
@@ -159,7 +159,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
         return ["settings overlay"]
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         _error_stream: TextIO,
         **kwargs: object,
     ) -> None:
@@ -178,7 +178,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
     provider = _RecordingProvider()
 
     _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             settings_manager=_settings(tmp_path, cwd),
         ),
@@ -219,7 +219,7 @@ def test_unexpected_settings_projection_failures_cut_off_footer_and_provider(
     provider = _RecordingProvider()
 
     def footer(
-        _session: NativeToolReplSession,
+        _session: CodingSession,
         _error_stream: TextIO,
         **_kwargs: object,
     ) -> None:
@@ -242,7 +242,7 @@ def test_unexpected_settings_projection_failures_cut_off_footer_and_provider(
     monkeypatch.setattr(
         config_commands, "tool_loop_settings_overlay_lines", overlay_lines
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=provider,
         settings_manager=_settings(tmp_path, cwd),
     )
@@ -279,7 +279,7 @@ def test_settings_has_no_input_session_history_or_provider_effects(
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", reject_input_clear)
     provider = _RecordingProvider()
     result, _rendered = _run_captured(
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             native_session=tree,
             prompt_history_store=history,

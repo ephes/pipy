@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import ProviderRequest, ProviderResult
@@ -101,7 +101,7 @@ def test_tool_loop_repl_loads_at_file_context_into_provider_messages(
             )
 
     provider = CapturingToolProvider()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=StringIO("explain @notes.txt please\n"),
         output_stream=StringIO(),
@@ -184,7 +184,7 @@ def test_tool_loop_repl_image_attachment_counter_reaches_adapter_metadata(
             )
 
     provider = CapturingToolProvider()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=StringIO("describe @image:shot.png\n"),
         output_stream=StringIO(),

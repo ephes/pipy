@@ -17,10 +17,10 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
-    NativeToolReplSession,
     ProviderRequest,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.openai_codex_provider import (
     FileOpenAICodexCredentialStore,
     OAuthTokenResponse,
@@ -828,7 +828,7 @@ def test_sse_error_event_code_does_not_leak_through_repl_result_or_stderr(
     )
     stderr = io.StringIO()
 
-    result = NativeToolReplSession(provider=provider).run(
+    result = CodingSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("hello\n"),
         output_stream=io.StringIO(),

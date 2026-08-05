@@ -133,7 +133,7 @@ class ProviderRequest:
     """Request sent across the native provider port.
 
     The optional `messages` envelope and `available_tools` fields are used
-    by the model-driven tool loop (see `pipy_harness.native.tool_loop_session`)
+    by the model-driven tool loop (see `pipy_harness.native.coding.session`)
     to carry the conversation history and the tool catalog to providers that
     advertise `supports_tool_calls=True`. Legacy single-turn callers leave
     both empty; providers that do not support tool calls ignore them.

@@ -1,6 +1,6 @@
 """Unit tests for Shift+Tab thinking-level cycling and model cycling logic.
 
-These drive ``NativeToolReplSession`` helpers directly with a catalog-backed
+These drive ``CodingSession`` helpers directly with a catalog-backed
 provider state (no PTY) to pin the cycle order, the reasoning-support clamp, the
 ``thinking_level_change`` native-tree entry, and that no provider turn runs. The
 observable footer/status behavior over a real PTY is covered separately.
@@ -12,10 +12,11 @@ import io
 from pathlib import Path
 from typing import TextIO, cast
 
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.chrome import _ChromeFooterEffects
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.repl.view_actions import cycle_thinking_level_action
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -39,8 +40,8 @@ def _state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
     )
 
 
-def _session(state: NativeReplProviderState) -> NativeToolReplSession:
-    return NativeToolReplSession(
+def _session(state: NativeReplProviderState) -> CodingSession:
+    return CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={},
         provider_state=state,
@@ -55,7 +56,7 @@ class _Runtime:
     runtime_label = "plain"
 
 
-def _footer(session: NativeToolReplSession, tmp_path: Path) -> _ChromeFooterEffects:
+def _footer(session: CodingSession, tmp_path: Path) -> _ChromeFooterEffects:
     return _ChromeFooterEffects(
         cwd=tmp_path,
         coding_state=session._coding_state,

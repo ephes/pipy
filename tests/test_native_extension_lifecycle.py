@@ -31,6 +31,7 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     TurnStarted,
 )
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_hooks import (
     _ExtensionLifecycleAgentEventAdapter,
     dispatch_lifecycle_hooks,
@@ -43,7 +44,6 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 def _generation_snapshot(
@@ -385,7 +385,7 @@ def test_lifecycle_events_fire_through_the_session(tmp_path, monkeypatch) -> Non
         "              'agent_end','agent_settled','turn_start','turn_end'):\n"
         "        api.on(n, make(n))\n",
     )
-    session = NativeToolReplSession(provider=_FinalTextProvider(), tool_registry={})
+    session = CodingSession(provider=_FinalTextProvider(), tool_registry={})
 
     session.run(
         workspace_root=tmp_path,
@@ -437,7 +437,7 @@ def test_agent_settled_waits_for_extension_queued_continuation(
         "    def settled(event, ctx):\n"
         "        record(event.name + ':' + (event.reason or ''))\n",
     )
-    session = NativeToolReplSession(provider=_FinalTextProvider(), tool_registry={})
+    session = CodingSession(provider=_FinalTextProvider(), tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,
@@ -478,7 +478,7 @@ def test_agent_settled_handler_can_schedule_a_new_run_without_blocking(
         "            api.send_user_message('new run after idle')\n",
     )
     provider = _FinalTextProvider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    session = CodingSession(provider=provider, tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,
@@ -519,7 +519,7 @@ def test_agent_settled_fires_after_unexpected_mid_run_failure(
         "    api.on('agent_settled', record)\n"
         "    api.on('session_shutdown', record)\n",
     )
-    session = NativeToolReplSession(provider=_RaisingProvider(), tool_registry={})
+    session = CodingSession(provider=_RaisingProvider(), tool_registry={})
 
     with pytest.raises(RuntimeError, match="provider exploded"):
         session.run(
@@ -580,7 +580,7 @@ def test_agent_settled_fires_after_completed_budget_exhaustion(
         "    api.on('agent_settled', record)\n"
         "    api.on('session_shutdown', record)\n",
     )
-    session = NativeToolReplSession(provider=_MalformedProvider(), tool_registry={})
+    session = CodingSession(provider=_MalformedProvider(), tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,
@@ -651,7 +651,7 @@ def test_agent_settled_fires_after_controlled_malformed_fatal(
         "    api.on('session_shutdown', record)\n",
     )
     provider = _MalformedBashProvider()
-    session = NativeToolReplSession(provider=provider)
+    session = CodingSession(provider=provider)
 
     result = session.run(
         workspace_root=tmp_path,
@@ -692,7 +692,7 @@ def test_agent_settled_does_not_fire_without_agent_run(
         "    api.on('agent_settled', record)\n"
         "    api.on('session_shutdown', record)\n",
     )
-    session = NativeToolReplSession(provider=_FinalTextProvider(), tool_registry={})
+    session = CodingSession(provider=_FinalTextProvider(), tool_registry={})
 
     result = session.run(
         workspace_root=tmp_path,

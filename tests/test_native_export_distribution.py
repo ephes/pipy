@@ -20,6 +20,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.export_distribution import (
     ShareCancelled,
     compare_versions,
@@ -39,7 +40,6 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.session_transfer import share_native_session_command
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 class _NoTurnProvider(ProviderPort):
@@ -111,7 +111,7 @@ def _tree(tmp_path: Path) -> NativeSessionTree:
 
 def _run_commands(tree: NativeSessionTree, cwd: Path, commands: str) -> str:
     err = io.StringIO()
-    NativeToolReplSession(provider=_NoTurnProvider(), native_session=tree).run(
+    CodingSession(provider=_NoTurnProvider(), native_session=tree).run(
         workspace_root=cwd,
         input_stream=io.StringIO(commands),
         output_stream=io.StringIO(),

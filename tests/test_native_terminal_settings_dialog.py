@@ -18,13 +18,13 @@ from typing import TextIO, cast
 
 import pytest
 
-from pipy_harness.adapters import PipyNativeToolReplAdapter
+from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.models import HarnessStatus, RunRequest
-from pipy_harness.native import NativeToolReplSession
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.prompt_history import PromptHistoryStore
@@ -272,7 +272,7 @@ def _install_ui(
     ui: _ScriptedSettingsUi,
 ) -> None:
     def build_ui(
-        self: NativeToolReplSession,
+        self: CodingSession,
         input_stream: TextIO,
         error_stream: TextIO,
         workspace: Path,
@@ -282,7 +282,7 @@ def _install_ui(
         del self, input_stream, error_stream, workspace, resources, kwargs
         return ui
 
-    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build_ui)
+    monkeypatch.setattr(CodingSession, "_build_terminal_ui", build_ui)
 
 
 def _notices(ui: _ScriptedSettingsUi) -> list[str]:
@@ -358,7 +358,7 @@ def test_settings_cancel_is_local_and_creates_no_product_tree_entry(
     ui = _ScriptedSettingsUi(tmp_path)
     _install_ui(monkeypatch, ui)
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         tool_registry={},
         native_session=tree,
@@ -641,7 +641,7 @@ def test_settings_model_selection_rebinds_without_deferred_tree_or_hook(
     ui.selector_target = "openai/gpt-5.5"
     _install_ui(monkeypatch, ui)
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         provider_state=state,
         native_session=tree,
@@ -716,7 +716,7 @@ def test_settings_auth_failure_orders_suspend_rebind_notice_and_reopen(
     monkeypatch.setattr(NativeReplProviderState, "logout", fail_logout)
     monkeypatch.setattr(CodingSessionState, "rebind_provider", record_rebind)
 
-    result = NativeToolReplSession(
+    result = CodingSession(
         provider=provider,
         provider_state=state,
         tool_registry={},
@@ -785,7 +785,7 @@ def test_settings_auth_fatal_cuts_off_rebind_notice_reopen_and_outer_footer(
     monkeypatch.setattr(NativeReplProviderState, "logout", fatal_logout)
 
     with pytest.raises(failure_type, match="stop settings auth"):
-        NativeToolReplSession(
+        CodingSession(
             provider=provider,
             provider_state=state,
             tool_registry={},
@@ -848,7 +848,7 @@ def test_live_settings_private_sources_stay_out_of_finalized_metadata_archive(
 
     monkeypatch.setattr(NativeReplProviderState, "login", login)
     error_stream = io.StringIO()
-    adapter = PipyNativeToolReplAdapter(
+    adapter = CodingSessionAdapter(
         provider_state=state,
         tool_registry={},
         input_stream=io.StringIO(),

@@ -24,13 +24,13 @@ from typing import TextIO, cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.terminal_screen import parse_ansi_screen
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    production_tool_registry,
-)
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 # Sets a widget + title on session_start. In a captured-stream run there is no
@@ -85,7 +85,7 @@ def test_chrome_calls_do_not_leak_to_archive(tmp_path, monkeypatch):
     (ws / ".pipy" / "extensions").mkdir(parents=True)
     (ws / ".pipy" / "extensions" / "chrome-demo.py").write_text(_EXT, encoding="utf-8")
 
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_Provider(), tool_registry=production_tool_registry(), tool_budget=3
     )
     result = session.run(
@@ -191,9 +191,9 @@ def test_pty_session_renders_then_reload_clears_chrome(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=_Provider(), tool_registry={})
+    session = CodingSession(provider=_Provider(), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
     )
@@ -303,13 +303,13 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(
+    session = CodingSession(
         provider=_Provider(),
         tool_registry={},
         resource_options=RuntimeResourceOptions(extension_flag_tokens=("--keep",)),
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
     )
@@ -429,9 +429,9 @@ def test_pty_reload_session_start_hook_restores_chrome_live(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=_Provider(), tool_registry={})
+    session = CodingSession(provider=_Provider(), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
     )
@@ -504,9 +504,9 @@ def test_pty_session_start_hook_renders_chrome_live(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=_Provider(), tool_registry={})
+    session = CodingSession(provider=_Provider(), tool_registry={})
     monkeypatch.setattr(
-        NativeToolReplSession,
+        CodingSession,
         "_build_terminal_ui",
         lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
     )
