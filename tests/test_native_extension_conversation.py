@@ -13,11 +13,9 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native.extension_runtime import (
-    AssistantMessageView,
-    dispatch_extension_command,
-)
+from pipy_harness.native.extension_runtime import dispatch_extension_command
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.session_views import AssistantMessageView
 
 
 def _command_map(handler):

@@ -10,11 +10,11 @@ completion backend is wired (deterministic/non-interactive context), it raises
 from __future__ import annotations
 
 from pipy_harness.native.extension_runtime import (
-    ExtensionCapabilityError,
     RegisteredCommand,
     dispatch_extension_command,
 )
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 
 
 def _command_map(handler):

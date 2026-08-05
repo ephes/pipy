@@ -1,10 +1,10 @@
 from pipy_harness.extensions import coerce_custom_message
 from pipy_harness.native.extension_runtime import (
-    ExtensionCapabilityError,
     RegisteredCommand,
     dispatch_extension_command,
 )
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 
 
 def test_coerce_custom_message_accepts_pi_shape_and_aliases():

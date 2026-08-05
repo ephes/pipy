@@ -97,7 +97,6 @@ from pipy_harness.native.extension_runtime import (
     ExtensionActivationBatch,
     GenerationMessageRouting,
     HookHandler,
-    _CommandContext,
     _dispose_activation_results,
     _ExtensionRuntime,
     _report_activation_cleanup,
@@ -142,6 +141,7 @@ from pipy_harness.native.extension_types import (
     _safe_diagnostic,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
+from pipy_harness.native.extensions.command_context import _CommandContext
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_generation import (
     FrozenStagedDeliveryBatch,

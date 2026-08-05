@@ -26,12 +26,12 @@ from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
 )
 from pipy_harness.native.extension_runtime import (
-    ExtensionCapabilityError,
     GenerationMessageRetirement,
     GenerationMessageRouting,
     QueuedCustomMessage,
     RegisteredMessageRenderer,
 )
+from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects

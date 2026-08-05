@@ -17,7 +17,9 @@ import pipy_harness.native.extension_hooks as extension_hooks
 import pipy_harness.native.extension_runtime as extension_runtime
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
+import pipy_harness.native.extensions.command_context as extension_command_context
 import pipy_harness.native.extensions.packages as extension_discovery
+import pipy_harness.native.extensions.session_views as extension_session_views
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
 
@@ -126,20 +128,12 @@ _OWNER_GROUPS = (
         extension_runtime,
         (
             "ActivatedExtension",
-            "AssistantMessageView",
-            "CommandContext",
-            "ConversationView",
-            "ExtensionCapabilityError",
             "ExtensionCommandDispatch",
             "PipyExtensionAPI",
             "RegisteredCommand",
             "RegisteredEntryRenderer",
             "RegisteredMessageRenderer",
             "RegisteredShortcut",
-            "SessionEntryView",
-            "SessionHeaderView",
-            "SessionManagerView",
-            "SessionTreeNodeView",
             "activate_extensions",
             "coerce_custom_message",
             "dispatch_extension_shortcut",
@@ -212,6 +206,21 @@ _OWNER_GROUPS = (
         ),
     ),
     (extension_ui, ("coerce_tool_render_lines", "lines_component")),
+    (
+        extension_command_context,
+        ("CommandContext", "ExtensionCapabilityError"),
+    ),
+    (
+        extension_session_views,
+        (
+            "AssistantMessageView",
+            "ConversationView",
+            "SessionEntryView",
+            "SessionHeaderView",
+            "SessionManagerView",
+            "SessionTreeNodeView",
+        ),
+    ),
     (
         extension_hooks,
         (

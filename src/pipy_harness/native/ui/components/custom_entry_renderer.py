@@ -34,7 +34,6 @@ from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import (
-    ExtensionCapabilityError,
     QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredEntryRenderer,
@@ -49,6 +48,9 @@ from pipy_harness.native.extension_runtime import (
     render_extension_entry,
     render_extension_message,
     safe_custom_entry_data,
+)
+from pipy_harness.native.extensions.command_context import (
+    ExtensionCapabilityError,
 )
 from pipy_harness.native.session_generation import SessionGenerationSnapshot
 from pipy_harness.native.session_tree import (

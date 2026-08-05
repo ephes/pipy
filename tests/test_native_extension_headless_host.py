@@ -23,7 +23,6 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.extension_hooks import dispatch_input_hooks
 from pipy_harness.native.extension_runtime import (
-    ExtensionCapabilityError,
     RegisteredCommand,
     dispatch_extension_command,
 )
@@ -33,6 +32,7 @@ from pipy_harness.native.extension_types import (
     InputEvent,
     InputTransform,
 )
+from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.session_tree import NativeSessionTree
 
 

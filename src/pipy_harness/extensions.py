@@ -39,20 +39,12 @@ from pipy_harness.native.extension_hooks import (
 )
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
-    AssistantMessageView,
-    CommandContext,
-    ConversationView,
-    ExtensionCapabilityError,
     ExtensionCommandDispatch,
     PipyExtensionAPI,
     RegisteredCommand,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     RegisteredShortcut,
-    SessionEntryView,
-    SessionHeaderView,
-    SessionManagerView,
-    SessionTreeNodeView,
     activate_extensions,
     coerce_custom_message,
     dispatch_extension_command,
@@ -124,10 +116,22 @@ from pipy_harness.native.extension_ui import (
     coerce_tool_render_lines,
     lines_component,
 )
+from pipy_harness.native.extensions.command_context import (
+    CommandContext,
+    ExtensionCapabilityError,
+)
 from pipy_harness.native.extensions.packages import (
     ExtensionDescriptor,
     discover_extensions,
     safe_extension_metadata,
+)
+from pipy_harness.native.extensions.session_views import (
+    AssistantMessageView,
+    ConversationView,
+    SessionEntryView,
+    SessionHeaderView,
+    SessionManagerView,
+    SessionTreeNodeView,
 )
 from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.provider_construction import build_extension_provider_port
