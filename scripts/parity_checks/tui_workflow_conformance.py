@@ -546,8 +546,9 @@ def run_checks(base: Path) -> list[Check]:
         run.write(b"\n")
         run.wait_for("IMAGE_DONE")
         owner_only = False
-        if run.ui.clipboard_temp_dir is not None:
-            written = list(run.ui.clipboard_temp_dir.glob("pipy-clipboard-*.png"))
+        clipboard_config = run.ui.clipboard_images.config
+        if clipboard_config is not None:
+            written = list(clipboard_config.temp_dir.glob("pipy-clipboard-*.png"))
             owner_only = bool(written) and all(
                 stat.S_IMODE(p.stat().st_mode) == 0o600 for p in written
             )

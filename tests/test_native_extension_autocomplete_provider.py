@@ -390,7 +390,7 @@ def test_empty_paste_keeps_pre_extraction_no_op_semantics(tmp_path: Path) -> Non
     ui._editor.set_buffer("draft", cursor=2)
     ui._editor.redo_stack.append(("redo", 4))
 
-    ui._insert_paste("")
+    ui.clipboard_images.insert_paste("")
 
     assert (ui.input_text, ui.input_cursor) == ("draft", 2)
     assert ui._undo_stack == []

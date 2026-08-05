@@ -9,7 +9,6 @@ execution; the TUI facade translates those effects into these transitions.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -430,9 +429,7 @@ class EditorState:
         self.pending_drain.extend(self.pending_messages())
         self.pending_inputs.clear()
 
-    def restore_pending_to_editor(
-        self, *, custom_text_supplier: Callable[[], str] | None = None
-    ) -> bool:
+    def restore_pending_to_editor(self, *, custom_text: str | None = None) -> bool:
         """Restore queued input using the sole draft-source precedence policy."""
 
         queued = [*self.pending_drain, *self.pending_messages()]
@@ -444,8 +441,8 @@ class EditorState:
 
         if self.pending_initial_text is not None:
             existing = self.pending_initial_text
-        elif custom_text_supplier is not None:
-            existing = custom_text_supplier()
+        elif custom_text is not None:
+            existing = custom_text
         else:
             existing = self.text
 

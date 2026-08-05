@@ -19,6 +19,7 @@ from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
     _CustomEditorKeybindings,
 )
+from pipy_harness.native.ui.clipboard_images import ClipboardConfig
 
 
 class _TtyBuffer:
@@ -35,11 +36,14 @@ class _TtyBuffer:
         return True
 
 
-def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
+def _ui(
+    tmp_path: Path, clipboard_config: ClipboardConfig | None = None
+) -> ToolLoopTerminalUi:
     return ToolLoopTerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
+        clipboard_config=clipboard_config,
     )
 
 
@@ -445,8 +449,8 @@ def test_custom_editor_component_follow_up_queues_and_clears_draft(
     ui.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == "\n"
-    assert ui.has_pending_messages()
-    ui.restore_pending_to_editor()
+    assert ui.pending_messages.has_pending_messages()
+    ui.pending_messages.restore_pending_to_editor()
     assert ui.get_input_text() == "later"
 
 
@@ -466,7 +470,7 @@ def test_custom_editor_component_empty_follow_up_does_not_queue(
     ui.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui._handle_custom_editor_key("alt-enter") is None
-    assert not ui.has_pending_messages()
+    assert not ui.pending_messages.has_pending_messages()
 
 
 def test_custom_editor_component_dequeue_preserves_current_draft(
@@ -474,7 +478,7 @@ def test_custom_editor_component_dequeue_preserves_current_draft(
 ) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
-    ui.enqueue_follow_up("queued")
+    ui.pending_messages.enqueue_follow_up("queued")
 
     def handle_input(key: str) -> None:
         if key == "alt-up":
@@ -497,7 +501,7 @@ def test_custom_editor_component_dequeue_preserves_current_draft(
     assert ui._pending_initial_text is None
 
 
-def test_restore_without_queue_does_not_read_hostile_custom_editor(
+def test_restore_without_queue_snapshots_custom_editor_without_changing_state(
     tmp_path: Path,
 ) -> None:
     ui = _ui(tmp_path)
@@ -507,21 +511,21 @@ def test_restore_without_queue_does_not_read_hostile_custom_editor(
 
         def get_text(self) -> str:
             self.calls += 1
-            raise AssertionError("empty restoration must stay lazy")
+            raise AssertionError("custom editor snapshot fails soft")
 
     component = HostileEditor()
     ui.set_editor_component(lambda tui, theme, keybindings: component)
-    ui.enqueue_steering("already drained")
-    ui.promote_pending_to_drain()
-    assert ui.take_next_drain() == "already drained"
+    ui.pending_messages.enqueue_steering("already drained")
+    ui.pending_messages.promote_pending_to_drain()
+    assert ui.pending_messages.take_next_drain() == "already drained"
 
-    ui.restore_pending_to_editor()
+    ui.pending_messages.restore_pending_to_editor()
 
-    assert component.calls == 0
-    assert ui.take_last_drain_kind() is None
+    assert component.calls == 1
+    assert ui.pending_messages.take_last_drain_kind() is None
 
 
-def test_restore_prefill_precedence_does_not_read_hostile_custom_editor(
+def test_restore_prefill_precedence_ignores_custom_editor_snapshot(
     tmp_path: Path,
 ) -> None:
     ui = _ui(tmp_path)
@@ -531,16 +535,16 @@ def test_restore_prefill_precedence_does_not_read_hostile_custom_editor(
 
         def get_text(self) -> str:
             self.calls += 1
-            raise AssertionError("pending prefill must take precedence")
+            raise AssertionError("custom editor snapshot fails soft")
 
     component = HostileEditor()
     ui.set_editor_component(lambda tui, theme, keybindings: component)
     ui.set_input_text("prefill")
-    ui.enqueue_steering("queued")
+    ui.pending_messages.enqueue_steering("queued")
 
-    ui.restore_pending_to_editor()
+    ui.pending_messages.restore_pending_to_editor()
 
-    assert component.calls == 0
+    assert component.calls == 1
     assert ui.get_input_text() == "queued\n\nprefill"
 
 
@@ -559,9 +563,9 @@ def test_restore_reads_custom_editor_once_when_its_draft_is_required(
     component = CountingEditor()
     ui.set_editor_component(lambda tui, theme, keybindings: component)
     component.set_text("custom draft")
-    ui.enqueue_steering("queued")
+    ui.pending_messages.enqueue_steering("queued")
 
-    ui.restore_pending_to_editor()
+    ui.pending_messages.restore_pending_to_editor()
 
     assert component.calls == 1
     assert ui.get_input_text() == "queued\n\ncustom draft"
@@ -572,7 +576,7 @@ def test_custom_editor_component_follow_up_clears_restored_prefill(
 ) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
-    ui.enqueue_follow_up("queued")
+    ui.pending_messages.enqueue_follow_up("queued")
 
     def handle_input(key: str) -> None:
         if key == "alt-up":
@@ -600,7 +604,7 @@ def test_custom_editor_component_interrupt_clears_restored_prefill(
 ) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
-    ui.enqueue_follow_up("queued")
+    ui.pending_messages.enqueue_follow_up("queued")
 
     def handle_input(key: str) -> None:
         if key == "alt-up":
@@ -627,10 +631,10 @@ def test_custom_editor_component_restore_survives_next_read_line(
 ) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
-    ui.enqueue_follow_up("queued")
+    ui.pending_messages.enqueue_follow_up("queued")
     ui.set_editor_component(lambda tui, theme, keybindings: component)
 
-    ui.restore_pending_to_editor()
+    ui.pending_messages.restore_pending_to_editor()
 
     keys: Iterator[str] = iter(("enter",))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
@@ -730,7 +734,16 @@ def test_custom_editor_component_preserves_existing_escape_callback(
 def test_custom_editor_component_paste_image_inserts_into_component(
     tmp_path: Path,
 ) -> None:
-    ui = _ui(tmp_path)
+    config = ClipboardConfig(
+        temp_dir=tmp_path / "clip",
+        image_read=lambda: ImageClipboardResult(
+            found=True,
+            data=b"\x89PNG\r\n\x1a\n" + b"\x00" * 8,
+            media_type="image/png",
+            detail="ok",
+        ),
+    )
+    ui = _ui(tmp_path, config)
     component = _CustomEditor()
 
     def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
@@ -745,13 +758,6 @@ def test_custom_editor_component_paste_image_inserts_into_component(
             assert callable(paste)
             paste()
 
-    ui.clipboard_temp_dir = tmp_path / "clip"
-    ui.clipboard_image_read = lambda: ImageClipboardResult(
-        found=True,
-        data=b"\x89PNG\r\n\x1a\n" + b"\x00" * 8,
-        media_type="image/png",
-        detail="ok",
-    )
     component.handle_input = handle_input  # type: ignore[method-assign]
     ui.set_editor_component(factory)
 

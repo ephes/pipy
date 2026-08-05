@@ -3343,20 +3343,24 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     from pipy_harness.native.clipboard import ImageClipboardResult
+    from pipy_harness.native.ui.clipboard_images import create_clipboard_config
 
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
+    read_image = lambda: ImageClipboardResult(  # noqa: E731
+        found=True, data=png, media_type="image/png", detail="ok"
+    )
     provider = _PromptCapturingProvider("IMAGE_TURN_DONE")
+    clipboard_config = create_clipboard_config(read_image)
     ui = ToolLoopTerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
+        clipboard_config=clipboard_config,
     )
     session = NativeToolReplSession(
         provider=cast(ProviderPort, provider),
         tool_registry={},
-        clipboard_image_read=lambda: ImageClipboardResult(
-            found=True, data=png, media_type="image/png", detail="ok"
-        ),
+        clipboard_image_read=read_image,
     )
     monkeypatch.setattr(
         NativeToolReplSession,
@@ -3408,8 +3412,8 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
         f"{label}: pasted image was not attached on submit"
     )
     # The owner-only clipboard temp dir holds the image; bytes never archived.
-    assert ui.clipboard_temp_dir is not None
-    written = list(ui.clipboard_temp_dir.glob("pipy-clipboard-*.png"))
+    assert ui.clipboard_images.config is clipboard_config
+    written = list(clipboard_config.temp_dir.glob("pipy-clipboard-*.png"))
     assert written and stat.S_IMODE(written[0].stat().st_mode) == 0o600
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     assert "\x1b[?1049h" not in captured

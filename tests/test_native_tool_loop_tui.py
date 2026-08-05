@@ -57,11 +57,13 @@ from pipy_harness.native.tui import (
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.autocomplete import AutocompleteComponent
+from pipy_harness.native.ui.clipboard_images import ClipboardImages
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.pending_messages import PendingMessages
 
 
 class _FixedProviderReplState(NativeReplProviderState):
@@ -124,13 +126,36 @@ class _ExitOnlyUi:
     def __init__(self) -> None:
         self.closed = False
         self.started = False
-        # A real owner over a throwaway editor: session startup publishes the
-        # command surface through the autocomplete owner's replace verb.
+        # Real owners over one throwaway editor: session startup publishes the
+        # command surface and reads queue/clipboard wiring through owner handles.
+        editor = EditorState()
+        paint_lock = PaintLock()
         self.autocomplete = AutocompleteComponent(
-            EditorState(),
+            editor,
             cwd=Path("."),
             repaint=lambda: None,
             custom_editor_component=lambda: None,
+        )
+        self.pending_messages = PendingMessages(
+            editor,
+            paint_lock,
+            lambda: None,
+            custom_editor_active=lambda: False,
+            custom_editor_text=lambda: "",
+            set_custom_editor_text=lambda _text: None,
+            refresh_slash_menu=lambda: None,
+        )
+        self.clipboard_images = ClipboardImages(
+            editor,
+            paint_lock,
+            lambda: None,
+            cwd=Path("."),
+            config=None,
+            command_names=lambda: (),
+            refresh_autocomplete=lambda: None,
+            add_notice=lambda _text: None,
+            custom_editor_text=lambda: None,
+            set_custom_editor_text=lambda _text: None,
         )
 
     def set_footer_text(self, text: str) -> None:
@@ -142,9 +167,6 @@ class _ExitOnlyUi:
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
         del prompt_label, footer
         return ""
-
-    def take_next_drain(self) -> str | None:
-        return None
 
     def take_pending_command(self) -> str | None:
         return None
@@ -2976,7 +2998,7 @@ def test_tui_bracketed_paste_normalizes_crlf(tmp_path: Path):
 
 def test_tui_paste_inserts_without_submission_or_menu(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._insert_paste("/not-a-command and more\nsecond line")
+    ui.clipboard_images.insert_paste("/not-a-command and more\nsecond line")
     # The whole paste is inserted literally, including the newline.
     assert ui.input_text == "/not-a-command and more\nsecond line"
     # A paste with whitespace never opens the slash menu (so it cannot be
@@ -2987,7 +3009,7 @@ def test_tui_paste_inserts_without_submission_or_menu(tmp_path: Path):
 def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.footer_lines = ("~/projects/pipy (main)", "$0.000 status")
-    ui._insert_paste("line one\nline two")
+    ui.clipboard_images.insert_paste("line one\nline two")
 
     frame = ui._frame_lines(width=72, height=16, pad=False)
     texts = [line.text for line in frame]
@@ -3031,7 +3053,7 @@ def test_tui_long_multiline_input_wraps_with_literal_newline_projection(
 ):
     ui = _ui(tmp_path)
     pasted = "abc\ndefghijklmnopqrstuvwxyz"
-    ui._insert_paste(pasted)
+    ui.clipboard_images.insert_paste(pasted)
 
     width = 20
     input_rows = ui._input_frame_lines(width)
@@ -3144,7 +3166,7 @@ def test_tui_undo_redo_restores_line_state(tmp_path: Path):
 def test_tui_undo_treats_paste_as_single_step(tmp_path: Path):
     ui = _ui(tmp_path)
     ui._reset_line_editor_state()
-    ui._insert_paste("hello world")
+    ui.clipboard_images.insert_paste("hello world")
     assert ui.input_text == "hello world"
     ui._undo_edit()
     assert ui.input_text == ""

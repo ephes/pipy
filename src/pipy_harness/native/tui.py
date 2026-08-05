@@ -24,7 +24,7 @@ from collections.abc import (
     Sequence,
 )
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -39,13 +39,11 @@ from pipy_harness.native.chrome import (
     discover_loaded_resource_names,
     pipy_version_label,
 )
-from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.editor_state import (
     CompletionItem,
     CompletionMode,
     EditorState,
-    QueuedInputKind,
 )
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeCommitToken,
@@ -143,6 +141,7 @@ from pipy_harness.native.ui.chrome_handoff import (
     ChromeHandoffOperation,
     ExtensionChromeRouter,
 )
+from pipy_harness.native.ui.clipboard_images import ClipboardConfig, ClipboardImages
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
 )
@@ -198,6 +197,7 @@ from pipy_harness.native.ui.key_specs import (
     resolved_key_specs,
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.pending_messages import PendingMessages
 from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
 
 if TYPE_CHECKING:
@@ -638,13 +638,11 @@ class ToolLoopTerminalUi:
     # callbacks, extension execution, rendering, and lifecycle effects stay in
     # this facade; the owner holds only synchronous transition state.
     _overlays: OverlayState = field(init=False)
-    # Clipboard / drag image paste (Pi Ctrl+V). ``clipboard_image_read`` reads an
-    # image from the OS clipboard; ``clipboard_temp_dir`` is an owner-only dir
-    # (also registered as an image reference root by the session) where pasted
-    # image bytes are written before an ``@image:`` reference is inserted.
-    clipboard_image_read: Callable[[], ImageClipboardResult] | None = None
-    clipboard_temp_dir: Path | None = None
-    _clipboard_image_count: int = 0
+    # Queue and clipboard effects share EditorState and the one paint lock but
+    # own their transitions outside this shell. Their public handles let the
+    # session wiring consume the real owners without retaining queue facades.
+    pending_messages: PendingMessages = field(init=False)
+    clipboard_images: ClipboardImages = field(init=False)
     # Low-level terminal I/O owner (write/flush sink, raw-mode lifecycle,
     # bracketed-paste toggling, terminal-title OSC). Built in ``__post_init__``
     # from the input/terminal streams.
@@ -677,8 +675,11 @@ class ToolLoopTerminalUi:
     # the driver's live size against during the layout-coupled resize repaint.
     _last_painted_size: tuple[int, int] = (0, 0)
     keybindings_manager: KeybindingsManager | None = None
+    # Constructor-only wiring record: ClipboardImages owns it after startup;
+    # unlike the retired reader/path fields it cannot be rewritten piecemeal.
+    clipboard_config: InitVar[ClipboardConfig | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, clipboard_config: ClipboardConfig | None) -> None:
         self._editor = EditorState()
         self._overlays = OverlayState()
         chrome_record = ExtensionChromeState()
@@ -701,6 +702,31 @@ class ToolLoopTerminalUi:
             render_theme=lambda: build_tool_render_theme(
                 chrome_style_for(self.terminal_stream)
             ),
+        )
+
+        def active_custom_editor_text() -> str | None:
+            return self._custom_editor_text() if self._custom_editor_active else None
+
+        self.pending_messages = PendingMessages(
+            self._editor,
+            self._paint_lock,
+            self.paint,
+            custom_editor_active=lambda: self._custom_editor_active,
+            custom_editor_text=self._custom_editor_text,
+            set_custom_editor_text=self._set_custom_editor_text,
+            refresh_slash_menu=self._autocomplete.refresh_slash_menu,
+        )
+        self.clipboard_images = ClipboardImages(
+            self._editor,
+            self._paint_lock,
+            self.paint,
+            cwd=self.cwd,
+            config=clipboard_config,
+            command_names=lambda: self._autocomplete.command_names,
+            refresh_autocomplete=self._autocomplete.refresh,
+            add_notice=self.add_notice,
+            custom_editor_text=active_custom_editor_text,
+            set_custom_editor_text=self._set_custom_editor_text,
         )
         chrome = ExtensionChromeComponent(
             chrome_record,
@@ -1035,15 +1061,13 @@ class ToolLoopTerminalUi:
                         else f"{HOTKEY_TOGGLE_THINKING}\n"
                     )
                 if key == "paste":
-                    self._insert_paste(self._editor.consume_paste())
-                    self.paint()
+                    self.clipboard_images.insert_paste(self._editor.consume_paste())
                     continue
                 if key == "ctrl-v":
                     # app.clipboard.pasteImage: read an image from the OS
                     # clipboard, write it to an owner-only temp file, and insert
                     # an @image: reference. No provider turn.
-                    self._paste_clipboard_image()
-                    self.paint()
+                    self.clipboard_images.paste_clipboard_image()
                     continue
                 if key in self._autocomplete.shortcut_keys:
                     # An activated extension bound this key via
@@ -1187,30 +1211,26 @@ class ToolLoopTerminalUi:
                     if command_only:
                         self.paint()
                         continue
-                    self.enqueue_steering(text)
+                    self.pending_messages.enqueue_steering(text)
                     abort_event.set()
-                    self.paint()
                     return TURN_STEERED
                 if key == "alt-enter":
                     if command_only:
                         continue
                     text = self.input_text
                     self._reset_mid_turn_input()
-                    self.enqueue_follow_up(text)
-                    self.paint()
+                    self.pending_messages.enqueue_follow_up(text)
                     continue
                 if key == "alt-up":
                     if command_only:
                         continue
-                    self.restore_pending_to_editor()
-                    self.paint()
+                    self.pending_messages.restore_pending_to_editor()
                     continue
                 if key == "paste":
                     if command_only:
                         self._editor.consume_paste()
                         continue
-                    self._insert_paste(self._editor.consume_paste())
-                    self.paint()
+                    self.clipboard_images.insert_paste(self._editor.consume_paste())
                     continue
                 if key == "backspace":
                     self._delete_before_cursor()
@@ -1636,15 +1656,15 @@ class ToolLoopTerminalUi:
             if action == "app.message.followUp":
                 text = self._custom_editor_text()
                 if text.strip():
-                    self.enqueue_follow_up(text)
+                    self.pending_messages.enqueue_follow_up(text)
                 self._editor.clear_initial_text()
                 self._set_custom_editor_text("")
                 return None
             if action == "app.message.dequeue":
-                self.restore_pending_to_editor()
+                self.pending_messages.restore_pending_to_editor()
                 return None
             if action == "app.clipboard.pasteImage":
-                self._paste_clipboard_image()
+                self.clipboard_images.paste_clipboard_image()
                 return None
             if action == "app.interrupt":
                 self._editor.clear_initial_text()
@@ -1679,7 +1699,7 @@ class ToolLoopTerminalUi:
         """
 
         self._editor.clear_initial_text()
-        self._insert_paste(str(text))
+        self.clipboard_images.insert_paste(str(text))
 
     def run_tree_selector(
         self,
@@ -2259,7 +2279,7 @@ class ToolLoopTerminalUi:
                 width=width, max_rows=max(1, height - 7)
             )
         )
-        pending = tuple(self._pending_region_lines(width))
+        pending = tuple(self.pending_messages.region_lines(width))
         status = tuple(self._chrome.component.status_lines(width))
         header = tuple(self._chrome.component.header_lines(width))
         above = tuple(self._chrome.component.widget_lines("above_editor", width))
@@ -2333,48 +2353,6 @@ class ToolLoopTerminalUi:
                 footer_lines=self.footer_lines,
             )
         return None
-
-    # Max queued-message rows shown in the pending region. Bounded so a large
-    # queue cannot grow the pinned chrome and push the input/footer out of the
-    # live region; overflow is summarized in a single "+N more" row.
-    _PENDING_REGION_MAX_ROWS = 6
-
-    def _pending_region_lines(self, width: int) -> list[_FrameLine]:
-        """Render the queued steering/follow-up messages (Pi pending area).
-
-        Capped at :data:`_PENDING_REGION_MAX_ROWS` message rows so an unbounded
-        queue cannot exceed the live region and push the input/footer out; the
-        remainder is collapsed into a ``… +N more queued`` row.
-        """
-
-        if not self.has_pending_messages():
-            return []
-        queued = list(self._editor.pending_messages())
-        cap = self._PENDING_REGION_MAX_ROWS
-        visible = queued[:cap]
-        lines: list[_FrameLine] = []
-        for entry in visible:
-            # Rendering vocabulary belongs to the frame adapter, not EditorState.
-            kind = "Steering" if entry.kind == "steering" else "Follow-up"
-            label = entry.content.replace("\n", " ")
-            lines.append(_FrameLine(self._clip(f"  {kind}: {label}", width), "notice"))
-        hidden = len(queued) - len(visible)
-        if hidden > 0:
-            lines.append(
-                _FrameLine(
-                    self._clip(f"  … +{hidden} more queued", width),
-                    "slash_menu_scroll",
-                )
-            )
-        lines.append(
-            _FrameLine(
-                self._clip(
-                    "  (alt+up to restore queued messages to the editor)", width
-                ),
-                "slash_menu_scroll",
-            )
-        )
-        return lines
 
     def _styled_line(self, line: _FrameLine, *, style: ChromeStyle, width: int) -> str:
         return render_styled_line(line, style, width)
@@ -2622,115 +2600,6 @@ class ToolLoopTerminalUi:
         self._editor.insert(text, self._autocomplete.command_names)
         self._autocomplete.refresh()
 
-    def _insert_paste(self, text: str) -> None:
-        """Insert pasted text literally as a single undo-able edit.
-
-        Newlines are preserved in the buffer (so a multi-line paste is held
-        verbatim) but never interpreted as Enter, so a paste cannot submit a
-        command on its own. The slash menu only opens for a leading ``/`` with
-        no whitespace, so pasted multi-token or multi-line text leaves it
-        closed.
-        """
-
-        if not text:
-            return
-        # Terminal drag-drop arrives as a bracketed paste; a single existing
-        # file path is treated as an attachment reference (Pi "drop files to
-        # attach") — an image path becomes ``@image:``, any other existing path
-        # becomes ``@path`` — so submit resolves it through the usual loaders.
-        reference = self._as_drag_reference(text)
-        if reference is not None:
-            text = reference
-        self._editor.insert(text, self._autocomplete.command_names)
-        self._autocomplete.refresh()
-
-    def _as_drag_reference(self, text: str) -> str | None:
-        """Return an ``@image:``/``@path`` reference for a dropped file path.
-
-        Returns ``None`` for ordinary pasted text (multi-line, or not an
-        existing single file path), which is then inserted literally. Relative
-        drops are resolved against the session workspace (``self.cwd``), not the
-        process cwd, so a file dropped from the workspace resolves even when the
-        two differ.
-        """
-
-        candidate = text.strip()
-        if not candidate or "\n" in candidate:
-            return None
-        if (
-            len(candidate) >= 2
-            and candidate[0] == candidate[-1]
-            and candidate[0] in "\"'"
-        ):
-            candidate = candidate[1:-1]
-        if not candidate or "\x00" in candidate:
-            return None
-        try:
-            resolved = Path(candidate).expanduser()
-            if not resolved.is_absolute():
-                resolved = self.cwd / resolved
-            if not resolved.is_file():
-                return None
-        except OSError:
-            return None
-        # Re-quote a path containing a space so the reference resolves as a
-        # single token (the @path/@image: resolvers accept @"…"); an unquoted
-        # spaced path would otherwise break at the space.
-        rendered = f'"{candidate}"' if " " in candidate else candidate
-        image_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-        if Path(candidate).suffix.lower() in image_suffixes:
-            return f"@image:{rendered} "
-        return f"@{rendered} "
-
-    def _paste_clipboard_image(self) -> None:
-        """Insert an ``@image:`` reference for the OS clipboard image (Ctrl+V).
-
-        Reads the clipboard image through the injected reader, writes it to an
-        owner-only temp file under the session clipboard dir (registered as an
-        image reference root), and inserts an ``@image:<path>`` reference so the
-        existing attachment resolver loads it on submit. Reports a local notice
-        when no image / no tool is available; no image bytes reach the archive.
-        """
-
-        if self.clipboard_image_read is None or self.clipboard_temp_dir is None:
-            self.add_notice("pipy: clipboard image paste is not available here.")
-            return
-        result = self.clipboard_image_read()
-        if not result.found:
-            self.add_notice(f"pipy: {result.detail}.")
-            return
-        extension = {
-            "image/png": "png",
-            "image/jpeg": "jpg",
-            "image/gif": "gif",
-            "image/webp": "webp",
-        }.get(result.media_type, "png")
-        try:
-            self.clipboard_temp_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                self.clipboard_temp_dir.chmod(0o700)
-            except OSError:
-                pass
-            self._clipboard_image_count += 1
-            path = (
-                self.clipboard_temp_dir
-                / f"pipy-clipboard-{self._clipboard_image_count}.{extension}"
-            )
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(result.data)
-        except OSError:
-            self.add_notice("pipy: could not save the pasted clipboard image.")
-            return
-        # Quote the reference when the temp path contains a space (e.g. a TMPDIR
-        # with spaces) so the @image: resolver loads it as a single token.
-        reference = f'"{path}"' if " " in str(path) else str(path)
-        insertion = f"@image:{reference} "
-        if self._custom_editor_active:
-            self._set_custom_editor_text(f"{self._custom_editor_text()}{insertion}")
-            return
-        self._insert_input_text(insertion)
-
     def _delete_before_cursor(self) -> None:
         if self._editor.delete_before_cursor(self._autocomplete.command_names):
             self._autocomplete.refresh()
@@ -2809,56 +2678,6 @@ class ToolLoopTerminalUi:
 
     def add_extension_autocomplete_provider(self, factory: object) -> None:
         self._autocomplete.add_extension_provider(factory)
-
-    def enqueue_steering(self, text: str) -> None:
-        self._editor.enqueue_steering(text)
-
-    def enqueue_follow_up(self, text: str) -> None:
-        self._editor.enqueue_follow_up(text)
-
-    def has_pending_messages(self) -> bool:
-        return self._editor.has_pending_messages()
-
-    def promote_pending_to_drain(self) -> None:
-        """Move queued messages into the sequential drain (steering first)."""
-
-        self._editor.promote_pending_to_drain()
-
-    def restore_pending_to_editor(self) -> None:
-        """Restore queued messages into the editor joined by blank lines (Alt+Up
-        / Escape-abort), then clear the lanes.
-
-        Routed through ``_pending_initial_text`` as well as ``input_text``: an
-        Escape-abort returns control to the outer loop, whose next ``read_line``
-        resets ``input_text`` unless ``_pending_initial_text`` is set — so
-        without this the restored messages would be wiped before the user saw
-        them.
-
-        Includes ``_pending_drain``: once a turn settles (or steering promotes)
-        the lanes are emptied into the drain, so on an Escape-abort the
-        not-yet-delivered drain entries must come back too — otherwise they stay
-        hidden and keep auto-submitting to the provider after the cancellation.
-        They lead (they are next to deliver) ahead of any steering/follow-up
-        enqueued after promotion.
-        """
-
-        supplier = self._custom_editor_text if self._custom_editor_active else None
-        if not self._editor.restore_pending_to_editor(custom_text_supplier=supplier):
-            return
-        if self._custom_editor_active:
-            self._set_custom_editor_text(self.input_text)
-            return
-        self._autocomplete.refresh_slash_menu()
-
-    def take_next_drain(self) -> str | None:
-        """Pop the next queued message to deliver as a prompt, or None."""
-
-        return self._editor.take_next_drain()
-
-    def take_last_drain_kind(self) -> QueuedInputKind | None:
-        """Return and clear the classification of the last drained prompt."""
-
-        return self._editor.take_last_drain_kind()
 
     @staticmethod
     def _submitted_text_is_local_command(text: str) -> bool:

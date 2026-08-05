@@ -109,24 +109,13 @@ def test_queue_preserves_lane_order_kind_and_abort_restoration() -> None:
     state.enqueue_steering("S1")
     state.enqueue_follow_up("F2")
     state.promote_pending_to_drain()
-    custom_text_calls = 0
-
-    def custom_text() -> str:
-        nonlocal custom_text_calls
-        custom_text_calls += 1
-        return "draft"
-
     assert state.take_next_drain() == "S1"
     assert state.take_last_drain_kind() == "steering"
-    assert state.restore_pending_to_editor(custom_text_supplier=custom_text)
-    assert custom_text_calls == 1
+    assert state.restore_pending_to_editor(custom_text="draft")
     assert state.text == "F1\n\nF2\n\ndraft"
     assert state.pending_initial_text == state.text
     assert state.take_next_drain() is None
-
-    # With no queue, even an injected extension adapter stays lazy.
-    assert not state.restore_pending_to_editor(custom_text_supplier=custom_text)
-    assert custom_text_calls == 1
+    assert not state.restore_pending_to_editor(custom_text="draft")
 
 
 def test_queue_entries_make_content_kind_pairing_structural() -> None:

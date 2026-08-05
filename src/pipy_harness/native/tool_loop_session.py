@@ -34,7 +34,6 @@ Invariants pinned by the focused tests:
 
 from __future__ import annotations
 
-import tempfile
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import InitVar, dataclass, field
@@ -302,6 +301,7 @@ from pipy_harness.native.tui import (
     TURN_ABORTED as TURN_ABORTED,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.ui.clipboard_images import create_clipboard_config
 from pipy_harness.native.ui.components.custom_entry_renderer import CustomEntryRenderer
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.version_check import pipy_version
@@ -1312,22 +1312,18 @@ class NativeToolReplSession:
             known = ", ".join(sorted(tool_capabilities.registered_names)) or "<none>"
             unknown = ", ".join(unknown_filter_names)
             raise ValueError(f"unknown tool name(s): {unknown}. Known tools: {known}")
-        # Image attachments may reference an owner-only clipboard temp dir
-        # (Ctrl+V paste); that dir is added to the image reference roots so a
-        # pasted ``@image:<temp>`` resolves while the workspace path policy is
-        # otherwise unchanged. File-reference (@path) reads do not use it.
+        # Image attachments may reference the owner-only clipboard temp dir
+        # injected at TUI wiring. The session consumes the exact same frozen
+        # config record for image-root policy; file references do not use it.
         image_reference_roots = self.reference_roots
         if terminal_ui is not None:
-            # Seed the thinking-block fold (Ctrl+T) via the transcript owner.
             terminal_ui.set_thinking_hidden(settings.get_hide_thinking_block())
-            clipboard_dir = Path(tempfile.mkdtemp(prefix="pipy-clipboard-"))
-            try:
-                clipboard_dir.chmod(0o700)
-            except OSError:
-                pass
-            terminal_ui.clipboard_temp_dir = clipboard_dir
-            terminal_ui.clipboard_image_read = self.clipboard_image_read
-            image_reference_roots = (*self.reference_roots, clipboard_dir)
+            clipboard_config = terminal_ui.clipboard_images.config
+            if clipboard_config is not None:
+                image_reference_roots = (
+                    *self.reference_roots,
+                    clipboard_config.temp_dir,
+                )
         # Local-only persistent prompt-history store (independent of the
         # metadata-first session archive). Built once per session; the
         # ``/settings`` dialog toggles/clears it. When enabled, a fresh TUI
@@ -1471,9 +1467,9 @@ class NativeToolReplSession:
 
         def take_terminal_queued_input() -> AgentQueuedInput | None:
             if terminal_ui is not None:
-                drained_content = terminal_ui.take_next_drain()
+                drained_content = terminal_ui.pending_messages.take_next_drain()
                 if drained_content is not None:
-                    raw_kind = terminal_ui.take_last_drain_kind()
+                    raw_kind = terminal_ui.pending_messages.take_last_drain_kind()
                     if raw_kind not in {
                         AgentQueuedInputKind.STEERING.value,
                         AgentQueuedInputKind.FOLLOW_UP.value,
@@ -1873,12 +1869,14 @@ class NativeToolReplSession:
             return None
         if not ToolLoopTerminalUi.is_supported(input_stream, error_stream):
             return None
+        clipboard_config = create_clipboard_config(self.clipboard_image_read)
         return ToolLoopTerminalUi(
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,
             keybindings_manager=keybindings_manager,
             include_workspace_defaults=include_workspace_defaults,
+            clipboard_config=clipboard_config,
         )
 
     def _effort_label(self, provider_name: str, model_id: str) -> str:

@@ -18,7 +18,6 @@ _spec.loader.exec_module(architecture_metrics)
 EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_autocomplete",
     "_chrome",
-    "_clipboard_image_count",
     "_closed",
     "_custom_editor_action",
     "_custom_editor_active",
@@ -39,13 +38,13 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_painting",
     "_transcript",
     "available_provider_count",
-    "clipboard_image_read",
-    "clipboard_temp_dir",
+    "clipboard_images",
     "cwd",
     "footer_lines",
     "include_workspace_defaults",
     "input_stream",
     "keybindings_manager",
+    "pending_messages",
     "runtime_label",
     "terminal_stream",
 )
@@ -53,10 +52,12 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
 
 def test_class_state_fields_deduplicates_sources_and_excludes_classvars() -> None:
     source = """
+from dataclasses import InitVar
 from typing import ClassVar
 
 class Synthetic:
     annotated: int
+    constructor_only: InitVar[str]
     repeated: str
     ignored: ClassVar[int] = 1
     qualified: typing.ClassVar[str]
@@ -99,7 +100,7 @@ def test_product_tool_loop_terminal_ui_field_baseline_is_stable() -> None:
     fields = architecture_metrics.class_state_fields(source, "ToolLoopTerminalUi")
 
     assert fields == EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS
-    assert len(fields) == 32
+    assert len(fields) == 31
     assert len(fields) <= 89  # Slice 12 ceiling: floor(128 * 0.70)
 
 
@@ -146,8 +147,8 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 2296
-_TUI_CLASS_DEF_RATCHET = 142
+_TUI_CLASS_SPAN_RATCHET = 2115
+_TUI_CLASS_DEF_RATCHET = 131
 
 
 def test_tool_loop_terminal_ui_class_ratchet_never_grows() -> None:

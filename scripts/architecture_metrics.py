@@ -45,19 +45,21 @@ def _python_physical_lines(root: Path) -> int:
     return sum(_physical_lines(path) for path in sorted(root.rglob("*.py")))
 
 
-def _annotation_contains_classvar(annotation: ast.expr) -> bool:
+def _annotation_contains_pseudo_field(annotation: ast.expr) -> bool:
+    """Return whether an annotation marks class-only or constructor-only data."""
+
     if isinstance(annotation, ast.Name):
-        return annotation.id == "ClassVar"
+        return annotation.id in {"ClassVar", "InitVar"}
     if isinstance(annotation, ast.Attribute):
-        return annotation.attr == "ClassVar"
+        return annotation.attr in {"ClassVar", "InitVar"}
     if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
         try:
             parsed = ast.parse(annotation.value, mode="eval")
         except SyntaxError:
             return False
-        return _annotation_contains_classvar(parsed.body)
+        return _annotation_contains_pseudo_field(parsed.body)
     return any(
-        _annotation_contains_classvar(child)
+        _annotation_contains_pseudo_field(child)
         for child in ast.iter_child_nodes(annotation)
         if isinstance(child, ast.expr)
     )
@@ -107,8 +109,8 @@ def class_state_fields(source: str, class_name: str) -> tuple[str, ...]:
     """Return the plan-defined state fields for one top-level class.
 
     Fields are unique class-body annotated names plus attributes assigned or
-    deleted as ``self.<name>`` in direct methods. ``ClassVar`` declarations and
-    assignments in nested function/class scopes are excluded.
+    deleted as ``self.<name>`` in direct methods. ``ClassVar``/``InitVar``
+    declarations and assignments in nested function/class scopes are excluded.
     """
 
     class_node = _single_top_level_class(source, class_name)
@@ -117,7 +119,7 @@ def class_state_fields(source: str, class_name: str) -> tuple[str, ...]:
         if (
             isinstance(statement, ast.AnnAssign)
             and isinstance(statement.target, ast.Name)
-            and not _annotation_contains_classvar(statement.annotation)
+            and not _annotation_contains_pseudo_field(statement.annotation)
         ):
             names.add(statement.target.id)
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
