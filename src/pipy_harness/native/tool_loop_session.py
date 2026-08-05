@@ -1320,8 +1320,8 @@ class NativeToolReplSession:
         # otherwise unchanged. File-reference (@path) reads do not use it.
         image_reference_roots = self.reference_roots
         if terminal_ui is not None:
-            # Seed the thinking-block fold (Ctrl+T) from the persisted setting.
-            terminal_ui.thinking_hidden = settings.get_hide_thinking_block()
+            # Seed the thinking-block fold (Ctrl+T) via the transcript owner.
+            terminal_ui.set_thinking_hidden(settings.get_hide_thinking_block())
             clipboard_dir = Path(tempfile.mkdtemp(prefix="pipy-clipboard-"))
             try:
                 clipboard_dir.chmod(0o700)

@@ -26,10 +26,8 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_custom_editor_exit_requested",
     "_custom_editor_factory",
     "_custom_editor_submitted",
-    "_deferred_reasoning",
     "_driver",
     "_editor",
-    "_history_blocks",
     "_last_painted_size",
     "_live_height",
     "_live_input_row",
@@ -38,7 +36,7 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_paint_requested_during_paint",
     "_painted_block_count",
     "_painting",
-    "assistant_text",
+    "_transcript",
     "autocomplete_max_visible",
     "available_provider_count",
     "clipboard_image_read",
@@ -48,17 +46,11 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "cwd",
     "extension_shortcut_keys",
     "footer_lines",
-    "hidden_thinking_label",
     "include_workspace_defaults",
     "input_stream",
     "keybindings_manager",
-    "reasoning_text",
     "runtime_label",
     "terminal_stream",
-    "thinking_hidden",
-    "tool_output_text",
-    "tools_expanded",
-    "working_text",
 )
 
 
@@ -110,7 +102,7 @@ def test_product_tool_loop_terminal_ui_field_baseline_is_stable() -> None:
     fields = architecture_metrics.class_state_fields(source, "ToolLoopTerminalUi")
 
     assert fields == EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS
-    assert len(fields) == 43
+    assert len(fields) == 35
     assert len(fields) <= 89  # Slice 12 ceiling: floor(128 * 0.70)
 
 
@@ -157,7 +149,7 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 3711
+_TUI_CLASS_SPAN_RATCHET = 3387
 _TUI_CLASS_DEF_RATCHET = 244
 
 

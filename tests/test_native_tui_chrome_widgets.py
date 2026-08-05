@@ -130,7 +130,7 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui._extension_terminal_input_listeners == {}
     assert ui._autocomplete_provider_factories == []
     assert ui.get_editor_component() is None
-    assert ui.hidden_thinking_label == "Thinking..."
+    assert ui._transcript.hidden_thinking_label == "Thinking..."
     assert ui.extension_status == {"status": "value"}
     assert ui.extension_working_message == "sticky"
     assert ui.extension_working_visible is False
@@ -187,7 +187,7 @@ def test_reconcile_clears_active_custom_editor_and_round_trips_its_text():
     assert disposed == ["custom draft"]
     assert ui.get_editor_component() is None
     assert ui.get_input_text() == "custom draft"
-    assert ui.hidden_thinking_label == "Thinking..."
+    assert ui._transcript.hidden_thinking_label == "Thinking..."
 
 
 @pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, SystemExit])
@@ -446,7 +446,7 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
     assert ui.extension_header.source is snapshot.header
     assert ui.get_editor_component() is snapshot.editor_component
     assert ui._autocomplete_provider_factories == [candidate_autocomplete]
-    assert ui.hidden_thinking_label == snapshot.hidden_thinking_label
+    assert ui._transcript.hidden_thinking_label == snapshot.hidden_thinking_label
     assert ui._apply_extension_terminal_input_listeners("x") == "candidate:x"
     assert candidate_seen == ["x"]
     assert retiring_seen == []

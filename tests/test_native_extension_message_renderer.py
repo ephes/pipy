@@ -306,7 +306,7 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
         )
     )
 
-    blocks = ui.custom_entry_blocks()
+    blocks = ui._transcript.custom_entry_blocks()
     assert blocks == (
         ("custom_message_custom", ("\x1b[1mNEW-STYLED\x1b[0m",)),
         ("custom", ("[note]", "NEW-PLAIN")),
@@ -398,14 +398,13 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         cwd=tmp_path,
     )
     ui.redraw_custom_entries(rows)
-    assert ui.custom_entry_blocks() == (
+    assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=False:BODY",)),
     )
 
-    ui.tools_expanded = True
-    ui.rerender_custom_messages()
+    ui.set_tools_expanded(True)
 
-    assert ui.custom_entry_blocks() == (
+    assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=True:BODY",)),
     )
 
@@ -432,13 +431,12 @@ def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
         renderers=renderers,
     )
 
-    assert ui.custom_entry_blocks() == (
+    assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=False:alpha",)),
     )
-    ui.tools_expanded = True
-    ui.rerender_custom_messages()
+    ui.set_tools_expanded(True)
 
-    assert ui.custom_entry_blocks() == (
+    assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=True:alpha",)),
     )
 
@@ -465,10 +463,9 @@ def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_pa
         renderers=renderers,
     )
 
-    ui.tools_expanded = True
-    ui.rerender_custom_messages()
+    ui.set_tools_expanded(True)
 
-    blocks = ui.custom_entry_blocks()
+    blocks = ui._transcript.custom_entry_blocks()
     assert blocks[0][0] == "custom"
     body = "\n".join(blocks[0][1])
     assert "render error:" in body

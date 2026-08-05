@@ -2470,7 +2470,9 @@ def test_reload_refreshes_extension_entry_renderers(
     )
 
     rendered_blocks = "\n".join(
-        line for _kind, lines in terminal_ui.custom_entry_blocks() for line in lines
+        line
+        for _kind, lines in terminal_ui._transcript.custom_entry_blocks()
+        for line in lines
     )
     assert marker.read_text(encoding="utf-8") == "new"
     assert "new:one" in rendered_blocks
@@ -2771,7 +2773,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     committed_frame = "\n".join(
         terminal_ui.render_lines(width=72, height=24, pad=False)
     )
-    history = terminal_ui._history_blocks
+    history = terminal_ui._transcript.history_blocks
 
     notice_index = next(i for i, (kind, _) in enumerate(history) if kind == "notice")
     first_custom_index = next(
@@ -2788,8 +2790,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     assert "LEGACY_HIDE" not in committed_frame
     assert tree.path.read_text(encoding="utf-8") == before
 
-    terminal_ui.tools_expanded = True
-    terminal_ui.rerender_custom_messages()
+    terminal_ui.set_tools_expanded(True)
     rerendered_frame = "\n".join(
         terminal_ui.render_lines(width=101, height=24, pad=False)
     )
@@ -2857,8 +2858,10 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
     archive_text = output_stream.getvalue()
 
     # Styled route => SGR-safe ``custom_message_custom`` block, not plain custom.
-    assert any(k == "custom_message_custom" for k, _ in terminal_ui._history_blocks)
-    assert not any(k == "custom" for k, _ in terminal_ui._history_blocks)
+    assert any(
+        k == "custom_message_custom" for k, _ in terminal_ui._transcript.history_blocks
+    )
+    assert not any(k == "custom" for k, _ in terminal_ui._transcript.history_blocks)
     # Body rendered live in the committed scrollback.
     assert "SECRET_TITLE" in committed_frame
     # No forced ``[card]`` label injected by the component path (judgment 2).

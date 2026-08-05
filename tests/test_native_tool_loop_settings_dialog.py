@@ -287,7 +287,10 @@ def _install_ui(
 
 def _notices(ui: _ScriptedSettingsUi) -> list[str]:
     return [
-        line for kind, lines in ui._history_blocks if kind == "notice" for line in lines
+        line
+        for kind, lines in ui._transcript.history_blocks
+        if kind == "notice"
+        for line in lines
     ]
 
 
@@ -373,7 +376,7 @@ def test_settings_cancel_is_local_and_creates_no_product_tree_entry(
     assert ui.dialog_calls == 1
     assert ui.footer_updates == 1
     assert tree.entries == []
-    assert not any(kind == "settings" for kind, _lines in ui._history_blocks)
+    assert not any(kind == "settings" for kind, _lines in ui._transcript.history_blocks)
 
 
 def test_settings_native_and_static_states_expose_distinct_exit_actions(

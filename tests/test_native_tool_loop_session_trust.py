@@ -155,7 +155,9 @@ def _run_live(session: NativeToolReplSession, cwd: Path) -> tuple[str, str]:
 
 def _notice_text(terminal: ToolLoopTerminalUi) -> list[str]:
     return [
-        "\n".join(lines) for kind, lines in terminal._history_blocks if kind == "notice"
+        "\n".join(lines)
+        for kind, lines in terminal._transcript.history_blocks
+        if kind == "notice"
     ]
 
 

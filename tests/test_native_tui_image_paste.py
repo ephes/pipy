@@ -46,7 +46,9 @@ class TestClipboardImagePaste:
         )
         ui._paste_clipboard_image()
         assert ui.input_text == ""
-        notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+        notices = [
+            lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+        ]
         assert any("no image" in " ".join(lines).lower() for lines in notices)
 
     def test_paste_unavailable_without_reader(self, tmp_path: Path) -> None:

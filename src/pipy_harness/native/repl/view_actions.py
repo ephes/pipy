@@ -43,8 +43,9 @@ def toggle_view_fold(
     if hotkey == HOTKEY_TOGGLE_TOOLS:
         new_value = not (terminal_ui.tools_expanded if terminal_ui else False)
         if terminal_ui is not None:
-            terminal_ui.tools_expanded = new_value
-            terminal_ui.rerender_custom_messages()
+            # The transcript owner's verb bundles the retained rich-row
+            # rerender with the flag write.
+            terminal_ui.set_tools_expanded(new_value)
         label = "expanded" if new_value else "collapsed"
         emit_diagnostic(terminal_ui, error_stream, f"pipy: tool output: {label}")
         return

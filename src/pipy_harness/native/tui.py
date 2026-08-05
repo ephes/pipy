@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import inspect
 import os
-import re
 import select
 import shlex
 import subprocess
@@ -36,7 +35,6 @@ from typing import (
     Any,
     ClassVar,
     Protocol,
-    Self,
     TextIO,
     TypedDict,
     cast,
@@ -234,6 +232,11 @@ from pipy_harness.native.ui.components.settings_dialog import (
     SettingsDialogComponent,
     settings_dialog_region_lines,
 )
+from pipy_harness.native.ui.components.transcript import (
+    HistoryBlock,
+    HistoryBlockTuple,
+    TranscriptComponent,
+)
 from pipy_harness.native.ui.components.tree_selector import (
     TreeSelectorComponent,
     tree_selector_region_lines,
@@ -253,9 +256,6 @@ if TYPE_CHECKING:
 
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
-# Live streaming tool output stays character-bounded before the pure frame
-# renderer applies its row-tail policy.
-_TOOL_STREAM_LIVE_MAX_CHARS = 8 * 1024
 # Curated ordered projection: an explicit advertised-name list validated against
 # the declarative command registry. Every name here is a registry built-in (the
 # tool-loop menu advertises no resource adjunct); order and membership are
@@ -294,7 +294,6 @@ HOTKEY_TOGGLE_THINKING = "\x00pipy-hotkey:toggle-thinking"
 # An activated extension's registered keyboard shortcut fired; the normalized
 # key follows the prefix so the session can look up and dispatch the handler.
 HOTKEY_EXTENSION_SHORTCUT_PREFIX = "\x00pipy-hotkey:ext-shortcut:"
-DEFAULT_HIDDEN_THINKING_LABEL = "Thinking..."
 
 # Outcomes of the active-turn watcher / mid-turn editor.
 TURN_SETTLED = "settled"  # the provider turn finished on its own
@@ -477,14 +476,9 @@ class _LiveExtensionUiDriver:
         return bool(self._terminal_ui.tools_expanded)
 
     def set_tools_expanded(self, expanded: bool) -> None:
-        self._terminal_ui.tools_expanded = bool(expanded)
-        rerender = getattr(self._terminal_ui, "rerender_custom_messages", None)
-        if callable(rerender):
-            rerender()
-        else:
-            paint = getattr(self._terminal_ui, "paint", None)
-            if callable(paint):
-                paint()
+        # The terminal UI's verb bundles the retained rich-row rerender with
+        # the flag write, so the two writers can never disagree on refresh.
+        self._terminal_ui.set_tools_expanded(bool(expanded))
 
     def add_autocomplete_provider(self, factory: object) -> None:
         self._route_sink_operation(ChromeHandoffOperation("autocomplete", (factory,)))
@@ -617,31 +611,6 @@ def _safe_extension_status_key(key: str) -> str | None:
     cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in text)
     cleaned = cleaned.strip("-_.")
     return cleaned[:64] or None
-
-
-class _HistoryBlockTuple(tuple[str, tuple[str, ...]]):
-    """Tuple-compatible history block with optional live render metadata."""
-
-    state: object | None
-
-    def __new__(
-        cls, kind: str, lines: tuple[str, ...], state: object | None = None
-    ) -> Self:
-        obj = tuple.__new__(cls, (kind, lines))
-        obj.state = state
-        return obj
-
-
-@dataclass(slots=True)
-class _CustomMessageRenderState:
-    """Live-only state needed to refresh a custom component in place."""
-
-    custom_type: str
-    data: object | None
-    renderers: Mapping[str, RegisteredMessageRenderer]
-    styled: bool
-    lines: tuple[str, ...]
-    entry_renderers: Mapping[str, RegisteredEntryRenderer] | None = None
 
 
 class _CustomEntryRendererRunState(Protocol):
@@ -1068,9 +1037,6 @@ class _CustomEntryRenderer:
             self._deliver_custom_message(custom_message)
 
 
-_HistoryBlock = tuple[str, tuple[str, ...]]
-
-
 class _CustomEditorKeybindings:
     """Small Pi-shaped keybinding/action adapter for custom editors.
 
@@ -1146,15 +1112,15 @@ class ToolLoopTerminalUi:
     # large dataclass already uses slots: retired field names therefore cannot
     # silently become dead instance attributes beside the narrow projections.
     _editor: EditorState = field(init=False)
-    working_text: str = ""
+    # Single owner for committed history blocks, the live stream buffers, and
+    # the Ctrl+O/Ctrl+T view flags (``ui/components/transcript.py``). The
+    # facade keeps thin verb delegates and two read-only flag projections.
+    _transcript: TranscriptComponent = field(init=False)
     # Single owner for extension chrome values and listener/branch ledgers.
     # The facade retains all locking, factory/component execution, rendering,
     # terminal-title effects, filesystem branch reads, and disposal calls.
     _chrome: ExtensionChromeState = field(init=False)
     available_provider_count: int = 0
-    assistant_text: str = ""
-    reasoning_text: str = ""
-    tool_output_text: str = ""
     command_names: tuple[str, ...] = TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
     command_descriptions: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
@@ -1173,18 +1139,6 @@ class ToolLoopTerminalUi:
     # callbacks, extension execution, rendering, and lifecycle effects stay in
     # this facade; the owner holds only synchronous transition state.
     _overlays: OverlayState = field(init=False)
-    # Folding/expansion view flags (Pi: Ctrl+O tool-output expansion, Ctrl+T
-    # thinking-block fold). These govern how the live region and newly committed
-    # blocks render; blocks already scrolled into native scrollback keep the
-    # form they were committed with (inline-rendering limitation versus Pi's
-    # full retro-rebuild, which would rewrite the host terminal's scrollback).
-    tools_expanded: bool = False
-    thinking_hidden: bool = False
-    hidden_thinking_label: str = DEFAULT_HIDDEN_THINKING_LABEL
-    # Reasoning blocks that settled while thinking was folded (Ctrl+T). They are
-    # retained rather than dropped so toggling visibility back reveals them
-    # (committed fresh at toggle time, not retro-written into scrollback).
-    _deferred_reasoning: list[str] = field(default_factory=list)
     # Clipboard / drag image paste (Pi Ctrl+V). ``clipboard_image_read`` reads an
     # image from the OS clipboard; ``clipboard_temp_dir`` is an owner-only dir
     # (also registered as an image reference root by the session) where pasted
@@ -1192,7 +1146,6 @@ class ToolLoopTerminalUi:
     clipboard_image_read: Callable[[], ImageClipboardResult] | None = None
     clipboard_temp_dir: Path | None = None
     _clipboard_image_count: int = 0
-    _history_blocks: list[_HistoryBlock] = field(default_factory=list)
     # Low-level terminal I/O owner (write/flush sink, raw-mode lifecycle,
     # bracketed-paste toggling, terminal-title OSC). Built in ``__post_init__``
     # from the input/terminal streams.
@@ -1231,6 +1184,15 @@ class ToolLoopTerminalUi:
         self._overlays = OverlayState()
         self._chrome = ExtensionChromeState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
+        self._transcript = TranscriptComponent(
+            self._paint_lock,
+            self.paint,
+            reset_scrollback=self._force_full_redraw,
+            frame_width=lambda: self._driver.size()[0],
+            render_theme=lambda: build_tool_render_theme(
+                chrome_style_for(self.terminal_stream)
+            ),
+        )
 
     # Narrow compatibility projections keep the product facade and existing
     # characterized callers stable without duplicating stored editor state.
@@ -1616,8 +1578,8 @@ class ToolLoopTerminalUi:
         host terminal/multiplexer keeps them in native scrollback.
         """
 
-        if not self._history_blocks:
-            self._history_blocks.extend(self._startup_blocks())
+        if not self._transcript.history_blocks:
+            self._transcript.seed_history(self._startup_blocks())
         self._driver.install_resize_handler()
         self.paint()
 
@@ -2996,7 +2958,7 @@ class ToolLoopTerminalUi:
                     assert current_text is not None
                     self._editor.set_buffer(current_text)
                     self._editor.pending_initial_text = current_text
-                self.hidden_thinking_label = DEFAULT_HIDDEN_THINKING_LABEL
+                self._transcript.reset_hidden_thinking_label()
                 self._driver.restore_title()
         self.paint()
 
@@ -3043,7 +3005,7 @@ class ToolLoopTerminalUi:
         with self._paint_lock:
             self._chrome.set_working_visible(bool(visible))
             if not self._chrome.working_visible:
-                self.working_text = ""
+                self._transcript.discard_working_text()
         self.paint()
 
     # -- interactive session picker (/resume + -r overlay) ------------------
@@ -3120,137 +3082,57 @@ class ToolLoopTerminalUi:
             self.footer_lines = ("", "")
         self.paint()
 
+    # -- transcript facade ---------------------------------------------------
+    #
+    # Committed history, the live stream buffers, and the Ctrl+O/Ctrl+T view
+    # flags live on ``self._transcript`` (ui/components/transcript.py). The
+    # facade keeps one thin delegate per verb so the renderer adapters and the
+    # session keep their established call surface until slices 15/23 repoint
+    # them onto the component directly.
+
+    @property
+    def tools_expanded(self) -> bool:
+        return self._transcript.tools_expanded
+
+    @property
+    def thinking_hidden(self) -> bool:
+        return self._transcript.thinking_hidden
+
     def submit_user_message(self, text: str) -> None:
-        self._settle_reasoning()
-        self.assistant_text = ""
-        self.working_text = ""
-        self._history_blocks.append(
-            _HistoryBlockTuple("user", tuple(text.splitlines() or [""]))
-        )
-        self.paint()
+        self._transcript.submit_user_message(text)
 
     def begin_assistant_turn(self) -> None:
-        self._settle_reasoning()
-        self.assistant_text = ""
-        self.working_text = ""
-        self.paint()
+        self._transcript.begin_assistant_turn()
 
     def set_working(self, text: str) -> None:
-        self.working_text = text
-        self.paint()
+        self._transcript.set_working(text)
 
     def clear_working(self) -> None:
-        if not self.working_text:
-            return
-        self.working_text = ""
-        self.paint()
+        self._transcript.clear_working()
 
     def append_assistant(self, chunk: str) -> None:
-        if not chunk:
-            return
-        self._settle_reasoning()
-        self.assistant_text += chunk
-        self.paint()
+        self._transcript.append_assistant(chunk)
 
     def settle_assistant(self, final_text: str = "") -> None:
-        self.working_text = ""
-        self._settle_reasoning()
-        if final_text and not self.assistant_text:
-            self.assistant_text = final_text
-        if self.assistant_text:
-            self._history_blocks.append(
-                _HistoryBlockTuple(
-                    "assistant", tuple(self.assistant_text.splitlines() or [""])
-                )
-            )
-            self.assistant_text = ""
-        self.paint()
+        self._transcript.settle_assistant(final_text)
 
     def show_operation_aborted(self) -> None:
-        self.working_text = ""
-        self._settle_reasoning()
-        if self.assistant_text:
-            self._history_blocks.append(
-                _HistoryBlockTuple(
-                    "assistant", tuple(self.assistant_text.splitlines() or [""])
-                )
-            )
-            self.assistant_text = ""
-        self._history_blocks.append(_HistoryBlockTuple("error", ("Operation aborted",)))
-        self.paint()
+        self._transcript.show_operation_aborted()
 
     def append_reasoning(self, chunk: str) -> None:
-        if not chunk:
-            return
-        self.working_text = ""
-        cleaned = chunk.replace("**", "")
-        self.reasoning_text += cleaned
-        self.paint()
-
-    def _settle_reasoning(self) -> None:
-        if not self.reasoning_text:
-            return
-        # When thinking blocks are folded (Ctrl+T), the settled reasoning is
-        # deferred (retained, not committed to scrollback) so the fold holds but
-        # the content is not lost — toggling visibility back reveals it.
-        if self.thinking_hidden:
-            self._deferred_reasoning.append(self.reasoning_text)
-        else:
-            self._history_blocks.append(
-                _HistoryBlockTuple(
-                    "reasoning", tuple(self.reasoning_text.splitlines() or [""])
-                )
-            )
-        self.reasoning_text = ""
+        self._transcript.append_reasoning(chunk)
 
     def set_thinking_hidden(self, hidden: bool) -> None:
-        """Set the Ctrl+T thinking-fold flag, revealing deferred reasoning.
+        self._transcript.set_thinking_hidden(hidden)
 
-        Folding hides subsequent/live reasoning and defers settled blocks;
-        unfolding commits any deferred reasoning into history so it becomes
-        visible (committed fresh now rather than retro-written into the host
-        terminal's existing scrollback, preserving the inline contract).
-        """
-
-        self.thinking_hidden = hidden
-        if not hidden and self._deferred_reasoning:
-            for text in self._deferred_reasoning:
-                self._history_blocks.append(
-                    _HistoryBlockTuple("reasoning", tuple(text.splitlines() or [""]))
-                )
-            self._deferred_reasoning.clear()
-            self.paint()
+    def set_tools_expanded(self, expanded: bool) -> None:
+        self._transcript.set_tools_expanded(expanded)
 
     def set_extension_hidden_thinking_label(self, label: str | None = None) -> None:
-        """Set the live folded-thinking label; ``None`` restores Pi's default."""
-        self.hidden_thinking_label = (
-            DEFAULT_HIDDEN_THINKING_LABEL if label is None else str(label)
-        )
-        self.paint()
+        self._transcript.set_hidden_thinking_label(label)
 
     def add_notice(self, text: str) -> None:
-        self._settle_reasoning()
-        safe_lines = tuple(
-            sanitize_label_text(line) for line in str(text).splitlines()
-        ) or ("",)
-        self._history_blocks.append(_HistoryBlockTuple("notice", safe_lines))
-        self.paint()
-
-    def show_settings(self, lines: Iterable[str]) -> None:
-        """Render a read-only settings/status overlay into the history region.
-
-        The overlay is display-only: it shows safe provider/model/status
-        information and never switches models, mutates auth state, invokes
-        tools, or creates a provider turn. It is rendered through the same
-        whole-frame paint path as every other history block.
-        """
-
-        self._settle_reasoning()
-        self.working_text = ""
-        self._history_blocks.append(
-            _HistoryBlockTuple("settings", tuple(lines) or ("",))
-        )
-        self.paint()
+        self._transcript.add_notice(text)
 
     def redraw_custom_entries(
         self,
@@ -3266,119 +3148,16 @@ class ToolLoopTerminalUi:
             ]
         ],
     ) -> None:
-        """Replace committed custom-entry rows with a freshly rendered branch.
-
-        Pi clears and rebuilds the chat when an interactive session switch
-        completes. Pipy keeps normal scrollback committed, but extension custom
-        entries are live renderer snapshots and need the same active-branch
-        replacement semantics on ``/resume``. ``entries`` contains already
-        rendered/sanitized rows tagged as ``plain`` (label + sanitized body) or
-        ``styled`` (renderer-owned SGR-safe rows).
-        """
-
-        self._settle_reasoning()
-        self.working_text = ""
-        self.tool_output_text = ""
-        replacement_blocks: list[_HistoryBlock] = []
-        for row in entries:
-            render_kind, custom_type, lines = row[:3]
-            if render_kind in {"styled", "entry"}:
-                rendered_lines = tuple(lines) or ("",)
-                state = None
-                if len(row) >= 5:
-                    state = _CustomMessageRenderState(
-                        custom_type=str(custom_type),
-                        data=row[3],
-                        renderers=(
-                            {}
-                            if render_kind == "entry"
-                            else cast(Mapping[str, RegisteredMessageRenderer], row[4])
-                        ),
-                        styled=True,
-                        lines=rendered_lines,
-                        entry_renderers=(
-                            cast(Mapping[str, RegisteredEntryRenderer], row[4])
-                            if render_kind == "entry"
-                            else None
-                        ),
-                    )
-                replacement_blocks.append(
-                    _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
-                )
-            else:
-                label = sanitize_label_text(str(custom_type).strip()) or "custom"
-                safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
-                replacement_blocks.append(
-                    _HistoryBlockTuple("custom", (f"[{label}]", *safe_lines))
-                )
-
-        next_replacement = iter(replacement_blocks)
-        rebuilt: list[_HistoryBlock] = []
-        inserted_remaining = False
-        for block in self._history_blocks:
-            if block[0] not in {"custom", "custom_message_custom"}:
-                rebuilt.append(block)
-                continue
-            if not inserted_remaining:
-                replacement = next(next_replacement, None)
-                if replacement is not None:
-                    rebuilt.append(replacement)
-                    continue
-                inserted_remaining = True
-        rebuilt.extend(next_replacement)
-        self._history_blocks = rebuilt
-        self._force_full_redraw()
-
-    def custom_entry_blocks(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
-        """Return committed custom-entry blocks for focused conformance tests."""
-
-        return tuple(
-            (kind, lines)
-            for kind, lines in self._history_blocks
-            if kind in {"custom", "custom_message_custom"}
-        )
+        self._transcript.redraw_custom_entries(entries)
 
     def add_custom_entry(self, custom_type: str, lines: Iterable[str]) -> None:
-        """Render an extension custom session entry into committed history."""
-
-        self._settle_reasoning()
-        self.working_text = ""
-        label = sanitize_label_text(str(custom_type).strip()) or "custom"
-        safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
-        self._history_blocks.append(
-            _HistoryBlockTuple("custom", (f"[{label}]", *safe_lines))
-        )
-        self.paint()
+        self._transcript.add_custom_entry(custom_type, lines)
 
     def add_tool_call(self, header: str) -> None:
-        self._settle_reasoning()
-        self.working_text = ""
-        self.tool_output_text = ""
-        if header.startswith("read ") or header.startswith("read resource "):
-            self._history_blocks.append(
-                _HistoryBlockTuple("tool_read", (_compact_read_header(header),))
-            )
-        else:
-            self._history_blocks.append(_HistoryBlockTuple("tool", (header,)))
-        self.paint()
+        self._transcript.add_tool_call(header)
 
     def append_tool_output(self, chunk: str) -> None:
-        """Stream incremental tool output into the live region as it is produced.
-
-        Used by long-running tools (`bash`) so the live frame shows e.g. pytest
-        dots scrolling in real time, matching Pi. Only a bounded tail is kept
-        live; the full bounded result is committed by `add_tool_result` when the
-        tool settles.
-        """
-
-        if not chunk:
-            return
-        self._settle_reasoning()
-        self.working_text = ""
-        self.tool_output_text += chunk
-        if len(self.tool_output_text) > _TOOL_STREAM_LIVE_MAX_CHARS:
-            self.tool_output_text = self.tool_output_text[-_TOOL_STREAM_LIVE_MAX_CHARS:]
-        self.paint()
+        self._transcript.append_tool_output(chunk)
 
     def add_tool_result(
         self,
@@ -3387,41 +3166,19 @@ class ToolLoopTerminalUi:
         is_error: bool,
         duration_seconds: float | None = None,
     ) -> None:
-        self._settle_reasoning()
-        self.tool_output_text = ""
-        rendered = list(lines)
-        if is_error:
-            rendered.append("[error] tool reported a failure")
-        if duration_seconds is not None:
-            rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-        self._history_blocks.append(
-            _HistoryBlockTuple("tool_result", tuple(rendered or [""]))
+        self._transcript.add_tool_result(
+            lines=lines, is_error=is_error, duration_seconds=duration_seconds
         )
-        self.paint()
 
     def add_tool_call_custom(self, lines: Iterable[str]) -> None:
-        """Commit extension-rendered call-row lines (pre-styled, SGR-safe)."""
-        self._settle_reasoning()
-        self.working_text = ""
-        self.tool_output_text = ""
-        self._history_blocks.append(
-            _HistoryBlockTuple("tool_call_custom", tuple(lines) or ("",))
-        )
-        self.paint()
+        self._transcript.add_tool_call_custom(lines)
 
     def add_tool_result_custom(
         self, lines: Iterable[str], *, duration_seconds: float | None = None
     ) -> None:
-        """Commit extension-rendered result-row lines (pre-styled, SGR-safe)."""
-        self._settle_reasoning()
-        self.tool_output_text = ""
-        rendered = list(lines)
-        if duration_seconds is not None:
-            rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-        self._history_blocks.append(
-            _HistoryBlockTuple("tool_result_custom", tuple(rendered or [""]))
+        self._transcript.add_tool_result_custom(
+            lines, duration_seconds=duration_seconds
         )
-        self.paint()
 
     def add_custom_entry_styled(
         self,
@@ -3431,31 +3188,9 @@ class ToolLoopTerminalUi:
         data: object | None = None,
         renderers: Mapping[str, RegisteredMessageRenderer] | None = None,
     ) -> None:
-        """Commit extension-rendered custom-entry lines (pre-styled, SGR-safe).
-
-        Unlike ``add_custom_entry`` (sanitized + ``[label]`` prefix), the rich
-        renderer's component owns its full styling; no label line is injected
-        (matches Pi's custom-message component replacing the default box). When
-        renderer metadata is supplied, the block can be refreshed in-place when
-        Ctrl+O changes the live expanded flag."""
-
-        self._settle_reasoning()
-        self.working_text = ""
-        self.tool_output_text = ""
-        rendered_lines = tuple(lines) or ("",)
-        state = None
-        if custom_type is not None and renderers is not None:
-            state = _CustomMessageRenderState(
-                custom_type=custom_type,
-                data=data,
-                renderers=renderers,
-                styled=True,
-                lines=rendered_lines,
-            )
-        self._history_blocks.append(
-            _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
+        self._transcript.add_custom_entry_styled(
+            lines, custom_type=custom_type, data=data, renderers=renderers
         )
-        self.paint()
 
     def add_entry_renderer_component(
         self,
@@ -3465,106 +3200,12 @@ class ToolLoopTerminalUi:
         entry: Mapping[str, object],
         renderers: Mapping[str, RegisteredEntryRenderer],
     ) -> None:
-        """Commit a durable-entry renderer's live-only component snapshot."""
-
-        self._settle_reasoning()
-        self.working_text = ""
-        self.tool_output_text = ""
-        rendered_lines = tuple(lines) or ("",)
-        state = _CustomMessageRenderState(
-            custom_type=custom_type,
-            data=dict(entry),
-            renderers={},
-            styled=True,
-            lines=rendered_lines,
-            entry_renderers=renderers,
+        self._transcript.add_entry_renderer_component(
+            lines, custom_type=custom_type, entry=entry, renderers=renderers
         )
-        self._history_blocks.append(
-            _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
-        )
-        self.paint()
 
     def rerender_custom_messages(self) -> None:
-        """Refresh retained rich custom-message rows for the current view flag."""
-
-        width = self._driver.size()[0]
-        style = chrome_style_for(self.terminal_stream)
-        theme = build_tool_render_theme(style)
-        changed = False
-        rebuilt: list[_HistoryBlock] = []
-        for block in self._history_blocks:
-            kind, lines = block
-            state = cast(
-                _CustomMessageRenderState | None, getattr(block, "state", None)
-            )
-            if state is None:
-                rebuilt.append(_HistoryBlockTuple(kind, lines, state))
-                continue
-            if state.entry_renderers is not None:
-                entry = state.data if isinstance(state.data, Mapping) else {}
-                rendered = render_extension_entry(
-                    state.entry_renderers,
-                    entry,
-                    width=width,
-                    expanded=self.tools_expanded,
-                    theme=theme,
-                )
-                if rendered is None:
-                    next_state = _CustomMessageRenderState(
-                        custom_type=state.custom_type,
-                        data=state.data,
-                        renderers={},
-                        styled=True,
-                        lines=(),
-                        entry_renderers=state.entry_renderers,
-                    )
-                    changed = changed or bool(lines)
-                    rebuilt.append(
-                        _HistoryBlockTuple("custom_message_custom", (), next_state)
-                    )
-                    continue
-            else:
-                rendered = render_extension_message(
-                    state.renderers,
-                    state.custom_type,
-                    state.data,
-                    width=width,
-                    expanded=self.tools_expanded,
-                    theme=theme,
-                )
-            if rendered.styled:
-                next_kind = "custom_message_custom"
-                next_lines = tuple(rendered.lines) or ("",)
-                next_state = _CustomMessageRenderState(
-                    custom_type=state.custom_type,
-                    data=state.data,
-                    renderers=state.renderers,
-                    styled=True,
-                    lines=next_lines,
-                    entry_renderers=state.entry_renderers,
-                )
-            else:
-                label = sanitize_label_text(str(state.custom_type).strip()) or "custom"
-                safe_lines = tuple(
-                    sanitize_label_text(line) for line in rendered.lines
-                ) or ("",)
-                next_kind = "custom"
-                next_lines = (f"[{label}]", *safe_lines)
-                next_state = _CustomMessageRenderState(
-                    custom_type=state.custom_type,
-                    data=state.data,
-                    renderers=state.renderers,
-                    styled=False,
-                    lines=next_lines,
-                    entry_renderers=state.entry_renderers,
-                )
-            changed = changed or next_kind != kind or next_lines != lines
-            rebuilt.append(_HistoryBlockTuple(next_kind, next_lines, next_state))
-        if changed:
-            self._history_blocks = rebuilt
-            self._force_full_redraw()
-        else:
-            self.paint()
+        self._transcript.rerender_custom_messages()
 
     def _force_full_redraw(self) -> None:
         # Deferred (unflushed) write so the clear-screen coalesces with the
@@ -3693,19 +3334,20 @@ class ToolLoopTerminalUi:
             # the pre-slice path. Do not execute hidden extension components.
             popup, pending, chrome, custom_rows = (), (), ChromeSnapshot(), None
         history = tuple(
-            FrameBlock(kind, tuple(lines)) for kind, lines in self._history_blocks
+            FrameBlock(kind, tuple(lines))
+            for kind, lines in self._transcript.history_blocks
         )
         return FrameSnapshot(
             width=width,
             height=height,
             history=history,
-            assistant_text=self.assistant_text,
-            reasoning_text=self.reasoning_text,
-            tool_output_text=self.tool_output_text,
-            working_text=self.working_text,
-            thinking_hidden=self.thinking_hidden,
-            hidden_thinking_label=self.hidden_thinking_label,
-            tools_expanded=self.tools_expanded,
+            assistant_text=self._transcript.assistant_text,
+            reasoning_text=self._transcript.reasoning_text,
+            tool_output_text=self._transcript.tool_output_text,
+            working_text=self._transcript.working_text,
+            thinking_hidden=self._transcript.thinking_hidden,
+            hidden_thinking_label=self._transcript.hidden_thinking_label,
+            tools_expanded=self._transcript.tools_expanded,
             input=InputSnapshot(
                 text=self.input_text,
                 cursor=self._effective_input_cursor(),
@@ -3968,7 +3610,7 @@ class ToolLoopTerminalUi:
     def _styled_line(self, line: _FrameLine, *, style: ChromeStyle, width: int) -> str:
         return render_styled_line(line, style, width)
 
-    def _startup_blocks(self) -> list[_HistoryBlock]:
+    def _startup_blocks(self) -> list[HistoryBlock]:
         raw_blocks: list[tuple[str, tuple[str, ...]]] = [
             ("normal", ("",)),
             ("title", (f" pipy v{pipy_version_label()}",)),
@@ -3995,8 +3637,8 @@ class ToolLoopTerminalUi:
             ),
             ("normal", ("", "")),
         ]
-        blocks: list[_HistoryBlock] = [
-            _HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks
+        blocks: list[HistoryBlock] = [
+            HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks
         ]
         context = discover_loaded_resource_names(
             self.cwd,
@@ -4005,14 +3647,14 @@ class ToolLoopTerminalUi:
         )
         if context:
             blocks.append(
-                _HistoryBlockTuple(
+                HistoryBlockTuple(
                     "section",
                     ("[Context]",),
                     None,
                 )
             )
             blocks.append(
-                _HistoryBlockTuple(
+                HistoryBlockTuple(
                     "resource",
                     (
                         f"  {', '.join(context)}",
@@ -4028,14 +3670,14 @@ class ToolLoopTerminalUi:
         )
         if skills:
             blocks.append(
-                _HistoryBlockTuple(
+                HistoryBlockTuple(
                     "section",
                     ("[Skills]",),
                     None,
                 )
             )
             blocks.append(
-                _HistoryBlockTuple(
+                HistoryBlockTuple(
                     "resource",
                     (
                         f"  {', '.join(skills)}",
@@ -5140,10 +4782,6 @@ class _TuiToolLoopRenderer:
         self._working_thread = None
         if clear:
             self._ui.clear_working()
-
-
-def _compact_read_header(header: str) -> str:
-    return re.sub(r":\d+-\d+(?:\s+\(ctrl\+o to expand\))?$", "", header)
 
 
 def run_project_trust_selector(

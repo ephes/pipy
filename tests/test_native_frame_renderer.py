@@ -451,7 +451,7 @@ def test_facade_publishes_detached_immutable_snapshot(tmp_path: Path) -> None:
     ui.submit_user_message("snapshot message")
     snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=False)
 
-    ui._history_blocks.clear()
+    ui._transcript.history_blocks.clear()
     ui.input_text = "later mutation"
     rendered = "\n".join(row.text for row in render_full_frame(snapshot, pad=False))
 
@@ -479,7 +479,7 @@ def test_state_bearing_custom_history_snapshot_keeps_lines_not_callbacks(
     )
 
     snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=False)
-    ui._history_blocks.clear()
+    ui._transcript.history_blocks.clear()
     del registered
     del callback
     gc.collect()
@@ -518,7 +518,7 @@ def test_failed_paint_write_keeps_preexisting_publication_behavior(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ui = _ui(tmp_path)
-    ui._history_blocks.append(("notice", ("WRITE_FAILURE_MARKER",)))
+    ui._transcript.history_blocks.append(("notice", ("WRITE_FAILURE_MARKER",)))
     writes: list[str] = []
 
     def fail_write(_driver: TerminalDriver, text: str) -> bool:
@@ -530,7 +530,7 @@ def test_failed_paint_write_keeps_preexisting_publication_behavior(
 
     assert len(writes) == 1
     assert "WRITE_FAILURE_MARKER" in writes[0]
-    assert ui._painted_block_count == len(ui._history_blocks)
+    assert ui._painted_block_count == len(ui._transcript.history_blocks)
     assert ui._live_height > 0
     assert ui._last_painted_size == (88, 24)
 

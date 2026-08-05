@@ -137,6 +137,9 @@ class _ExitOnlyUi:
     def clear_extension_chrome(self) -> None:
         pass
 
+    def set_thinking_hidden(self, hidden: bool) -> None:
+        self.thinking_hidden = bool(hidden)
+
     def close(self) -> None:
         self.closed = True
 
@@ -274,7 +277,9 @@ def test_add_custom_entry_styled_preserves_sgr_and_clips(tmp_path: Path):
 
     # Committed under the new custom_message_custom kind (the SGR-safe path,
     # NOT the sanitizing add_custom_entry path):
-    assert any(kind == "custom_message_custom" for kind, _ in ui._history_blocks)
+    assert any(
+        kind == "custom_message_custom" for kind, _ in ui._transcript.history_blocks
+    )
     rendered = ui.render_lines(width=60, height=14, pad=False)
     frame = "\n".join(rendered)
     assert "\x1b[1m" in frame  # SGR preserved (not sanitized away)
@@ -483,7 +488,7 @@ def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
 
     frame = "\n".join(ui.render_lines(width=72, height=20))
     # The live stream buffer is cleared once the bounded result is committed.
-    assert ui.tool_output_text == ""
+    assert ui._transcript.tool_output_text == ""
     assert "1346 passed" in frame
 
 
@@ -515,7 +520,7 @@ def test_tui_preserves_input_and_footer_when_history_overflows(tmp_path: Path):
 
 def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._history_blocks = [
+    ui._transcript.history_blocks = [
         ("section", ("[Skills]",)),
         ("resource", ("  commit-ready, review-handoff", "", "")),
     ]
@@ -549,7 +554,7 @@ def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
 
 def test_tui_short_height_retains_startup_chrome_before_prompt(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._history_blocks = [
+    ui._transcript.history_blocks = [
         ("normal", ("",)),
         ("title", (" pipy v0.1.0",)),
         (
@@ -703,7 +708,7 @@ def test_tui_tool_command_band_fills_last_column(
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
     ui.footer_lines = ("~/projects/pipy (main)", "x")
-    ui._history_blocks.append(("tool", ('bash(command="ls")',)))
+    ui._transcript.history_blocks.append(("tool", ('bash(command="ls")',)))
 
     ui.paint()
 
@@ -724,7 +729,7 @@ def test_tui_tool_command_band_fills_last_column(
 
 def test_tui_drops_tail_when_context_and_prompt_fill_history_region(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._history_blocks = [("normal", ("ctx1", "ctx2", "ctx3", "ctx4"))]
+    ui._transcript.history_blocks = [("normal", ("ctx1", "ctx2", "ctx3", "ctx4"))]
     ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
     ui.submit_user_message("prompt")
     ui.append_assistant("tail1\ntail2\ntail3")
@@ -764,7 +769,7 @@ def test_tui_settles_reasoning_before_turn_reset(tmp_path: Path):
 
     frame = "\n".join(ui.render_lines(width=72, height=14))
     assert "Thinking through it." in frame
-    assert ui.reasoning_text == ""
+    assert ui._transcript.reasoning_text == ""
 
 
 def test_tui_reasoning_row_emits_italic_escape(
@@ -885,7 +890,7 @@ def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
 def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.show_settings(
+    ui._transcript.show_settings(
         [
             "pipy native REPL settings:",
             "  active: fake/fake-native-bootstrap",
@@ -1498,7 +1503,8 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
     assert result.model_id == "gpt-5.5"
     assert result.user_turn_count == 1
     assert not any(
-        kind == "user" and lines == ("/model",) for kind, lines in ui._history_blocks
+        kind == "user" and lines == ("/model",)
+        for kind, lines in ui._transcript.history_blocks
     )
 
 
@@ -1556,7 +1562,8 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
     assert result.user_turn_count == 0
     assert seen == []
     assert any(
-        kind == "user" and lines == ("/model",) for kind, lines in ui._history_blocks
+        kind == "user" and lines == ("/model",)
+        for kind, lines in ui._transcript.history_blocks
     )
 
 
@@ -1761,7 +1768,7 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     assert result.tool_invocation_count == 0
     assert provider.completions == 0
     # It is an interactive overlay, NOT a committed settings text block.
-    assert not any(kind == "settings" for kind, _lines in ui._history_blocks)
+    assert not any(kind == "settings" for kind, _lines in ui._transcript.history_blocks)
 
     assert captured_rows, "/settings did not open the interactive dialog"
     labels = [row.label for row in captured_rows[0]]
@@ -1928,7 +1935,9 @@ def test_trust_command_persists_next_start_decision_without_hot_activation(
 
     assert ProjectTrustStore(config / "trust.json").get(cwd) is True
     assert settings.project_trusted is False
-    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    notices = [
+        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+    ]
     assert any(
         "Restart pipy for this to take effect" in line
         for block in notices
@@ -2688,7 +2697,9 @@ def test_tui_copy_command_is_local_only_when_nothing_to_copy(
     assert result.tool_invocation_count == 0
     assert provider.completions == 0
     assert recorder.copies == []
-    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    notices = [
+        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+    ]
     assert any("nothing to copy" in " ".join(lines).lower() for lines in notices)
 
 
@@ -2745,7 +2756,9 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     assert result.user_turn_count == 1
     assert result.tool_invocation_count == 0
     assert recorder.copies == ["Final answer ABC"]
-    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    notices = [
+        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+    ]
     assert any("copied" in " ".join(lines).lower() for lines in notices)
 
 
@@ -3379,7 +3392,9 @@ def test_tui_login_refreshes_availability_without_provider_turn(
     # The login ran through the auth boundary and availability refreshed.
     assert manager.logins == 1
     assert _codex_option(provider_state).available is True
-    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    notices = [
+        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+    ]
     assert any("login stored" in " ".join(lines).lower() for lines in notices)
 
 
@@ -3425,7 +3440,9 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     assert manager.logouts == 1
     assert not auth_path.exists()
     assert _codex_option(provider_state).available is False
-    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    notices = [
+        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+    ]
     assert any("removed" in " ".join(lines).lower() for lines in notices)
 
 
@@ -3640,5 +3657,5 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     assert seen_message_types == [["AgentUserMessage", "AgentUserMessage"]]
     assert "AgentAssistantMessage" not in seen_message_types[0]
     # The aborted state was rendered to the user.
-    errors = [lines for kind, lines in ui._history_blocks if kind == "error"]
+    errors = [lines for kind, lines in ui._transcript.history_blocks if kind == "error"]
     assert any("Operation aborted" in " ".join(lines) for lines in errors)

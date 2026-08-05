@@ -32,8 +32,8 @@ class TestThinkingFold:
         self, tmp_path: Path
     ) -> None:
         ui = _ui(tmp_path)
-        ui.thinking_hidden = True
-        ui.reasoning_text = "SECRET-THOUGHT"
+        ui.set_thinking_hidden(True)
+        ui.append_reasoning("SECRET-THOUGHT")
         frame = _frame_text(ui)
         assert "SECRET-THOUGHT" not in frame
         assert "Thinking..." in frame
@@ -42,8 +42,8 @@ class TestThinkingFold:
         self, tmp_path: Path
     ) -> None:
         ui = _ui(tmp_path)
-        ui.thinking_hidden = True
-        ui.reasoning_text = "SECRET-THOUGHT"
+        ui.set_thinking_hidden(True)
+        ui.append_reasoning("SECRET-THOUGHT")
         ui.set_extension_hidden_thinking_label("Still thinking")
         assert "Still thinking" in _frame_text(ui)
         assert "SECRET-THOUGHT" not in _frame_text(ui)
@@ -52,31 +52,32 @@ class TestThinkingFold:
 
     def test_visible_reasoning_rendered_live(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        ui.thinking_hidden = False
-        ui.reasoning_text = "VISIBLE-THOUGHT"
+        ui.set_thinking_hidden(False)
+        ui.append_reasoning("VISIBLE-THOUGHT")
         assert "VISIBLE-THOUGHT" in _frame_text(ui)
 
     def test_settle_defers_reasoning_when_hidden(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        ui.thinking_hidden = True
-        ui.reasoning_text = "DEFER-ME"
-        ui._settle_reasoning()
+        ui.set_thinking_hidden(True)
+        ui.append_reasoning("DEFER-ME")
+        ui._transcript.settle_reasoning()
         # Not committed to scrollback while hidden, but retained (not dropped).
         assert all(
-            "DEFER-ME" not in "".join(block) for _kind, block in ui._history_blocks
+            "DEFER-ME" not in "".join(block)
+            for _kind, block in ui._transcript.history_blocks
         )
-        assert ui._deferred_reasoning == ["DEFER-ME"]
+        assert ui._transcript.deferred_reasoning == ["DEFER-ME"]
 
     def test_unhiding_reveals_deferred_reasoning(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
         ui.set_thinking_hidden(True)
-        ui.reasoning_text = "WAS-HIDDEN"
-        ui._settle_reasoning()
+        ui.append_reasoning("WAS-HIDDEN")
+        ui._transcript.settle_reasoning()
         assert "WAS-HIDDEN" not in _frame_text(ui)
         # Toggling visibility back commits the deferred reasoning into history.
         ui.set_thinking_hidden(False)
         assert "WAS-HIDDEN" in _frame_text(ui)
-        assert ui._deferred_reasoning == []
+        assert ui._transcript.deferred_reasoning == []
 
 
 class TestToolExpansion:
@@ -84,10 +85,10 @@ class TestToolExpansion:
         ui = _ui(tmp_path)
         # 16 lines: more than the 12-line collapsed live tail, but few enough
         # that they all fit a tall frame when expanded.
-        ui.tool_output_text = "\n".join(f"line{n:02d}" for n in range(16))
-        ui.tools_expanded = False
+        ui.append_tool_output("\n".join(f"line{n:02d}" for n in range(16)))
+        ui.set_tools_expanded(False)
         collapsed = "\n".join(ui.render_lines(width=88, height=40))
-        ui.tools_expanded = True
+        ui.set_tools_expanded(True)
         expanded = "\n".join(ui.render_lines(width=88, height=40))
         # The earliest line is hidden in the collapsed live tail but shown when
         # expanded.
