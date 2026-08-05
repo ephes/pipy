@@ -35,15 +35,17 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_runtime import (
     BeforeAgentStartResult,
     ExtensionCodingSessionControl,
-    ExtensionCommandDispatch,
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     HookHandler,
     SessionDecision,
+)
+from pipy_harness.native.extension_types import CustomComponentDriver
+from pipy_harness.native.extensions.dispatch import (
+    ExtensionCommandDispatch,
     dispatch_extension_command,
     dispatch_extension_shortcut,
 )
-from pipy_harness.native.extension_types import CustomComponentDriver
 from pipy_harness.native.session_generation import (
     ExtensionProjection,
     SessionGenerationRef,

@@ -62,9 +62,9 @@ from pipy_harness.native.extension_runtime import (
     RegisteredMessageRenderer,
     _ExtensionRuntime,
     activate_extensions,
-    dispatch_extension_command,
 )
 from pipy_harness.native.extension_types import ProviderContext
+from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
     GenerationMessageRouting,

@@ -19,9 +19,6 @@ from pipy_harness.native.chrome import (
     chrome_width,
     terminal_supports_truecolor,
 )
-from pipy_harness.native.extension_runtime import (
-    ToolRenderDetailsWriter,
-)
 from pipy_harness.native.extension_types import (
     ChromeComponent,
     ExtensionTool,
@@ -31,6 +28,7 @@ from pipy_harness.native.extension_types import (
     ToolRenderTheme,
 )
 from pipy_harness.native.extension_ui import coerce_tool_render_lines
+from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.provider import StreamChunkSink
 
 

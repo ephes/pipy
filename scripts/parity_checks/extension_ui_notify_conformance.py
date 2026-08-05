@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.extension_runtime import make_extension_context
+from pipy_harness.native.extensions.command_context import make_extension_context
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 

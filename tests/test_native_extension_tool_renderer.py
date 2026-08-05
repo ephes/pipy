@@ -9,7 +9,7 @@ from pipy_harness.extensions import (
     lines_component,
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
-from pipy_harness.native.extension_runtime import _ExtensionToolPort
+from pipy_harness.native.extensions.tool_port import _ExtensionToolPort
 from pipy_harness.native.tool_renderers import _extension_render_details_sinks
 from pipy_harness.native.tools.base import (
     ToolContext,

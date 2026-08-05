@@ -39,24 +39,19 @@ from pipy_harness.native.extension_hooks import (
 )
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
-    ExtensionCommandDispatch,
     PipyExtensionAPI,
     RegisteredCommand,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     RegisteredShortcut,
     activate_extensions,
-    dispatch_extension_command,
-    dispatch_extension_shortcut,
     drain_custom_messages,
     drain_user_messages,
-    extension_command_map,
     extension_entry_renderers,
     extension_flags,
     extension_message_renderers,
     extension_oauth_providers,
     extension_providers,
-    extension_shortcuts,
     extension_tools,
     extension_unregistered_providers,
     safe_activation_metadata,
@@ -121,6 +116,13 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_entry,
     render_extension_message,
     safe_custom_entry_data,
+)
+from pipy_harness.native.extensions.dispatch import (
+    ExtensionCommandDispatch,
+    dispatch_extension_command,
+    dispatch_extension_shortcut,
+    extension_command_map,
+    extension_shortcuts,
 )
 from pipy_harness.native.extensions.packages import (
     ExtensionDescriptor,

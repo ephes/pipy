@@ -26,8 +26,10 @@ from pipy_harness.native.extension_runtime import (
     ExtensionUiDriver,
     HookHandler,
     RegisteredTool,
-    ToolRenderDetailsWriter,
     _ExtensionRuntime,
+)
+from pipy_harness.native.extensions.tool_port import (
+    ToolRenderDetailsWriter,
     _ExtensionToolPort,
 )
 from pipy_harness.native.provider import ProviderPort

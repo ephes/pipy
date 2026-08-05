@@ -18,11 +18,13 @@ from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.extension_runtime import (
     RESERVED_SHORTCUT_KEYS,
     activate_extensions,
-    dispatch_extension_shortcut,
-    extension_shortcuts,
     normalize_shortcut_key,
 )
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.dispatch import (
+    dispatch_extension_shortcut,
+    extension_shortcuts,
+)
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi

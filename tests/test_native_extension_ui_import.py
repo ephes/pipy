@@ -3,9 +3,10 @@
 Slice 6.4c relocated `_CollectingUi`, `_safe_ui_key`, and the
 `coerce_tool_render_lines` / `_LinesComponent` / `lines_component` chrome
 helpers into `pipy_harness.native.extension_ui`. Slice 18 relocated custom
-payload coercion and rendering into `native.extensions.custom_payloads`; its
-old `extension_runtime` path is absent while the public extension API imports
-those objects from their authoritative owner.
+payload coercion and rendering into `native.extensions.custom_payloads`.
+Slice 31 relocated command/shortcut dispatch and the extension tool port into
+`native.extensions`; every old `extension_runtime` path is absent while public
+names import directly from their authoritative owner.
 """
 
 from __future__ import annotations
@@ -20,8 +21,10 @@ import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
 import pipy_harness.native.extensions.command_context as extension_command_context
 import pipy_harness.native.extensions.custom_payloads as extension_custom_payloads
+import pipy_harness.native.extensions.dispatch as extension_dispatch
 import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.extensions.session_views as extension_session_views
+import pipy_harness.native.extensions.tool_port as extension_tool_port
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
 
@@ -130,27 +133,32 @@ _OWNER_GROUPS = (
         extension_runtime,
         (
             "ActivatedExtension",
-            "ExtensionCommandDispatch",
             "PipyExtensionAPI",
             "RegisteredCommand",
             "RegisteredEntryRenderer",
             "RegisteredMessageRenderer",
             "RegisteredShortcut",
             "activate_extensions",
-            "dispatch_extension_shortcut",
-            "dispatch_extension_command",
             "drain_custom_messages",
             "drain_user_messages",
-            "extension_command_map",
             "extension_entry_renderers",
             "extension_flags",
             "extension_message_renderers",
             "extension_oauth_providers",
             "extension_providers",
-            "extension_shortcuts",
             "extension_tools",
             "extension_unregistered_providers",
             "safe_activation_metadata",
+        ),
+    ),
+    (
+        extension_dispatch,
+        (
+            "ExtensionCommandDispatch",
+            "dispatch_extension_shortcut",
+            "dispatch_extension_command",
+            "extension_command_map",
+            "extension_shortcuts",
         ),
     ),
     (
@@ -297,6 +305,90 @@ def test_custom_payload_cluster_has_one_authoritative_owner() -> None:
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     )
     assert set(_MOVED_CUSTOM_PAYLOAD_NAMES) <= definitions
+
+
+def _wrong_moved_importers(
+    repo_root: Path, expected_modules: dict[str, str]
+) -> list[tuple[str, str, str | None]]:
+    wrong_importers: list[tuple[str, str, str | None]] = []
+    for root_name in ("src", "tests", "scripts"):
+        for path in (repo_root / root_name).rglob("*.py"):
+            for import_node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(import_node, ast.ImportFrom):
+                    continue
+                for alias in import_node.names:
+                    expected_module = expected_modules.get(alias.name)
+                    if (
+                        expected_module is not None
+                        and import_node.module != expected_module
+                    ):
+                        wrong_importers.append(
+                            (
+                                path.relative_to(repo_root).as_posix(),
+                                alias.name,
+                                import_node.module,
+                            )
+                        )
+    return wrong_importers
+
+
+def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
+    expected_owners = {
+        "ToolRenderDetails": "extensions/tool_port.py",
+        "ToolRenderDetailsSink": "extensions/tool_port.py",
+        "ToolRenderDetailsWriter": "extensions/tool_port.py",
+        "_TOOL_OUTPUT_MAX_CHARS": "extensions/tool_port.py",
+        "make_extension_context": "extensions/command_context.py",
+        "_ExtensionToolPort": "extensions/tool_port.py",
+        "ExtensionCommandDispatch": "extensions/dispatch.py",
+        "extension_command_map": "extensions/dispatch.py",
+        "extension_shortcuts": "extensions/dispatch.py",
+        "dispatch_extension_command": "extensions/dispatch.py",
+        "dispatch_extension_shortcut": "extensions/dispatch.py",
+        "_run_extension_handler": "extensions/dispatch.py",
+    }
+    owners: dict[str, list[str]] = {name: [] for name in expected_owners}
+    native_root = Path(extension_runtime.__file__ or "").parent
+    for path in native_root.rglob("*.py"):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            name = (
+                node.name
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+                else node.target.id
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                else None
+            )
+            if name in owners:
+                owners[name].append(path.relative_to(native_root).as_posix())
+    assert owners == {name: [owner] for name, owner in expected_owners.items()}
+
+    for name in expected_owners:
+        assert not hasattr(extension_runtime, name)
+    assert not hasattr(extension_dispatch, "extension_runtime")
+    assert not hasattr(extension_tool_port, "extension_runtime")
+
+    expected_modules = {
+        name: "pipy_harness.native." + owner.removesuffix(".py").replace("/", ".")
+        for name, owner in expected_owners.items()
+    }
+    repo_root = Path(__file__).parents[1]
+    assert _wrong_moved_importers(repo_root, expected_modules) == []
+
+    assert public_extensions.ExtensionCommandDispatch is (
+        extension_dispatch.ExtensionCommandDispatch
+    )
+    assert public_extensions.dispatch_extension_command is (
+        extension_dispatch.dispatch_extension_command
+    )
+    assert public_extensions.dispatch_extension_shortcut is (
+        extension_dispatch.dispatch_extension_shortcut
+    )
+    assert public_extensions.extension_command_map is (
+        extension_dispatch.extension_command_map
+    )
+    assert (
+        public_extensions.extension_shortcuts is extension_dispatch.extension_shortcuts
+    )
 
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:

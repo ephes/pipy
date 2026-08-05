@@ -49,11 +49,9 @@ from pipy_harness.native.coding.product_session import CodingProductSessionCoord
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import dispatch_tool_call_hooks
-from pipy_harness.native.extension_runtime import (
-    ExtensionCodingSessionControl,
-    ToolRenderDetailsWriter,
-)
+from pipy_harness.native.extension_runtime import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
+from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.prompt_history import PromptHistoryStore

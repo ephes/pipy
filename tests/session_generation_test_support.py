@@ -7,8 +7,8 @@ from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
     RegisteredTool,
     _ExtensionRuntime,
-    _ExtensionToolPort,
 )
+from pipy_harness.native.extensions.tool_port import _ExtensionToolPort
 from pipy_harness.native.session_generation import (
     ExtensionChromeHandle,
     ExtensionProjection,

@@ -39,10 +39,11 @@ lifecycle events, carries the extension dispatch context, and keeps
 `agent_settled` extension-only.
 
 It depends on canonical agent contracts, extension discovery and reserved-name
-policy, the `_drive_awaitable` coroutine driver from `extension_loader`, the
-hook value objects from `extension_types`, and the activation collectors,
-`_ExtensionRuntime`, `_CommandContext`, `_CollectingUi`, and `EVENT_*` constants
-from `extension_runtime`. The dependency remains one-way and cycle-free:
+policy, the `_drive_awaitable` coroutine driver from `extension_loader`, hook
+value objects from `extension_types`, command/shortcut collectors from
+`extensions.dispatch`, context/UI adapters from their native owners, and the
+remaining activation contracts, collectors, and `EVENT_*` constants from
+`extension_runtime`. The dependency remains one-way and cycle-free:
 `extension_runtime` never imports back from this module.
 
 The `before_agent_start` and `tool_result` injections are each bounded by
@@ -100,12 +101,10 @@ from pipy_harness.native.extension_runtime import (
     _ExtensionRuntime,
     _report_activation_cleanup,
     activate_extensions,
-    extension_command_map,
     extension_entry_renderers,
     extension_flags,
     extension_message_renderers,
     extension_providers,
-    extension_shortcuts,
     extension_tools,
     extension_unregistered_providers,
 )
@@ -141,6 +140,10 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions.command_context import _CommandContext
+from pipy_harness.native.extensions.dispatch import (
+    extension_command_map,
+    extension_shortcuts,
+)
 from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_generation import (

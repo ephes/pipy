@@ -19,12 +19,14 @@ from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     activate_extension_batch,
     activate_extensions,
+    drain_user_messages,
+)
+from pipy_harness.native.extensions.command_context import make_extension_context
+from pipy_harness.native.extensions.dispatch import (
     dispatch_extension_command,
     dispatch_extension_shortcut,
-    drain_user_messages,
     extension_command_map,
     extension_shortcuts,
-    make_extension_context,
 )
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.resource_loading import RuntimeResourceOptions

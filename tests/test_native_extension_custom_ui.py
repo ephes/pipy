@@ -27,8 +27,8 @@ from pipy_harness.native.extension_runtime import (
     ExtensionUiDriver,
     RegisteredCommand,
     _CollectingUi,
-    dispatch_extension_command,
 )
+from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.ui.components.custom_editor import (

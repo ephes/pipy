@@ -104,14 +104,14 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # slice that shrinks a file; never raise one. A slice that needs a bound raised
 # is a slice that put code back.
 _SIZE_RATCHET = {
-    "src/pipy_harness/native/tui.py": 2095,
+    "src/pipy_harness/native/tui.py": 2093,
     "src/pipy_harness/native/tool_loop_session.py": 2006,
 }
 
 # Nothing else under `native/` may quietly become the next god file while the
 # named two are being burned down. Set at today's largest non-ratcheted module
 # (`extension_runtime.py`, itself scheduled for deletion).
-_NATIVE_FILE_CEILING = 2849
+_NATIVE_FILE_CEILING = 2492
 
 
 def _line_count(path: Path) -> int:

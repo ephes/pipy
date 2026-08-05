@@ -28,12 +28,11 @@ Public API (also re-exported from `pipy_harness.extensions`):
   `RegisteredProvider` / `ActivatedExtension` value objects.
 - `activate_extensions(descriptors, *, reserved_command_names=(),
   reserved_tool_names=(), message_outbox=None)`.
-- The command/shortcut/tool/provider collectors (`extension_command_map`,
-  `extension_shortcuts`, `extension_tools`, ...) and dispatchers
-  (`dispatch_extension_command`, `dispatch_extension_shortcut`), plus
-  `safe_activation_metadata(activated)`. The per-turn hook collectors and
-  dispatchers (`extension_event_hooks`, `dispatch_input_hooks`, the
-  lifecycle/tool-call/tool-result families) live in
+- Tool/provider collectors (`extension_tools`, `extension_providers`, ...), plus
+  `safe_activation_metadata(activated)`. Command/shortcut collection and
+  dispatch live in `pipy_harness.native.extensions.dispatch`; the per-turn hook
+  collectors and dispatchers (`extension_event_hooks`, `dispatch_input_hooks`,
+  the lifecycle/tool-call/tool-result families) live in
   `pipy_harness.native.extension_hooks`.
 """
 
@@ -46,7 +45,6 @@ from collections.abc import (
     Container,
     Iterable,
     Mapping,
-    MutableMapping,
     Sequence,
 )
 from contextlib import AbstractContextManager, ExitStack
@@ -86,7 +84,6 @@ from pipy_harness.native.extension_types import (
     REASON_NO_ACTIVATE,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_SHORTCUT,
-    CustomComponentDriver,
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
@@ -252,11 +249,7 @@ from pipy_harness.native.extension_ui import (
 )
 from pipy_harness.native.extensions import custom_payloads as _custom_payloads
 from pipy_harness.native.extensions import message_routing as _message_routing
-from pipy_harness.native.extensions.command_context import (
-    CommandContext,
-    ExtensionCapabilityError,
-    _CommandContext,
-)
+from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.extensions.contribution_names import (
     _ContributionNames,
     _normalize_contribution_names,
@@ -265,28 +258,9 @@ from pipy_harness.native.extensions.contribution_names import (
     _TakenContributionState,
 )
 from pipy_harness.native.extensions.packages import ExtensionDescriptor
-from pipy_harness.native.tools.base import (
-    ToolContext,
-    ToolDefinition,
-    ToolExecutionResult,
-    ToolRequest,
-)
+from pipy_harness.native.tools.base import ToolDefinition
 
 CommandHandler = Callable[..., object]
-ToolRenderDetails: TypeAlias = Mapping[str, object] | None
-ToolRenderDetailsSink: TypeAlias = MutableMapping[str, object | None]
-
-
-class ToolRenderDetailsWriter(Protocol):
-    """Write-only side of the render-details handoff."""
-
-    def __setitem__(
-        self, correlation_id: str, details: ToolRenderDetails, /
-    ) -> None: ...
-
-
-# Bound an extension tool's provider-visible output.
-_TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
 
 # Event names (the dispatched subset grows per slice).
 EVENT_TOOL_CALL: str = "tool_call"
@@ -320,143 +294,6 @@ LIFECYCLE_EVENTS: tuple[str, ...] = (
 )
 
 HookHandler = Callable[..., object]
-
-
-def make_extension_context(
-    cwd: str,
-    has_ui: bool,
-    notify_sink: "Callable[[str, str], None] | None" = None,
-    *,
-    coding_session: "ExtensionCodingSessionControl | None" = None,
-    model_runtime: "ExtensionModelRuntimeControl | None" = None,
-    flags: Mapping[str, object] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    project_trusted: bool = False,
-) -> CommandContext:
-    """Build a mode-aware context for a tool/command/hook invocation.
-
-    When `notify_sink` is given, `ctx.ui.notify` routes to it (live UI
-    output) in addition to recording; otherwise notifications are only
-    recorded (deterministic non-interactive behavior). `coding_session`, when
-    given, backs the coding-session-facing surface: its `messages` snapshot
-    backs `ctx.conversation`, its `session_tree` backs `ctx.session_manager`,
-    and its capability callables back `ctx.complete` / `ctx.append_entry` /
-    session-name / label / custom-message.
-    """
-
-    return _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        coding_session,
-        model_runtime=model_runtime,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-
-
-class _ExtensionToolPort:
-    """Adapt an extension `RegisteredTool` to the native `ToolPort`.
-
-    The loop validates arguments against `definition.input_schema` before
-    `invoke`, so the handler receives already-validated input. A handler
-    exception becomes a bounded tool error (never a session crash), and
-    the provider-visible output is bounded. `KeyboardInterrupt` /
-    `SystemExit` propagate.
-
-    Trust model (see the extension-api spec "Local trust boundary"):
-    extension tool handlers are trusted local Python that runs in-process
-    with the user's own OS permissions — the same trust level as the
-    extension's `activate()` function. There is no in-process sandbox, so
-    "read-only / pure" is the *documented convention* for this slice, not
-    a runtime guarantee; capability *enforcement* (shell / network / write
-    permission gates derived from the manifest `[permissions]` table) is a
-    later, explicitly-scoped permission-policy slice. What pipy does
-    enforce here is the provider boundary: schema-validated input, bounded
-    output, and bounded errors.
-    """
-
-    def __init__(
-        self,
-        registered: RegisteredTool,
-        *,
-        has_ui: bool,
-        notify_sink: Callable[[str, str], None] | None = None,
-        set_active_tools_fn: Callable[[int, Sequence[str]], bool] | None = None,
-        flags: Mapping[str, object] | None = None,
-        render_details_sink: ToolRenderDetailsWriter | None = None,
-        project_trusted: bool = False,
-    ) -> None:
-        self._registered = registered
-        self._has_ui = has_ui
-        self._notify_sink = notify_sink
-        self._set_active_tools_fn = set_active_tools_fn
-        self._flags = dict(flags or {})
-        self._render_details_sink = render_details_sink
-        self._project_trusted = bool(project_trusted)
-        tool = registered.tool
-        self._definition = ToolDefinition(
-            name=tool.name,
-            description=str(tool.description),
-            input_schema=dict(tool.input_schema),
-        )
-
-    @property
-    def definition(self) -> ToolDefinition:
-        return self._definition
-
-    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
-        generation_id = context.extension_generation_id
-        callback = self._set_active_tools_fn
-        set_active_tools = (
-            None
-            if callback is None or generation_id is None
-            else lambda names: callback(generation_id, names)
-        )
-        ctx = make_extension_context(
-            str(context.workspace_root),
-            self._has_ui,
-            self._notify_sink,
-            model_runtime=ExtensionModelRuntimeControl(
-                set_active_tools_fn=set_active_tools
-            ),
-            flags=self._flags,
-            project_trusted=self._project_trusted,
-        )
-        try:
-            result = self._registered.tool.handler(ctx, dict(request.arguments))
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException as err:  # noqa: BLE001 - bound a bad tool
-            return ToolExecutionResult(
-                tool_request_id=request.tool_request_id,
-                output_text=f"extension tool error: {type(err).__name__}",
-                is_error=True,
-                provider_correlation_id=request.provider_correlation_id,
-            )
-        if isinstance(result, ToolResult) and isinstance(result.content, str):
-            content = result.content
-        elif isinstance(result, ToolResult):
-            content = str(result.content)
-        else:
-            content = str(result)
-        cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
-        if len(content) > cap:
-            content = content[: cap - 64] + "\n[pipy: extension tool output truncated]"
-        if (
-            self._render_details_sink is not None
-            and self._registered.tool.render_result is not None
-            and request.provider_correlation_id is not None
-        ):
-            details = result.details if isinstance(result, ToolResult) else None
-            self._render_details_sink[request.provider_correlation_id] = (
-                dict(details) if isinstance(details, Mapping) else None
-            )
-        return ToolExecutionResult(
-            tool_request_id=request.tool_request_id,
-            output_text=content,
-            is_error=False,
-            provider_correlation_id=request.provider_correlation_id,
-        )
 
 
 ActivationStatus = Literal["activated", "disabled"]
@@ -870,200 +707,6 @@ def _report_activation_cleanup(
     message = cleanup.anomaly_diagnostic
     if diagnostic is not None and message is not None:
         diagnostic(message)
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionCommandDispatch:
-    """Outcome of dispatching one extension `/command`.
-
-    `ran` is True when the handler completed; `error` carries a safe,
-    bounded label (exception type name only) when it raised. `messages`
-    are the `(kind, text)` notifications the handler emitted, for the
-    caller to render as live UI output. No provider turn is implied.
-    """
-
-    name: str
-    ran: bool
-    error: str | None
-    messages: tuple[tuple[str, str], ...]
-
-
-def extension_command_map(
-    activated: Sequence[ActivatedExtension],
-) -> dict[str, RegisteredCommand]:
-    """Build a `name -> RegisteredCommand` map from activated extensions.
-
-    Only `activated` extensions contribute; a name registered by an
-    earlier extension wins (duplicates were already disabled during
-    activation, so this is deterministic).
-    """
-
-    command_map: dict[str, RegisteredCommand] = {}
-    for extension in activated:
-        if extension.status != "activated":
-            continue
-        for command in extension.commands:
-            command_map.setdefault(command.name, command)
-    return command_map
-
-
-def extension_shortcuts(
-    activated: Sequence[ActivatedExtension],
-) -> dict[str, RegisteredShortcut]:
-    """Build a `key -> RegisteredShortcut` map from activated extensions.
-
-    Only `activated` extensions contribute; a key bound by an earlier
-    extension wins (duplicate keys were already disabled during activation,
-    so this is deterministic).
-    """
-
-    shortcut_map: dict[str, RegisteredShortcut] = {}
-    for extension in activated:
-        if extension.status != "activated":
-            continue
-        for shortcut in extension.shortcuts:
-            shortcut_map.setdefault(shortcut.key, shortcut)
-    return shortcut_map
-
-
-def dispatch_extension_command(
-    command_text: str,
-    command_map: Mapping[str, RegisteredCommand],
-    *,
-    cwd: str,
-    has_ui: bool,
-    coding_session: "ExtensionCodingSessionControl | None" = None,
-    notify_sink: "Callable[[str, str], None] | None" = None,
-    ui_custom_driver: "CustomComponentDriver | None" = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    model_runtime: "ExtensionModelRuntimeControl | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> ExtensionCommandDispatch | None:
-    """Dispatch `command_text` to an extension command, or return None.
-
-    Returns None when `command_text` is not a `/<name>` form or names no
-    registered extension command, so the caller falls through to its
-    normal handling (built-ins run earlier, so extensions can never
-    shadow them). When it matches, the handler runs locally with a
-    mode-aware context and the raw argument string; it triggers no
-    provider turn. A handler exception is bounded into a safe `error`.
-    """
-
-    if not command_text.startswith("/"):
-        return None
-    body = command_text[1:]
-    # Split only on the first space: the command name, then the raw
-    # argument string verbatim (intentional leading/trailing whitespace
-    # is preserved, per the handler contract).
-    name, _, args = body.partition(" ")
-    command = command_map.get(name)
-    if command is None:
-        return None
-
-    return _run_extension_handler(
-        name,
-        command.handler,
-        args,
-        cwd=cwd,
-        has_ui=has_ui,
-        coding_session=coding_session,
-        notify_sink=notify_sink,
-        ui_custom_driver=ui_custom_driver,
-        ui_driver=ui_driver,
-        model_runtime=model_runtime,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-
-
-def dispatch_extension_shortcut(
-    key: str,
-    shortcut_map: Mapping[str, RegisteredShortcut],
-    *,
-    cwd: str,
-    has_ui: bool,
-    coding_session: "ExtensionCodingSessionControl | None" = None,
-    notify_sink: "Callable[[str, str], None] | None" = None,
-    ui_custom_driver: "CustomComponentDriver | None" = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    model_runtime: "ExtensionModelRuntimeControl | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> ExtensionCommandDispatch | None:
-    """Dispatch a registered extension shortcut `key`, or return None.
-
-    Returns None when `key` (already normalized by the caller) names no
-    registered shortcut. When it matches, the bound handler runs locally with
-    the same mode-aware context as a command and an empty argument string; it
-    triggers no provider turn and a handler exception is bounded into a safe
-    `error`.
-    """
-
-    shortcut = shortcut_map.get(normalize_shortcut_key(key))
-    if shortcut is None:
-        return None
-    return _run_extension_handler(
-        shortcut.key,
-        shortcut.handler,
-        "",
-        cwd=cwd,
-        has_ui=has_ui,
-        coding_session=coding_session,
-        notify_sink=notify_sink,
-        ui_custom_driver=ui_custom_driver,
-        ui_driver=ui_driver,
-        model_runtime=model_runtime,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-
-
-def _run_extension_handler(
-    name: str,
-    handler: CommandHandler,
-    args: str,
-    *,
-    cwd: str,
-    has_ui: bool,
-    coding_session: "ExtensionCodingSessionControl | None",
-    notify_sink: "Callable[[str, str], None] | None",
-    ui_custom_driver: "CustomComponentDriver | None",
-    ui_driver: "ExtensionUiDriver | None",
-    model_runtime: "ExtensionModelRuntimeControl | None",
-    flags: Mapping[str, object] | None,
-    project_trusted: bool,
-) -> ExtensionCommandDispatch:
-    """Run a command/shortcut handler with a mode-aware context; bound errors."""
-
-    ui = _CollectingUi(has_ui, notify_sink, ui_custom_driver, ui_driver)
-    ctx = _CommandContext(
-        cwd,
-        ui,
-        coding_session,
-        model_runtime=model_runtime,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-    try:
-        handler(ctx, args)
-    except (KeyboardInterrupt, SystemExit):
-        # A genuine user abort / interpreter exit is control flow, not an
-        # extension failure: never swallow it into a bounded error.
-        raise
-    except BaseException as err:  # noqa: BLE001 - bound a bad handler
-        return ExtensionCommandDispatch(
-            name=name,
-            ran=False,
-            error=_safe_diagnostic(err),
-            messages=tuple(ui.messages),
-        )
-    return ExtensionCommandDispatch(
-        name=name,
-        ran=True,
-        error=None,
-        messages=tuple(ui.messages),
-    )
 
 
 def _coerce_activation_string(value: object, reason: str) -> str:

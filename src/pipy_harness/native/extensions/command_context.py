@@ -10,21 +10,21 @@ capability it lacks degrades to `ExtensionCapabilityError` instead of a
 crash, so handlers behave predictably in deterministic / non-interactive
 dispatches.
 
-Contexts are built by `make_extension_context`
-(`pipy_harness.native.extension_runtime`) and directly by the hook
-dispatchers (`pipy_harness.native.extension_hooks`); the public names are
-re-exported from `pipy_harness.extensions`.
+Contexts are built by `make_extension_context` in this module and directly by
+the hook dispatchers (`pipy_harness.native.extension_hooks`); the public names
+are re-exported from `pipy_harness.extensions`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionUi,
+    ExtensionUiDriver,
     is_valid_custom_entry_type,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
@@ -35,6 +35,38 @@ from pipy_harness.native.extensions.session_views import (
     _ConversationView,
     _ReadOnlySessionManagerView,
 )
+
+
+def make_extension_context(
+    cwd: str,
+    has_ui: bool,
+    notify_sink: "Callable[[str, str], None] | None" = None,
+    *,
+    coding_session: "ExtensionCodingSessionControl | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
+    flags: Mapping[str, object] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
+    project_trusted: bool = False,
+) -> CommandContext:
+    """Build a mode-aware context for a tool/command/hook invocation.
+
+    When `notify_sink` is given, `ctx.ui.notify` routes to it (live UI
+    output) in addition to recording; otherwise notifications are only
+    recorded (deterministic non-interactive behavior). `coding_session`, when
+    given, backs the coding-session-facing surface: its `messages` snapshot
+    backs `ctx.conversation`, its `session_tree` backs `ctx.session_manager`,
+    and its capability callables back `ctx.complete` / `ctx.append_entry` /
+    session-name / label / custom-message.
+    """
+
+    return _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        coding_session,
+        model_runtime=model_runtime,
+        flags=flags,
+        project_trusted=project_trusted,
+    )
 
 
 class ExtensionCapabilityError(RuntimeError):

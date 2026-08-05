@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.native.agent import AgentAssistantMessage, ProductContent
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
+from pipy_harness.native.extension_runtime import activate_extensions
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.dispatch import (
     dispatch_extension_command,
     extension_command_map,
 )
-from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.tui import ToolLoopTerminalUi
 

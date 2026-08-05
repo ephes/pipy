@@ -11,10 +11,10 @@ only when a UI is available and never blocking otherwise.
 
 This module imports only the `extension_types` contracts and the `native.themes`
 registry helpers, so it never reaches the product session (`tool_loop_session`)
-or the terminal UI (`tui`). `extension_runtime` imports `_CollectingUi` from
-here for `make_extension_context` / `_ActivationApi`; the live
-`_LiveExtensionUiDriver` that binds `ToolLoopTerminalUi` is owned beside that
-terminal boundary in `tui`.
+or the terminal UI (`tui`). The context and dispatch owners import
+`_CollectingUi` from here for invocation contexts, while `extension_runtime`
+uses it for `_ActivationApi`; the live `_LiveExtensionUiDriver` that binds
+`ToolLoopTerminalUi` is owned beside that terminal boundary in `tui`.
 """
 
 from __future__ import annotations
