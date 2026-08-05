@@ -30,9 +30,15 @@ from pipy_harness.native.ui.paint_lock import PaintLock
 
 @dataclass(frozen=True, slots=True)
 class TreeSelectorClose:
-    """The selector finished: ``entry_id`` is the choice, ``None`` a cancel."""
+    """The selector finished: ``entry_id`` is the choice, ``None`` a cancel.
+
+    ``filter_mode`` is the filter the overlay closed with; the session-side
+    ``/tree`` handler persists it for the next invocation, so it travels with
+    the close result instead of being re-read from overlay state afterward.
+    """
 
     entry_id: str | None
+    filter_mode: str
 
 
 class TreeSelectorComponent:
@@ -78,8 +84,7 @@ class TreeSelectorComponent:
         """
 
         if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
-            self._close()
-            return TreeSelectorClose(None)
+            return TreeSelectorClose(None, self._close())
         if key in {"up", "down"}:
             self._navigate(-1 if key == "up" else 1)
             return None
@@ -124,13 +129,16 @@ class TreeSelectorComponent:
         if not rows:
             return None
         entry_id = rows[self._overlays.tree_selection].entry_id
-        self._close()
-        return TreeSelectorClose(entry_id)
+        return TreeSelectorClose(entry_id, self._close())
 
-    def _close(self) -> None:
+    def _close(self) -> str:
+        """Deactivate the overlay; return the filter mode it closed with."""
+
         with self._paint_lock:
+            filter_mode = self._overlays.tree_filter
             self._overlays.end_tree()
         self._repaint()
+        return filter_mode
 
 
 def tree_selector_region_lines(

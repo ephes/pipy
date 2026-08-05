@@ -118,15 +118,13 @@ from pipy_harness.native.overlay_state import (
 from pipy_harness.native.overlay_state import (
     OverlayState,
     SettingsOverlayKind,
+    TreeSelectorRow,
 )
 from pipy_harness.native.overlay_state import (
     ScopedModelRow as ScopedModelRow,
 )
 from pipy_harness.native.overlay_state import (
     SettingsRow as SettingsRow,
-)
-from pipy_harness.native.overlay_state import (
-    TreeSelectorRow as TreeSelectorRow,
 )
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
@@ -199,6 +197,7 @@ from pipy_harness.native.ui.components.transcript import (
     TranscriptComponent,
 )
 from pipy_harness.native.ui.components.tree_selector import (
+    TreeSelectorClose,
     TreeSelectorComponent,
     tree_selector_region_lines,
 )
@@ -872,13 +871,6 @@ class ToolLoopTerminalUi:
     # preserve characterized facade access without a second stored copy; an
     # ``*_open`` write changes the one active-overlay discriminator, so two
     # overlays cannot become renderable simultaneously.
-    @property
-    def tree_selector_filter(self) -> str:
-        # Read by the session-side `/tree` handler after the selector closes
-        # (`repl/session_commands.py` persists the last filter mode); the rest
-        # of the tree-selector state is owned by `ui/components/tree_selector`.
-        return self._overlays.tree_filter
-
     @property
     def custom_overlay_open(self) -> bool:
         return self._overlays.is_open("custom")
@@ -1837,16 +1829,17 @@ class ToolLoopTerminalUi:
         filter_modes: Sequence[str],
         initial_filter: str,
         on_label_toggle: Callable[[str], None],
-    ) -> str | None:
-        """Drive the interactive ``/tree`` selector; return a chosen entry id.
+    ) -> TreeSelectorClose:
+        """Drive the interactive ``/tree`` selector; return its close result.
 
         ``build_rows(filter_mode)`` returns the visible rows for a filter;
         up/down move the highlight, ``Ctrl-O`` cycles the filter mode, ``L``
         (Shift-L) toggles a label on the highlighted entry via
         ``on_label_toggle``, ``Enter`` selects the highlighted entry, and
-        ``Esc``/``Ctrl-C``/``Ctrl-D``/EOF cancel. Runs no provider turn and no
-        model-visible tool call; the caller applies the chosen entry's
-        selection semantics afterward.
+        ``Esc``/``Ctrl-C``/``Ctrl-D``/EOF cancel. The close result carries the
+        chosen entry id (``None`` on cancel) and the filter mode the overlay
+        closed with. Runs no provider turn and no model-visible tool call; the
+        caller applies the chosen entry's selection semantics afterward.
         """
 
         selector = TreeSelectorComponent(
@@ -1867,7 +1860,7 @@ class ToolLoopTerminalUi:
                     continue
                 closed = selector.handle_key(key)
                 if closed is not None:
-                    return closed.entry_id
+                    return closed
 
     # -- custom extension overlay (ctx.ui.custom) ---------------------------
 

@@ -119,7 +119,7 @@ def test_enter_selects_the_highlighted_entry_and_closes() -> None:
 
     closed = harness.component.handle_key("enter")
 
-    assert closed == TreeSelectorClose("b")
+    assert closed == TreeSelectorClose("b", "default")
     assert not harness.overlays.is_open("tree")
     assert harness.overlays.tree_rows == ()
 
@@ -139,8 +139,19 @@ def test_cancel_keys_and_eof_close_without_a_choice() -> None:
 
         closed = harness.component.handle_key(key)
 
-        assert closed == TreeSelectorClose(None)
+        assert closed == TreeSelectorClose(None, "default")
         assert not harness.overlays.is_open("tree")
+
+
+def test_close_result_carries_the_cycled_filter_mode() -> None:
+    harness = _Harness({"default": _rows("a"), "all": _rows("a", "b")})
+    harness.component.open("default")
+    assert harness.component.handle_key("ctrl-o") is None
+
+    closed = harness.component.handle_key("enter")
+
+    assert closed == TreeSelectorClose("b", "all")  # no active row: last row wins
+    assert not harness.overlays.is_open("tree")
 
 
 def test_unknown_keys_are_ignored() -> None:

@@ -107,7 +107,7 @@ def run_interactive_tree_selector(
     editor. Escape cancels with the tree and leaf unchanged.
     """
 
-    from pipy_harness.native.tui import TreeSelectorRow
+    from pipy_harness.native.overlay_state import TreeSelectorRow
 
     def build_rows(mode: str) -> list[TreeSelectorRow]:
         active_ids = {e.id for e in session_tree.get_branch()}
@@ -127,13 +127,14 @@ def run_interactive_tree_selector(
         existing = session_tree.get_label(entry_id)
         session_tree.append_label_change(entry_id, None if existing else "marked")
 
-    chosen = terminal_ui.run_tree_selector(
+    closed = terminal_ui.run_tree_selector(
         build_rows=build_rows,
         filter_modes=FILTER_MODES,
         initial_filter=filter_mode if filter_mode in FILTER_MODES else "default",
         on_label_toggle=on_label_toggle,
     )
-    new_filter = terminal_ui.tree_selector_filter
+    new_filter = closed.filter_mode
+    chosen = closed.entry_id
     if chosen is None:
         emit_diagnostic(terminal_ui, error_stream, "pipy: /tree cancelled.")
         return TreeCommandOutcome(filter_mode=new_filter)
