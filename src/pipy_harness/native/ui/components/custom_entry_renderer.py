@@ -39,18 +39,20 @@ from pipy_harness.native.extension_runtime import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     RenderedCustomEntry,
-    _custom_entry_redraw_rows,
-    _custom_entry_renderer_payload,
-    _custom_message_renderer_payload,
     drain_custom_messages,
     drain_user_messages,
     is_valid_custom_entry_type,
-    render_extension_entry,
-    render_extension_message,
-    safe_custom_entry_data,
 )
 from pipy_harness.native.extensions.command_context import (
     ExtensionCapabilityError,
+)
+from pipy_harness.native.extensions.custom_payloads import (
+    _custom_entry_redraw_rows,
+    _custom_entry_renderer_payload,
+    _custom_message_renderer_payload,
+    render_extension_entry,
+    render_extension_message,
+    safe_custom_entry_data,
 )
 from pipy_harness.native.session_generation import SessionGenerationSnapshot
 from pipy_harness.native.session_tree import (

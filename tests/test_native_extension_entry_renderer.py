@@ -6,10 +6,8 @@ import warnings
 import pytest
 
 from pipy_harness.extensions import lines_component
-from pipy_harness.native.extension_runtime import (
-    RegisteredEntryRenderer,
-    render_extension_entry,
-)
+from pipy_harness.native.extension_runtime import RegisteredEntryRenderer
+from pipy_harness.native.extensions.custom_payloads import render_extension_entry
 
 
 def _renderers(custom_type, fn):

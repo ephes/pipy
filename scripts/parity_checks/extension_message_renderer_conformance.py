@@ -22,16 +22,16 @@ from typing import TextIO, cast
 
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.extension_runtime import (
-    _CUSTOM_RENDER_MAX_CHARS,
     RegisteredMessageRenderer,
     RenderedCustomEntry,
+)
+from pipy_harness.native.extension_ui import _CUSTOM_RENDER_MAX_CHARS
+from pipy_harness.native.extensions.custom_payloads import (
+    _custom_entry_redraw_rows,
+    _custom_message_renderer_payload,
     render_extension_message,
 )
 from pipy_harness.native.session_tree import CustomMessageEntry
-from pipy_harness.native.tool_loop_session import (
-    _custom_entry_redraw_rows,
-    _custom_message_renderer_payload,
-)
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
@@ -296,7 +296,7 @@ def run_checks() -> list[Check]:
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=Path.cwd(),
     )
-    ui.add_custom_entry("old", ["OLD-BODY"])
+    ui._transcript.add_custom_entry("old", ["OLD-BODY"])
     ui.add_notice("ordinary history remains")
     custom_message = CustomMessageEntry(
         "entry-1", None, "2026-07-06T00:00:00Z", "card", "BODY", True, {"n": 3}
@@ -311,7 +311,7 @@ def run_checks() -> list[Check]:
             True,
         ),
     )
-    ui.redraw_custom_entries(rows + [("plain", "note", ("NEW-PLAIN",))])
+    ui._transcript.redraw_custom_entries(rows + [("plain", "note", ("NEW-PLAIN",))])
     frame = "\n".join(ui.render_lines(width=80, height=20))
     checks.append(
         Check(

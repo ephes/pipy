@@ -36,6 +36,8 @@ from typing import Self, cast
 from pipy_harness.native.extension_runtime import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
+)
+from pipy_harness.native.extensions.custom_payloads import (
     render_extension_entry,
     render_extension_message,
 )

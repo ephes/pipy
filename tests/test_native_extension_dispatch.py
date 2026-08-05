@@ -26,10 +26,12 @@ from pipy_harness.native.extension_runtime import (
     extension_flags,
     extension_message_renderers,
     parse_extension_flag_tokens,
+)
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
     safe_custom_entry_data,
 )
-from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_tree import (
     CustomEntry,

@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.extensions import lines_component
-from pipy_harness.native.extension_runtime import (
-    RegisteredEntryRenderer,
+from pipy_harness.native.extension_runtime import RegisteredEntryRenderer
+from pipy_harness.native.extensions.custom_payloads import (
+    _custom_entry_redraw_rows,
     render_extension_entry,
 )
 from pipy_harness.native.session_tree import CustomEntry
-from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
@@ -134,16 +134,15 @@ def run_checks(tmp_path: Path) -> list[Check]:
     )
     first = render_extension_entry(renderers, payload, expanded=False, theme=_Theme())
     assert first is not None
-    ui.add_entry_renderer_component(
+    ui._transcript.add_entry_renderer_component(
         first.lines,
         custom_type="card",
         entry=payload,
         renderers=renderers,
     )
-    ui.tools_expanded = True
-    ui.rerender_custom_messages()
+    ui.set_tools_expanded(True)
     block_text = "\n".join(
-        line for _kind, lines in ui.custom_entry_blocks() for line in lines
+        line for _kind, lines in ui._transcript.custom_entry_blocks() for line in lines
     )
     checks.append(
         Check(

@@ -28,6 +28,7 @@ from pipy_harness.native.extension_types import (
     is_valid_custom_entry_type,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
+from pipy_harness.native.extensions.custom_payloads import coerce_custom_message
 from pipy_harness.native.extensions.session_views import (
     ConversationView,
     SessionManagerView,
@@ -218,12 +219,6 @@ class _CommandContext:
         message: Mapping[str, object],
         options: Mapping[str, object] | None = None,
     ) -> object:
-        # Imported at call time: `extension_runtime` (the current owner of
-        # `coerce_custom_message`) imports this module at load time. The
-        # custom-payloads slice of the decomposition plan moves the coercers
-        # out of `extension_runtime` and retires this call-time import.
-        from pipy_harness.native.extension_runtime import coerce_custom_message
-
         if self._coding_session.send_message_fn is None:
             raise ExtensionCapabilityError(
                 "custom messages are not available in this context"

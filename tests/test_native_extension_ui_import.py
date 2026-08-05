@@ -2,9 +2,10 @@
 
 Slice 6.4c relocated `_CollectingUi`, `_safe_ui_key`, and the
 `coerce_tool_render_lines` / `_LinesComponent` / `lines_component` chrome
-helpers into `pipy_harness.native.extension_ui`. `extension_runtime` and the
-public `pipy_harness.extensions` surface re-export the same objects, and the
-new module never reaches the concrete product session or terminal UI.
+helpers into `pipy_harness.native.extension_ui`. Slice 18 relocated custom
+payload coercion and rendering into `native.extensions.custom_payloads`; its
+old `extension_runtime` path is absent while the public extension API imports
+those objects from their authoritative owner.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import pipy_harness.native.extension_runtime as extension_runtime
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
 import pipy_harness.native.extensions.command_context as extension_command_context
+import pipy_harness.native.extensions.custom_payloads as extension_custom_payloads
 import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.extensions.session_views as extension_session_views
 import pipy_harness.native.provider as provider
@@ -135,7 +137,6 @@ _OWNER_GROUPS = (
             "RegisteredMessageRenderer",
             "RegisteredShortcut",
             "activate_extensions",
-            "coerce_custom_message",
             "dispatch_extension_shortcut",
             "dispatch_extension_command",
             "drain_custom_messages",
@@ -149,9 +150,15 @@ _OWNER_GROUPS = (
             "extension_shortcuts",
             "extension_tools",
             "extension_unregistered_providers",
+            "safe_activation_metadata",
+        ),
+    ),
+    (
+        extension_custom_payloads,
+        (
+            "coerce_custom_message",
             "render_extension_entry",
             "render_extension_message",
-            "safe_activation_metadata",
             "safe_custom_entry_data",
         ),
     ),
@@ -244,6 +251,52 @@ _OWNER_GROUPS = (
     (provider_construction, ("build_extension_provider_port",)),
     (provider, ("apply_provider_headers",)),
 )
+
+_MOVED_CUSTOM_PAYLOAD_NAMES = (
+    "coerce_custom_message",
+    "safe_custom_entry_data",
+    "_custom_message_renderer_payload",
+    "_custom_entry_renderer_payload",
+    "_CustomEntryRedrawRow",
+    "_custom_entry_redraw_rows",
+    "_renderer_wants_context",
+    "_plain_message_render",
+    "_invoke_message_renderer",
+    "_coerce_message_component",
+    "render_extension_message",
+    "_close_unsupported_awaitable",
+    "_coerce_entry_component",
+    "render_extension_entry",
+    "_copy_custom_entry_data",
+    "_coerce_rendered_lines",
+    "_bounded_render_text",
+)
+
+
+def test_custom_payload_cluster_has_one_authoritative_owner() -> None:
+    for name in _MOVED_CUSTOM_PAYLOAD_NAMES:
+        assert name in vars(extension_custom_payloads)
+        assert not hasattr(extension_runtime, name)
+
+    functions = _MOVED_CUSTOM_PAYLOAD_NAMES[:4] + _MOVED_CUSTOM_PAYLOAD_NAMES[5:]
+    for name in functions:
+        assert getattr(extension_custom_payloads, name).__module__ == (
+            extension_custom_payloads.__name__
+        )
+
+    owner_path = Path(extension_custom_payloads.__file__ or "")
+    tree = ast.parse(owner_path.read_text(encoding="utf-8"))
+    definitions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
+    definitions.update(
+        node.target.id
+        for node in tree.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    )
+    assert set(_MOVED_CUSTOM_PAYLOAD_NAMES) <= definitions
 
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:

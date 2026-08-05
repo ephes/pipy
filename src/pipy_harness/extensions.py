@@ -46,7 +46,6 @@ from pipy_harness.native.extension_runtime import (
     RegisteredMessageRenderer,
     RegisteredShortcut,
     activate_extensions,
-    coerce_custom_message,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     drain_custom_messages,
@@ -60,10 +59,7 @@ from pipy_harness.native.extension_runtime import (
     extension_shortcuts,
     extension_tools,
     extension_unregistered_providers,
-    render_extension_entry,
-    render_extension_message,
     safe_activation_metadata,
-    safe_custom_entry_data,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
@@ -119,6 +115,12 @@ from pipy_harness.native.extension_ui import (
 from pipy_harness.native.extensions.command_context import (
     CommandContext,
     ExtensionCapabilityError,
+)
+from pipy_harness.native.extensions.custom_payloads import (
+    coerce_custom_message,
+    render_extension_entry,
+    render_extension_message,
+    safe_custom_entry_data,
 )
 from pipy_harness.native.extensions.packages import (
     ExtensionDescriptor,
