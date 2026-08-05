@@ -2930,14 +2930,14 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ),
         ("dispose", reload_file, (reload_owner, "function:execute")),
         ("dispose", reload_file, reload_generation),
-        # Unrelated to the reload gate: the custom-overlay shell tears down its
-        # `CustomComponentRunner` transaction in its `finally` block. The
-        # inventory is exhaustive by name, so a legitimate second `dispose`
-        # family has to be listed rather than filtered out.
+        # Unrelated to the reload gate: the generic modal driver invokes the
+        # custom overlay runner's optional disposal callback in its `finally`
+        # block. The inventory is exhaustive by name, so this legitimate
+        # second `dispose` family must be listed rather than filtered out.
         (
             "dispose",
-            "native/tui.py",
-            ("class:ToolLoopTerminalUi", "function:run_custom_component"),
+            "native/ui/screen.py",
+            ("class:Screen", "function:drive"),
         ),
         # The extension-generation owner invokes each ordered participant's
         # unlocked disposal phase between atomic detach and finalization.

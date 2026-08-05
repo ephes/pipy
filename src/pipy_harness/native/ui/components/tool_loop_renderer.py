@@ -7,10 +7,10 @@ text, reasoning, tool call/result blocks, the transient working row) lands on
 the :class:`~pipy_harness.native.ui.components.transcript.TranscriptComponent`,
 spinner and working chrome are read straight off the shared
 :class:`~pipy_harness.native.extension_chrome_state.ExtensionChromeState`
-record, and the two live values a custom tool render needs beyond the
-transcript — the frame width and the styling stream — arrive as injected
-values built by the terminal shell, exactly like the custom-entry renderer's
-target. The renderer never sees the terminal shell.
+record, and the three live values a custom tool render needs beyond the transcript —
+frame width, expansion, and styling stream — arrive through the screen-owned
+render-input record, exactly like the custom-entry renderer's target. The
+renderer never sees the composition facade.
 
 Locking is owned where the state is owned: transcript verbs take the shared
 paint lock inside the component, so this renderer performs no locking of its
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
-from typing import TYPE_CHECKING, ClassVar, TextIO, TypedDict
+from typing import TYPE_CHECKING, ClassVar, TypedDict
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -39,6 +39,7 @@ from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer,
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import ToolRenderContext
@@ -79,15 +80,13 @@ class TuiToolLoopRenderer:
         *,
         transcript: TranscriptComponent,
         chrome: ExtensionChromeState,
-        terminal_stream: TextIO,
-        frame_width: Callable[[], int],
+        render_inputs: ScreenRenderInputs,
         tool_renderers: Mapping[str, ExtensionTool] | None = None,
         render_details_sink: ToolRenderDetailsSink | None = None,
     ) -> None:
         self._transcript = transcript
         self._chrome = chrome
-        self._terminal_stream = terminal_stream
-        self._frame_width = frame_width
+        self._render_inputs = render_inputs
         self._streamed_any = False
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
@@ -261,7 +260,7 @@ class TuiToolLoopRenderer:
         lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
         # Ctrl+O tool-output expansion: when expanded, commit the full retained
         # (already tool-bounded) output instead of the 5-line collapsed preview.
-        if self._transcript.tools_expanded:
+        if self._render_inputs.expanded():
             rendered = lines
         else:
             preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
@@ -301,7 +300,7 @@ class TuiToolLoopRenderer:
             render_tool_phase,
         )
 
-        style = chrome_style_for(self._terminal_stream)
+        style = chrome_style_for(self._render_inputs.stream)
         typed_details = details if isinstance(details, Mapping) else None
         ctx = ToolRenderContext(
             tool_name=self._last_tool_name,
@@ -310,8 +309,8 @@ class TuiToolLoopRenderer:
             is_error=is_error,
             content=content,
             details=typed_details,
-            expanded=self._transcript.tools_expanded,
-            width=self._frame_width(),
+            expanded=self._render_inputs.expanded(),
+            width=self._render_inputs.width(),
             theme=build_tool_render_theme(style),
             state=state,
         )

@@ -17,7 +17,7 @@ and there is nothing to construct by accident at a call site.
 
 from __future__ import annotations
 
-import threading
+from _thread import RLock
 from types import TracebackType
 
 
@@ -26,8 +26,10 @@ class PaintLock:
 
     __slots__ = ("_lock",)
 
-    def __init__(self) -> None:
-        self._lock = threading.RLock()
+    def __init__(self, lock: RLock) -> None:
+        if not isinstance(lock, RLock):
+            raise TypeError("PaintLock requires an RLock")
+        self._lock = lock
 
     def __enter__(self) -> bool:
         return self._lock.__enter__()

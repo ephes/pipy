@@ -12,6 +12,7 @@ extension-renderer coverage lives in ``test_native_tool_loop_tui.py``,
 from __future__ import annotations
 
 import io
+import threading
 import time
 
 from pipy_harness.native.agent import (
@@ -23,6 +24,7 @@ from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 
 class _Harness:
@@ -31,19 +33,23 @@ class _Harness:
     def __init__(self) -> None:
         self.repaints = 0
         self.chrome = ExtensionChromeState()
+        self.render_inputs = ScreenRenderInputs(
+            lambda: 80, io.StringIO(), self._expanded
+        )
         self.transcript = TranscriptComponent(
-            PaintLock(),
+            PaintLock(threading.RLock()),
             self._repaint,
             reset_scrollback=lambda: None,
-            frame_width=lambda: 80,
-            render_theme=lambda: None,
+            render_inputs=self.render_inputs,
         )
         self.renderer = TuiToolLoopRenderer(
             transcript=self.transcript,
             chrome=self.chrome,
-            terminal_stream=io.StringIO(),
-            frame_width=lambda: 80,
+            render_inputs=self.render_inputs,
         )
+
+    def _expanded(self) -> bool:
+        return self.transcript.tools_expanded
 
     def _repaint(self) -> None:
         self.repaints += 1

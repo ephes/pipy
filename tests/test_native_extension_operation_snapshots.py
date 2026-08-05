@@ -426,7 +426,7 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
     custom_editor = CustomEditorOwner(
         CustomEditorState(),
         editor,
-        PaintLock(),
+        PaintLock(threading.RLock()),
         noop,
         host=object(),
         theme=lambda: object(),

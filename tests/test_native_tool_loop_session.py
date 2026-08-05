@@ -2820,7 +2820,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     )
 
     committed_frame = "\n".join(
-        terminal_ui.render_lines(width=72, height=24, pad=False)
+        terminal_ui._screen.render_lines(width=72, height=24, pad=False)
     )
     history = terminal_ui._transcript.history_blocks
 
@@ -2841,7 +2841,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
 
     terminal_ui.set_tools_expanded(True)
     rerendered_frame = "\n".join(
-        terminal_ui.render_lines(width=101, height=24, pad=False)
+        terminal_ui._screen.render_lines(width=101, height=24, pad=False)
     )
     assert "RICH:ACTIVE:expanded=True:width=101:theme=True" in rerendered_frame
 
@@ -2902,7 +2902,7 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
     )
 
     committed_frame = "\n".join(
-        terminal_ui.render_lines(width=72, height=20, pad=False)
+        terminal_ui._screen.render_lines(width=72, height=20, pad=False)
     )
     archive_text = output_stream.getvalue()
 

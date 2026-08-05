@@ -97,7 +97,7 @@ def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
     ui.append_assistant("visible answer")
     ui.input_editor.text = "next"
 
-    ui.paint()
+    ui._screen.paint()
 
     width, height = ui._driver.size()
     snapshot = parse_ansi_screen(terminal.getvalue(), columns=width, rows=height)

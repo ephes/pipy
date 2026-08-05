@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import threading
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from pipy_harness.native.extension_chrome_state import (
 from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
 
 
@@ -41,8 +43,7 @@ def _chrome(
         lock,
         lambda: events.append(("repaint", _lock_is_available(lock))),
         tui_handle=object(),
-        region_width=lambda: 80,
-        render_theme=lambda: object(),
+        render_inputs=ScreenRenderInputs(lambda: 80, io.StringIO(), lambda: False),
         push_title=lambda: events.append(("push-title", _lock_is_available(lock))),
         write_title=lambda _title: events.append(
             ("write-title", _lock_is_available(lock))
@@ -58,7 +59,7 @@ def _chrome(
 
 def test_chrome_state_is_atomic_repaint_unlocked_and_title_effects_serialized() -> None:
     record = ExtensionChromeState(working_visible=True)
-    lock = PaintLock()
+    lock = PaintLock(threading.RLock())
     events: list[tuple[str, bool]] = []
     chrome = _chrome(record, lock, events)
 
@@ -79,7 +80,7 @@ def test_chrome_state_is_atomic_repaint_unlocked_and_title_effects_serialized() 
 
 def test_concurrent_title_update_cannot_pass_an_inflight_terminal_write() -> None:
     record = ExtensionChromeState()
-    lock = PaintLock()
+    lock = PaintLock(threading.RLock())
     first_effect_entered = threading.Event()
     release_first_effect = threading.Event()
     second_started = threading.Event()
@@ -98,8 +99,7 @@ def test_concurrent_title_update_cannot_pass_an_inflight_terminal_write() -> Non
         lock,
         lambda: None,
         tui_handle=object(),
-        region_width=lambda: 80,
-        render_theme=lambda: object(),
+        render_inputs=ScreenRenderInputs(lambda: 80, io.StringIO(), lambda: False),
         push_title=lambda: None,
         write_title=write_title,
         restore_title=lambda: None,
@@ -147,7 +147,7 @@ def test_footer_factory_uses_shared_lock_but_branch_callback_and_repaint_do_not(
     head = git_dir / "HEAD"
     head.write_text("ref: refs/heads/main\n", encoding="utf-8")
     record = ExtensionChromeState()
-    lock = PaintLock()
+    lock = PaintLock(threading.RLock())
     events: list[tuple[str, bool]] = []
     callbacks: list[object] = []
 
@@ -188,7 +188,7 @@ def test_terminal_listener_callbacks_are_unlocked_and_ordered_replacements_atomi
     None
 ):
     record = ExtensionChromeState()
-    lock = PaintLock()
+    lock = PaintLock(threading.RLock())
     listeners = TerminalInputListeners(record, lock, lambda: None)
     seen: list[tuple[str, bool]] = []
 

@@ -1,6 +1,6 @@
 """Real-PTY integration tests for the inline product TUI.
 
-These exercise the actual product paint path (`ToolLoopTerminalUi.paint` and
+These exercise the actual product paint path (`Screen.paint` and
 `read_line` over a real pseudo-TTY), not `render_lines()` internals. They prove
 the ergonomics the goal requires: the inline renderer never enters the
 alternate screen (so native scrollback in Ghostty/zellij can review prior

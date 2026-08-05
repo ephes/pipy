@@ -6,9 +6,8 @@ fields directly -- the committed ``history_blocks`` list, the four live stream
 buffers (``assistant_text``, ``reasoning_text``, ``tool_output_text``,
 ``working_text``), the Ctrl+T thinking-fold trio (``thinking_hidden``,
 ``hidden_thinking_label``, ``deferred_reasoning``) and the Ctrl+O
-``tools_expanded`` flag. The terminal shell keeps thin facade projections over
-these fields for its frame snapshot and for the renderer adapters that later
-slices repoint.
+``tools_expanded`` flag. The screen reads these buffers through its explicit
+frame-source protocol and owns the shared live render-input projection.
 
 Every verb applies its whole transition in ONE :class:`PaintLock` section --
 mutating painters share that reentrant lock, so a concurrent frame never
@@ -17,9 +16,9 @@ block not yet appended). Repainting happens *outside* the lock through the
 injected ``repaint`` callable. Two verbs replace committed rows wholesale
 (:meth:`redraw_custom_entries`, :meth:`rerender_custom_messages`); those call
 the injected ``reset_scrollback`` callable instead -- the screen-owned
-full-redraw that clears inline-scrollback bookkeeping stays in the shell and
-is the component's only effectful port besides repainting. ``frame_width`` and
-``render_theme`` are read-only providers for the retained rich-row rerender.
+full-redraw that clears inline-scrollback bookkeeping stays on the screen and
+is the component's only effectful port besides repainting. The retained rich-
+row rerender uses the same screen-owned render-input record as other renderers.
 
 Two verbs deliberately do not repaint: :meth:`discard_working_text` and
 :meth:`reset_hidden_thinking_label` run inside a caller's enclosing lock
@@ -43,6 +42,7 @@ from pipy_harness.native.extensions.custom_payloads import (
 )
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 # Pi's default label shown in place of live reasoning while thinking is folded.
 DEFAULT_HIDDEN_THINKING_LABEL = "Thinking..."
@@ -91,14 +91,12 @@ class TranscriptComponent:
         repaint: Callable[[], None],
         *,
         reset_scrollback: Callable[[], None],
-        frame_width: Callable[[], int],
-        render_theme: Callable[[], object],
+        render_inputs: ScreenRenderInputs,
     ) -> None:
         self._paint_lock = paint_lock
         self._repaint = repaint
         self._reset_scrollback = reset_scrollback
-        self._frame_width = frame_width
-        self._render_theme = render_theme
+        self._render_inputs = render_inputs
         self.history_blocks: list[HistoryBlock] = []
         self.assistant_text = ""
         self.reasoning_text = ""
@@ -585,8 +583,8 @@ class TranscriptComponent:
             self._repaint()
 
     def _rerender_custom_messages_locked(self) -> bool:
-        width = self._frame_width()
-        theme = self._render_theme()
+        width = self._render_inputs.width()
+        theme = self._render_inputs.theme()
         changed = False
         rebuilt: list[HistoryBlock] = []
         for block in self.history_blocks:

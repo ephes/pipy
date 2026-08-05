@@ -10,6 +10,7 @@ by ``test_native_tui_completion.py`` and the extension-provider suite.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def _custom_owner(
     return CustomEditorOwner(
         CustomEditorState(component=component, active=component is not None),
         editor,
-        PaintLock(),
+        PaintLock(threading.RLock()),
         noop,
         host=object(),
         theme=lambda: object(),

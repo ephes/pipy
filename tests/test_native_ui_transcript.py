@@ -10,6 +10,9 @@ existing TUI and real-PTY suites.
 
 from __future__ import annotations
 
+import io
+import threading
+
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
@@ -19,6 +22,7 @@ from pipy_harness.native.ui.components.transcript import (
     TranscriptComponent,
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 
 class _Harness:
@@ -28,11 +32,10 @@ class _Harness:
         self.repaints = 0
         self.resets = 0
         self.component = TranscriptComponent(
-            PaintLock(),
+            PaintLock(threading.RLock()),
             self._repaint,
             reset_scrollback=self._reset_scrollback,
-            frame_width=lambda: 80,
-            render_theme=lambda: None,
+            render_inputs=ScreenRenderInputs(lambda: 80, io.StringIO(), lambda: False),
         )
 
     def _repaint(self) -> None:

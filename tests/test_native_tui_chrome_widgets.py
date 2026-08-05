@@ -229,10 +229,10 @@ def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa
         acquired: list[bool] = []
 
         def probe() -> None:
-            available = ui._paint_lock.acquire(timeout=1.0)
+            available = ui._screen.paint_lock.acquire(timeout=1.0)
             acquired.append(available)
             if available:
-                ui._paint_lock.release()
+                ui._screen.paint_lock.release()
 
         thread = threading.Thread(target=probe)
         thread.start()
@@ -277,15 +277,15 @@ def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa
         "_restore_title",
         lambda: restore_title(ui._driver),
     )
-    ui_type = type(ui)
-    original_paint_locked = ui_type._paint_locked
+    screen_type = type(ui._screen)
+    original_paint_locked = screen_type._paint
 
     def paint_locked(instance):
-        if instance is ui:
+        if instance is ui._screen:
             observe_lock("paint")
         original_paint_locked(instance)
 
-    monkeypatch.setattr(ui_type, "_paint_locked", paint_locked)
+    monkeypatch.setattr(screen_type, "_paint", paint_locked)
 
     ui.clear_extension_chrome()
 
@@ -419,10 +419,10 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
             driver.add_autocomplete_provider(retiring_autocomplete)
 
             def probe_paint_guard() -> None:
-                acquired = ui._paint_lock.acquire(timeout=1.0)
+                acquired = ui._screen.paint_lock.acquire(timeout=1.0)
                 paint_guard_was_free.append(acquired)
                 if acquired:
-                    ui._paint_lock.release()
+                    ui._screen.paint_lock.release()
 
             probe = threading.Thread(target=probe_paint_guard)
             probe.start()
@@ -618,7 +618,9 @@ def test_terminal_input_listener_failsoft_and_object_result():
 
 
 def _frame_text(ui, width=60, height=24):
-    return [fl.text for fl in ui._frame_lines(width=width, height=height, pad=False)]
+    return [
+        fl.text for fl in ui._screen._frame_lines(width=width, height=height, pad=False)
+    ]
 
 
 def test_header_renders_above_pending_and_input():
@@ -795,7 +797,7 @@ def test_tall_chrome_clamped_and_input_preserved():
         ui._chrome.component.set_widget(
             f"w{i}", [f"r{i}-{j}" for j in range(10)], placement="above_editor"
         )
-    frame = ui._frame_lines(width=60, height=24, pad=False)
+    frame = ui._screen._frame_lines(width=60, height=24, pad=False)
     assert len(frame) <= 24  # fits the viewport
     assert any(fl.kind == "input" for fl in frame)  # input not starved
     assert any(fl.kind == "footer" for fl in frame)  # footer survives
@@ -832,7 +834,7 @@ def test_frame_clamp_never_overflows_or_starves(height):
     # built-in footer rows carry "footer".
     custom_footer = height == 24
     _fill_tall_chrome(ui, custom_footer=custom_footer)
-    frame = ui._frame_lines(width=60, height=height, pad=False)
+    frame = ui._screen._frame_lines(width=60, height=height, pad=False)
     footer_kind = "chrome_custom" if custom_footer else "footer"
     assert len(frame) <= height  # fits the viewport
     assert any(fl.kind == "input" for fl in frame)  # input never starved
@@ -846,7 +848,7 @@ def test_frame_clamp_never_overflows_or_starves(height):
 def test_live_region_clamp_never_overflows_or_starves(height):
     ui = _ui()
     _fill_tall_chrome(ui, custom_footer=(height == 24))
-    lines = ui._live_region_lines(width=60, height=height)
+    lines = ui._screen._live_region_lines(width=60, height=height)
     assert len(lines) <= height  # fits the viewport
     assert any(fl.kind == "input" for fl in lines)  # input never starved
 
@@ -897,10 +899,10 @@ def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
             "C", (), {"render": lambda self, w: ["F1", "F2", "F3", "F4"]}
         )()
     )
-    live = ui._live_region_lines(width=80, height=h)
+    live = ui._screen._live_region_lines(width=80, height=h)
     assert len(live) <= h  # live region never exceeds the viewport
     assert any(fl.kind == "input" for fl in live)  # input survives
-    frame = ui._frame_lines(width=80, height=h, pad=False)
+    frame = ui._screen._frame_lines(width=80, height=h, pad=False)
     assert len(frame) <= h
     assert any(fl.kind == "input" for fl in frame)
 

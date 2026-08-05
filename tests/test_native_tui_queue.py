@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import threading
+from _thread import RLock
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
@@ -20,6 +22,7 @@ from pipy_harness.native.ui.components.custom_editor import (
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.pending_messages import PendingMessages
+from pipy_harness.native.ui.screen import Screen
 
 
 def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
@@ -29,14 +32,14 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
 
 
 def _frame_text(ui: ToolLoopTerminalUi) -> str:
-    return "\n".join(ui.render_lines(width=88, height=24))
+    return "\n".join(ui._screen.render_lines(width=88, height=24))
 
 
 class _InterleavingPaintLock(PaintLock):
     """Run one simulated owner operation immediately after an outer release."""
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, lock: RLock) -> None:
+        super().__init__(lock)
         self.depth = 0
         self.entries = 0
         self.on_release: Callable[[], None] | None = None
@@ -71,7 +74,7 @@ def test_terminal_wires_pending_owner_to_shared_state_and_lock(tmp_path: Path) -
 
     assert isinstance(owner, PendingMessages)
     assert owner._editor is ui.input_editor.editor_state  # noqa: SLF001
-    assert owner._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert owner._paint_lock is ui._screen.paint_lock  # noqa: SLF001
 
 
 def test_mid_turn_steering_is_published_before_abort_signal(
@@ -91,7 +94,7 @@ def test_mid_turn_steering_is_published_before_abort_signal(
     ui = _ui(tmp_path)
     ui.input_stream = _FilenoInput()
     ui._driver = _SingleEnterDriver()  # type: ignore[assignment]  # noqa: SLF001
-    monkeypatch.setattr(ToolLoopTerminalUi, "_poll_resize_repaint", lambda _self: False)
+    monkeypatch.setattr(Screen, "poll_resize_repaint", lambda _self: False)
     ui.input_editor.text = "redirect here"
     owner = ui.pending_messages
     events: list[str] = []
@@ -171,7 +174,7 @@ def test_restore_is_one_atomic_transition_with_callbacks_outside_lock(
 ) -> None:
     editor = EditorState()
     editor.enqueue_steering("initial")
-    lock = _InterleavingPaintLock()
+    lock = _InterleavingPaintLock(threading.RLock())
     events: list[str] = []
 
     def outside_lock(event: str) -> None:
@@ -246,7 +249,7 @@ def test_pending_region_keeps_input_footer_in_frame(tmp_path: Path) -> None:
         ui.submit_user_message(f"history line {n:02d}")
     ui.pending_messages.enqueue_steering("steer one")
     ui.pending_messages.enqueue_follow_up("follow one")
-    frame = ui.render_lines(width=88, height=24)
+    frame = ui._screen.render_lines(width=88, height=24)
     assert len(frame) == 24
     joined = "\n".join(frame)
     assert "Steering: steer one" in joined

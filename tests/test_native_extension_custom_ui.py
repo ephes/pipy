@@ -42,6 +42,7 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionInputComponent,
     ExtensionSelectComponent,
 )
+from pipy_harness.native.ui.screen import Screen
 
 
 class _TtyBuffer:
@@ -140,8 +141,8 @@ def test_extension_external_editor_does_not_launch_after_failed_suspend(
     monkeypatch, tmp_path: Path, error_type: type[Exception]
 ) -> None:
     ui = _ui(tmp_path)
-    ui._live_height = 4
-    ui._live_input_row = 2
+    ui._screen.state.live_height = 4
+    ui._screen.state.live_input_row = 2
     launched = False
 
     def fail_suspend(_self: TerminalDriver) -> None:
@@ -159,8 +160,8 @@ def test_extension_external_editor_does_not_launch_after_failed_suspend(
 
     assert _external_editor(ui).run("fake-editor", "seed") is None
     assert launched is False
-    assert ui._live_height == 4
-    assert ui._live_input_row == 2
+    assert ui._screen.state.live_height == 4
+    assert ui._screen.state.live_input_row == 2
 
 
 @pytest.mark.parametrize(
@@ -210,7 +211,7 @@ def test_custom_component_failed_nested_acquisition_preserves_outer_raw_owner(
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
     )
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: None)
+    monkeypatch.setattr(Screen, "paint", lambda _self: None)
     ui._driver.enter_raw_mode()
     ui._driver.suspend_terminal_mode()
 
@@ -249,7 +250,7 @@ def test_custom_component_failed_physical_acquisition_has_no_release(
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
     )
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: None)
+    monkeypatch.setattr(Screen, "paint", lambda _self: None)
 
     with pytest.raises(termios.error, match="raw transition failed"):
         ui.run_custom_component(lambda done: _ScriptedComponent(done))
@@ -263,7 +264,7 @@ def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui._overlays.custom_component = _ScriptedComponent(lambda _v=None: None)
     ui.custom_overlay_open = True
-    frame = "\n".join(ui.render_lines())
+    frame = "\n".join(ui._screen.render_lines())
     assert "CUSTOM-OVERLAY-LINE" in frame
 
 
@@ -478,7 +479,7 @@ def test_tui_custom_component_options_width_handle_and_dispose(
 
     keys = iter(["enter"])
     monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda _self, _fd: next(keys)
+        Screen, "read_key_polling_resize", lambda _self, _fd: next(keys)
     )
 
     seen: dict[str, object] = {}
@@ -540,7 +541,7 @@ def test_tui_custom_component_callable_snake_case_options(
 
     keys = iter(["enter"])
     monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda _self, _fd: next(keys)
+        Screen, "read_key_polling_resize", lambda _self, _fd: next(keys)
     )
 
     widths: list[int] = []
@@ -576,7 +577,7 @@ def test_tui_custom_component_factory_can_finish_repeated_runs_before_return(
     def fail_read(_self, _fd):
         raise AssertionError("factory completion should finish before reading input")
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", fail_read)
+    monkeypatch.setattr(Screen, "read_key_polling_resize", fail_read)
 
     class Component:
         def render(self, _width: int) -> list[str]:
@@ -604,7 +605,7 @@ def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -
     def fail_read(_self, _fd):
         raise AssertionError("hide should finish before reading input")
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", fail_read)
+    monkeypatch.setattr(Screen, "read_key_polling_resize", fail_read)
 
     result = ui.run_custom_component(
         lambda done: _ScriptedComponent(done),
@@ -633,7 +634,7 @@ def test_tui_custom_component_handle_visibility_and_focus(
             handle.focus()  # type: ignore[attr-defined]
         return key
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", read_key)
+    monkeypatch.setattr(Screen, "read_key_polling_resize", read_key)
 
     events: list[tuple[str, object]] = []
     handle_box: dict[str, object] = {}

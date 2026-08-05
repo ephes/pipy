@@ -9,6 +9,7 @@ turn; the real-PTY coverage lives in ``test_native_session_picker_pty.py``.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -50,7 +51,7 @@ class _Harness:
         self.pastes = 0
         self.component = SessionPickerComponent(
             self.overlays,
-            PaintLock(),
+            PaintLock(threading.RLock()),
             self._repaint,
             on_rename=on_rename,
             on_delete=on_delete,
@@ -82,7 +83,7 @@ def test_open_activates_overlay_and_defaults_now_to_wall_clock() -> None:
     overlays = OverlayState()
     component = SessionPickerComponent(
         overlays,
-        PaintLock(),
+        PaintLock(threading.RLock()),
         lambda: None,
         on_rename=None,
         on_delete=None,

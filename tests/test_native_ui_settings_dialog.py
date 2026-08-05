@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 
 from pipy_harness.native.overlay_state import OverlayState, SettingsRow
@@ -38,7 +39,7 @@ class _Harness:
         self._local_rows = local_rows
         self.component = SettingsDialogComponent(
             self.overlays,
-            PaintLock(),
+            PaintLock(threading.RLock()),
             self._repaint,
             on_local_action=self._on_local_action,
             exit_actions=exit_actions,

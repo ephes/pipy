@@ -24,7 +24,7 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
 
 
 def _frame_text(ui: ToolLoopTerminalUi) -> str:
-    return "\n".join(ui.render_lines(width=88, height=24))
+    return "\n".join(ui._screen.render_lines(width=88, height=24))
 
 
 class TestThinkingFold:
@@ -87,9 +87,9 @@ class TestToolExpansion:
         # that they all fit a tall frame when expanded.
         ui.append_tool_output("\n".join(f"line{n:02d}" for n in range(16)))
         ui.set_tools_expanded(False)
-        collapsed = "\n".join(ui.render_lines(width=88, height=40))
+        collapsed = "\n".join(ui._screen.render_lines(width=88, height=40))
         ui.set_tools_expanded(True)
-        expanded = "\n".join(ui.render_lines(width=88, height=40))
+        expanded = "\n".join(ui._screen.render_lines(width=88, height=40))
         # The earliest line is hidden in the collapsed live tail but shown when
         # expanded.
         assert "line00" not in collapsed

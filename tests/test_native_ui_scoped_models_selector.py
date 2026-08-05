@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from pipy_harness.native.overlay_state import OverlayState, ScopedModelRow
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsClose,
@@ -18,7 +20,7 @@ class _Harness:
         self.overlays = OverlayState()
         self.repaints = 0
         self.component = ScopedModelsSelectorComponent(
-            self.overlays, PaintLock(), self._repaint
+            self.overlays, PaintLock(threading.RLock()), self._repaint
         )
 
     def _repaint(self) -> None:

@@ -10,7 +10,6 @@ full/live rows and deterministic terminal paint plans.
 from __future__ import annotations
 
 import os
-import select
 import sys
 from collections.abc import (
     Callable,
@@ -26,11 +25,11 @@ from typing import (
     TYPE_CHECKING,
     Any,
     TextIO,
+    TypeVar,
     cast,
 )
 
 from pipy_harness.native.chrome import (
-    ChromeStyle,
     chrome_style_for,
     discover_loaded_resource_names,
     pipy_version_label,
@@ -47,36 +46,6 @@ from pipy_harness.native.extension_chrome_state import (
 )
 from pipy_harness.native.extension_runtime import ExtensionTool
 from pipy_harness.native.extensions.tool_port import ToolRenderDetailsSink
-from pipy_harness.native.frame_renderer import (
-    ChromeSnapshot,
-    FrameBlock,
-    FrameSnapshot,
-    PaintState,
-    build_paint_plan,
-    render_full_frame,
-    render_live_region,
-)
-from pipy_harness.native.frame_renderer import (
-    FrameLine as _FrameLine,
-)
-from pipy_harness.native.frame_renderer import (
-    ResolvedCustomEditorLine as _ResolvedCustomEditorLine,
-)
-from pipy_harness.native.frame_renderer import (
-    block_lines as render_block_lines,
-)
-from pipy_harness.native.frame_renderer import (
-    clip_text as render_clip_text,
-)
-from pipy_harness.native.frame_renderer import (
-    input_index as render_input_index,
-)
-from pipy_harness.native.frame_renderer import (
-    pad_text as render_pad_text,
-)
-from pipy_harness.native.frame_renderer import (
-    style_line as render_styled_line,
-)
 from pipy_harness.native.keybindings import (
     KeybindingsManager,
 )
@@ -99,11 +68,9 @@ from pipy_harness.native.repl_input import (
 )
 from pipy_harness.native.session_tree_commands import SessionListEntry
 from pipy_harness.native.terminal_driver import (
-    _RESIZE_POLL_SECONDS,
     TerminalDriver,
 )
 from pipy_harness.native.themes import NativeThemeStore, select_theme
-from pipy_harness.native.tool_renderers import build_tool_render_theme
 from pipy_harness.native.ui.autocomplete import (
     AutocompleteComponent,
     CommandSurface,
@@ -134,7 +101,6 @@ from pipy_harness.native.ui.components.custom_entry_renderer import (
 )
 from pipy_harness.native.ui.components.custom_overlay import (
     CustomComponentRunner,
-    custom_overlay_region_lines,
 )
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionConfirmComponent,
@@ -150,19 +116,15 @@ from pipy_harness.native.ui.components.input_editor import (
 )
 from pipy_harness.native.ui.components.model_selector import (
     ModelSelectorComponent,
-    model_selector_region_lines,
 )
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
-    scoped_models_region_lines,
 )
 from pipy_harness.native.ui.components.session_picker import (
     SessionPickerComponent,
-    session_picker_region_lines,
 )
 from pipy_harness.native.ui.components.settings_dialog import (
     SettingsDialogComponent,
-    settings_dialog_region_lines,
 )
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
@@ -175,7 +137,6 @@ from pipy_harness.native.ui.components.transcript import (
 from pipy_harness.native.ui.components.tree_selector import (
     TreeSelectorClose,
     TreeSelectorComponent,
-    tree_selector_region_lines,
 )
 from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
 from pipy_harness.native.ui.extension_generation import (
@@ -186,8 +147,14 @@ from pipy_harness.native.ui.key_specs import (
     matches_key_specs,
     resolved_key_specs,
 )
-from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.pending_messages import PendingMessages
+from pipy_harness.native.ui.screen import (
+    DriveOwner,
+    DriveResult,
+    FrameRegionSources,
+    FrameSources,
+    Screen,
+)
 from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
 
 if TYPE_CHECKING:
@@ -227,6 +194,24 @@ TURN_SETTLED = "settled"  # the provider turn finished on its own
 TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
 TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
+
+
+_CloseT = TypeVar("_CloseT")
+_ResultT = TypeVar("_ResultT")
+
+
+def _open_result(opened: bool, cancelled: _ResultT) -> DriveResult[_ResultT] | None:
+    return None if opened else DriveResult(cancelled)
+
+
+def _open_void(callback: Callable[..., None], *args: object, **kwargs: object) -> None:
+    callback(*args, **kwargs)
+
+
+def _drive_result(
+    closed: _CloseT | None, project: Callable[[_CloseT], _ResultT]
+) -> DriveResult[_ResultT] | None:
+    return None if closed is None else DriveResult(project(closed))
 
 
 class _LiveExtensionUiDriver:
@@ -499,9 +484,8 @@ class ToolLoopTerminalUi:
     """Stateful terminal frame for the native tool-loop REPL.
 
     The UI intentionally uses whole-frame repainting (`cursor home` +
-    region composition) instead of relative row rewrites.  Tests can
-    inspect :meth:`render_lines` directly, while real TTY sessions use
-    :meth:`paint` to draw the current frame.
+    region composition) instead of relative row rewrites. The injected screen
+    owner exposes deterministic frame inspection and draws real TTY frames.
     """
 
     input_stream: TextIO
@@ -541,24 +525,12 @@ class ToolLoopTerminalUi:
     # bracketed-paste toggling, terminal-title OSC). Built in ``__post_init__``
     # from the input/terminal streams.
     _driver: TerminalDriver = field(init=False)
-    _closed: bool = False
-    # Inline scrollback rendering state: committed history is printed once into
-    # the terminal's normal buffer (so native scrollback in Ghostty/zellij can
-    # review it), and only the live region (transient stream + input/footer) is
-    # redrawn in place below it.
-    _painted_block_count: int = 0
-    _live_height: int = 0
-    _live_input_row: int = 0
-    _paint_lock: PaintLock = field(default_factory=PaintLock)
-    _painting: bool = False
-    _paint_requested_during_paint: bool = False
+    # One owner for painting, inline-scrollback bookkeeping, modal driving,
+    # raw key reads, resize handling, close, and external-I/O suspension.
+    _screen: Screen = field(init=False)
     # One owner for the live duck-typed extension editor's seven-field record,
     # wiring, action dispatch, text mirror, and frame projection.
     _custom_editor: CustomEditorOwner = field(init=False)
-    # Resize handling. The SIGWINCH lifecycle and the pending flag live on the
-    # terminal driver; the UI keeps only the last painted geometry it compares
-    # the driver's live size against during the layout-coupled resize repaint.
-    _last_painted_size: tuple[int, int] = (0, 0)
     keybindings_manager: KeybindingsManager | None = None
     # Constructor-only wiring record: ClipboardImages owns it after startup;
     # unlike the retired reader/path fields it cannot be rewritten piecemeal.
@@ -569,11 +541,17 @@ class ToolLoopTerminalUi:
         self._overlays = OverlayState()
         chrome_record = ExtensionChromeState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
+        self._screen = Screen(
+            self._driver,
+            self._overlays,
+            self.terminal_stream,
+            input_fd=lambda: self.input_stream.fileno(),
+        )
         self._custom_editor = CustomEditorOwner(
             CustomEditorState(),
             editor,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             host=self,
             theme=lambda: chrome_style_for(self.terminal_stream),
             keybindings_manager=lambda: self.keybindings_manager,
@@ -603,7 +581,7 @@ class ToolLoopTerminalUi:
         self._autocomplete = AutocompleteComponent(
             editor,
             cwd=self.cwd,
-            repaint=self.paint,
+            repaint=self._screen.paint,
             custom_editor=self._custom_editor,
             surface=CommandSurface(
                 names=TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
@@ -611,25 +589,22 @@ class ToolLoopTerminalUi:
             ),
         )
         self._transcript = TranscriptComponent(
-            self._paint_lock,
-            self.paint,
-            reset_scrollback=self._force_full_redraw,
-            frame_width=lambda: self._driver.size()[0],
-            render_theme=lambda: build_tool_render_theme(
-                chrome_style_for(self.terminal_stream)
-            ),
+            self._screen.paint_lock,
+            self._screen.paint,
+            reset_scrollback=self._screen.force_full_redraw,
+            render_inputs=self._screen.render_inputs,
         )
         self.pending_messages = PendingMessages(
             editor,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             custom_editor=self._custom_editor,
             refresh_slash_menu=self._autocomplete.refresh_slash_menu,
         )
         self.clipboard_images = ClipboardImages(
             editor,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             cwd=self.cwd,
             config=clipboard_config,
             command_names=lambda: self._autocomplete.command_names,
@@ -639,8 +614,8 @@ class ToolLoopTerminalUi:
         )
         self.input_editor = InputEditor(
             editor,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             command_names=lambda: self._autocomplete.command_names,
             refresh_autocomplete=self._autocomplete.refresh,
             custom_editor=self._custom_editor,
@@ -648,13 +623,10 @@ class ToolLoopTerminalUi:
         )
         chrome = ExtensionChromeComponent(
             chrome_record,
-            self._paint_lock,
-            self.paint,
-            tui_handle=_ChromeTuiHandle(self.request_extension_chrome_render),
-            region_width=lambda: self._driver.size()[0],
-            render_theme=lambda: build_tool_render_theme(
-                chrome_style_for(self.terminal_stream)
-            ),
+            self._screen.paint_lock,
+            self._screen.paint,
+            tui_handle=_ChromeTuiHandle(self._screen.request_render),
+            render_inputs=self._screen.render_inputs,
             push_title=self._driver.push_title,
             write_title=self._driver.write_title,
             restore_title=self._driver.restore_title,
@@ -662,20 +634,22 @@ class ToolLoopTerminalUi:
         )
         footer = FooterComponent(
             chrome_record,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             cwd=self.cwd,
             available_provider_count=lambda: self.available_provider_count,
             build_region=chrome.build_region,
             dispose_region=chrome.dispose_region,
             render_region=chrome.render_region,
         )
-        listeners = TerminalInputListeners(chrome_record, self._paint_lock, self.paint)
+        listeners = TerminalInputListeners(
+            chrome_record, self._screen.paint_lock, self._screen.paint
+        )
 
         self._chrome = build_extension_chrome_owners(
             chrome_record,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             component=chrome,
             footer=footer,
             listeners=listeners,
@@ -684,6 +658,36 @@ class ToolLoopTerminalUi:
             custom_editor=self._custom_editor,
             reset_hidden_thinking_label=self._transcript.reset_hidden_thinking_label,
             set_hidden_thinking_label=self._transcript.set_hidden_thinking_label,
+        )
+        self._screen.bind(
+            FrameSources(
+                transcript=self._transcript,
+                input_editor=self.input_editor,
+                regions=FrameRegionSources(
+                    popup=lambda width, height: (
+                        self._autocomplete.popup_menu_frame_lines(
+                            width=width, max_rows=max(1, height - 7)
+                        )
+                    ),
+                    pending=self.pending_messages.region_lines,
+                    status=chrome.status_lines,
+                    header=chrome.header_lines,
+                    above_editor=lambda width: chrome.widget_lines(
+                        "above_editor", width
+                    ),
+                    below_editor=lambda width: chrome.widget_lines(
+                        "below_editor", width
+                    ),
+                    footer=footer.lines,
+                    custom_editor=lambda width: (
+                        self._custom_editor.frame_lines(width)
+                        if self._custom_editor.active
+                        else None
+                    ),
+                ),
+                footer_lines=lambda: self.footer_lines,
+                poll_idle=footer.poll_branch,
+            )
         )
 
     @property
@@ -732,7 +736,7 @@ class ToolLoopTerminalUi:
         if not self._transcript.history_blocks:
             self._transcript.seed_history(self._startup_blocks())
         self._driver.install_resize_handler()
-        self.paint()
+        self._screen.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
         """Read one input line while keeping the input/footer regions live."""
@@ -742,7 +746,7 @@ class ToolLoopTerminalUi:
             self.set_footer_text(footer)
         self.input_editor.begin_line()
         self._custom_editor.prepare_line(self.input_editor.text)
-        self.paint()
+        self._screen.paint()
         fd = self.input_stream.fileno()
         editing_context = EditingKeyContext(
             slash_menu_open=lambda: self._autocomplete.slash_menu_open,
@@ -760,7 +764,7 @@ class ToolLoopTerminalUi:
         )
         with self._driver.raw_mode():
             while True:
-                key = self._read_key_polling_resize(fd)
+                key = self._screen.read_key_polling_resize(fd)
                 if key is None:
                     return ""
                 key = self._chrome.listeners.apply(key)
@@ -769,15 +773,15 @@ class ToolLoopTerminalUi:
                     if submitted is not None:
                         if self._custom_editor.consume_exit_requested():
                             self.input_editor.reset_line_editor_state()
-                            self.paint()
+                            self._screen.paint()
                             return ""
                         self.input_editor.record_history(submitted)
                         self.input_editor.reset_line_editor_state()
-                        self.paint()
+                        self._screen.paint()
                         return f"{submitted}\n"
                     continue
                 if key is None:
-                    self.paint()
+                    self._screen.paint()
                     continue
                 if key == "enter":
                     if self._autocomplete.autocomplete_open:
@@ -793,7 +797,7 @@ class ToolLoopTerminalUi:
                         if self.input_editor.text not in matches:
                             self._autocomplete.accept_slash_menu_selection()
                     submitted = self.input_editor.submit_line()
-                    self.paint()
+                    self._screen.paint()
                     return f"{submitted}\n"
                 if key == "ctrl-c":
                     raise KeyboardInterrupt
@@ -809,7 +813,7 @@ class ToolLoopTerminalUi:
                         terminal_stream=self.terminal_stream,
                     ).run_configured(self.input_editor.text)
                     if edited is None:
-                        self.paint()
+                        self._screen.paint()
                     else:
                         self.input_editor.replace_after_external_edit(edited)
                     continue
@@ -870,7 +874,7 @@ class ToolLoopTerminalUi:
                         self._autocomplete.dismiss_slash_menu()
                     elif self._autocomplete.autocomplete_open:
                         self._autocomplete.close()
-                        self.paint()
+                        self._screen.paint()
                     continue
                 apply_editing_key(self.input_editor, key, editing_context)
 
@@ -920,8 +924,8 @@ class ToolLoopTerminalUi:
                 # Keep the streaming frame coherent if the terminal is resized
                 # mid-turn: streamed chunks repaint at the live size, but a
                 # stalled stream would not, so poll here too.
-                self._poll_resize_repaint()
-                key = self._read_driver_key(
+                self._screen.poll_resize_repaint()
+                key = self._screen.read_driver_key(
                     self._driver.read_key_if_available(fd, poll_seconds)
                 )
                 if key is None:
@@ -964,7 +968,7 @@ class ToolLoopTerminalUi:
                     text = self.input_editor.text
                     self.input_editor.reset_mid_turn_input()
                     if not text.strip():
-                        self.paint()
+                        self._screen.paint()
                         continue
                     # A recognized local command (`/…` or `!…`) is never queued
                     # for the provider: like Pi's editor, Enter runs it
@@ -973,10 +977,10 @@ class ToolLoopTerminalUi:
                     if self._submitted_text_is_local_command(text):
                         self.input_editor.set_pending_command(text)
                         abort_event.set()
-                        self.paint()
+                        self._screen.paint()
                         return TURN_LOCAL_COMMAND
                     if command_only:
-                        self.paint()
+                        self._screen.paint()
                         continue
                     self.pending_messages.enqueue_steering(text)
                     abort_event.set()
@@ -1011,33 +1015,22 @@ class ToolLoopTerminalUi:
         current_index: int = 0,
         title: str | None = None,
     ) -> int | None:
-        """Drive the interactive provider/model selector; return a chosen index.
+        """Drive the interactive provider/model selector."""
 
-        Renders the supplied rows in the live region and reads raw keys: up/down
-        move the highlight (wrapping), ``Enter`` chooses the highlighted row when
-        it is selectable, and ``Esc`` / ``Ctrl-C`` / ``Ctrl-D`` / EOF cancel.
-        Returns the chosen index, or ``None`` when cancelled or when no row is
-        selectable. This method never invokes the provider, tools, or a model
-        turn; it is pure local navigation that the caller acts on afterwards.
-
-        ``title`` overrides the overlay heading so the same generic
-        label/selectable selector can serve non-model pickers (e.g. the
-        ``/settings`` theme row); ``None`` keeps the provider/model wording.
-        """
-
-        selector = ModelSelectorComponent(self._overlays, self._paint_lock, self.paint)
-        if not selector.open(options, current_index=current_index, title=title):
-            return None
-        fd = self.input_stream.fileno()
-        with self._driver.raw_mode():
-            while True:
-                key = self._read_key_polling_resize(fd)
-                if key == "paste":
-                    self.input_editor.consume_paste()
-                    continue
-                closed = selector.handle_key(key)
-                if closed is not None:
-                    return closed.index
+        selector = ModelSelectorComponent(
+            self._overlays, self._screen.paint_lock, self._screen.paint
+        )
+        owner: DriveOwner[int | None] = DriveOwner(
+            open=lambda: _open_result(
+                selector.open(options, current_index=current_index, title=title),
+                cast("int | None", None),
+            ),
+            handle_key=lambda key: _drive_result(
+                selector.handle_key(key), lambda closed: closed.index
+            ),
+            consume_paste=self.input_editor.consume_paste,
+        )
+        return self._screen.drive(owner)
 
     def run_scoped_models_selector(
         self,
@@ -1045,29 +1038,21 @@ class ToolLoopTerminalUi:
         *,
         checked: Iterable[int] = (),
     ) -> frozenset[str] | None:
-        """Drive the ``/scoped-models`` multi-select overlay; return the scope.
-
-        Renders one checkbox row per available model. Up/Down move, Space toggles
-        membership of the highlighted row, ``a`` enables all, ``c`` clears all,
-        Enter saves and returns the chosen ``provider/model`` reference set, and
-        Esc/Ctrl-C/Ctrl-D cancel (returning ``None``). Runs no provider turn.
-        """
+        """Drive the ``/scoped-models`` multi-select overlay."""
 
         selector = ScopedModelsSelectorComponent(
-            self._overlays, self._paint_lock, self.paint
+            self._overlays, self._screen.paint_lock, self._screen.paint
         )
-        if not selector.open(rows, checked):
-            return None
-        fd = self.input_stream.fileno()
-        with self._driver.raw_mode():
-            while True:
-                key = self._read_key_polling_resize(fd)
-                if key == "paste":
-                    self.input_editor.consume_paste()
-                    continue
-                closed = selector.handle_key(key)
-                if closed is not None:
-                    return closed.references
+        owner: DriveOwner[frozenset[str] | None] = DriveOwner(
+            open=lambda: _open_result(
+                selector.open(rows, checked), cast("frozenset[str] | None", None)
+            ),
+            handle_key=lambda key: _drive_result(
+                selector.handle_key(key), lambda closed: closed.references
+            ),
+            consume_paste=self.input_editor.consume_paste,
+        )
+        return self._screen.drive(owner)
 
     def run_settings_dialog(
         self,
@@ -1079,48 +1064,28 @@ class ToolLoopTerminalUi:
         title: str = "Settings",
         overlay_kind: SettingsOverlayKind = "settings",
     ) -> str | None:
-        """Drive the interactive ``/settings`` dialog as a live overlay.
-
-        Renders the supplied rows in the live region and reads raw keys: up/down
-        move the highlight between actionable rows (wrapping, skipping headers
-        and read-only status rows), and ``Enter``/``Space`` activate the
-        highlighted action row. ``Esc`` / ``Ctrl-C`` / ``Ctrl-D`` / EOF close the
-        dialog and return ``None``. ``overlay_kind`` selects only the internal
-        stack identity for this settings-family payload: ``project_trust`` uses
-        the same rows, selection, and title state but remains distinct so a
-        settings -> project_trust -> settings nesting restores exactly.
-
-        Activating an action whose identifier is in ``exit_actions`` closes the
-        dialog and returns that identifier so the caller can run a flow that
-        needs the terminal itself (the provider/model selector, or interactive
-        auth). Any other action is *local*: ``on_local_action`` is invoked with
-        the identifier and must return the rebuilt rows, and the dialog stays
-        open and re-renders in place. This method never invokes the provider,
-        tools, or a model turn; it is pure local navigation/state toggling that
-        the caller acts on afterwards.
-        """
+        """Drive one settings-family overlay while preserving nested state."""
 
         dialog = SettingsDialogComponent(
             self._overlays,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             on_local_action=on_local_action,
             exit_actions=exit_actions,
         )
-        if not dialog.open(
-            rows, current_index=current_index, title=title, kind=overlay_kind
-        ):
-            return None
-        fd = self.input_stream.fileno()
-        with self._driver.raw_mode():
-            while True:
-                key = self._read_key_polling_resize(fd)
-                if key == "paste":
-                    self.input_editor.consume_paste()
-                    continue
-                closed = dialog.handle_key(key)
-                if closed is not None:
-                    return closed.action
+        owner: DriveOwner[str | None] = DriveOwner(
+            open=lambda: _open_result(
+                dialog.open(
+                    rows, current_index=current_index, title=title, kind=overlay_kind
+                ),
+                cast("str | None", None),
+            ),
+            handle_key=lambda key: _drive_result(
+                dialog.handle_key(key), lambda closed: closed.action
+            ),
+            consume_paste=self.input_editor.consume_paste,
+        )
+        return self._screen.drive(owner)
 
     def run_tree_selector(
         self,
@@ -1130,37 +1095,24 @@ class ToolLoopTerminalUi:
         initial_filter: str,
         on_label_toggle: Callable[[str], None],
     ) -> TreeSelectorClose:
-        """Drive the interactive ``/tree`` selector; return its close result.
-
-        ``build_rows(filter_mode)`` returns the visible rows for a filter;
-        up/down move the highlight, ``Ctrl-O`` cycles the filter mode, ``L``
-        (Shift-L) toggles a label on the highlighted entry via
-        ``on_label_toggle``, ``Enter`` selects the highlighted entry, and
-        ``Esc``/``Ctrl-C``/``Ctrl-D``/EOF cancel. The close result carries the
-        chosen entry id (``None`` on cancel) and the filter mode the overlay
-        closed with. Runs no provider turn and no model-visible tool call; the
-        caller applies the chosen entry's selection semantics afterward.
-        """
+        """Drive the interactive session-tree selector."""
 
         selector = TreeSelectorComponent(
             self._overlays,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             build_rows=build_rows,
             filter_modes=filter_modes,
             on_label_toggle=on_label_toggle,
         )
-        selector.open(initial_filter)
-        fd = self.input_stream.fileno()
-        with self._driver.raw_mode():
-            while True:
-                key = self._read_key_polling_resize(fd)
-                if key == "paste":
-                    self.input_editor.consume_paste()
-                    continue
-                closed = selector.handle_key(key)
-                if closed is not None:
-                    return closed
+        owner: DriveOwner[TreeSelectorClose] = DriveOwner(
+            open=lambda: _open_void(selector.open, initial_filter),
+            handle_key=lambda key: _drive_result(
+                selector.handle_key(key), lambda closed: closed
+            ),
+            consume_paste=self.input_editor.consume_paste,
+        )
+        return self._screen.drive(owner)
 
     # -- custom extension overlay (ctx.ui.custom) ---------------------------
 
@@ -1169,37 +1121,19 @@ class ToolLoopTerminalUi:
         factory: CustomComponentFactory,
         options: CustomComponentOptions | None = None,
     ) -> object:
-        """Drive a trusted extension custom component; return its result.
+        """Drive one trusted extension component through the screen lifecycle."""
 
-        `factory(done)` builds a component exposing `render(width) -> list[str]`
-        and `handle_input(key) -> None`; the component calls `done(result)` to
-        finish. The driver paints the component's lines as a full-screen inline
-        overlay and routes decoded keys to it until it finishes (or the input
-        stream ends / errors, which finishes with ``None``). Runs no provider
-        turn. Returns the result passed to `done`, or ``None`` if cancelled.
-
-        ``options`` accepts Pi-shaped custom overlay fields. Pipy's bounded TUI
-        currently renders overlay and non-overlay custom components through the
-        same inline overlay path, but it honors overlay width hints and handle
-        callbacks for API parity.
-        """
-
-        runner = CustomComponentRunner(self._overlays, self.paint)
+        runner = CustomComponentRunner(self._overlays, self._screen.paint)
         runner.create(factory, options)
-        raw_mode_acquired = False
-        try:
-            runner.begin()
-            fd = self.input_stream.fileno()
-            self._driver.enter_raw_mode()
-            raw_mode_acquired = True
-            while not runner.finished:
-                if runner.handle_key(self._read_key_polling_resize(fd)):
-                    break
-        finally:
-            result = runner.dispose()
-            if raw_mode_acquired:
-                self._driver.restore_terminal_mode()
-        return result
+        owner: DriveOwner[object] = DriveOwner(
+            open=lambda: _open_void(runner.begin),
+            handle_key=lambda key: (
+                DriveResult(None) if runner.handle_key(key) else None
+            ),
+            is_finished=lambda: runner.finished,
+            dispose=runner.dispose,
+        )
+        return self._screen.drive(owner)
 
     def run_extension_select(self, title: str, options: Sequence[str]) -> str | None:
         """Run a Pi-shaped extension selector over string options."""
@@ -1290,57 +1224,35 @@ class ToolLoopTerminalUi:
         on_delete: Callable[[Path], tuple[bool, str]] | None = None,
         now: float | None = None,
     ) -> Path | None:
-        """Drive the interactive session picker; return a chosen session file.
-
-        Typing searches; ``↑/↓`` move; ``Enter`` opens the highlighted session;
-        ``Tab`` toggles current-project / all-projects scope; ``Ctrl+P`` toggles
-        the file-path column; ``Ctrl+S`` cycles the sort; ``Ctrl+N`` filters to
-        named sessions; ``Ctrl+R`` renames and ``Ctrl+X`` deletes (each with an
-        in-overlay confirmation/edit); ``Esc``/``Ctrl+C``/``Ctrl+D``/EOF cancel.
-        Runs no provider turn and no model-visible tool call.
-        """
+        """Drive the interactive session picker."""
 
         picker = SessionPickerComponent(
             self._overlays,
-            self._paint_lock,
-            self.paint,
+            self._screen.paint_lock,
+            self._screen.paint,
             on_rename=on_rename,
             on_delete=on_delete,
             consume_paste=self.input_editor.consume_paste,
         )
-        picker.open(
-            project_sessions=project_sessions,
-            all_sessions=all_sessions,
-            current_path=current_path,
-            now=now,
+        owner: DriveOwner[Path | None] = DriveOwner(
+            open=lambda: _open_void(
+                picker.open,
+                project_sessions=project_sessions,
+                all_sessions=all_sessions,
+                current_path=current_path,
+                now=now,
+            ),
+            handle_key=lambda key: _drive_result(
+                picker.handle_key(key), lambda closed: closed.path
+            ),
         )
-        fd = self.input_stream.fileno()
-        with self._driver.raw_mode():
-            while True:
-                key = self._read_key_polling_resize(fd)
-                closed = picker.handle_key(key)
-                if closed is not None:
-                    return closed.path
+        return self._screen.drive(owner)
 
     def close(self) -> None:
-        # Actual terminal shutdown is the fail-safe boundary: abandon any raw
-        # owner a broken earlier path failed to release. Overlay/read scopes
-        # continue to use balanced restoration after successful acquisition.
-        self._driver.force_restore_terminal_mode()
-        self._driver.remove_resize_handler()
-        if self._closed:
-            return
-        self._closed = True
-        out: list[str] = []
-        # Move below the live region so the next shell prompt does not
-        # overwrite the footer, then restore the cursor.
-        if self._live_height > 0:
-            lines_below = (self._live_height - 1) - self._live_input_row
-            if lines_below > 0:
-                out.append(f"\x1b[{lines_below}B")
-            out.append("\r")
-        out.append("\x1b[?25h\n")
-        self._driver.write("".join(out))
+        self._screen.close()
+
+    def external_io_suspension(self) -> AbstractContextManager[None]:
+        return self._screen.external_io_suspension()
 
     def set_footer_text(self, text: str) -> None:
         lines = text.splitlines()
@@ -1350,7 +1262,7 @@ class ToolLoopTerminalUi:
             self.footer_lines = (lines[0], "")
         else:
             self.footer_lines = ("", "")
-        self.paint()
+        self._screen.paint()
 
     # -- transcript facade ---------------------------------------------------
     #
@@ -1400,15 +1312,13 @@ class ToolLoopTerminalUi:
     def custom_entry_render_target(self) -> CustomEntryTerminalTarget:
         """Bundle the transcript and live render inputs for custom entries.
 
-        The custom-entry renderer component commits rendered rows straight to
-        the transcript; the driver's width and the styling stream stay private
-        to this shell and cross as injected values/callables.
+        The custom-entry renderer commits rows straight to the transcript and
+        reads width, expansion, and styling through the screen-owned record.
         """
 
         return CustomEntryTerminalTarget(
             transcript=self._transcript,
-            terminal_stream=self.terminal_stream,
-            frame_width=lambda: self._driver.size()[0],
+            render_inputs=self._screen.render_inputs,
         )
 
     def create_tool_loop_renderer(
@@ -1419,17 +1329,14 @@ class ToolLoopTerminalUi:
     ) -> TuiToolLoopRenderer:
         """Build the agent-event renderer bound to this shell's owners.
 
-        The renderer commits straight to the transcript component, reads
-        spinner/working chrome off the shared chrome record, and receives the
-        driver's width and the styling stream as injected values — it never
-        holds the shell itself.
+        The renderer commits straight to the transcript, reads working chrome
+        from its record, and shares the screen-owned live render inputs.
         """
 
         return TuiToolLoopRenderer(
             transcript=self._transcript,
             chrome=self._chrome.record,
-            terminal_stream=self.terminal_stream,
-            frame_width=lambda: self._driver.size()[0],
+            render_inputs=self._screen.render_inputs,
             tool_renderers=tool_renderers,
             render_details_sink=render_details_sink,
         )
@@ -1453,248 +1360,6 @@ class ToolLoopTerminalUi:
 
     def rerender_custom_messages(self) -> None:
         self._transcript.rerender_custom_messages()
-
-    def _force_full_redraw(self) -> None:
-        # Deferred (unflushed) write so the clear-screen coalesces with the
-        # flush of the immediately-following paint(), matching the buffered
-        # pre-extraction behavior (no separate flush, no full-redraw flash).
-        if not self._driver.write_deferred("\x1b[2J\x1b[H"):
-            return
-        self._painted_block_count = 0
-        self._live_height = 0
-        self._live_input_row = 0
-        self.paint()
-
-    def render_lines(
-        self,
-        *,
-        width: int | None = None,
-        height: int | None = None,
-        pad: bool = True,
-    ) -> list[str]:
-        return [
-            line.text for line in self._frame_lines(width=width, height=height, pad=pad)
-        ]
-
-    def _frame_lines(
-        self,
-        *,
-        width: int | None = None,
-        height: int | None = None,
-        pad: bool = True,
-    ) -> list[_FrameLine]:
-        resolved_width, resolved_height = self._driver.size(width=width, height=height)
-        snapshot = self._frame_snapshot(
-            width=resolved_width,
-            height=resolved_height,
-            include_session_picker=False,
-        )
-        return list(render_full_frame(snapshot, pad=pad))
-
-    def request_extension_chrome_render(self) -> None:
-        """Request a chrome repaint, coalescing calls made during render()."""
-
-        if self._closed:
-            return
-        with self._paint_lock:
-            if self._painting:
-                self._paint_requested_during_paint = True
-                return
-        self.paint()
-
-    def paint(self) -> None:
-        if self._closed:
-            return
-        with self._paint_lock:
-            if self._painting:
-                self._paint_requested_during_paint = True
-                return
-            self._painting = True
-            try:
-                self._paint_locked()
-                if self._paint_requested_during_paint and not self._closed:
-                    self._paint_requested_during_paint = False
-                    self._paint_locked()
-            finally:
-                self._painting = False
-                self._paint_requested_during_paint = False
-
-    def _paint_locked(self) -> None:
-        width, height = self._driver.size()
-        snapshot = self._frame_snapshot(
-            width=width, height=height, include_session_picker=True
-        )
-        plan = build_paint_plan(
-            snapshot,
-            PaintState(
-                painted_block_count=self._painted_block_count,
-                live_height=self._live_height,
-                live_input_row=self._live_input_row,
-            ),
-            chrome_style_for(self.terminal_stream),
-        )
-        # Preserve the established failed-write contract: bookkeeping describes
-        # the attempted frame even when TerminalDriver.write returns False.
-        self._painted_block_count = plan.painted_block_count
-        self._live_height = plan.live_height
-        self._live_input_row = plan.live_input_row
-        self._last_painted_size = plan.painted_size
-        self._driver.write_frame(
-            prior_live_height=plan.prior_live_height,
-            prior_live_input_row=plan.prior_live_input_row,
-            committed_rows=tuple(
-                (row.text, row.erase_tail) for row in plan.committed_rows
-            ),
-            live_rows=tuple((row.text, row.erase_tail) for row in plan.live_rows),
-            cursor_lines_up=plan.cursor_lines_up,
-            cursor_col=plan.cursor_col,
-            cursor_visible=plan.cursor_visible,
-        )
-
-    def _live_region_lines(self, *, width: int, height: int) -> list[_FrameLine]:
-        snapshot = self._frame_snapshot(
-            width=width, height=height, include_session_picker=True
-        )
-        return list(render_live_region(snapshot))
-
-    def _frame_snapshot(
-        self, *, width: int, height: int, include_session_picker: bool
-    ) -> FrameSnapshot:
-        """Resolve effectful sources, then publish one immutable render input.
-
-        Extension/custom-component callbacks and mutable owner reads remain in
-        this facade under its paint lock. The returned renderer snapshot holds
-        only copied tuples, strings, integers, and frozen frame values.
-        """
-
-        overlay = self._active_overlay_region_lines(
-            width=width,
-            height=height,
-            include_session_picker=include_session_picker,
-        )
-        if overlay is None:
-            popup, pending, chrome, custom_rows = self._standard_frame_inputs(
-                width=width, height=height
-            )
-        else:
-            # Overlay paint returned before consulting ordinary chrome/input in
-            # the pre-slice path. Do not execute hidden extension components.
-            popup, pending, chrome, custom_rows = (), (), ChromeSnapshot(), None
-        history = tuple(
-            FrameBlock(kind, tuple(lines))
-            for kind, lines in self._transcript.history_blocks
-        )
-        return FrameSnapshot(
-            width=width,
-            height=height,
-            history=history,
-            assistant_text=self._transcript.assistant_text,
-            reasoning_text=self._transcript.reasoning_text,
-            tool_output_text=self._transcript.tool_output_text,
-            working_text=self._transcript.working_text,
-            thinking_hidden=self._transcript.thinking_hidden,
-            hidden_thinking_label=self._transcript.hidden_thinking_label,
-            tools_expanded=self._transcript.tools_expanded,
-            input=self.input_editor.snapshot(custom_rows),
-            popup=tuple(popup),
-            pending=tuple(pending),
-            chrome=chrome,
-            overlay=None if overlay is None else tuple(overlay),
-            cursor_visible=self._overlays.active is None,
-        )
-
-    def _standard_frame_inputs(
-        self, *, width: int, height: int
-    ) -> tuple[
-        tuple[_FrameLine, ...],
-        tuple[_FrameLine, ...],
-        ChromeSnapshot,
-        tuple[_ResolvedCustomEditorLine, ...] | None,
-    ]:
-        """Resolve effectful ordinary-frame regions before freezing them."""
-
-        popup = tuple(
-            self._autocomplete.popup_menu_frame_lines(
-                width=width, max_rows=max(1, height - 7)
-            )
-        )
-        pending = tuple(self.pending_messages.region_lines(width))
-        status = tuple(self._chrome.component.status_lines(width))
-        header = tuple(self._chrome.component.header_lines(width))
-        above = tuple(self._chrome.component.widget_lines("above_editor", width))
-        below = tuple(self._chrome.component.widget_lines("below_editor", width))
-        custom_footer = self._chrome.footer.lines(width)
-        footer = (
-            tuple(custom_footer)
-            if custom_footer is not None
-            else (
-                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-            )
-        )
-        custom_rows = None
-        if self._custom_editor.active:
-            custom_rows = tuple(self._custom_editor.frame_lines(width))
-        return (
-            popup,
-            pending,
-            ChromeSnapshot(header, above, below, footer, status),
-            custom_rows,
-        )
-
-    def _active_overlay_region_lines(
-        self,
-        *,
-        width: int,
-        height: int,
-        include_session_picker: bool = True,
-    ) -> list[_FrameLine] | None:
-        """Render the active overlay for the requested façade projection."""
-
-        active = self._overlays.active
-        if active == "custom":
-            return custom_overlay_region_lines(
-                self._overlays, width=width, height=height
-            )
-        if active in {"settings", "project_trust"}:
-            return settings_dialog_region_lines(
-                self._overlays,
-                width=width,
-                height=height,
-                footer_lines=self.footer_lines,
-            )
-        if active == "session_picker" and include_session_picker:
-            return session_picker_region_lines(
-                self._overlays,
-                width=width,
-                height=height,
-                footer_lines=self.footer_lines,
-            )
-        if active == "tree":
-            return tree_selector_region_lines(
-                self._overlays,
-                width=width,
-                height=height,
-                footer_lines=self.footer_lines,
-            )
-        if active == "scoped_models":
-            return scoped_models_region_lines(
-                self._overlays,
-                width=width,
-                height=height,
-                footer_lines=self.footer_lines,
-            )
-        if active == "model":
-            return model_selector_region_lines(
-                self._overlays,
-                width=width,
-                height=height,
-                footer_lines=self.footer_lines,
-            )
-        return None
-
-    def _styled_line(self, line: _FrameLine, *, style: ChromeStyle, width: int) -> str:
-        return render_styled_line(line, style, width)
 
     def _startup_blocks(self) -> list[HistoryBlock]:
         raw_blocks: list[tuple[str, tuple[str, ...]]] = [
@@ -1774,139 +1439,6 @@ class ToolLoopTerminalUi:
                 )
             )
         return blocks
-
-    def _block_frame_lines(
-        self,
-        kind: str,
-        block_lines: Iterable[str],
-        *,
-        width: int | None = None,
-    ) -> list[_FrameLine]:
-        resolved_width = width or self._driver.size()[0]
-        return list(
-            render_block_lines(
-                FrameBlock(kind=kind, lines=tuple(block_lines)), resolved_width
-            )
-        )
-
-    @staticmethod
-    def _input_index(lines: list[_FrameLine]) -> int:
-        return render_input_index(tuple(lines))
-
-    @staticmethod
-    def _clip(text: str, width: int) -> str:
-        return render_clip_text(text, width)
-
-    @staticmethod
-    def _pad(text: str, width: int) -> str:
-        return render_pad_text(text, width)
-
-    def _read_driver_key(self, key: str | None) -> str | None:
-        """Copy a decoded paste's body from the driver into the UI buffer.
-
-        The driver decodes keys over its owned fd and hands a bracketed-paste
-        body back through :meth:`TerminalDriver.consume_paste`; the durable
-        ``_pending_paste`` buffer that the key handlers consume stays owned by
-        the UI, so every decode call site funnels through here.
-        """
-
-        if key == "paste":
-            self.input_editor.stage_paste(self._driver.consume_paste())
-        return key
-
-    def _read_key_polling_resize(self, fd: int) -> str | None:
-        """Block for the next key, repainting when the terminal is resized.
-
-        Returns the decoded key, or ``None`` on EOF. While waiting it polls the
-        live terminal size every ``_RESIZE_POLL_SECONDS`` and repaints the frame
-        if it changed (or a SIGWINCH flagged a pending resize), so the inline
-        layout stays coherent without entering the alternate screen. The
-        fd-level read and key decoding are delegated to the terminal driver,
-        which owns the input fd.
-        """
-
-        while True:
-            self._chrome.footer.poll_branch()
-            self._poll_resize_repaint()
-            if self._driver.has_pending_input():
-                return self._read_driver_key(self._driver.read_key(fd))
-            readable, _, _ = select.select([fd], [], [], _RESIZE_POLL_SECONDS)
-            if fd not in readable:
-                continue
-            return self._read_driver_key(self._driver.read_key(fd))
-
-    def _poll_resize_repaint(self) -> bool:
-        pending = self._driver.take_resize_pending()
-        if pending or self._driver.size() != self._last_painted_size:
-            self._repaint_after_resize()
-            return True
-        return False
-
-    def _repaint_after_resize(self) -> None:
-        """Repaint after a terminal resize without relying on stale geometry.
-
-        A width change can reflow the previously drawn frame (e.g. a
-        full-width separator wraps when the terminal shrinks), so the cached
-        physical live-height/input-row no longer describe the screen and the
-        normal relative-cursor erase would leave stale rows. Instead, clear the
-        visible screen, home the cursor, and redraw the full frame
-        (committed history + live region) fresh at the new size. This is
-        drift-independent and stays inline — it never enters the alternate
-        screen, and committed history stays in native scrollback above
-        (re-rendered at the new width). Resizes are infrequent, so the redraw
-        cost is acceptable for the coherence guarantee.
-        """
-
-        with self._paint_lock:
-            if self._closed:
-                return
-            # Clear the visible screen and home the cursor (no \x1b[3J, so
-            # the terminal's scrollback is preserved). Then force a full
-            # redraw by resetting the committed-block and live-region
-            # bookkeeping so _paint_locked re-emits every history block. The
-            # clear is a deferred (unflushed) write so it coalesces with the
-            # flush of the following _paint_locked(), matching the buffered
-            # pre-extraction behavior (no separate flush, no resize flash).
-            if not self._driver.write_deferred("\x1b[2J\x1b[H"):
-                return
-            self._painted_block_count = 0
-            self._live_height = 0
-            self._live_input_row = 0
-            self._paint_locked()
-
-    @contextmanager
-    def external_io_suspension(self) -> Iterator[None]:
-        """Scope one blocking foreign terminal consumer in cooked mode.
-
-        Used by configured editors and ``/login`` so inherited terminal I/O is
-        cooked and the inline frame is removed while the foreign flow owns it.
-        Entry publishes suspension before mutating the live-region projection,
-        so a failed cooked-mode handoff launches no consumer and leaves the
-        frame intact. The paired ``finally`` resume is unavoidable for normal,
-        exceptional, and nested exits; only the outermost scope repaints below
-        the foreign output. A failed raw resume remains published in the driver
-        for authoritative :meth:`close` recovery and is surfaced to the caller.
-        No prompts, URLs, credentials, or edited text touch the session archive.
-        """
-
-        with self._paint_lock:
-            self._driver.suspend_terminal_mode()
-            output: list[str] = []
-            if self._live_height > 0:
-                if self._live_input_row > 0:
-                    output.append(f"\x1b[{self._live_input_row}A")
-                output.append("\r\x1b[J")
-            output.append("\x1b[?25h")
-            self._driver.write("".join(output))
-            self._live_height = 0
-            self._live_input_row = 0
-        try:
-            yield
-        finally:
-            with self._paint_lock:
-                repaint = self._driver.resume_terminal_mode()
-            if repaint:
-                self.paint()
 
     @staticmethod
     def _submitted_text_is_local_command(text: str) -> bool:

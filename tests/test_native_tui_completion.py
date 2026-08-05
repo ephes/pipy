@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pipy_harness.native.editor_state import CompletionItem
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.screen import Screen
 
 
 def _ui(workspace: Path) -> ToolLoopTerminalUi:
@@ -24,7 +25,7 @@ def _ui(workspace: Path) -> ToolLoopTerminalUi:
 
 
 def _frame_text(ui: ToolLoopTerminalUi) -> str:
-    return "\n".join(ui.render_lines(width=88, height=24))
+    return "\n".join(ui._screen.render_lines(width=88, height=24))
 
 
 def _terminal_text(ui: ToolLoopTerminalUi) -> str:
@@ -88,14 +89,14 @@ class TestAtPicker:
     def test_closed_or_empty_navigation_does_not_paint_or_write(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        original_paint = ToolLoopTerminalUi.paint
-        painted: list[ToolLoopTerminalUi] = []
+        original_paint = Screen.paint
+        painted: list[Screen] = []
 
-        def counting_paint(target: ToolLoopTerminalUi) -> None:
+        def counting_paint(target: Screen) -> None:
             painted.append(target)
             original_paint(target)
 
-        monkeypatch.setattr(ToolLoopTerminalUi, "paint", counting_paint)
+        monkeypatch.setattr(Screen, "paint", counting_paint)
         cases: list[tuple[ToolLoopTerminalUi, str]] = []
 
         slash_closed = _ui(tmp_path)
@@ -129,14 +130,14 @@ class TestAtPicker:
     def test_real_navigation_paints_once_and_writes(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        original_paint = ToolLoopTerminalUi.paint
-        painted: list[ToolLoopTerminalUi] = []
+        original_paint = Screen.paint
+        painted: list[Screen] = []
 
-        def counting_paint(target: ToolLoopTerminalUi) -> None:
+        def counting_paint(target: Screen) -> None:
             painted.append(target)
             original_paint(target)
 
-        monkeypatch.setattr(ToolLoopTerminalUi, "paint", counting_paint)
+        monkeypatch.setattr(Screen, "paint", counting_paint)
 
         slash = _ui(tmp_path)
         slash.input_editor.set_buffer("/")
@@ -154,7 +155,7 @@ class TestAtPicker:
         )
         autocomplete.autocomplete.navigate("down")
 
-        assert painted == [slash, autocomplete]
+        assert painted == [slash._screen, autocomplete._screen]
         assert _terminal_text(slash)
         assert _terminal_text(autocomplete)
 

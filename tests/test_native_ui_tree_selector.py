@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 
 from pipy_harness.native.overlay_state import OverlayState, TreeSelectorRow
@@ -26,7 +27,7 @@ class _Harness:
         self._rows_by_mode = rows_by_mode
         self.component = TreeSelectorComponent(
             self.overlays,
-            PaintLock(),
+            PaintLock(threading.RLock()),
             self._repaint,
             build_rows=self._build_rows,
             filter_modes=_FILTER_MODES,

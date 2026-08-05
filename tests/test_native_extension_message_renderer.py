@@ -313,7 +313,7 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
         ("custom_message_custom", ("\x1b[1mNEW-STYLED\x1b[0m",)),
         ("custom", ("[note]", "NEW-PLAIN")),
     )
-    frame = "\n".join(ui.render_lines(width=80, height=20))
+    frame = "\n".join(ui._screen.render_lines(width=80, height=20))
     assert "NEW-STYLED" in frame
     assert "NEW-PLAIN" in frame
     assert "ordinary history remains" in frame

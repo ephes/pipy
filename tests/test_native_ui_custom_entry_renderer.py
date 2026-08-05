@@ -16,6 +16,7 @@ in ``test_native_extension_custom_ui_pty.py`` and
 from __future__ import annotations
 
 import io
+import threading
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,6 +40,7 @@ from pipy_harness.native.ui.components.custom_entry_renderer import (
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 
 class _Harness:
@@ -49,11 +51,10 @@ class _Harness:
         self.scrollback_resets = 0
         self.widths: list[int] = []
         self.transcript = TranscriptComponent(
-            PaintLock(),
+            PaintLock(threading.RLock()),
             self._repaint,
             reset_scrollback=self._reset_scrollback,
-            frame_width=lambda: 80,
-            render_theme=lambda: None,
+            render_inputs=ScreenRenderInputs(lambda: 80, io.StringIO(), lambda: False),
         )
         self.error_stream = io.StringIO()
         coordinator = CodingEffectCoordinator()
@@ -70,8 +71,9 @@ class _Harness:
             terminal=(
                 CustomEntryTerminalTarget(
                     transcript=self.transcript,
-                    terminal_stream=io.StringIO(),
-                    frame_width=self._frame_width,
+                    render_inputs=ScreenRenderInputs(
+                        self._frame_width, io.StringIO(), lambda: False
+                    ),
                 )
                 if attached
                 else None

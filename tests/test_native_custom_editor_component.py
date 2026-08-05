@@ -32,6 +32,7 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionExternalEditor,
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import Screen
 
 
 class _TtyBuffer:
@@ -162,7 +163,7 @@ def test_terminal_wires_one_custom_owner_to_exact_shared_state_and_lock(
         "exit_requested",
     )
     assert owner.editor_state is ui.input_editor.editor_state
-    assert owner._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert owner._paint_lock is ui._screen.paint_lock  # noqa: SLF001
     assert ui.input_editor._custom_editor is owner  # noqa: SLF001
     assert ui.pending_messages._custom_editor is owner  # noqa: SLF001
     assert ui.clipboard_images._custom_editor is owner  # noqa: SLF001
@@ -278,9 +279,7 @@ def test_custom_editor_read_line_routes_keys_only_to_custom_component(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
     ui._custom_editor.set_editor_component(factory)
 
     assert ui.read_line("> ") == "x\n"
@@ -326,9 +325,7 @@ def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     def factory(
         tui: object, theme: object, keybindings: object
@@ -357,9 +354,7 @@ def test_custom_editor_read_line_forwards_resolved_autocomplete_provider(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     ui.input_editor.set_input_text("seed")
     ui._autocomplete.add_extension_provider(lambda base: provider)
@@ -381,7 +376,9 @@ def test_custom_editor_component_renders_routes_keys_and_submits(
     ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui._custom_editor.factory is not None
-    assert "custom editor: seed" in "\n".join(ui.render_lines(width=72, height=12))
+    assert "custom editor: seed" in "\n".join(
+        ui._screen.render_lines(width=72, height=12)
+    )
 
     assert ui._custom_editor.handle_key("!") is None
     assert component.keys == ["!"]
@@ -400,7 +397,7 @@ def test_custom_editor_component_clear_preserves_text(tmp_path: Path) -> None:
 
     assert ui._custom_editor.factory is None
     assert ui.input_editor.get_input_text() == "before+"
-    assert "before+" in "\n".join(ui.render_lines(width=72, height=12))
+    assert "before+" in "\n".join(ui._screen.render_lines(width=72, height=12))
 
 
 def test_custom_editor_component_factory_failure_falls_back(tmp_path: Path) -> None:
@@ -467,9 +464,7 @@ def test_custom_editor_component_app_action_preserves_text_for_next_prompt(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
     ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == f"{HOTKEY_THINKING_CYCLE}\n"
@@ -552,9 +547,7 @@ def test_custom_editor_component_model_select_preserves_draft(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
     ui._custom_editor.set_editor_component(factory)
 
     assert ui.read_line("> ") == f"{HOTKEY_MODEL_SELECT}\n"
@@ -586,9 +579,7 @@ def test_custom_editor_component_follow_up_queues_and_clears_draft(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
     ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == "\n"
@@ -783,9 +774,7 @@ def test_custom_editor_component_restore_survives_next_read_line(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     assert ui.read_line("> ") == "queued\n"
 
@@ -815,9 +804,7 @@ def test_custom_editor_component_exit_only_when_empty(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
     ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == "x\n"
@@ -925,9 +912,7 @@ def test_custom_editor_component_extension_shortcut_routes_to_session(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
     ui.autocomplete.replace_command_surface(
         replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl+x"}))
     )
@@ -1113,9 +1098,7 @@ def test_custom_editor_external_editor_action_updates_draft_on_success(
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     paints: list[str] = []
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "paint", lambda self: paints.append("paint")
-    )
+    monkeypatch.setattr(Screen, "paint", lambda self: paints.append("paint"))
 
     def factory(
         tui: object, theme: object, keybindings: object
@@ -1190,7 +1173,7 @@ def test_custom_editor_external_editor_action_preserves_draft_on_failure(
     )
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda self: None)
+    monkeypatch.setattr(Screen, "paint", lambda self: None)
     with (
         open(os.devnull, "r", encoding="utf-8") as input_file,
         open(os.devnull, "w", encoding="utf-8") as terminal_file,
@@ -1231,9 +1214,7 @@ def test_default_editor_external_editor_action_updates_draft_on_success(
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     keys: Iterator[str] = iter(("ctrl-g", "enter"))
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     with (
         open(os.devnull, "r", encoding="utf-8") as input_file,
@@ -1256,9 +1237,7 @@ def test_default_editor_external_editor_action_honors_empty_user_binding(
     keys: Iterator[str] = iter(("ctrl-g", "enter"))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     def run_editor(self: object, text: str) -> str:
         del self
@@ -1283,9 +1262,7 @@ def test_default_editor_external_editor_action_is_undoable(
     keys: Iterator[str] = iter(("ctrl-g", "ctrl-z", "enter"))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     def run_editor(self: object, text: str) -> str:
         del self
@@ -1309,9 +1286,7 @@ def test_default_editor_external_editor_action_honors_user_override(
     keys: Iterator[str] = iter(("ctrl-x", "enter"))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     def run_editor(self: object, text: str) -> str:
         del self
@@ -1336,9 +1311,7 @@ def test_default_editor_external_editor_action_precedes_extension_shortcut(
     keys: Iterator[str] = iter(("ctrl-x", "enter"))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
-    )
+    monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
 
     def run_editor(self: object, text: str) -> str:
         del self

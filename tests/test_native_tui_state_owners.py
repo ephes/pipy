@@ -29,6 +29,7 @@ from pipy_harness.native.ui.components.scoped_models_selector import (
 )
 from pipy_harness.native.ui.components.session_picker import SessionPickerComponent
 from pipy_harness.native.ui.components.settings_dialog import SettingsDialogComponent
+from pipy_harness.native.ui.screen import Screen
 
 
 def _session(path: Path) -> SessionListEntry:
@@ -226,15 +227,15 @@ def test_settings_overlay_identity_is_explicit_not_title_coupled(
     input_path.write_text("", encoding="utf-8")
     seen: list[str | None] = []
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: None)
+    monkeypatch.setattr(Screen, "paint", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
-    def cancel(ui: ToolLoopTerminalUi, _fd: int) -> str:
+    def cancel(ui: Screen, _fd: int) -> str:
         seen.append(ui._overlays.active)
         return "esc"
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", cancel)
+    monkeypatch.setattr(Screen, "read_key_polling_resize", cancel)
     with input_path.open(encoding="utf-8") as input_stream:
         ui = ToolLoopTerminalUi(
             input_stream=input_stream,
@@ -276,19 +277,19 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
         lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
     )
 
-    def read_key(ui: ToolLoopTerminalUi, _fd: int) -> str:
+    def read_key(ui: Screen, _fd: int) -> str:
         key = next(keys)
         if key == "esc" and ui._overlays.active == "settings":
             outer_selections_before_close.append(ui._overlays.settings_selection)
         return key
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", read_key)
+    monkeypatch.setattr(Screen, "read_key_polling_resize", read_key)
 
-    def capture_paint(ui: ToolLoopTerminalUi) -> None:
+    def capture_paint(ui: Screen) -> None:
         lines = ui._live_region_lines(width=72, height=14)
         painted.append((ui._overlays.active, "\n".join(line.text for line in lines)))
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", capture_paint)
+    monkeypatch.setattr(Screen, "paint", capture_paint)
     with input_path.open(encoding="utf-8") as input_stream:
         input_fd = input_stream.fileno()
         ui = ToolLoopTerminalUi(
@@ -354,12 +355,12 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
     )
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
-        "_read_key_polling_resize",
+        Screen,
+        "read_key_polling_resize",
         lambda _ui, _fd: next(keys),
     )
 
-    def capture_paint(ui: ToolLoopTerminalUi) -> None:
+    def capture_paint(ui: Screen) -> None:
         frame = "\n".join(
             line.text for line in ui._live_region_lines(width=72, height=14)
         )
@@ -373,7 +374,7 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
             )
         )
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", capture_paint)
+    monkeypatch.setattr(Screen, "paint", capture_paint)
     outer_rows = (
         SettingsRow("Outer header", kind="header"),
         SettingsRow("Open project trust", kind="action", action="open"),
@@ -469,9 +470,7 @@ def test_external_io_scope_pairs_nested_exception_and_repaints_once(
             cwd=tmp_path,
         )
         paints: list[None] = []
-        monkeypatch.setattr(
-            ToolLoopTerminalUi, "paint", lambda _self: paints.append(None)
-        )
+        monkeypatch.setattr(Screen, "paint", lambda _self: paints.append(None))
         ui._driver.enter_raw_mode()
         ui._driver.enter_raw_mode()
 
@@ -620,9 +619,11 @@ def test_single_row_facade_navigation_repaints_once(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
     paints: list[None] = []
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: paints.append(None))
+    monkeypatch.setattr(Screen, "paint", lambda _self: paints.append(None))
 
-    scoped = ScopedModelsSelectorComponent(ui._overlays, ui._paint_lock, ui.paint)
+    scoped = ScopedModelsSelectorComponent(
+        ui._overlays, ui._screen.paint_lock, ui._screen.paint
+    )
     assert ui._overlays.begin_scoped((ScopedModelRow("only"),), checked=())
     assert scoped.handle_key("down") is None
     assert len(paints) == 1
@@ -630,8 +631,8 @@ def test_single_row_facade_navigation_repaints_once(
     ui._overlays.end_scoped()
     dialog = SettingsDialogComponent(
         ui._overlays,
-        ui._paint_lock,
-        ui.paint,
+        ui._screen.paint_lock,
+        ui._screen.paint,
         on_local_action=lambda _action: (),
     )
     assert ui._overlays.begin_settings(
@@ -747,15 +748,17 @@ def test_facade_overlay_end_detaches_assignable_live_containers(
     ui = ToolLoopTerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: None)
+    monkeypatch.setattr(Screen, "paint", lambda _self: None)
     checked = {0}
     project = [_session(tmp_path / "project.jsonl")]
     all_sessions = [*project, _session(tmp_path / "other.jsonl")]
-    scoped = ScopedModelsSelectorComponent(ui._overlays, ui._paint_lock, ui.paint)
+    scoped = ScopedModelsSelectorComponent(
+        ui._overlays, ui._screen.paint_lock, ui._screen.paint
+    )
     picker = SessionPickerComponent(
         ui._overlays,
-        ui._paint_lock,
-        ui.paint,
+        ui._screen.paint_lock,
+        ui._screen.paint,
         on_rename=None,
         on_delete=None,
         consume_paste=lambda: None,
@@ -861,17 +864,17 @@ def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
     ui = ToolLoopTerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
-    assert ui.input_editor._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert ui.input_editor._paint_lock is ui._screen.paint_lock  # noqa: SLF001
     assert ui.pending_messages._editor is ui.input_editor.editor_state  # noqa: SLF001
-    assert ui.pending_messages._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert ui.pending_messages._paint_lock is ui._screen.paint_lock  # noqa: SLF001
     assert ui.clipboard_images._editor is ui.input_editor.editor_state  # noqa: SLF001
-    assert ui.clipboard_images._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert ui.clipboard_images._paint_lock is ui._screen.paint_lock  # noqa: SLF001
     owners = ui._chrome
     assert owners.component._record is owners.record  # noqa: SLF001
     assert owners.footer._record is owners.record  # noqa: SLF001
     assert owners.listeners._record is owners.record  # noqa: SLF001
     assert owners.generation._record is owners.record  # noqa: SLF001
-    assert owners.component._paint_lock is ui._paint_lock  # noqa: SLF001
-    assert owners.footer._paint_lock is ui._paint_lock  # noqa: SLF001
-    assert owners.listeners._paint_lock is ui._paint_lock  # noqa: SLF001
-    assert owners.generation._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert owners.component._paint_lock is ui._screen.paint_lock  # noqa: SLF001
+    assert owners.footer._paint_lock is ui._screen.paint_lock  # noqa: SLF001
+    assert owners.listeners._paint_lock is ui._screen.paint_lock  # noqa: SLF001
+    assert owners.generation._paint_lock is ui._screen.paint_lock  # noqa: SLF001

@@ -30,6 +30,7 @@ from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.terminal_driver import _TITLE_MAX_CHARS
 from pipy_harness.native.tool_renderers import render_chrome_component
 from pipy_harness.native.ui.paint_lock import PaintLock
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 WIDGET_MAX_LINES = 10
 WIDGET_MAX_COUNT = 16
@@ -64,8 +65,7 @@ class ExtensionChromeComponent:
         repaint: Callable[[], None],
         *,
         tui_handle: object,
-        region_width: Callable[[], int],
-        render_theme: Callable[[], object],
+        render_inputs: ScreenRenderInputs,
         push_title: Callable[[], None],
         write_title: Callable[[str], None],
         restore_title: Callable[[], None],
@@ -74,8 +74,7 @@ class ExtensionChromeComponent:
         self._record = record
         self._paint_lock = paint_lock
         self._repaint = repaint
-        self._region_width = region_width
-        self._render_theme = render_theme
+        self._render_inputs = render_inputs
         self._push_title = push_title
         self._write_title = write_title
         self._restore_title = restore_title
@@ -102,12 +101,12 @@ class ExtensionChromeComponent:
     ) -> ChromeRegion | None:
         """Build a static or reactive region at the terminal's current width."""
 
-        width = self._region_width()
+        width = self._render_inputs.width()
         component: object | None = None
         is_factory = False
         render_source: object = source
         if callable(source) and not isinstance(source, (str, bytes, bytearray)):
-            theme = self._render_theme()
+            theme = self._render_inputs.theme()
             try:
                 if footer_data is not None:
                     component = self._call_factory(

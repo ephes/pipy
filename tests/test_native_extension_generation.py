@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -42,7 +43,7 @@ def _owner(
     current_component: object | None = None,
 ) -> ExtensionGenerationOwner:
     editor_state = EditorState(text="custom draft")
-    paint_lock = PaintLock()
+    paint_lock = PaintLock(threading.RLock())
 
     def noop() -> None:
         return None

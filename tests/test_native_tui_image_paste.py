@@ -58,7 +58,7 @@ class TestClipboardImagePaste:
         assert isinstance(owner, ClipboardImages)
         assert owner.config is config
         assert owner._editor is ui.input_editor.editor_state  # noqa: SLF001
-        assert owner._paint_lock is ui._paint_lock  # noqa: SLF001
+        assert owner._paint_lock is ui._screen.paint_lock  # noqa: SLF001
 
     def test_paste_writes_owner_only_temp_and_inserts_reference(
         self, tmp_path: Path

@@ -5,9 +5,11 @@ from __future__ import annotations
 import gc
 import io
 import weakref
+from _thread import RLock
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, TracebackType
 from typing import TextIO, cast
 
 import pytest
@@ -34,6 +36,7 @@ from pipy_harness.native.frame_renderer import (
 )
 from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.paint_lock import PaintLock
 
 
 def _snapshot(
@@ -321,16 +324,46 @@ def test_full_frame_tiny_geometry_is_bounded(width: int, height: int) -> None:
 class _TtyBuffer:
     def __init__(self) -> None:
         self.value = ""
+        self.flushes = 0
 
     def write(self, text: str) -> int:
         self.value += text
         return len(text)
 
     def flush(self) -> None:
-        pass
+        self.flushes += 1
 
     def isatty(self) -> bool:
         return True
+
+
+class _ReleaseInterleavingPaintLock(PaintLock):
+    """Run a competing terminal operation after the outer lock release."""
+
+    def __init__(self, lock: RLock) -> None:
+        super().__init__(lock)
+        self.depth = 0
+        self.max_depth = 0
+        self.on_release: Callable[[], None] | None = None
+
+    def __enter__(self) -> bool:
+        entered = super().__enter__()
+        self.depth += 1
+        self.max_depth = max(self.max_depth, self.depth)
+        return entered
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.depth -= 1
+        super().__exit__(exc_type, exc, traceback)
+        if self.depth == 0 and self.on_release is not None:
+            callback = self.on_release
+            self.on_release = None
+            callback()
 
 
 def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
@@ -367,9 +400,11 @@ def test_facade_custom_editor_snapshot_preserves_rows_cursor_and_window(
     component = _RowsEditor([f"row{index}" for index in range(10)])
     ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
 
-    snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=False)
+    snapshot = ui._screen._frame_snapshot(
+        width=60, height=12, include_session_picker=False
+    )
     direct = render_live_region(snapshot)
-    facade = ui._frame_lines(width=60, height=12, pad=False)
+    facade = ui._screen._frame_lines(width=60, height=12, pad=False)
     snapshot_rows = snapshot.input.custom_rows
 
     assert snapshot_rows is not None
@@ -401,8 +436,8 @@ def test_facade_full_frame_does_not_finish_custom_editor_rows_twice(
 
     monkeypatch.setattr(frame_renderer, "clip_custom_text", non_idempotent_finish)
 
-    detailed = ui._frame_lines(width=60, height=12, pad=False)
-    captured = ui.render_lines(width=60, height=12, pad=False)
+    detailed = ui._screen._frame_lines(width=60, height=12, pad=False)
+    captured = ui._screen.render_lines(width=60, height=12, pad=False)
 
     assert [row.text for row in detailed if row.kind == "input"] == ["ONCE RESOLVED"]
     assert "ONCE RESOLVED" in captured
@@ -416,7 +451,9 @@ def test_facade_custom_editor_keeps_head_plain_control_policy_at_narrow_width(
     component = _RowsEditor(["\x1b[31mRED\x1b[0m", "A\rB\x1b]0;X\x07"])
     ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
 
-    snapshot = ui._frame_snapshot(width=6, height=6, include_session_picker=False)
+    snapshot = ui._screen._frame_snapshot(
+        width=6, height=6, include_session_picker=False
+    )
     snapshot_rows = snapshot.input.custom_rows
     direct = render_live_region(snapshot)
     owner_rows = ui.input_editor.input_frame_lines(
@@ -459,7 +496,9 @@ def test_facade_publishes_detached_immutable_snapshot(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui.footer_lines = ("workspace", "status")
     ui.submit_user_message("snapshot message")
-    snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=False)
+    snapshot = ui._screen._frame_snapshot(
+        width=60, height=12, include_session_picker=False
+    )
 
     ui._transcript.history_blocks.clear()
     ui.input_editor.text = "later mutation"
@@ -488,7 +527,9 @@ def test_state_bearing_custom_history_snapshot_keeps_lines_not_callbacks(
         renderers={"card": registered},
     )
 
-    snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=False)
+    snapshot = ui._screen._frame_snapshot(
+        width=60, height=12, include_session_picker=False
+    )
     ui._transcript.history_blocks.clear()
     del registered
     del callback
@@ -517,7 +558,9 @@ def test_overlay_snapshot_does_not_execute_hidden_extension_chrome(
     ui._overlays.supersede("model")
     before = len(renders)
 
-    snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=True)
+    snapshot = ui._screen._frame_snapshot(
+        width=60, height=12, include_session_picker=True
+    )
 
     assert snapshot.overlay is not None
     assert snapshot.chrome == ChromeSnapshot()
@@ -536,22 +579,66 @@ def test_failed_paint_write_keeps_preexisting_publication_behavior(
         return False
 
     monkeypatch.setattr(TerminalDriver, "write", fail_write)
-    ui.paint()
+    ui._screen.paint()
 
     assert len(writes) == 1
     assert "WRITE_FAILURE_MARKER" in writes[0]
-    assert ui._painted_block_count == len(ui._transcript.history_blocks)
-    assert ui._live_height > 0
-    assert ui._last_painted_size == (88, 24)
+    assert ui._screen.state.painted_block_count == len(ui._transcript.history_blocks)
+    assert ui._screen.state.live_height > 0
+    assert ui._screen.state.last_painted_size == (88, 24)
+
+
+def test_force_full_redraw_keeps_clear_reset_and_reentrant_paint_atomic(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    screen = ui._screen
+    buffer = cast(_TtyBuffer, ui.terminal_stream)
+    marker = "ATOMIC_FULL_REDRAW_MARKER"
+    ui._transcript.history_blocks.append(("notice", (marker,)))
+    screen.state.painted_block_count = 3
+    screen.state.live_height = 4
+    screen.state.live_input_row = 2
+    lock = _ReleaseInterleavingPaintLock(RLock())
+    screen._paint_lock = lock  # noqa: SLF001
+    observations: list[tuple[int, int, int, bool, int]] = []
+
+    def competing_close() -> None:
+        observations.append(
+            (
+                screen.state.painted_block_count,
+                screen.state.live_height,
+                screen.state.live_input_row,
+                marker in buffer.value,
+                buffer.flushes,
+            )
+        )
+        screen.close()
+
+    lock.on_release = competing_close
+    screen.force_full_redraw()
+
+    assert lock.max_depth == 2
+    assert len(observations) == 1
+    painted_count, live_height, live_input_row, marker_painted, flushes = observations[
+        0
+    ]
+    assert painted_count == len(ui._transcript.history_blocks)
+    assert live_height > 0
+    assert live_input_row >= 0
+    assert marker_painted is True
+    assert flushes == 1
+    assert buffer.value.startswith("\x1b[2J\x1b[H\x1b[?25l")
+    assert buffer.flushes == 2  # Coalesced redraw, then the competing close.
 
 
 def test_failed_deferred_clear_does_not_reset_or_paint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ui = _ui(tmp_path)
-    ui._painted_block_count = 3
-    ui._live_height = 4
-    ui._live_input_row = 2
+    ui._screen.state.painted_block_count = 3
+    ui._screen.state.live_height = 4
+    ui._screen.state.live_input_row = 2
     writes: list[str] = []
 
     def fail_deferred(_driver: TerminalDriver, text: str) -> bool:
@@ -559,7 +646,11 @@ def test_failed_deferred_clear_does_not_reset_or_paint(
         return False
 
     monkeypatch.setattr(TerminalDriver, "write_deferred", fail_deferred)
-    ui._force_full_redraw()
+    ui._screen.force_full_redraw()
 
     assert writes == ["\x1b[2J\x1b[H"]
-    assert (ui._painted_block_count, ui._live_height, ui._live_input_row) == (3, 4, 2)
+    assert (
+        ui._screen.state.painted_block_count,
+        ui._screen.state.live_height,
+        ui._screen.state.live_input_row,
+    ) == (3, 4, 2)

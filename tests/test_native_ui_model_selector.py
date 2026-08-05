@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from pipy_harness.native.overlay_state import ModelSelectorOption, OverlayState
 from pipy_harness.native.ui.components.model_selector import (
     ModelSelectorClose,
@@ -18,7 +20,7 @@ class _Harness:
         self.overlays = OverlayState()
         self.repaints = 0
         self.component = ModelSelectorComponent(
-            self.overlays, PaintLock(), self._repaint
+            self.overlays, PaintLock(threading.RLock()), self._repaint
         )
 
     def _repaint(self) -> None:

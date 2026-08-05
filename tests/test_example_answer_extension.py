@@ -102,7 +102,7 @@ def test_component_tui_custom_overlay_preserves_safe_sgr(tmp_path: Path) -> None
     ui._overlays.custom_component = comp
     ui.custom_overlay_open = True
 
-    frame = "\n".join(ui.render_lines(width=80, height=14))
+    frame = "\n".join(ui._screen.render_lines(width=80, height=14))
     plain = answer._ANSI_RE.sub("", frame)
 
     assert "\x1b[2m" in frame

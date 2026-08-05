@@ -65,6 +65,7 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
+from pipy_harness.native.ui.screen import ScreenRenderInputs
 
 
 class CustomEntryRunState(Protocol):
@@ -152,15 +153,13 @@ class CustomRendererProjectionSnapshot:
 class CustomEntryTerminalTarget:
     """Where rendered custom entries land while a terminal frame is attached.
 
-    The transcript owns the committed rows and the Ctrl+O ``tools_expanded``
-    flag; ``frame_width`` and ``terminal_stream`` are the two live render
-    inputs the shell still owns (the terminal driver's size and the styling
-    stream). Built by the terminal shell, which keeps its driver private.
+    The transcript owns committed rows. Width, Ctrl+O expansion, and the
+    styling stream arrive together through the screen-owned live render
+    inputs, so renderers cannot acquire independent driver/theme providers.
     """
 
     transcript: TranscriptComponent
-    terminal_stream: TextIO
-    frame_width: Callable[[], int]
+    render_inputs: ScreenRenderInputs
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -255,9 +254,9 @@ class CustomEntryRenderer:
         renderers = renderer_projection or self._renderer_projection()
         rendered = self.render_extension_custom_entry(
             entry,
-            width=target.frame_width(),
-            expanded=target.transcript.tools_expanded,
-            stream=target.terminal_stream,
+            width=target.render_inputs.width(),
+            expanded=target.render_inputs.expanded(),
+            stream=target.render_inputs.stream,
             renderer_projection=renderers,
         )
         if rendered is None:
@@ -321,9 +320,9 @@ class CustomEntryRenderer:
         renderers = renderer_projection or self._renderer_projection()
         rendered = self.render_custom_message_entry(
             entry,
-            width=target.frame_width(),
-            expanded=target.transcript.tools_expanded,
-            stream=target.terminal_stream,
+            width=target.render_inputs.width(),
+            expanded=target.render_inputs.expanded(),
+            stream=target.render_inputs.stream,
             renderer_projection=renderers,
         )
         self.add_rendered_entry_to_terminal(
@@ -351,9 +350,9 @@ class CustomEntryRenderer:
         def render_for_redraw(entry: CustomEntry) -> RenderedCustomEntry | None:
             return self.render_extension_custom_entry(
                 entry,
-                width=target.frame_width(),
-                expanded=target.transcript.tools_expanded,
-                stream=target.terminal_stream,
+                width=target.render_inputs.width(),
+                expanded=target.render_inputs.expanded(),
+                stream=target.render_inputs.stream,
                 renderer_projection=renderers,
             )
 
@@ -362,9 +361,9 @@ class CustomEntryRenderer:
         ) -> RenderedCustomEntry:
             return self.render_custom_message_entry(
                 entry,
-                width=target.frame_width(),
-                expanded=target.transcript.tools_expanded,
-                stream=target.terminal_stream,
+                width=target.render_inputs.width(),
+                expanded=target.render_inputs.expanded(),
+                stream=target.render_inputs.stream,
                 renderer_projection=renderers,
             )
 
