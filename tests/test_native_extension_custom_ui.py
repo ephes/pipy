@@ -25,8 +25,10 @@ from pipy_harness.native.extension_runtime import (
     CustomComponent,
     ExtensionUi,
     ExtensionUiDriver,
-    RegisteredCommand,
     _CollectingUi,
+)
+from pipy_harness.native.extensions.contracts import (
+    RegisteredCommand,
 )
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.terminal_driver import TerminalDriver

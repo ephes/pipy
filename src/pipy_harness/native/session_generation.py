@@ -42,14 +42,8 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSink,
 )
 from pipy_harness.native.extension_runtime import (
-    HookHandler,
-    RegisteredCommand,
-    RegisteredEntryRenderer,
-    RegisteredMessageRenderer,
-    RegisteredShortcut,
     RegisteredTool,
     _ExtensionCandidate,
-    _ExtensionRuntime,
     _report_activation_cleanup,
 )
 from pipy_harness.native.extension_types import (
@@ -58,6 +52,14 @@ from pipy_harness.native.extension_types import (
     QueuedUserMessage,
     RegisteredFlag,
     RegisteredProvider,
+)
+from pipy_harness.native.extensions.contracts import (
+    HookHandler,
+    RegisteredCommand,
+    RegisteredEntryRenderer,
+    RegisteredMessageRenderer,
+    RegisteredShortcut,
+    _ExtensionRuntime,
 )
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,

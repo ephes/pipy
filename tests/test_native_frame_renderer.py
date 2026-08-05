@@ -14,7 +14,9 @@ import pytest
 
 from pipy_harness.native import frame_renderer
 from pipy_harness.native.chrome import ChromeStyle
-from pipy_harness.native.extension_runtime import RegisteredMessageRenderer
+from pipy_harness.native.extensions.contracts import (
+    RegisteredMessageRenderer,
+)
 from pipy_harness.native.frame_renderer import (
     ChromeSnapshot,
     FrameBlock,

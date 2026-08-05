@@ -38,6 +38,8 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
+)
+from pipy_harness.native.extensions.collectors import (
     extension_oauth_providers,
     extension_providers,
     extension_unregistered_providers,

@@ -21,11 +21,12 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
-    extension_flags,
-    extension_message_renderers,
-    parse_extension_flag_tokens,
 )
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.collectors import (
+    extension_flags,
+    extension_message_renderers,
+)
 from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
     safe_custom_entry_data,
@@ -33,6 +34,9 @@ from pipy_harness.native.extensions.custom_payloads import (
 from pipy_harness.native.extensions.dispatch import (
     dispatch_extension_command,
     extension_command_map,
+)
+from pipy_harness.native.extensions.flag_tokens import (
+    parse_extension_flag_tokens,
 )
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_tree import (

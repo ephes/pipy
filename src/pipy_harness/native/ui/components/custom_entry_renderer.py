@@ -36,15 +36,19 @@ from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
     QueuedUserMessage,
-    RegisteredEntryRenderer,
-    RegisteredMessageRenderer,
     RenderedCustomEntry,
+    is_valid_custom_entry_type,
+)
+from pipy_harness.native.extensions.collectors import (
     drain_custom_messages,
     drain_user_messages,
-    is_valid_custom_entry_type,
 )
 from pipy_harness.native.extensions.command_context import (
     ExtensionCapabilityError,
+)
+from pipy_harness.native.extensions.contracts import (
+    RegisteredEntryRenderer,
+    RegisteredMessageRenderer,
 )
 from pipy_harness.native.extensions.custom_payloads import (
     _custom_entry_redraw_rows,

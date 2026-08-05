@@ -38,22 +38,7 @@ from pipy_harness.native.extension_hooks import (
     extension_tool_call_hooks,
 )
 from pipy_harness.native.extension_runtime import (
-    ActivatedExtension,
-    PipyExtensionAPI,
-    RegisteredCommand,
-    RegisteredEntryRenderer,
-    RegisteredMessageRenderer,
-    RegisteredShortcut,
     activate_extensions,
-    drain_custom_messages,
-    drain_user_messages,
-    extension_entry_renderers,
-    extension_flags,
-    extension_message_renderers,
-    extension_oauth_providers,
-    extension_providers,
-    extension_tools,
-    extension_unregistered_providers,
     safe_activation_metadata,
 )
 from pipy_harness.native.extension_types import (
@@ -107,9 +92,28 @@ from pipy_harness.native.extension_ui import (
     coerce_tool_render_lines,
     lines_component,
 )
+from pipy_harness.native.extensions.collectors import (
+    drain_custom_messages,
+    drain_user_messages,
+    extension_entry_renderers,
+    extension_flags,
+    extension_message_renderers,
+    extension_oauth_providers,
+    extension_providers,
+    extension_tools,
+    extension_unregistered_providers,
+)
 from pipy_harness.native.extensions.command_context import (
     CommandContext,
     ExtensionCapabilityError,
+)
+from pipy_harness.native.extensions.contracts import (
+    ActivatedExtension,
+    PipyExtensionAPI,
+    RegisteredCommand,
+    RegisteredEntryRenderer,
+    RegisteredMessageRenderer,
+    RegisteredShortcut,
 )
 from pipy_harness.native.extensions.custom_payloads import (
     coerce_custom_message,

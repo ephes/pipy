@@ -1,7 +1,9 @@
 from pipy_harness.extensions import coerce_custom_message
-from pipy_harness.native.extension_runtime import RegisteredCommand
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
+from pipy_harness.native.extensions.contracts import (
+    RegisteredCommand,
+)
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 
 

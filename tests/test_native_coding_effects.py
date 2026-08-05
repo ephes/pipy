@@ -27,9 +27,11 @@ from pipy_harness.native.extension_hooks import (
 )
 from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
-    RegisteredMessageRenderer,
 )
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
+from pipy_harness.native.extensions.contracts import (
+    RegisteredMessageRenderer,
+)
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
     GenerationMessageRouting,

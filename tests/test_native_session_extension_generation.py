@@ -55,15 +55,17 @@ from pipy_harness.native.extension_hooks import (
     deliver_accepted_staged_batch,
 )
 from pipy_harness.native.extension_runtime import (
-    ActivatedExtension,
-    ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
-    RegisteredMessageRenderer,
-    _ExtensionRuntime,
     activate_extensions,
 )
 from pipy_harness.native.extension_types import ProviderContext
+from pipy_harness.native.extensions.contracts import (
+    ActivatedExtension,
+    ExtensionActivationBatch,
+    RegisteredMessageRenderer,
+    _ExtensionRuntime,
+)
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,

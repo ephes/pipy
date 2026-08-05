@@ -9,6 +9,19 @@ Wave 0 is test-only rule hardening and landed first; every later
 slice lands individually with `just check` green and the old path deleted in the
 same commit.
 
+**Checkpoint (2026-08-05, after slice 34).** The post-34 good stopping
+point is reached: all planned widget/extension leaf owners through slice 34
+have definition-site ownership. Current measurements are `native/tui.py` 2,093
+lines; `ToolLoopTerminalUi` 1,438 AST-line span / 63 defs / 25 fields;
+`native/tool_loop_session.py` 2,006 lines; and `native/extension_runtime.py`
+2,000 lines. The native-module ceiling is 2,488, currently set by
+`native/session.py`. The next dependency-ordered slice is 36, then 39 and the
+strict 40–49 endgame. The residual `extension_runtime.py` is 50 lines above
+§2d's projected slice-46 upper edge before slice 46's final activation
+rename/import cleanup; this is measured drift, not a failure, and does not
+change the accepted 1,750–1,950 final activation range until slice 46 is
+measured.
+
 Date: 2026-08-03.
 
 This plan closes the one axis where pipy measurably loses to `pi-mono`: shape.

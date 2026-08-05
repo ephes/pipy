@@ -34,8 +34,10 @@ from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
-    HookHandler,
     SessionDecision,
+)
+from pipy_harness.native.extensions.contracts import (
+    HookHandler,
 )
 from pipy_harness.native.repl.session_commands import (
     run_interactive_session_picker,

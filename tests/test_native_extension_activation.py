@@ -14,13 +14,19 @@ from pathlib import Path
 
 from pipy_harness.extensions import PipyExtensionAPI
 from pipy_harness.native.extension_runtime import (
-    ActivatedExtension,
     activate_extensions,
+    safe_activation_metadata,
+)
+from pipy_harness.native.extensions.collectors import (
     extension_entry_renderers,
     extension_flags,
     extension_message_renderers,
+)
+from pipy_harness.native.extensions.contracts import (
+    ActivatedExtension,
+)
+from pipy_harness.native.extensions.flag_tokens import (
     parse_extension_flag_tokens,
-    safe_activation_metadata,
 )
 from pipy_harness.native.extensions.packages import discover_extensions
 

@@ -7,7 +7,9 @@ from pipy_harness.extensions import (
     ToolRenderComponent,
     lines_component,
 )
-from pipy_harness.native.extension_runtime import RegisteredMessageRenderer
+from pipy_harness.native.extensions.contracts import (
+    RegisteredMessageRenderer,
+)
 from pipy_harness.native.extensions.custom_payloads import render_extension_message
 
 

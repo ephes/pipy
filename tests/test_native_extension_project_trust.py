@@ -19,6 +19,8 @@ from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     activate_extension_batch,
     activate_extensions,
+)
+from pipy_harness.native.extensions.collectors import (
     drain_user_messages,
 )
 from pipy_harness.native.extensions.command_context import make_extension_context

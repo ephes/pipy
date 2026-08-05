@@ -18,7 +18,7 @@ from pipy_harness.native.tools.base import (
 )
 
 if TYPE_CHECKING:
-    from pipy_harness.native.extension_runtime import RegisteredTool
+    from pipy_harness.native.extension_types import RegisteredTool
 
 ToolRenderDetails: TypeAlias = Mapping[str, object] | None
 ToolRenderDetailsSink: TypeAlias = MutableMapping[str, object | None]

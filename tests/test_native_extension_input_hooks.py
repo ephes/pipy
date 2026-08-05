@@ -21,6 +21,8 @@ from pipy_harness.native.extension_hooks import (
 )
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
+)
+from pipy_harness.native.extensions.collectors import (
     drain_user_messages,
 )
 from pipy_harness.native.extensions.packages import discover_extensions

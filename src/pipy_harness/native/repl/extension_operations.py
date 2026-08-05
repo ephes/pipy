@@ -37,10 +37,12 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
-    HookHandler,
     SessionDecision,
 )
 from pipy_harness.native.extension_types import CustomComponentDriver
+from pipy_harness.native.extensions.contracts import (
+    HookHandler,
+)
 from pipy_harness.native.extensions.dispatch import (
     ExtensionCommandDispatch,
     dispatch_extension_command,

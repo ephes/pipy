@@ -28,7 +28,7 @@ from pipy_harness.native.extension_ui import (
 from pipy_harness.native.extensions.session_views import _json_round_trip
 
 if TYPE_CHECKING:
-    from pipy_harness.native.extension_runtime import (
+    from pipy_harness.native.extensions.contracts import (
         RegisteredEntryRenderer,
         RegisteredMessageRenderer,
     )

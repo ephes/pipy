@@ -26,6 +26,8 @@ from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
+)
+from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
 )

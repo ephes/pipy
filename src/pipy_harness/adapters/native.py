@@ -12,7 +12,9 @@ from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.agent import AgentEventSink
 from pipy_harness.native.automation.events import AutomationEventSink
-from pipy_harness.native.extension_runtime import ExtensionActivationBatch
+from pipy_harness.native.extensions.contracts import (
+    ExtensionActivationBatch,
+)
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.package_runtime import compose_package_runtime

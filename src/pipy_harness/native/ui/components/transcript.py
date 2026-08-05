@@ -33,7 +33,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Self, cast
 
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
 )

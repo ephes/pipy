@@ -79,6 +79,8 @@ from pipy_harness.native.ds4 import DS4_DEFAULT_BASE_URL, ds4_preset_dict
 from pipy_harness.native.extension_runtime import (
     RegisteredProvider,
     activate_extensions,
+)
+from pipy_harness.native.extensions.collectors import (
     extension_providers,
 )
 from pipy_harness.native.extensions.packages import discover_extensions

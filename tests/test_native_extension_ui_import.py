@@ -5,8 +5,9 @@ Slice 6.4c relocated `_CollectingUi`, `_safe_ui_key`, and the
 helpers into `pipy_harness.native.extension_ui`. Slice 18 relocated custom
 payload coercion and rendering into `native.extensions.custom_payloads`.
 Slice 31 relocated command/shortcut dispatch and the extension tool port into
-`native.extensions`; every old `extension_runtime` path is absent while public
-names import directly from their authoritative owner.
+`native.extensions`; slice 34 relocated activation contracts and collectors.
+Every retired `extension_runtime` path is absent while public names import
+directly from their authoritative owner.
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ import pipy_harness.native.extension_hooks as extension_hooks
 import pipy_harness.native.extension_runtime as extension_runtime
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
+import pipy_harness.native.extensions.collectors as extension_collectors
 import pipy_harness.native.extensions.command_context as extension_command_context
+import pipy_harness.native.extensions.contracts as extension_contracts
 import pipy_harness.native.extensions.custom_payloads as extension_custom_payloads
 import pipy_harness.native.extensions.dispatch as extension_dispatch
 import pipy_harness.native.extensions.packages as extension_discovery
@@ -129,8 +132,9 @@ _PUBLIC_EXTENSION_NAMES = (
 )
 
 _OWNER_GROUPS = (
+    (extension_runtime, ("activate_extensions", "safe_activation_metadata")),
     (
-        extension_runtime,
+        extension_contracts,
         (
             "ActivatedExtension",
             "PipyExtensionAPI",
@@ -138,7 +142,11 @@ _OWNER_GROUPS = (
             "RegisteredEntryRenderer",
             "RegisteredMessageRenderer",
             "RegisteredShortcut",
-            "activate_extensions",
+        ),
+    ),
+    (
+        extension_collectors,
+        (
             "drain_custom_messages",
             "drain_user_messages",
             "extension_entry_renderers",
@@ -148,7 +156,6 @@ _OWNER_GROUPS = (
             "extension_providers",
             "extension_tools",
             "extension_unregistered_providers",
-            "safe_activation_metadata",
         ),
     ),
     (

@@ -19,7 +19,9 @@ from pipy_harness.native.extensions.session_views import AssistantMessageView
 
 
 def _command_map(handler):
-    from pipy_harness.native.extension_runtime import RegisteredCommand
+    from pipy_harness.native.extensions.contracts import (
+        RegisteredCommand,
+    )
 
     return {
         "probe": RegisteredCommand(

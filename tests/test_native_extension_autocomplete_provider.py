@@ -14,8 +14,10 @@ from pipy_harness.native.autocomplete_provider import (
 from pipy_harness.native.editor_completion import CompletionItem
 from pipy_harness.native.extension_runtime import (
     ExtensionUiDriver,
-    RegisteredCommand,
     _CollectingUi,
+)
+from pipy_harness.native.extensions.contracts import (
+    RegisteredCommand,
 )
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.tui import ToolLoopTerminalUi

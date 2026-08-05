@@ -41,8 +41,12 @@ from pipy_harness.native.extension_chrome_state import (
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
 from pipy_harness.native.extension_runtime import (
     _ExtensionCandidate,
-    _ExtensionRuntime,
     _report_activation_cleanup,
+)
+from pipy_harness.native.extensions.contracts import (
+    _ExtensionRuntime,
+)
+from pipy_harness.native.extensions.flag_tokens import (
     parse_extension_flag_tokens,
 )
 from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter

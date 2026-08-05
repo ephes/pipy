@@ -24,8 +24,10 @@ from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.extension_runtime import (
     ExtensionTool,
     ExtensionUiDriver,
-    HookHandler,
     RegisteredTool,
+)
+from pipy_harness.native.extensions.contracts import (
+    HookHandler,
     _ExtensionRuntime,
 )
 from pipy_harness.native.extensions.tool_port import (

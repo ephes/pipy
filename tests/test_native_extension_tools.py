@@ -19,6 +19,8 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentToolResultMessage
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
+)
+from pipy_harness.native.extensions.collectors import (
     extension_tools,
 )
 from pipy_harness.native.extensions.packages import discover_extensions

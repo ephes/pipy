@@ -22,9 +22,11 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.cancellation import ProviderCancelledError
 from pipy_harness.native.extension_runtime import (
+    QueuedCustomMessage,
+)
+from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
     ExtensionActivationBatch,
-    QueuedCustomMessage,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import ProviderPort

@@ -18,7 +18,7 @@ from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions.command_context import _CommandContext
 
 if TYPE_CHECKING:
-    from pipy_harness.native.extension_runtime import (
+    from pipy_harness.native.extensions.contracts import (
         ActivatedExtension,
         RegisteredCommand,
         RegisteredShortcut,

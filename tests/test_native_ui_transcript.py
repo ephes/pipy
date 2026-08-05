@@ -11,7 +11,7 @@ existing TUI and real-PTY suites.
 from __future__ import annotations
 
 from pipy_harness.extensions import lines_component
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
 )
 from pipy_harness.native.ui.components.transcript import (

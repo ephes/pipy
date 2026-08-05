@@ -35,9 +35,11 @@ from pipy_harness.native.extension_chrome_state import (
 from pipy_harness.native.extension_hooks import _ExtensionLifecycleAgentEventAdapter
 from pipy_harness.native.extension_runtime import (
     _ExtensionCandidate,
-    _ExtensionRuntime,
 )
 from pipy_harness.native.extension_types import QueuedCustomMessage
+from pipy_harness.native.extensions.contracts import (
+    _ExtensionRuntime,
+)
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
     ReloadCommandEffects,

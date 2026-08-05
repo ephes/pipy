@@ -1110,6 +1110,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.extensions",
         forbidden_imports=(
+            "pipy_harness.native.extension_runtime",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.coding.state",

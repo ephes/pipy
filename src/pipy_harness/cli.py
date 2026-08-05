@@ -42,7 +42,9 @@ from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_from_file,
 )
-from pipy_harness.native.extension_runtime import ExtensionActivationBatch
+from pipy_harness.native.extensions.contracts import (
+    ExtensionActivationBatch,
+)
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import StreamChunkSink
@@ -2730,7 +2732,7 @@ def _extension_provider_contributions(
     resource_options: RuntimeResourceOptions | None,
     extension_batch: ExtensionActivationBatch | None = None,
 ) -> tuple[tuple[Any, ...], tuple[str, ...]]:
-    from pipy_harness.native.extension_runtime import (
+    from pipy_harness.native.extensions.collectors import (
         extension_providers,
         extension_unregistered_providers,
     )

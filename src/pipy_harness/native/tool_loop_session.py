@@ -168,13 +168,13 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
-    ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
     _ExtensionCandidate,
     normalize_shortcut_key,
-    parse_extension_flag_tokens,
 )
+from pipy_harness.native.extensions.contracts import ExtensionActivationBatch
+from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_tokens
 from pipy_harness.native.extensions.message_routing import GenerationMessageRetirement
 from pipy_harness.native.file_references import (
     FileReferenceResolution,

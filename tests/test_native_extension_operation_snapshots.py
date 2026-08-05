@@ -30,6 +30,8 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionTool,
+)
+from pipy_harness.native.extensions.contracts import (
     RegisteredCommand,
     RegisteredShortcut,
     _ExtensionRuntime,

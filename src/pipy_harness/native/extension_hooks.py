@@ -94,19 +94,9 @@ from pipy_harness.native.extension_runtime import (
     EVENT_TURN_START,
     EVENT_USER_BASH,
     LIFECYCLE_EVENTS,
-    ActivatedExtension,
-    ExtensionActivationBatch,
-    HookHandler,
     _dispose_activation_results,
-    _ExtensionRuntime,
     _report_activation_cleanup,
     activate_extensions,
-    extension_entry_renderers,
-    extension_flags,
-    extension_message_renderers,
-    extension_providers,
-    extension_tools,
-    extension_unregistered_providers,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
@@ -139,7 +129,21 @@ from pipy_harness.native.extension_types import (
     _safe_diagnostic,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
+from pipy_harness.native.extensions.collectors import (
+    extension_entry_renderers,
+    extension_flags,
+    extension_message_renderers,
+    extension_providers,
+    extension_tools,
+    extension_unregistered_providers,
+)
 from pipy_harness.native.extensions.command_context import _CommandContext
+from pipy_harness.native.extensions.contracts import (
+    ActivatedExtension,
+    ExtensionActivationBatch,
+    HookHandler,
+    _ExtensionRuntime,
+)
 from pipy_harness.native.extensions.dispatch import (
     extension_command_map,
     extension_shortcuts,

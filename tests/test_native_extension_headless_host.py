@@ -22,7 +22,6 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.extension_hooks import dispatch_input_hooks
-from pipy_harness.native.extension_runtime import RegisteredCommand
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
@@ -30,6 +29,9 @@ from pipy_harness.native.extension_types import (
     InputTransform,
 )
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
+from pipy_harness.native.extensions.contracts import (
+    RegisteredCommand,
+)
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.session_tree import NativeSessionTree
 

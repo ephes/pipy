@@ -24,6 +24,8 @@ from pipy_harness.native.extension_hooks import dispatch_user_bash_hooks
 from pipy_harness.native.extension_runtime import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
+)
+from pipy_harness.native.extensions.contracts import (
     HookHandler,
 )
 from pipy_harness.native.repl.turn_leaves import CANCEL_JOIN_TIMEOUT_SECONDS

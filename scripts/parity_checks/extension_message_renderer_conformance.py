@@ -22,10 +22,12 @@ from typing import TextIO, cast
 
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.extension_runtime import (
-    RegisteredMessageRenderer,
     RenderedCustomEntry,
 )
 from pipy_harness.native.extension_ui import _CUSTOM_RENDER_MAX_CHARS
+from pipy_harness.native.extensions.contracts import (
+    RegisteredMessageRenderer,
+)
 from pipy_harness.native.extensions.custom_payloads import (
     _custom_entry_redraw_rows,
     _custom_message_renderer_payload,

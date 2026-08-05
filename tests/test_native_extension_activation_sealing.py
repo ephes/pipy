@@ -36,17 +36,22 @@ from pipy_harness.native.coding.commands import (
 from pipy_harness.native.extension_loader import _run_awaitable
 from pipy_harness.native.extension_runtime import (
     _ACTIVATION_LIFECYCLE_TOKEN,
-    ActivatedExtension,
     QueuedCustomMessage,
     QueuedUserMessage,
     _ActivationApi,
     _ActivationCleanup,
     _ExtensionCandidate,
-    _ExtensionRuntime,
     activate_extension_batch,
-    parse_extension_flag_tokens,
 )
 from pipy_harness.native.extension_types import _ActivationError
+from pipy_harness.native.extensions import contracts as extension_contracts
+from pipy_harness.native.extensions.contracts import (
+    ActivatedExtension,
+    _ExtensionRuntime,
+)
+from pipy_harness.native.extensions.flag_tokens import (
+    parse_extension_flag_tokens,
+)
 from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.repl.reload import (
@@ -1223,24 +1228,29 @@ def test_activation_host_reader_inventory_has_one_meaning_per_field() -> None:
         return found
 
     runtime_path = Path(extension_runtime.__file__ or "")
+    contracts_path = Path(extension_contracts.__file__ or "")
     hooks_path = Path(extension_hooks.__file__ or "")
     native_root = runtime_path.parent
     assert not any(
         readers(path, "_activation_api") for path in native_root.rglob("*.py")
     )
+    assert readers(contracts_path, "_pending_activation") == {
+        "_activation_message_routings"
+    }
     assert readers(runtime_path, "_pending_activation") == {
-        "_activation_message_routings",
         "_dispose_activation_results",
         "_finalize_preloaded_extension",
     }
+    assert readers(contracts_path, "_activation_host") == {
+        "_activation_message_routings"
+    }
     assert readers(runtime_path, "_activation_host") == {
-        "_activation_message_routings",
         "_dispose_activation_results",
         "_finalize_provider_catalog_results",
     }
     assert readers(hooks_path, "_activation_host") == {"_compose_extension_runtime"}
+    assert readers(contracts_path, "activation_hosts") == {"__post_init__"}
     assert readers(runtime_path, "activation_hosts") == {
-        "__post_init__",
         "adopt",
         "dispose",
         "publish",
@@ -1783,7 +1793,7 @@ def test_preloaded_finalize_is_one_shot_and_live_host_cannot_be_disposed(
     assert [message.content for message in final.message_outbox] == ["staged"]
     assert [message.content for message in activated.custom_messages] == ["kept"]
 
-    runtime = _empty_runtime(host)
+    runtime = _empty_runtime(cast(_ActivationApi, host))
     assert _ExtensionCandidate(runtime).publish() is True
     cleanup = _ExtensionCandidate(runtime).dispose()
     assert cleanup.skipped_published == 1

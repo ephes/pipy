@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from pipy_harness.native.extension_runtime import (
         ExtensionModelRuntimeControl,
         ExtensionUiDriver,
+    )
+    from pipy_harness.native.extensions.contracts import (
         HookHandler,
     )
 

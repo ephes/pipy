@@ -11,10 +11,12 @@ from pipy_harness.native.extension_runtime import (
     _report_activation_cleanup,
     _report_provider_catalog_finalization,
     activate_extensions,
+)
+from pipy_harness.native.extension_types import RegisteredProvider
+from pipy_harness.native.extensions.collectors import (
     extension_providers,
     extension_unregistered_providers,
 )
-from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resource_enablement import is_resource_enabled
