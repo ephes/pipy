@@ -34,7 +34,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Protocol,
     TextIO,
     TypedDict,
     cast,
@@ -43,7 +42,6 @@ from typing import (
 from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentToolCall,
-    ProductContent,
 )
 from pipy_harness.native.autocomplete_provider import (
     AutocompleteApplyResult,
@@ -61,10 +59,7 @@ from pipy_harness.native.chrome import (
     pipy_version_label,
 )
 from pipy_harness.native.clipboard import ImageClipboardResult
-from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.command_registry import project_command_completions
-from pipy_harness.native.coding.effects import CodingEffectCoordinator
-from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.editor_state import (
     CompletionItem,
     CompletionMode,
@@ -81,24 +76,9 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeState,
 )
 from pipy_harness.native.extension_runtime import (
-    ExtensionCapabilityError,
     ExtensionTool,
     FooterData,
-    QueuedCustomMessage,
-    QueuedUserMessage,
-    RegisteredEntryRenderer,
-    RegisteredMessageRenderer,
-    RenderedCustomEntry,
     ToolRenderDetailsSink,
-    _custom_entry_redraw_rows,
-    _custom_entry_renderer_payload,
-    _custom_message_renderer_payload,
-    drain_custom_messages,
-    drain_user_messages,
-    is_valid_custom_entry_type,
-    render_extension_entry,
-    render_extension_message,
-    safe_custom_entry_data,
 )
 from pipy_harness.native.frame_renderer import (
     ChromeSnapshot,
@@ -173,13 +153,6 @@ from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
-from pipy_harness.native.session_generation import SessionGenerationSnapshot
-from pipy_harness.native.session_tree import (
-    CustomEntry as _CustomEntry,
-)
-from pipy_harness.native.session_tree import (
-    CustomMessageEntry as _CustomMessageEntry,
-)
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.session_tree_commands import (
     SessionListEntry,
@@ -206,6 +179,9 @@ from pipy_harness.native.ui.chrome_handoff import (
 )
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
+)
+from pipy_harness.native.ui.components.custom_entry_renderer import (
+    CustomEntryTerminalTarget,
 )
 from pipy_harness.native.ui.components.custom_overlay import (
     CustomComponentRunner,
@@ -611,430 +587,6 @@ def _safe_extension_status_key(key: str) -> str | None:
     cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in text)
     cleaned = cleaned.strip("-_.")
     return cleaned[:64] or None
-
-
-class _CustomEntryRendererRunState(Protocol):
-    """Live run-state fields read by the custom-entry terminal adapter."""
-
-    @property
-    def session_tree(self) -> NativeSessionTree: ...
-
-    @property
-    def extension_message_outbox(self) -> list[QueuedUserMessage]: ...
-
-    @property
-    def extension_custom_message_outbox(self) -> list[QueuedCustomMessage]: ...
-
-    @property
-    def extension_in_agent_turn(self) -> bool: ...
-
-
-def _route_legacy_custom_message_input(
-    content: str,
-    options: Mapping[str, object],
-    *,
-    in_agent_turn: bool,
-    enqueue_next_turn: Callable[[ProductContent], None],
-    enqueue_steering: Callable[[ProductContent], None],
-    enqueue_follow_up: Callable[[ProductContent], None],
-    enqueue_prompt: Callable[[ProductContent], None],
-) -> None:
-    """Preserve established custom-message routing for live and accepted paths."""
-
-    routed = ProductContent(content)
-    deliver_as = options.get("deliverAs")
-    if deliver_as is None:
-        deliver_as = options.get("deliver_as")
-    if deliver_as == "nextTurn":
-        enqueue_next_turn(routed)
-    elif deliver_as == "steer":
-        enqueue_steering(routed)
-    elif deliver_as in {"followUp", "follow_up"}:
-        enqueue_follow_up(routed)
-    elif not in_agent_turn and (
-        options.get("triggerTurn") is True or options.get("trigger_turn") is True
-    ):
-        enqueue_prompt(routed)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AcceptedCustomMessageSinks:
-    """Direct accepted-message sinks; deliberately has no custom outbox."""
-
-    append_durable: Callable[[QueuedCustomMessage], object]
-    render_or_diagnose: Callable[[QueuedCustomMessage, object], None]
-    enqueue_next_turn: Callable[[ProductContent], None]
-    enqueue_steering: Callable[[ProductContent], None]
-    enqueue_follow_up: Callable[[ProductContent], None]
-    enqueue_prompt: Callable[[ProductContent], None]
-    in_agent_turn: Callable[[], bool]
-
-    def deliver(self, message: QueuedCustomMessage) -> None:
-        """Dispatch tree, optional render/diagnostic, then coding input."""
-
-        appended = self.append_durable(message)
-        if message.display:
-            self.render_or_diagnose(message, appended)
-        _route_legacy_custom_message_input(
-            message.content,
-            message.options,
-            in_agent_turn=self.in_agent_turn(),
-            enqueue_next_turn=self.enqueue_next_turn,
-            enqueue_steering=self.enqueue_steering,
-            enqueue_follow_up=self.enqueue_follow_up,
-            enqueue_prompt=self.enqueue_prompt,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _CustomRendererProjectionSnapshot:
-    messages: Mapping[str, RegisteredMessageRenderer]
-    entries: Mapping[str, RegisteredEntryRenderer]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _CustomEntryRenderer:
-    """Render custom entries and drain extension outboxes into terminal state.
-
-    Renderer operations take one published generation snapshot; the live-state
-    protocol retains only the session tree, agent-turn state, and R4a's
-    legacy/harness direct-drain outboxes.
-    """
-
-    ctl: _CustomEntryRendererRunState
-    terminal_ui: "ToolLoopTerminalUi | None"
-    coding_input_queue: CodingInputQueue
-    coding_effects: CodingEffectCoordinator
-    error_stream: TextIO
-    generation_snapshot: Callable[[], SessionGenerationSnapshot | None] | None = None
-
-    def _snapshot(self) -> SessionGenerationSnapshot | None:
-        provider = self.generation_snapshot
-        if provider is None:
-            return None
-        try:
-            return provider()
-        except Exception:  # noqa: BLE001 - a failed generation snapshot degrades to no projection
-            return None
-
-    def _renderer_projection(self) -> _CustomRendererProjectionSnapshot:
-        snapshot = self._snapshot()
-        if snapshot is None or (projection := snapshot.generation.projection) is None:
-            raise RuntimeError("published extension generation has no projection")
-        return _CustomRendererProjectionSnapshot(
-            projection.renderers.messages,
-            projection.renderers.entries,
-        )
-
-    def render_extension_custom_message(
-        self,
-        custom_type: str,
-        data: object | None,
-        *,
-        width: int,
-        expanded: bool,
-        stream: TextIO,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> RenderedCustomEntry:
-        # Local import: the render-theme machinery is only needed on the
-        # rarely hit custom-entry path, so keep it off this module's hot
-        # import path (mirrors the tool-renderer ``_dispatch_render`` sites).
-        from pipy_harness.native.chrome import chrome_style_for
-        from pipy_harness.native.tool_renderers import build_tool_render_theme
-
-        style = chrome_style_for(stream)
-        return render_extension_message(
-            (renderer_projection or self._renderer_projection()).messages,
-            custom_type,
-            data,
-            width=width,
-            expanded=expanded,
-            theme=build_tool_render_theme(style),
-        )
-
-    def render_extension_custom_entry(
-        self,
-        entry: _CustomEntry,
-        *,
-        width: int,
-        expanded: bool,
-        stream: TextIO,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> RenderedCustomEntry | None:
-        from pipy_harness.native.chrome import chrome_style_for
-        from pipy_harness.native.tool_renderers import build_tool_render_theme
-
-        return render_extension_entry(
-            (renderer_projection or self._renderer_projection()).entries,
-            _custom_entry_renderer_payload(entry),
-            width=width,
-            expanded=expanded,
-            theme=build_tool_render_theme(chrome_style_for(stream)),
-        )
-
-    def add_rendered_custom_entry_to_terminal(
-        self,
-        entry: _CustomEntry,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> None:
-        terminal_ui = self.terminal_ui
-        if terminal_ui is None:
-            return
-        renderers = renderer_projection or self._renderer_projection()
-        rendered = self.render_extension_custom_entry(
-            entry,
-            width=terminal_ui._driver.size()[0],
-            expanded=terminal_ui.tools_expanded,
-            stream=terminal_ui.terminal_stream,
-            renderer_projection=renderers,
-        )
-        if rendered is None:
-            return
-        terminal_ui.add_entry_renderer_component(
-            rendered.lines,
-            custom_type=entry.custom_type,
-            entry=_custom_entry_renderer_payload(entry),
-            renderers=renderers.entries,
-        )
-
-    def render_custom_message_entry(
-        self,
-        entry: _CustomMessageEntry,
-        *,
-        width: int,
-        expanded: bool,
-        stream: TextIO,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> RenderedCustomEntry:
-        renderers = renderer_projection or self._renderer_projection()
-        if entry.custom_type not in renderers.messages:
-            return RenderedCustomEntry(tuple(entry.content.splitlines() or [""]), False)
-        return self.render_extension_custom_message(
-            entry.custom_type,
-            _custom_message_renderer_payload(entry),
-            width=width,
-            expanded=expanded,
-            stream=stream,
-            renderer_projection=renderers,
-        )
-
-    def add_rendered_entry_to_terminal(
-        self,
-        custom_type: str,
-        rendered: RenderedCustomEntry,
-        data: object | None,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> None:
-        terminal_ui = self.terminal_ui
-        if terminal_ui is None:
-            return
-        if rendered.styled:
-            terminal_ui.add_custom_entry_styled(
-                rendered.lines,
-                custom_type=custom_type,
-                data=data,
-                renderers=(renderer_projection or self._renderer_projection()).messages,
-            )
-        else:
-            terminal_ui.add_custom_entry(custom_type, rendered.lines)
-
-    def add_custom_message_entry_to_terminal(
-        self,
-        entry: _CustomMessageEntry,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> None:
-        terminal_ui = self.terminal_ui
-        if terminal_ui is None or not entry.display:
-            return
-        renderers = renderer_projection or self._renderer_projection()
-        rendered = self.render_custom_message_entry(
-            entry,
-            width=terminal_ui._driver.size()[0],
-            expanded=terminal_ui.tools_expanded,
-            stream=terminal_ui.terminal_stream,
-            renderer_projection=renderers,
-        )
-        self.add_rendered_entry_to_terminal(
-            entry.custom_type,
-            rendered,
-            _custom_message_renderer_payload(entry),
-            renderers,
-        )
-
-    def replay_custom_entries_to_terminal(self) -> None:
-        if self.terminal_ui is not None:
-            renderers = self._renderer_projection()
-            for entry in self.ctl.session_tree.get_branch():
-                if isinstance(entry, _CustomEntry):
-                    self.add_rendered_custom_entry_to_terminal(entry, renderers)
-                elif isinstance(entry, _CustomMessageEntry) and entry.display:
-                    self.add_custom_message_entry_to_terminal(entry, renderers)
-
-    def redraw_custom_entries_for_active_branch(self) -> None:
-        terminal_ui = self.terminal_ui
-        if terminal_ui is None or not hasattr(terminal_ui, "redraw_custom_entries"):
-            return
-        renderers = self._renderer_projection()
-
-        def render_for_redraw(entry: _CustomEntry) -> RenderedCustomEntry | None:
-            return self.render_extension_custom_entry(
-                entry,
-                width=terminal_ui._driver.size()[0],
-                expanded=terminal_ui.tools_expanded,
-                stream=terminal_ui.terminal_stream,
-                renderer_projection=renderers,
-            )
-
-        def render_message_for_redraw(
-            entry: _CustomMessageEntry,
-        ) -> RenderedCustomEntry:
-            return self.render_custom_message_entry(
-                entry,
-                width=terminal_ui._driver.size()[0],
-                expanded=terminal_ui.tools_expanded,
-                stream=terminal_ui.terminal_stream,
-                renderer_projection=renderers,
-            )
-
-        terminal_ui.redraw_custom_entries(
-            _custom_entry_redraw_rows(
-                self.ctl.session_tree.get_branch(),
-                render_for_redraw,
-                render_message_for_redraw,
-                render_metadata=renderers.messages,
-                entry_render_metadata=renderers.entries,
-            )
-        )
-
-    def extension_append_entry(
-        self, custom_type: str, data: object | None = None
-    ) -> object:
-        with self._accepted_coding_effect():
-            safe_type = str(custom_type).strip()
-            if not is_valid_custom_entry_type(safe_type):
-                raise ValueError("invalid custom entry type")
-            safe_data = safe_custom_entry_data(data)
-            renderers = (
-                self._renderer_projection() if self.terminal_ui is not None else None
-            )
-            with self.coding_effects.lock:
-                appended = self.ctl.session_tree.append_custom(safe_type, safe_data)
-            if self.terminal_ui is not None:
-                self.add_rendered_custom_entry_to_terminal(appended, renderers)
-            return appended.id
-
-    def extension_send_message(
-        self,
-        custom_type: str,
-        content: str,
-        display: bool,
-        options: Mapping[str, object],
-        details: object | None = None,
-    ) -> object:
-        with self._accepted_coding_effect():
-            renderers = self._renderer_projection() if display else None
-            return self._deliver_custom_message_effects(
-                QueuedCustomMessage(custom_type, content, display, details, options),
-                renderers,
-            )
-
-    def _deliver_custom_message(
-        self,
-        message: QueuedCustomMessage,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> object:
-        with self._accepted_coding_effect():
-            return self._deliver_custom_message_effects(message, renderer_projection)
-
-    def _deliver_custom_message_effects(
-        self,
-        message: QueuedCustomMessage,
-        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
-    ) -> object:
-        with self.coding_effects.lock:
-            appended = self.ctl.session_tree.append_custom_message(
-                message.custom_type,
-                message.content,
-                display=message.display,
-                details=message.details,
-            )
-        if message.display:
-            if self.terminal_ui is not None:
-                self.add_custom_message_entry_to_terminal(appended, renderer_projection)
-            else:
-                rendered = self.render_custom_message_entry(
-                    appended,
-                    width=80,
-                    expanded=False,
-                    stream=self.error_stream,
-                    renderer_projection=renderer_projection,
-                )
-                lines = "\n".join(str(line) for line in rendered.lines)
-                emit_diagnostic(
-                    self.terminal_ui,
-                    self.error_stream,
-                    f"{message.custom_type}:\n{lines}"
-                    if lines
-                    else message.custom_type,
-                )
-        _route_legacy_custom_message_input(
-            message.content,
-            message.options,
-            in_agent_turn=self.ctl.extension_in_agent_turn,
-            enqueue_next_turn=self.coding_input_queue.enqueue_next_turn_context,
-            enqueue_steering=self.coding_input_queue.enqueue_extension_steering,
-            enqueue_follow_up=self.coding_input_queue.enqueue_extension_follow_up,
-            enqueue_prompt=self.coding_input_queue.enqueue_extension_prompt,
-        )
-        return appended.id
-
-    @contextmanager
-    def _accepted_coding_effect(self) -> Iterator[None]:
-        with self.coding_effects.effect() as admitted:
-            if not admitted:
-                raise ExtensionCapabilityError("coding session is closed")
-            yield
-
-    def drain_extension_outboxes(self) -> None:
-        """Move one coherent generation's scheduled messages into session queues."""
-
-        if self.generation_snapshot is None:
-            self._drain_extension_outboxes_direct(
-                self.ctl.extension_message_outbox,
-                self.ctl.extension_custom_message_outbox,
-            )
-            return
-        snapshot = self._snapshot()
-        if snapshot is None or (projection := snapshot.generation.projection) is None:
-            raise RuntimeError("published extension generation has no projection")
-        queues = projection.queues
-        if queues.message_routing.route_drain(self._deliver_extension_outbox_batch):
-            return
-        self._drain_extension_outboxes_direct(
-            queues.user.storage, queues.custom.storage
-        )
-
-    def _drain_extension_outboxes_direct(
-        self,
-        user_outbox: list[QueuedUserMessage],
-        custom_outbox: list[QueuedCustomMessage],
-    ) -> None:
-        self._deliver_extension_outbox_batch(
-            tuple(drain_user_messages(user_outbox)),
-            tuple(drain_custom_messages(custom_outbox)),
-        )
-
-    def _deliver_extension_outbox_batch(
-        self,
-        user_messages: tuple[QueuedUserMessage, ...],
-        custom_messages: tuple[QueuedCustomMessage, ...],
-    ) -> None:
-        for message in user_messages:
-            self.coding_input_queue.enqueue_extension_prompt(
-                ProductContent(message.content)
-            )
-        for custom_message in custom_messages:
-            self._deliver_custom_message(custom_message)
 
 
 class _CustomEditorKeybindings:
@@ -3086,9 +2638,10 @@ class ToolLoopTerminalUi:
     #
     # Committed history, the live stream buffers, and the Ctrl+O/Ctrl+T view
     # flags live on ``self._transcript`` (ui/components/transcript.py). The
-    # facade keeps one thin delegate per verb so the renderer adapters and the
-    # session keep their established call surface until slices 15/23 repoint
-    # them onto the component directly.
+    # facade keeps one thin delegate per verb so the tool-loop renderer adapter
+    # keeps its established call surface until slice 23 repoints it onto the
+    # component directly; the custom-entry renderer already commits straight to
+    # the transcript through :meth:`custom_entry_render_target`.
 
     @property
     def tools_expanded(self) -> bool:
@@ -3134,24 +2687,19 @@ class ToolLoopTerminalUi:
     def add_notice(self, text: str) -> None:
         self._transcript.add_notice(text)
 
-    def redraw_custom_entries(
-        self,
-        entries: Iterable[
-            tuple[str, str, tuple[str, ...]]
-            | tuple[
-                str,
-                str,
-                tuple[str, ...],
-                object | None,
-                Mapping[str, RegisteredMessageRenderer]
-                | Mapping[str, RegisteredEntryRenderer],
-            ]
-        ],
-    ) -> None:
-        self._transcript.redraw_custom_entries(entries)
+    def custom_entry_render_target(self) -> CustomEntryTerminalTarget:
+        """Bundle the transcript and live render inputs for custom entries.
 
-    def add_custom_entry(self, custom_type: str, lines: Iterable[str]) -> None:
-        self._transcript.add_custom_entry(custom_type, lines)
+        The custom-entry renderer component commits rendered rows straight to
+        the transcript; the driver's width and the styling stream stay private
+        to this shell and cross as injected values/callables.
+        """
+
+        return CustomEntryTerminalTarget(
+            transcript=self._transcript,
+            terminal_stream=self.terminal_stream,
+            frame_width=lambda: self._driver.size()[0],
+        )
 
     def add_tool_call(self, header: str) -> None:
         self._transcript.add_tool_call(header)
@@ -3178,30 +2726,6 @@ class ToolLoopTerminalUi:
     ) -> None:
         self._transcript.add_tool_result_custom(
             lines, duration_seconds=duration_seconds
-        )
-
-    def add_custom_entry_styled(
-        self,
-        lines: Iterable[str],
-        *,
-        custom_type: str | None = None,
-        data: object | None = None,
-        renderers: Mapping[str, RegisteredMessageRenderer] | None = None,
-    ) -> None:
-        self._transcript.add_custom_entry_styled(
-            lines, custom_type=custom_type, data=data, renderers=renderers
-        )
-
-    def add_entry_renderer_component(
-        self,
-        lines: Iterable[str],
-        *,
-        custom_type: str,
-        entry: Mapping[str, object],
-        renderers: Mapping[str, RegisteredEntryRenderer],
-    ) -> None:
-        self._transcript.add_entry_renderer_component(
-            lines, custom_type=custom_type, entry=entry, renderers=renderers
         )
 
     def rerender_custom_messages(self) -> None:
@@ -4910,7 +4434,6 @@ def run_startup_session_picker(
     except (ValueError, OSError):
         return None
 
-    from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.session_tree_commands import delete_native_session
 
     def on_rename(path: Path, new_name: str) -> None:

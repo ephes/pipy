@@ -59,9 +59,9 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import production_tool_registry
-from pipy_harness.native.tui import (
-    _CustomEntryRenderer,
-    _CustomRendererProjectionSnapshot,
+from pipy_harness.native.ui.components.custom_entry_renderer import (
+    CustomEntryRenderer,
+    CustomRendererProjectionSnapshot,
 )
 
 _RLOCK_BASE = type(threading.RLock())
@@ -416,9 +416,9 @@ def test_custom_message_owner_blocks_terminal_until_tree_then_input_finish(
 
     queue = BlockingQueue(mutation_lock=coordinator.lock)
     state = SimpleNamespace(session_tree=tree, extension_in_agent_turn=False)
-    renderer = _CustomEntryRenderer(
+    renderer = CustomEntryRenderer(
         ctl=state,
-        terminal_ui=None,
+        terminal=None,
         coding_input_queue=queue,
         coding_effects=coordinator,
         error_stream=io.StringIO(),
@@ -429,7 +429,7 @@ def test_custom_message_owner_blocks_terminal_until_tree_then_input_finish(
         callback_reads.append(_guarded_read_finishes(lambda: tree.get_tree()))
         return ["rendered"]
 
-    projection = _CustomRendererProjectionSnapshot(
+    projection = CustomRendererProjectionSnapshot(
         {"notice": RegisteredMessageRenderer("notice", render, "test")}, {}
     )
     result: list[object] = []
@@ -564,10 +564,11 @@ def test_incoming_tree_bind_and_active_pointer_swap_are_one_section(
 
 def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
-    tui, scope, transfer, commands, collaborators = (
+    tui, renderer, scope, transfer, commands, collaborators = (
         (root / name).read_text()
         for name in (
             "tui.py",
+            "ui/components/custom_entry_renderer.py",
             "repl/loop_scope.py",
             "repl/session_transfer.py",
             "repl/session_commands.py",
@@ -576,7 +577,9 @@ def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     )
     # The guarded readers travelled with the collaborators that hold `ctl`.
     assert collaborators.count("with self.ctl.session_tree_section() as tree:") == 3
-    assert tui.count("with self.coding_effects.lock:") == 2
+    # The guarded tree writers travelled with the custom-entry renderer.
+    assert tui.count("with self.coding_effects.lock:") == 0
+    assert renderer.count("with self.coding_effects.lock:") == 2
     # The rebind itself lives with `RunControlState`, which owns the tree slot;
     # the guarded readers and writers stay at the composition root.
     assert (

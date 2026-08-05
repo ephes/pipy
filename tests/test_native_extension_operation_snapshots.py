@@ -742,7 +742,7 @@ def test_r4a_writer_drain_and_staged_delivery_inventory_is_complete() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
     definitions = [
         node.name
-        for name in "extension_runtime extension_hooks session_generation tool_loop_session tui".split()
+        for name in "extension_runtime extension_hooks session_generation tool_loop_session tui ui/components/custom_entry_renderer".split()
         for node in ast.walk(
             ast.parse((root / f"{name}.py").read_text(encoding="utf-8"))
         )

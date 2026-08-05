@@ -796,7 +796,7 @@ order and before unlocked disposal or paint.
 The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
 API to append directly to a generation outbox while the session/RPC-session
-worker's `_CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
+worker's `CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
 same list. R3 owns generation queue-sidecar values, R3c2 owns the installable
 send/drain routing seam, and R3b/R3c3 own the authoritative staged activation
 detach/flush/delivery sequence. R4a now makes accepted live
@@ -805,7 +805,8 @@ drain/close paths use the same session mutex for closed-check+append, atomic
 detach, and close; it does not repeat the staged flush. Delivery and detached
 cleanup occur after unlock. Accepted staged
 activation custom messages bypass `custom_outbox` and call
-`_CustomEntryRenderer.extension_send_message()` directly. That method is also
+`CustomEntryRenderer.extension_send_message()` (the custom-entry renderer
+component under `native/ui/components/`) directly. That method is also
 the `ExtensionCodingSessionControl` custom-message target; the control is not a
 hidden outbox writer: completion calls the provider; append/name/label
 write the durable session tree; custom-message send writes that tree and may

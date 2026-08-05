@@ -33,6 +33,7 @@ from pipy_harness.native.session_tree import (
     SessionInfoEntry,
 )
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
 
 class _RecordingProvider:
@@ -428,7 +429,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         "pipy_harness.native.repl.collaborators.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TranscriptComponent,
         "redraw_custom_entries",
         lambda *_args, **_kwargs: trace.append("redraw"),
     )

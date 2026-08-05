@@ -134,6 +134,10 @@ class _ExitOnlyUi:
     def take_pending_command(self) -> str | None:
         return None
 
+    def custom_entry_render_target(self) -> None:
+        # No transcript in this fake: the renderer stays headless.
+        return None
+
     def clear_extension_chrome(self) -> None:
         pass
 
@@ -258,7 +262,7 @@ def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
 def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.add_custom_entry("card\x1b[31m", ["line one", "bad\rreturn"])
+    ui._transcript.add_custom_entry("card\x1b[31m", ["line one", "bad\rreturn"])
 
     frame = "\n".join(ui.render_lines(width=72, height=14))
     assert "[card [31m]" in frame
@@ -273,7 +277,7 @@ def test_add_custom_entry_styled_preserves_sgr_and_clips(tmp_path: Path):
 
     # The second line is wider than the resolved frame (_MIN_WIDTH == 60), so it
     # must be clipped by _clip_custom_overlay_text in _block_frame_lines.
-    ui.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 70])
+    ui._transcript.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 70])
 
     # Committed under the new custom_message_custom kind (the SGR-safe path,
     # NOT the sanitizing add_custom_entry path):

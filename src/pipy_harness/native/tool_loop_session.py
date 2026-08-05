@@ -295,7 +295,6 @@ from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
     ToolLoopTerminalUi,
-    _CustomEntryRenderer,
     _LiveExtensionUiDriver,
     _TuiToolLoopRenderer,
 )
@@ -303,6 +302,7 @@ from pipy_harness.native.tui import (
     TURN_ABORTED as TURN_ABORTED,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.ui.components.custom_entry_renderer import CustomEntryRenderer
 from pipy_harness.native.version_check import pipy_version
 
 
@@ -310,7 +310,7 @@ from pipy_harness.native.version_check import pipy_version
 class _ExtensionCustomEntryRunState:
     """Narrow TUI adapter over the canonical extension generation.
 
-    ``_CustomEntryRenderer`` intentionally accepts a structural live-state
+    ``CustomEntryRenderer`` intentionally accepts a structural live-state
     protocol. Keep that UI boundary cycle-free while forwarding every
     extension-owned value to the generation rather than mirroring it on run
     control.
@@ -1519,15 +1519,15 @@ class NativeToolReplSession:
         )
 
         # Custom-entry / custom-message rendering and the extension outbox drain
-        # live in the module-level `_CustomEntryRenderer` handler (symmetric with
-        # `_ReplLoopStep`/`_BuiltinCommandInterpreter`). Rendering uses one
+        # live in the component-owned `CustomEntryRenderer` handler (symmetric
+        # with `_ReplLoopStep`/`_BuiltinCommandInterpreter`). Rendering uses one
         # published projection snapshot; the narrow adapter retains live outboxes
         # only for R4a's legacy/harness direct-drain fallback, while the session
         # tree and `extension_in_agent_turn` remain live run control. Its
         # bound methods are passed wherever the deleted closures were consumed.
-        custom_renderer = _CustomEntryRenderer(
+        custom_renderer = CustomEntryRenderer(
             ctl=_ExtensionCustomEntryRunState(ctl=ctl),
-            terminal_ui=terminal_ui,
+            terminal=terminal_ui.custom_entry_render_target() if terminal_ui else None,
             coding_input_queue=coding_input_queue,
             coding_effects=coding_effects,
             error_stream=error_stream,

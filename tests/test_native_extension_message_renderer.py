@@ -296,10 +296,10 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
     )
-    ui.add_custom_entry("old", ["OLD-BODY"])
+    ui._transcript.add_custom_entry("old", ["OLD-BODY"])
     ui.add_notice("ordinary history remains")
 
-    ui.redraw_custom_entries(
+    ui._transcript.redraw_custom_entries(
         (
             ("styled", "card", ("\x1b[1mNEW-STYLED\x1b[0m",)),
             ("plain", "note", ("NEW-PLAIN",)),
@@ -397,7 +397,7 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
     )
-    ui.redraw_custom_entries(rows)
+    ui._transcript.redraw_custom_entries(rows)
     assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=False:BODY",)),
     )
@@ -424,7 +424,7 @@ def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
         cwd=tmp_path,
     )
     renderers = _renderers("card", render)
-    ui.add_custom_entry_styled(
+    ui._transcript.add_custom_entry_styled(
         ("expanded=False:alpha",),
         custom_type="card",
         data={"title": "alpha"},
@@ -456,7 +456,7 @@ def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_pa
         cwd=tmp_path,
     )
     renderers = _renderers("card", render)
-    ui.add_custom_entry_styled(
+    ui._transcript.add_custom_entry_styled(
         ("initial",),
         custom_type="card",
         data={"secret": "TOPSECRET"},

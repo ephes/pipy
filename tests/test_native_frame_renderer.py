@@ -472,7 +472,7 @@ def test_state_bearing_custom_history_snapshot_keeps_lines_not_callbacks(
     callback = Callback()
     callback_ref = weakref.ref(callback)
     registered = RegisteredMessageRenderer("card", callback, "test")
-    ui.add_custom_entry_styled(
+    ui._transcript.add_custom_entry_styled(
         ["\x1b[1mCURRENT\x1b[0m"],
         custom_type="card",
         renderers={"card": registered},

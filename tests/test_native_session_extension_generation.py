@@ -121,9 +121,9 @@ from pipy_harness.native.tools import (
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tui import (
+from pipy_harness.native.ui.components.custom_entry_renderer import (
     AcceptedCustomMessageSinks,
-    _CustomEntryRenderer,
+    CustomEntryRenderer,
 )
 
 
@@ -739,9 +739,9 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
         extension_in_agent_turn=False,
     )
     coding_effects = CodingEffectCoordinator()
-    renderer = _CustomEntryRenderer(
+    renderer = CustomEntryRenderer(
         ctl=state,
-        terminal_ui=None,
+        terminal=None,
         coding_input_queue=CodingInputQueue(mutation_lock=coding_effects.lock),
         coding_effects=coding_effects,
         error_stream=sys.stderr,
@@ -816,9 +816,9 @@ def test_custom_message_rendering_keeps_one_generation_snapshot(
         extension_in_agent_turn=False,
     )
     coding_effects = CodingEffectCoordinator()
-    renderer = _CustomEntryRenderer(
+    renderer = CustomEntryRenderer(
         ctl=state,
-        terminal_ui=None,
+        terminal=None,
         coding_input_queue=CodingInputQueue(mutation_lock=coding_effects.lock),
         coding_effects=coding_effects,
         error_stream=sys.stderr,
@@ -871,9 +871,9 @@ def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
         extension_custom_message_outbox=runtime.custom_outbox,
         extension_in_agent_turn=False,
     )
-    renderer = _CustomEntryRenderer(
+    renderer = CustomEntryRenderer(
         ctl=state,
-        terminal_ui=None,
+        terminal=None,
         coding_input_queue=cast(Any, BlockingInputQueue()),
         coding_effects=CodingEffectCoordinator(),
         error_stream=sys.stderr,
@@ -2538,6 +2538,7 @@ def test_r3c2_forbids_registries_identity_discovery_and_list_magic() -> None:
             "session_generation.py",
             "extension_hooks.py",
             "tui.py",
+            "ui/components/custom_entry_renderer.py",
         )
     }
     combined = "".join(texts.values())
@@ -2572,7 +2573,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         "accept submit route_drain _bind_session_mutex _install_candidate_route install_candidate_route release_pending release_pending_route retire retire_route mark_retired_locked finalize_retirement _accept_message_route _commit_activation".split()
     )
     constructors = set(
-        "GenerationMessageRouting SessionGenerationRef _CustomEntryRenderer".split()
+        "GenerationMessageRouting SessionGenerationRef CustomEntryRenderer".split()
     )
     entries = [(path, node) for path, tree in trees.items() for node in ast.walk(tree)]
     calls = [
@@ -2622,17 +2623,17 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         for _, node in entries
     )
     assert {name: len(found) for name, found in built.items()} == dict(
-        GenerationMessageRouting=2, SessionGenerationRef=1, _CustomEntryRenderer=1
+        GenerationMessageRouting=2, SessionGenerationRef=1, CustomEntryRenderer=1
     )
     ref_path, ref_call = built["SessionGenerationRef"][0]
     assert ref_path == "tool_loop_session.py"
     assert {kw.arg: ast.unparse(kw.value) for kw in ref_call.keywords}[
         "lock"
     ] == "session_state_lock"
-    path, renderer_call = built["_CustomEntryRenderer"][0]
+    path, renderer_call = built["CustomEntryRenderer"][0]
     assert (path, renderer_call.args) == ("tool_loop_session.py", [])
     assert {kw.arg for kw in renderer_call.keywords} == set(
-        "ctl terminal_ui coding_input_queue coding_effects error_stream generation_snapshot".split()
+        "ctl terminal coding_input_queue coding_effects error_stream generation_snapshot".split()
     )
     assert not any(
         isinstance(node, ast.Attribute)
@@ -2673,7 +2674,9 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     assert ast.unparse(leaf).count("self._queued.extend(deliveries)") == 1
     direct = next(
         node
-        for node in owner("tui.py", "_CustomEntryRenderer").body
+        for node in owner(
+            "ui/components/custom_entry_renderer.py", "CustomEntryRenderer"
+        ).body
         if isinstance(node, ast.FunctionDef) and node.name == "extension_send_message"
     )
     assert "_snapshot" not in ast.unparse(direct)
@@ -2776,14 +2779,14 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ),
         (
             "_route_legacy_custom_message_input",
-            "native/tui.py",
+            "native/ui/components/custom_entry_renderer.py",
             ("class:AcceptedCustomMessageSinks", "function:deliver"),
         ),
         (
             "_route_legacy_custom_message_input",
-            "native/tui.py",
+            "native/ui/components/custom_entry_renderer.py",
             (
-                "class:_CustomEntryRenderer",
+                "class:CustomEntryRenderer",
                 "function:_deliver_custom_message_effects",
             ),
         ),

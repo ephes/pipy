@@ -49,6 +49,7 @@ from pipy_harness.native.session_tree import (
 )
 from pipy_harness.native.session_tree_commands import TreeCommandOutcome
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
 
 class _SeenProvider:
@@ -1297,7 +1298,7 @@ def test_resume_switch_order_gate_and_fresh_history(
         trace.append("clear-extension")
         original_clear(self)
 
-    def redraw(self: ToolLoopTerminalUi, entries: object) -> None:
+    def redraw(self: TranscriptComponent, entries: object) -> None:
         del self, entries
         trace.append("redraw")
 
@@ -1317,7 +1318,7 @@ def test_resume_switch_order_gate_and_fresh_history(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
+    monkeypatch.setattr(TranscriptComponent, "redraw_custom_entries", redraw)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
         "pipy_harness.native.repl.collaborators.emit_diagnostic",
@@ -1504,7 +1505,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
         if failure_stage == "clear":
             raise RuntimeError("clear failed")
 
-    def redraw(self: ToolLoopTerminalUi, entries: object) -> None:
+    def redraw(self: TranscriptComponent, entries: object) -> None:
         del self, entries
         trace.append("redraw")
         if failure_stage == "redraw":
@@ -1520,7 +1521,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
+    monkeypatch.setattr(TranscriptComponent, "redraw_custom_entries", redraw)
     monkeypatch.setattr(
         NativeToolReplSession,
         "_print_footer",

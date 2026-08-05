@@ -95,7 +95,7 @@ class ProviderMutationEffects:
     """Composition-root handler owning the provider/model/auth/compaction
     mutation effects.
 
-    Symmetric with :class:`_CustomEntryRenderer`, :class:`_ReplLoopStep`, and
+    Symmetric with :class:`CustomEntryRenderer`, :class:`_ReplLoopStep`, and
     :class:`_BuiltinCommandInterpreter`, these bodies formerly lived as the
     ``apply_model_selection``/``apply_auth_change``/``apply_compaction``/
     ``_append_durable_compaction``/``extension_set_active_tools``/

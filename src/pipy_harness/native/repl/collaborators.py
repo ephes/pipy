@@ -85,9 +85,11 @@ from pipy_harness.native.tool_renderers import _parse_tool_input, _ToolLoopRende
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
-    _CustomEntryRenderer,
     _LiveExtensionUiDriver,
     _TuiToolLoopRenderer,
+)
+from pipy_harness.native.ui.components.custom_entry_renderer import (
+    CustomEntryRenderer,
 )
 
 _SESSION_COMMAND_ACTIONS = frozenset(
@@ -186,7 +188,7 @@ class BuiltinCommandInterpreter:
 class SessionCollaborators:
     """Composition-root handler owning the residual run-loop collaborators.
 
-    Symmetric with :class:`ProviderMutationEffects`/:class:`_CustomEntryRenderer`/
+    Symmetric with :class:`ProviderMutationEffects`/:class:`CustomEntryRenderer`/
     :class:`_ReplLoopStep`/:class:`_BuiltinCommandInterpreter`, these bodies
     formerly lived as the ``diag``/``extension_session_allows``/
     ``rebuild_messages_from_tree``/``summarize_branch``/``current_session_dir``/
@@ -226,7 +228,7 @@ class SessionCollaborators:
     cwd: Path
     error_stream: TextIO
     provider_mutation: ProviderMutationEffects
-    custom_renderer: _CustomEntryRenderer
+    custom_renderer: CustomEntryRenderer
     extension_ui_driver: _LiveExtensionUiDriver | None
     extension_notify: Callable[[str, str], None]
 
