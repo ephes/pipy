@@ -28,6 +28,7 @@ from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
 )
+from pipy_harness.native.ui.components.session_picker import SessionPickerComponent
 from pipy_harness.native.ui.components.settings_dialog import SettingsDialogComponent
 
 
@@ -770,25 +771,33 @@ def test_facade_overlay_end_detaches_assignable_live_containers(
     project = [_session(tmp_path / "project.jsonl")]
     all_sessions = [*project, _session(tmp_path / "other.jsonl")]
     scoped = ScopedModelsSelectorComponent(ui._overlays, ui._paint_lock, ui.paint)
+    picker = SessionPickerComponent(
+        ui._overlays,
+        ui._paint_lock,
+        ui.paint,
+        on_rename=None,
+        on_delete=None,
+        consume_paste=lambda: None,
+    )
     ui._overlays.scoped_checked = checked
-    ui._session_picker_project = project
-    ui._session_picker_all = all_sessions
+    ui._overlays.session_project = project
+    ui._overlays.session_all = all_sessions
 
     assert scoped.handle_key("esc") is not None
-    ui._close_session_picker()
+    assert picker.handle_key("esc") is not None
 
     assert checked == {0}
     assert ui._overlays.scoped_checked == set()
     assert ui._overlays.scoped_checked is not checked
     assert project == [_session(tmp_path / "project.jsonl")]
-    assert ui._session_picker_project == []
-    assert ui._session_picker_project is not project
+    assert ui._overlays.session_project == []
+    assert ui._overlays.session_project is not project
     assert all_sessions == [
         _session(tmp_path / "project.jsonl"),
         _session(tmp_path / "other.jsonl"),
     ]
-    assert ui._session_picker_all == []
-    assert ui._session_picker_all is not all_sessions
+    assert ui._overlays.session_all == []
+    assert ui._overlays.session_all is not all_sessions
 
 
 def _assert_footer_rebuild_reset(state: ExtensionChromeState) -> None:

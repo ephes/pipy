@@ -1080,7 +1080,7 @@ def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it
 ) -> None:
     ui = _ui(tmp_path)
     ui.set_input_text("captured contract")
-    ui.session_picker_open = True
+    ui._overlays.supersede("session_picker")
 
     captured = "\n".join(ui.render_lines(width=88, height=24, pad=False))
     live = "\n".join(line.text for line in ui._live_region_lines(width=88, height=24))
