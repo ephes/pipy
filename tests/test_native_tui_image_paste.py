@@ -57,7 +57,7 @@ class TestClipboardImagePaste:
 
         assert isinstance(owner, ClipboardImages)
         assert owner.config is config
-        assert owner._editor is ui._editor  # noqa: SLF001
+        assert owner._editor is ui.input_editor.editor_state  # noqa: SLF001
         assert owner._paint_lock is ui._paint_lock  # noqa: SLF001
 
     def test_paste_writes_owner_only_temp_and_inserts_reference(
@@ -66,7 +66,7 @@ class TestClipboardImagePaste:
         clip_dir = tmp_path / "clip"
         ui = _ui(tmp_path, _config(clip_dir))
         ui.clipboard_images.paste_clipboard_image()
-        assert "@image:" in ui.input_text
+        assert "@image:" in ui.input_editor.text
         written = list(clip_dir.glob("pipy-clipboard-*.png"))
         assert written, "no temp image written"
         assert stat.S_IMODE(clip_dir.stat().st_mode) == 0o700
@@ -79,7 +79,7 @@ class TestClipboardImagePaste:
 
         ui.clipboard_images.paste_clipboard_image()
 
-        assert ui.input_text == ""
+        assert ui.input_editor.text == ""
         assert events == [
             ("notice", "pipy: no image on the clipboard."),
             ("repaint", None),
@@ -93,7 +93,7 @@ class TestClipboardImagePaste:
 
         ui.clipboard_images.paste_clipboard_image()
 
-        assert ui.input_text == ""
+        assert ui.input_editor.text == ""
         assert events == [
             ("notice", "pipy: clipboard image paste is not available here."),
             ("repaint", None),
@@ -114,7 +114,7 @@ class TestClipboardImagePaste:
 
         ui.clipboard_images.paste_clipboard_image()
 
-        assert ui.input_text == ""
+        assert ui.input_editor.text == ""
         assert events == [
             ("notice", "pipy: could not save the pasted clipboard image."),
             ("repaint", None),

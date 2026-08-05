@@ -1050,7 +1050,7 @@ def test_run_loop_shutdown_clears_editor_when_extension_text_capture_throws() ->
         def dispose(self) -> None:
             disposed.append("editor")
 
-    ui.set_input_text("safe shutdown draft")
+    ui.input_editor.set_input_text("safe shutdown draft")
     ui.set_editor_component(lambda *_args: _ThrowingEditor())
     ui._chrome.component.set_widget("stale", ["stale chrome"])
 
@@ -1073,7 +1073,7 @@ def test_run_loop_shutdown_clears_editor_when_extension_text_capture_throws() ->
     assert disposed == ["editor"]
     assert ui.get_editor_component() is None
     assert ui._chrome.record.widgets_above == {}
-    assert ui.get_input_text() == "safe shutdown draft"
+    assert ui.input_editor.get_input_text() == "safe shutdown draft"
     assert "must not escape shutdown" not in terminal.getvalue()
 
 

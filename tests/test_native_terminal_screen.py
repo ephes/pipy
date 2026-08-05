@@ -95,7 +95,7 @@ def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
     ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
     ui.submit_user_message("visible prompt")
     ui.append_assistant("visible answer")
-    ui.input_text = "next"
+    ui.input_editor.text = "next"
 
     ui.paint()
 

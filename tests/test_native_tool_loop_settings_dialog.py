@@ -457,7 +457,7 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
             "cycle_thinking",
         ),
     )
-    ui.input_history = ["private saved prompt"]
+    ui.input_editor.input_history = ["private saved prompt"]
     drive_settings_dialog(
         ui,
         store,
@@ -474,7 +474,7 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
     assert len(ui.rebuilt_rows) == 5
     assert store.enabled is False
     assert store.entries() == []
-    assert ui.input_history == ["private saved prompt"]
+    assert ui.input_editor.input_history == ["private saved prompt"]
     assert ui.tools_expanded is True
     assert ui.thinking_hidden is True
     assert settings.get_hide_thinking_block() is True
@@ -882,7 +882,7 @@ def test_live_settings_private_sources_stay_out_of_finalized_metadata_archive(
     )
     _assert_private_markers_present(error_stream.getvalue(), (_OAUTH_OUTPUT_MARKER,))
     _assert_private_markers_present(
-        "\n".join(ui.input_history), (_PROMPT_HISTORY_MARKER,)
+        "\n".join(ui.input_editor.input_history), (_PROMPT_HISTORY_MARKER,)
     )
     assert settings.get_hide_thinking_block() is True
     assert ui.thinking_hidden is True

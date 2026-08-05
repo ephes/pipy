@@ -427,8 +427,8 @@ class _ReplLoopStep:
             # into the editor. The live TUI rehydrates the editor directly;
             # captured-stream callers see a hint and type the (edited) text
             # as the next line, which branches from the selected parent.
-            if terminal_ui is not None and hasattr(terminal_ui, "set_input_text"):
-                terminal_ui.set_input_text(ctl.pending_prefill)
+            if terminal_ui is not None:
+                terminal_ui.input_editor.set_input_text(ctl.pending_prefill)
             elif terminal_ui is None:
                 diag(
                     "pipy: editor rehydrated with selected message; "
@@ -1335,7 +1335,7 @@ class NativeToolReplSession:
         if settings.get_prompt_history_enabled() and not prompt_history_store.enabled:
             prompt_history_store.set_enabled(True)
         if terminal_ui is not None and prompt_history_store.enabled:
-            terminal_ui.input_history = list(prompt_history_store.entries())
+            terminal_ui.input_editor.load_history(prompt_history_store.entries())
         renderer: _ToolLoopRenderer | TuiToolLoopRenderer
         if terminal_ui is not None:
             renderer = terminal_ui.create_tool_loop_renderer(
@@ -1490,7 +1490,7 @@ class NativeToolReplSession:
         def take_pending_local_command() -> ProductContent | None:
             if terminal_ui is None:
                 return None
-            command = terminal_ui.take_pending_command()
+            command = terminal_ui.input_editor.take_pending_command()
             return None if command is None else ProductContent(command)
 
         coding_input_queue = CodingInputQueue(

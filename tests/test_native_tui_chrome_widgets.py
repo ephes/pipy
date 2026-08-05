@@ -130,7 +130,7 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui._chrome.record.footer_branch is None
     assert ui._chrome.record.title is None
     assert ui._chrome.record.terminal_input_listeners == {}
-    assert ui._editor.autocomplete_provider_factories == []
+    assert ui.input_editor.editor_state.autocomplete_provider_factories == []
     assert ui.get_editor_component() is None
     assert ui._transcript.hidden_thinking_label == "Thinking..."
     assert ui._chrome.record.statuses == {"status": "value"}
@@ -140,26 +140,26 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
 
 def test_clear_without_custom_editor_preserves_text_cursor_and_undo_state():
     ui = _ui()
-    ui._editor.set_buffer("draft text", cursor=3)
-    ui._editor.undo_stack[:] = [("older", 2)]
-    ui._editor.redo_stack[:] = [("newer", 4)]
-    ui._editor.pending_initial_text = "pending draft"
+    ui.input_editor.editor_state.set_buffer("draft text", cursor=3)
+    ui.input_editor.editor_state.undo_stack[:] = [("older", 2)]
+    ui.input_editor.editor_state.redo_stack[:] = [("newer", 4)]
+    ui.input_editor.editor_state.pending_initial_text = "pending draft"
     before = (
-        ui._editor.text,
-        ui._editor.cursor,
-        list(ui._editor.undo_stack),
-        list(ui._editor.redo_stack),
-        ui._editor.pending_initial_text,
+        ui.input_editor.editor_state.text,
+        ui.input_editor.editor_state.cursor,
+        list(ui.input_editor.editor_state.undo_stack),
+        list(ui.input_editor.editor_state.redo_stack),
+        ui.input_editor.editor_state.pending_initial_text,
     )
 
     ui.clear_extension_chrome()
 
     assert (
-        ui._editor.text,
-        ui._editor.cursor,
-        ui._editor.undo_stack,
-        ui._editor.redo_stack,
-        ui._editor.pending_initial_text,
+        ui.input_editor.editor_state.text,
+        ui.input_editor.editor_state.cursor,
+        ui.input_editor.editor_state.undo_stack,
+        ui.input_editor.editor_state.redo_stack,
+        ui.input_editor.editor_state.pending_initial_text,
     ) == before
 
 
@@ -180,7 +180,7 @@ def test_reconcile_clears_active_custom_editor_and_round_trips_its_text():
             disposed.append(self.text)
 
     component = _Editor()
-    ui.set_input_text("built-in draft")
+    ui.input_editor.set_input_text("built-in draft")
     ui.set_editor_component(lambda *_args: component)
     component.text = "custom draft"
 
@@ -188,7 +188,7 @@ def test_reconcile_clears_active_custom_editor_and_round_trips_its_text():
 
     assert disposed == ["custom draft"]
     assert ui.get_editor_component() is None
-    assert ui.get_input_text() == "custom draft"
+    assert ui.input_editor.get_input_text() == "custom draft"
     assert ui._transcript.hidden_thinking_label == "Thinking..."
 
 
@@ -506,7 +506,9 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
     assert ui._chrome.record.header is not None
     assert ui._chrome.record.header.source is snapshot.header
     assert ui.get_editor_component() is snapshot.editor_component
-    assert ui._editor.autocomplete_provider_factories == [candidate_autocomplete]
+    assert ui.input_editor.editor_state.autocomplete_provider_factories == [
+        candidate_autocomplete
+    ]
     assert ui._transcript.hidden_thinking_label == snapshot.hidden_thinking_label
     assert ui._chrome.listeners.apply("x") == "candidate:x"
     assert candidate_seen == ["x"]

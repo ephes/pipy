@@ -831,7 +831,7 @@ def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
 ) -> None:
     names = {item.name for item in fields(ToolLoopTerminalUi)}
     assert {
-        "_editor",
+        "input_editor",
         "_overlays",
         "_chrome",
         "pending_messages",
@@ -861,9 +861,10 @@ def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
     ui = ToolLoopTerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
-    assert ui.pending_messages._editor is ui._editor  # noqa: SLF001
+    assert ui.input_editor._paint_lock is ui._paint_lock  # noqa: SLF001
+    assert ui.pending_messages._editor is ui.input_editor.editor_state  # noqa: SLF001
     assert ui.pending_messages._paint_lock is ui._paint_lock  # noqa: SLF001
-    assert ui.clipboard_images._editor is ui._editor  # noqa: SLF001
+    assert ui.clipboard_images._editor is ui.input_editor.editor_state  # noqa: SLF001
     assert ui.clipboard_images._paint_lock is ui._paint_lock  # noqa: SLF001
     owners = ui._chrome
     assert owners.component._record is owners.record  # noqa: SLF001

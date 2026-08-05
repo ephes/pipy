@@ -27,7 +27,6 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_custom_editor_factory",
     "_custom_editor_submitted",
     "_driver",
-    "_editor",
     "_last_painted_size",
     "_live_height",
     "_live_input_row",
@@ -42,6 +41,7 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "cwd",
     "footer_lines",
     "include_workspace_defaults",
+    "input_editor",
     "input_stream",
     "keybindings_manager",
     "pending_messages",
@@ -147,8 +147,8 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 2115
-_TUI_CLASS_DEF_RATCHET = 131
+_TUI_CLASS_SPAN_RATCHET = 1838
+_TUI_CLASS_DEF_RATCHET = 79
 
 
 def test_tool_loop_terminal_ui_class_ratchet_never_grows() -> None:

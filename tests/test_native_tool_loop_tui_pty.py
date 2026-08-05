@@ -3386,7 +3386,7 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
         # The pasted reference is in the editor; the long temp path scrolls the
         # @image: prefix out of the narrow input cell, so the visible tail shows
         # the clipboard filename. Assert both editor state and the visible frame.
-        assert _wait_for_predicate(lambda: "@image:" in ui.input_text), (
+        assert _wait_for_predicate(lambda: "@image:" in ui.input_editor.text), (
             f"{label}: ctrl+v did not insert an @image: reference"
         )
         assert _wait_for_predicate(

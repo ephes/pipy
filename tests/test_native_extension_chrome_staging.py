@@ -877,7 +877,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
 
     old_editor = _OldEditor()
     new_editor = _NewEditor()
-    ui.set_input_text("safe built-in draft")
+    ui.input_editor.set_input_text("safe built-in draft")
     driver.set_editor_component(lambda *_args: old_editor)
     driver.set_title("old")
     candidate = driver.new_candidate_sink()
@@ -891,7 +891,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
     assert driver.owns_sink(candidate)
     assert ui.get_editor_component() is candidate.snapshot().editor_component
     assert new_editor.text == "safe built-in draft"
-    assert ui.get_input_text() == "safe built-in draft"
+    assert ui.input_editor.get_input_text() == "safe built-in draft"
     assert ui._chrome.record.title == "new"
     assert disposed == ["old"]
     assert "must stay bounded" not in terminal.getvalue()

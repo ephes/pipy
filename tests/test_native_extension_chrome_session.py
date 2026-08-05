@@ -328,7 +328,9 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
             "startup session_start chrome never painted"
         )
         listeners_before = tuple(ui._chrome.record.terminal_input_listeners.values())
-        providers_before = tuple(ui._editor.autocomplete_provider_factories)
+        providers_before = tuple(
+            ui.input_editor.editor_state.autocomplete_provider_factories
+        )
         editor_before = ui.get_editor_component()
         assert len(listeners_before) == len(providers_before) == 1
         assert editor_before is not None
@@ -357,7 +359,10 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
             assert tuple(ui._chrome.record.terminal_input_listeners.values()) == (
                 listeners_before
             )
-            assert tuple(ui._editor.autocomplete_provider_factories) == providers_before
+            assert (
+                tuple(ui.input_editor.editor_state.autocomplete_provider_factories)
+                == providers_before
+            )
             assert ui.get_editor_component() is editor_before
             assert ui._chrome.record.title == "OLD_FLAG_TITLE"
             assert "old" in ui._chrome.record.widgets_above

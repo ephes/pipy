@@ -61,7 +61,7 @@ def test_terminal_wires_pending_owner_to_shared_state_and_lock(tmp_path: Path) -
     owner = ui.pending_messages
 
     assert isinstance(owner, PendingMessages)
-    assert owner._editor is ui._editor  # noqa: SLF001
+    assert owner._editor is ui.input_editor.editor_state  # noqa: SLF001
     assert owner._paint_lock is ui._paint_lock  # noqa: SLF001
 
 
@@ -83,7 +83,7 @@ def test_mid_turn_steering_is_published_before_abort_signal(
     ui.input_stream = _FilenoInput()
     ui._driver = _SingleEnterDriver()  # type: ignore[assignment]  # noqa: SLF001
     monkeypatch.setattr(ToolLoopTerminalUi, "_poll_resize_repaint", lambda _self: False)
-    ui.input_text = "redirect here"
+    ui.input_editor.text = "redirect here"
     owner = ui.pending_messages
     events: list[str] = []
     owner._repaint = lambda: events.append("repaint")  # noqa: SLF001
@@ -101,7 +101,7 @@ def test_mid_turn_steering_is_published_before_abort_signal(
             assert events == ["owner-enter", "repaint", "owner-return"]
             assert [
                 (message.kind, message.content)
-                for message in ui._editor.pending_messages()  # noqa: SLF001
+                for message in ui.input_editor.editor_state.pending_messages()  # noqa: SLF001
             ] == [("steering", "redirect here")]
             events.append("abort")
             super().set()
@@ -148,11 +148,11 @@ def test_promote_drains_steering_before_follow_up(tmp_path: Path) -> None:
 
 def test_restore_to_editor_joins_with_blank_lines(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.input_text = ""
+    ui.input_editor.text = ""
     ui.pending_messages.enqueue_steering("first")
     ui.pending_messages.enqueue_follow_up("second")
     ui.pending_messages.restore_pending_to_editor()
-    assert ui.input_text == "first\n\nsecond"
+    assert ui.input_editor.text == "first\n\nsecond"
     assert not ui.pending_messages.has_pending_messages()
 
 
@@ -229,15 +229,15 @@ def test_restore_survives_next_read_line_reset(tmp_path: Path) -> None:
     ui.pending_messages.enqueue_steering("redirect")
     ui.pending_messages.enqueue_follow_up("later")
     ui.pending_messages.restore_pending_to_editor()
-    assert ui._pending_initial_text == "redirect\n\nlater"
+    assert ui.input_editor.pending_initial_text == "redirect\n\nlater"
 
 
 def test_restore_prepends_to_existing_editor_text(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.input_text = "typed so far"
+    ui.input_editor.text = "typed so far"
     ui.pending_messages.enqueue_steering("queued")
     ui.pending_messages.restore_pending_to_editor()
-    assert ui.input_text == "queued\n\ntyped so far"
+    assert ui.input_editor.text == "queued\n\ntyped so far"
 
 
 def test_abort_restores_remaining_drain_to_editor(tmp_path: Path) -> None:
@@ -250,7 +250,7 @@ def test_abort_restores_remaining_drain_to_editor(tmp_path: Path) -> None:
     owner.restore_pending_to_editor()
     assert owner.take_next_drain() is None
     assert not owner.has_pending_messages()
-    assert ui.input_text == "F1"
+    assert ui.input_editor.text == "F1"
 
 
 def test_abort_restores_drain_before_unpromoted_lanes(tmp_path: Path) -> None:
@@ -260,7 +260,7 @@ def test_abort_restores_drain_before_unpromoted_lanes(tmp_path: Path) -> None:
     owner.promote_pending_to_drain()
     owner.enqueue_steering("S2")
     owner.restore_pending_to_editor()
-    assert ui.input_text == "F1\n\nS2"
+    assert ui.input_editor.text == "F1\n\nS2"
     assert owner.take_next_drain() is None
     assert not owner.has_pending_messages()
 

@@ -62,7 +62,7 @@ from pipy_harness.native.editor_completion import (
     extract_path_prefix,
     path_candidates,
 )
-from pipy_harness.native.editor_state import CompletionItem, EditorState
+from pipy_harness.native.editor_state import CompletionItem, CompletionMode, EditorState
 from pipy_harness.native.frame_renderer import FrameLine, clip_text
 
 
@@ -191,6 +191,70 @@ class AutocompleteComponent:
     def max_visible(self) -> int:
         return self._max_visible
 
+    @property
+    def slash_menu_open(self) -> bool:
+        return self._editor.slash_menu_open
+
+    @slash_menu_open.setter
+    def slash_menu_open(self, value: bool) -> None:
+        self._editor.slash_menu_open = value
+
+    @property
+    def autocomplete_open(self) -> bool:
+        return self._editor.autocomplete_open
+
+    @autocomplete_open.setter
+    def autocomplete_open(self, value: bool) -> None:
+        self._editor.autocomplete_open = value
+
+    @property
+    def autocomplete_items(self) -> tuple[CompletionItem, ...]:
+        return self._editor.autocomplete_items
+
+    @autocomplete_items.setter
+    def autocomplete_items(self, value: tuple[CompletionItem, ...]) -> None:
+        self._editor.autocomplete_items = value
+
+    @property
+    def slash_menu_selection(self) -> int:
+        return self._editor.slash_menu_selection
+
+    @slash_menu_selection.setter
+    def slash_menu_selection(self, value: int) -> None:
+        self._editor.slash_menu_selection = value
+
+    @property
+    def autocomplete_selection(self) -> int:
+        return self._editor.autocomplete_selection
+
+    @autocomplete_selection.setter
+    def autocomplete_selection(self, value: int) -> None:
+        self._editor.autocomplete_selection = value
+
+    @property
+    def autocomplete_mode(self) -> CompletionMode:
+        return self._editor.autocomplete_mode
+
+    @autocomplete_mode.setter
+    def autocomplete_mode(self, value: CompletionMode) -> None:
+        self._editor.autocomplete_mode = value
+
+    @property
+    def autocomplete_token_start(self) -> int:
+        return self._editor.autocomplete_token_start
+
+    @autocomplete_token_start.setter
+    def autocomplete_token_start(self, value: int) -> None:
+        self._editor.autocomplete_token_start = value
+
+    @property
+    def autocomplete_prefix(self) -> str:
+        return self._editor.autocomplete_prefix
+
+    @autocomplete_prefix.setter
+    def autocomplete_prefix(self, value: str) -> None:
+        self._editor.autocomplete_prefix = value
+
     def replace_command_surface(self, surface: CommandSurface) -> None:
         """Atomically publish a new command surface (startup / ``/reload``)."""
 
@@ -311,6 +375,12 @@ class AutocompleteComponent:
 
     def close(self) -> None:
         self._editor.close_autocomplete()
+
+    def dismiss_slash_menu(self) -> None:
+        """Close the menu while preserving its established selection value."""
+
+        self._editor.slash_menu_open = False
+        self._repaint()
 
     def navigate(self, key: str) -> None:
         if self._editor.navigate_autocomplete(key):

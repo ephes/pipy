@@ -27,8 +27,13 @@ class _FakeUi:
         self.extension_status = {"s": "v"}
         self.available_provider_count = 2
         self.calls = []
-        self.input_text = "draft"
         self.pasted = []
+        self.input_editor = SimpleNamespace(
+            text="draft",
+            get_input_text=self.get_input_text,
+            set_input_text=self.set_input_text,
+            paste_input_text=self.paste_input_text,
+        )
         self.theme = object()
         self.keybindings = object()
         self.retirement_scopes = []
@@ -108,16 +113,16 @@ class _FakeUi:
         self.calls.append(("tools-expanded", self.tools_expanded))
 
     def get_input_text(self):
-        return self.input_text
+        return self.input_editor.text
 
     def set_input_text(self, text):
         self.calls.append(("set-input", text))
-        self.input_text = text
+        self.input_editor.text = text
 
     def paste_input_text(self, text):
         self.calls.append(("paste-input", text))
         self.pasted.append(text)
-        self.input_text = text
+        self.input_editor.text = text
 
     def set_editor_component(self, factory):
         self.calls.append(("set-editor-component", factory))
@@ -215,12 +220,12 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert driver.get_editor_text() == "draft"
 
     driver.set_editor_text("set")
-    assert ui.input_text == "set"
+    assert ui.input_editor.text == "set"
     assert ui.calls[-1] == ("set-input", "set")
 
-    ui.input_text = "draft text"
+    ui.input_editor.text = "draft text"
     driver.paste_to_editor("paste")
-    assert ui.input_text == "paste"
+    assert ui.input_editor.text == "paste"
     assert ui.pasted == ["paste"]
     assert ui.calls[-1] == ("paste-input", "paste")
 

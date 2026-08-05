@@ -40,11 +40,7 @@ from pipy_harness.native.chrome import (
     pipy_version_label,
 )
 from pipy_harness.native.coding.command_registry import project_command_completions
-from pipy_harness.native.editor_state import (
-    CompletionItem,
-    CompletionMode,
-    EditorState,
-)
+from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeCommitToken,
     ExtensionChromeEvent,
@@ -61,7 +57,6 @@ from pipy_harness.native.frame_renderer import (
     ChromeSnapshot,
     FrameBlock,
     FrameSnapshot,
-    InputSnapshot,
     PaintState,
     build_paint_plan,
     render_full_frame,
@@ -80,13 +75,7 @@ from pipy_harness.native.frame_renderer import (
     clip_text as render_clip_text,
 )
 from pipy_harness.native.frame_renderer import (
-    display_input_text as render_display_input_text,
-)
-from pipy_harness.native.frame_renderer import (
     input_index as render_input_index,
-)
-from pipy_harness.native.frame_renderer import (
-    input_lines as render_input_lines,
 )
 from pipy_harness.native.frame_renderer import (
     pad_text as render_pad_text,
@@ -158,6 +147,11 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionSelectComponent,
 )
 from pipy_harness.native.ui.components.footer import FooterComponent
+from pipy_harness.native.ui.components.input_editor import (
+    EditingKeyContext,
+    InputEditor,
+    apply_editing_key,
+)
 from pipy_harness.native.ui.components.model_selector import (
     ModelSelectorComponent,
     model_selector_region_lines,
@@ -417,13 +411,13 @@ class _LiveExtensionUiDriver:
         )
 
     def get_editor_text(self) -> str:
-        return self._terminal_ui.get_input_text()
+        return self._terminal_ui.input_editor.get_input_text()
 
     def set_editor_text(self, text: str) -> None:
-        self._terminal_ui.set_input_text(text)
+        self._terminal_ui.input_editor.set_input_text(text)
 
     def paste_to_editor(self, text: str) -> None:
-        self._terminal_ui.paste_input_text(text)
+        self._terminal_ui.input_editor.paste_input_text(text)
 
     def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
         operation = ChromeHandoffOperation("listener", (handler,))
@@ -614,11 +608,9 @@ class ToolLoopTerminalUi:
     include_workspace_defaults: bool = False
     runtime_label: str = TOOL_LOOP_TUI_RUNTIME_LABEL
     footer_lines: tuple[str, str] = ("", "")
-    # Single source of truth for editable input, history, undo/redo, paste,
-    # completion/menu navigation, rehydration, and queued terminal input. This
-    # large dataclass already uses slots: retired field names therefore cannot
-    # silently become dead instance attributes beside the narrow projections.
-    _editor: EditorState = field(init=False)
+    # Built-in editor effects and frame projection. Its exact EditorState is
+    # also injected into autocomplete, pending messages, and clipboard images.
+    input_editor: InputEditor = field(init=False)
     # Single owner for committed history blocks, the live stream buffers, and
     # the Ctrl+O/Ctrl+T view flags (``ui/components/transcript.py``). The
     # facade keeps thin verb delegates and two read-only flag projections.
@@ -680,12 +672,12 @@ class ToolLoopTerminalUi:
     clipboard_config: InitVar[ClipboardConfig | None] = None
 
     def __post_init__(self, clipboard_config: ClipboardConfig | None) -> None:
-        self._editor = EditorState()
+        editor = EditorState()
         self._overlays = OverlayState()
         chrome_record = ExtensionChromeState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
         self._autocomplete = AutocompleteComponent(
-            self._editor,
+            editor,
             cwd=self.cwd,
             repaint=self.paint,
             custom_editor_component=lambda: self._custom_editor_component,
@@ -708,7 +700,7 @@ class ToolLoopTerminalUi:
             return self._custom_editor_text() if self._custom_editor_active else None
 
         self.pending_messages = PendingMessages(
-            self._editor,
+            editor,
             self._paint_lock,
             self.paint,
             custom_editor_active=lambda: self._custom_editor_active,
@@ -717,7 +709,7 @@ class ToolLoopTerminalUi:
             refresh_slash_menu=self._autocomplete.refresh_slash_menu,
         )
         self.clipboard_images = ClipboardImages(
-            self._editor,
+            editor,
             self._paint_lock,
             self.paint,
             cwd=self.cwd,
@@ -727,6 +719,17 @@ class ToolLoopTerminalUi:
             add_notice=self.add_notice,
             custom_editor_text=active_custom_editor_text,
             set_custom_editor_text=self._set_custom_editor_text,
+        )
+        self.input_editor = InputEditor(
+            editor,
+            self._paint_lock,
+            self.paint,
+            command_names=lambda: self._autocomplete.command_names,
+            refresh_autocomplete=self._autocomplete.refresh,
+            custom_editor_active=lambda: self._custom_editor_active,
+            custom_editor_text=self._custom_editor_text,
+            set_custom_editor_text=self._set_custom_editor_text,
+            insert_paste=self.clipboard_images.insert_paste,
         )
         chrome = ExtensionChromeComponent(
             chrome_record,
@@ -755,8 +758,8 @@ class ToolLoopTerminalUi:
         listeners = TerminalInputListeners(chrome_record, self._paint_lock, self.paint)
 
         def clear_autocomplete() -> None:
-            self._editor.autocomplete_provider_factories.clear()
-            self._editor.close_autocomplete()
+            editor.autocomplete_provider_factories.clear()
+            editor.close_autocomplete()
 
         def clear_custom_editor() -> None:
             self._custom_editor_factory = None
@@ -764,8 +767,8 @@ class ToolLoopTerminalUi:
             self._custom_editor_active = False
 
         def restore_editor_text(text: str) -> None:
-            self._editor.set_buffer(text)
-            self._editor.pending_initial_text = text
+            self.input_editor.set_buffer(text)
+            self.input_editor.pending_initial_text = text
 
         self._chrome = build_extension_chrome_owners(
             chrome_record,
@@ -775,7 +778,7 @@ class ToolLoopTerminalUi:
             footer=footer,
             listeners=listeners,
             custom_editor_active=lambda: self._custom_editor_active,
-            read_input_text=self.get_input_text,
+            read_input_text=self.input_editor.get_input_text,
             current_custom_editor_component=lambda: self._custom_editor_component,
             clear_autocomplete=clear_autocomplete,
             clear_custom_editor=clear_custom_editor,
@@ -785,136 +788,6 @@ class ToolLoopTerminalUi:
             set_editor_component=self.set_editor_component,
             set_hidden_thinking_label=self._transcript.set_hidden_thinking_label,
         )
-
-    # Narrow compatibility projections keep the product facade and existing
-    # characterized callers stable without duplicating stored editor state.
-    @property
-    def input_text(self) -> str:
-        return self._editor.text
-
-    @input_text.setter
-    def input_text(self, value: str) -> None:
-        self._editor.text = value
-
-    @property
-    def input_cursor(self) -> int | None:
-        return self._editor.cursor
-
-    @input_cursor.setter
-    def input_cursor(self, value: int | None) -> None:
-        self._editor.cursor = value
-
-    @property
-    def input_history(self) -> list[str]:
-        return self._editor.input_history
-
-    @input_history.setter
-    def input_history(self, value: list[str]) -> None:
-        self._editor.input_history = value
-
-    @property
-    def _history_nav_index(self) -> int | None:
-        return self._editor.history_nav_index
-
-    @_history_nav_index.setter
-    def _history_nav_index(self, value: int | None) -> None:
-        self._editor.history_nav_index = value
-
-    @property
-    def _history_draft(self) -> str:
-        return self._editor.history_draft
-
-    @_history_draft.setter
-    def _history_draft(self, value: str) -> None:
-        self._editor.history_draft = value
-
-    @property
-    def _undo_stack(self) -> list[tuple[str, int]]:
-        return self._editor.undo_stack
-
-    @property
-    def _redo_stack(self) -> list[tuple[str, int]]:
-        return self._editor.redo_stack
-
-    @property
-    def _pending_paste(self) -> str:
-        return self._editor.pending_paste
-
-    @_pending_paste.setter
-    def _pending_paste(self, value: str) -> None:
-        self._editor.pending_paste = value
-
-    @property
-    def _pending_initial_text(self) -> str | None:
-        return self._editor.pending_initial_text
-
-    @_pending_initial_text.setter
-    def _pending_initial_text(self, value: str | None) -> None:
-        self._editor.pending_initial_text = value
-
-    @property
-    def slash_menu_open(self) -> bool:
-        return self._editor.slash_menu_open
-
-    @slash_menu_open.setter
-    def slash_menu_open(self, value: bool) -> None:
-        self._editor.slash_menu_open = value
-
-    @property
-    def slash_menu_selection(self) -> int:
-        return self._editor.slash_menu_selection
-
-    @slash_menu_selection.setter
-    def slash_menu_selection(self, value: int) -> None:
-        self._editor.slash_menu_selection = value
-
-    @property
-    def autocomplete_open(self) -> bool:
-        return self._editor.autocomplete_open
-
-    @autocomplete_open.setter
-    def autocomplete_open(self, value: bool) -> None:
-        self._editor.autocomplete_open = value
-
-    @property
-    def autocomplete_items(self) -> tuple[CompletionItem, ...]:
-        return self._editor.autocomplete_items
-
-    @autocomplete_items.setter
-    def autocomplete_items(self, value: tuple[CompletionItem, ...]) -> None:
-        self._editor.autocomplete_items = value
-
-    @property
-    def autocomplete_selection(self) -> int:
-        return self._editor.autocomplete_selection
-
-    @autocomplete_selection.setter
-    def autocomplete_selection(self, value: int) -> None:
-        self._editor.autocomplete_selection = value
-
-    @property
-    def autocomplete_mode(self) -> CompletionMode:
-        return self._editor.autocomplete_mode
-
-    @autocomplete_mode.setter
-    def autocomplete_mode(self, value: CompletionMode) -> None:
-        self._editor.autocomplete_mode = value
-
-    @property
-    def autocomplete_token_start(self) -> int:
-        return self._editor.autocomplete_token_start
-
-    @autocomplete_token_start.setter
-    def autocomplete_token_start(self, value: int) -> None:
-        self._editor.autocomplete_token_start = value
-
-    @property
-    def autocomplete_prefix(self) -> str:
-        return self._editor.autocomplete_prefix
-
-    @autocomplete_prefix.setter
-    def autocomplete_prefix(self, value: str) -> None:
-        self._editor.autocomplete_prefix = value
 
     @property
     def autocomplete(self) -> AutocompleteComponent:
@@ -970,11 +843,25 @@ class ToolLoopTerminalUi:
         del prompt_label
         if footer is not None:
             self.set_footer_text(footer)
-        self._editor.begin_line()
+        self.input_editor.begin_line()
         if self._custom_editor_active:
-            self._set_custom_editor_text(self.input_text)
+            self._set_custom_editor_text(self.input_editor.text)
         self.paint()
         fd = self.input_stream.fileno()
+        editing_context = EditingKeyContext(
+            slash_menu_open=lambda: self._autocomplete.slash_menu_open,
+            slash_menu_has_matches=lambda: bool(self._autocomplete.filtered_commands()),
+            autocomplete_open=lambda: self._autocomplete.autocomplete_open,
+            navigate_slash_menu=self._autocomplete.navigate_slash_menu,
+            navigate_autocomplete=self._autocomplete.navigate,
+            accept_slash_menu=self._autocomplete.accept_slash_menu_selection,
+            accept_autocomplete=self._autocomplete.accept_selection,
+            attempt_path_completion=self._autocomplete.attempt_path_completion,
+            allow_history=True,
+            allow_path_completion=True,
+            allow_listener_replacement=True,
+            listener_replaced=lambda: self._chrome.listeners.last_replaced,
+        )
         with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
@@ -986,11 +873,11 @@ class ToolLoopTerminalUi:
                     if submitted is not None:
                         if self._custom_editor_exit_requested:
                             self._custom_editor_exit_requested = False
-                            self._reset_line_editor_state()
+                            self.input_editor.reset_line_editor_state()
                             self.paint()
                             return ""
-                        self._editor.record_history(submitted)
-                        self._editor.reset_line_editor_state()
+                        self.input_editor.record_history(submitted)
+                        self.input_editor.reset_line_editor_state()
                         self.paint()
                         return f"{submitted}\n"
                     continue
@@ -998,33 +885,35 @@ class ToolLoopTerminalUi:
                     self.paint()
                     continue
                 if key == "enter":
-                    if self.autocomplete_open:
+                    if self._autocomplete.autocomplete_open:
                         # Enter accepts the highlighted completion (Pi: Enter/Tab
                         # accept) and keeps editing rather than submitting.
                         self._autocomplete.accept_selection()
                         continue
-                    if self.slash_menu_open and self._autocomplete.filtered_commands():
+                    if (
+                        self._autocomplete.slash_menu_open
+                        and self._autocomplete.filtered_commands()
+                    ):
                         matches = self._autocomplete.filtered_commands()
-                        if self.input_text not in matches:
+                        if self.input_editor.text not in matches:
                             self._autocomplete.accept_slash_menu_selection()
-                    submitted = self._editor.submit_line()
+                    submitted = self.input_editor.submit_line()
                     self.paint()
                     return f"{submitted}\n"
                 if key == "ctrl-c":
                     raise KeyboardInterrupt
                 if key == "ctrl-d":
-                    if not self.input_text:
+                    if not self.input_editor.text:
                         return ""
                     continue
                 if self._matches_keybinding(key, "app.editor.external"):
-                    edited = self._run_configured_external_editor(self.input_text)
-                    if edited is not None:
-                        self._editor.snapshot_for_undo()
-                        self._editor.reset_history_nav()
-                        self._editor.set_buffer(edited)
-                        self._editor.close_slash_menu()
-                        self._editor.close_autocomplete()
-                    self.paint()
+                    edited = self._run_configured_external_editor(
+                        self.input_editor.text
+                    )
+                    if edited is None:
+                        self.paint()
+                    else:
+                        self.input_editor.replace_after_external_edit(edited)
                     continue
                 if key in {"ctrl-p", "shift-ctrl-p"}:
                     # app.model.cycleForward (ctrl+p) / cycleBackward
@@ -1037,7 +926,7 @@ class ToolLoopTerminalUi:
                     # decodable on terminals speaking the kitty keyboard
                     # protocol; legacy terminals send plain ctrl+p and cycle
                     # forward — a documented input-decoding limit.)
-                    self._editor.preserve_for_next_line()
+                    self.input_editor.preserve_for_next_line()
                     return (
                         f"{HOTKEY_MODEL_CYCLE_PREV}\n"
                         if key == "shift-ctrl-p"
@@ -1047,21 +936,23 @@ class ToolLoopTerminalUi:
                     # app.thinking.cycle: cycle the reasoning level. Dispatched
                     # by the session without a provider turn; the partially-typed
                     # buffer is preserved into the next prompt.
-                    self._editor.preserve_for_next_line()
+                    self.input_editor.preserve_for_next_line()
                     return f"{HOTKEY_THINKING_CYCLE}\n"
                 if key in {"ctrl-o", "ctrl-t"}:
                     # app.tools.expand (ctrl+o) / app.thinking.toggle (ctrl+t):
                     # renderer view-flag toggles dispatched by the session (so the
                     # thinking-visibility setting can be persisted and a status
                     # shown). The partially-typed buffer is preserved.
-                    self._editor.preserve_for_next_line()
+                    self.input_editor.preserve_for_next_line()
                     return (
                         f"{HOTKEY_TOGGLE_TOOLS}\n"
                         if key == "ctrl-o"
                         else f"{HOTKEY_TOGGLE_THINKING}\n"
                     )
                 if key == "paste":
-                    self.clipboard_images.insert_paste(self._editor.consume_paste())
+                    self.clipboard_images.insert_paste(
+                        self.input_editor.consume_paste()
+                    )
                     continue
                 if key == "ctrl-v":
                     # app.clipboard.pasteImage: read an image from the OS
@@ -1074,58 +965,16 @@ class ToolLoopTerminalUi:
                     # api.register_shortcut. Preserve any partially-typed input
                     # into the next prompt (like the app hotkeys) and hand the
                     # session the sentinel so it dispatches the bound handler.
-                    self._editor.preserve_for_next_line()
+                    self.input_editor.preserve_for_next_line()
                     return f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key}\n"
-                if key == "backspace":
-                    self._delete_before_cursor()
-                    self.paint()
-                    continue
                 if key == "esc":
-                    if self.slash_menu_open:
-                        self._editor.slash_menu_open = False
-                        self.paint()
-                    elif self.autocomplete_open:
+                    if self._autocomplete.slash_menu_open:
+                        self._autocomplete.dismiss_slash_menu()
+                    elif self._autocomplete.autocomplete_open:
                         self._autocomplete.close()
                         self.paint()
                     continue
-                if key in {"up", "down"}:
-                    if self.slash_menu_open:
-                        self._autocomplete.navigate_slash_menu(key)
-                    elif self.autocomplete_open:
-                        self._autocomplete.navigate(key)
-                    else:
-                        self._navigate_history(key)
-                    continue
-                if key == "tab":
-                    if self.slash_menu_open and self._autocomplete.filtered_commands():
-                        self._autocomplete.accept_slash_menu_selection()
-                    elif self.autocomplete_open:
-                        self._autocomplete.accept_selection()
-                    else:
-                        self._autocomplete.attempt_path_completion()
-                        self.paint()
-                    continue
-                if key in {"left", "right", "home", "end"}:
-                    self._move_input_cursor(key)
-                    self.paint()
-                    continue
-                if key == "ctrl-u":
-                    self._kill_to_line_start()
-                    self.paint()
-                    continue
-                if key == "ctrl-z":
-                    self._undo_edit()
-                    self.paint()
-                    continue
-                if key == "ctrl-y":
-                    self._redo_edit()
-                    self.paint()
-                    continue
-                if key.isprintable() and (
-                    len(key) == 1 or self._chrome.listeners.last_replaced
-                ):
-                    self._insert_input_text(key)
-                    self.paint()
+                apply_editing_key(self.input_editor, key, editing_context)
 
     def wait_for_active_turn_interrupt(
         self,
@@ -1154,6 +1003,20 @@ class ToolLoopTerminalUi:
         """
 
         fd = self.input_stream.fileno()
+        command_only = accept_commands and not accept_queue
+        editing_context = EditingKeyContext(
+            slash_menu_open=lambda: self._autocomplete.slash_menu_open,
+            slash_menu_has_matches=lambda: bool(self._autocomplete.filtered_commands()),
+            autocomplete_open=lambda: self._autocomplete.autocomplete_open,
+            navigate_slash_menu=self._autocomplete.navigate_slash_menu,
+            navigate_autocomplete=self._autocomplete.navigate,
+            accept_slash_menu=self._autocomplete.accept_slash_menu_selection,
+            accept_autocomplete=self._autocomplete.accept_selection,
+            attempt_path_completion=self._autocomplete.attempt_path_completion,
+            allow_history=False,
+            allow_path_completion=not command_only,
+            tab_repaint="always",
+        )
         with self._driver.raw_mode():
             while not done_event.is_set():
                 # Keep the streaming frame coherent if the terminal is resized
@@ -1175,27 +1038,33 @@ class ToolLoopTerminalUi:
                     if key == "paste":
                         # A paste mid-turn is not editor input; drop it so its
                         # body never lingers into the next prompt.
-                        self._editor.consume_paste()
+                        self.input_editor.consume_paste()
                     continue
-                command_only = accept_commands and not accept_queue
                 # In command-only mode, preserve the old "ignore random typing"
                 # behavior until the user explicitly starts a local command.
-                if command_only and not self.input_text and key not in {"/", "!"}:
+                if (
+                    command_only
+                    and not self.input_editor.text
+                    and key not in {"/", "!"}
+                ):
                     if key == "paste":
-                        self._editor.consume_paste()
+                        self.input_editor.consume_paste()
                     continue
                 # accept_queue / accept_commands: a mid-turn editor for
                 # steering/follow-up and/or local commands.
                 if key == "enter":
-                    if self.autocomplete_open:
+                    if self._autocomplete.autocomplete_open:
                         self._autocomplete.accept_selection()
                         continue
-                    if self.slash_menu_open and self._autocomplete.filtered_commands():
+                    if (
+                        self._autocomplete.slash_menu_open
+                        and self._autocomplete.filtered_commands()
+                    ):
                         matches = self._autocomplete.filtered_commands()
-                        if self.input_text not in matches:
+                        if self.input_editor.text not in matches:
                             self._autocomplete.accept_slash_menu_selection()
-                    text = self.input_text
-                    self._reset_mid_turn_input()
+                    text = self.input_editor.text
+                    self.input_editor.reset_mid_turn_input()
                     if not text.strip():
                         self.paint()
                         continue
@@ -1204,7 +1073,7 @@ class ToolLoopTerminalUi:
                     # immediately rather than steering. It interrupts the turn
                     # and is handed to the session loop to dispatch locally.
                     if self._submitted_text_is_local_command(text):
-                        self._editor.set_pending_command(text)
+                        self.input_editor.set_pending_command(text)
                         abort_event.set()
                         self.paint()
                         return TURN_LOCAL_COMMAND
@@ -1217,8 +1086,8 @@ class ToolLoopTerminalUi:
                 if key == "alt-enter":
                     if command_only:
                         continue
-                    text = self.input_text
-                    self._reset_mid_turn_input()
+                    text = self.input_editor.text
+                    self.input_editor.reset_mid_turn_input()
                     self.pending_messages.enqueue_follow_up(text)
                     continue
                 if key == "alt-up":
@@ -1228,52 +1097,14 @@ class ToolLoopTerminalUi:
                     continue
                 if key == "paste":
                     if command_only:
-                        self._editor.consume_paste()
+                        self.input_editor.consume_paste()
                         continue
-                    self.clipboard_images.insert_paste(self._editor.consume_paste())
+                    self.clipboard_images.insert_paste(
+                        self.input_editor.consume_paste()
+                    )
                     continue
-                if key == "backspace":
-                    self._delete_before_cursor()
-                    self.paint()
-                    continue
-                if key in {"up", "down"}:
-                    if self.slash_menu_open:
-                        self._autocomplete.navigate_slash_menu(key)
-                    elif self.autocomplete_open:
-                        self._autocomplete.navigate(key)
-                    continue
-                if key == "tab":
-                    if self.slash_menu_open and self._autocomplete.filtered_commands():
-                        self._autocomplete.accept_slash_menu_selection()
-                    elif self.autocomplete_open:
-                        self._autocomplete.accept_selection()
-                    elif not command_only:
-                        self._autocomplete.attempt_path_completion()
-                    self.paint()
-                    continue
-                if key in {"left", "right", "home", "end"}:
-                    self._move_input_cursor(key)
-                    self.paint()
-                    continue
-                if key == "ctrl-u":
-                    self._kill_to_line_start()
-                    self.paint()
-                    continue
-                if key == "ctrl-z":
-                    self._undo_edit()
-                    self.paint()
-                    continue
-                if key == "ctrl-y":
-                    self._redo_edit()
-                    self.paint()
-                    continue
-                if len(key) == 1 and key.isprintable():
-                    self._insert_input_text(key)
-                    self.paint()
+                apply_editing_key(self.input_editor, key, editing_context)
             return TURN_SETTLED
-
-    def _reset_mid_turn_input(self) -> None:
-        self._editor.reset_mid_turn_input()
 
     def run_model_selector(
         self,
@@ -1304,7 +1135,7 @@ class ToolLoopTerminalUi:
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key == "paste":
-                    self._editor.consume_paste()
+                    self.input_editor.consume_paste()
                     continue
                 closed = selector.handle_key(key)
                 if closed is not None:
@@ -1334,7 +1165,7 @@ class ToolLoopTerminalUi:
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key == "paste":
-                    self._editor.consume_paste()
+                    self.input_editor.consume_paste()
                     continue
                 closed = selector.handle_key(key)
                 if closed is not None:
@@ -1387,32 +1218,11 @@ class ToolLoopTerminalUi:
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key == "paste":
-                    self._editor.consume_paste()
+                    self.input_editor.consume_paste()
                     continue
                 closed = dialog.handle_key(key)
                 if closed is not None:
                     return closed.action
-
-    def set_input_text(self, text: str) -> None:
-        """Pre-fill the current or next ``read_line`` prompt with ``text``.
-
-        Used by ``/tree`` and extension UI helpers to rehydrate the editor with
-        selected text so the user can edit it into a new branch or follow-up.
-        """
-
-        value = str(text)
-        if self._custom_editor_active:
-            self._set_custom_editor_text(value)
-        self._editor.stage_initial_text(value)
-
-    def get_input_text(self) -> str:
-        """Return the current core editor text, including pending prefill."""
-
-        if self._custom_editor_active:
-            return self._custom_editor_text()
-        if self._pending_initial_text is not None:
-            return self._pending_initial_text
-        return self.input_text
 
     def set_editor_component(self, factory: object | None) -> None:
         """Install or clear a live extension custom editor component.
@@ -1425,7 +1235,7 @@ class ToolLoopTerminalUi:
         editor, and clearing preserves the component's current text.
         """
 
-        current_text = self.get_input_text()
+        current_text = self.input_editor.get_input_text()
         self._custom_editor_submitted = None
         self._custom_editor_action = None
         self._custom_editor_changed_text = None
@@ -1434,7 +1244,7 @@ class ToolLoopTerminalUi:
             self._custom_editor_factory = None
             self._custom_editor_component = None
             self._custom_editor_active = False
-            self.set_input_text(current_text)
+            self.input_editor.set_input_text(current_text)
             self.paint()
             return
         if not callable(factory):
@@ -1468,12 +1278,12 @@ class ToolLoopTerminalUi:
         def submit(value: object | None = None) -> None:
             text = self._custom_editor_text() if value is None else str(value)
             self._custom_editor_submitted = text
-            self._editor.set_buffer(text)
+            self.input_editor.set_buffer(text)
 
         def change(value: object | None = None) -> None:
             text = self._custom_editor_text() if value is None else str(value)
             self._custom_editor_changed_text = text
-            self._editor.set_buffer(text)
+            self.input_editor.set_buffer(text)
 
         for name in ("on_submit", "onSubmit"):
             self._set_component_attr(component, name, submit)
@@ -1565,7 +1375,7 @@ class ToolLoopTerminalUi:
     def _custom_editor_text(self) -> str:
         component = self._custom_editor_component
         if component is None:
-            return self.input_text
+            return self.input_editor.text
         for name in ("get_text", "getText"):
             try:
                 getter = getattr(component, name, None)
@@ -1577,18 +1387,18 @@ class ToolLoopTerminalUi:
                 break
         if self._custom_editor_changed_text is not None:
             return self._custom_editor_changed_text
-        return self.input_text
+        return self.input_editor.text
 
     def _set_custom_editor_text(self, text: str) -> None:
         component = self._custom_editor_component
-        self._editor.set_buffer(str(text))
+        self.input_editor.set_buffer(str(text))
         if component is None:
             return
         for name in ("set_text", "setText"):
             setter = getattr(component, name, None)
             if callable(setter):
                 try:
-                    setter(self.input_text)
+                    setter(self.input_editor.text)
                 except Exception:  # noqa: BLE001 - keep built-in mirror
                     pass
                 return
@@ -1621,7 +1431,7 @@ class ToolLoopTerminalUi:
         if self._custom_editor_action is not None:
             action = self._custom_editor_action
             self._custom_editor_action = None
-            self._editor.set_buffer(self._custom_editor_text())
+            self.input_editor.set_buffer(self._custom_editor_text())
             if action in {
                 "app.model.cycleForward",
                 "app.model.cycleBackward",
@@ -1630,8 +1440,8 @@ class ToolLoopTerminalUi:
                 "app.tools.expand",
                 "app.thinking.toggle",
             }:
-                if self.input_text:
-                    self._editor.pending_initial_text = self.input_text
+                if self.input_editor.text:
+                    self.input_editor.pending_initial_text = self.input_editor.text
                 self._set_custom_editor_text("")
             if action == "app.model.cycleForward":
                 return HOTKEY_MODEL_CYCLE_NEXT
@@ -1657,7 +1467,7 @@ class ToolLoopTerminalUi:
                 text = self._custom_editor_text()
                 if text.strip():
                     self.pending_messages.enqueue_follow_up(text)
-                self._editor.clear_initial_text()
+                self.input_editor.clear_initial_text()
                 self._set_custom_editor_text("")
                 return None
             if action == "app.message.dequeue":
@@ -1667,7 +1477,7 @@ class ToolLoopTerminalUi:
                 self.clipboard_images.paste_clipboard_image()
                 return None
             if action == "app.interrupt":
-                self._editor.clear_initial_text()
+                self.input_editor.clear_initial_text()
                 self._set_custom_editor_text("")
                 return None
             if action == "app.exit":
@@ -1682,24 +1492,12 @@ class ToolLoopTerminalUi:
         if self._custom_editor_submitted is not None:
             submitted = self._custom_editor_submitted
             self._custom_editor_submitted = None
-            self._editor.clear_initial_text()
+            self.input_editor.clear_initial_text()
             self._set_custom_editor_text("")
             return submitted
-        self._editor.set_buffer(self._custom_editor_text())
+        self.input_editor.set_buffer(self._custom_editor_text())
         self.paint()
         return None
-
-    def paste_input_text(self, text: str) -> None:
-        """Paste text into the core editor through the paste path.
-
-        Pi's extension ``pasteToEditor`` routes text through bracketed-paste
-        handling rather than plain replacement. Pipy keeps the same live-editor
-        semantics by inserting the literal text at the current cursor while
-        preserving surrounding draft text and pasted newlines.
-        """
-
-        self._editor.clear_initial_text()
-        self.clipboard_images.insert_paste(str(text))
 
     def run_tree_selector(
         self,
@@ -1735,7 +1533,7 @@ class ToolLoopTerminalUi:
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key == "paste":
-                    self._editor.consume_paste()
+                    self.input_editor.consume_paste()
                     continue
                 closed = selector.handle_key(key)
                 if closed is not None:
@@ -1963,7 +1761,7 @@ class ToolLoopTerminalUi:
             self.paint,
             on_rename=on_rename,
             on_delete=on_delete,
-            consume_paste=self._editor.consume_paste,
+            consume_paste=self.input_editor.consume_paste,
         )
         picker.open(
             project_sessions=project_sessions,
@@ -2252,11 +2050,7 @@ class ToolLoopTerminalUi:
             thinking_hidden=self._transcript.thinking_hidden,
             hidden_thinking_label=self._transcript.hidden_thinking_label,
             tools_expanded=self._transcript.tools_expanded,
-            input=InputSnapshot(
-                text=self.input_text,
-                cursor=self._effective_input_cursor(),
-                custom_rows=custom_rows,
-            ),
+            input=self.input_editor.snapshot(custom_rows),
             popup=tuple(popup),
             pending=tuple(pending),
             chrome=chrome,
@@ -2450,29 +2244,6 @@ class ToolLoopTerminalUi:
             )
         )
 
-    @staticmethod
-    def _display_input_text(text: str) -> str:
-        return render_display_input_text(text)
-
-    def _input_frame_lines(
-        self, width: int, *, max_rows: int | None = None
-    ) -> list[_FrameLine]:
-        custom_rows = None
-        if self._custom_editor_active:
-            custom_rows = tuple(self._custom_editor_frame_lines(width))
-        row_limit = 10**9 if max_rows is None else max_rows
-        return list(
-            render_input_lines(
-                InputSnapshot(
-                    text=self.input_text,
-                    cursor=self._effective_input_cursor(),
-                    custom_rows=custom_rows,
-                ),
-                width,
-                max_rows=row_limit,
-            )
-        )
-
     def _custom_editor_frame_lines(
         self, width: int, *, max_rows: int | None = None
     ) -> list[_ResolvedCustomEditorLine]:
@@ -2488,7 +2259,9 @@ class ToolLoopTerminalUi:
                 except BaseException:  # noqa: BLE001 - fail-soft render
                     raw = ["(custom editor render error)"]
         if raw is None:
-            raw = [self._display_input_text(self._custom_editor_text()) or " "]
+            raw = [
+                self.input_editor.display_input_text(self._custom_editor_text()) or " "
+            ]
         if isinstance(raw, str):
             raw_lines = raw.splitlines() or [raw]
         elif isinstance(raw, Iterable):
@@ -2533,7 +2306,7 @@ class ToolLoopTerminalUi:
         """
 
         if key == "paste":
-            self._editor.stage_paste(self._driver.consume_paste())
+            self.input_editor.stage_paste(self._driver.consume_paste())
         return key
 
     def _read_key_polling_resize(self, fd: int) -> str | None:
@@ -2596,46 +2369,6 @@ class ToolLoopTerminalUi:
             self._live_input_row = 0
             self._paint_locked()
 
-    def _insert_input_text(self, text: str) -> None:
-        self._editor.insert(text, self._autocomplete.command_names)
-        self._autocomplete.refresh()
-
-    def _delete_before_cursor(self) -> None:
-        if self._editor.delete_before_cursor(self._autocomplete.command_names):
-            self._autocomplete.refresh()
-
-    def _kill_to_line_start(self) -> None:
-        if self._editor.kill_to_line_start(self._autocomplete.command_names):
-            self._autocomplete.refresh()
-
-    def _reset_line_editor_state(self) -> None:
-        self._editor.reset_line_editor_state()
-
-    def _reset_history_nav(self) -> None:
-        self._editor.reset_history_nav()
-
-    def _snapshot_for_undo(self) -> None:
-        self._editor.snapshot_for_undo()
-
-    def _undo_edit(self) -> None:
-        if self._editor.undo(self._autocomplete.command_names):
-            self._autocomplete.refresh()
-
-    def _redo_edit(self) -> None:
-        if self._editor.redo(self._autocomplete.command_names):
-            self._autocomplete.refresh()
-
-    def _record_history(self, submitted: str) -> None:
-        self._editor.record_history(submitted)
-
-    def _navigate_history(self, key: str) -> None:
-        if self._editor.navigate_history(key):
-            self.paint()
-
-    def _load_history_entry(self, text: str) -> None:
-        self._editor.load_history_entry(text)
-        self.paint()
-
     @contextmanager
     def external_io_suspension(self) -> Iterator[None]:
         """Scope one blocking foreign terminal consumer in cooked mode.
@@ -2670,12 +2403,6 @@ class ToolLoopTerminalUi:
             if repaint:
                 self.paint()
 
-    def _move_input_cursor(self, key: str) -> None:
-        self._editor.move_cursor(key)
-
-    def _effective_input_cursor(self) -> int:
-        return self._editor.effective_cursor()
-
     def add_extension_autocomplete_provider(self, factory: object) -> None:
         self._autocomplete.add_extension_provider(factory)
 
@@ -2694,16 +2421,6 @@ class ToolLoopTerminalUi:
         stripped = text.strip()
         return stripped.startswith("/") or stripped.startswith("!")
 
-    def take_pending_command(self) -> str | None:
-        """Pop a local command submitted mid-turn (Enter), or None.
-
-        The session loop reads this before the drain/read_line and dispatches it
-        through the normal local-command path, so it is never sent to the
-        provider (unlike a drained steering/follow-up message).
-        """
-
-        return self._editor.take_pending_command()
-
     def _is_bash_mode(self) -> bool:
         """True when the editor buffer is a ``!``/``!!`` local-shell shortcut.
 
@@ -2712,7 +2429,7 @@ class ToolLoopTerminalUi:
         bash-mode affordance (Enter runs a shell command, not a provider turn).
         """
 
-        return self.input_text.lstrip().startswith("!")
+        return self.input_editor.text.lstrip().startswith("!")
 
 
 def run_project_trust_selector(
