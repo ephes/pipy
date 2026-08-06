@@ -28,9 +28,11 @@ The
 is the current implementation queue. It closes what the 2026-07-30 comparative
 review called the one axis where pipy measurably trailed `pi-mono`: shape.
 `native/tui.py` (7,210 lines, holding a 4,746-line/345-method/43-field
-`ToolLoopTerminalUi`) and `native/tool_loop_session.py` (6,171) become ~790 and
-~420 lines (plan §3a, whose ~720 residual estimate §2d corrects upward by the
-~70-line retained driver shell). The "no-file-above-2,400" bar holds only for pi-mono's
+`ToolLoopTerminalUi`) and `native/tool_loop_session.py` (6,171) were the starting
+points. The session residual is now `native/coding/session.py` at 336 lines. The
+terminal target remains ~720 physical lines, now expressed honestly as the
+plan §2e 710–760 planning band after the failed-closed slice-49 audit found 569
+AST lines omitted from the prior residual arithmetic. The "no-file-above-2,400" bar holds only for pi-mono's
 `packages/tui` and `packages/agent`; pi-mono's functional counterparts of the
 two god files — `coding-agent`'s `interactive-mode.ts` (6,353 lines at
 `05bf9df65`, above 2,400 continuously since 2026-01-02) and `agent-session.ts`
@@ -42,21 +44,34 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 48. The concrete terminal façade is now
-`native.tui.TerminalUi`; the former `ToolLoopTerminalUi` code/test/script import
-name is deleted without an alias or re-export. Both retained raw-mode drive loops
-stay in `tui.py`, while their decoded-key classification/action ladder now routes
-through the typed, back-edge-free `ui/components/input_editor.py::apply_editing_key`
-and returns explicit mode outcomes for the terminal boundary to interpret.
-`_LiveExtensionUiDriver._deliver_chrome_event` now delegates to cohesive region
-and input/chrome dispatch helpers without changing retirement scoping or fail-soft
-semantics. `native/tui.py` is 1,349 physical lines; `TerminalUi` spans 856 AST
-lines with 43 direct defs and 18 fields. Its three former C901 findings are gone,
-so the sole `tui.py` Ruff pin is deleted. The coding-session façade remains 336
-lines with a 67 AST-line/C901-5 `run`. This is a behavior-preserving private
-rename/refactor, so no changelog or release note applies. Slice 49's final
-ratchet and boundary audit is next; the final milestone remains owned by that
-slice.
+**Program status:** Landed through slice 48; **not complete**. The concrete
+terminal class is `native.tui.TerminalUi`; the old name is deleted without an
+alias or re-export, both raw-mode loops remain in `tui.py`, and the TUI/session
+C901 pins are gone. The coding-session facade is 336 lines with a 67-AST-line/
+C901-5 `run`; activation is the accepted 1,807-line owner; the native ceiling is
+2,488 because out-of-scope `native/session.py` remains that size.
+
+A clean fail-closed slice-49 audit measured `native/tui.py` at 1,349 physical
+lines and `TerminalUi` at 856 AST lines / 43 definitions / 18 fields. The four
+planned residual methods are only 170 AST lines; 39 omitted definitions are 569
+(constructor 153, projections 14, modal/chrome/screen/footer facade 231,
+transcript facade 70, startup/input helpers 101). Only 32 lines have zero
+production callers. The existing structure therefore cannot meet ~720, and the
+stale screen-architecture test actively preserves six modal facade methods.
+
+The operator authorized exactly two corrective implementation slices after this
+blocked audit: **48a terminal facade retirement/repointing**, then **48b terminal
+composition/startup ownership**, followed by a tests/docs-only retry of 49. 48a
+is next. It must repoint the measured callers to concrete typed owners, move
+modal orchestration under `native.ui` without a `TerminalUi` back-edge, and
+replace the stale facade test. 48b then moves the 153-line constructor
+transaction to a typed composition builder and gives startup blocks/local-command
+classification their measured definition-site owners. Neither slice may add a
+shim, alias, re-export, facade, lock, C901 pin, or boundary relaxation. Retry 49
+still owns exact field/lock audits, final ratchets, parity ownership-doc fixes,
+and the final milestone, and still fails closed above the plan's 710–760 band.
+This planning correction is internal documentation only, so no changelog or
+release note applies.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

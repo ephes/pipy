@@ -4,10 +4,12 @@ Status: active. Sections 2a, 3, 3a and 3b were re-derived from measurement on
 2026-08-04 and supersede section 1's line estimates and the original wave order.
 Section 2d (also 2026-08-04) re-measures the tui side and extension_runtime.py,
 adds the class-level ratchet, corrects the pi-mono bar's scope, and fixes the
-slice-44/45/48 rename decisions (`CodingSession`, `TerminalUi`).
-Wave 0 is test-only rule hardening and landed first; every later
-slice lands individually with `just check` green and the old path deleted in the
-same commit.
+slice-44/45/48 rename decisions (`CodingSession`, `TerminalUi`). Section 2e is
+the operator-authorized corrective amendment after slice 49 failed closed: it
+inserts dependency-ordered slices 48a and 48b without renumbering landed
+history, then retries 49. Wave 0 is test-only rule hardening and landed first;
+every implementation slice lands individually with `just check` green and the
+old path deleted in the same commit.
 
 **Checkpoint (2026-08-05, after slice 34).** The post-34 good stopping
 point is reached: all planned widget/extension leaf owners through slice 34
@@ -60,6 +62,20 @@ were broadened to `native.extensions` where needed, and
 lines, `ToolLoopTerminalUi` remains unchanged, and the coding-session facade
 remains 336 lines. Slice 47 is next. This is behavior-preserving ownership only,
 so no changelog or release note applies.
+
+**Checkpoint (2026-08-06, failed-closed slice-49 audit).** Slices 47 and 48 are
+landed, but the final milestone is not. `native/tui.py` is 1,349 physical lines;
+`TerminalUi` is 856 AST lines / 43 definitions / 18 fields. The four intended
+residual methods account for only 170 AST lines, while 39 definitions omitted
+from the old residual arithmetic account for 569: constructor 153; projections
+14; modal/chrome/screen/footer facade 231; transcript facade 70; startup/input
+helpers 101. Only 32 of those 569 lines have zero production callers. The
+remaining roughly 292 production-used facade lines and 245 constructor/startup
+ownership lines cannot be deleted mechanically. With 493 lines before the
+class, a ~720 file permits only ~227 class lines, so retrying the tests/docs-only
+slice 49 against the current structure would be dishonest. The operator
+therefore authorized exactly two corrective implementation slices, 48a then
+48b, before retrying 49. No target or boundary is relaxed.
 
 Date: 2026-08-03.
 
@@ -128,15 +144,15 @@ Built from **Proposal 1 (state ownership)** — winner 2–1 (implementability, 
 | `native/repl/extension_operations.py` / `execution_projections.py` / `session_adapters.py` | per-op dispatch / turn projections / 16 adapters | 240/130/285 | session |
 | `native/repl/local_shell.py` / `session_transfer.py` | `!`/`!!` shell / export-import-share | 200/210 | session |
 | `native/repl/session_commands.py` / `provider_config_commands.py` / `command_router.py` | command families + fan-out | 330/240/70 | session |
-| `native/repl/extension_bringup.py` / `reload.py` / `extension_attach.py` | startup attach / `/reload` driver / unified `attach_generation(predecessor=None)` | 310/300/430 | session |
+| `native/repl/reload.py` / `extension_attach.py` | `/reload` preparation / unified startup-and-reload `attach_generation(predecessor=None)` | 300/430 | session |
 | `native/repl/loop_step.py` | `step_once` as regions A–E behind `_TurnScope` | 620 | session |
-| `native/repl/wiring.py` | ~8 phase functions each **returning a frozen record**; `SessionWiring` | 620 | session `run()` |
+| `native/repl/wiring.py` | phase functions each **returning a frozen record**; `SessionWiring` | **1,399 measured** | session `run()` |
 | `native/chrome.py` (grows) | absorbs footer composition; deletes 2 injected callables | 1176 | session |
-| `native/extensions/*` (12 modules) | contracts, message_routing, custom_payloads, session_views, dispatch, tool_port, contribution_names, collectors, flag_tokens, provider_normalization, command_context, activation | 1570 max | extension_runtime |
-| `native/tui.py` (residual) | 8 own fields + one handle per owner, `read_line`, `wait_for_active_turn_interrupt`, `start`, `is_supported` | ~~500~~ **720** (see 3a) | — |
-| `native/tool_loop_session.py` (residual) | dataclass surface, `__post_init__`, `provider_port`, `run()` = 2 lines | **420** | — |
+| `native/extensions/*` (12 modules) | contracts, message_routing, custom_payloads, session_views, dispatch, tool_port, contribution_names, collectors, flag_tokens, provider_normalization, command_context, activation | **1,807 measured max** | extension_runtime |
+| `native/tui.py` (residual) | constructor/public `TerminalUi` shell, thin composition assignment, raw-mode `read_line`/`wait_for_active_turn_interrupt`, `start`, `is_supported` | ~~500~~ **~720 (710–760 planning band)** (see 2e/3a) | — |
+| `native/coding/session.py` (residual) | `CodingSession` dataclass/composition facade; 67-AST-line/C901-5 `run()` | **336 measured** | — |
 
-**Projected largest file this plan produces:** `native/extensions/activation.py` ~1,570 (pi's counterpart `runner.ts` is 1,236) — comfortably under the 2,400 bar. Then `chrome.py` 1,176, `extensions/packages.py` 1,105, `ui/components/settings_dialog.py` 840. Repo-wide, `cli.py` (2,851) and `session.py` (2,488) become the largest files; both are out of scope.
+**Measured ceiling after the landed moves:** `native/extensions/activation.py` is 1,807 (the accepted §2d capability-token owner), while out-of-scope `native/session.py` sets the native-module ceiling at 2,488. Earlier ~1,570 and “nothing above 1,700” projections are superseded. Slices 48a/48b must keep every new modal/composition/startup module below 1,807 and may not move terminal residue into a replacement god file.
 
 ## 2. The hard part — state that resists partitioning
 
@@ -145,7 +161,7 @@ Built from **Proposal 1 (state ownership)** — winner 2–1 (implementability, 
 3. **The extension-generation teardown has no owner.** `clear_extension_chrome` (54L) atomically resets chrome + custom editor + autocomplete providers + thinking label across two critical sections with an unlocked disposal window running trusted code. *Handling:* `ui/extension_generation.py` — one field (`generation`) plus an **ordered module-level participant tuple**, each exposing `retire_generation()`/`reconcile_generation()`, with a test asserting the order. It lands *before* the chrome and custom-editor slices, which cannot separate until it exists.
 4. **`ctl` is a two-party protocol.** `line`/`pending_prefill` (loop_step writes each iteration; `/model` and `/scoped-models` push a prefill for the next), `session_tree` (rebound wholesale by `/new /resume /fork /clone /import`, and the setter re-binds the mutation lock — a cached tree becomes a retired tree), `extension_in_agent_turn` (two writers, one reader in tui's custom-message router; a stuck-true flag routes extension messages as steering forever). *Handling:* `repl/loop_scope.py` holds `_RunControlState` and **every consumer takes the same instance** — never a copy. `pending_prefill` gets `push()`/`consume()`; `session_tree` only a lock-rebinding setter; `extension_in_agent_turn` only `enter_turn()`/`settle()`/`in_turn`.
 5. **`provider_state` has two owners today** — declared on the session, written exclusively by `_ProviderMutationEffects` through `self.session.provider_state`. *Handling:* the field and all 16 methods move into `repl/provider_selection.py`; consumers read `current_thinking_level()` instead of the three-variant union.
-6. **`self` is part of the extension contract.** `factory(self, theme, keybindings)` and `_CustomOverlayHandle(self)` pass the whole `ToolLoopTerminalUi`. Verified: accepted in every factory signature, read in none. *Decision, settled now:* keep passing the residual facade (it still holds the key loops, driver and owner handles); pass narrowed ports only to `_CustomOverlayHandle`.
+6. **The concrete terminal object is a custom-editor factory argument, not an ownership port.** `factory(host, theme, keybindings)` still receives the concrete terminal host; measured extension factories accept it but production does not use it to recover owner methods. Slice 48b therefore passes `TerminalUi` only as the builder's opaque `host: object` value. Modal, transcript, screen, chrome, autocomplete, editor, queue, and clipboard work travels through the concrete owners in `TerminalComponents`; no Protocol restates the retired facade and no callable bundle launders it back in.
 
 ## 2a. Measured re-plan (2026-08-04) — supersedes the 2026-08-03 amendment
 
@@ -528,7 +544,249 @@ same commit.
 L290-496 with the getattr pair at L465/L469; startup selectors L6671/L6716 →
 6219/6245; the renderer's `_chrome` reads L2094-2166 → 5906-5931. §3a's
 residual arithmetic is ~70L short: the retained driver shell is 207L (+51L
-generation proxy), not "~185".
+generation proxy), not "~185". Section 2e supersedes that correction with the
+post-48 class audit; the shell/proxy measurement remains historical evidence.
+
+## 2e. Corrective amendment after slice 49 failed closed (2026-08-06)
+
+Measured on clean `main` at `bd485e9`. `tui.py` is 1,349 physical lines:
+imports/helpers 1–221; `_LiveExtensionUiDriver` 222–438 (217);
+`_GenerationExtensionUiDriver` 441–491 (51); `TerminalUi` 494–1349 (856).
+The intended residual methods are exactly `is_supported` 13, `start` 12,
+`read_line` 64, and `wait_for_active_turn_interrupt` 81 = **170 AST lines**.
+The old §3a arithmetic counted those loops and the retained driver shell, but
+not the other **39 definitions / 569 AST lines** still in `TerminalUi`:
+`__post_init__` 153; owner projections 14; modal/chrome/screen/footer facade
+231; transcript facade 70; startup/input helpers 101. Thus 170 was treated as
+if it described an 856-line class. It did not. The omitted 569 consists of only
+32 zero-production-caller lines, roughly 292 production-used facade delegates,
+and roughly 245 constructor/startup ownership lines. With 493 lines before the
+class, ~720 allows only ~227 class lines at the present import/helper shape;
+**the current structure cannot pass slice 49**. The rest of the audited end
+state remains valid: `coding/session.py` 336; `activation.py` 1,807 accepted by
+§2d; the 2,488 native ceiling set by out-of-scope `native/session.py`; both
+former C901 pins gone; old names/modules deleted; and parity still 49/49. Final
+field/lock ownership tests remain deferred to retry 49.
+
+The target remains reachable, but only after ownership changes. The AST-member
+inventory and physical-file estimate are deliberately separate. The **569** is
+the sum of decorated direct-definition AST spans; it establishes the omitted
+ownership, but is not subtracted from the 1,349 physical file lines. A separate
+physical scan partitions the 856-line class span into the existing shell/fields
+494–550 (57), constructor region 551–704 (154), projection region 705–725
+(21), retained raw-boundary region 726–898 (173), modal/chrome/screen/footer
+region 899–1159 (261), transcript region 1160–1246 (87), and startup/input
+region 1247–1349 (103). Those physical regions sum to 856; the 626 lines outside
+the shell and retained raw-boundary region are the source footprint that 48a/48b
+rewrite, not a promised net deletion.
+
+Against that physical footprint, the paired two-slice estimate is a **589–639
+physical-line net reduction**, producing **710–760 physical lines** and
+containing the operator target of ~720. It allows for the thin 10–20-line
+constructor/composition assignment, changes to the retained driver/loops, and
+imports/helpers/spacing that can disappear in either slice. The separate class
+tracking estimate is **at most 310 AST lines**; its exact value is pinned only
+after implementation and does not derive the file band. To avoid invalid
+Cartesian range arithmetic, let `F` and `C` be the measured physical-file and
+class-AST results after 48a: 48b's paired estimate is a physical reduction from
+`F - 760` through `F - 710` and a class reduction of at least `C - 310`. Over
+48a's forecast this means 219–329 physical lines, conditional on `F`, and at
+least 206–246 class AST lines, conditional on `C`—not arbitrary endpoints to
+cross-combine. A 48a result near the high end is compatible only if remeasurement
+finds the correspondingly larger remaining 48b-owned physical reduction. These
+are estimates to lower after implementation measurement, not exact promises. A
+retry-49 result above 760, or a class that still owns any retired facade family,
+fails closed; 1,349 is not an acceptable new target.
+
+### Exact post-48 member/caller inventory
+
+“Caller” below means production `src/` only, including an in-module call and an
+implicit dataclass construction; tests/scripts are characterization, not a
+reason to retain a production facade. Receiver types and literal
+`getattr`/`setattr` uses were checked, so same-named methods on components are
+not counted as `TerminalUi` calls.
+
+| `TerminalUi` definition(s) | exact production callers at `bd485e9` | disposition |
+|---|---|---|
+| `__post_init__` | implicit `TerminalUi(...)` from `cli._extension_decision`, `coding.session.CodingSession._build_terminal_ui`, `startup_selectors.run_startup_project_trust_selector`, `startup_selectors.run_startup_session_picker` | 48b replaces the 153-line transaction with one typed builder assignment; constructor parameters and public class name stay unchanged |
+| `autocomplete` | `repl.reload.ReloadCommandEffects._refresh_presentation_and_persistence`; `repl.wiring._prepare_startup_extension_consumers` | repoint to the concrete `AutocompleteComponent` in `TerminalComponents`; delete projection |
+| `custom_overlay_open` getter + setter | none | delete both; component/overlay tests assert `OverlayState` ownership instead |
+| `run_model_selector` | `repl.settings_actions.open_theme_selector`, `._run_model_selection`; `repl.provider_config_commands._model`; `repl.selector_actions.open_default_project_trust_selector` | repoint to `TerminalModalDriver.run_model_selector` |
+| `run_scoped_models_selector` | `repl.selector_actions.open_scoped_models_overlay` | repoint to `TerminalModalDriver` |
+| `run_settings_dialog` | `startup_selectors.run_project_trust_selector`; `repl.settings_actions.drive_settings_dialog` | repoint to `TerminalModalDriver` |
+| `run_tree_selector` | `repl.session_commands.run_interactive_tree_selector` | repoint to `TerminalModalDriver` |
+| `run_custom_component` | the four `TerminalUi.run_extension_*` wrappers; `repl.collaborators.SessionCollaborators.extension_custom_driver` | wrappers and caller repoint to `TerminalModalDriver`; no method remains on `TerminalUi` |
+| `run_extension_select` | `_LiveExtensionUiDriver.select`; `cli._extension_decision._StartupUiDriver.select` | repoint to `TerminalModalDriver.run_extension_select` |
+| `run_extension_input` | `_LiveExtensionUiDriver.input`; `cli._extension_decision._StartupUiDriver.input` | repoint to `TerminalModalDriver.run_extension_input` |
+| `run_extension_editor` | `_LiveExtensionUiDriver.editor` | repoint to `TerminalModalDriver.run_extension_editor` |
+| `run_extension_confirm` | `_LiveExtensionUiDriver.confirm`; `cli._extension_decision._StartupUiDriver.confirm` | repoint to `TerminalModalDriver.run_extension_confirm` |
+| `clear_extension_chrome` | `repl.loop_step._ReplLoopStep.clear_extension_chrome` (bound by `repl.wiring._assemble_session_wiring`) | call `ExtensionChromeOwners.generation.retire_generation` directly |
+| `reconcile_extension_chrome` | `_LiveExtensionUiDriver._deliver_chrome_event` | call `ExtensionChromeOwners.generation.reconcile_generation` directly, preserving the retirement scope |
+| `run_session_picker` | `startup_selectors.run_startup_session_picker`; `repl.session_commands.run_interactive_session_picker` | repoint to `TerminalModalDriver` |
+| `close` | `cli._extension_decision`; both startup-selector constructors; `repl.loop_step._phase_f2_run_and_settle` and `_ReplLoopStep.finalize` through the `TerminalUi | NativeReplInput` union | live path calls `Screen.close`; headless path keeps `NativeReplInput.close` |
+| `external_io_suspension` | `repl.provider_selection.ProviderMutationEffects.apply_auth_change`; `TerminalUi.__post_init__`, `.read_line`, `.run_extension_editor` | provider/modal/input paths use `Screen.external_io_suspension` directly |
+| `set_footer_text` | `chrome._ChromeFooterEffects.refresh_footer_text`; `repl.wiring._start_chrome`; `TerminalUi.read_line` | grow existing `ui/components/footer.py::FooterComponent` with lock-guarded built-in footer state and `set_builtin_text`; repaint after unlock |
+| `tools_expanded` | `_LiveExtensionUiDriver.get_tools_expanded`; `repl.settings_actions.settings_dialog_rows`; `repl.view_actions.toggle_view_fold` | read `TranscriptComponent.tools_expanded` |
+| `thinking_hidden` | `repl.settings_actions.settings_dialog_rows`; `repl.view_actions.toggle_view_fold` | read `TranscriptComponent.thinking_hidden` |
+| `submit_user_message`, `begin_assistant_turn`, `set_working`, `append_assistant`, `settle_assistant`, `append_reasoning` | none | delete all six delegates; `TuiToolLoopRenderer` already calls `TranscriptComponent` |
+| `set_thinking_hidden` | `repl.view_actions.toggle_view_fold`; `repl.wiring._compose_product_session` | call `TranscriptComponent.set_thinking_hidden` |
+| `set_tools_expanded` | `repl.view_actions.toggle_view_fold` | call `TranscriptComponent.set_tools_expanded`; `_LiveExtensionUiDriver` already does so |
+| `add_notice` | `diagnostics.emit_diagnostic`; settings actions (`open_theme_selector`, `_run_settings_exit_action`, `_run_model_selection`); provider-config (`_show_hotkeys`, `_show_changelog`, `_model`); selector actions (`handle_trust_command`, `open_scoped_models_overlay`, `open_default_project_trust_selector`); wiring (`_compose_extension_phase`, `_start_chrome`); constructor clipboard callback | pass `TranscriptComponent` as the existing `NoticeSink` implementation and call its `add_notice` |
+| `custom_entry_render_target` | `repl.wiring._compose_runtime_adapters` | construct `CustomEntryTerminalTarget(transcript, screen.render_inputs)` at the caller |
+| `create_tool_loop_renderer` | `repl.wiring._compose_product_session` | construct `TuiToolLoopRenderer(transcript, chrome.record, screen.render_inputs, …)` at the caller |
+| `add_tool_call`, `append_tool_output`, `add_tool_result` | `repl.local_shell.run_local_shell_shortcut` | pass/use `TranscriptComponent`; keep `TerminalUi` there only for the residual active-turn watcher |
+| `rerender_custom_messages` | none | delete; the transcript owner retains the real verb |
+| `_startup_blocks` | `TerminalUi.start` | 48b moves definition to `native/startup_chrome.py::startup_history_blocks(cwd, include_workspace_defaults)` |
+| `_submitted_text_is_local_command` | `TerminalUi.read_line`, `.wait_for_active_turn_interrupt` | 48b moves the pure classifier to `ui/components/input_editor.py::submitted_text_is_local_command`; both raw loops import it |
+| `_is_bash_mode` | none | delete |
+
+The zero-caller set is exactly the two `custom_overlay_open` definitions, the
+six unused transcript stream delegates, `rerender_custom_messages`, and
+`_is_bash_mode`: **10 definitions / 32 AST lines**. Characterization tests that
+currently call those names move to the actual owner; no alias, shim, re-export,
+or replacement facade is permitted.
+
+### Slice 48a — terminal facade retirement and repointing
+
+48a is first because the 48b builder must return the final owner graph, not
+encode facade calls that the next slice immediately removes.
+
+- Add `native/ui/modal_driver.py::TerminalModalDriver`. Its constructor shape is
+  exactly `(overlays: OverlayState, screen: Screen, input_editor: InputEditor,
+  external_editor: ExtensionExternalEditor, keybindings_manager:
+  Callable[[], KeybindingsManager | None])`. It owns the six `Screen.drive`
+  orchestrations (model, scoped models, settings, tree, custom component,
+  session picker) and the four extension-dialog projections. It has no terminal
+  streams, raw-mode loop, lock construction, `TerminalUi` annotation, or
+  `native.tui` import. `Screen.drive` remains the one modal key loop; the two
+  raw-mode loops remain physically in `tui.py`.
+- Add only the frozen, slotted concrete-owner record
+  `native/ui/composition.py::TerminalComponents` in this slice, with exact
+  fields `driver: TerminalDriver`, `screen: Screen`, `overlays: OverlayState`,
+  `input_editor: InputEditor`, `transcript: TranscriptComponent`,
+  `chrome: ExtensionChromeOwners`, `autocomplete: AutocompleteComponent`,
+  `pending_messages: PendingMessages`, `clipboard_images: ClipboardImages`,
+  `custom_editor: CustomEditorOwner`, and `modals: TerminalModalDriver`.
+  `TerminalUi.__post_init__` may assemble that record at the end of its existing
+  transaction for 48a; the builder itself is 48b-owned. This is a typed graph of
+  existing owners, not a method Protocol or a bag of facade callables.
+- Repoint every caller in the table to the narrow concrete owner it uses.
+  `_LiveExtensionUiDriver` receives explicit `chrome`, `modals`, `transcript`,
+  `autocomplete`, `custom_editor`, and `input_editor` constructor arguments;
+  delete its unused `cwd` field. In particular, chrome reconciliation stays on
+  `ExtensionGenerationOwner`, local-shell rows on `TranscriptComponent`, auth
+  suspension on `Screen`, and diagnostics on the existing `NoticeSink` shape.
+- Grow `FooterComponent`, rather than inventing a footer facade: it owns the
+  built-in two-line value under the injected `PaintLock`, changes the complete
+  pair in one lock section, and repaints after unlock. `FrameSources.footer_lines`
+  reads that owner. Existing extension-footer callbacks and disposal keep their
+  current order and lock boundaries.
+- Delete the exact zero-caller set and all remaining listed delegates. Replace
+  `tests/test_native_ui_screen_architecture.py::test_six_modal_methods_delegate_to_one_drive_loop`:
+  requiring modal methods on `TerminalUi` is now the stale contract. New AST and
+  identity assertions require the ten modal methods on `TerminalModalDriver`,
+  one `Screen.drive` loop, no retired facade definitions/call sites, concrete
+  owner receiver types at the production callers, and the same owner identities
+  used by frame sources. Behavior/PTY tests retain event text, paint sequence,
+  extension retirement scope, and callback-before/after-lock ordering.
+
+**48a gates.** Preserve behavior and the concrete public `TerminalUi` name;
+keep `native.ui` recursively free of `native.tui`/session/repl back-edges. Add no
+alias, shim, re-export, broad Protocol, callable-laundering facade, lock, C901
+pin, or boundary relaxation. Lower both ratchets after measurement. Expected,
+not promised: remove **300–340 class AST lines** and **310–370 physical file
+lines**, leaving about **516–556 class AST lines** and **979–1,039 physical
+`tui.py` lines**. This is an intermediate estimate; its endpoints are not
+independently combined with a fixed 48b reduction. Section 2e pairs the measured
+48a result with the remaining reduction. A result outside the intermediate
+range is re-measured and explained; the gate is ownership/call-site
+completeness, not forcing the estimate.
+
+### Slice 48b — terminal composition and startup ownership
+
+- Complete `native/ui/composition.py` with frozen, slotted
+  `TerminalCompositionInput` and `build_terminal_components(input) ->
+  TerminalComponents`. Input is exactly the two streams, `cwd`, opaque
+  custom-editor `host: object`, initial built-in footer pair, provider count,
+  `ClipboardConfig | None`, and a typed
+  `Callable[[], KeybindingsManager | None]`. It does **not** name, import,
+  annotate, dynamically import, or string-mention `TerminalUi`; the recursive
+  `native.ui` no-back-edge rule remains unchanged.
+- Move the current `__post_init__` statement-for-statement into that builder:
+  one `EditorState`, one `OverlayState`, one `TerminalDriver`, one `Screen`, the
+  exact component constructors, `build_extension_chrome_owners`, and the exact
+  `FrameSources` contributor order. Deferred links for the existing construction
+  cycle close over the eventually assigned concrete `TerminalComponents` record;
+  there is no optional service locator and callbacks cannot run before the
+  record is complete. `TerminalUi.__post_init__` becomes only input assembly and
+  one `self.components = build_terminal_components(...)` assignment. Its
+  dataclass call signature, including `footer_lines`,
+  `available_provider_count`, `keybindings_manager`, and `clipboard_config`, is
+  unchanged; constructor-only values must remain regular dataclass fields and
+  must not become `InitVar`s or otherwise change
+  `inspect.signature(TerminalUi)`.
+- `Screen` remains the **only** creator of the one `PaintLock(threading.RLock())`.
+  Every component receives that exact object. Preserve the component pattern:
+  owner record + injected `PaintLock` + repaint; one complete record transition
+  per lock section; repaint, extension factory, disposal, terminal I/O, and
+  operator callback ordering unchanged and outside locks wherever they are
+  outside today. Do not construct another `RLock`, including through an alias or
+  default factory.
+- Move `_startup_blocks` to
+  `native/startup_chrome.py::startup_history_blocks(cwd,
+  include_workspace_defaults)`. That destination matches its only caller and
+  actual dependencies (`pipy_version_label`, `discover_loaded_resource_names`,
+  `HistoryBlockTuple`) without making `chrome.py` import upward into `native.ui`.
+  Move `_submitted_text_is_local_command` to the existing input owner module as
+  `ui/components/input_editor.py::submitted_text_is_local_command`; its only two
+  callers are the retained raw loops. Delete both old definitions, imports, and
+  any duplicate implementation.
+
+**48b gates.** 48a must be green first. Assert the exact concrete record fields,
+unchanged `inspect.signature(TerminalUi)`, thin constructor shape, one complete
+composition graph, contributor order, shared lock identity, no callback under a
+new lock, and recursive no-back-edge. Lower ratchets from measurement; add no
+C901 pin. Let the measured 48a result be `F` physical file lines and `C` class
+AST lines. The paired 48b estimate is a reduction of **`F - 760` through
+`F - 710` physical lines** and **at least `C - 310` class AST lines**, producing
+the **710–760 file / at-most-310 class** planning result above. Across the 48a
+forecast those conditional reductions are 219–329 physical lines and at least
+206–246 class AST lines; they are not standalone intervals whose opposite
+endpoints may be crossed. Retry 49 is blocked unless the facade inventory is
+empty and the upper edge is met.
+
+### Retry slice 49 — tests/docs final audit only
+
+49 runs only after independent implementation review and all 48a/48b gates. It
+contains no production refactor. It:
+
+1. adds an AST/type-resolved, literal-`getattr`/`setattr`-aware exact field
+   inventory for **`TerminalUi`, `RunControlState`, and `CodingSession`**,
+   including simple receiver aliases, and fails on an unowned field, an external
+   mutation, an unknown dynamic access, or a second owner module;
+2. makes the unique `PaintLock` and `SessionStateLock` construction assertions
+   alias-resistant by resolving import aliases and simple assigned call aliases,
+   proving one wrapper construction at `ui/screen.py` and `repl/wiring.py`
+   respectively, each around its one explicit `threading.RLock()` and with no
+   default constructor;
+3. pins the exact measured final `tui.py` physical/class values and retained
+   definition set (`__post_init__`, `is_supported`, `start`, `read_line`,
+   `wait_for_active_turn_interrupt`), keeps `coding/session.py` at or below 336,
+   accepts `extensions/activation.py` at 1,807 under the **2,488** native ceiling
+   set by out-of-scope `native/session.py`, and confirms both old C901 pins stay
+   gone;
+4. reruns the complete boundary/retired-name/module/call-site audit with no rule
+   relaxation and no alias, re-export, broad facade, or hidden `native.ui` back-edge;
+5. corrects `docs/parity-criterion.md` E2 from the stale compaction owner to
+   `repl/loop_step.py` and E6 from the stale settings owner to
+   `repl/settings_actions.py`/the current command route, then records the final
+   milestone in this plan/backlog.
+
+49 still fails closed if `tui.py` is above 760, if measurement does not honestly
+support the ~720 target, or if any ownership/boundary/lock assertion is
+incomplete. It may lower the upper edge to the measured value; it may not raise
+it, adopt 1,349, move production code, or declare the program complete around a
+failed gate.
 
 ## 3. Ordered slices
 
@@ -602,8 +860,10 @@ Each row below is safe alone for the reason in its port column: zero port, or a 
 | 45 | `repl/command_router.py`; the session residual lands as `native/coding/session.py::CodingSession` with `CodingSessionResult`/`CodingSessionAdapter` companions (§2d renames) | S | none | must be <10; the pin is gone |
 | 46 | `extensions/activation.py`; delete `extension_runtime.py` | X | **none, by design** | `activate_extension_batch` exactly 10 — verbatim |
 | 47 | `repl/extension_attach.py` — unify startup and `/reload` attach | S | none | merged form <10 |
-| 48 | burn `read_line` 39 and `wait_for_active_turn_interrupt` 35 onto `apply_editing_key`; split `_deliver_chrome_event` 11; rename `ToolLoopTerminalUi` → `TerminalUi` (§2d) | T | none | succeed → delete tui.py's pin |
-| 49 | final ratchet + boundary audit | tests | — | — |
+| 48 | burn `read_line` 39 and `wait_for_active_turn_interrupt` 35 onto `apply_editing_key`; split `_deliver_chrome_event` 11; rename `ToolLoopTerminalUi` → `TerminalUi` (§2d) | T | none | succeeded historically: tui C901 pin deleted; final size gate later failed closed |
+| 48a | retire/repoint the 14-line projections, 231-line modal/chrome/screen/footer facade, 70-line transcript facade and 9-line dead bash helper per §2e; add concrete `TerminalModalDriver` + `TerminalComponents`, repoint every measured production caller, replace stale modal-facade architecture test | T | existing concrete owners only | no new C901; intermediate estimate tui 979–1,039 / class 516–556; pair the measured result with 48b |
+| 48b | move the 153-line composition transaction to typed `ui/composition.py` builder; move 78-line startup blocks to `native/startup_chrome.py` and 14-line local-command classifier to `ui/components/input_editor.py`; leave thin unchanged-signature `TerminalUi` constructor | T | `TerminalComponents`; one Screen-created `PaintLock` | no new C901; combined 48a+48b estimate is a 589–639 physical-line net reduction, yielding tui 710–760 / class ≤310 |
+| 49 | **retry**, tests/docs only: exact field/lock ownership, final measured ratchets, boundary/retired-surface audit, parity E2/E6 ownership docs, final milestone; fail closed above the §2e band | tests | — | no production code |
 
 **Boundary edits, complete.** Slice 3 adds `"pipy_harness.native.repl"` beside every
 `"pipy_harness.native.tool_loop_session"` (25 literal occurrences today — re-read the line numbers,
@@ -615,28 +875,41 @@ Slice 46 deletes all 17 `"pipy_harness.native.extension_runtime"` entries and th
 of the four-module host tuple — each already covered by the stricter `native.extensions` rule. No
 other slice edits a rule; **no rule is relaxed anywhere**.
 
-**Good stopping points.** After **6**: back-edge gone, chrome transaction out, repl package and its
-rule exist, ratchet armed. After **21**: both god files roughly halved, every remaining tui owner
-independently landable. After **34**: every widget owned. After **44**: both god files under the
-bar, session pin deleted. After **46**: `extension_runtime.py` retired. 47-49 are polish; 47 is the
-only behaviour-affecting slice and is deliberately last.
+**Good stopping points.** Historical stops remain: after **6**, the back-edge was
+gone and the ratchet armed; after **21**, both original god files were roughly
+halved; after **34**, every widget had a definition-site owner; after **44**, both
+files were under the broad bar and the session pin was deleted; after **46**,
+`extension_runtime.py` was retired. The old claim that 47–49 were merely polish
+is superseded: the clean slice-49 audit blocked on 569 omitted class lines.
+**Current next slice is 48a**, then 48b. The next valid stopping point is after
+48b is green and independently reviewed, with retry 49 still pending. The final
+good stopping point/program-complete status exists only after retry 49 passes
+all §2e gates.
 
 ## 3a. Projected end state
 
-`tui.py` **6,730 → ~720 ast-lines**. The residual is irreducibly the terminal boundary: `read_line`
-and `wait_for_active_turn_interrupt` (~230 after slice 48), the 24-member binding at L793-925
-(~185), `_GenerationExtensionUiDriver` (51 — moving a full-surface `__getattr__` proxy into
-`native.ui` would launder a back-edge past the boundary test, mypy and grep at once), plus fields,
-one handle per owner, imports. **The asserted 500 is not reachable**; slice 49 pins the measured
-value. `tool_loop_session.py` **6,221 → ~400**: dataclass surface, `__post_init__`, `provider_port`,
-a two-line `run()`. `extension_runtime.py` **4,131 → 0**.
+The landed session/activation end state is measured, not projected:
+`native/coding/session.py` is **336 physical lines** with a 67-AST-line/C901-5
+`run`; `extension_runtime.py` is deleted; and
+`native/extensions/activation.py` is **1,807 physical lines**, accepted by §2d.
+Both former god-file C901 pins are gone and no replacement pin exists.
 
-Largest file produced: **`extensions/activation.py` ~1,570** — 35% under the pi-mono ~2,400 bar,
-above pi's `runner.ts` (1,236) only because its state machine is driven from outside via capability
-tokens with unbound dispatch and one raw-private-field read. Then `chrome.py` ~1,180,
-`extensions/packages.py` 1,105, `repl/wiring.py` ~620, `ui/screen.py` ~600, `repl/loop_step.py`
-~570, `ui/chrome_handoff.py` ~510. Nothing above 1,700, pinned by slice 49. **C901: 13 pinned files
-→ 11**, zero added.
+The remaining projection is `native/tui.py` **1,349 → ~720 physical lines
+(710–760 planning band)**, a paired **589–639-line net reduction** across 48a
+and 48b. `TerminalUi` moves from 856 to **at most 310 AST lines**, with its exact
+post-implementation span pinned by retry 49 rather than inferred from physical
+subtraction. Its irreducible boundary is the four 170-line methods, a thin
+composition assignment, constructor inputs/component handle,
+`_LiveExtensionUiDriver`, and the 51-line generation proxy. Raw-mode loops stay
+in `tui.py`; modal driving belongs to `TerminalModalDriver`; state/effects belong
+to the concrete owners in `TerminalComponents`. Moving the proxy under
+`native.ui` is still forbidden because its full-surface `__getattr__` would
+launder the back-edge past static checks.
+
+The native-module ceiling is **2,488**, currently and intentionally set by the
+out-of-scope `native/session.py`; activation at 1,807 is below it. The prior
+“nothing above 1,700” and ~1,570 activation claims were projections superseded
+by §2d's accepted measured result, not gates retry 49 may resurrect.
 
 ## 3b. What changed from the previous ordering, and why
 
@@ -665,15 +938,51 @@ tokens with unbound dispatch and one raw-private-field read. Then `chrome.py` ~1
 - Growing `ui/__init__.py`: it is a small curated barrel for the reducer/adapter pair and must not gain the new modules. No `ui/utils.py`, ever — that is pi's own accretion sink.
 - Copying pi's `TuiBase` strategy hierarchy (pipy has one paint strategy), retained mutable component tree with `invalidate()` (pipy's immutable `FrameSnapshot` under a reentrant RLock is strictly better), module-level mutable singletons, or `index.ts`-style barrels.
 - CI jobs, nightly runs, release process, external oracles. No deprecation shims, re-export modules, or compatibility aliases — the old path dies in the same commit.
-- Splitting `extensions/activation.py` below ~1,570: its state machine is guarded inside `_ActivationApi` but driven from outside via module-level capability tokens; subdividing exports a private capability.
+- Splitting the accepted 1,807-line `extensions/activation.py`: its state machine is guarded inside `_ActivationApi` but driven from outside via module-level capability tokens; subdividing exports a private capability.
 
 ## 5. How to tell it worked
 
-1. **Field ownership is machine-checkable.** New test: for every field of `ToolLoopTerminalUi`, `_RunControlState`, and `NativeToolReplSession`, `grep -rn "self\._<field>" src/` returns hits in **exactly one module**. Set the bound at **1**, not at "no worse than today."
-2. **Size ratchet** (both files regrew ~14% last time, so pin the *value*, not the trend): a test asserting `tui.py ≤ 550` and `tool_loop_session.py ≤ 450` ast-lines once Wave 4 lands, plus **no file under `src/pipy_harness/native/` above 1,700 lines**. Lower each bound in any slice that shrinks the file; never raise one. Per §2d, a **class-level ratchet** additionally pins `ToolLoopTerminalUi` at ≤ 4,717 ast-lines and ≤ 337 defs immediately (not deferred to Wave 4), lowered by every slice that shrinks the class — the file ratchet alone missed 35 slices that removed 922 file lines but only 31 class lines.
-3. **`run()` ast-line bound** at `tests/test_architecture_agent_loop_boundaries.py:643` reaches ~80 (from 787/800 today), and `run()` constructs no collaborator — `repl/wiring.py` returns a frozen `SessionWiring`.
-4. **C901 baseline: 13 pinned files → 11 or 12.** `tool_loop_session.py` removed; `tui.py` removed or covering 2 functions. **Zero entries added** across the whole program.
-5. **Boundary rules strictly stronger:** `native.ui` forbidden everywhere `native.tui` is (six new sites); `native.ui` may not import `native.tui`, `native.repl`, `native.tool_loop_session`; `native.repl` forbidden everywhere `tool_loop_session` is; `extension_runtime` entries deleted with the file; `_PLANNED_IMPORT_PREFIXES` unchanged except as noted. No rule relaxed anywhere.
-6. **Locks are types, not comments:** `grep -c "RLock()" src/pipy_harness/native/` shows exactly one construction site for `PaintLock` (`ui/screen.py`) and one for `SessionStateLock` (`repl/wiring.py`), each with no default parameter anywhere.
-7. **Parity diffs are file-to-file:** pi's `components/session-selector.ts` ↔ `ui/components/session_picker.py`, `core/model-runtime.ts` ↔ `repl/provider_selection.py`, `core/bash-executor.ts` ↔ `repl/local_shell.py`, `agent-loop.ts` ↔ `repl/loop_step.py`, `main.ts` ↔ `repl/wiring.py`, `core/extensions/runner.ts` ↔ `extensions/activation.py`, `core/agent-session.ts` ↔ `native/coding/session.py` (the slice-45 residual, renamed `CodingSession` per §2d).
-8. `just check` green on every commit, with the old path deleted in the same commit — no slice depends on the next.
+1. **Field ownership is machine-checkable.** The final resolver enumerates every
+   field of `TerminalUi`, `RunControlState`, and `CodingSession`, follows typed
+   receiver/simple aliases and literal `getattr`/`setattr`, and requires one
+   definition owner and no external mutation or unknown dynamic access. A grep
+   over old underscored names is not sufficient.
+2. **Measured ratchets close the arithmetic gap.** 48a and 48b lower file/class
+   ratchets as they shrink. Their paired physical estimate is a 589–639-line net
+   reduction from 1,349 into the 710–760 planning band; retry 49 pins the exact
+   measured values, requires `tui.py ≤ 760` physical lines and only
+   `__post_init__`, `is_supported`, `start`, `read_line`,
+   `wait_for_active_turn_interrupt` on `TerminalUi`, keeps
+   `coding/session.py ≤ 336`, `extensions/activation.py` at 1,807 or lower, and
+   the native ceiling at 2,488 (`native/session.py`). No 550/1,700 fiction and
+   no raise to 1,349.
+3. **The coding session stays a facade.** `CodingSession.run()` remains at or
+   below its measured 67 AST lines/C901 5 (and the existing ~80 architecture
+   bound); it constructs no collaborator inline because `repl/wiring.py`
+   returns frozen `SessionWiring` values.
+4. **C901 stays burned down.** Neither `native/tui.py` nor
+   `native/coding/session.py` appears in per-file ignores; no pin is added to a
+   destination module.
+5. **Boundary rules are strictly preserved:** recursive `native.ui` cannot name
+   or import `native.tui`, `native.repl`, or `native.coding.session`; `native.repl`
+   cannot import the coding session; retired `tool_loop_session.py` and
+   `extension_runtime.py` names/modules remain absent; `_PLANNED_IMPORT_PREFIXES`
+   is unchanged. No rule is relaxed and no alias/re-export/callable facade
+   substitutes for one.
+6. **Locks are typed and uniquely constructed.** Alias-resistant AST assertions
+   resolve imports and simple call aliases and find exactly one `PaintLock`
+   construction in `ui/screen.py` and one `SessionStateLock` construction in
+   `repl/wiring.py`, each wrapping its explicit `threading.RLock()` and exposing
+   no default constructor. Every composed UI owner shares the Screen-created
+   `PaintLock`; no new `RLock` exists in 48a/48b.
+7. **Parity diffs are file-to-file:** pi's `components/session-selector.ts` ↔
+   `ui/components/session_picker.py`, `core/model-runtime.ts` ↔
+   `repl/provider_selection.py`, `core/bash-executor.ts` ↔ `repl/local_shell.py`,
+   `agent-loop.ts` ↔ `repl/loop_step.py`, `main.ts` ↔ `repl/wiring.py`,
+   `core/extensions/runner.ts` ↔ `extensions/activation.py`, and
+   `core/agent-session.ts` ↔ `native/coding/session.py::CodingSession`. E2/E6
+   parity ownership text points to the actual compaction/settings modules.
+8. Every implementation slice has focused/PTY characterization, `just check`,
+   synchronized docs, and an independent review. Retry 49 is tests/docs only and
+   declares the final milestone only after every gate above passes; otherwise it
+   reports the block and stops.
