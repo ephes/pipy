@@ -14,6 +14,9 @@ LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 CODING_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/coding/session.py"
 REPL_WIRING_PATH = SOURCE_ROOT / "pipy_harness/native/repl/wiring.py"
+REPL_EXTENSION_ATTACH_PATH = (
+    SOURCE_ROOT / "pipy_harness/native/repl/extension_attach.py"
+)
 REPL_LOOP_STEP_PATH = SOURCE_ROOT / "pipy_harness/native/repl/loop_step.py"
 AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
 STATUS_EFFECTS_PATH = SOURCE_ROOT / "pipy_harness/native/coding/status_effects.py"
@@ -667,6 +670,10 @@ def test_repl_wiring_owns_one_named_shared_session_state_lock() -> None:
     wiring_tree = ast.parse(
         REPL_WIRING_PATH.read_text(encoding="utf-8"), filename=str(REPL_WIRING_PATH)
     )
+    attach_tree = ast.parse(
+        REPL_EXTENSION_ATTACH_PATH.read_text(encoding="utf-8"),
+        filename=str(REPL_EXTENSION_ATTACH_PATH),
+    )
     session_lock_calls = [
         node
         for node in ast.walk(wiring_tree)
@@ -693,7 +700,7 @@ def test_repl_wiring_owns_one_named_shared_session_state_lock() -> None:
         for keyword in node.keywords
         if keyword.arg in {"state_lock", "queue_mutex", "reference_mutex", "lock"}
     ]
-    assert len(shared_keywords) == 5
+    assert len(shared_keywords) == 3
     assert all(
         isinstance(value, ast.Name) and value.id == "session_state_lock"
         for value in shared_keywords
@@ -721,18 +728,41 @@ def test_repl_wiring_owns_one_named_shared_session_state_lock() -> None:
         )
         == 4
     )
+    attach_shared_keywords = [
+        keyword.value
+        for node in ast.walk(attach_tree)
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg in {"queue_mutex", "reference_mutex", "lock"}
+    ]
+    assert len(attach_shared_keywords) == 4
+    assert all(
+        isinstance(value, ast.Attribute)
+        and isinstance(value.value, ast.Name)
+        and value.value.id == "inputs"
+        and value.attr == "state_lock"
+        for value in attach_shared_keywords
+    )
     assert (
         sum(
             1
-            for node in ast.walk(wiring_tree)
+            for node in ast.walk(attach_tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "OrderedDeliveryGate"
             and node.args
-            and isinstance(node.args[0], ast.Name)
-            and node.args[0].id == "session_state_lock"
+            and isinstance(node.args[0], ast.Attribute)
+            and ast.unparse(node.args[0]) == "inputs.state_lock"
         )
         == 1
+    )
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "threading"
+        and node.func.attr == "RLock"
+        for node in ast.walk(attach_tree)
     )
 
     from pipy_harness.native.session_state_lock import SessionStateLock

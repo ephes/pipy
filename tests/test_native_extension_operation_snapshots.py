@@ -13,7 +13,7 @@ from typing import Any, cast
 import pytest
 from session_generation_test_support import build_test_projection
 
-import pipy_harness.native.repl.wiring as repl_wiring
+import pipy_harness.native.repl.extension_attach as extension_attach_module
 from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
@@ -755,12 +755,12 @@ def test_projectionless_startup_fails_without_install_or_publication(
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr(
-        repl_wiring,
+        extension_attach_module,
         "build_candidate_extension_projection",
         lambda *_args, **_kwargs: None,
     )
     for name in ("SessionGenerationRef", "publish_candidate_ownership"):
-        monkeypatch.setattr(repl_wiring, name, pytest.fail)
+        monkeypatch.setattr(extension_attach_module, name, pytest.fail)
     errors = io.StringIO()
     result = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
@@ -807,8 +807,8 @@ def test_all_production_generation_constructions_supply_projection() -> None:
         and ast.unparse(call.func).rsplit(".", 1)[-1] == "SessionExtensionGeneration"
     )
     assert constructions == [
-        ("repl/reload.py", "projection"),
-        ("repl/wiring.py", "startup_projection"),
+        ("repl/extension_attach.py", "projection"),
+        ("repl/extension_attach.py", "projection"),
     ]
 
 

@@ -42,15 +42,24 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 46. Extension activation now lives in
-`native/extensions/activation.py`; the retired native runtime module has no
-shim, alias, or re-export surface. Activation is one 1,807-line capability-token
-state machine with 28 top-level class/function members, below the 2,488 native
-ceiling, while contracts and extension/UI value objects remain at their existing
-definition sites. `native/tui.py` remains 1,466 physical lines and the
-coding-session facade remains 336 lines with a 67 AST-line/C901-5 `run`. Slice
-47 is next. This slice is behavior-preserving ownership only, so no changelog or
-release note applies.
+**Program status:** Landed through slice 47. Startup and `/reload` generation
+attachment now route through the single typed
+`native/repl/extension_attach.py::attach_generation(predecessor=None)` owner;
+the former `_attach_extensions` transaction and reload phase methods are gone
+without aliases or shims. Startup's no-predecessor edge and reload's retained-
+predecessor, candidate-lifecycle, provider/capability, chrome, and presentation
+edges remain explicit typed inputs/results. The deliberate alignment is limited
+to attachment ownership: startup now installs its initial generation/capability
+pair in one shared-lock section while preserving provider/UI preparation before
+candidate ownership transfer, and every failed or exceptional startup attach
+retires its route and closes its chrome instead of leaving candidate sidecars
+alive. Successful startup/reload ordering,
+diagnostics, provider selection, presentation, UI, persistence, and commands
+are unchanged. This failure-path resource cleanup is not a user-facing feature
+or normal-path behavior change, so no changelog or release note applies.
+`native/tui.py` remains 1,466 physical lines and the coding-session facade
+remains 336 lines with a 67 AST-line/C901-5 `run`. Slice 48 is next; no slice-47
+milestone checkpoint is added to the decomposition plan.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

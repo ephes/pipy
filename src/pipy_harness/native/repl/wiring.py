@@ -121,7 +121,13 @@ from pipy_harness.native.repl.command_router import BuiltinCommandInterpreter
 from pipy_harness.native.repl.execution_projections import (
     SessionExecutionProjections,
     apply_startup_provider_projection,
-    build_candidate_extension_projection,
+)
+from pipy_harness.native.repl.extension_attach import (
+    AttachGenerationRefusal,
+    ExtensionAttachInput,
+    StartupAttachPorts,
+    StartupGenerationAttachment,
+    attach_generation,
 )
 from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
@@ -137,6 +143,7 @@ from pipy_harness.native.repl.reload import (
 from pipy_harness.native.repl.turn_leaves import (
     CANCEL_JOIN_TIMEOUT_SECONDS,
     pricing_for,
+    raise_first,
 )
 from pipy_harness.native.repl_input import (
     NativeReplInput,
@@ -150,14 +157,9 @@ from pipy_harness.native.resources import (
     WorkspaceResources,
 )
 from pipy_harness.native.session_generation import (
-    ExtensionChromeHandle,
     ExtensionCommandProjection,
     ExtensionProjection,
-    FrozenStagedDeliveryBatch,
-    OrderedDeliveryGate,
-    SessionExtensionGeneration,
     SessionGenerationRef,
-    publish_candidate_ownership,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -267,11 +269,10 @@ class _ExtensionPhase:
     render_details: _ExtensionRenderDetailsSinks
     tool_capabilities: NativeToolCapabilities
     startup_projection: ExtensionProjection
-    staged: FrozenStagedDeliveryBatch
+    attachment: StartupGenerationAttachment
     generation_ref: SessionGenerationRef
     execution_projections: SessionExecutionProjections
     provider_turn_executor: ProviderTurnExecutor
-    startup_gate: OrderedDeliveryGate
     startup_commands: ExtensionCommandProjection
     agent_settled_pending: bool
 
@@ -378,6 +379,16 @@ def _fail_startup(
         error_type=error_type,
         error_message=message,
     )
+
+
+def _abort_startup_attachment_nonraising(
+    attachment: StartupGenerationAttachment,
+) -> BaseException | None:
+    try:
+        attachment.abort()
+    except BaseException as error:  # noqa: BLE001 - preserve startup primary
+        return error
+    return None
 
 
 def _prepare_startup(
@@ -497,7 +508,7 @@ def _prepare_startup(
     )
 
 
-def _attach_extensions(
+def _compose_extension_phase(
     inputs: SessionWiringInput,
     startup: _StartupPhase,
     provider_binding: _ProviderMutationBinding,
@@ -509,14 +520,9 @@ def _attach_extensions(
     settings = startup.settings
     workspace_resources = startup.workspace_resources
     extension_bundle = startup.extension_bundle
-    extension_flag_values = startup.extension_flag_values
     error_stream = inputs.error_stream
-    input_stream = inputs.input_stream
-    candidate = inputs.candidate
-    _stderr_sink = startup.stderr_sink
-    agent_settled_pending = False
     terminal_ui = inputs.build_terminal_ui(
-        input_stream=input_stream,
+        input_stream=inputs.input_stream,
         error_stream=error_stream,
         workspace=cwd,
         keybindings_manager=keybindings,
@@ -533,9 +539,6 @@ def _attach_extensions(
             "then restart pipy."
         )
 
-    # Live UI sink for extension `ctx.ui.notify` from hooks and tools:
-    # notifications are emitted as local diagnostics (interactive) and
-    # degrade deterministically in non-interactive mode.
     def _extension_notify(_kind: str, message: str) -> None:
         safe_message = "\n".join(
             sanitize_label_text(line) for line in str(message).splitlines()
@@ -545,10 +548,6 @@ def _attach_extensions(
     extension_ui_driver = (
         _LiveExtensionUiDriver(terminal_ui, cwd) if terminal_ui is not None else None
     )
-
-    # Adapt activated extension tools at the product composition seam. The
-    # shared built-in registry is never mutated; the capability facade owns
-    # the run-local merged registry, visibility, and executor context.
     render_details = _tool_renderers._extension_render_details_sinks(
         terminal_ui is not None
     )
@@ -557,98 +556,73 @@ def _attach_extensions(
         {},
         workspace_root=cwd,
         reference_roots=inputs.reference_roots,
-        stderr_sink=_stderr_sink,
+        stderr_sink=startup.stderr_sink,
         filter_options=inputs.tool_filter_options,
         cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
-        # Share the session mutex rather than letting the capability owner
-        # create a private one: an extension tool handler reaching
-        # `set_active_tools` from a worker thread and a reload publishing a
-        # new generation must serialize against each other, which two
-        # separate locks would not do.
         state_lock=session_state_lock,
     )
-    startup_projection = build_candidate_extension_projection(
-        extension_bundle,
-        extension_flag_values,
-        queue_mutex=session_state_lock,
-        reference_mutex=session_state_lock,
-        has_ui=terminal_ui is not None,
-        notify_sink=_extension_notify,
-        set_active_tools=lambda generation_id, names: provider_binding.set_active_tools(
-            generation_id, names
-        ),
-        render_details=render_details.writer,
-        project_trusted=settings.project_trusted,
-        prepare_capability=tool_capabilities.prepare_extensions,
-        chrome=(
-            ExtensionChromeHandle(extension_ui_driver.startup_chrome_sink())
-            if extension_ui_driver is not None
-            else None
-        ),
-    )
-    extension_generation = SessionExtensionGeneration(
-        extension_bundle, startup_projection
-    )
-    if (published_projection := extension_generation.projection) is None:
-        message = "extension generation projection is unavailable"
-        print(f"pipy: {message}", file=error_stream)
-        return _fail_startup(coding_state, "ExtensionActivationError", message)
-    startup_projection = published_projection
-    startup_gate = OrderedDeliveryGate(session_state_lock)
-    startup_projection.queues.install_candidate_route(startup_gate)
-    staged = FrozenStagedDeliveryBatch.freeze((), extension_bundle.custom_messages)
-    generation_ref = SessionGenerationRef(extension_generation, lock=session_state_lock)
-    startup_snapshot = generation_ref.snapshot()
-    startup_generation_projection = startup_snapshot.generation.projection
-    if startup_generation_projection is None:
-        raise RuntimeError("published extension generation has no projection")
-    startup_commands = startup_generation_projection.commands
-    if terminal_ui is not None:
-        terminal_ui.autocomplete.set_max_visible(
-            settings.get_autocomplete_max_visible()
+
+    def _prepare_before_publish(
+        generation_ref: SessionGenerationRef, projection: ExtensionProjection
+    ) -> None:
+        _prepare_startup_extension_consumers(
+            terminal_ui=terminal_ui,
+            settings=settings,
+            workspace_resources=workspace_resources,
+            startup_commands=projection.commands,
+            keybindings=keybindings,
+            error_stream=error_stream,
         )
-        terminal_ui.autocomplete.replace_command_surface(
-            published_command_surface(workspace_resources, startup_commands)
+        apply_startup_provider_projection(
+            generation_ref=generation_ref,
+            provider_state=inputs.provider_state,
+            coding_state=coding_state,
+            error_stream=error_stream,
         )
-        if keybindings.has_user_binding("app.editor.external"):
-            editor_keys = {
-                normalized
-                for key in keybindings.keys_for("app.editor.external")
-                if (normalized := normalize_shortcut_key(key))
-            }
-            for key in sorted(editor_keys.intersection(startup_commands.shortcuts)):
-                print(
-                    "pipy: extension shortcut "
-                    f"{key!r} is shadowed by app.editor.external; rebind the "
-                    "editor action or extension shortcut.",
-                    file=error_stream,
-                )
-    apply_startup_provider_projection(
-        generation_ref=generation_ref,
-        provider_state=inputs.provider_state,
-        coding_state=coding_state,
-        error_stream=error_stream,
+
+    attached = attach_generation(
+        ExtensionAttachInput(
+            candidate=inputs.candidate,
+            runtime=extension_bundle,
+            flag_values=startup.extension_flag_values,
+            state_lock=session_state_lock,
+            has_ui=terminal_ui is not None,
+            notify_sink=_extension_notify,
+            set_active_tools=lambda generation_id, names: (
+                provider_binding.set_active_tools(generation_id, names)
+            ),
+            render_details=render_details.writer,
+            project_trusted=settings.project_trusted,
+            tool_capabilities=tool_capabilities,
+            chrome_sink=(
+                extension_ui_driver.startup_chrome_sink()
+                if extension_ui_driver is not None
+                else None
+            ),
+        ),
+        startup_ports=StartupAttachPorts(before_publish=_prepare_before_publish),
     )
-    if not publish_candidate_ownership(candidate):
-        startup_projection.queues.retire_route()
-        message = "extension candidate ownership is unavailable"
-        print(f"pipy: {message}", file=error_stream)
-        return _fail_startup(coding_state, "ExtensionActivationError", message)
-    tool_capabilities.publish(startup_projection.tools.capability_state)
-    execution_projections = SessionExecutionProjections(
-        generation_ref=generation_ref,
-        tool_capabilities=tool_capabilities,
-        coding_state=coding_state,
-        ui_driver=extension_ui_driver,
-    )
-    provider_turn_executor = ProviderTurnExecutor(
-        cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
-    )
-    unknown_filter_names = tool_capabilities.unknown_filter_names
-    if unknown_filter_names:
-        known = ", ".join(sorted(tool_capabilities.registered_names)) or "<none>"
-        unknown = ", ".join(unknown_filter_names)
-        raise ValueError(f"unknown tool name(s): {unknown}. Known tools: {known}")
+    if isinstance(attached, AttachGenerationRefusal):
+        print(f"pipy: {attached.reason}", file=error_stream)
+        return _fail_startup(coding_state, "ExtensionActivationError", attached.reason)
+    assert isinstance(attached, StartupGenerationAttachment)
+    startup_projection = attached.projection
+    generation_ref = attached.generation_ref
+    startup_commands = startup_projection.commands
+    try:
+        execution_projections = SessionExecutionProjections(
+            generation_ref=generation_ref,
+            tool_capabilities=tool_capabilities,
+            coding_state=coding_state,
+            ui_driver=extension_ui_driver,
+        )
+        provider_turn_executor = ProviderTurnExecutor(
+            cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
+        )
+        _raise_unknown_startup_tool_filters(tool_capabilities)
+    except BaseException as error:  # noqa: BLE001 - preserve startup primary
+        raise_first((error, _abort_startup_attachment_nonraising(attached)))
+        raise AssertionError("startup failure did not propagate")
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
@@ -656,14 +630,55 @@ def _attach_extensions(
         render_details=render_details,
         tool_capabilities=tool_capabilities,
         startup_projection=startup_projection,
-        staged=staged,
+        attachment=attached,
         generation_ref=generation_ref,
         execution_projections=execution_projections,
         provider_turn_executor=provider_turn_executor,
-        startup_gate=startup_gate,
         startup_commands=startup_commands,
-        agent_settled_pending=agent_settled_pending,
+        agent_settled_pending=False,
     )
+
+
+def _prepare_startup_extension_consumers(
+    *,
+    terminal_ui: ToolLoopTerminalUi | None,
+    settings: SettingsManager,
+    workspace_resources: WorkspaceResources,
+    startup_commands: ExtensionCommandProjection,
+    keybindings: KeybindingsManager,
+    error_stream: TextIO,
+) -> None:
+    if terminal_ui is None:
+        return
+    terminal_ui.autocomplete.set_max_visible(settings.get_autocomplete_max_visible())
+    terminal_ui.autocomplete.replace_command_surface(
+        published_command_surface(workspace_resources, startup_commands)
+    )
+    if not keybindings.has_user_binding("app.editor.external"):
+        return
+    editor_keys = {
+        normalized
+        for key in keybindings.keys_for("app.editor.external")
+        if (normalized := normalize_shortcut_key(key))
+    }
+    for key in sorted(editor_keys.intersection(startup_commands.shortcuts)):
+        print(
+            "pipy: extension shortcut "
+            f"{key!r} is shadowed by app.editor.external; rebind the "
+            "editor action or extension shortcut.",
+            file=error_stream,
+        )
+
+
+def _raise_unknown_startup_tool_filters(
+    tool_capabilities: NativeToolCapabilities,
+) -> None:
+    unknown_filter_names = tool_capabilities.unknown_filter_names
+    if not unknown_filter_names:
+        return
+    known = ", ".join(sorted(tool_capabilities.registered_names)) or "<none>"
+    unknown = ", ".join(unknown_filter_names)
+    raise ValueError(f"unknown tool name(s): {unknown}. Known tools: {known}")
 
 
 def _compose_emitter(
@@ -861,9 +876,7 @@ def _compose_runtime_adapters(
     coding_state = startup.coding_state
     coding_effects = startup.coding_effects
     terminal_ui = extension.terminal_ui
-    startup_projection = extension.startup_projection
-    staged = extension.staged
-    startup_gate = extension.startup_gate
+    attachment = extension.attachment
     ctl = product.ctl
     emitter = product.emitter
     input_stream = inputs.input_stream
@@ -944,18 +957,12 @@ def _compose_runtime_adapters(
         error_stream=error_stream,
         generation_snapshot=ctl.generation_ref.snapshot,
     )
-    with startup_gate.reserve() as startup_token:
-        _extension_hooks.deliver_accepted_staged_batch(
-            staged,
-            gate=startup_gate,
-            token=startup_token,
-            user_sink=lambda _message: None,
-            custom_sink=partial(
-                _extension_hooks.deliver_staged_custom,
-                custom_renderer.extension_send_message,
-            ),
-            release_route=startup_projection.queues.release_pending_route,
+    attachment.deliver_staged(
+        partial(
+            _extension_hooks.deliver_staged_custom,
+            custom_renderer.extension_send_message,
         )
+    )
     return _RuntimePhase(
         emitter=emitter,
         usage_publisher=usage_publisher,
@@ -1364,25 +1371,29 @@ def wire_session(inputs: SessionWiringInput) -> SessionWiring:
     startup = _prepare_startup(inputs)
     if isinstance(startup, CodingSessionResult):
         return SessionWiring(startup_failure=startup, delegation=None)
-    extension = _attach_extensions(inputs, startup, provider_binding)
+    extension = _compose_extension_phase(inputs, startup, provider_binding)
     if isinstance(extension, CodingSessionResult):
         return SessionWiring(startup_failure=extension, delegation=None)
-    product = _compose_product_session(inputs, startup, extension, provider_binding)
-    runtime = _compose_runtime_adapters(inputs, startup, extension, product)
-    chrome = _start_chrome(inputs, startup, extension, product, runtime)
-    collaborators = _compose_collaborators(
-        inputs, startup, extension, product, runtime, chrome, provider_binding
-    )
-    commands = _compose_commands(
-        inputs, startup, extension, product, runtime, chrome, collaborators
-    )
-    return _assemble_session_wiring(
-        inputs,
-        startup,
-        extension,
-        product,
-        runtime,
-        chrome,
-        collaborators,
-        commands,
-    )
+    try:
+        product = _compose_product_session(inputs, startup, extension, provider_binding)
+        runtime = _compose_runtime_adapters(inputs, startup, extension, product)
+        chrome = _start_chrome(inputs, startup, extension, product, runtime)
+        collaborators = _compose_collaborators(
+            inputs, startup, extension, product, runtime, chrome, provider_binding
+        )
+        commands = _compose_commands(
+            inputs, startup, extension, product, runtime, chrome, collaborators
+        )
+        return _assemble_session_wiring(
+            inputs,
+            startup,
+            extension,
+            product,
+            runtime,
+            chrome,
+            collaborators,
+            commands,
+        )
+    except BaseException as error:  # noqa: BLE001 - preserve startup primary
+        raise_first((error, _abort_startup_attachment_nonraising(extension.attachment)))
+        raise AssertionError("startup failure did not propagate")

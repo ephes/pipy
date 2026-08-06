@@ -298,20 +298,30 @@ mutex identity before construction and failure injection cannot reach a live
 reference or adapter. R1's mutable activation-host ownership state, settings,
 keybindings, resources, and a settings adapter are absent.
 
-`coding/session.py` now contains the projected, legacy-port, and candidate-
-composition adapters plus the production startup/reload orchestration that
-installs routes, fires candidate lifecycle, prepares and accepts a generation,
-and delivers its staged batch. On reload the first publication gate remains
-open after the session commit unlocks, through accepted staged delivery, the
-two-phase route release, and gate drain; those paths may invoke extension-visible
-sinks while `publication_pending` is true. Startup and reload call the same
-projected candidate builder; the legacy helper has no production caller. Recursive
-inventory proves the presence of both production construction paths and retains
-every family equivalence arm until its R4 consumer migration. Outside R3c3's two
-documented deltas, lifecycle/provider/TUI behavior and base ordering are
-unchanged. Every per-family equivalence arm against the legacy runtime or
-adapter remains until R4 moves that family's final consumer and deletes its
-source. R3b now adds the frozen `PreparedReloadEffects` assembly after the exact
+`native/repl/extension_attach.py` is now the sole production generation-
+attachment owner. Both startup wiring and the `/reload` driver call
+`attach_generation()`: `predecessor=None` is the explicit startup edge, while a
+supplied predecessor carries reload-only candidate lifecycle, prepared provider/
+capability replacement, chrome handoff/rollback, retained-generation refusal,
+and presentation ports. The owner alone builds the candidate projection,
+installs its route, constructs/publishes the generation, reserves and drains
+staged delivery, and retires route/chrome/prepared effects. The former startup
+transaction and reload phase methods have no aliases or forwarding surfaces.
+On reload the first publication gate remains open after the session commit
+unlocks, through accepted staged delivery, the two-phase route release, and gate
+drain; those paths may invoke extension-visible sinks while
+`publication_pending` is true. Startup installs the initial generation reference
+and capability state in one shared-session-lock section, then preserves its
+provider/UI preparation before candidate ownership transfer. A refused attach
+or an exception later in startup composition
+retires the candidate route and closes its chrome, rather than leaving an
+unstarted generation's sidecars alive. All extension callbacks, diagnostics,
+chrome reconciliation/disposal, staged sinks, and prepared-effect cleanup remain
+outside the session lock; only the established initial/publication state changes
+run under it. Successful lifecycle/provider/TUI behavior and base ordering are
+unchanged. Recursive inventories prove both callers and the single builder/
+route/publication/delivery owner. R3b now adds the frozen
+`PreparedReloadEffects` assembly after the exact
 ordered, family-distinct detached builders. Complete disposal attempts every
 family in reverse and groups failures; build rollback suppresses cleanup errors
 only to preserve the primary build failure. Its uninstalled gate reservation

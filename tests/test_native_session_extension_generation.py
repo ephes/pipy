@@ -21,6 +21,7 @@ import pipy_harness.native.coding.session as coding_session_module
 import pipy_harness.native.extension_hooks as extension_hooks_module
 import pipy_harness.native.extensions.activation as activation_module
 import pipy_harness.native.extensions.message_routing as message_routing_module
+import pipy_harness.native.repl.extension_attach as extension_attach_module
 import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.session_generation as session_generation_module
 from pipy_harness.extensions import ToolResult
@@ -84,6 +85,13 @@ from pipy_harness.native.repl.execution_projections import (
     build_candidate_extension_projection,
     build_projected_extension_tool_port,
 )
+from pipy_harness.native.repl.extension_attach import (
+    AttachGenerationRefusal,
+    ExtensionAttachInput,
+    StartupAttachPorts,
+    StartupGenerationAttachment,
+    attach_generation,
+)
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.loop_step import _ReplLoopStep
 from pipy_harness.native.repl.wiring import _ExtensionCustomEntryRunState
@@ -118,8 +126,10 @@ from pipy_harness.native.session_generation import (
     build_extension_projection,
     prepare_provider_reload_values,
 )
+from pipy_harness.native.session_state_lock import SessionStateLock
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
     ToolCapabilityState,
     ToolFilterOptions,
 )
@@ -1412,6 +1422,254 @@ def test_successor_projections_share_no_mutable_mapping_or_list(
         )
 
 
+class _CleanupFailingChromeSink(ExtensionChromeSink):
+    def __init__(self, cleanup_calls: list[str]) -> None:
+        super().__init__()
+        self._cleanup_calls = cleanup_calls
+
+    def close(self) -> None:
+        self._cleanup_calls.append("chrome")
+        if self._cleanup_calls.count("chrome") > 1:
+            raise AssertionError("chrome cleanup was repeated")
+        super().close()
+        raise KeyboardInterrupt("injected chrome cleanup failure")
+
+
+def _startup_attach_input(
+    tmp_path: Path,
+    runtime: _ExtensionRuntime,
+    candidate: Any,
+    chrome: ExtensionChromeSink,
+) -> ExtensionAttachInput:
+    lock = runtime.message_routing.mutex
+    assert lock is not None
+    capabilities = NativeToolCapabilities(
+        {},
+        {},
+        workspace_root=tmp_path,
+        reference_roots=(),
+        stderr_sink=lambda _text: None,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=1.0,
+        state_lock=lock,
+    )
+    return ExtensionAttachInput(
+        candidate=candidate,
+        runtime=runtime,
+        flag_values={"projection-mode": "candidate"},
+        state_lock=cast(SessionStateLock, lock),
+        has_ui=True,
+        notify_sink=lambda _kind, _message: None,
+        set_active_tools=lambda _generation_id, _names: True,
+        render_details=cast(Any, {}),
+        project_trusted=True,
+        tool_capabilities=capabilities,
+        chrome_sink=chrome,
+    )
+
+
+@pytest.mark.parametrize("failure_stage", ["projection", "callback"])
+def test_startup_attach_cleanup_preserves_projection_or_callback_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    runtime = _rich_runtime(tmp_path, f"startup-{failure_stage}-failure")
+    candidate = activation_module._ExtensionCandidate()
+    candidate.adopt(runtime, pytest.fail)
+    cleanup_calls: list[str] = []
+    chrome = _CleanupFailingChromeSink(cleanup_calls)
+    primary = RuntimeError(f"injected {failure_stage} failure")
+
+    original_retire = ExtensionQueueProjection.retire_route
+
+    def fail_route_cleanup(queues: ExtensionQueueProjection) -> tuple[object, ...]:
+        cleanup_calls.append("route")
+        original_retire(queues)
+        raise SystemExit("injected route cleanup failure")
+
+    if failure_stage == "projection":
+
+        def fail_projection(*_args: object, **_kwargs: object) -> None:
+            raise primary
+
+        monkeypatch.setattr(
+            extension_attach_module,
+            "build_candidate_extension_projection",
+            fail_projection,
+        )
+    else:
+        monkeypatch.setattr(
+            ExtensionQueueProjection, "retire_route", fail_route_cleanup
+        )
+
+    def before_publish(*_args: object) -> None:
+        if failure_stage == "callback":
+            raise primary
+
+    with pytest.raises(RuntimeError) as caught:
+        attach_generation(
+            _startup_attach_input(tmp_path, runtime, candidate, chrome),
+            startup_ports=StartupAttachPorts(before_publish=before_publish),
+        )
+
+    assert caught.value is primary
+    expected_cleanup = (
+        ["route", "chrome"] if failure_stage == "callback" else ["chrome"]
+    )
+    assert cleanup_calls == expected_cleanup
+    if failure_stage == "callback":
+        assert runtime.message_routing._state == "retired"
+    assert chrome.snapshot().title is None
+
+
+def test_startup_staged_delivery_cleanup_preserves_primary_and_retires_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = replace(
+        _rich_runtime(tmp_path, "startup-staged-failure"),
+        custom_messages=(QueuedCustomMessage("test", "payload", True, None, {}),),
+    )
+    candidate = activation_module._ExtensionCandidate()
+    candidate.adopt(runtime, pytest.fail)
+    cleanup_calls: list[str] = []
+    chrome = _CleanupFailingChromeSink(cleanup_calls)
+    result = attach_generation(
+        _startup_attach_input(tmp_path, runtime, candidate, chrome),
+        startup_ports=StartupAttachPorts(
+            before_publish=lambda _generation_ref, _projection: None
+        ),
+    )
+    assert isinstance(result, StartupGenerationAttachment)
+
+    original_retire = ExtensionQueueProjection.retire_route
+
+    def fail_route_cleanup(queues: ExtensionQueueProjection) -> tuple[object, ...]:
+        cleanup_calls.append("route")
+        original_retire(queues)
+        raise SystemExit("injected route cleanup failure")
+
+    monkeypatch.setattr(ExtensionQueueProjection, "retire_route", fail_route_cleanup)
+    primary = RuntimeError("injected staged delivery failure")
+
+    def fail_delivery(_message: QueuedCustomMessage) -> None:
+        raise primary
+
+    with pytest.raises(RuntimeError) as caught:
+        result.deliver_staged(fail_delivery)
+
+    assert caught.value is primary
+    assert cleanup_calls == ["route", "chrome"]
+    assert runtime.message_routing._state == "retired"
+    assert chrome.snapshot().title is None
+
+
+@pytest.mark.parametrize("refusal_stage", ["projection", "ownership"])
+def test_startup_refusal_cleanup_failure_does_not_repeat_non_idempotent_owners(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    refusal_stage: str,
+) -> None:
+    runtime = _rich_runtime(tmp_path, f"startup-{refusal_stage}-refusal")
+    candidate = activation_module._ExtensionCandidate()
+    candidate.adopt(runtime, pytest.fail)
+    cleanup_calls: list[str] = []
+    chrome = _CleanupFailingChromeSink(cleanup_calls)
+    expected_error: type[BaseException]
+
+    if refusal_stage == "projection":
+        monkeypatch.setattr(
+            extension_attach_module,
+            "build_candidate_extension_projection",
+            lambda *_args, **_kwargs: None,
+        )
+        expected_error = KeyboardInterrupt
+        expected_cleanup = ["chrome"]
+    else:
+        monkeypatch.setattr(
+            activation_module._ExtensionCandidate, "publish", lambda _candidate: False
+        )
+        original_retire = ExtensionQueueProjection.retire_route
+
+        def fail_route_cleanup(
+            queues: ExtensionQueueProjection,
+        ) -> tuple[object, ...]:
+            cleanup_calls.append("route")
+            if cleanup_calls.count("route") > 1:
+                raise AssertionError("route cleanup was repeated")
+            original_retire(queues)
+            raise SystemExit("injected route cleanup failure")
+
+        monkeypatch.setattr(
+            ExtensionQueueProjection, "retire_route", fail_route_cleanup
+        )
+        expected_error = SystemExit
+        expected_cleanup = ["route", "chrome"]
+
+    with pytest.raises(expected_error):
+        attach_generation(
+            _startup_attach_input(tmp_path, runtime, candidate, chrome),
+            startup_ports=StartupAttachPorts(
+                before_publish=lambda _generation_ref, _projection: None
+            ),
+        )
+
+    assert cleanup_calls == expected_cleanup
+
+
+def test_startup_attach_refusal_retires_route_and_chrome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _rich_runtime(tmp_path, "startup-refusal")
+    candidate = activation_module._ExtensionCandidate()
+    candidate.adopt(runtime, pytest.fail)
+    chrome = ExtensionChromeSink()
+    chrome.set_title("must-retire")
+    monkeypatch.setattr(
+        activation_module._ExtensionCandidate, "publish", lambda _candidate: False
+    )
+
+    result = attach_generation(
+        _startup_attach_input(tmp_path, runtime, candidate, chrome),
+        startup_ports=StartupAttachPorts(
+            before_publish=lambda _generation_ref, _projection: None
+        ),
+    )
+
+    assert isinstance(result, AttachGenerationRefusal)
+    assert result.reason == "extension candidate ownership is unavailable"
+    assert runtime.message_routing._state == "retired"
+    assert chrome.snapshot().title is None
+
+
+def test_startup_attach_exception_after_initial_install_retires_every_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _rich_runtime(tmp_path, "startup-publish-exception")
+    candidate = activation_module._ExtensionCandidate()
+    candidate.adopt(runtime, pytest.fail)
+    chrome = ExtensionChromeSink()
+    chrome.set_title("must-retire")
+    inputs = _startup_attach_input(tmp_path, runtime, candidate, chrome)
+
+    def fail_capability_publish(_state: ToolCapabilityState) -> None:
+        raise RuntimeError("injected capability publication failure")
+
+    monkeypatch.setattr(inputs.tool_capabilities, "publish", fail_capability_publish)
+
+    with pytest.raises(RuntimeError, match="capability publication failure"):
+        attach_generation(
+            inputs,
+            startup_ports=StartupAttachPorts(
+                before_publish=lambda _generation_ref, _projection: None
+            ),
+        )
+
+    assert runtime.message_routing._state == "retired"
+    assert chrome.snapshot().title is None
+    assert candidate.dispose().disposed == 1
+
+
 def test_projection_omits_settings_keybindings_resources_and_reverse_adapters() -> None:
     projection_fields = {field.name for field in fields(ExtensionProjection)}
     forbidden = {"settings", "keybindings", "resources", "workspace_resources"}
@@ -1492,17 +1750,11 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
         relative_path = path.relative_to(src_root).as_posix()
         CallInventory(relative_path).visit(ast.parse(path.read_text(encoding="utf-8")))
 
-    wiring_path = "pipy_harness/native/repl/wiring.py"
-    reload_path = "pipy_harness/native/repl/reload.py"
-    reload_owner = (
-        "class:ReloadCommandEffects",
-        "function:_activate_reload_candidate",
-    )
-    startup_owner = ("function:_attach_extensions",)
+    attach_path = "pipy_harness/native/repl/extension_attach.py"
+    attach_owner = ("function:_build_projection_and_route",)
     assert calls == {
         "build_candidate_extension_projection": [
-            (reload_path, reload_owner),
-            (wiring_path, startup_owner),
+            (attach_path, attach_owner),
         ],
         "build_extension_projection": [
             (
@@ -2729,8 +2981,8 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     assert actual_calls == (
         "_accept_message_route=2 _bind_session_mutex=3 _commit_activation=2 "
         "_install_candidate_route=1 accept=2 finalize_retirement=3 "
-        "install_candidate_route=2 mark_retired_locked=3 release_pending=1 "
-        "release_pending_route=0 retire=1 retire_route=2 "
+        "install_candidate_route=1 mark_retired_locked=3 release_pending=1 "
+        "release_pending_route=0 retire=1 retire_route=1 "
         "route_drain=1 submit=2"
     )
     built = {
@@ -2760,10 +3012,10 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         GenerationMessageRouting=2, SessionGenerationRef=1, CustomEntryRenderer=1
     )
     ref_path, ref_call = built["SessionGenerationRef"][0]
-    assert ref_path == "repl/wiring.py"
+    assert ref_path == "repl/extension_attach.py"
     assert {kw.arg: ast.unparse(kw.value) for kw in ref_call.keywords}[
         "lock"
-    ] == "session_state_lock"
+    ] == "inputs.state_lock"
     path, renderer_call = built["CustomEntryRenderer"][0]
     assert (path, renderer_call.args) == ("repl/wiring.py", [])
     assert {kw.arg for kw in renderer_call.keywords} == set(
@@ -2853,6 +3105,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         "_build_detached_reload_effects",
         "deliver_accepted_staged_batch",
         "_route_legacy_custom_message_input",
+        "_abort_startup_attachment_nonraising",
     }
     methods = set("freeze deliver dispose reserve validate release drain abort".split())
     calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
@@ -2895,12 +3148,14 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     wiring = "native/repl/wiring.py"
     reload_file = "native/repl/reload.py"
     reload_owner = "class:ReloadCommandEffects"
-    reload_generation = (reload_owner, "function:_retire_reload_attempt")
-    reload_activate = (reload_owner, "function:_activate_reload_candidate")
-    reload_commit = (reload_owner, "function:_commit_reload_generation")
-    reload_accept = (reload_owner, "function:_accept_prepared_generation")
-    startup_attach = ("function:_attach_extensions",)
-    startup_runtime = ("function:_compose_runtime_adapters",)
+    attach_file = "native/repl/extension_attach.py"
+    attach_prepare = ("function:_prepare_reload_generation",)
+    attach_build = ("function:_build_projection_and_route",)
+    attach_accept = ("function:_accept_reload_generation",)
+    attach_reload_delivery = ("function:_deliver_reload_staged",)
+    attach_startup = ("function:_attach_startup_generation",)
+    attach_startup_delivery = ("function:_deliver_startup_staged",)
+    attach_retire = ("function:_retire_reload_attempt",)
     startup_guard = ("function:balance_startup_candidate", "function:guarded")
     chrome_prepare = ("class:ExtensionChromeRouter", "function:prepare_candidate")
     prepare = ("function:prepare_production_reload",)
@@ -2933,7 +3188,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
             ("function:_dispose_activation_results",),
         ),
         ("dispose", reload_file, (reload_owner, "function:execute")),
-        ("dispose", reload_file, reload_generation),
+        ("dispose", attach_file, attach_retire),
         # Unrelated to the reload gate: the generic modal driver invokes the
         # custom overlay runner's optional disposal callback in its `finally`
         # block. The inventory is exhaustive by name, so this legitimate
@@ -2961,24 +3216,36 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ("release", "native/ui/paint_lock.py", ("class:PaintLock", "function:release")),
         ("drain", hooks, sequencer),
         ("abort", sg, reserve),
+        (
+            "abort",
+            wiring,
+            ("function:_abort_startup_attachment_nonraising",),
+        ),
+        (
+            "_abort_startup_attachment_nonraising",
+            wiring,
+            ("function:_compose_extension_phase",),
+        ),
+        (
+            "_abort_startup_attachment_nonraising",
+            wiring,
+            ("function:wire_session",),
+        ),
         *{
             (name, sg, prepare)
             for name in "ActivationInputsValue ProviderFactoryValue CodingCompactionValue "
             "PresentationPersistenceValue ReloadEffectPreparationPorts "
             "build_prepared_reload_effects freeze".split()
         },
-        # The reload path is four phases behind one teardown, so each call
-        # names the phase that makes it. The set is the same size as when the
-        # phases were one 182-line method; a call appearing in a second phase
-        # would fail here rather than pass unnoticed.
-        ("ExtensionChromePrepareInput", reload_file, reload_commit),
-        ("ExtensionChromeCommitToken", reload_file, reload_commit),
+        # The shared owner now makes every startup/reload transaction call.
+        # Wiring and the reload driver may only supply typed edge ports.
+        ("ExtensionChromePrepareInput", attach_file, attach_prepare),
+        ("ExtensionChromeCommitToken", attach_file, attach_prepare),
         ("ExtensionChromeCommitToken", "native/ui/chrome_handoff.py", chrome_prepare),
-        ("OrderedDeliveryGate", reload_file, reload_activate),
-        ("deliver_accepted_staged_batch", reload_file, reload_accept),
-        ("reserve", reload_file, reload_accept),
-        ("OrderedDeliveryGate", wiring, startup_attach),
-        ("deliver_accepted_staged_batch", wiring, startup_runtime),
-        ("reserve", wiring, startup_runtime),
-        ("freeze", wiring, startup_attach),
+        ("OrderedDeliveryGate", attach_file, attach_build),
+        ("deliver_accepted_staged_batch", attach_file, attach_reload_delivery),
+        ("reserve", attach_file, attach_accept),
+        ("deliver_accepted_staged_batch", attach_file, attach_startup_delivery),
+        ("reserve", attach_file, attach_startup_delivery),
+        ("freeze", attach_file, attach_startup),
     }

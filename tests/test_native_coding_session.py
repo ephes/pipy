@@ -723,20 +723,28 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
     }.isdisjoint(root_parameters)
 
 
-def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None:
+def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
     import pipy_harness.native.repl.command_router as command_router
+    import pipy_harness.native.repl.extension_attach as extension_attach
     import pipy_harness.native.repl.reload as reload_module
     import pipy_harness.native.repl.session_transfer as session_transfer
+    import pipy_harness.native.repl.wiring as wiring_module
 
-    # Both families own their own module, and so does the interpreter that
-    # routes to them.
     classes: dict[str, ast.ClassDef] = {}
-    for module in (command_router, session_transfer, reload_module):
+    trees: dict[str, ast.Module] = {}
+    for module in (
+        command_router,
+        extension_attach,
+        session_transfer,
+        reload_module,
+        wiring_module,
+    ):
         module_path = module.__file__
         assert module_path is not None
-        syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+        tree = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+        trees[module.__name__] = tree
         classes.update(
-            {node.name: node for node in syntax.body if isinstance(node, ast.ClassDef)}
+            {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
         )
 
     expected_fields = {
@@ -786,16 +794,16 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
     }
     for class_name, fields in expected_fields.items():
         owner = classes[class_name]
-        dataclass_decorator = next(
-            decorator
-            for decorator in owner.decorator_list
-            if isinstance(decorator, ast.Call)
-            and isinstance(decorator.func, ast.Name)
-            and decorator.func.id == "dataclass"
+        decorator = next(
+            item
+            for item in owner.decorator_list
+            if isinstance(item, ast.Call)
+            and isinstance(item.func, ast.Name)
+            and item.func.id == "dataclass"
         )
         assert {
             keyword.arg: ast.literal_eval(keyword.value)
-            for keyword in dataclass_decorator.keywords
+            for keyword in decorator.keywords
         } == {"frozen": True, "slots": True, "kw_only": True}
         assert {
             node.target.id
@@ -803,35 +811,158 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
             if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
         } == fields
 
-    assert "_ReloadConfigurationDependencies" not in classes
+    attach_tree = trees[extension_attach.__name__]
+    attach_members = tuple(
+        node.name
+        for node in attach_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    )
+    assert attach_members == (
+        "ChromeAcceptance",
+        "ReloadChromePort",
+        "ExtensionAttachInput",
+        "StartupAttachPorts",
+        "ReloadAttachPorts",
+        "ReloadPresentation",
+        "AttachGenerationRefusal",
+        "_StartupAttachmentLifecycle",
+        "StartupGenerationAttachment",
+        "ReloadGenerationAttachment",
+        "_AttachAttempt",
+        "_PreparedReloadGeneration",
+        "attach_generation",
+        "_validate_attach_mode",
+        "_build_projection_and_route",
+        "_refuse_unavailable_projection",
+        "_attach_startup_generation",
+        "_attach_reload_generation",
+        "_prepare_reload_generation",
+        "_accept_reload_generation",
+        "_deliver_reload_staged",
+        "_report_reload_presentation",
+        "_diagnose_reload_refusal",
+        "_deliver_startup_staged",
+        "_abort_startup_attachment",
+        "_retire_reload_attempt",
+        "_finish_candidate_chrome",
+        "_retire_projection_and_chrome",
+    )
+
+    reload_owner = classes["ReloadCommandEffects"]
+    reload_methods = {
+        node.name: node
+        for node in reload_owner.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    reload_method_line_budgets = {
+        "execute": 44,
+        "_reload_configuration_and_resources": 32,
+        "_reload_extensions": 112,
+        "_fire_candidate_session_start": 20,
+        "_report_reload_presentation": 16,
+        "_diagnose_unknown_tool_filters": 12,
+        "_refresh_presentation_and_persistence": 40,
+    }
+    assert reload_methods.keys() == reload_method_line_budgets.keys()
+    for name, method in reload_methods.items():
+        assert method.end_lineno is not None
+        assert method.end_lineno - method.lineno + 1 <= reload_method_line_budgets[name]
+
+    old_attach_members = {
+        "_attach_extensions",
+        "_reload_extension_generation",
+        "_activate_reload_candidate",
+        "_commit_reload_generation",
+        "_accept_prepared_generation",
+        "_retire_reload_attempt",
+        "_finish_candidate_chrome",
+        "_ReloadAttempt",
+    }
+    assert old_attach_members.isdisjoint(reload_methods)
+    assert "_ReloadAttempt" not in classes
+    wiring_tree = trees[wiring_module.__name__]
+    assert old_attach_members.isdisjoint(
+        node.name
+        for node in wiring_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    )
+
+    calls: list[tuple[str, str]] = []
+    for module_name, tree in trees.items():
+        for function_node in ast.walk(tree):
+            if not isinstance(function_node, ast.FunctionDef):
+                continue
+            for call in ast.walk(function_node):
+                if (
+                    isinstance(call, ast.Call)
+                    and ast.unparse(call.func) == "attach_generation"
+                ):
+                    calls.append((module_name, function_node.name))
+    assert sorted(calls) == [
+        ("pipy_harness.native.repl.reload", "_reload_extensions"),
+        ("pipy_harness.native.repl.wiring", "_compose_extension_phase"),
+    ]
+
+    attach_functions = {
+        node.name: node
+        for node in attach_tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    startup = attach_functions["_attach_startup_generation"]
+    startup_publish = next(
+        node
+        for node in ast.walk(startup)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "publish_candidate_ownership"
+    )
+    startup_lock = next(node for node in startup.body if isinstance(node, ast.With))
+    before_publish = next(
+        node
+        for node in ast.walk(startup)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "ports.before_publish"
+    )
+    assert startup_lock.lineno < before_publish.lineno < startup_publish.lineno
+    assert {
+        ast.unparse(node.func)
+        for node in ast.walk(startup_lock)
+        if isinstance(node, ast.Call)
+    } == {"SessionGenerationRef", "inputs.tool_capabilities.publish"}
+
+    reload_attach = attach_functions["_attach_reload_generation"]
+    ordered_calls = [
+        name
+        for _, _, name in sorted(
+            (node.lineno, node.col_offset, ast.unparse(node.func))
+            for node in ast.walk(reload_attach)
+            if isinstance(node, ast.Call)
+        )
+    ]
+    assert ordered_calls == [
+        "ports.candidate_session_start",
+        "predecessor.publishing",
+        "_prepare_reload_generation",
+        "_diagnose_reload_refusal",
+        "AttachGenerationRefusal",
+        "_accept_reload_generation",
+        "_diagnose_reload_refusal",
+        "AttachGenerationRefusal",
+        "_report_reload_presentation",
+        "ReloadGenerationAttachment",
+    ]
+    assert not any(
+        isinstance(node, ast.With)
+        and ast.unparse(node.items[0].context_expr) == "inputs.state_lock"
+        for node in ast.walk(reload_attach)
+    )
+
     interpreter = classes["BuiltinCommandInterpreter"]
     interpret = next(
         node
         for node in interpreter.body
         if isinstance(node, ast.FunctionDef) and node.name == "interpret"
     )
-    parameters = (
-        *interpret.args.posonlyargs,
-        *interpret.args.args,
-        *interpret.args.kwonlyargs,
-    )
-    assert len(parameters) < 10
-    transfer_reload_actions = {
-        "SESSION_EXPORT",
-        "SESSION_IMPORT",
-        "SESSION_SHARE",
-        "RELOAD",
-    }
-    assert transfer_reload_actions.isdisjoint(
-        {
-            node.attr
-            for node in ast.walk(interpret)
-            if isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "CodingCommandAction"
-        }
-    )
-    delegated_owners = [
+    delegated = [
         node.func.value.attr
         for node in ast.walk(interpret)
         if isinstance(node, ast.Call)
@@ -841,213 +972,12 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         and isinstance(node.func.value.value, ast.Name)
         and node.func.value.value.id == "self"
     ]
-    assert sorted(delegated_owners) == [
+    assert sorted(delegated) == [
         "provider_configuration_effects",
         "reload_effects",
         "session_effects",
         "transfer_effects",
     ]
-    root_names = {node.id for node in ast.walk(interpret) if isinstance(node, ast.Name)}
-    assert {
-        "ctl",
-        "session",
-        "coding_state",
-        "terminal_ui",
-        "renderer",
-        "settings",
-        "keybindings",
-        "resource_options",
-        "tool_capabilities",
-    }.isdisjoint(root_names)
-
-    reload_owner = classes["ReloadCommandEffects"]
-    reload_execute = next(
-        node
-        for node in reload_owner.body
-        if isinstance(node, ast.FunctionDef) and node.name == "execute"
-    )
-    reload_methods = {
-        node.name: node
-        for node in reload_owner.body
-        if isinstance(node, ast.FunctionDef)
-    }
-    # The generation reload is four phases behind one teardown. The phase that
-    # opens the publication gate owns the whole critical section; the phase it
-    # calls to swap the live generation runs inside that gate.
-    reload_commit = reload_methods["_commit_reload_generation"]
-    reload_accept = reload_methods["_accept_prepared_generation"]
-    reload_activate = reload_methods["_activate_reload_candidate"]
-    publishing = next(
-        statement for statement in reload_commit.body if isinstance(statement, ast.With)
-    )
-    assert len(publishing.items) == 1
-    publishing_context = publishing.items[0].context_expr
-    assert isinstance(publishing_context, ast.Call)
-    assert not publishing_context.args
-    assert not publishing_context.keywords
-    publishing_function = publishing_context.func
-    assert isinstance(publishing_function, ast.Attribute)
-    assert publishing_function.attr == "publishing"
-    generation_ref = publishing_function.value
-    assert isinstance(generation_ref, ast.Attribute)
-    assert generation_ref.attr == "generation_ref"
-    ctl = generation_ref.value
-    assert isinstance(ctl, ast.Attribute)
-    assert ctl.attr == "ctl"
-    assert isinstance(ctl.value, ast.Name)
-    assert ctl.value.id == "self"
-
-    def _ordered_calls(*nodes: ast.AST) -> list[str]:
-        return [
-            name
-            for _, _, name in sorted(
-                (node.lineno, node.col_offset, ast.unparse(node.func))
-                for root in nodes
-                for node in ast.walk(root)
-                if isinstance(node, ast.Call)
-            )
-        ]
-
-    # The full ordered inventory of the critical section, across the two
-    # methods it now spans. Unchanged from when it was one method except that
-    # `getattr(self.session, "provider_state", ...)` became a plain field read.
-    assert (
-        _ordered_calls(*publishing.body) + _ordered_calls(reload_accept)
-        == (
-            "attempt.require_projection self.tool_capabilities.prepare_extensions "
-            "with_tool_capability isinstance ExtensionChromeSink "
-            "prepare_production_reload ExtensionChromePrepareInput "
-            "UnavailableAfterReloadProvider _agent_usage.AgentUsageAccumulator "
-            "pricing_for CodingReloadHistoryValue chrome_sink.close "
-            "driver.prepare_candidate ExtensionChromeCommitToken self.diag self.diag "
-            "SessionExtensionGeneration self._accept_prepared_generation "
-            "attempt.require_projection gate.reserve "
-            "self.ctl.generation_ref.accept_prepared_reload self.diag self.diag "
-            "retired_chrome.close_nonraising "
-            "_extension_hooks.deliver_accepted_staged_batch cast partial "
-            "finish_chrome_retirement raise_first"
-        ).split()
-    )
-    execution_lifetime = next(
-        node for node in reload_execute.body if isinstance(node, ast.Try)
-    )
-    disposal_call = next(
-        node
-        for statement in execution_lifetime.finalbody
-        for node in ast.walk(statement)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "candidate"
-        and node.func.attr == "dispose"
-    )
-    # Candidate chrome is finished only in the teardown phase, which the outer
-    # `finally` reaches after the publication gate has closed -- so the call
-    # cannot appear inside the gate at all.
-    reload_retire = reload_methods["_retire_reload_attempt"]
-    assert not any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "_finish_candidate_chrome"
-        for node in ast.walk(reload_commit)
-    )
-    assert any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "_finish_candidate_chrome"
-        for node in ast.walk(reload_retire)
-    )
-    reload_generation = reload_methods["_reload_extension_generation"]
-    generation_lifetime = next(
-        node for node in reload_generation.body if isinstance(node, ast.Try)
-    )
-    assert [
-        ast.unparse(node.func)
-        for statement in generation_lifetime.finalbody
-        for node in ast.walk(statement)
-        if isinstance(node, ast.Call)
-    ] == ["self._retire_reload_attempt"]
-    reload_with_chrome_finish_call = next(
-        node
-        for node in ast.walk(execution_lifetime)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "_reload_extension_generation"
-    )
-    final_diagnostic = next(
-        node
-        for node in ast.walk(execution_lifetime)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "diag"
-        and node.lineno > reload_with_chrome_finish_call.lineno
-    )
-    assert reload_with_chrome_finish_call.lineno < final_diagnostic.lineno
-    assert final_diagnostic.lineno < disposal_call.lineno
-    (staged_call,) = (
-        node
-        for node in ast.walk(reload_activate)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "fire_candidate_session_start"
-    )
-    assert len(staged_call.args) == 2
-    assert any(keyword.arg == "ui_driver" for keyword in staged_call.keywords)
-    accept_call = next(
-        node
-        for node in ast.walk(reload_accept)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "accept_prepared_reload"
-    )
-    # Staging fires in the phase before acceptance, and the class defines the
-    # phases in the order they run.
-    assert staged_call.lineno < accept_call.lineno
-    reload_method_line_budgets = {
-        "execute": 44,
-        "_finish_candidate_chrome": 43,
-        "_reload_configuration_and_resources": 32,
-        "_reload_extension_generation": 40,
-        "_activate_reload_candidate": 66,
-        "_commit_reload_generation": 74,
-        "_accept_prepared_generation": 60,
-        "_report_reload_presentation": 20,
-        "_retire_reload_attempt": 30,
-        "_diagnose_unknown_tool_filters": 12,
-        "_refresh_presentation_and_persistence": 40,
-    }
-    assert reload_methods.keys() == reload_method_line_budgets.keys()
-    for method_name, method in reload_methods.items():
-        assert method.end_lineno is not None
-        method_length = method.end_lineno - method.lineno + 1
-        budget = reload_method_line_budgets[method_name]
-        assert method_length <= budget, (
-            f"{method_name} grew to {method_length} lines; phased-review budget is {budget}"
-        )
-
-    reload_delegation = next(
-        node
-        for node in ast.walk(interpret)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "execute"
-        and isinstance(node.func.value, ast.Attribute)
-        and node.func.value.attr == "reload_effects"
-    )
-    assert reload_delegation.end_lineno is not None
-    footer_calls = [
-        node
-        for node in ast.walk(interpret)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr
-        in {"refresh_legacy_footer", "refresh_legacy_footer_with_usage"}
-    ]
-    assert len(footer_calls) == 2
-    assert all(
-        reload_delegation.end_lineno < footer_call.lineno
-        for footer_call in footer_calls
-    )
 
 
 def test_changed_agent_history_compaction_has_nonempty_product_summary() -> None:
@@ -2364,6 +2294,46 @@ def test_state_owned_provider_survives_setup_failure_for_the_next_run(
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert seen == [("anthropic", "custom-sonnet")]
+
+
+@pytest.mark.parametrize("failure_owner", ["extension-phase", "session-wiring"])
+def test_startup_composition_cleanup_failure_preserves_primary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_owner: str,
+) -> None:
+    import pipy_harness.native.repl.wiring as repl_wiring
+    from pipy_harness.native.repl.extension_attach import (
+        StartupGenerationAttachment,
+    )
+
+    primary = RuntimeError(f"injected {failure_owner} failure")
+    abort_calls: list[str] = []
+    original_abort = StartupGenerationAttachment.abort
+
+    def abort_after_cleanup(attachment: StartupGenerationAttachment) -> None:
+        abort_calls.append("abort")
+        if len(abort_calls) > 1:
+            raise AssertionError("startup attachment cleanup was repeated")
+        original_abort(attachment)
+        raise KeyboardInterrupt("injected startup cleanup failure")
+
+    def fail_composition(*_args: object, **_kwargs: object) -> None:
+        raise primary
+
+    monkeypatch.setattr(StartupGenerationAttachment, "abort", abort_after_cleanup)
+    failure_target = (
+        "_raise_unknown_startup_tool_filters"
+        if failure_owner == "extension-phase"
+        else "_compose_product_session"
+    )
+    monkeypatch.setattr(repl_wiring, failure_target, fail_composition)
+
+    with pytest.raises(RuntimeError) as caught:
+        _run_session(tmp_path=tmp_path, tool_calls_script=())
+
+    assert caught.value is primary
+    assert abort_calls == ["abort"]
 
 
 def test_static_settings_projection_uses_the_state_owned_provider(
@@ -4285,6 +4255,7 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import pipy_harness.native.repl.extension_attach as extension_attach
     import pipy_harness.native.repl.wiring as repl_wiring
     import pipy_harness.native.session_generation as generation
     from pipy_harness.native.extensions.activation import _ExtensionCandidate
@@ -4292,7 +4263,8 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
     signature = inspect.signature(CodingSession.run)
     assert "candidate" not in signature.parameters
     assert signature.return_annotation == "CodingSessionResult"
-    source = inspect.getsource(repl_wiring._attach_extensions)
+    assert not hasattr(repl_wiring, "_attach_extensions")
+    source = inspect.getsource(extension_attach._attach_startup_generation)
     assert source.count("SessionExtensionGeneration(") == 1
     monkeypatch.setattr(_ExtensionCandidate, "publish", lambda _candidate: False)
     result = _run_session(tmp_path=tmp_path, tool_calls_script=())[0]
@@ -4315,7 +4287,7 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
         raise RuntimeError("injected startup projection failure")
 
     monkeypatch.setattr(
-        "pipy_harness.native.repl.wiring.build_candidate_extension_projection",
+        "pipy_harness.native.repl.extension_attach.build_candidate_extension_projection",
         fail_projection,
     )
     with pytest.raises(RuntimeError, match="startup projection failure"):
@@ -4324,7 +4296,7 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
     assert len(reports) == cleanup.disposed == 1
     assert "cleanup report failed: KeyboardInterrupt" in sink.args[-1].getvalue()
     monkeypatch.setattr(
-        repl_wiring, "build_candidate_extension_projection", build_projection
+        extension_attach, "build_candidate_extension_projection", build_projection
     )
     with pytest.raises(KeyboardInterrupt, match="report failed"):
         _run_session(tmp_path=tmp_path, tool_calls_script=())

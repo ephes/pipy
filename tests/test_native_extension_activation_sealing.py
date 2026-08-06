@@ -14,6 +14,7 @@ import pytest
 from session_generation_test_support import build_test_projection
 
 import pipy_harness.native.extensions.activation as activation
+import pipy_harness.native.repl.extension_attach as extension_attach_module
 from pipy_harness.extensions import (
     ExtensionCapabilityError,
     ExtensionFlag,
@@ -1331,7 +1332,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
         ("repl/reload.py", "ReloadCommandEffects.execute", "dispose"),
         (
             "repl/reload.py",
-            "ReloadCommandEffects._activate_reload_candidate",
+            "ReloadCommandEffects._reload_extensions",
             "adopt",
         ),
         ("session_generation.py", "publish_candidate_ownership", "publish"),
@@ -1347,7 +1348,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
         ),
         (
             "repl/reload.py",
-            "ReloadCommandEffects._activate_reload_candidate",
+            "ReloadCommandEffects._reload_extensions",
             "_activate_workspace_extensions",
             True,
         ),
@@ -1984,7 +1985,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
         )
     elif failure == "projectionless":
         monkeypatch.setattr(
-            reload_module,
+            extension_attach_module,
             "SessionExtensionGeneration",
             lambda runtime, _projection, chrome: SessionExtensionGeneration(
                 runtime, None, chrome
@@ -2003,7 +2004,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
             raise RuntimeError("injected candidate publication failure")
 
         monkeypatch.setattr(_ExtensionCandidate, "publish", raise_publish)
-    effects._reload_extension_generation(candidate)
+    effects._reload_extensions(candidate)
 
     assert diagnostics == [diagnostic, "pipy: keeping the previous extensions."]
     assert ctl.extension_generation is live_generation
@@ -2039,7 +2040,7 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
         lambda *_args, **_kwargs: runtime,
     )
     monkeypatch.setattr(
-        reload_module,
+        extension_attach_module,
         "SessionExtensionGeneration",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("build failed")),
     )
@@ -2080,7 +2081,7 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
     candidate = _ExtensionCandidate()
 
     with pytest.raises(RuntimeError, match="build failed"):
-        effects._reload_extension_generation(candidate)
+        effects._reload_extensions(candidate)
 
     assert ref.current is live
     assert candidate.dispose().disposed == 1
@@ -2156,7 +2157,7 @@ def test_reload_interrupt_releases_route_and_preserves_base_exception(
     candidate = _ExtensionCandidate()
 
     with pytest.raises(KeyboardInterrupt, match="post-commit delivery interrupted"):
-        effects._reload_extension_generation(candidate)
+        effects._reload_extensions(candidate)
 
     installed = ref.current
     assert installed.runtime is runtime and installed.projection is not None
@@ -2257,34 +2258,41 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
     )
 
 
-def test_startup_installs_generation_reference_before_host_publication() -> None:
-    path = Path(__file__).parents[1] / "src/pipy_harness/native/repl/wiring.py"
+def test_startup_initial_install_and_preparation_precede_host_publication() -> None:
+    path = (
+        Path(__file__).parents[1] / "src/pipy_harness/native/repl/extension_attach.py"
+    )
     syntax = ast.parse(path.read_text(encoding="utf-8"))
-    run = next(
+    attach = next(
         node
         for node in syntax.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_attach_extensions"
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_attach_startup_generation"
     )
-    assignments = [
+    publish = next(
         node
-        for node in ast.walk(run)
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == "generation_ref"
-            for target in node.targets
-        )
-    ]
-    publishes = [
-        node
-        for node in ast.walk(run)
+        for node in ast.walk(attach)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "publish_candidate_ownership"
-    ]
+    )
+    state_section = next(
+        node
+        for node in attach.body
+        if isinstance(node, ast.With)
+        and ast.unparse(node.items[0].context_expr) == "inputs.state_lock"
+    )
+    section_source = ast.unparse(state_section)
 
-    assert len(assignments) == 1
-    assert len(publishes) == 1
-    assert assignments[0].lineno < publishes[0].lineno
+    before_publish = next(
+        node
+        for node in ast.walk(attach)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "ports.before_publish"
+    )
+    assert state_section.lineno < before_publish.lineno < publish.lineno
+    assert section_source.count("SessionGenerationRef(") == 1
+    assert section_source.count("inputs.tool_capabilities.publish(") == 1
 
 
 def test_disposed_preload_finalize_is_bounded_and_commit_is_one_way(
@@ -2430,7 +2438,7 @@ def test_reload_exception_disposes_candidate_only_after_the_gate_closes(
     )
     monkeypatch.setattr(
         ReloadCommandEffects,
-        "_reload_extension_generation",
+        "_reload_extensions",
         raise_after_activation,
     )
     effects = ReloadCommandEffects(

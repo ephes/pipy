@@ -38,6 +38,7 @@ from pipy_harness.native.extensions.activation import _ExtensionCandidate
 from pipy_harness.native.extensions.contracts import (
     _ExtensionRuntime,
 )
+from pipy_harness.native.repl.extension_attach import _finish_candidate_chrome
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
     ReloadCommandEffects,
@@ -720,7 +721,7 @@ def test_explicit_reconcile_retirement_route_drops_disposal_reentry_without_fall
 
     def accept() -> None:
         try:
-            effects._finish_candidate_chrome(candidate, replacement_accepted=True)
+            _finish_candidate_chrome(driver, candidate, None)
         except BaseException as error:  # noqa: BLE001 - asserted at boundary
             errors.append(error)
 
@@ -752,7 +753,7 @@ def test_early_closed_candidate_refusal_keeps_previous_without_double_close() ->
         SimpleNamespace(fire_lifecycle=lambda *_args, **_kwargs: None),
     )
 
-    diagnostic = effects._finish_candidate_chrome(candidate, replacement_accepted=True)
+    diagnostic = _finish_candidate_chrome(driver, candidate, None)
 
     assert diagnostic == "pipy: extension chrome candidate is closed."
     assert candidate.close_calls == 1
@@ -812,7 +813,7 @@ def test_post_reconcile_close_restores_previous_and_cleans_candidate_once() -> N
     diagnostics: list[str | None] = []
     accept_thread = threading.Thread(
         target=lambda: diagnostics.append(
-            effects._finish_candidate_chrome(candidate, replacement_accepted=True)
+            _finish_candidate_chrome(driver, candidate, None)
         )
     )
     accept_thread.start()
@@ -998,7 +999,7 @@ def test_retired_cleanup_interrupt_propagates_after_live_ownership_transfer(
     )
 
     with pytest.raises(interrupt_type):
-        effects._finish_candidate_chrome(candidate, replacement_accepted=True)
+        _finish_candidate_chrome(driver, candidate, None)
 
     assert driver.owns_sink(candidate)
     assert candidate.close_calls == 0
@@ -1156,10 +1157,42 @@ def test_invalid_flags_keep_live_title_widgets_and_listeners_without_candidate_p
     live = ctl.extension_generation
 
     candidate = _ExtensionCandidate()
-    effects._reload_extension_generation(candidate)
+    effects._reload_extensions(candidate)
 
     assert ctl.extension_generation is live
     assert ui.calls == before
+    assert candidate_sink.snapshot() == ExtensionChromeSnapshot()
+
+
+def test_invalid_flag_diagnostic_interrupt_still_closes_candidate_chrome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ui = _FakeTerminalUi()
+    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+
+    class _CleanupFailingSink(_CountingCloseSink):
+        def close(self) -> None:
+            super().close()
+            raise SystemExit("injected chrome cleanup failure")
+
+    candidate_sink = _CleanupFailingSink()
+    candidate_sink.set_title("must-close")
+    monkeypatch.setattr(driver, "new_candidate_sink", lambda: candidate_sink)
+    monkeypatch.setattr(
+        reload_module,
+        "_activate_workspace_extensions",
+        lambda *_args, **_kwargs: _runtime(),
+    )
+    effects, _ctl = _effects(ui=ui, driver=driver, tokens=("--missing",))
+
+    def interrupt_diagnostic(_message: str) -> None:
+        raise KeyboardInterrupt("injected diagnostic interrupt")
+
+    object.__setattr__(effects, "diag", interrupt_diagnostic)
+    with pytest.raises(KeyboardInterrupt, match="diagnostic interrupt"):
+        effects._reload_extensions(_ExtensionCandidate())
+
+    assert candidate_sink.close_calls == 1
     assert candidate_sink.snapshot() == ExtensionChromeSnapshot()
 
 
@@ -1183,7 +1216,7 @@ def test_injected_activation_failure_keeps_live_chrome_and_disposes_candidate_si
     live = ctl.extension_generation
 
     with pytest.raises(RuntimeError, match="injected activation failure"):
-        effects._reload_extension_generation(_ExtensionCandidate())
+        effects._reload_extensions(_ExtensionCandidate())
 
     assert ctl.extension_generation is live
     assert ui.calls == before
@@ -1260,7 +1293,7 @@ def test_post_publication_interrupt_finishes_live_candidate_chrome_once(
     object.__setattr__(effects, "extension_send_message", interrupt)
     candidate = _ExtensionCandidate()
     with pytest.raises(KeyboardInterrupt, match="post-publication delivery interrupt"):
-        effects._reload_extension_generation(candidate)
+        effects._reload_extensions(candidate)
 
     assert ctl.extension_generation.runtime is runtime
     assert runtime.message_routing._state == "live"  # noqa: SLF001
@@ -1503,9 +1536,8 @@ def test_successful_removal_reconciles_empty_chrome_once_after_acceptance(
     effects, ctl = _effects(ui=ui, driver=driver)
     live = ctl.extension_generation
 
-    replacement_accepted, candidate_sink = effects._reload_extension_generation(
-        _ExtensionCandidate()
-    )
+    replacement_accepted = effects._reload_extensions(_ExtensionCandidate())
+    candidate_sink = driver._chrome._active_sink  # noqa: SLF001 - accepted owner
 
     assert replacement_accepted
     assert candidate_sink is not None
