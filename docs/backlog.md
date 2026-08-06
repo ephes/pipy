@@ -44,13 +44,14 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 48b; **not complete**. The concrete
-terminal class is `native.tui.TerminalUi`; the old name is deleted without an
-alias or re-export, both raw-mode loops remain in `tui.py`, and the TUI/session
-C901 pins are gone. The coding-session facade is 336 lines with a 67-AST-line/
-C901-5 `run`; activation is the accepted 1,807-line owner; the native ceiling is
-2,488 because out-of-scope `native/session.py` remains that size. Retry slice 49
-is the next task and remains the only final-milestone gate.
+**Program status:** **Complete through retry slice 49.** The concrete terminal
+class is `native.tui.TerminalUi`; the old name is deleted without an alias or
+re-export, both raw-mode loops remain in `tui.py`, and the TUI/session C901 pins
+are gone. The coding-session facade is 336 lines with a 67-AST-line/C901-5
+`run`; activation is the accepted 1,807-line owner; the native ceiling is 2,488
+because out-of-scope `native/session.py` remains that size. The final tests/docs
+audit passed without production changes or boundary relaxation, and there is no
+next decomposition slice.
 
 The blocked slice-49 audit measured `native/tui.py` at 1,349 physical lines and
 `TerminalUi` at 856 AST lines / 43 definitions / 18 fields. Slice 48a retired
@@ -79,9 +80,14 @@ both below the accepted 1,807-line owner ceiling. One Screen-created
 `PaintLock` remains shared by the exact graph and no C901 pin or boundary
 relaxation was added.
 
-**Retry slice 49 is next.** It remains tests/docs-only and owns the final
-alias-resistant field/lock audits, parity E2/E6 ownership-doc fixes, and final
-milestone. The program is not complete until that retry passes. No changelog or
+**Retry slice 49 is complete.** Its focused architecture audit resolves typed
+receivers, simple aliases, and literal dynamic member access for the exact 9
+`TerminalUi`, 10 `RunControlState`, and 24 `CodingSession` fields and measured
+writer modules. It proves the unique explicit `PaintLock`/`SessionStateLock`
+constructions, pins 580/230/5/9 terminal shape and the 336/1,807/2,488 file
+limits, reruns the complete 41-rule boundary inventory, and keeps retired
+surfaces and old C901 pins absent. Parity E2 now names `repl/loop_step.py`; E6
+names `repl/settings_actions.py` and its current command route. No changelog or
 release note applies to this behavior-preserving internal decomposition.
 
 ## Landing-Gated Program — Comparative Review Remediation

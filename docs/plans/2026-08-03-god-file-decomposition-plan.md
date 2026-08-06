@@ -1,6 +1,6 @@
 # God-File Decomposition Plan
 
-Status: active. Sections 2a, 3, 3a and 3b were re-derived from measurement on
+Status: complete. Sections 2a, 3, 3a and 3b were re-derived from measurement on
 2026-08-04 and supersede section 1's line estimates and the original wave order.
 Section 2d (also 2026-08-04) re-measures the tui side and extension_runtime.py,
 adds the class-level ratchet, corrects the pi-mono bar's scope, and fixes the
@@ -91,8 +91,22 @@ beats the 710–760 planning band because retiring the composition/startup regio
 also removed more facade-only imports, comments, and spacing than forecast; the
 residual was not padded back upward. `ui/composition.py` is 267 lines and
 `startup_chrome.py` is 98, one Screen-created `PaintLock` remains shared by the
-exact owner graph, and no C901 pin or boundary relaxation was added. Retry slice
-49 is next and the program is not complete.
+exact owner graph, and no C901 pin or boundary relaxation was added.
+
+**Final checkpoint (2026-08-06, retry slice 49).** The tests/docs-only final
+audit passes and the program is complete. The alias-resistant member audit pins
+`TerminalUi` at 9 fields, `RunControlState` at 10, and `CodingSession` at 24,
+including the exact measured writer modules and synthetic alias/dynamic-access
+refusals. Lock construction remains exactly one `PaintLock` in `ui/screen.py`
+and one `SessionStateLock` in `repl/wiring.py`, each wrapping one explicit
+`threading.RLock()` and exposing no default construction. Final shape is
+`native/tui.py` 580 physical lines and `TerminalUi` 230 AST lines / 5 retained
+definitions / 9 fields; `coding/session.py` is 336, activation is 1,807, and the
+native maximum is 2,488 at `native/session.py`. The complete 41-rule import
+boundary inventory, recursive `native.ui` back-edge audit, retired surfaces,
+and absent old C901 pins remain strict. Parity E2/E6 now name their actual
+owners and settings command route. No release note applies to this internal
+audit.
 
 Date: 2026-08-03.
 
@@ -772,9 +786,9 @@ forecast those conditional reductions are 219–329 physical lines and at least
 endpoints may be crossed. Retry 49 is blocked unless the facade inventory is
 empty and the upper edge is met.
 
-### Retry slice 49 — tests/docs final audit only
+### Retry slice 49 — tests/docs final audit only (complete)
 
-49 runs only after independent implementation review and all 48a/48b gates. It
+49 ran after independent implementation review and all 48a/48b gates. It
 contains no production refactor. It:
 
 1. adds an AST/type-resolved, literal-`getattr`/`setattr`-aware exact field
@@ -880,7 +894,7 @@ Each row below is safe alone for the reason in its port column: zero port, or a 
 | 48 | burn `read_line` 39 and `wait_for_active_turn_interrupt` 35 onto `apply_editing_key`; split `_deliver_chrome_event` 11; rename `ToolLoopTerminalUi` → `TerminalUi` (§2d) | T | none | succeeded historically: tui C901 pin deleted; final size gate later failed closed |
 | 48a | retire/repoint the 14-line projections, 231-line modal/chrome/screen/footer facade, 70-line transcript facade and 9-line dead bash helper per §2e; add concrete `TerminalModalDriver` + `TerminalComponents`, repoint every measured production caller, replace stale modal-facade architecture test | T | existing concrete owners only | no new C901; intermediate estimate tui 979–1,039 / class 516–556; pair the measured result with 48b |
 | 48b | move the 153-line composition transaction to typed `ui/composition.py` builder; move 78-line startup blocks to `native/startup_chrome.py` and 14-line local-command classifier to `ui/components/input_editor.py`; leave thin unchanged-signature `TerminalUi` constructor | T | `TerminalComponents`; one Screen-created `PaintLock` | no new C901; combined 48a+48b estimate is a 589–639 physical-line net reduction, yielding tui 710–760 / class ≤310 |
-| 49 | **retry**, tests/docs only: exact field/lock ownership, final measured ratchets, boundary/retired-surface audit, parity E2/E6 ownership docs, final milestone; fail closed above the §2e band | tests | — | no production code |
+| 49 | **complete retry**, tests/docs only: exact field/lock ownership, final measured ratchets, boundary/retired-surface audit, parity E2/E6 ownership docs, final milestone; passed below the §2e upper edge | tests | — | no production code |
 
 **Boundary edits, complete.** Slice 3 adds `"pipy_harness.native.repl"` beside every
 `"pipy_harness.native.tool_loop_session"` (25 literal occurrences today — re-read the line numbers,
@@ -898,10 +912,9 @@ halved; after **34**, every widget had a definition-site owner; after **44**, bo
 files were under the broad bar and the session pin was deleted; after **46**,
 `extension_runtime.py` was retired. The old claim that 47–49 were merely polish
 is superseded: the clean slice-49 audit blocked on 569 omitted class lines.
-Slices 48a and 48b are now landed. The post-48b implementation stopping point
-is reached, with retry 49 still pending. **Retry slice 49 is the current next
-slice.** The final good stopping point/program-complete status exists only after
-retry 49 passes all §2e gates.
+Slices 48a and 48b are now landed. The post-48b implementation stopping point and retry-49 final audit are both
+reached. **The program is complete; there is no next decomposition slice.** All
+§2e gates pass without changing production code or relaxing a boundary.
 
 ## 3a. Projected end state
 
@@ -924,7 +937,7 @@ the 51-line generation proxy. Raw-mode loops stay in `tui.py`; modal driving
 belongs to `TerminalModalDriver`; state/effects belong to the concrete owners in
 `TerminalComponents`. Moving the proxy under `native.ui` is still forbidden
 because its full-surface `__getattr__` would launder the back-edge past static
-checks. Retry 49 still owns the final exact audit and completion declaration.
+checks. Retry 49's exact audit passes and owns the completion declaration above.
 
 The native-module ceiling is **2,488**, currently and intentionally set by the
 out-of-scope `native/session.py`; activation at 1,807 is below it. The prior
