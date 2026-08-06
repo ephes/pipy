@@ -123,9 +123,9 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     ui.components.chrome.component.set_working_message("sticky")
     ui.components.chrome.component.set_working_visible(False)
     ui.components.chrome.listeners.add(lambda key: None)
-    ui._autocomplete.add_extension_provider(lambda base: base)
-    ui._custom_editor.set_editor_component(lambda *_args: object())
-    ui._transcript.set_hidden_thinking_label("Folded")
+    ui.components.autocomplete.add_extension_provider(lambda base: base)
+    ui.components.custom_editor.set_editor_component(lambda *_args: object())
+    ui.components.transcript.set_hidden_thinking_label("Folded")
     ui.components.chrome.generation.retire_generation()
     assert ui.components.chrome.record.widgets_above == {}
     assert ui.components.chrome.record.header is None
@@ -134,9 +134,9 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui.components.chrome.record.footer_branch is None
     assert ui.components.chrome.record.title is None
     assert ui.components.chrome.record.terminal_input_listeners == {}
-    assert ui.input_editor.editor_state.autocomplete_provider_factories == []
-    assert ui._custom_editor.factory is None
-    assert ui._transcript.hidden_thinking_label == "Thinking..."
+    assert ui.components.input_editor.editor_state.autocomplete_provider_factories == []
+    assert ui.components.custom_editor.factory is None
+    assert ui.components.transcript.hidden_thinking_label == "Thinking..."
     assert ui.components.chrome.record.statuses == {"status": "value"}
     assert ui.components.chrome.record.working_message == "sticky"
     assert ui.components.chrome.record.working_visible is False
@@ -144,26 +144,26 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
 
 def test_clear_without_custom_editor_preserves_text_cursor_and_undo_state():
     ui = _ui()
-    ui.input_editor.editor_state.set_buffer("draft text", cursor=3)
-    ui.input_editor.editor_state.undo_stack[:] = [("older", 2)]
-    ui.input_editor.editor_state.redo_stack[:] = [("newer", 4)]
-    ui.input_editor.editor_state.pending_initial_text = "pending draft"
+    ui.components.input_editor.editor_state.set_buffer("draft text", cursor=3)
+    ui.components.input_editor.editor_state.undo_stack[:] = [("older", 2)]
+    ui.components.input_editor.editor_state.redo_stack[:] = [("newer", 4)]
+    ui.components.input_editor.editor_state.pending_initial_text = "pending draft"
     before = (
-        ui.input_editor.editor_state.text,
-        ui.input_editor.editor_state.cursor,
-        list(ui.input_editor.editor_state.undo_stack),
-        list(ui.input_editor.editor_state.redo_stack),
-        ui.input_editor.editor_state.pending_initial_text,
+        ui.components.input_editor.editor_state.text,
+        ui.components.input_editor.editor_state.cursor,
+        list(ui.components.input_editor.editor_state.undo_stack),
+        list(ui.components.input_editor.editor_state.redo_stack),
+        ui.components.input_editor.editor_state.pending_initial_text,
     )
 
     ui.components.chrome.generation.retire_generation()
 
     assert (
-        ui.input_editor.editor_state.text,
-        ui.input_editor.editor_state.cursor,
-        ui.input_editor.editor_state.undo_stack,
-        ui.input_editor.editor_state.redo_stack,
-        ui.input_editor.editor_state.pending_initial_text,
+        ui.components.input_editor.editor_state.text,
+        ui.components.input_editor.editor_state.cursor,
+        ui.components.input_editor.editor_state.undo_stack,
+        ui.components.input_editor.editor_state.redo_stack,
+        ui.components.input_editor.editor_state.pending_initial_text,
     ) == before
 
 
@@ -184,16 +184,16 @@ def test_reconcile_clears_active_custom_editor_and_round_trips_its_text():
             disposed.append(self.text)
 
     component = _Editor()
-    ui.input_editor.set_input_text("built-in draft")
-    ui._custom_editor.set_editor_component(lambda *_args: component)
+    ui.components.input_editor.set_input_text("built-in draft")
+    ui.components.custom_editor.set_editor_component(lambda *_args: component)
     component.text = "custom draft"
 
     ui.components.chrome.generation.reconcile_generation(ExtensionChromeSnapshot())
 
     assert disposed == ["custom draft"]
-    assert ui._custom_editor.factory is None
-    assert ui.input_editor.get_input_text() == "custom draft"
-    assert ui._transcript.hidden_thinking_label == "Thinking..."
+    assert ui.components.custom_editor.factory is None
+    assert ui.components.input_editor.get_input_text() == "custom draft"
+    assert ui.components.transcript.hidden_thinking_label == "Thinking..."
 
 
 @pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, SystemExit])
@@ -211,7 +211,7 @@ def test_clear_propagates_custom_editor_text_interrupt_before_detach(interrupt_t
             return ["editor"]
 
     factory = lambda *_args: _Editor()  # noqa: E731
-    ui._custom_editor.set_editor_component(factory)
+    ui.components.custom_editor.set_editor_component(factory)
     ui.components.chrome.component.set_widget("kept", ["kept"])
     generation = ui.components.chrome.record.generation
 
@@ -219,7 +219,7 @@ def test_clear_propagates_custom_editor_text_interrupt_before_detach(interrupt_t
         ui.components.chrome.generation.retire_generation()
 
     assert ui.components.chrome.record.generation == generation
-    assert ui._custom_editor.factory is factory
+    assert ui.components.custom_editor.factory is factory
     assert "kept" in ui.components.chrome.record.widgets_above
 
 
@@ -233,10 +233,10 @@ def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa
         acquired: list[bool] = []
 
         def probe() -> None:
-            available = ui._screen.paint_lock.acquire(timeout=1.0)
+            available = ui.components.screen.paint_lock.acquire(timeout=1.0)
             acquired.append(available)
             if available:
-                ui._screen.paint_lock.release()
+                ui.components.screen.paint_lock.release()
 
         thread = threading.Thread(target=probe)
         thread.start()
@@ -266,9 +266,9 @@ def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa
             observe_lock("editor-dispose")
 
     ui.components.chrome.component.set_widget("region", lambda _theme: _Region())
-    ui._custom_editor.set_editor_component(lambda *_args: _Editor())
+    ui.components.custom_editor.set_editor_component(lambda *_args: _Editor())
     ui.components.chrome.component.set_title("extension")
-    driver_type = type(ui._driver)
+    driver_type = type(ui.components.driver)
     original_restore = driver_type.restore_title
 
     def restore_title(driver):
@@ -279,13 +279,13 @@ def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa
     monkeypatch.setattr(
         ui.components.chrome.component,
         "_restore_title",
-        lambda: restore_title(ui._driver),
+        lambda: restore_title(ui.components.driver),
     )
-    screen_type = type(ui._screen)
+    screen_type = type(ui.components.screen)
     original_paint_locked = screen_type._paint
 
     def paint_locked(instance):
-        if instance is ui._screen:
+        if instance is ui.components.screen:
             observe_lock("paint")
         original_paint_locked(instance)
 
@@ -435,10 +435,10 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
             driver.add_autocomplete_provider(retiring_autocomplete)
 
             def probe_paint_guard() -> None:
-                acquired = ui._screen.paint_lock.acquire(timeout=1.0)
+                acquired = ui.components.screen.paint_lock.acquire(timeout=1.0)
                 paint_guard_was_free.append(acquired)
                 if acquired:
-                    ui._screen.paint_lock.release()
+                    ui.components.screen.paint_lock.release()
 
             probe = threading.Thread(target=probe_paint_guard)
             probe.start()
@@ -521,11 +521,13 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
     assert ui.components.chrome.record.title == snapshot.title
     assert ui.components.chrome.record.header is not None
     assert ui.components.chrome.record.header.source is snapshot.header
-    assert ui._custom_editor.factory is snapshot.editor_component
-    assert ui.input_editor.editor_state.autocomplete_provider_factories == [
+    assert ui.components.custom_editor.factory is snapshot.editor_component
+    assert ui.components.input_editor.editor_state.autocomplete_provider_factories == [
         candidate_autocomplete
     ]
-    assert ui._transcript.hidden_thinking_label == snapshot.hidden_thinking_label
+    assert (
+        ui.components.transcript.hidden_thinking_label == snapshot.hidden_thinking_label
+    )
     assert ui.components.chrome.listeners.apply("x") == "candidate:x"
     assert candidate_seen == ["x"]
     assert retiring_seen == []
@@ -644,7 +646,10 @@ def test_terminal_input_listener_failsoft_and_object_result():
 
 def _frame_text(ui, width=60, height=24):
     return [
-        fl.text for fl in ui._screen._frame_lines(width=width, height=height, pad=False)
+        fl.text
+        for fl in ui.components.screen._frame_lines(
+            width=width, height=height, pad=False
+        )
     ]
 
 
@@ -826,7 +831,7 @@ def test_tall_chrome_clamped_and_input_preserved():
         ui.components.chrome.component.set_widget(
             f"w{i}", [f"r{i}-{j}" for j in range(10)], placement="above_editor"
         )
-    frame = ui._screen._frame_lines(width=60, height=24, pad=False)
+    frame = ui.components.screen._frame_lines(width=60, height=24, pad=False)
     assert len(frame) <= 24  # fits the viewport
     assert any(fl.kind == "input" for fl in frame)  # input not starved
     assert any(fl.kind == "footer" for fl in frame)  # footer survives
@@ -863,7 +868,7 @@ def test_frame_clamp_never_overflows_or_starves(height):
     # built-in footer rows carry "footer".
     custom_footer = height == 24
     _fill_tall_chrome(ui, custom_footer=custom_footer)
-    frame = ui._screen._frame_lines(width=60, height=height, pad=False)
+    frame = ui.components.screen._frame_lines(width=60, height=height, pad=False)
     footer_kind = "chrome_custom" if custom_footer else "footer"
     assert len(frame) <= height  # fits the viewport
     assert any(fl.kind == "input" for fl in frame)  # input never starved
@@ -877,7 +882,7 @@ def test_frame_clamp_never_overflows_or_starves(height):
 def test_live_region_clamp_never_overflows_or_starves(height):
     ui = _ui()
     _fill_tall_chrome(ui, custom_footer=(height == 24))
-    lines = ui._screen._live_region_lines(width=60, height=height)
+    lines = ui.components.screen._live_region_lines(width=60, height=height)
     assert len(lines) <= height  # fits the viewport
     assert any(fl.kind == "input" for fl in lines)  # input never starved
 
@@ -934,7 +939,7 @@ def test_indicator_bad_frames_is_failsoft():
 def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
     ui = _ui()
     ui.components.chrome.footer.set_builtin_text("\n".join(("a", "b")))
-    ui.pending_messages.enqueue_steering("pending one")
+    ui.components.pending_messages.enqueue_steering("pending one")
     for i in range(5):
         ui.components.chrome.component.set_status(f"k{i}", f"v{i}")
     ui.components.chrome.footer.set_footer(
@@ -942,10 +947,10 @@ def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
             "C", (), {"render": lambda self, w: ["F1", "F2", "F3", "F4"]}
         )()
     )
-    live = ui._screen._live_region_lines(width=80, height=h)
+    live = ui.components.screen._live_region_lines(width=80, height=h)
     assert len(live) <= h  # live region never exceeds the viewport
     assert any(fl.kind == "input" for fl in live)  # input survives
-    frame = ui._screen._frame_lines(width=80, height=h, pad=False)
+    frame = ui.components.screen._frame_lines(width=80, height=h, pad=False)
     assert len(frame) <= h
     assert any(fl.kind == "input" for fl in frame)
 

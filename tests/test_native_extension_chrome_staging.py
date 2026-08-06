@@ -77,7 +77,7 @@ class _FakeTerminalUi:
         self.reconciles: list[ExtensionChromeSnapshot] = []
         self.retirement_scopes: list[Callable[[], AbstractContextManager[None]]] = []
         self.semantic_committed = False
-        self._chrome = SimpleNamespace(
+        chrome = SimpleNamespace(
             component=SimpleNamespace(
                 set_widget=self.set_extension_widget,
                 set_header=self.set_extension_header,
@@ -94,17 +94,23 @@ class _FakeTerminalUi:
                 )
             ),
         )
-        self._transcript = SimpleNamespace(
+        transcript = SimpleNamespace(
             set_hidden_thinking_label=self.set_extension_hidden_thinking_label
         )
-        self._autocomplete = SimpleNamespace(
+        autocomplete = SimpleNamespace(
             add_extension_provider=self.add_extension_autocomplete_provider
         )
-        self._custom_editor = SimpleNamespace(
+        custom_editor = SimpleNamespace(
             set_editor_component=self.set_editor_component,
             factory=None,
         )
-        self.input_editor = SimpleNamespace()
+        self.components = SimpleNamespace(
+            chrome=chrome,
+            transcript=transcript,
+            autocomplete=autocomplete,
+            custom_editor=custom_editor,
+            input_editor=SimpleNamespace(),
+        )
 
     def reconcile_extension_chrome(
         self,
@@ -166,13 +172,14 @@ def _live_driver(ui: _FakeTerminalUi | TerminalUi) -> _LiveExtensionUiDriver:
             components.custom_editor,
             components.input_editor,
         )
+    fake_components = ui.components
     return _LiveExtensionUiDriver(
-        cast(Any, ui._chrome),
+        cast(Any, fake_components.chrome),
         cast(Any, SimpleNamespace()),
-        cast(Any, ui._transcript),
-        cast(Any, ui._autocomplete),
-        cast(Any, ui._custom_editor),
-        cast(Any, ui.input_editor),
+        cast(Any, fake_components.transcript),
+        cast(Any, fake_components.autocomplete),
+        cast(Any, fake_components.custom_editor),
+        cast(Any, fake_components.input_editor),
     )
 
 
@@ -604,7 +611,7 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
     wait_entered = threading.Event()
     guard_checks: list[tuple[str, object]] = []
 
-    original_set_title = ui._chrome.component.set_title
+    original_set_title = ui.components.chrome.component.set_title
 
     def blocking_guarded_title(title: str | None) -> None:
         _assert_driver_guard_released(driver)
@@ -625,7 +632,7 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
         guard_checks.append(("reconcile", snapshot.title))
         return original_reconcile(snapshot, retirement_scope=retirement_scope)
 
-    ui._chrome.component.set_title = blocking_guarded_title  # type: ignore[method-assign]
+    ui.components.chrome.component.set_title = blocking_guarded_title  # type: ignore[method-assign]
     ui.reconcile_extension_chrome = guarded_reconcile  # type: ignore[method-assign]
 
     writer_errors: list[BaseException] = []
@@ -914,7 +921,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
 
     old_editor = _OldEditor()
     new_editor = _NewEditor()
-    ui.input_editor.set_input_text("safe built-in draft")
+    ui.components.input_editor.set_input_text("safe built-in draft")
     driver.set_editor_component(lambda *_args: old_editor)
     driver.set_title("old")
     candidate = driver.new_candidate_sink()
@@ -926,9 +933,9 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
     assert result.accepted
     assert result.diagnostic is None
     assert driver.owns_sink(candidate)
-    assert ui._custom_editor.factory is candidate.snapshot().editor_component
+    assert ui.components.custom_editor.factory is candidate.snapshot().editor_component
     assert new_editor.text == "safe built-in draft"
-    assert ui.input_editor.get_input_text() == "safe built-in draft"
+    assert ui.components.input_editor.get_input_text() == "safe built-in draft"
     assert ui.components.chrome.record.title == "new"
     assert disposed == ["old"]
     assert "must stay bounded" not in terminal.getvalue()

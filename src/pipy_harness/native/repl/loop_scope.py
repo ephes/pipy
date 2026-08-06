@@ -192,16 +192,16 @@ class AgentTurnStatusPresentationAdapter:
     def has_pending_input(self) -> bool:
         return (
             self.terminal_ui is not None
-            and self.terminal_ui.pending_messages.has_pending_messages()
+            and self.terminal_ui.components.pending_messages.has_pending_messages()
         )
 
     def promote_pending_input(self) -> None:
         if self.terminal_ui is not None:
-            self.terminal_ui.pending_messages.promote_pending_to_drain()
+            self.terminal_ui.components.pending_messages.promote_pending_to_drain()
 
     def restore_pending_input(self) -> None:
         if self.terminal_ui is not None:
-            self.terminal_ui.pending_messages.restore_pending_to_editor()
+            self.terminal_ui.components.pending_messages.restore_pending_to_editor()
 
     def emit_diagnostic(self, message: str, /) -> None:
         emit_diagnostic(

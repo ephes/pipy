@@ -97,11 +97,11 @@ def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
     )
     ui.components.transcript.submit_user_message("visible prompt")
     ui.components.transcript.append_assistant("visible answer")
-    ui.input_editor.text = "next"
+    ui.components.input_editor.text = "next"
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
-    width, height = ui._driver.size()
+    width, height = ui.components.driver.size()
     snapshot = parse_ansi_screen(terminal.getvalue(), columns=width, rows=height)
 
     assert len(snapshot.find("visible prompt")) == 1

@@ -16,8 +16,10 @@ from __future__ import annotations
 from pipy_harness.native.repl_input import DEFAULT_REPL_COMMAND_DESCRIPTIONS
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import ExtensionCommandProjection
-from pipy_harness.native.tui import TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 from pipy_harness.native.ui.autocomplete import CommandSurface
+from pipy_harness.native.ui.composition import (
+    TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
+)
 
 
 def tool_loop_command_names(

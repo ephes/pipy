@@ -24,7 +24,7 @@ def _ui(tmp_path: Path) -> TerminalUi:
 
 
 def _frame_text(ui: TerminalUi) -> str:
-    return "\n".join(ui._screen.render_lines(width=88, height=24))
+    return "\n".join(ui.components.screen.render_lines(width=88, height=24))
 
 
 class TestThinkingFold:
@@ -44,10 +44,10 @@ class TestThinkingFold:
         ui = _ui(tmp_path)
         ui.components.transcript.set_thinking_hidden(True)
         ui.components.transcript.append_reasoning("SECRET-THOUGHT")
-        ui._transcript.set_hidden_thinking_label("Still thinking")
+        ui.components.transcript.set_hidden_thinking_label("Still thinking")
         assert "Still thinking" in _frame_text(ui)
         assert "SECRET-THOUGHT" not in _frame_text(ui)
-        ui._transcript.set_hidden_thinking_label()
+        ui.components.transcript.set_hidden_thinking_label()
         assert "Thinking..." in _frame_text(ui)
 
     def test_visible_reasoning_rendered_live(self, tmp_path: Path) -> None:
@@ -60,24 +60,24 @@ class TestThinkingFold:
         ui = _ui(tmp_path)
         ui.components.transcript.set_thinking_hidden(True)
         ui.components.transcript.append_reasoning("DEFER-ME")
-        ui._transcript.settle_reasoning()
+        ui.components.transcript.settle_reasoning()
         # Not committed to scrollback while hidden, but retained (not dropped).
         assert all(
             "DEFER-ME" not in "".join(block)
-            for _kind, block in ui._transcript.history_blocks
+            for _kind, block in ui.components.transcript.history_blocks
         )
-        assert ui._transcript.deferred_reasoning == ["DEFER-ME"]
+        assert ui.components.transcript.deferred_reasoning == ["DEFER-ME"]
 
     def test_unhiding_reveals_deferred_reasoning(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
         ui.components.transcript.set_thinking_hidden(True)
         ui.components.transcript.append_reasoning("WAS-HIDDEN")
-        ui._transcript.settle_reasoning()
+        ui.components.transcript.settle_reasoning()
         assert "WAS-HIDDEN" not in _frame_text(ui)
         # Toggling visibility back commits the deferred reasoning into history.
         ui.components.transcript.set_thinking_hidden(False)
         assert "WAS-HIDDEN" in _frame_text(ui)
-        assert ui._transcript.deferred_reasoning == []
+        assert ui.components.transcript.deferred_reasoning == []
 
 
 class TestToolExpansion:
@@ -89,9 +89,9 @@ class TestToolExpansion:
             "\n".join(f"line{n:02d}" for n in range(16))
         )
         ui.components.transcript.set_tools_expanded(False)
-        collapsed = "\n".join(ui._screen.render_lines(width=88, height=40))
+        collapsed = "\n".join(ui.components.screen.render_lines(width=88, height=40))
         ui.components.transcript.set_tools_expanded(True)
-        expanded = "\n".join(ui._screen.render_lines(width=88, height=40))
+        expanded = "\n".join(ui.components.screen.render_lines(width=88, height=40))
         # The earliest line is hidden in the collapsed live tail but shown when
         # expanded.
         assert "line00" not in collapsed

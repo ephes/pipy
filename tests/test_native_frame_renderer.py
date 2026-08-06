@@ -398,13 +398,15 @@ def test_facade_custom_editor_snapshot_preserves_rows_cursor_and_window(
 ) -> None:
     ui = _ui(tmp_path)
     component = _RowsEditor([f"row{index}" for index in range(10)])
-    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui.components.custom_editor.set_editor_component(
+        lambda _tui, _theme, _keys: component
+    )
 
-    snapshot = ui._screen._frame_snapshot(
+    snapshot = ui.components.screen._frame_snapshot(
         width=60, height=12, include_session_picker=False
     )
     direct = render_live_region(snapshot)
-    facade = ui._screen._frame_lines(width=60, height=12, pad=False)
+    facade = ui.components.screen._frame_lines(width=60, height=12, pad=False)
     snapshot_rows = snapshot.input.custom_rows
 
     assert snapshot_rows is not None
@@ -428,7 +430,9 @@ def test_facade_full_frame_does_not_finish_custom_editor_rows_twice(
 ) -> None:
     ui = _ui(tmp_path)
     component = _RowsEditor(["ONCE\rRESOLVED"])
-    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui.components.custom_editor.set_editor_component(
+        lambda _tui, _theme, _keys: component
+    )
 
     def non_idempotent_finish(text: str, width: int) -> str:
         del width
@@ -436,8 +440,8 @@ def test_facade_full_frame_does_not_finish_custom_editor_rows_twice(
 
     monkeypatch.setattr(frame_renderer, "clip_custom_text", non_idempotent_finish)
 
-    detailed = ui._screen._frame_lines(width=60, height=12, pad=False)
-    captured = ui._screen.render_lines(width=60, height=12, pad=False)
+    detailed = ui.components.screen._frame_lines(width=60, height=12, pad=False)
+    captured = ui.components.screen.render_lines(width=60, height=12, pad=False)
 
     assert [row.text for row in detailed if row.kind == "input"] == ["ONCE RESOLVED"]
     assert "ONCE RESOLVED" in captured
@@ -449,17 +453,19 @@ def test_facade_custom_editor_keeps_head_plain_control_policy_at_narrow_width(
 ) -> None:
     ui = _ui(tmp_path)
     component = _RowsEditor(["\x1b[31mRED\x1b[0m", "A\rB\x1b]0;X\x07"])
-    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
+    ui.components.custom_editor.set_editor_component(
+        lambda _tui, _theme, _keys: component
+    )
 
-    snapshot = ui._screen._frame_snapshot(
+    snapshot = ui.components.screen._frame_snapshot(
         width=6, height=6, include_session_picker=False
     )
     snapshot_rows = snapshot.input.custom_rows
     direct = render_live_region(snapshot)
-    owner_rows = ui.input_editor.input_frame_lines(
+    owner_rows = ui.components.input_editor.input_frame_lines(
         6,
         max_rows=2,
-        custom_rows=tuple(ui._custom_editor.frame_lines(6, max_rows=2)),
+        custom_rows=tuple(ui.components.custom_editor.frame_lines(6, max_rows=2)),
     )
 
     assert snapshot_rows is not None
@@ -475,16 +481,18 @@ def test_facade_custom_editor_keeps_head_plain_control_policy_at_narrow_width(
 
 def test_input_owner_treats_zero_as_one_row(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.input_editor.text = "abcdef"
-    ui.input_editor.cursor = 3
+    ui.components.input_editor.text = "abcdef"
+    ui.components.input_editor.cursor = 3
 
-    ordinary = ui.input_editor.input_frame_lines(3, max_rows=0)
+    ordinary = ui.components.input_editor.input_frame_lines(3, max_rows=0)
     component = _RowsEditor(["first", "second"])
-    ui._custom_editor.set_editor_component(lambda _tui, _theme, _keys: component)
-    custom = ui.input_editor.input_frame_lines(
+    ui.components.custom_editor.set_editor_component(
+        lambda _tui, _theme, _keys: component
+    )
+    custom = ui.components.input_editor.input_frame_lines(
         6,
         max_rows=0,
-        custom_rows=tuple(ui._custom_editor.frame_lines(6, max_rows=0)),
+        custom_rows=tuple(ui.components.custom_editor.frame_lines(6, max_rows=0)),
     )
 
     assert len(ordinary) == len(custom) == 1
@@ -496,12 +504,12 @@ def test_facade_publishes_detached_immutable_snapshot(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui.components.chrome.footer.set_builtin_text("\n".join(("workspace", "status")))
     ui.components.transcript.submit_user_message("snapshot message")
-    snapshot = ui._screen._frame_snapshot(
+    snapshot = ui.components.screen._frame_snapshot(
         width=60, height=12, include_session_picker=False
     )
 
-    ui._transcript.history_blocks.clear()
-    ui.input_editor.text = "later mutation"
+    ui.components.transcript.history_blocks.clear()
+    ui.components.input_editor.text = "later mutation"
     rendered = "\n".join(row.text for row in render_full_frame(snapshot, pad=False))
 
     assert "snapshot message" in rendered
@@ -521,16 +529,16 @@ def test_state_bearing_custom_history_snapshot_keeps_lines_not_callbacks(
     callback = Callback()
     callback_ref = weakref.ref(callback)
     registered = RegisteredMessageRenderer("card", callback, "test")
-    ui._transcript.add_custom_entry_styled(
+    ui.components.transcript.add_custom_entry_styled(
         ["\x1b[1mCURRENT\x1b[0m"],
         custom_type="card",
         renderers={"card": registered},
     )
 
-    snapshot = ui._screen._frame_snapshot(
+    snapshot = ui.components.screen._frame_snapshot(
         width=60, height=12, include_session_picker=False
     )
-    ui._transcript.history_blocks.clear()
+    ui.components.transcript.history_blocks.clear()
     del registered
     del callback
     gc.collect()
@@ -557,10 +565,10 @@ def test_overlay_snapshot_does_not_execute_hidden_extension_chrome(
     ui.components.chrome.component.set_widget(
         "widget", lambda _tui, _theme: Component()
     )
-    ui._overlays.supersede("model")
+    ui.components.overlays.supersede("model")
     before = len(renders)
 
-    snapshot = ui._screen._frame_snapshot(
+    snapshot = ui.components.screen._frame_snapshot(
         width=60, height=12, include_session_picker=True
     )
 
@@ -573,7 +581,9 @@ def test_failed_paint_write_keeps_preexisting_publication_behavior(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ui = _ui(tmp_path)
-    ui._transcript.history_blocks.append(("notice", ("WRITE_FAILURE_MARKER",)))
+    ui.components.transcript.history_blocks.append(
+        ("notice", ("WRITE_FAILURE_MARKER",))
+    )
     writes: list[str] = []
 
     def fail_write(_driver: TerminalDriver, text: str) -> bool:
@@ -581,23 +591,25 @@ def test_failed_paint_write_keeps_preexisting_publication_behavior(
         return False
 
     monkeypatch.setattr(TerminalDriver, "write", fail_write)
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     assert len(writes) == 1
     assert "WRITE_FAILURE_MARKER" in writes[0]
-    assert ui._screen.state.painted_block_count == len(ui._transcript.history_blocks)
-    assert ui._screen.state.live_height > 0
-    assert ui._screen.state.last_painted_size == (88, 24)
+    assert ui.components.screen.state.painted_block_count == len(
+        ui.components.transcript.history_blocks
+    )
+    assert ui.components.screen.state.live_height > 0
+    assert ui.components.screen.state.last_painted_size == (88, 24)
 
 
 def test_force_full_redraw_keeps_clear_reset_and_reentrant_paint_atomic(
     tmp_path: Path,
 ) -> None:
     ui = _ui(tmp_path)
-    screen = ui._screen
+    screen = ui.components.screen
     buffer = cast(_TtyBuffer, ui.terminal_stream)
     marker = "ATOMIC_FULL_REDRAW_MARKER"
-    ui._transcript.history_blocks.append(("notice", (marker,)))
+    ui.components.transcript.history_blocks.append(("notice", (marker,)))
     screen.state.painted_block_count = 3
     screen.state.live_height = 4
     screen.state.live_input_row = 2
@@ -625,7 +637,7 @@ def test_force_full_redraw_keeps_clear_reset_and_reentrant_paint_atomic(
     painted_count, live_height, live_input_row, marker_painted, flushes = observations[
         0
     ]
-    assert painted_count == len(ui._transcript.history_blocks)
+    assert painted_count == len(ui.components.transcript.history_blocks)
     assert live_height > 0
     assert live_input_row >= 0
     assert marker_painted is True
@@ -638,9 +650,9 @@ def test_failed_deferred_clear_does_not_reset_or_paint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ui = _ui(tmp_path)
-    ui._screen.state.painted_block_count = 3
-    ui._screen.state.live_height = 4
-    ui._screen.state.live_input_row = 2
+    ui.components.screen.state.painted_block_count = 3
+    ui.components.screen.state.live_height = 4
+    ui.components.screen.state.live_input_row = 2
     writes: list[str] = []
 
     def fail_deferred(_driver: TerminalDriver, text: str) -> bool:
@@ -648,11 +660,11 @@ def test_failed_deferred_clear_does_not_reset_or_paint(
         return False
 
     monkeypatch.setattr(TerminalDriver, "write_deferred", fail_deferred)
-    ui._screen.force_full_redraw()
+    ui.components.screen.force_full_redraw()
 
     assert writes == ["\x1b[2J\x1b[H"]
     assert (
-        ui._screen.state.painted_block_count,
-        ui._screen.state.live_height,
-        ui._screen.state.live_input_row,
+        ui.components.screen.state.painted_block_count,
+        ui.components.screen.state.live_height,
+        ui.components.screen.state.live_input_row,
     ) == (3, 4, 2)

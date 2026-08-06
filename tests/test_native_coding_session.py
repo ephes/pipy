@@ -2493,7 +2493,7 @@ def test_reload_refreshes_extension_entry_renderers(
 
     rendered_blocks = "\n".join(
         line
-        for _kind, lines in terminal_ui._transcript.custom_entry_blocks()
+        for _kind, lines in terminal_ui.components.transcript.custom_entry_blocks()
         for line in lines
     )
     assert marker.read_text(encoding="utf-8") == "new"
@@ -2793,9 +2793,9 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     )
 
     committed_frame = "\n".join(
-        terminal_ui._screen.render_lines(width=72, height=24, pad=False)
+        terminal_ui.components.screen.render_lines(width=72, height=24, pad=False)
     )
-    history = terminal_ui._transcript.history_blocks
+    history = terminal_ui.components.transcript.history_blocks
 
     notice_index = next(i for i, (kind, _) in enumerate(history) if kind == "notice")
     first_custom_index = next(
@@ -2814,7 +2814,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
 
     terminal_ui.components.transcript.set_tools_expanded(True)
     rerendered_frame = "\n".join(
-        terminal_ui._screen.render_lines(width=101, height=24, pad=False)
+        terminal_ui.components.screen.render_lines(width=101, height=24, pad=False)
     )
     assert "RICH:ACTIVE:expanded=True:width=101:theme=True" in rerendered_frame
 
@@ -2875,15 +2875,18 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
     )
 
     committed_frame = "\n".join(
-        terminal_ui._screen.render_lines(width=72, height=20, pad=False)
+        terminal_ui.components.screen.render_lines(width=72, height=20, pad=False)
     )
     archive_text = output_stream.getvalue()
 
     # Styled route => SGR-safe ``custom_message_custom`` block, not plain custom.
     assert any(
-        k == "custom_message_custom" for k, _ in terminal_ui._transcript.history_blocks
+        k == "custom_message_custom"
+        for k, _ in terminal_ui.components.transcript.history_blocks
     )
-    assert not any(k == "custom" for k, _ in terminal_ui._transcript.history_blocks)
+    assert not any(
+        k == "custom" for k, _ in terminal_ui.components.transcript.history_blocks
+    )
     # Body rendered live in the committed scrollback.
     assert "SECRET_TITLE" in committed_frame
     # No forced ``[card]`` label injected by the component path (judgment 2).

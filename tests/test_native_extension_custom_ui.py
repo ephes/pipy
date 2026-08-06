@@ -88,9 +88,9 @@ class _ScriptedComponent:
             self._done(None)
 
 
-def _ui(tmp_path: Path) -> TerminalUi:
+def _ui(tmp_path: Path, *, input_stream: TextIO | None = None) -> TerminalUi:
     return TerminalUi(
-        input_stream=cast(TextIO, io.StringIO()),
+        input_stream=input_stream or cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
     )
@@ -99,7 +99,7 @@ def _ui(tmp_path: Path) -> TerminalUi:
 def _external_editor(ui: TerminalUi) -> ExtensionExternalEditor:
     return ExtensionExternalEditor(
         external_io_suspension=ui.components.screen.external_io_suspension,
-        terminal_write=ui._driver.write,
+        terminal_write=ui.components.driver.write,
         input_stream=ui.input_stream,
         terminal_stream=ui.terminal_stream,
     )
@@ -141,8 +141,8 @@ def test_extension_external_editor_does_not_launch_after_failed_suspend(
     monkeypatch, tmp_path: Path, error_type: type[Exception]
 ) -> None:
     ui = _ui(tmp_path)
-    ui._screen.state.live_height = 4
-    ui._screen.state.live_input_row = 2
+    ui.components.screen.state.live_height = 4
+    ui.components.screen.state.live_input_row = 2
     launched = False
 
     def fail_suspend(_self: TerminalDriver) -> None:
@@ -160,8 +160,8 @@ def test_extension_external_editor_does_not_launch_after_failed_suspend(
 
     assert _external_editor(ui).run("fake-editor", "seed") is None
     assert launched is False
-    assert ui._screen.state.live_height == 4
-    assert ui._screen.state.live_input_row == 2
+    assert ui.components.screen.state.live_height == 4
+    assert ui.components.screen.state.live_input_row == 2
 
 
 @pytest.mark.parametrize(
@@ -212,18 +212,18 @@ def test_custom_component_failed_nested_acquisition_preserves_outer_raw_owner(
         cwd=tmp_path,
     )
     monkeypatch.setattr(Screen, "paint", lambda _self: None)
-    ui._driver.enter_raw_mode()
-    ui._driver.suspend_terminal_mode()
+    ui.components.driver.enter_raw_mode()
+    ui.components.driver.suspend_terminal_mode()
 
     with pytest.raises(RuntimeError, match="while terminal I/O is suspended"):
         ui.components.modals.run_custom_component(lambda done: _ScriptedComponent(done))
 
-    assert ui._driver._raw_mode_depth == 1
-    assert ui._driver._terminal_mode_suspend_depth == 1
+    assert ui.components.driver._raw_mode_depth == 1
+    assert ui.components.driver._terminal_mode_suspend_depth == 1
     assert restore_calls == [(0, termios.TCSADRAIN, "saved")]
 
-    assert ui._driver.resume_terminal_mode() is True
-    ui._driver.restore_terminal_mode()
+    assert ui.components.driver.resume_terminal_mode() is True
+    ui.components.driver.restore_terminal_mode()
     assert restore_calls == [
         (0, termios.TCSADRAIN, "saved"),
         (0, termios.TCSADRAIN, "saved"),
@@ -255,16 +255,16 @@ def test_custom_component_failed_physical_acquisition_has_no_release(
     with pytest.raises(termios.error, match="raw transition failed"):
         ui.components.modals.run_custom_component(lambda done: _ScriptedComponent(done))
 
-    assert ui._driver._raw_mode_depth == 0
-    assert ui._driver._old_termios is None
+    assert ui.components.driver._raw_mode_depth == 0
+    assert ui.components.driver._old_termios is None
     assert restore_calls == [(0, termios.TCSADRAIN, "saved")]
 
 
 def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui._overlays.custom_component = _ScriptedComponent(lambda _v=None: None)
+    ui.components.overlays.custom_component = _ScriptedComponent(lambda _v=None: None)
     ui.components.overlays.supersede("custom")
-    frame = "\n".join(ui._screen.render_lines())
+    frame = "\n".join(ui.components.screen.render_lines())
     assert "CUSTOM-OVERLAY-LINE" in frame
 
 
@@ -472,8 +472,7 @@ def test_collecting_ui_custom_delegates_to_driver() -> None:
 def test_tui_custom_component_options_width_handle_and_dispose(
     monkeypatch, tmp_path: Path
 ) -> None:
-    ui = _ui(tmp_path)
-    ui.input_stream = cast(TextIO, _InputBuffer())
+    ui = _ui(tmp_path, input_stream=cast(TextIO, _InputBuffer()))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
@@ -534,8 +533,7 @@ def test_tui_custom_component_options_width_handle_and_dispose(
 def test_tui_custom_component_callable_snake_case_options(
     monkeypatch, tmp_path: Path
 ) -> None:
-    ui = _ui(tmp_path)
-    ui.input_stream = cast(TextIO, _InputBuffer())
+    ui = _ui(tmp_path, input_stream=cast(TextIO, _InputBuffer()))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
@@ -569,8 +567,7 @@ def test_tui_custom_component_callable_snake_case_options(
 def test_tui_custom_component_factory_can_finish_repeated_runs_before_return(
     monkeypatch, tmp_path: Path
 ) -> None:
-    ui = _ui(tmp_path)
-    ui.input_stream = cast(TextIO, _InputBuffer())
+    ui = _ui(tmp_path, input_stream=cast(TextIO, _InputBuffer()))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
@@ -597,8 +594,7 @@ def test_tui_custom_component_factory_can_finish_repeated_runs_before_return(
 
 
 def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -> None:
-    ui = _ui(tmp_path)
-    ui.input_stream = cast(TextIO, _InputBuffer())
+    ui = _ui(tmp_path, input_stream=cast(TextIO, _InputBuffer()))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
@@ -618,8 +614,7 @@ def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -
 def test_tui_custom_component_handle_visibility_and_focus(
     monkeypatch, tmp_path: Path
 ) -> None:
-    ui = _ui(tmp_path)
-    ui.input_stream = cast(TextIO, _InputBuffer())
+    ui = _ui(tmp_path, input_stream=cast(TextIO, _InputBuffer()))
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 

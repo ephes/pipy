@@ -923,9 +923,10 @@ def _compose_runtime_adapters(
 
     def take_terminal_queued_input() -> AgentQueuedInput | None:
         if terminal_ui is not None:
-            drained_content = terminal_ui.pending_messages.take_next_drain()
+            pending_messages = terminal_ui.components.pending_messages
+            drained_content = pending_messages.take_next_drain()
             if drained_content is not None:
-                raw_kind = terminal_ui.pending_messages.take_last_drain_kind()
+                raw_kind = pending_messages.take_last_drain_kind()
                 if raw_kind not in {
                     AgentQueuedInputKind.STEERING.value,
                     AgentQueuedInputKind.FOLLOW_UP.value,
@@ -944,7 +945,7 @@ def _compose_runtime_adapters(
     def take_pending_local_command() -> ProductContent | None:
         if terminal_ui is None:
             return None
-        command = terminal_ui.input_editor.take_pending_command()
+        command = terminal_ui.components.input_editor.take_pending_command()
         return None if command is None else ProductContent(command)
 
     coding_input_queue = CodingInputQueue(

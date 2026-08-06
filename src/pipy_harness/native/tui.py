@@ -21,54 +21,29 @@ from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import Any, TextIO, cast
 
-from pipy_harness.native.chrome import (
-    chrome_style_for,
-    discover_loaded_resource_names,
-    pipy_version_label,
-)
-from pipy_harness.native.coding.command_registry import project_command_completions
-from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeCommitToken,
     ExtensionChromeEvent,
     ExtensionChromePrepareInput,
     ExtensionChromeSink,
     ExtensionChromeSnapshot,
-    ExtensionChromeState,
 )
 from pipy_harness.native.keybindings import (
     KeybindingsManager,
 )
-from pipy_harness.native.overlay_state import OverlayState
-from pipy_harness.native.repl_input import (
-    DEFAULT_REPL_COMMAND_DESCRIPTIONS,
-)
-from pipy_harness.native.terminal_driver import (
-    TerminalDriver,
-)
+from pipy_harness.native.startup_chrome import startup_history_blocks
 from pipy_harness.native.themes import NativeThemeStore, select_theme
-from pipy_harness.native.ui.autocomplete import (
-    AutocompleteComponent,
-    CommandSurface,
-)
+from pipy_harness.native.ui.autocomplete import AutocompleteComponent
 from pipy_harness.native.ui.chrome_handoff import (
     ChromeAcceptanceResult,
     ChromeHandoffOperation,
     ExtensionChromeRouter,
 )
-from pipy_harness.native.ui.chrome_handoff import (
-    _ExtensionChromeTuiHandle as _ChromeTuiHandle,
-)
-from pipy_harness.native.ui.clipboard_images import ClipboardConfig, ClipboardImages
-from pipy_harness.native.ui.components.custom_editor import (
-    CustomEditorEffects,
-    CustomEditorOwner,
-    CustomEditorState,
-)
+from pipy_harness.native.ui.clipboard_images import ClipboardConfig
+from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionExternalEditor,
 )
-from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.input_editor import (
     EditingAction,
     EditingKeyContext,
@@ -76,53 +51,19 @@ from pipy_harness.native.ui.components.input_editor import (
     InputEditor,
     LineEditingEffects,
     apply_editing_key,
+    submitted_text_is_local_command,
 )
-from pipy_harness.native.ui.components.transcript import (
-    HistoryBlock,
-    HistoryBlockTuple,
-    TranscriptComponent,
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
+from pipy_harness.native.ui.composition import (
+    TerminalComponents,
+    TerminalCompositionInput,
+    build_terminal_components,
 )
-from pipy_harness.native.ui.composition import TerminalComponents
-from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
-from pipy_harness.native.ui.extension_generation import (
-    ExtensionChromeOwners,
-    build_extension_chrome_owners,
-)
+from pipy_harness.native.ui.extension_generation import ExtensionChromeOwners
 from pipy_harness.native.ui.key_specs import matches_key_specs, resolved_key_specs
 from pipy_harness.native.ui.modal_driver import TerminalModalDriver
-from pipy_harness.native.ui.pending_messages import PendingMessages
-from pipy_harness.native.ui.screen import (
-    FrameRegionSources,
-    FrameSources,
-    Screen,
-)
-from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
-# Curated ordered projection: an explicit advertised-name list validated against
-# the declarative command registry. Every name here is a registry built-in (the
-# tool-loop menu advertises no resource adjunct); order and membership are
-# preserved exactly and are not derived from the full built-in set.
-TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = project_command_completions(
-    (
-        "/hotkeys",
-        "/model",
-        "/scoped-models",
-        "/settings",
-        "/trust",
-        "/login",
-        "/logout",
-        "/copy",
-        "/compact",
-        "/export",
-        "/import",
-        "/share",
-        "/reload",
-        "/changelog",
-        "/exit",
-        "/quit",
-    )
-)
 # Outcomes of the active-turn watcher / mid-turn editor.
 TURN_SETTLED = "settled"  # the provider turn finished on its own
 TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
@@ -422,219 +363,27 @@ class TerminalUi:
     include_workspace_defaults: bool = False
     runtime_label: str = TOOL_LOOP_TUI_RUNTIME_LABEL
     footer_lines: tuple[str, str] = ("", "")
-    # Built-in editor effects and frame projection. Its exact EditorState is
-    # also injected into autocomplete, pending messages, and clipboard images.
-    input_editor: InputEditor = field(init=False)
-    # Single owner for committed history blocks, the live stream buffers, and
-    # the Ctrl+O/Ctrl+T view flags (``ui/components/transcript.py``).
-    _transcript: TranscriptComponent = field(init=False)
     # One concrete graph exposes every composed owner without restating their
     # methods on the terminal shell.
     components: TerminalComponents = field(init=False)
     available_provider_count: int = 0
-    # Single owner for the slash menu, the @/path completion popup, the
-    # published CommandSurface (names/descriptions/extension shortcut keys),
-    # the settings-driven row cap, and the extension provider registry effects
-    # (``ui/autocomplete.py``). Session startup and ``/reload`` publish through
-    # its ``replace_command_surface``/``set_max_visible`` verbs.
-    _autocomplete: AutocompleteComponent = field(init=False)
-    # Exactly one selector/dialog/custom overlay is active. This owner holds
-    # only synchronous transition state; TerminalModalDriver owns orchestration.
-    _overlays: OverlayState = field(init=False)
-    # Queue and clipboard effects share EditorState and the one paint lock but
-    # own their transitions outside this shell. Their public handles let the
-    # session wiring consume the real owners without retaining queue facades.
-    pending_messages: PendingMessages = field(init=False)
-    clipboard_images: ClipboardImages = field(init=False)
-    # Low-level terminal I/O owner (write/flush sink, raw-mode lifecycle,
-    # bracketed-paste toggling, terminal-title OSC). Built in ``__post_init__``
-    # from the input/terminal streams.
-    _driver: TerminalDriver = field(init=False)
-    # One owner for painting, inline-scrollback bookkeeping, modal driving,
-    # raw key reads, resize handling, close, and external-I/O suspension.
-    _screen: Screen = field(init=False)
-    # One owner for the live duck-typed extension editor's seven-field record,
-    # wiring, action dispatch, text mirror, and frame projection.
-    _custom_editor: CustomEditorOwner = field(init=False)
     keybindings_manager: KeybindingsManager | None = None
     # Constructor-only wiring record: ClipboardImages owns it after startup;
     # unlike the retired reader/path fields it cannot be rewritten piecemeal.
     clipboard_config: InitVar[ClipboardConfig | None] = None
 
     def __post_init__(self, clipboard_config: ClipboardConfig | None) -> None:
-        editor = EditorState()
-        self._overlays = OverlayState()
-        chrome_record = ExtensionChromeState()
-        self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
-        self._screen = Screen(
-            self._driver,
-            self._overlays,
-            self.terminal_stream,
-            input_fd=lambda: self.input_stream.fileno(),
-        )
-        external_editor = ExtensionExternalEditor(
-            external_io_suspension=self._screen.external_io_suspension,
-            terminal_write=self._driver.write,
-            input_stream=self.input_stream,
-            terminal_stream=self.terminal_stream,
-        )
-        self._custom_editor = CustomEditorOwner(
-            CustomEditorState(),
-            editor,
-            self._screen.paint_lock,
-            self._screen.paint,
-            host=self,
-            theme=lambda: chrome_style_for(self.terminal_stream),
-            keybindings_manager=lambda: self.keybindings_manager,
-            effects=CustomEditorEffects(
-                restore_input_text=lambda text: self.input_editor.set_input_text(text),
-                clear_initial_text=lambda: self.input_editor.clear_initial_text(),
-                enqueue_follow_up=lambda text: self.pending_messages.enqueue_follow_up(
-                    text
-                ),
-                restore_pending=lambda: (
-                    self.pending_messages.restore_pending_to_editor()
-                ),
-                paste_clipboard_image=lambda: (
-                    self.clipboard_images.paste_clipboard_image()
-                ),
-                external_editor=external_editor.run_configured,
-                autocomplete_provider=lambda: (
-                    self._autocomplete.custom_editor_provider()
-                ),
-            ),
-        )
-        self._autocomplete = AutocompleteComponent(
-            editor,
-            cwd=self.cwd,
-            repaint=self._screen.paint,
-            custom_editor=self._custom_editor,
-            surface=CommandSurface(
-                names=TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
-                descriptions=dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS),
-            ),
-        )
-        self._transcript = TranscriptComponent(
-            self._screen.paint_lock,
-            self._screen.paint,
-            reset_scrollback=self._screen.force_full_redraw,
-            render_inputs=self._screen.render_inputs,
-        )
-        self.pending_messages = PendingMessages(
-            editor,
-            self._screen.paint_lock,
-            self._screen.paint,
-            custom_editor=self._custom_editor,
-            refresh_slash_menu=self._autocomplete.refresh_slash_menu,
-        )
-        self.clipboard_images = ClipboardImages(
-            editor,
-            self._screen.paint_lock,
-            self._screen.paint,
-            cwd=self.cwd,
-            config=clipboard_config,
-            command_names=lambda: self._autocomplete.command_names,
-            refresh_autocomplete=self._autocomplete.refresh,
-            add_notice=self._transcript.add_notice,
-            custom_editor=self._custom_editor,
-        )
-        self.input_editor = InputEditor(
-            editor,
-            self._screen.paint_lock,
-            self._screen.paint,
-            command_names=lambda: self._autocomplete.command_names,
-            refresh_autocomplete=self._autocomplete.refresh,
-            custom_editor=self._custom_editor,
-            insert_paste=self.clipboard_images.insert_paste,
-        )
-        chrome = ExtensionChromeComponent(
-            chrome_record,
-            self._screen.paint_lock,
-            self._screen.paint,
-            tui_handle=_ChromeTuiHandle(self._screen.request_render),
-            render_inputs=self._screen.render_inputs,
-            push_title=self._driver.push_title,
-            write_title=self._driver.write_title,
-            restore_title=self._driver.restore_title,
-            clear_working_text=self._transcript.discard_working_text,
-        )
-        footer = FooterComponent(
-            chrome_record,
-            self._screen.paint_lock,
-            self._screen.paint,
-            cwd=self.cwd,
-            available_provider_count=lambda: self.available_provider_count,
-            build_region=chrome.build_region,
-            dispose_region=chrome.dispose_region,
-            render_region=chrome.render_region,
-            builtin_lines=self.footer_lines,
-        )
-        listeners = TerminalInputListeners(
-            chrome_record, self._screen.paint_lock, self._screen.paint
-        )
-
-        chrome_owners = build_extension_chrome_owners(
-            chrome_record,
-            self._screen.paint_lock,
-            self._screen.paint,
-            component=chrome,
-            footer=footer,
-            listeners=listeners,
-            editor=self.input_editor,
-            autocomplete=self._autocomplete,
-            custom_editor=self._custom_editor,
-            reset_hidden_thinking_label=self._transcript.reset_hidden_thinking_label,
-            set_hidden_thinking_label=self._transcript.set_hidden_thinking_label,
-        )
-        self._screen.bind(
-            FrameSources(
-                transcript=self._transcript,
-                input_editor=self.input_editor,
-                regions=FrameRegionSources(
-                    popup=lambda width, height: (
-                        self._autocomplete.popup_menu_frame_lines(
-                            width=width, max_rows=max(1, height - 7)
-                        )
-                    ),
-                    pending=self.pending_messages.region_lines,
-                    status=chrome.status_lines,
-                    header=chrome.header_lines,
-                    above_editor=lambda width: chrome.widget_lines(
-                        "above_editor", width
-                    ),
-                    below_editor=lambda width: chrome.widget_lines(
-                        "below_editor", width
-                    ),
-                    footer=footer.lines,
-                    custom_editor=lambda width: (
-                        self._custom_editor.frame_lines(width)
-                        if self._custom_editor.active
-                        else None
-                    ),
-                ),
-                footer_lines=footer.builtin_lines,
-                poll_idle=footer.poll_branch,
+        self.components = build_terminal_components(
+            TerminalCompositionInput(
+                input_stream=self.input_stream,
+                terminal_stream=self.terminal_stream,
+                cwd=self.cwd,
+                host=self,
+                builtin_footer_lines=self.footer_lines,
+                available_provider_count=lambda: self.available_provider_count,
+                clipboard_config=clipboard_config,
+                keybindings_manager=lambda: self.keybindings_manager,
             )
-        )
-        modals = TerminalModalDriver(
-            self._overlays,
-            self._screen,
-            self.input_editor,
-            external_editor,
-            lambda: self.keybindings_manager,
-        )
-        self.components = TerminalComponents(
-            driver=self._driver,
-            screen=self._screen,
-            overlays=self._overlays,
-            input_editor=self.input_editor,
-            transcript=self._transcript,
-            chrome=chrome_owners,
-            autocomplete=self._autocomplete,
-            pending_messages=self.pending_messages,
-            clipboard_images=self.clipboard_images,
-            custom_editor=self._custom_editor,
-            modals=modals,
         )
 
     @classmethod
@@ -659,41 +408,52 @@ class TerminalUi:
         host terminal/multiplexer keeps them in native scrollback.
         """
 
-        transcript = self.components.transcript
+        components = self.components
+        transcript = components.transcript
         if not transcript.history_blocks:
-            transcript.seed_history(self._startup_blocks())
-        self.components.driver.install_resize_handler()
-        self.components.screen.paint()
+            transcript.seed_history(
+                startup_history_blocks(self.cwd, self.include_workspace_defaults)
+            )
+        components.driver.install_resize_handler()
+        components.screen.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
         """Read one input line while keeping the input/footer regions live."""
 
         del prompt_label
+        components = self.components
+        driver = components.driver
+        screen = components.screen
+        input_editor = components.input_editor
+        autocomplete = components.autocomplete
+        custom_editor = components.custom_editor
+        clipboard_images = components.clipboard_images
+        chrome = components.chrome
         if footer is not None:
-            self.components.chrome.footer.set_builtin_text(footer)
-        self.input_editor.begin_line()
-        self._custom_editor.prepare_line(self.input_editor.text)
-        self._screen.paint()
+            chrome.footer.set_builtin_text(footer)
+        input_editor.begin_line()
+        custom_editor.prepare_line(input_editor.text)
+        screen.paint()
         fd = self.input_stream.fileno()
         editing_context = EditingKeyContext(
             mode=EditingMode.LINE,
-            slash_menu_open=lambda: self._autocomplete.slash_menu_open,
-            slash_menu_has_matches=lambda: bool(self._autocomplete.filtered_commands()),
+            slash_menu_open=lambda: autocomplete.slash_menu_open,
+            slash_menu_has_matches=lambda: bool(autocomplete.filtered_commands()),
             slash_menu_exact_match=lambda text: (
-                text in self._autocomplete.filtered_commands()
+                text in autocomplete.filtered_commands()
             ),
-            autocomplete_open=lambda: self._autocomplete.autocomplete_open,
-            navigate_slash_menu=self._autocomplete.navigate_slash_menu,
-            navigate_autocomplete=self._autocomplete.navigate,
-            accept_slash_menu=self._autocomplete.accept_slash_menu_selection,
-            accept_autocomplete=self._autocomplete.accept_selection,
-            dismiss_slash_menu=self._autocomplete.dismiss_slash_menu,
-            close_autocomplete=self._autocomplete.close,
-            attempt_path_completion=self._autocomplete.attempt_path_completion,
-            consume_paste=self.input_editor.consume_paste,
-            insert_paste=self.clipboard_images.insert_paste,
-            repaint=self._screen.paint,
-            is_local_command=self._submitted_text_is_local_command,
+            autocomplete_open=lambda: autocomplete.autocomplete_open,
+            navigate_slash_menu=autocomplete.navigate_slash_menu,
+            navigate_autocomplete=autocomplete.navigate,
+            accept_slash_menu=autocomplete.accept_slash_menu_selection,
+            accept_autocomplete=autocomplete.accept_selection,
+            dismiss_slash_menu=autocomplete.dismiss_slash_menu,
+            close_autocomplete=autocomplete.close,
+            attempt_path_completion=autocomplete.attempt_path_completion,
+            consume_paste=input_editor.consume_paste,
+            insert_paste=clipboard_images.insert_paste,
+            repaint=screen.paint,
+            is_local_command=submitted_text_is_local_command,
             allow_history=True,
             allow_path_completion=True,
             line_effects=LineEditingEffects(
@@ -702,27 +462,27 @@ class TerminalUi:
                     resolved_key_specs("app.editor.external", self.keybindings_manager),
                 ),
                 run_external_editor=lambda text: ExtensionExternalEditor(
-                    external_io_suspension=self.components.screen.external_io_suspension,
-                    terminal_write=self._driver.write,
+                    external_io_suspension=screen.external_io_suspension,
+                    terminal_write=driver.write,
                     input_stream=self.input_stream,
                     terminal_stream=self.terminal_stream,
                 ).run_configured(text),
-                paste_clipboard_image=self.clipboard_images.paste_clipboard_image,
-                shortcut_keys=lambda: tuple(self._autocomplete.shortcut_keys),
-                custom_editor_active=lambda: self._custom_editor.active,
-                handle_custom_editor=self._custom_editor.handle_key,
-                consume_custom_exit=self._custom_editor.consume_exit_requested,
+                paste_clipboard_image=clipboard_images.paste_clipboard_image,
+                shortcut_keys=lambda: tuple(autocomplete.shortcut_keys),
+                custom_editor_active=lambda: custom_editor.active,
+                handle_custom_editor=custom_editor.handle_key,
+                consume_custom_exit=custom_editor.consume_exit_requested,
             ),
             allow_listener_replacement=True,
-            listener_replaced=lambda: self.components.chrome.listeners.last_replaced,
+            listener_replaced=lambda: chrome.listeners.last_replaced,
         )
-        with self._driver.raw_mode():
+        with driver.raw_mode():
             while True:
-                key = self._screen.read_key_polling_resize(fd)
+                key = screen.read_key_polling_resize(fd)
                 if key is None:
                     return ""
-                key = self.components.chrome.listeners.apply(key)
-                outcome = apply_editing_key(self.input_editor, key, editing_context)
+                key = chrome.listeners.apply(key)
+                outcome = apply_editing_key(input_editor, key, editing_context)
                 if outcome.action is EditingAction.INTERRUPT:
                     raise KeyboardInterrupt
                 if outcome.action is EditingAction.EOF:
@@ -756,41 +516,48 @@ class TerminalUi:
         one interrupts the active work and hands the command to the session.
         """
 
+        components = self.components
+        driver = components.driver
+        screen = components.screen
+        input_editor = components.input_editor
+        autocomplete = components.autocomplete
+        clipboard_images = components.clipboard_images
+        pending_messages = components.pending_messages
         fd = self.input_stream.fileno()
         editing_mode = _active_editing_mode(accept_queue, accept_commands)
         command_only = editing_mode is EditingMode.ACTIVE_COMMAND
         editing_context = EditingKeyContext(
             mode=editing_mode,
-            slash_menu_open=lambda: self._autocomplete.slash_menu_open,
-            slash_menu_has_matches=lambda: bool(self._autocomplete.filtered_commands()),
+            slash_menu_open=lambda: autocomplete.slash_menu_open,
+            slash_menu_has_matches=lambda: bool(autocomplete.filtered_commands()),
             slash_menu_exact_match=lambda text: (
-                text in self._autocomplete.filtered_commands()
+                text in autocomplete.filtered_commands()
             ),
-            autocomplete_open=lambda: self._autocomplete.autocomplete_open,
-            navigate_slash_menu=self._autocomplete.navigate_slash_menu,
-            navigate_autocomplete=self._autocomplete.navigate,
-            accept_slash_menu=self._autocomplete.accept_slash_menu_selection,
-            accept_autocomplete=self._autocomplete.accept_selection,
-            dismiss_slash_menu=self._autocomplete.dismiss_slash_menu,
-            close_autocomplete=self._autocomplete.close,
-            attempt_path_completion=self._autocomplete.attempt_path_completion,
-            consume_paste=self.input_editor.consume_paste,
-            insert_paste=self.clipboard_images.insert_paste,
-            repaint=self._screen.paint,
-            is_local_command=self._submitted_text_is_local_command,
+            autocomplete_open=lambda: autocomplete.autocomplete_open,
+            navigate_slash_menu=autocomplete.navigate_slash_menu,
+            navigate_autocomplete=autocomplete.navigate,
+            accept_slash_menu=autocomplete.accept_slash_menu_selection,
+            accept_autocomplete=autocomplete.accept_selection,
+            dismiss_slash_menu=autocomplete.dismiss_slash_menu,
+            close_autocomplete=autocomplete.close,
+            attempt_path_completion=autocomplete.attempt_path_completion,
+            consume_paste=input_editor.consume_paste,
+            insert_paste=clipboard_images.insert_paste,
+            repaint=screen.paint,
+            is_local_command=submitted_text_is_local_command,
             allow_history=False,
             allow_path_completion=not command_only,
             tab_repaint="always",
         )
-        with self._driver.raw_mode():
+        with driver.raw_mode():
             while not done_event.is_set():
-                self._screen.poll_resize_repaint()
-                key = self._screen.read_driver_key(
-                    self._driver.read_key_if_available(fd, poll_seconds)
+                screen.poll_resize_repaint()
+                key = screen.read_driver_key(
+                    driver.read_key_if_available(fd, poll_seconds)
                 )
                 if key is None:
                     continue
-                outcome = apply_editing_key(self.input_editor, key, editing_context)
+                outcome = apply_editing_key(input_editor, key, editing_context)
                 if outcome.action is EditingAction.ABORT:
                     abort_event.set()
                     return TURN_ABORTED
@@ -798,110 +565,16 @@ class TerminalUi:
                     abort_event.set()
                     raise KeyboardInterrupt
                 if outcome.action is EditingAction.LOCAL_COMMAND:
-                    self.input_editor.set_pending_command(outcome.text or "")
+                    input_editor.set_pending_command(outcome.text or "")
                     abort_event.set()
-                    self._screen.paint()
+                    screen.paint()
                     return TURN_LOCAL_COMMAND
                 if outcome.action is EditingAction.STEER:
-                    self.pending_messages.enqueue_steering(outcome.text or "")
+                    pending_messages.enqueue_steering(outcome.text or "")
                     abort_event.set()
                     return TURN_STEERED
                 if outcome.action is EditingAction.FOLLOW_UP:
-                    self.pending_messages.enqueue_follow_up(outcome.text or "")
+                    pending_messages.enqueue_follow_up(outcome.text or "")
                 elif outcome.action is EditingAction.RESTORE_PENDING:
-                    self.pending_messages.restore_pending_to_editor()
+                    pending_messages.restore_pending_to_editor()
             return TURN_SETTLED
-
-    def _startup_blocks(self) -> list[HistoryBlock]:
-        raw_blocks: list[tuple[str, tuple[str, ...]]] = [
-            ("normal", ("",)),
-            ("title", (f" pipy v{pipy_version_label()}",)),
-            (
-                "controls",
-                (
-                    " escape interrupt · ctrl+c/ctrl+d clear/exit · ↑↓ history · "
-                    "/ commands · @ files · ! bash · tab paths",
-                    " shift+tab thinking · ctrl+p model · ctrl+o tool output · "
-                    "ctrl+t thinking fold · ctrl+v paste image · drop files to attach",
-                ),
-            ),
-            (
-                "dim",
-                (" Type /hotkeys for the full key reference and loaded resources.",),
-            ),
-            ("normal", ("",)),
-            (
-                "dim",
-                (
-                    " Pipy can explain its own features and look up its docs. "
-                    "Ask it how to use or extend pipy.",
-                ),
-            ),
-            ("normal", ("", "")),
-        ]
-        blocks: list[HistoryBlock] = [
-            HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks
-        ]
-        context = discover_loaded_resource_names(
-            self.cwd,
-            "context",
-            include_workspace_defaults=self.include_workspace_defaults,
-        )
-        if context:
-            blocks.append(
-                HistoryBlockTuple(
-                    "section",
-                    ("[Context]",),
-                    None,
-                )
-            )
-            blocks.append(
-                HistoryBlockTuple(
-                    "resource",
-                    (
-                        f"  {', '.join(context)}",
-                        "",
-                    ),
-                    None,
-                )
-            )
-        skills = discover_loaded_resource_names(
-            self.cwd,
-            "skills",
-            include_workspace_defaults=self.include_workspace_defaults,
-        )
-        if skills:
-            blocks.append(
-                HistoryBlockTuple(
-                    "section",
-                    ("[Skills]",),
-                    None,
-                )
-            )
-            blocks.append(
-                HistoryBlockTuple(
-                    "resource",
-                    (
-                        f"  {', '.join(skills)}",
-                        "",
-                        "",
-                    ),
-                    None,
-                )
-            )
-        return blocks
-
-    @staticmethod
-    def _submitted_text_is_local_command(text: str) -> bool:
-        """True when a mid-turn submission is a local command, not a prompt.
-
-        Matches the session loop's local-command boundary: any line whose first
-        non-space character is ``/`` (a slash command — known ones dispatch,
-        unknown ones are reported, neither reaches the provider) or ``!`` (a
-        bash shortcut). Such a line submitted with Enter mid-turn runs locally
-        instead of being queued/steered to the model. Ordinary prose (which is
-        what steering/follow-up actually carries) does not match.
-        """
-
-        stripped = text.strip()
-        return stripped.startswith("/") or stripped.startswith("!")

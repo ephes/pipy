@@ -3334,7 +3334,9 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     from pipy_harness.native.clipboard import ImageClipboardResult
-    from pipy_harness.native.ui.clipboard_images import create_clipboard_config
+    from pipy_harness.native.ui.clipboard_images import (
+        create_clipboard_config,
+    )
 
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
     read_image = lambda: ImageClipboardResult(  # noqa: E731
@@ -3377,9 +3379,9 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
         # The pasted reference is in the editor; the long temp path scrolls the
         # @image: prefix out of the narrow input cell, so the visible tail shows
         # the clipboard filename. Assert both editor state and the visible frame.
-        assert _wait_for_predicate(lambda: "@image:" in ui.input_editor.text), (
-            f"{label}: ctrl+v did not insert an @image: reference"
-        )
+        assert _wait_for_predicate(
+            lambda: "@image:" in ui.components.input_editor.text
+        ), f"{label}: ctrl+v did not insert an @image: reference"
         assert _wait_for_predicate(
             lambda: "pipy-clipboard" in b"".join(err_chunks).decode("utf-8", "replace")
         ), f"{label}: clipboard reference not visible in the editor"
@@ -3403,7 +3405,7 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
         f"{label}: pasted image was not attached on submit"
     )
     # The owner-only clipboard temp dir holds the image; bytes never archived.
-    assert ui.clipboard_images.config is clipboard_config
+    assert ui.components.clipboard_images.config is clipboard_config
     written = list(clipboard_config.temp_dir.glob("pipy-clipboard-*.png"))
     assert written and stat.S_IMODE(written[0].stat().st_mode) == 0o600
     captured = b"".join(err_chunks).decode("utf-8", "replace")
@@ -3487,7 +3489,7 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
         assert (
             wait_for_output(err_chunks, "Scoped models", after=toggle_start) is not None
         ), f"{label}: toggled scope did not repaint"
-        assert ui._overlays.scoped_checked, (
+        assert ui.components.overlays.scoped_checked, (
             f"{label}: highlighted model was not checked"
         )
         save_start = len(output_bytes(err_chunks))

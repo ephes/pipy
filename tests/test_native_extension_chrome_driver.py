@@ -31,7 +31,7 @@ class _FakeUi:
         self.available_provider_count = 2
         self.calls = []
         self.pasted = []
-        self.input_editor = SimpleNamespace(
+        input_editor = SimpleNamespace(
             text="draft",
             get_input_text=self.get_input_text,
             set_input_text=self.set_input_text,
@@ -44,7 +44,7 @@ class _FakeUi:
         self.editor_component = None
         self.tools_expanded = False
         self.listeners = []
-        self._chrome = SimpleNamespace(
+        chrome = SimpleNamespace(
             component=SimpleNamespace(
                 set_status=self.set_extension_status,
                 set_widget=self.set_extension_widget,
@@ -60,19 +60,26 @@ class _FakeUi:
                 reconcile_generation=self.reconcile_extension_chrome
             ),
         )
-        self._transcript = SimpleNamespace(
+        transcript = SimpleNamespace(
             tools_expanded=False,
             set_hidden_thinking_label=self.set_extension_hidden_thinking_label,
             set_tools_expanded=self.set_tools_expanded,
         )
-        self._autocomplete = SimpleNamespace(
+        autocomplete = SimpleNamespace(
             add_extension_provider=lambda factory: self.calls.append(
                 ("autocomplete", factory)
             )
         )
-        self._custom_editor = SimpleNamespace(
+        custom_editor = SimpleNamespace(
             factory=None,
             set_editor_component=self.set_editor_component,
+        )
+        self.components = SimpleNamespace(
+            chrome=chrome,
+            transcript=transcript,
+            autocomplete=autocomplete,
+            custom_editor=custom_editor,
+            input_editor=input_editor,
         )
 
     def reconcile_extension_chrome(self, snapshot, *, retirement_scope):
@@ -126,38 +133,39 @@ class _FakeUi:
 
     def set_tools_expanded(self, expanded):
         self.tools_expanded = bool(expanded)
-        self._transcript.tools_expanded = self.tools_expanded
+        self.components.transcript.tools_expanded = self.tools_expanded
         self.calls.append(("tools-expanded", self.tools_expanded))
 
     def get_input_text(self):
-        return self.input_editor.text
+        return self.components.input_editor.text
 
     def set_input_text(self, text):
         self.calls.append(("set-input", text))
-        self.input_editor.text = text
+        self.components.input_editor.text = text
 
     def paste_input_text(self, text):
         self.calls.append(("paste-input", text))
         self.pasted.append(text)
-        self.input_editor.text = text
+        self.components.input_editor.text = text
 
     def set_editor_component(self, factory):
         self.calls.append(("set-editor-component", factory))
         self.editor_factory = factory if callable(factory) else None
-        self._custom_editor.factory = self.editor_factory
+        self.components.custom_editor.factory = self.editor_factory
         self.editor_component = (
             factory(self, self.theme, self.keybindings) if callable(factory) else None
         )
 
 
 def _live_driver(ui: _FakeUi) -> _LiveExtensionUiDriver:
+    components = ui.components
     return _LiveExtensionUiDriver(
-        cast(Any, ui._chrome),
+        cast(Any, components.chrome),
         cast(Any, SimpleNamespace()),
-        cast(Any, ui._transcript),
-        cast(Any, ui._autocomplete),
-        cast(Any, ui._custom_editor),
-        cast(Any, ui.input_editor),
+        cast(Any, components.transcript),
+        cast(Any, components.autocomplete),
+        cast(Any, components.custom_editor),
+        cast(Any, components.input_editor),
     )
 
 
@@ -265,12 +273,12 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert driver.get_editor_text() == "draft"
 
     driver.set_editor_text("set")
-    assert ui.input_editor.text == "set"
+    assert ui.components.input_editor.text == "set"
     assert ui.calls[-1] == ("set-input", "set")
 
-    ui.input_editor.text = "draft text"
+    ui.components.input_editor.text = "draft text"
     driver.paste_to_editor("paste")
-    assert ui.input_editor.text == "paste"
+    assert ui.components.input_editor.text == "paste"
     assert ui.pasted == ["paste"]
     assert ui.calls[-1] == ("paste-input", "paste")
 

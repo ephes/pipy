@@ -231,8 +231,8 @@ def test_settings_overlay_identity_is_explicit_not_title_coupled(
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
-    def cancel(ui: Screen, _fd: int) -> str:
-        seen.append(ui._overlays.active)
+    def cancel(screen: Screen, _fd: int) -> str:
+        seen.append(screen._overlays.active)  # noqa: SLF001
         return "esc"
 
     monkeypatch.setattr(Screen, "read_key_polling_resize", cancel)
@@ -277,17 +277,24 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
         lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
     )
 
-    def read_key(ui: Screen, _fd: int) -> str:
+    def read_key(screen: Screen, _fd: int) -> str:
         key = next(keys)
-        if key == "esc" and ui._overlays.active == "settings":
-            outer_selections_before_close.append(ui._overlays.settings_selection)
+        if key == "esc" and screen._overlays.active == "settings":  # noqa: SLF001
+            outer_selections_before_close.append(
+                screen._overlays.settings_selection  # noqa: SLF001
+            )
         return key
 
     monkeypatch.setattr(Screen, "read_key_polling_resize", read_key)
 
-    def capture_paint(ui: Screen) -> None:
-        lines = ui._live_region_lines(width=72, height=14)
-        painted.append((ui._overlays.active, "\n".join(line.text for line in lines)))
+    def capture_paint(screen: Screen) -> None:
+        lines = screen._live_region_lines(width=72, height=14)  # noqa: SLF001
+        painted.append(
+            (
+                screen._overlays.active,  # noqa: SLF001
+                "\n".join(line.text for line in lines),
+            )
+        )
 
     monkeypatch.setattr(Screen, "paint", capture_paint)
     with input_path.open(encoding="utf-8") as input_stream:
@@ -303,15 +310,15 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
         )
 
         def open_inner(_action: str) -> tuple[SettingsRow, ...]:
-            assert ui._overlays.active == "settings"
+            assert ui.components.overlays.active == "settings"
             assert (
                 ui.components.modals.run_model_selector(
                     (ModelSelectorOption("inner model", True),), title="Inner"
                 )
                 is None
             )
-            assert ui._overlays.active == "settings"
-            assert ui._driver._raw_mode_depth == 1
+            assert ui.components.overlays.active == "settings"
+            assert ui.components.driver._raw_mode_depth == 1
             assert restore_calls == []
             return rows
 
@@ -319,9 +326,9 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
             ui.components.modals.run_settings_dialog(rows, on_local_action=open_inner)
             is None
         )
-        assert ui._overlays.settings_selection == 0
-        assert ui._driver._raw_mode_depth == 0
-        assert ui._driver._old_termios is None
+        assert ui.components.overlays.settings_selection == 0
+        assert ui.components.driver._raw_mode_depth == 0
+        assert ui.components.driver._old_termios is None
 
     assert outer_selections_before_close == [1]
     assert raw_calls == [input_fd]
@@ -363,16 +370,19 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         lambda _ui, _fd: next(keys),
     )
 
-    def capture_paint(ui: Screen) -> None:
+    def capture_paint(screen: Screen) -> None:
         frame = "\n".join(
-            line.text for line in ui._live_region_lines(width=72, height=14)
+            line.text
+            for line in screen._live_region_lines(  # noqa: SLF001
+                width=72, height=14
+            )
         )
         paints.append(
             (
-                ui._overlays.active,
-                ui._overlays.settings_title,
-                ui._overlays.settings_selection,
-                ui._overlays.settings_rows,
+                screen._overlays.active,  # noqa: SLF001
+                screen._overlays.settings_title,  # noqa: SLF001
+                screen._overlays.settings_selection,  # noqa: SLF001
+                screen._overlays.settings_rows,  # noqa: SLF001
                 frame,
             )
         )
@@ -405,11 +415,11 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
                 )
                 is None
             )
-            assert ui._overlays.active == "settings"
-            assert ui._overlays.settings_rows == outer_rows
-            assert ui._overlays.settings_title == "Outer settings"
-            assert ui._overlays.settings_selection == 1
-            assert ui._driver._raw_mode_depth == 1
+            assert ui.components.overlays.active == "settings"
+            assert ui.components.overlays.settings_rows == outer_rows
+            assert ui.components.overlays.settings_title == "Outer settings"
+            assert ui.components.overlays.settings_selection == 1
+            assert ui.components.driver._raw_mode_depth == 1
             assert restore_calls == []
             return outer_rows
 
@@ -422,11 +432,11 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         )
 
         assert chosen == "finish"
-        assert ui._overlays.active is None
-        assert ui._overlays.settings_rows == ()
-        assert ui._overlays.settings_title == "Settings"
-        assert ui._overlays.settings_selection == 0
-        assert ui._driver._raw_mode_depth == 0
+        assert ui.components.overlays.active is None
+        assert ui.components.overlays.settings_rows == ()
+        assert ui.components.overlays.settings_title == "Settings"
+        assert ui.components.overlays.settings_selection == 0
+        assert ui.components.driver._raw_mode_depth == 0
 
     assert restore_calls == [(input_fd, termios.TCSADRAIN, "saved")]
     assert any(
@@ -474,22 +484,22 @@ def test_external_io_scope_pairs_nested_exception_and_repaints_once(
         )
         paints: list[None] = []
         monkeypatch.setattr(Screen, "paint", lambda _self: paints.append(None))
-        ui._driver.enter_raw_mode()
-        ui._driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
 
         with pytest.raises(ValueError, match="foreign failure"):
             with ui.components.screen.external_io_suspension():
-                assert ui._driver._terminal_mode_suspend_depth == 1
+                assert ui.components.driver._terminal_mode_suspend_depth == 1
                 with ui.components.screen.external_io_suspension():
-                    assert ui._driver._terminal_mode_suspend_depth == 2
+                    assert ui.components.driver._terminal_mode_suspend_depth == 2
                     raise ValueError("foreign failure")
 
-        assert ui._driver._raw_mode_depth == 2
-        assert ui._driver._terminal_mode_suspend_depth == 0
+        assert ui.components.driver._raw_mode_depth == 2
+        assert ui.components.driver._terminal_mode_suspend_depth == 0
         assert raw_calls == [input_stream.fileno(), input_stream.fileno()]
         assert restore_calls == [(input_stream.fileno(), termios.TCSADRAIN, "saved")]
         assert paints == [None]
-        ui._driver.force_restore_terminal_mode()
+        ui.components.driver.force_restore_terminal_mode()
 
 
 def test_tui_close_forces_unbalanced_raw_mode_restoration_once(
@@ -514,15 +524,15 @@ def test_tui_close_forces_unbalanced_raw_mode_restoration_once(
             terminal_stream=terminal,
             cwd=tmp_path,
         )
-        ui._driver.enter_raw_mode()
-        ui._driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
 
         ui.components.screen.close()
         first_close = terminal.getvalue()
         ui.components.screen.close()
 
-        assert ui._driver._raw_mode_depth == 0
-        assert ui._driver._old_termios is None
+        assert ui.components.driver._raw_mode_depth == 0
+        assert ui.components.driver._old_termios is None
 
     assert restore_calls == [(input_fd, termios.TCSADRAIN, "saved")]
     assert first_close.count("\x1b[?2004h") == 1
@@ -552,21 +562,21 @@ def test_tui_close_forces_suspended_raw_owners_safe_and_idempotent(
             terminal_stream=terminal,
             cwd=tmp_path,
         )
-        ui._driver.enter_raw_mode()
-        ui._driver.enter_raw_mode()
-        ui._driver.suspend_terminal_mode()
+        ui.components.driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
+        ui.components.driver.suspend_terminal_mode()
 
-        assert ui._driver._raw_mode_depth == 2
-        assert ui._driver._terminal_mode_suspend_depth == 1
+        assert ui.components.driver._raw_mode_depth == 2
+        assert ui.components.driver._terminal_mode_suspend_depth == 1
         assert restore_calls == [(input_fd, termios.TCSADRAIN, "saved")]
 
         ui.components.screen.close()
         first_close = terminal.getvalue()
         ui.components.screen.close()
 
-        assert ui._driver._raw_mode_depth == 0
-        assert ui._driver._terminal_mode_suspend_depth == 0
-        assert ui._driver._old_termios is None
+        assert ui.components.driver._raw_mode_depth == 0
+        assert ui.components.driver._terminal_mode_suspend_depth == 0
+        assert ui.components.driver._old_termios is None
 
     # The suspend transition and one forced recovery each restore saved attrs;
     # repeated close emits no further terminal transition or teardown frame.
@@ -625,20 +635,22 @@ def test_single_row_facade_navigation_repaints_once(
     monkeypatch.setattr(Screen, "paint", lambda _self: paints.append(None))
 
     scoped = ScopedModelsSelectorComponent(
-        ui._overlays, ui._screen.paint_lock, ui._screen.paint
+        ui.components.overlays,
+        ui.components.screen.paint_lock,
+        ui.components.screen.paint,
     )
-    assert ui._overlays.begin_scoped((ScopedModelRow("only"),), checked=())
+    assert ui.components.overlays.begin_scoped((ScopedModelRow("only"),), checked=())
     assert scoped.handle_key("down") is None
     assert len(paints) == 1
 
-    ui._overlays.end_scoped()
+    ui.components.overlays.end_scoped()
     dialog = SettingsDialogComponent(
-        ui._overlays,
-        ui._screen.paint_lock,
-        ui._screen.paint,
+        ui.components.overlays,
+        ui.components.screen.paint_lock,
+        ui.components.screen.paint,
         on_local_action=lambda _action: (),
     )
-    assert ui._overlays.begin_settings(
+    assert ui.components.overlays.begin_settings(
         (SettingsRow("only", kind="action", action="only"),),
         current_index=None,
         title="Settings",
@@ -756,35 +768,37 @@ def test_facade_overlay_end_detaches_assignable_live_containers(
     project = [_session(tmp_path / "project.jsonl")]
     all_sessions = [*project, _session(tmp_path / "other.jsonl")]
     scoped = ScopedModelsSelectorComponent(
-        ui._overlays, ui._screen.paint_lock, ui._screen.paint
+        ui.components.overlays,
+        ui.components.screen.paint_lock,
+        ui.components.screen.paint,
     )
     picker = SessionPickerComponent(
-        ui._overlays,
-        ui._screen.paint_lock,
-        ui._screen.paint,
+        ui.components.overlays,
+        ui.components.screen.paint_lock,
+        ui.components.screen.paint,
         on_rename=None,
         on_delete=None,
         consume_paste=lambda: None,
     )
-    ui._overlays.scoped_checked = checked
-    ui._overlays.session_project = project
-    ui._overlays.session_all = all_sessions
+    ui.components.overlays.scoped_checked = checked
+    ui.components.overlays.session_project = project
+    ui.components.overlays.session_all = all_sessions
 
     assert scoped.handle_key("esc") is not None
     assert picker.handle_key("esc") is not None
 
     assert checked == {0}
-    assert ui._overlays.scoped_checked == set()
-    assert ui._overlays.scoped_checked is not checked
+    assert ui.components.overlays.scoped_checked == set()
+    assert ui.components.overlays.scoped_checked is not checked
     assert project == [_session(tmp_path / "project.jsonl")]
-    assert ui._overlays.session_project == []
-    assert ui._overlays.session_project is not project
+    assert ui.components.overlays.session_project == []
+    assert ui.components.overlays.session_project is not project
     assert all_sessions == [
         _session(tmp_path / "project.jsonl"),
         _session(tmp_path / "other.jsonl"),
     ]
-    assert ui._overlays.session_all == []
-    assert ui._overlays.session_all is not all_sessions
+    assert ui.components.overlays.session_all == []
+    assert ui.components.overlays.session_all is not all_sessions
 
 
 def _assert_footer_rebuild_reset(state: ExtensionChromeState) -> None:
@@ -836,13 +850,17 @@ def test_terminal_shell_stores_the_exact_concrete_owner_graph(
     tmp_path: Path,
 ) -> None:
     names = {item.name for item in fields(TerminalUi)}
-    assert {
-        "input_editor",
-        "_overlays",
+    assert names == {
+        "input_stream",
+        "terminal_stream",
+        "cwd",
+        "include_workspace_defaults",
+        "runtime_label",
+        "footer_lines",
         "components",
-        "pending_messages",
-        "clipboard_images",
-    } <= names
+        "available_provider_count",
+        "keybindings_manager",
+    }
     assert not names & {
         "_extension_chrome",
         "_extension_footer",
@@ -868,13 +886,13 @@ def test_terminal_shell_stores_the_exact_concrete_owner_graph(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
     components = ui.components
-    assert components.input_editor is ui.input_editor
-    assert components.pending_messages is ui.pending_messages
-    assert components.clipboard_images is ui.clipboard_images
-    assert components.screen is ui._screen  # noqa: SLF001
-    assert components.transcript is ui._transcript  # noqa: SLF001
-    assert components.autocomplete is ui._autocomplete  # noqa: SLF001
-    assert components.custom_editor is ui._custom_editor  # noqa: SLF001
+    assert components.input_editor is ui.components.input_editor
+    assert components.pending_messages is ui.components.pending_messages
+    assert components.clipboard_images is ui.components.clipboard_images
+    assert components.screen is ui.components.screen  # noqa: SLF001
+    assert components.transcript is ui.components.transcript  # noqa: SLF001
+    assert components.autocomplete is ui.components.autocomplete  # noqa: SLF001
+    assert components.custom_editor is ui.components.custom_editor  # noqa: SLF001
     assert components.input_editor._paint_lock is components.screen.paint_lock  # noqa: SLF001
     assert (  # noqa: SLF001
         components.pending_messages._editor is components.input_editor.editor_state

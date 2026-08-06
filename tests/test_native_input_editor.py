@@ -474,12 +474,12 @@ def test_shell_shares_one_record_and_lock_and_has_no_dead_editor_facade(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
 
-    state = ui.input_editor.editor_state
-    assert ui.pending_messages._editor is state  # noqa: SLF001
-    assert ui.clipboard_images._editor is state  # noqa: SLF001
-    assert ui.input_editor._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert ui.pending_messages._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert ui.clipboard_images._paint_lock is ui._screen.paint_lock  # noqa: SLF001
+    state = ui.components.input_editor.editor_state
+    assert ui.components.pending_messages._editor is state  # noqa: SLF001
+    assert ui.components.clipboard_images._editor is state  # noqa: SLF001
+    assert ui.components.input_editor._paint_lock is ui.components.screen.paint_lock  # noqa: SLF001
+    assert ui.components.pending_messages._paint_lock is ui.components.screen.paint_lock  # noqa: SLF001
+    assert ui.components.clipboard_images._paint_lock is ui.components.screen.paint_lock  # noqa: SLF001
 
     dead_surface = {
         "_editor",

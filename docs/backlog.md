@@ -44,36 +44,45 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 48a; **not complete**. The concrete
+**Program status:** Landed through slice 48b; **not complete**. The concrete
 terminal class is `native.tui.TerminalUi`; the old name is deleted without an
 alias or re-export, both raw-mode loops remain in `tui.py`, and the TUI/session
 C901 pins are gone. The coding-session facade is 336 lines with a 67-AST-line/
 C901-5 `run`; activation is the accepted 1,807-line owner; the native ceiling is
-2,488 because out-of-scope `native/session.py` remains that size.
+2,488 because out-of-scope `native/session.py` remains that size. Retry slice 49
+is the next task and remains the only final-milestone gate.
 
 The blocked slice-49 audit measured `native/tui.py` at 1,349 physical lines and
 `TerminalUi` at 856 AST lines / 43 definitions / 18 fields. Slice 48a retired
 the measured terminal facade, moved the ten modal entry points to concrete
 `TerminalModalDriver`, published the exact concrete `TerminalComponents` owner
 graph, and repointed production callers. Built-in footer state now lives in
-`FooterComponent` as one lock-guarded two-row value. The measured result is 907
+`FooterComponent` as one lock-guarded two-row value. Its measured result was 907
 physical `tui.py` lines and a 498-AST-line / 7-definition / 18-field
-`TerminalUi`: a 442-line file reduction and 358-line class reduction. This
-outperformed the intermediate forecast because the retired delegates and their
-supporting facade-only structure accounted for more physical lines than the
-planning estimate; the owner and AST inventories remain the controlling gates.
+`TerminalUi`: a 442-line file reduction and 358-line class reduction.
 
-**Slice 48b terminal composition/startup ownership is next**, followed by a
-tests/docs-only retry of 49. It moves the retained constructor transaction to a
-typed composition builder and gives the retained startup blocks and
-local-command classifier their measured definition-site owners; it does not
-move either raw-mode loop. Paired with the measured 48a result, 48b owns a
-147–197-line physical reduction to reach the plan's 710–760 band and an
-at-most-310-line class. Neither slice may add a shim, alias, re-export, facade,
-lock, C901 pin, or boundary relaxation. Retry 49 still owns exact field/lock
-audits, final ratchets, parity ownership-doc fixes, and the final milestone, and
-still fails closed above that band. No changelog or release note applies to this
-behavior-preserving internal decomposition.
+Slice 48b moved the complete construction transaction into the frozen/slotted
+`TerminalCompositionInput` builder in `native/ui/composition.py`, moved startup
+history to `native/startup_chrome.py`, and moved local-command classification to
+the input editor owner. `TerminalUi` now retains exactly its thin constructor,
+`is_supported`, `start`, and the two physically retained raw-mode loops; its
+regular constructor signature is unchanged and `clipboard_config` remains the
+sole `InitVar`. The measured result is **580 physical `tui.py` lines** and a
+**230-AST-line / 5-definition / 9-field `TerminalUi`**, reductions of 327 file
+lines, 268 class lines, and nine duplicate owner fields from the 48a checkpoint.
+Across 48a+48b the measured reduction is 769 physical lines and 626 class AST
+lines. This is below, rather than above, the 710–760 planning band because the
+constructor/startup move also retired substantially more facade-only imports,
+comments, and spacing than the estimate allowed; no code was moved back to pad
+the residual. `ui/composition.py` is 267 lines and `startup_chrome.py` is 98,
+both below the accepted 1,807-line owner ceiling. One Screen-created
+`PaintLock` remains shared by the exact graph and no C901 pin or boundary
+relaxation was added.
+
+**Retry slice 49 is next.** It remains tests/docs-only and owns the final
+alias-resistant field/lock audits, parity E2/E6 ownership-doc fixes, and final
+milestone. The program is not complete until that retry passes. No changelog or
+release note applies to this behavior-preserving internal decomposition.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

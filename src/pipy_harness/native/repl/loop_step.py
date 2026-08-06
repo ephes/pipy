@@ -307,7 +307,7 @@ def _phase_a_unpack_and_prefill(scope: ReplLoopScope) -> _TurnScope:
     if prefill is None:
         return turn
     if scope.terminal_ui is not None:
-        scope.terminal_ui.input_editor.set_input_text(prefill)
+        scope.terminal_ui.components.input_editor.set_input_text(prefill)
     else:
         scope.diag(
             "pipy: editor rehydrated with selected message; "

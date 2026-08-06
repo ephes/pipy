@@ -211,14 +211,28 @@ def test_deferred_input_loops_stay_in_facade_and_use_screen_services() -> None:
     for name in ("read_line", "wait_for_active_turn_interrupt"):
         method = _method(tui_class, name)
         assert any(isinstance(node, ast.While) for node in ast.walk(method))
-        assert any(
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Attribute)
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id == "self"
-            and node.value.attr == "_screen"
+        assignments = {
+            ast.unparse(node.targets[0]): ast.unparse(node.value)
+            for node in method.body
+            if isinstance(node, ast.Assign) and len(node.targets) == 1
+        }
+        assert assignments["components"] == "self.components"
+        assert assignments["screen"] == "components.screen"
+        assert not {
+            "_screen",
+            "_driver",
+            "input_editor",
+            "pending_messages",
+            "clipboard_images",
+            "_autocomplete",
+            "_custom_editor",
+        } & {
+            node.attr
             for node in ast.walk(method)
-        )
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        }
 
 
 def test_contributor_order_and_shared_render_inputs_are_exact(tmp_path: Path) -> None:

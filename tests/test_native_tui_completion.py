@@ -25,7 +25,7 @@ def _ui(workspace: Path) -> TerminalUi:
 
 
 def _frame_text(ui: TerminalUi) -> str:
-    return "\n".join(ui._screen.render_lines(width=88, height=24))
+    return "\n".join(ui.components.screen.render_lines(width=88, height=24))
 
 
 def _terminal_text(ui: TerminalUi) -> str:
@@ -35,7 +35,7 @@ def _terminal_text(ui: TerminalUi) -> str:
 
 def _type(ui: TerminalUi, text: str) -> None:
     for char in text:
-        ui.input_editor.insert_text(char)
+        ui.components.input_editor.insert_text(char)
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -75,8 +75,8 @@ class TestAtPicker:
         _type(ui, "see @tui")
         assert ui.components.autocomplete.autocomplete_open
         ui.components.autocomplete.accept_selection()
-        assert "@src/tui" in ui.input_editor.text
-        assert ui.input_editor.text.startswith("see @")
+        assert "@src/tui" in ui.components.input_editor.text
+        assert ui.components.input_editor.text.startswith("see @")
         assert not ui.components.autocomplete.autocomplete_open
 
     def test_navigation_wraps(self, tmp_path: Path) -> None:
@@ -101,11 +101,11 @@ class TestAtPicker:
         cases: list[tuple[TerminalUi, str]] = []
 
         slash_closed = _ui(tmp_path)
-        slash_closed.input_editor.set_buffer("/")
+        slash_closed.components.input_editor.set_buffer("/")
         cases.append((slash_closed, "slash"))
 
         slash_empty = _ui(tmp_path)
-        slash_empty.input_editor.set_buffer("not-a-command")
+        slash_empty.components.input_editor.set_buffer("not-a-command")
         slash_empty.components.autocomplete.slash_menu_open = True
         cases.append((slash_empty, "slash"))
 
@@ -141,14 +141,14 @@ class TestAtPicker:
         monkeypatch.setattr(Screen, "paint", counting_paint)
 
         slash = _ui(tmp_path)
-        slash.input_editor.set_buffer("/")
-        slash.input_editor.editor_state.refresh_slash_menu(
+        slash.components.input_editor.set_buffer("/")
+        slash.components.input_editor.editor_state.refresh_slash_menu(
             slash.components.autocomplete.command_names
         )
         slash.components.autocomplete.navigate_slash_menu("down")
 
         autocomplete = _ui(tmp_path)
-        autocomplete.input_editor.editor_state.open_autocomplete(
+        autocomplete.components.input_editor.editor_state.open_autocomplete(
             items=(CompletionItem("one", "One"), CompletionItem("two", "Two")),
             mode="at",
             token_start=0,
@@ -156,7 +156,7 @@ class TestAtPicker:
         )
         autocomplete.components.autocomplete.navigate("down")
 
-        assert painted == [slash._screen, autocomplete._screen]
+        assert painted == [slash.components.screen, autocomplete.components.screen]
         assert _terminal_text(slash)
         assert _terminal_text(autocomplete)
 
@@ -165,7 +165,7 @@ class TestAtPicker:
         _type(ui, "@config")
         assert ui.components.autocomplete.autocomplete_open
         for _ in range("@config".__len__()):
-            ui.input_editor.delete_before_cursor()
+            ui.components.input_editor.delete_before_cursor()
         assert not ui.components.autocomplete.autocomplete_open
 
     def test_cursor_move_dismisses_popup_so_accept_cannot_corrupt(
@@ -179,13 +179,13 @@ class TestAtPicker:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "@config")
         assert ui.components.autocomplete.autocomplete_open
-        ui.input_editor.move_cursor("left")
+        ui.components.input_editor.move_cursor("left")
         assert not ui.components.autocomplete.autocomplete_open
         # Accept after the move is a no-op (popup closed): the buffer is left
         # exactly as typed, never spliced at the stale offset.
-        before = ui.input_editor.text
+        before = ui.components.input_editor.text
         ui.components.autocomplete.accept_selection()
-        assert ui.input_editor.text == before
+        assert ui.components.input_editor.text == before
 
     def test_home_and_right_also_dismiss_popup(self, tmp_path: Path) -> None:
         workspace = _workspace(tmp_path)
@@ -193,7 +193,7 @@ class TestAtPicker:
             ui = _ui(workspace)
             _type(ui, "@config")
             assert ui.components.autocomplete.autocomplete_open
-            ui.input_editor.move_cursor(key)
+            ui.components.input_editor.move_cursor(key)
             assert not ui.components.autocomplete.autocomplete_open, (
                 f"{key} did not dismiss the popup"
             )
@@ -206,12 +206,12 @@ class TestAtPicker:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "@config")
         assert ui.components.autocomplete.autocomplete_open
-        before = ui.input_editor.text
+        before = ui.components.input_editor.text
         ui.components.autocomplete.autocomplete_token_start = (
             len(before) + 5
         )  # anchor past the caret
         ui.components.autocomplete.accept_selection()
-        assert ui.input_editor.text == before
+        assert ui.components.input_editor.text == before
         assert not ui.components.autocomplete.autocomplete_open
 
 
@@ -253,13 +253,13 @@ class TestPathCompletion:
                 return current
 
         factory = Factory()
-        ui._autocomplete.add_extension_provider(factory)
+        ui.components.autocomplete.add_extension_provider(factory)
         _type(ui, "/ho")
         factory.calls = 0
 
         assert ui.components.autocomplete.attempt_path_completion() is False
         assert factory.calls == 0
-        assert ui.input_editor.text == "/ho"
+        assert ui.components.input_editor.text == "/ho"
         assert ui.components.autocomplete.slash_menu_open
         assert not ui.components.autocomplete.autocomplete_open
 
@@ -268,13 +268,13 @@ class TestPathCompletion:
         _type(ui, "hello world")
         assert ui.components.autocomplete.attempt_path_completion() is False
         assert not ui.components.autocomplete.autocomplete_open
-        assert ui.input_editor.text == "hello world"
+        assert ui.components.input_editor.text == "hello world"
 
     def test_single_candidate_completes_inline(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "./scr")
         assert ui.components.autocomplete.attempt_path_completion()
-        assert ui.input_editor.text == "./scripts/"
+        assert ui.components.input_editor.text == "./scripts/"
         assert not ui.components.autocomplete.autocomplete_open
 
     def test_bare_workspace_prefix_completes(self, tmp_path: Path) -> None:
@@ -283,13 +283,13 @@ class TestPathCompletion:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "scr")
         assert ui.components.autocomplete.attempt_path_completion()
-        assert ui.input_editor.text == "scripts/"
+        assert ui.components.input_editor.text == "scripts/"
 
     def test_bare_prose_word_with_no_match_is_a_no_op(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "zzznomatch")
         assert ui.components.autocomplete.attempt_path_completion() is False
-        assert ui.input_editor.text == "zzznomatch"
+        assert ui.components.input_editor.text == "zzznomatch"
         assert not ui.components.autocomplete.autocomplete_open
 
     def test_empty_buffer_tab_is_a_no_op(self, tmp_path: Path) -> None:
@@ -307,7 +307,7 @@ class TestKeyDecoding:
         os.close(write_fd)
         ui = _ui(tmp_path)
         try:
-            return ui._driver._read_escape_sequence(read_fd)
+            return ui.components.driver._read_escape_sequence(read_fd)
         finally:
             os.close(read_fd)
 

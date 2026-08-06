@@ -112,6 +112,21 @@ class EditingKeyContext:
     tab_repaint: Literal["path", "always"] = "path"
 
 
+def submitted_text_is_local_command(text: str) -> bool:
+    """True when a mid-turn submission is a local command, not a prompt.
+
+    Matches the session loop's local-command boundary: any line whose first
+    non-space character is ``/`` (a slash command — known ones dispatch,
+    unknown ones are reported, neither reaches the provider) or ``!`` (a
+    bash shortcut). Such a line submitted with Enter mid-turn runs locally
+    instead of being queued/steered to the model. Ordinary prose (which is
+    what steering/follow-up actually carries) does not match.
+    """
+
+    stripped = text.strip()
+    return stripped.startswith("/") or stripped.startswith("!")
+
+
 class InputEditor:
     """Effect owner for the built-in editable buffer and input frame."""
 

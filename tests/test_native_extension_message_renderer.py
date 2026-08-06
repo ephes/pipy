@@ -298,22 +298,22 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
     )
-    ui._transcript.add_custom_entry("old", ["OLD-BODY"])
+    ui.components.transcript.add_custom_entry("old", ["OLD-BODY"])
     ui.components.transcript.add_notice("ordinary history remains")
 
-    ui._transcript.redraw_custom_entries(
+    ui.components.transcript.redraw_custom_entries(
         (
             ("styled", "card", ("\x1b[1mNEW-STYLED\x1b[0m",)),
             ("plain", "note", ("NEW-PLAIN",)),
         )
     )
 
-    blocks = ui._transcript.custom_entry_blocks()
+    blocks = ui.components.transcript.custom_entry_blocks()
     assert blocks == (
         ("custom_message_custom", ("\x1b[1mNEW-STYLED\x1b[0m",)),
         ("custom", ("[note]", "NEW-PLAIN")),
     )
-    frame = "\n".join(ui._screen.render_lines(width=80, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=80, height=20))
     assert "NEW-STYLED" in frame
     assert "NEW-PLAIN" in frame
     assert "ordinary history remains" in frame
@@ -399,14 +399,14 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
     )
-    ui._transcript.redraw_custom_entries(rows)
-    assert ui._transcript.custom_entry_blocks() == (
+    ui.components.transcript.redraw_custom_entries(rows)
+    assert ui.components.transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=False:BODY",)),
     )
 
     ui.components.transcript.set_tools_expanded(True)
 
-    assert ui._transcript.custom_entry_blocks() == (
+    assert ui.components.transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=True:BODY",)),
     )
 
@@ -426,19 +426,19 @@ def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
         cwd=tmp_path,
     )
     renderers = _renderers("card", render)
-    ui._transcript.add_custom_entry_styled(
+    ui.components.transcript.add_custom_entry_styled(
         ("expanded=False:alpha",),
         custom_type="card",
         data={"title": "alpha"},
         renderers=renderers,
     )
 
-    assert ui._transcript.custom_entry_blocks() == (
+    assert ui.components.transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=False:alpha",)),
     )
     ui.components.transcript.set_tools_expanded(True)
 
-    assert ui._transcript.custom_entry_blocks() == (
+    assert ui.components.transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=True:alpha",)),
     )
 
@@ -458,7 +458,7 @@ def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_pa
         cwd=tmp_path,
     )
     renderers = _renderers("card", render)
-    ui._transcript.add_custom_entry_styled(
+    ui.components.transcript.add_custom_entry_styled(
         ("initial",),
         custom_type="card",
         data={"secret": "TOPSECRET"},
@@ -467,7 +467,7 @@ def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_pa
 
     ui.components.transcript.set_tools_expanded(True)
 
-    blocks = ui._transcript.custom_entry_blocks()
+    blocks = ui.components.transcript.custom_entry_blocks()
     assert blocks[0][0] == "custom"
     body = "\n".join(blocks[0][1])
     assert "render error:" in body

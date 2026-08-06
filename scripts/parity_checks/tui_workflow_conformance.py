@@ -378,19 +378,21 @@ def run_checks(base: Path) -> list[Check]:
         picker_ok = run.wait_pred(lambda: "@src/config.py" in run.text())
         no_turn_in_picker = provider.calls == 0
         run.write(b"\t")  # accept
-        run.wait_pred(lambda: "@src/config.py" in run.ui.input_editor.text)
+        run.wait_pred(lambda: "@src/config.py" in run.ui.components.input_editor.text)
         run.write(b"\n")  # submit -> resolver loads the @path
         run.wait_for("PICKER_DONE")
         # Tab path completion: ./scr<Tab> completes to ./scripts/
         run.write(b"./scr\t")
-        path_ok = run.wait_pred(lambda: run.ui.input_editor.text == "./scripts/")
+        path_ok = run.wait_pred(
+            lambda: run.ui.components.input_editor.text == "./scripts/"
+        )
         run.write(b"\x15")  # ctrl-u clear
         # Tab in prose is a no-op.
         run.write(b"justprose")
         run.write(b"\t")
         time.sleep(0.2)
         prose_noop = (
-            run.ui.input_editor.text == "justprose"
+            run.ui.components.input_editor.text == "justprose"
             and not run.ui.components.autocomplete.autocomplete_open
         )
         run.write(b"\x15")
@@ -554,12 +556,14 @@ def run_checks(base: Path) -> list[Check]:
         workspace=ws8, provider=cast(ProviderPort, provider8), clipboard_image_read=clip
     ) as run:
         run.write(b"look \x16")  # ctrl+v
-        img_ref_ok = run.wait_pred(lambda: "@image:" in run.ui.input_editor.text)
+        img_ref_ok = run.wait_pred(
+            lambda: "@image:" in run.ui.components.input_editor.text
+        )
         img_no_turn = provider8.calls == 0
         run.write(b"\n")
         run.wait_for("IMAGE_DONE")
         owner_only = False
-        clipboard_config = run.ui.clipboard_images.config
+        clipboard_config = run.ui.components.clipboard_images.config
         if clipboard_config is not None:
             written = list(clipboard_config.temp_dir.glob("pipy-clipboard-*.png"))
             owner_only = bool(written) and all(

@@ -122,7 +122,7 @@ def _wait_for_frame_text(
     deadline = time.monotonic() + 1.0
     frame = ""
     while time.monotonic() < deadline:
-        frame = "\n".join(ui._screen.render_lines(width=width, height=height))
+        frame = "\n".join(ui.components.screen.render_lines(width=width, height=height))
         if text in frame:
             return frame
         time.sleep(0.01)
@@ -309,9 +309,9 @@ def test_tui_frame_owns_distinct_regions(tmp_path: Path):
     )
     ui.components.transcript.submit_user_message("hello world!")
     ui.components.transcript.set_working("⠋ Working...")
-    ui.input_editor.text = "next"
+    ui.components.input_editor.text = "next"
 
-    frame = ui._screen.render_lines(width=72, height=14, pad=False)
+    frame = ui.components.screen.render_lines(width=72, height=14, pad=False)
 
     assert len(frame) == 14
     assert sum("hello world!" in line for line in frame) == 1
@@ -325,10 +325,10 @@ def test_tui_frame_owns_distinct_regions(tmp_path: Path):
 
 def test_tui_styles_only_working_spinner_with_accent(tmp_path: Path):
     ui = _ui(tmp_path)
-    frame_line = ui._screen._block_frame_lines("working", ("⠋ Working...",), width=40)[
-        0
-    ]
-    styled = ui._screen._styled_line(
+    frame_line = ui.components.screen._block_frame_lines(
+        "working", ("⠋ Working...",), width=40
+    )[0]
+    styled = ui.components.screen._styled_line(
         frame_line,
         style=ChromeStyle(enabled=True),
         width=40,
@@ -352,7 +352,7 @@ def test_tui_keeps_input_row_stable_when_working_line_settles(
     ui.components.chrome.footer.set_builtin_text(
         "\n".join(("~/projects/pipy (main)", "$0.000 (sub) status"))
     )
-    ui.input_editor.text = "next prompt"
+    ui.components.input_editor.text = "next prompt"
 
     ui.components.transcript.set_working("⠋ Working...")
     ui.components.transcript.append_assistant("line one\nline two")
@@ -374,11 +374,11 @@ def test_tui_keeps_working_region_below_assistant_stream(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.components.transcript.submit_user_message("hello world!")
     ui.components.transcript.set_working("⠋ Working...")
-    active = ui._screen.render_lines(width=72, height=14)
+    active = ui.components.screen.render_lines(width=72, height=14)
     assert sum("Working..." in line for line in active) == 1
 
     ui.components.transcript.append_assistant("Hello from pipy.")
-    streamed = ui._screen.render_lines(width=72, height=14)
+    streamed = ui.components.screen.render_lines(width=72, height=14)
 
     assert sum("Working..." in line for line in streamed) == 1
     assert sum("Hello from pipy." in line for line in streamed) == 1
@@ -394,9 +394,9 @@ def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
     ui.components.chrome.component.set_status("lint", "run\rning")
     ui.components.chrome.component.set_status("zeta", "queued")
     ui.components.chrome.component.set_status("alpha", "\x1b[31mred")
-    ui.input_editor.text = "next"
+    ui.components.input_editor.text = "next"
 
-    frame = ui._screen.render_lines(width=72, height=14, pad=False)
+    frame = ui.components.screen.render_lines(width=72, height=14, pad=False)
     text = "\n".join(frame)
 
     assert any("build: green" in line for line in frame)
@@ -413,9 +413,11 @@ def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
 def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui._transcript.add_custom_entry("card\x1b[31m", ["line one", "bad\rreturn"])
+    ui.components.transcript.add_custom_entry(
+        "card\x1b[31m", ["line one", "bad\rreturn"]
+    )
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "[card [31m]" in frame
     assert "line one" in frame
     assert "bad return" in frame
@@ -428,14 +430,15 @@ def test_add_custom_entry_styled_preserves_sgr_and_clips(tmp_path: Path):
 
     # The second line is wider than the resolved frame (_MIN_WIDTH == 60), so it
     # must be clipped by _clip_custom_overlay_text in _block_frame_lines.
-    ui._transcript.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 70])
+    ui.components.transcript.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 70])
 
     # Committed under the new custom_message_custom kind (the SGR-safe path,
     # NOT the sanitizing add_custom_entry path):
     assert any(
-        kind == "custom_message_custom" for kind, _ in ui._transcript.history_blocks
+        kind == "custom_message_custom"
+        for kind, _ in ui.components.transcript.history_blocks
     )
-    rendered = ui._screen.render_lines(width=60, height=14, pad=False)
+    rendered = ui.components.screen.render_lines(width=60, height=14, pad=False)
     frame = "\n".join(rendered)
     assert "\x1b[1m" in frame  # SGR preserved (not sanitized away)
     assert "HELLO" in frame
@@ -453,7 +456,7 @@ def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
 
     ui.components.transcript.add_notice("bad\x1b[31mred\rreturn")
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "\x1b" not in frame
     assert "\r" not in frame
     assert "bad [31mred" in frame
@@ -468,7 +471,7 @@ def test_tui_tool_blocks_sanitize_control_characters(tmp_path: Path):
         lines=["result\x1b[31mred\rreturn"], is_error=False
     )
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
     assert "\x1b" not in frame
     assert "\r" not in frame
     assert "ext-tool [31mred" in frame
@@ -477,10 +480,10 @@ def test_tui_tool_blocks_sanitize_control_characters(tmp_path: Path):
 
 def test_tui_custom_overlay_sanitizes_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._overlays.custom_component = _RawCustomComponent()
+    ui.components.overlays.custom_component = _RawCustomComponent()
     ui.components.overlays.supersede("custom")
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "\x1b[31m" in frame
     assert "\r" not in frame
     assert "\x07" not in frame
@@ -501,7 +504,7 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     adapter = RenderingAgentEventAdapter(renderer)
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     adapter.emit(AssistantTextDelta(0, ProductContent("hello ")))
-    active = "\n".join(ui._screen.render_lines(width=72, height=14))
+    active = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "Working..." in active
     assert "hello" in active
 
@@ -510,7 +513,7 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
         MessageCompleted(0, AgentAssistantMessage(ProductContent("hello world")))
     )
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
     assert "Working..." not in frame
     assert frame.count("hello world") == 1
 
@@ -533,7 +536,7 @@ def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
     adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
     ui.components.chrome.component.set_working_visible(False)
     renderer.show_working()
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "Checking" not in frame
     assert "Working..." not in frame
 
@@ -553,7 +556,7 @@ def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     adapter.emit(RunCancelled(reason))
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "Working..." not in frame
     if reason is AgentCancellationReason.OPERATOR_ABORT:
         assert "Operation aborted" in frame
@@ -582,7 +585,7 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
     assert "read docs/backlog.md" in frame
     assert "$ read" not in frame
     assert ":1-5" not in frame
@@ -611,7 +614,7 @@ def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Pa
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
     assert "$ ls" in frame
     assert "one" in frame
     assert "two" in frame
@@ -645,7 +648,7 @@ def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
     painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "[ 25%]" in painted
     assert "[ 50%]" in painted
-    live = "\n".join(ui._screen.render_lines(width=72, height=20))
+    live = "\n".join(ui.components.screen.render_lines(width=72, height=20))
     assert "[ 50%]" in live
 
 
@@ -671,9 +674,9 @@ def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
         duration_seconds=53.0,
     )
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
     # The live stream buffer is cleared once the bounded result is committed.
-    assert ui._transcript.tool_output_text == ""
+    assert ui.components.transcript.tool_output_text == ""
     assert "1346 passed" in frame
 
 
@@ -690,7 +693,7 @@ def test_tui_preserves_input_and_footer_when_history_overflows(tmp_path: Path):
         duration_seconds=0.1,
     )
 
-    frame_lines = ui._screen._frame_lines(width=72, height=14, pad=False)
+    frame_lines = ui.components.screen._frame_lines(width=72, height=14, pad=False)
     frame = [line.text for line in frame_lines]
     input_index = next(
         index for index, line in enumerate(frame_lines) if line.kind == "input"
@@ -707,7 +710,7 @@ def test_tui_preserves_input_and_footer_when_history_overflows(tmp_path: Path):
 
 def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._transcript.history_blocks = [
+    ui.components.transcript.history_blocks = [
         ("section", ("[Skills]",)),
         ("resource", ("  commit-ready, review-handoff", "", "")),
     ]
@@ -725,7 +728,7 @@ def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
     )
     ui.components.transcript.append_assistant("TOOL SMOKE DONE")
 
-    frame_lines = ui._screen._frame_lines(width=100, height=30, pad=False)
+    frame_lines = ui.components.screen._frame_lines(width=100, height=30, pad=False)
     frame = [line.text for line in frame_lines]
     prompt_index = next(
         index for index, line in enumerate(frame) if "Use the ls" in line
@@ -743,7 +746,7 @@ def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
 
 def test_tui_short_height_retains_startup_chrome_before_prompt(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._transcript.history_blocks = [
+    ui.components.transcript.history_blocks = [
         ("normal", ("",)),
         ("title", (" pipy v0.1.0",)),
         (
@@ -779,7 +782,7 @@ def test_tui_short_height_retains_startup_chrome_before_prompt(tmp_path: Path):
     ui.components.transcript.submit_user_message("hello world")
     ui.components.transcript.append_assistant("Hello!")
 
-    frame = ui._screen.render_lines(width=100, height=24, pad=False)
+    frame = ui.components.screen.render_lines(width=100, height=24, pad=False)
     prompt_index = next(
         index for index, line in enumerate(frame) if "hello world" in line
     )
@@ -815,7 +818,7 @@ def test_tui_user_message_background_matches_pi_three_row_band(
     ui.components.transcript.submit_user_message("hello world")
     ui.components.transcript.append_assistant("Hello!")
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(),
@@ -852,7 +855,7 @@ def test_tui_user_message_band_fills_last_column(
     ui.components.transcript.submit_user_message("hello world")
     ui.components.transcript.append_assistant("Hello!")
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(),
@@ -882,7 +885,7 @@ def test_tui_input_separator_spans_full_width(
         "\n".join(("~/projects/pipy (main)", "x"))
     )
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(),
@@ -913,9 +916,9 @@ def test_tui_tool_command_band_fills_last_column(
     ui.components.chrome.footer.set_builtin_text(
         "\n".join(("~/projects/pipy (main)", "x"))
     )
-    ui._transcript.history_blocks.append(("tool", ('bash(command="ls")',)))
+    ui.components.transcript.history_blocks.append(("tool", ('bash(command="ls")',)))
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(),
@@ -934,14 +937,16 @@ def test_tui_tool_command_band_fills_last_column(
 
 def test_tui_drops_tail_when_context_and_prompt_fill_history_region(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._transcript.history_blocks = [("normal", ("ctx1", "ctx2", "ctx3", "ctx4"))]
+    ui.components.transcript.history_blocks = [
+        ("normal", ("ctx1", "ctx2", "ctx3", "ctx4"))
+    ]
     ui.components.chrome.footer.set_builtin_text(
         "\n".join(("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)"))
     )
     ui.components.transcript.submit_user_message("prompt")
     ui.components.transcript.append_assistant("tail1\ntail2\ntail3")
 
-    frame = ui._screen.render_lines(width=72, height=13, pad=False)
+    frame = ui.components.screen.render_lines(width=72, height=13, pad=False)
     input_index = next(index for index, line in enumerate(frame) if line == " ")
 
     assert "tail1" not in "\n".join(frame)
@@ -966,7 +971,7 @@ def test_tui_renderer_accumulates_reasoning_chunks_without_token_lines(
     renderer.reasoning_sink("about ")
     renderer.reasoning_sink("this.")
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "Thinking about this." in frame
     assert "Thinking \n" not in frame
 
@@ -978,9 +983,9 @@ def test_tui_settles_reasoning_before_turn_reset(tmp_path: Path):
     ui.components.transcript.append_reasoning("through it.")
     ui.components.transcript.begin_assistant_turn()
 
-    frame = "\n".join(ui._screen.render_lines(width=72, height=14))
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "Thinking through it." in frame
-    assert ui._transcript.reasoning_text == ""
+    assert ui.components.transcript.reasoning_text == ""
 
 
 def test_tui_reasoning_row_emits_italic_escape(
@@ -995,7 +1000,7 @@ def test_tui_reasoning_row_emits_italic_escape(
     ui = _ui(tmp_path)
 
     ui.components.transcript.append_reasoning("Thinking about this.")
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "\x1b[3;38;2;128;128;128m Thinking about this.\x1b[0m" in output
@@ -1009,7 +1014,7 @@ def test_tui_reasoning_row_drops_italic_under_no_color(
     ui = _ui(tmp_path)
 
     ui.components.transcript.append_reasoning("Thinking about this.")
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     # The italic SGR is `\x1b[3;…m` / `\x1b[3m`; assert that specific sequence is
@@ -1029,7 +1034,7 @@ def test_tui_tool_call_uses_pi_command_background(
     ui = _ui(tmp_path)
 
     ui.components.transcript.add_tool_call("ls")
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "\x1b[48;2;40;50;40m" in output
@@ -1044,7 +1049,7 @@ def test_tui_tool_call_uses_fallback_background_for_plain_256color(
     ui = _ui(tmp_path)
 
     ui.components.transcript.add_tool_call("ls")
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "\x1b[48;5;235m" in output
@@ -1062,7 +1067,7 @@ def test_tui_tool_result_uses_pi_command_background(
     ui.components.transcript.add_tool_result(
         lines=["result line"], is_error=False, duration_seconds=0.1
     )
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(),
@@ -1086,7 +1091,7 @@ def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
     ui.components.transcript.add_tool_result(
         lines=["alpha"], is_error=False, duration_seconds=0.1
     )
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(),
@@ -1105,7 +1110,7 @@ def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
 def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui._transcript.show_settings(
+    ui.components.transcript.show_settings(
         [
             "pipy native REPL settings:",
             "  active: fake/fake-native-bootstrap",
@@ -1117,20 +1122,24 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
         ]
     )
 
-    rendered = "\n".join(ui._screen.render_lines(width=88, height=40, pad=False))
+    rendered = "\n".join(
+        ui.components.screen.render_lines(width=88, height=40, pad=False)
+    )
     assert "pipy native REPL settings:" in rendered
     assert "active: fake/fake-native-bootstrap" in rendered
     assert "openai/gpt-5.5 [unavailable (auth-missing)]" in rendered
     assert "read-only view; use /model to switch" in rendered
 
     # The same content must reach the real terminal stream via paint().
-    ui._screen.paint()
+    ui.components.screen.paint()
     painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "pipy native REPL settings:" in painted
 
 
 def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
-    from pipy_harness.native.tui import TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+    from pipy_harness.native.ui.composition import (
+        TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
+    )
 
     assert TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS == (
         "/hotkeys",
@@ -1172,9 +1181,9 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
 def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.input_editor.insert_text("/log")
+    ui.components.input_editor.insert_text("/log")
 
-    frame = ui._screen._frame_lines(width=88, height=24, pad=False)
+    frame = ui.components.screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
     assert ui.components.autocomplete.slash_menu_open is True
@@ -1188,9 +1197,9 @@ def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
 def test_tui_slash_menu_shows_copy_command(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.input_editor.insert_text("/co")
+    ui.components.input_editor.insert_text("/co")
 
-    frame = ui._screen._frame_lines(width=88, height=24, pad=False)
+    frame = ui.components.screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
     assert ui.components.autocomplete.slash_menu_open is True
@@ -1200,9 +1209,9 @@ def test_tui_slash_menu_shows_copy_command(tmp_path: Path):
 def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.input_editor.insert_text("/")
+    ui.components.input_editor.insert_text("/")
 
-    frame = ui._screen._frame_lines(width=88, height=24, pad=False)
+    frame = ui.components.screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
     assert ui.components.autocomplete.slash_menu_open is True
@@ -1232,8 +1241,8 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
 def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.components.autocomplete.set_max_visible(3)
-    ui.input_editor.insert_text("/")
-    frame = ui._screen._frame_lines(width=88, height=24, pad=False)
+    ui.components.input_editor.insert_text("/")
+    frame = ui.components.screen._frame_lines(width=88, height=24, pad=False)
     menu_rows = [
         line for line in frame if line.kind in {"slash_menu", "slash_menu_selected"}
     ]
@@ -1245,7 +1254,7 @@ def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.insert_text("/")
+    ui.components.input_editor.insert_text("/")
 
     ui.components.autocomplete.navigate_slash_menu("down")
     assert ui.components.autocomplete.slash_menu_selection == 1
@@ -1253,26 +1262,26 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     ui.components.autocomplete.accept_slash_menu_selection()
     # Menu order is hotkeys(0), model(1), scoped-models(2), ...; one step down
     # lands on the /model command (auto-completed into the editor).
-    assert ui.input_editor.text == "/model"
-    assert ui.input_editor.cursor == len("/model")
+    assert ui.components.input_editor.text == "/model"
+    assert ui.components.input_editor.cursor == len("/model")
     assert ui.components.autocomplete.slash_menu_open is False
 
-    ui.input_editor.text = "/"
-    ui.input_editor.cursor = 1
+    ui.components.input_editor.text = "/"
+    ui.components.input_editor.cursor = 1
     ui.components.autocomplete.refresh_slash_menu()
     assert ui.components.autocomplete.slash_menu_open is True
 
     ui.components.autocomplete.slash_menu_open = False
-    frame = "\n".join(ui._screen.render_lines(width=88, height=24, pad=False))
+    frame = "\n".join(ui.components.screen.render_lines(width=88, height=24, pad=False))
     assert "→ hotkeys" not in frame
-    assert ui.input_editor.text == "/"
+    assert ui.components.input_editor.text == "/"
 
 
 def test_tui_model_selector_renders_rows_with_highlight_and_reasons(
     tmp_path: Path,
 ):
     ui = _ui(tmp_path)
-    assert ui._overlays.begin_model(
+    assert ui.components.overlays.begin_model(
         (
             ModelSelectorOption("openrouter/openai/gpt  [available] (current)", True),
             ModelSelectorOption("openai/gpt-5.5  [available]", True),
@@ -1284,7 +1293,7 @@ def test_tui_model_selector_renders_rows_with_highlight_and_reasons(
         title=None,
     )
 
-    frame = ui._screen._frame_lines(width=88, height=24, pad=False)
+    frame = ui.components.screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
     # The selector overlay (title + rows) replaces the normal input/menu area.
@@ -1300,12 +1309,15 @@ def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it
     tmp_path: Path,
 ) -> None:
     ui = _ui(tmp_path)
-    ui.input_editor.set_input_text("captured contract")
-    ui._overlays.supersede("session_picker")
+    ui.components.input_editor.set_input_text("captured contract")
+    ui.components.overlays.supersede("session_picker")
 
-    captured = "\n".join(ui._screen.render_lines(width=88, height=24, pad=False))
+    captured = "\n".join(
+        ui.components.screen.render_lines(width=88, height=24, pad=False)
+    )
     live = "\n".join(
-        line.text for line in ui._screen._live_region_lines(width=88, height=24)
+        line.text
+        for line in ui.components.screen._live_region_lines(width=88, height=24)
     )
 
     assert "Resume session" not in captured
@@ -1315,13 +1327,13 @@ def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it
 
 def test_tui_model_selector_keeps_cursor_hidden(tmp_path: Path):
     ui = _ui(tmp_path)
-    assert ui._overlays.begin_model(
+    assert ui.components.overlays.begin_model(
         (ModelSelectorOption("a  [available]", True),),
         current_index=0,
         title=None,
     )
 
-    ui._screen.paint()
+    ui.components.screen.paint()
     painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     # The selector has no editable input cell: the paint hides the cursor and
     # never re-shows it (unlike the normal input frame, which parks + shows it).
@@ -1331,13 +1343,13 @@ def test_tui_model_selector_keeps_cursor_hidden(tmp_path: Path):
 
 def test_tui_input_cursor_can_move_within_typed_text(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.insert_text("ab")
+    ui.components.input_editor.insert_text("ab")
 
-    ui.input_editor.move_cursor("left")
-    ui.input_editor.insert_text("X")
+    ui.components.input_editor.move_cursor("left")
+    ui.components.input_editor.insert_text("X")
 
-    assert ui.input_editor.text == "aXb"
-    assert ui.input_editor.cursor == 2
+    assert ui.components.input_editor.text == "aXb"
+    assert ui.components.input_editor.cursor == 2
 
 
 def test_tui_start_is_inline_and_close_restores_cursor(
@@ -1367,7 +1379,7 @@ def test_tui_start_is_inline_and_close_restores_cursor(
 def test_tui_paint_uses_explicit_carriage_returns_for_raw_mode(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "\x1b[K\r\n" in output
@@ -1384,9 +1396,9 @@ def test_tui_paint_places_live_cursor_on_input_row(
         "\n".join(("~/projects/pipy (main)", "$0.000 (sub) status"))
     )
     ui.components.transcript.submit_user_message("hello world!")
-    ui.input_editor.text = "next"
+    ui.components.input_editor.text = "next"
 
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(), columns=80, rows=24
@@ -1414,7 +1426,7 @@ def test_tui_paint_does_not_reprint_committed_history(
     ui.components.chrome.footer.set_builtin_text(
         "~/projects/pipy (main)\n$0.000 (sub) status"
     )
-    ui._screen.paint()
+    ui.components.screen.paint()
 
     delta = terminal.getvalue()[boundary:]
     assert "UNIQUE_MARKER_X" not in delta
@@ -1432,8 +1444,8 @@ def test_tui_paint_uses_full_height_and_scrolls_history(
     ui.start()
     for index in range(8):
         ui.components.transcript.submit_user_message(f"message number {index}")
-    ui.input_editor.text = "typing"
-    ui._screen.paint()
+    ui.components.input_editor.text = "typing"
+    ui.components.screen.paint()
 
     snapshot = parse_ansi_screen(
         cast(_TtyBuffer, ui.terminal_stream).getvalue(), columns=80, rows=20
@@ -1728,7 +1740,7 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
     assert result.user_turn_count == 1
     assert not any(
         kind == "user" and lines == ("/model",)
-        for kind, lines in ui._transcript.history_blocks
+        for kind, lines in ui.components.transcript.history_blocks
     )
 
 
@@ -1787,7 +1799,7 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
     assert seen == []
     assert any(
         kind == "user" and lines == ("/model",)
-        for kind, lines in ui._transcript.history_blocks
+        for kind, lines in ui.components.transcript.history_blocks
     )
 
 
@@ -1992,7 +2004,9 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     assert result.tool_invocation_count == 0
     assert provider.completions == 0
     # It is an interactive overlay, NOT a committed settings text block.
-    assert not any(kind == "settings" for kind, _lines in ui._transcript.history_blocks)
+    assert not any(
+        kind == "settings" for kind, _lines in ui.components.transcript.history_blocks
+    )
 
     assert captured_rows, "/settings did not open the interactive dialog"
     labels = [row.label for row in captured_rows[0]]
@@ -2160,7 +2174,9 @@ def test_trust_command_persists_next_start_decision_without_hot_activation(
     assert ProjectTrustStore(config / "trust.json").get(cwd) is True
     assert settings.project_trusted is False
     notices = [
-        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "notice"
     ]
     assert any(
         "Restart pipy for this to take effect" in line
@@ -2193,11 +2209,11 @@ def test_tui_settings_dialog_renders_rows_with_highlight_and_affordances(
 ):
     ui = _ui(tmp_path)
     # Highlight the toggle action row (index 4).
-    assert ui._overlays.begin_settings(
+    assert ui.components.overlays.begin_settings(
         _settings_dialog_rows(), current_index=4, title="Settings"
     )
 
-    frame = ui._screen._frame_lines(width=88, height=24, pad=False)
+    frame = ui.components.screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
     # The dialog overlay (title + rows) replaces the normal input/menu area and
@@ -2220,27 +2236,27 @@ def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(
 ) -> None:
     ui = _ui(tmp_path)
 
-    assert ui.input_editor.get_input_text() == ""
+    assert ui.components.input_editor.get_input_text() == ""
 
-    ui.input_editor.set_input_text("draft")
-    assert ui.input_editor.get_input_text() == "draft"
-    assert ui.input_editor.text == "draft"
-    assert ui.input_editor.cursor == len("draft")
+    ui.components.input_editor.set_input_text("draft")
+    assert ui.components.input_editor.get_input_text() == "draft"
+    assert ui.components.input_editor.text == "draft"
+    assert ui.components.input_editor.cursor == len("draft")
 
-    ui.input_editor.set_input_text("prefix suffix")
-    ui.input_editor.cursor = len("prefix ")
-    ui.input_editor.paste_input_text("pasted\ntext")
-    assert ui.input_editor.get_input_text() == "prefix pasted\ntextsuffix"
-    assert ui.input_editor.text == "prefix pasted\ntextsuffix"
-    assert ui.input_editor.cursor == len("prefix pasted\ntext")
+    ui.components.input_editor.set_input_text("prefix suffix")
+    ui.components.input_editor.cursor = len("prefix ")
+    ui.components.input_editor.paste_input_text("pasted\ntext")
+    assert ui.components.input_editor.get_input_text() == "prefix pasted\ntextsuffix"
+    assert ui.components.input_editor.text == "prefix pasted\ntextsuffix"
+    assert ui.components.input_editor.cursor == len("prefix pasted\ntext")
 
-    ui.input_editor.paste_input_text("")
-    assert ui.input_editor.get_input_text() == "prefix pasted\ntextsuffix"
+    ui.components.input_editor.paste_input_text("")
+    assert ui.components.input_editor.get_input_text() == "prefix pasted\ntextsuffix"
 
-    ui.input_editor.set_input_text("replacement")
-    assert ui.input_editor.get_input_text() == "replacement"
-    assert ui.input_editor.text == "replacement"
-    assert ui.input_editor.cursor == len("replacement")
+    ui.components.input_editor.set_input_text("replacement")
+    assert ui.components.input_editor.get_input_text() == "replacement"
+    assert ui.components.input_editor.text == "replacement"
+    assert ui.components.input_editor.cursor == len("replacement")
 
 
 def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: Path):
@@ -2250,9 +2266,11 @@ def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: P
         for index in range(20)
     )
     ui = _ui(tmp_path)
-    assert ui._overlays.begin_settings(tuple(rows), current_index=10, title="Settings")
+    assert ui.components.overlays.begin_settings(
+        tuple(rows), current_index=10, title="Settings"
+    )
 
-    frame = ui._screen._frame_lines(width=88, height=14, pad=False)
+    frame = ui.components.screen._frame_lines(width=88, height=14, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
     # The list is windowed to fit the short frame and shows a scroll indicator.
@@ -2263,11 +2281,11 @@ def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: P
 
 def test_tui_settings_dialog_keeps_cursor_hidden(tmp_path: Path):
     ui = _ui(tmp_path)
-    assert ui._overlays.begin_settings(
+    assert ui.components.overlays.begin_settings(
         _settings_dialog_rows(), current_index=2, title="Settings"
     )
 
-    ui._screen.paint()
+    ui.components.screen.paint()
     painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     # Like the model selector, the settings dialog has no editable input cell:
     # the cursor is hidden and never re-shown while the overlay is open.
@@ -2364,7 +2382,10 @@ def test_persistent_history_seeds_tui_recall_when_enabled(
     )
 
     # The fresh TUI session seeds its in-memory recall buffer from disk.
-    assert ui.input_editor.input_history == ["earlier prompt", "later prompt"]
+    assert ui.components.input_editor.input_history == [
+        "earlier prompt",
+        "later prompt",
+    ]
 
 
 def test_disabled_store_does_not_seed_tui_recall(
@@ -2405,7 +2426,7 @@ def test_disabled_store_does_not_seed_tui_recall(
     )
 
     # Disabled persistence: the fresh session does not recall the saved prompt.
-    assert ui.input_editor.input_history == []
+    assert ui.components.input_editor.input_history == []
 
 
 def test_settings_dialog_toggle_and_clear_mutate_store_locally(
@@ -2421,7 +2442,7 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
     provider_state = _read_only_provider_state(tmp_path, provider)
     ui = _ui(tmp_path)
     # Seed the live in-memory recall as a fresh enabled session would.
-    ui.input_editor.input_history = list(store.entries())
+    ui.components.input_editor.input_history = list(store.entries())
     scripted = iter(["/settings\n", ""])
     monkeypatch.setattr(
         TerminalUi,
@@ -2468,7 +2489,7 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
     assert store.entries() == []
     # The current session's in-memory recall keeps working (clear only wipes the
     # persisted store, not the live recall buffer).
-    assert ui.input_editor.input_history == ["old prompt"]
+    assert ui.components.input_editor.input_history == ["old prompt"]
 
 
 def test_settings_dialog_theme_row_applies_and_persists_theme(
@@ -2920,7 +2941,9 @@ def test_tui_copy_command_is_local_only_when_nothing_to_copy(
     assert provider.completions == 0
     assert recorder.copies == []
     notices = [
-        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "notice"
     ]
     assert any("nothing to copy" in " ".join(lines).lower() for lines in notices)
 
@@ -2979,7 +3002,9 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     assert result.tool_invocation_count == 0
     assert recorder.copies == ["Final answer ABC"]
     notices = [
-        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "notice"
     ]
     assert any("copied" in " ".join(lines).lower() for lines in notices)
 
@@ -3056,7 +3081,9 @@ def _decode_key(ui: TerminalUi, data: bytes) -> str | None:
     os.write(write_fd, data)
     os.close(write_fd)
     try:
-        return ui._screen.read_driver_key(ui._driver.read_key(read_fd))
+        return ui.components.screen.read_driver_key(
+            ui.components.driver.read_key(read_fd)
+        )
     finally:
         os.close(read_fd)
 
@@ -3078,9 +3105,9 @@ def test_tui_key_if_available_reads_pending_byte_without_fd_activity(tmp_path: P
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b"\xc3(")
     try:
-        assert ui._driver.read_key(read_fd) == "�"
+        assert ui.components.driver.read_key(read_fd) == "�"
 
-        assert ui._driver.read_key_if_available(read_fd, 0.0) == "("
+        assert ui.components.driver.read_key_if_available(read_fd, 0.0) == "("
     finally:
         os.close(write_fd)
         os.close(read_fd)
@@ -3088,36 +3115,36 @@ def test_tui_key_if_available_reads_pending_byte_without_fd_activity(tmp_path: P
 
 def test_tui_prompt_history_up_down_recall(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.record_history("first prompt")
-    ui.input_editor.record_history("second prompt")
+    ui.components.input_editor.record_history("first prompt")
+    ui.components.input_editor.record_history("second prompt")
 
     # A half-typed draft is preserved when history navigation begins.
-    ui.input_editor.text = "draft"
-    ui.input_editor.cursor = len("draft")
+    ui.components.input_editor.text = "draft"
+    ui.components.input_editor.cursor = len("draft")
 
-    ui.input_editor.navigate_history("up")
-    assert ui.input_editor.text == "second prompt"
-    assert ui.input_editor.cursor == len("second prompt")
+    ui.components.input_editor.navigate_history("up")
+    assert ui.components.input_editor.text == "second prompt"
+    assert ui.components.input_editor.cursor == len("second prompt")
 
-    ui.input_editor.navigate_history("up")
-    assert ui.input_editor.text == "first prompt"
+    ui.components.input_editor.navigate_history("up")
+    assert ui.components.input_editor.text == "first prompt"
 
-    ui.input_editor.navigate_history("down")
-    assert ui.input_editor.text == "second prompt"
+    ui.components.input_editor.navigate_history("down")
+    assert ui.components.input_editor.text == "second prompt"
 
     # Stepping past the newest entry restores the preserved draft.
-    ui.input_editor.navigate_history("down")
-    assert ui.input_editor.text == "draft"
-    assert ui.input_editor.history_nav_index is None
+    ui.components.input_editor.navigate_history("down")
+    assert ui.components.input_editor.text == "draft"
+    assert ui.components.input_editor.history_nav_index is None
 
 
 def test_tui_history_dedupes_and_skips_blank(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.record_history("   ")  # blank-after-strip: ignored
-    ui.input_editor.record_history("alpha")
-    ui.input_editor.record_history("alpha")  # consecutive duplicate: ignored
-    ui.input_editor.record_history("beta")
-    assert ui.input_editor.input_history == ["alpha", "beta"]
+    ui.components.input_editor.record_history("   ")  # blank-after-strip: ignored
+    ui.components.input_editor.record_history("alpha")
+    ui.components.input_editor.record_history("alpha")  # consecutive duplicate: ignored
+    ui.components.input_editor.record_history("beta")
+    assert ui.components.input_editor.input_history == ["alpha", "beta"]
 
 
 def test_tui_history_is_in_memory_only(tmp_path: Path):
@@ -3129,41 +3156,41 @@ def test_tui_history_is_in_memory_only(tmp_path: Path):
 
     ui = _ui(tmp_path)
     before = {entry.name for entry in tmp_path.iterdir()}
-    ui.input_editor.record_history("super secret prompt")
+    ui.components.input_editor.record_history("super secret prompt")
     after = {entry.name for entry in tmp_path.iterdir()}
     assert before == after  # nothing written
-    assert isinstance(ui.input_editor.input_history, list)
+    assert isinstance(ui.components.input_editor.input_history, list)
     assert not hasattr(ui, "history_path")
 
 
 def test_tui_navigate_history_noop_without_entries(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.text = "kept"
-    ui.input_editor.navigate_history("up")
-    assert ui.input_editor.text == "kept"
-    ui.input_editor.navigate_history("down")
-    assert ui.input_editor.text == "kept"
+    ui.components.input_editor.text = "kept"
+    ui.components.input_editor.navigate_history("up")
+    assert ui.components.input_editor.text == "kept"
+    ui.components.input_editor.navigate_history("down")
+    assert ui.components.input_editor.text == "kept"
 
 
 def test_tui_bracketed_paste_decodes_as_literal_multiline(tmp_path: Path):
     ui = _ui(tmp_path)
     key = _decode_key(ui, b"\x1b[200~line one\nline two\x1b[201~")
     assert key == "paste"
-    assert ui.input_editor.pending_paste == "line one\nline two"
+    assert ui.components.input_editor.pending_paste == "line one\nline two"
 
 
 def test_tui_bracketed_paste_normalizes_crlf(tmp_path: Path):
     ui = _ui(tmp_path)
     key = _decode_key(ui, b"\x1b[200~a\r\nb\rc\x1b[201~")
     assert key == "paste"
-    assert ui.input_editor.pending_paste == "a\nb\nc"
+    assert ui.components.input_editor.pending_paste == "a\nb\nc"
 
 
 def test_tui_paste_inserts_without_submission_or_menu(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.clipboard_images.insert_paste("/not-a-command and more\nsecond line")
+    ui.components.clipboard_images.insert_paste("/not-a-command and more\nsecond line")
     # The whole paste is inserted literally, including the newline.
-    assert ui.input_editor.text == "/not-a-command and more\nsecond line"
+    assert ui.components.input_editor.text == "/not-a-command and more\nsecond line"
     # A paste with whitespace never opens the slash menu (so it cannot be
     # mistaken for / command completion), and never submits on its own.
     assert ui.components.autocomplete.slash_menu_open is False
@@ -3174,9 +3201,9 @@ def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
     ui.components.chrome.footer.set_builtin_text(
         "\n".join(("~/projects/pipy (main)", "$0.000 status"))
     )
-    ui.clipboard_images.insert_paste("line one\nline two")
+    ui.components.clipboard_images.insert_paste("line one\nline two")
 
-    frame = ui._screen._frame_lines(width=72, height=16, pad=False)
+    frame = ui.components.screen._frame_lines(width=72, height=16, pad=False)
     texts = [line.text for line in frame]
 
     # No raw newline ever leaks into a frame line (which would spill the input
@@ -3192,24 +3219,26 @@ def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
     assert set(texts[input_index + 1].strip()) == {"─"}
     assert "~/projects/pipy" in texts[input_index + 2]
     # The literal buffer is preserved verbatim for submission.
-    assert ui.input_editor.text == "line one\nline two"
+    assert ui.components.input_editor.text == "line one\nline two"
 
     # After another keypress the buffer still holds the literal newline and the
     # frame still renders exactly one input row with no leaked newline.
-    ui.input_editor.insert_text("!")
-    assert ui.input_editor.text == "line one\nline two!"
+    ui.components.input_editor.insert_text("!")
+    assert ui.components.input_editor.text == "line one\nline two!"
     texts_after = [
-        line.text for line in ui._screen._frame_lines(width=72, height=16, pad=False)
+        line.text
+        for line in ui.components.screen._frame_lines(width=72, height=16, pad=False)
     ]
     assert all("\n" not in text for text in texts_after)
     assert sum(
-        line.kind == "input" for line in ui._screen._frame_lines(width=72, height=16)
+        line.kind == "input"
+        for line in ui.components.screen._frame_lines(width=72, height=16)
     )
 
     # After undoing back to the bare paste, still a single coherent input row.
-    ui.input_editor.undo()
-    assert ui.input_editor.text == "line one\nline two"
-    undo_frame = ui._screen._frame_lines(width=72, height=16, pad=False)
+    ui.components.input_editor.undo()
+    assert ui.components.input_editor.text == "line one\nline two"
+    undo_frame = ui.components.screen._frame_lines(width=72, height=16, pad=False)
     undo_rows = [i for i, line in enumerate(undo_frame) if line.kind == "input"]
     assert len(undo_rows) == 1
     assert all("\n" not in line.text for line in undo_frame)
@@ -3220,17 +3249,17 @@ def test_tui_long_multiline_input_wraps_with_literal_newline_projection(
 ):
     ui = _ui(tmp_path)
     pasted = "abc\ndefghijklmnopqrstuvwxyz"
-    ui.clipboard_images.insert_paste(pasted)
+    ui.components.clipboard_images.insert_paste(pasted)
 
     width = 20
-    input_rows = ui.input_editor.input_frame_lines(width)
+    input_rows = ui.components.input_editor.input_frame_lines(width)
     rendered = "".join(row.text.strip() for row in input_rows)
 
     assert len(input_rows) >= 2
     assert "⏎" in rendered
     assert "\n" not in rendered
-    assert rendered == ui.input_editor.display_input_text(pasted)
-    assert ui.input_editor.text == pasted
+    assert rendered == ui.components.input_editor.display_input_text(pasted)
+    assert ui.components.input_editor.text == pasted
 
     cursor_rows = [row for row in input_rows if row.meta is not None]
     assert len(cursor_rows) == 1
@@ -3242,18 +3271,18 @@ def test_tui_long_input_soft_wraps_inside_input_frame(tmp_path: Path):
     ui.components.chrome.footer.set_builtin_text(
         "\n".join(("~/projects/pipy (main)", "$0.000 status"))
     )
-    ui.input_editor.text = "".join(str(i % 10) for i in range(120))
-    ui.input_editor.cursor = len(ui.input_editor.text)
+    ui.components.input_editor.text = "".join(str(i % 10) for i in range(120))
+    ui.components.input_editor.cursor = len(ui.components.input_editor.text)
 
     width = 88
-    frame = ui._screen._frame_lines(width=width, height=16, pad=False)
+    frame = ui.components.screen._frame_lines(width=width, height=16, pad=False)
     texts = [line.text for line in frame]
 
     input_rows = [i for i, line in enumerate(frame) if line.kind == "input"]
     assert len(input_rows) == 2
     assert all(len(text) <= width for text in texts)
-    assert texts[input_rows[0]] == ui.input_editor.text[: width - 1]
-    assert texts[input_rows[1]] == ui.input_editor.text[width - 1 :]
+    assert texts[input_rows[0]] == ui.components.input_editor.text[: width - 1]
+    assert texts[input_rows[1]] == ui.components.input_editor.text[width - 1 :]
     assert set(texts[input_rows[0] - 1].strip()) == {"─"}
     assert set(texts[input_rows[-1] + 1].strip()) == {"─"}
     assert "~/projects/pipy" in texts[input_rows[-1] + 2]
@@ -3263,44 +3292,44 @@ def test_tui_long_input_soft_wraps_inside_input_frame(tmp_path: Path):
     ]
     assert len(cursor_rows) == 1
     assert cursor_rows[0].meta == {
-        "cursor_col": len(ui.input_editor.text) % (width - 1)
+        "cursor_col": len(ui.components.input_editor.text) % (width - 1)
     }
 
 
 def test_tui_wrapped_input_window_keeps_cursor_visible(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.text = "x" * 200
+    ui.components.input_editor.text = "x" * 200
     width = 80
 
-    ui.input_editor.cursor = 50
-    rows = ui.input_editor.input_frame_lines(width, max_rows=2)
+    ui.components.input_editor.cursor = 50
+    rows = ui.components.input_editor.input_frame_lines(width, max_rows=2)
     assert len(rows) == 2
     assert rows[0].meta == {"cursor_col": 50}
     assert rows[1].meta is None
 
-    ui.input_editor.cursor = 0
-    rows = ui.input_editor.input_frame_lines(width, max_rows=2)
+    ui.components.input_editor.cursor = 0
+    rows = ui.components.input_editor.input_frame_lines(width, max_rows=2)
     assert rows[0].meta == {"cursor_col": 0}
 
-    ui.input_editor.cursor = len(ui.input_editor.text)
-    rows = ui.input_editor.input_frame_lines(width, max_rows=2)
+    ui.components.input_editor.cursor = len(ui.components.input_editor.text)
+    rows = ui.components.input_editor.input_frame_lines(width, max_rows=2)
     assert len(rows) == 2
     cursor_rows = [line for line in rows if line.meta is not None]
     assert len(cursor_rows) == 1
     assert cursor_rows[0].meta == {
-        "cursor_col": len(ui.input_editor.text) % (width - 1)
+        "cursor_col": len(ui.components.input_editor.text) % (width - 1)
     }
     assert rows[-1].meta == cursor_rows[0].meta
 
 
 def test_tui_display_input_text_projects_control_chars_one_to_one(tmp_path: Path):
     ui = _ui(tmp_path)
-    projected = ui.input_editor.display_input_text("a\nb\tc")
+    projected = ui.components.input_editor.display_input_text("a\nb\tc")
     # 1:1 projection keeps the cursor column aligned with the logical index.
     assert len(projected) == len("a\nb\tc")
     assert projected == "a⏎b c"
     # Plain text is returned unchanged (no allocation on the common path).
-    assert ui.input_editor.display_input_text("plain text") == "plain text"
+    assert ui.components.input_editor.display_input_text("plain text") == "plain text"
 
 
 def test_tui_arrow_and_ctrl_keys_decode(tmp_path: Path):
@@ -3315,34 +3344,34 @@ def test_tui_arrow_and_ctrl_keys_decode(tmp_path: Path):
 
 def test_tui_undo_redo_restores_line_state(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.reset_line_editor_state()
-    ui.input_editor.insert_text("a")
-    ui.input_editor.insert_text("b")
-    ui.input_editor.insert_text("c")
-    assert ui.input_editor.text == "abc"
+    ui.components.input_editor.reset_line_editor_state()
+    ui.components.input_editor.insert_text("a")
+    ui.components.input_editor.insert_text("b")
+    ui.components.input_editor.insert_text("c")
+    assert ui.components.input_editor.text == "abc"
 
-    ui.input_editor.undo()
-    assert ui.input_editor.text == "ab"
-    ui.input_editor.undo()
-    assert ui.input_editor.text == "a"
+    ui.components.input_editor.undo()
+    assert ui.components.input_editor.text == "ab"
+    ui.components.input_editor.undo()
+    assert ui.components.input_editor.text == "a"
 
-    ui.input_editor.redo()
-    assert ui.input_editor.text == "ab"
+    ui.components.input_editor.redo()
+    assert ui.components.input_editor.text == "ab"
 
     # A fresh edit clears the redo stack.
-    ui.input_editor.insert_text("x")
-    assert ui.input_editor.text == "abx"
-    ui.input_editor.redo()
-    assert ui.input_editor.text == "abx"
+    ui.components.input_editor.insert_text("x")
+    assert ui.components.input_editor.text == "abx"
+    ui.components.input_editor.redo()
+    assert ui.components.input_editor.text == "abx"
 
 
 def test_tui_undo_treats_paste_as_single_step(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.input_editor.reset_line_editor_state()
-    ui.clipboard_images.insert_paste("hello world")
-    assert ui.input_editor.text == "hello world"
-    ui.input_editor.undo()
-    assert ui.input_editor.text == ""
+    ui.components.input_editor.reset_line_editor_state()
+    ui.components.clipboard_images.insert_paste("hello world")
+    assert ui.components.input_editor.text == "hello world"
+    ui.components.input_editor.undo()
+    assert ui.components.input_editor.text == ""
 
 
 def _pin_terminal_size(
@@ -3365,20 +3394,20 @@ def test_tui_resize_poll_repaints_on_size_change(
 ):
     ui = _ui(tmp_path)
     _pin_terminal_size(monkeypatch, 100, 40)
-    ui._screen.paint()  # establishes the painted size at the current dimensions
-    assert ui._screen.state.last_painted_size == (100, 40)
+    ui.components.screen.paint()  # establishes the painted size at the current dimensions
+    assert ui.components.screen.state.last_painted_size == (100, 40)
     buffer = cast(_TtyBuffer, ui.terminal_stream)
     before = len(buffer.getvalue())
 
     _pin_terminal_size(monkeypatch, 80, 24)
-    assert ui._screen.poll_resize_repaint() is True
+    assert ui.components.screen.poll_resize_repaint() is True
     # A real repaint happened at the new size (no alternate screen involved).
-    assert ui._screen.state.last_painted_size == (80, 24)
+    assert ui.components.screen.state.last_painted_size == (80, 24)
     assert len(buffer.getvalue()) > before
     assert "\x1b[?1049h" not in buffer.getvalue()
 
     # No further repaint when the size is unchanged and no SIGWINCH is pending.
-    assert ui._screen.poll_resize_repaint() is False
+    assert ui.components.screen.poll_resize_repaint() is False
 
 
 def test_tui_resize_poll_repaints_on_pending_signal_flag(
@@ -3386,13 +3415,15 @@ def test_tui_resize_poll_repaints_on_pending_signal_flag(
 ):
     ui = _ui(tmp_path)
     _pin_terminal_size(monkeypatch, 80, 24)
-    ui._screen.paint()
-    assert ui._screen.poll_resize_repaint() is False  # steady state: no repaint
+    ui.components.screen.paint()
+    assert (
+        ui.components.screen.poll_resize_repaint() is False
+    )  # steady state: no repaint
 
-    ui._driver._on_resize_signal(28, None)  # SIGWINCH-style flag flip
-    assert ui._driver._resize_pending is True
-    assert ui._screen.poll_resize_repaint() is True
-    assert ui._driver._resize_pending is False
+    ui.components.driver._on_resize_signal(28, None)  # SIGWINCH-style flag flip
+    assert ui.components.driver._resize_pending is True
+    assert ui.components.screen.poll_resize_repaint() is True
+    assert ui.components.driver._resize_pending is False
 
 
 # --------------------------------------------------------------------------- #
@@ -3623,7 +3654,9 @@ def test_tui_login_refreshes_availability_without_provider_turn(
     assert manager.logins == 1
     assert _codex_option(provider_state).available is True
     notices = [
-        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "notice"
     ]
     assert any("login stored" in " ".join(lines).lower() for lines in notices)
 
@@ -3671,7 +3704,9 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     assert not auth_path.exists()
     assert _codex_option(provider_state).available is False
     notices = [
-        lines for kind, lines in ui._transcript.history_blocks if kind == "notice"
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "notice"
     ]
     assert any("removed" in " ".join(lines).lower() for lines in notices)
 
@@ -3885,5 +3920,9 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     assert seen_message_types == [["AgentUserMessage", "AgentUserMessage"]]
     assert "AgentAssistantMessage" not in seen_message_types[0]
     # The aborted state was rendered to the user.
-    errors = [lines for kind, lines in ui._transcript.history_blocks if kind == "error"]
+    errors = [
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "error"
+    ]
     assert any("Operation aborted" in " ".join(lines) for lines in errors)

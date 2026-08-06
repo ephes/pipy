@@ -77,6 +77,23 @@ slice 49 against the current structure would be dishonest. The operator
 therefore authorized exactly two corrective implementation slices, 48a then
 48b, before retrying 49. No target or boundary is relaxed.
 
+**Checkpoint (2026-08-06, after slice 48b).** The corrective implementation
+pair is landed, but the final milestone is still retry-49-owned. Slice 48b moved
+one complete terminal graph transaction to the frozen/slotted
+`native/ui/composition.py` builder, startup history to
+`native/startup_chrome.py`, and local-command classification to the input editor
+owner. `native/tui.py` measures **580 physical lines** and `TerminalUi` measures
+**230 AST lines / 5 definitions / 9 fields**, down from slice 48a's 907 / 498 /
+7 / 18. The exact public constructor signature is unchanged, including the sole
+`clipboard_config` `InitVar`; both raw-mode loops remain in `tui.py`. The paired
+48a+48b reduction is 769 physical file lines and 626 class AST lines. The result
+beats the 710–760 planning band because retiring the composition/startup regions
+also removed more facade-only imports, comments, and spacing than forecast; the
+residual was not padded back upward. `ui/composition.py` is 267 lines and
+`startup_chrome.py` is 98, one Screen-created `PaintLock` remains shared by the
+exact owner graph, and no C901 pin or boundary relaxation was added. Retry slice
+49 is next and the program is not complete.
+
 Date: 2026-08-03.
 
 This plan closes the one axis where pipy measurably loses to `pi-mono`: shape.
@@ -881,10 +898,10 @@ halved; after **34**, every widget had a definition-site owner; after **44**, bo
 files were under the broad bar and the session pin was deleted; after **46**,
 `extension_runtime.py` was retired. The old claim that 47–49 were merely polish
 is superseded: the clean slice-49 audit blocked on 569 omitted class lines.
-**Current next slice is 48a**, then 48b. The next valid stopping point is after
-48b is green and independently reviewed, with retry 49 still pending. The final
-good stopping point/program-complete status exists only after retry 49 passes
-all §2e gates.
+Slices 48a and 48b are now landed. The post-48b implementation stopping point
+is reached, with retry 49 still pending. **Retry slice 49 is the current next
+slice.** The final good stopping point/program-complete status exists only after
+retry 49 passes all §2e gates.
 
 ## 3a. Projected end state
 
@@ -894,17 +911,20 @@ The landed session/activation end state is measured, not projected:
 `native/extensions/activation.py` is **1,807 physical lines**, accepted by §2d.
 Both former god-file C901 pins are gone and no replacement pin exists.
 
-The remaining projection is `native/tui.py` **1,349 → ~720 physical lines
-(710–760 planning band)**, a paired **589–639-line net reduction** across 48a
-and 48b. `TerminalUi` moves from 856 to **at most 310 AST lines**, with its exact
-post-implementation span pinned by retry 49 rather than inferred from physical
-subtraction. Its irreducible boundary is the four 170-line methods, a thin
-composition assignment, constructor inputs/component handle,
-`_LiveExtensionUiDriver`, and the 51-line generation proxy. Raw-mode loops stay
-in `tui.py`; modal driving belongs to `TerminalModalDriver`; state/effects belong
-to the concrete owners in `TerminalComponents`. Moving the proxy under
-`native.ui` is still forbidden because its full-surface `__getattr__` would
-launder the back-edge past static checks.
+The terminal implementation result is now measured:
+`native/tui.py` is **580 physical lines** and `TerminalUi` is **230 AST lines /
+5 definitions / 9 fields**, a paired **769-file-line / 626-class-AST-line
+reduction** from the failed-closed 1,349 / 856 checkpoint. The 710–760 and
+at-most-310 figures remain preserved above as planning evidence; the
+implementation legitimately beat both because the moved ownership regions also
+retired more facade-only imports, comments, and spacing than forecast. Its
+irreducible boundary is the four retained public/raw methods, a thin composition
+assignment, constructor inputs/component handle, `_LiveExtensionUiDriver`, and
+the 51-line generation proxy. Raw-mode loops stay in `tui.py`; modal driving
+belongs to `TerminalModalDriver`; state/effects belong to the concrete owners in
+`TerminalComponents`. Moving the proxy under `native.ui` is still forbidden
+because its full-surface `__getattr__` would launder the back-edge past static
+checks. Retry 49 still owns the final exact audit and completion declaration.
 
 The native-module ceiling is **2,488**, currently and intentionally set by the
 out-of-scope `native/session.py`; activation at 1,807 is below it. The prior

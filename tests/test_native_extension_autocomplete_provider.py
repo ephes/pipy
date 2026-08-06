@@ -39,7 +39,7 @@ def _ui(workspace: Path) -> TerminalUi:
 
 def _type(ui: TerminalUi, text: str) -> None:
     for char in text:
-        ui.input_editor.insert_text(char)
+        ui.components.input_editor.insert_text(char)
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -206,8 +206,8 @@ def test_builtin_at_acceptance_replaces_the_whole_at_token(tmp_path: Path) -> No
     assert ui.components.autocomplete.autocomplete_open
     ui.components.autocomplete.accept_selection()
 
-    assert ui.input_editor.text.startswith("see @src/config.py")
-    assert "@@" not in ui.input_editor.text
+    assert ui.components.input_editor.text.startswith("see @src/config.py")
+    assert "@@" not in ui.components.input_editor.text
 
 
 def test_extension_autocomplete_provider_can_append_at_suggestion(
@@ -233,7 +233,7 @@ def test_extension_autocomplete_provider_can_append_at_suggestion(
         def apply_completion(self, *args):
             return self.current.apply_completion(*args)
 
-    ui._autocomplete.add_extension_provider(lambda current: Wrapper(current))
+    ui.components.autocomplete.add_extension_provider(lambda current: Wrapper(current))
     _type(ui, "see @config")
 
     assert ui.components.autocomplete.autocomplete_open
@@ -252,7 +252,7 @@ def test_path_accept_after_common_prefix_expansion_replaces_full_inserted_prefix
     _type(ui, "./sc")
 
     assert ui.components.autocomplete.attempt_path_completion()
-    assert ui.input_editor.text == "./scr"
+    assert ui.components.input_editor.text == "./scr"
     assert ui.components.autocomplete.autocomplete_open
     ui.components.autocomplete.autocomplete_selection = next(
         index
@@ -261,7 +261,7 @@ def test_path_accept_after_common_prefix_expansion_replaces_full_inserted_prefix
     )
     ui.components.autocomplete.accept_selection()
 
-    assert ui.input_editor.text == "./scripts/"
+    assert ui.components.input_editor.text == "./scripts/"
 
 
 def test_extension_autocomplete_provider_custom_apply_controls_insertion(
@@ -281,13 +281,13 @@ def test_extension_autocomplete_provider_custom_apply_controls_insertion(
         def apply_completion(self, lines, cursor_line, cursor_col, item, prefix):
             return {"text": "set by provider", "cursor": 3}
 
-    ui._autocomplete.add_extension_provider(lambda current: Provider(current))
+    ui.components.autocomplete.add_extension_provider(lambda current: Provider(current))
     _type(ui, "ask @x")
     assert ui.components.autocomplete.autocomplete_open
     ui.components.autocomplete.accept_selection()
 
-    assert ui.input_editor.text == "set by provider"
-    assert ui.input_editor.cursor == 3
+    assert ui.components.input_editor.text == "set by provider"
+    assert ui.components.input_editor.cursor == 3
 
 
 def test_extension_autocomplete_provider_can_veto_forced_path_completion(
@@ -305,11 +305,11 @@ def test_extension_autocomplete_provider_can_veto_forced_path_completion(
         def get_suggestions(self, *args):  # pragma: no cover - veto prevents call
             raise AssertionError("must not call suggestions")
 
-    ui._autocomplete.add_extension_provider(lambda current: Provider(current))
+    ui.components.autocomplete.add_extension_provider(lambda current: Provider(current))
     _type(ui, "./s")
 
     assert ui.components.autocomplete.attempt_path_completion() is False
-    assert ui.input_editor.text == "./s"
+    assert ui.components.input_editor.text == "./s"
 
 
 def test_broken_extension_autocomplete_provider_falls_back(tmp_path: Path) -> None:
@@ -319,7 +319,7 @@ def test_broken_extension_autocomplete_provider_falls_back(tmp_path: Path) -> No
         def get_suggestions(self, *args):
             raise RuntimeError("boom")
 
-    ui._autocomplete.add_extension_provider(lambda _current: Broken())
+    ui.components.autocomplete.add_extension_provider(lambda _current: Broken())
     _type(ui, "@config")
 
     assert ui.components.autocomplete.autocomplete_open
@@ -346,9 +346,9 @@ def test_no_op_edit_keys_do_not_execute_extension_completion_lookup(
             return current
 
     factory = Factory()
-    ui._autocomplete.add_extension_provider(factory)
+    ui.components.autocomplete.add_extension_provider(factory)
     provider = object()
-    ui.input_editor.editor_state.open_autocomplete(
+    ui.components.input_editor.editor_state.open_autocomplete(
         items=(CompletionItem("kept", "Kept"),),
         mode="at",
         token_start=0,
@@ -356,11 +356,13 @@ def test_no_op_edit_keys_do_not_execute_extension_completion_lookup(
         active_provider=provider,
     )
 
-    getattr(ui.input_editor, operation)()
+    getattr(ui.components.input_editor, operation)()
 
     assert factory.calls == 0
     assert ui.components.autocomplete.autocomplete_open
-    assert ui.input_editor.editor_state.autocomplete_active_provider is provider
+    assert (
+        ui.components.input_editor.editor_state.autocomplete_active_provider is provider
+    )
 
 
 def test_empty_character_insert_keeps_edit_boundary_and_completion_refresh(
@@ -376,31 +378,37 @@ def test_empty_character_insert_keeps_edit_boundary_and_completion_refresh(
             return None
 
     provider = Provider()
-    ui._autocomplete.add_extension_provider(lambda _current: provider)
-    ui.input_editor.editor_state.set_buffer("draft", cursor=2)
-    ui.input_editor.editor_state.history_nav_index = 1
-    ui.input_editor.editor_state.history_draft = "old"
-    ui.input_editor.editor_state.redo_stack.append(("redo", 4))
+    ui.components.autocomplete.add_extension_provider(lambda _current: provider)
+    ui.components.input_editor.editor_state.set_buffer("draft", cursor=2)
+    ui.components.input_editor.editor_state.history_nav_index = 1
+    ui.components.input_editor.editor_state.history_draft = "old"
+    ui.components.input_editor.editor_state.redo_stack.append(("redo", 4))
 
-    ui.input_editor.insert_text("")
+    ui.components.input_editor.insert_text("")
 
-    assert (ui.input_editor.text, ui.input_editor.cursor) == ("draft", 2)
-    assert ui.input_editor.undo_stack == [("draft", 2)]
-    assert ui.input_editor.redo_stack == []
-    assert ui.input_editor.history_nav_index is None
+    assert (ui.components.input_editor.text, ui.components.input_editor.cursor) == (
+        "draft",
+        2,
+    )
+    assert ui.components.input_editor.undo_stack == [("draft", 2)]
+    assert ui.components.input_editor.redo_stack == []
+    assert ui.components.input_editor.history_nav_index is None
     assert provider.calls == 1
 
 
 def test_empty_paste_keeps_pre_extraction_no_op_semantics(tmp_path: Path) -> None:
     ui = _ui(_workspace(tmp_path))
-    ui.input_editor.editor_state.set_buffer("draft", cursor=2)
-    ui.input_editor.editor_state.redo_stack.append(("redo", 4))
+    ui.components.input_editor.editor_state.set_buffer("draft", cursor=2)
+    ui.components.input_editor.editor_state.redo_stack.append(("redo", 4))
 
-    ui.clipboard_images.insert_paste("")
+    ui.components.clipboard_images.insert_paste("")
 
-    assert (ui.input_editor.text, ui.input_editor.cursor) == ("draft", 2)
-    assert ui.input_editor.undo_stack == []
-    assert ui.input_editor.redo_stack == [("redo", 4)]
+    assert (ui.components.input_editor.text, ui.components.input_editor.cursor) == (
+        "draft",
+        2,
+    )
+    assert ui.components.input_editor.undo_stack == []
+    assert ui.components.input_editor.redo_stack == [("redo", 4)]
 
 
 def test_empty_extension_suggestion_closes_popup_and_provider_binding(
@@ -413,19 +421,22 @@ def test_empty_extension_suggestion_closes_popup_and_provider_binding(
             return AutocompleteSuggestion((), "x", 0, "at")
 
     provider = Provider()
-    ui._autocomplete.add_extension_provider(lambda _current: provider)
+    ui.components.autocomplete.add_extension_provider(lambda _current: provider)
     _type(ui, "@x")
 
     assert not ui.components.autocomplete.autocomplete_open
     assert ui.components.autocomplete.autocomplete_items == ()
-    assert ui.input_editor.editor_state.autocomplete_active_provider is None
-    before = (ui.input_editor.text, ui.input_editor.cursor)
+    assert ui.components.input_editor.editor_state.autocomplete_active_provider is None
+    before = (ui.components.input_editor.text, ui.components.input_editor.cursor)
 
     ui.components.autocomplete.accept_selection()
 
-    assert (ui.input_editor.text, ui.input_editor.cursor) == before
+    assert (
+        ui.components.input_editor.text,
+        ui.components.input_editor.cursor,
+    ) == before
     assert not ui.components.autocomplete.autocomplete_open
-    assert ui.input_editor.editor_state.autocomplete_active_provider is None
+    assert ui.components.input_editor.editor_state.autocomplete_active_provider is None
 
 
 def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
@@ -448,7 +459,7 @@ def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
             assert (cursor_line, cursor_col) == (0, 6)
             assert item == CompletionItem("@selected", "Selected")
             self.received_prefix = prefix
-            ui.input_editor.editor_state.set_buffer("mutated by extension")
+            ui.components.input_editor.editor_state.set_buffer("mutated by extension")
             ui.components.autocomplete.autocomplete_mode = "path"
             ui.components.autocomplete.autocomplete_token_start = 10
             ui.components.autocomplete.autocomplete_items = (
@@ -457,8 +468,8 @@ def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
             return None
 
     provider = Provider()
-    ui.input_editor.editor_state.set_buffer("ask @x")
-    ui.input_editor.editor_state.open_autocomplete(
+    ui.components.input_editor.editor_state.set_buffer("ask @x")
+    ui.components.input_editor.editor_state.open_autocomplete(
         items=(CompletionItem("@selected", "Selected"),),
         mode="at",
         token_start=4,
@@ -469,8 +480,8 @@ def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
     ui.components.autocomplete.accept_selection()
 
     assert provider.received_prefix == "x"
-    assert ui.input_editor.text == "ask @selected"
-    assert ui.input_editor.cursor == len("ask @selected")
+    assert ui.components.input_editor.text == "ask @selected"
+    assert ui.components.input_editor.cursor == len("ask @selected")
     assert not ui.components.autocomplete.autocomplete_open
 
 
@@ -490,7 +501,7 @@ def test_directory_reopen_uses_accepted_snapshot_after_provider_mutation(
             return None
 
         def apply_completion(self, *args: object) -> None:
-            ui.input_editor.editor_state.set_buffer("mutated by extension")
+            ui.components.input_editor.editor_state.set_buffer("mutated by extension")
             ui.components.autocomplete.autocomplete_mode = "at"
             ui.components.autocomplete.autocomplete_token_start = 9
             ui.components.autocomplete.autocomplete_items = (
@@ -499,9 +510,9 @@ def test_directory_reopen_uses_accepted_snapshot_after_provider_mutation(
             return None
 
     provider = Provider()
-    ui._autocomplete.add_extension_provider(lambda _current: provider)
-    ui.input_editor.editor_state.set_buffer("./scr")
-    ui.input_editor.editor_state.open_autocomplete(
+    ui.components.autocomplete.add_extension_provider(lambda _current: provider)
+    ui.components.input_editor.editor_state.set_buffer("./scr")
+    ui.components.input_editor.editor_state.open_autocomplete(
         items=(CompletionItem("./scripts/", "scripts/"),),
         mode="path",
         token_start=0,
@@ -511,5 +522,5 @@ def test_directory_reopen_uses_accepted_snapshot_after_provider_mutation(
 
     ui.components.autocomplete.accept_selection()
 
-    assert ui.input_editor.text == "./scripts/"
+    assert ui.components.input_editor.text == "./scripts/"
     assert provider.suggestion_calls == 1

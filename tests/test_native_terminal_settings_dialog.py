@@ -316,7 +316,7 @@ def _install_ui(
 def _notices(ui: _ScriptedSettingsUi) -> list[str]:
     return [
         line
-        for kind, lines in ui._transcript.history_blocks
+        for kind, lines in ui.components.transcript.history_blocks
         if kind == "notice"
         for line in lines
     ]
@@ -404,7 +404,9 @@ def test_settings_cancel_is_local_and_creates_no_product_tree_entry(
     assert ui.dialog_calls == 1
     assert ui.footer_updates == 1
     assert tree.entries == []
-    assert not any(kind == "settings" for kind, _lines in ui._transcript.history_blocks)
+    assert not any(
+        kind == "settings" for kind, _lines in ui.components.transcript.history_blocks
+    )
 
 
 def test_settings_native_and_static_states_expose_distinct_exit_actions(
@@ -485,7 +487,7 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
             "cycle_thinking",
         ),
     )
-    ui.input_editor.input_history = ["private saved prompt"]
+    ui.components.input_editor.input_history = ["private saved prompt"]
     drive_settings_dialog(
         ui,
         store,
@@ -502,7 +504,7 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
     assert len(ui.rebuilt_rows) == 5
     assert store.enabled is False
     assert store.entries() == []
-    assert ui.input_editor.input_history == ["private saved prompt"]
+    assert ui.components.input_editor.input_history == ["private saved prompt"]
     assert ui.components.transcript.tools_expanded is True
     assert ui.components.transcript.thinking_hidden is True
     assert settings.get_hide_thinking_block() is True
@@ -910,7 +912,7 @@ def test_live_settings_private_sources_stay_out_of_finalized_metadata_archive(
     )
     _assert_private_markers_present(error_stream.getvalue(), (_OAUTH_OUTPUT_MARKER,))
     _assert_private_markers_present(
-        "\n".join(ui.input_editor.input_history), (_PROMPT_HISTORY_MARKER,)
+        "\n".join(ui.components.input_editor.input_history), (_PROMPT_HISTORY_MARKER,)
     )
     assert settings.get_hide_thinking_block() is True
     assert ui.components.transcript.thinking_hidden is True

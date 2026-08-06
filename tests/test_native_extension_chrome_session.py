@@ -331,9 +331,9 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
             ui.components.chrome.record.terminal_input_listeners.values()
         )
         providers_before = tuple(
-            ui.input_editor.editor_state.autocomplete_provider_factories
+            ui.components.input_editor.editor_state.autocomplete_provider_factories
         )
-        editor_before = ui._custom_editor.factory
+        editor_before = ui.components.custom_editor.factory
         assert len(listeners_before) == len(providers_before) == 1
         assert editor_before is not None
 
@@ -362,10 +362,12 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
                 ui.components.chrome.record.terminal_input_listeners.values()
             ) == (listeners_before)
             assert (
-                tuple(ui.input_editor.editor_state.autocomplete_provider_factories)
+                tuple(
+                    ui.components.input_editor.editor_state.autocomplete_provider_factories
+                )
                 == providers_before
             )
-            assert ui._custom_editor.factory is editor_before
+            assert ui.components.custom_editor.factory is editor_before
             assert ui.components.chrome.record.title == "OLD_FLAG_TITLE"
             assert "old" in ui.components.chrome.record.widgets_above
             assert ui.components.chrome.listeners.apply("x") == "z"

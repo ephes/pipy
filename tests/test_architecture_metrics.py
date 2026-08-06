@@ -18,22 +18,13 @@ _spec.loader.exec_module(architecture_metrics)
 
 
 EXPECTED_TERMINAL_UI_FIELDS = (
-    "_autocomplete",
-    "_custom_editor",
-    "_driver",
-    "_overlays",
-    "_screen",
-    "_transcript",
     "available_provider_count",
-    "clipboard_images",
     "components",
     "cwd",
     "footer_lines",
     "include_workspace_defaults",
-    "input_editor",
     "input_stream",
     "keybindings_manager",
-    "pending_messages",
     "runtime_label",
     "terminal_stream",
 )
@@ -89,7 +80,7 @@ def test_product_terminal_ui_field_baseline_is_stable() -> None:
     fields = architecture_metrics.class_state_fields(source, "TerminalUi")
 
     assert fields == EXPECTED_TERMINAL_UI_FIELDS
-    assert len(fields) == 18
+    assert len(fields) == 9
     assert len(fields) <= 89  # Slice 12 ceiling: floor(128 * 0.70)
 
 
@@ -136,8 +127,8 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 498
-_TUI_CLASS_DEF_RATCHET = 7
+_TUI_CLASS_SPAN_RATCHET = 230
+_TUI_CLASS_DEF_RATCHET = 5
 
 
 def test_terminal_ui_class_ratchet_never_grows() -> None:

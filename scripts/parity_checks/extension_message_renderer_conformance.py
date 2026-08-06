@@ -314,7 +314,7 @@ def run_checks() -> list[Check]:
     ui.components.transcript.redraw_custom_entries(
         rows + [("plain", "note", ("NEW-PLAIN",))]
     )
-    frame = "\n".join(ui._screen.render_lines(width=80, height=20))
+    frame = "\n".join(ui.components.screen.render_lines(width=80, height=20))
     checks.append(
         Check(
             "resume_redraw_replaces_custom_rows_and_renders_custom_messages",

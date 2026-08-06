@@ -213,14 +213,14 @@ def test_pty_custom_component_paint_precedes_observable_input_readiness(
     transition_started = threading.Event()
     release_transition = threading.Event()
     result: list[object] = []
-    original_enter = type(ui._driver).enter_raw_mode
+    original_enter = type(ui.components.driver).enter_raw_mode
 
     def delayed_enter(driver: TerminalDriver) -> None:
         transition_started.set()
         assert release_transition.wait(timeout=8.0)
         original_enter(driver)
 
-    monkeypatch.setattr(type(ui._driver), "enter_raw_mode", delayed_enter)
+    monkeypatch.setattr(type(ui.components.driver), "enter_raw_mode", delayed_enter)
     worker = threading.Thread(
         target=lambda: result.append(
             ui.components.modals.run_custom_component(
@@ -334,7 +334,7 @@ def test_pty_extension_editor_external_editor_success(
     # Hold an outer raw owner so the extension editor acquires nested depth 2.
     # The foreign child must still see cooked mode, and the editor must resume
     # physically raw without consuming this owner.
-    ui._driver.enter_raw_mode()
+    ui.components.driver.enter_raw_mode()
 
     def _run() -> None:
         result.append(ui.components.modals.run_extension_editor("Draft", "seed"))
@@ -350,13 +350,13 @@ def test_pty_extension_editor_external_editor_success(
         os.write(in_master, b"\r")  # Enter -> submit edited text.
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
-        assert ui._driver._raw_mode_depth == 1
-        assert ui._driver._terminal_mode_suspend_depth == 0
+        assert ui.components.driver._raw_mode_depth == 1
+        assert ui.components.driver._terminal_mode_suspend_depth == 0
         assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
-        ui._driver.restore_terminal_mode()
+        ui.components.driver.restore_terminal_mode()
         assert termios.tcgetattr(stdin.fileno())[3] & termios.ICANON
     finally:
-        ui._driver.force_restore_terminal_mode()
+        ui.components.driver.force_restore_terminal_mode()
         _teardown(stdin, terminal, in_master, err_master, err_thread)
 
     assert result == ["edited from external"]
@@ -386,12 +386,12 @@ def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
         tmp_path
     )
     try:
-        ui._driver.enter_raw_mode()
-        ui._driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
+        ui.components.driver.enter_raw_mode()
 
         external_editor = ExtensionExternalEditor(
             external_io_suspension=ui.components.screen.external_io_suspension,
-            terminal_write=ui._driver.write,
+            terminal_write=ui.components.driver.write,
             input_stream=ui.input_stream,
             terminal_stream=ui.terminal_stream,
         )
@@ -400,18 +400,18 @@ def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
             == "nested edit"
         )
         assert int(state_path.read_text(encoding="utf-8")) & termios.ICANON
-        assert ui._driver._raw_mode_depth == 2
-        assert ui._driver._terminal_mode_suspend_depth == 0
+        assert ui.components.driver._raw_mode_depth == 2
+        assert ui.components.driver._terminal_mode_suspend_depth == 0
         assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
 
-        ui._driver.restore_terminal_mode()
-        assert ui._driver._raw_mode_depth == 1
+        ui.components.driver.restore_terminal_mode()
+        assert ui.components.driver._raw_mode_depth == 1
         assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
-        ui._driver.restore_terminal_mode()
-        assert ui._driver._raw_mode_depth == 0
+        ui.components.driver.restore_terminal_mode()
+        assert ui.components.driver._raw_mode_depth == 0
         assert termios.tcgetattr(stdin.fileno())[3] & termios.ICANON
     finally:
-        ui._driver.force_restore_terminal_mode()
+        ui.components.driver.force_restore_terminal_mode()
         _teardown(stdin, terminal, in_master, err_master, err_thread)
 
     captured = b"".join(err_chunks).decode("utf-8", "replace")

@@ -331,7 +331,7 @@ def drive_settings_dialog(
         return settings_dialog_rows(
             state,
             prompt_history_store,
-            in_memory_depth=len(terminal_ui.input_editor.input_history),
+            in_memory_depth=len(terminal_ui.components.input_editor.input_history),
             terminal_ui=terminal_ui,
             settings=settings,
         )

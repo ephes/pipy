@@ -116,7 +116,11 @@ def test_tui_renderer_uses_render_result(tmp_path):
         )
     )
     renderer.render_tool_result(output_text="ignored", is_error=False)
-    blocks = [b for b in ui._transcript.history_blocks if b[0] == "tool_result_custom"]
+    blocks = [
+        b
+        for b in ui.components.transcript.history_blocks
+        if b[0] == "tool_result_custom"
+    ]
     assert blocks, "expected a tool_result_custom block"
     text = "\n".join(blocks[-1][1])
     assert "key=v" in text and "err=False" in text
@@ -186,7 +190,7 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
         )
     )
     renderer.render_tool_result(output_text="real-output", is_error=False)
-    kinds = [b[0] for b in ui._transcript.history_blocks]
+    kinds = [b[0] for b in ui.components.transcript.history_blocks]
     assert "tool_result" in kinds and "tool_result_custom" not in kinds
 
 
@@ -216,7 +220,7 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
             arguments_json=ProductContent("{}"),
         )
     )
-    kinds = [b[0] for b in ui._transcript.history_blocks]
+    kinds = [b[0] for b in ui.components.transcript.history_blocks]
     assert "tool" in kinds and "tool_call_custom" not in kinds
 
 
@@ -341,13 +345,13 @@ def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
     renderer.render_tool_call(AgentToolCall("c3", "kv", ProductContent("{}")))
 
     custom_blocks = [
-        b for b in ui._transcript.history_blocks if b[0] == "tool_call_custom"
+        b for b in ui.components.transcript.history_blocks if b[0] == "tool_call_custom"
     ]
     assert [tuple(b[1]) for b in custom_blocks] == [
         ("CALL:first",),
         ("CALL:second",),
     ]
-    assert ui._transcript.history_blocks[-1][0] == "tool"
+    assert ui.components.transcript.history_blocks[-1][0] == "tool"
 
 
 def _renderer_pair(marker: str) -> ExtensionTool:
@@ -415,7 +419,9 @@ def test_tui_renderer_pins_result_renderer_to_its_call(tmp_path):
     renderer.render_tool_result(output_text="x", is_error=False)
 
     result_blocks = [
-        b for b in ui._transcript.history_blocks if b[0] == "tool_result_custom"
+        b
+        for b in ui.components.transcript.history_blocks
+        if b[0] == "tool_result_custom"
     ]
     assert [tuple(b[1]) for b in result_blocks] == [("RESULT:first",)]
 
@@ -433,6 +439,8 @@ def test_tui_renderer_pins_result_renderer_when_tool_is_removed(tmp_path):
     renderer.render_tool_result(output_text="x", is_error=False)
 
     result_blocks = [
-        b for b in ui._transcript.history_blocks if b[0] == "tool_result_custom"
+        b
+        for b in ui.components.transcript.history_blocks
+        if b[0] == "tool_result_custom"
     ]
     assert [tuple(b[1]) for b in result_blocks] == [("RESULT:first",)]

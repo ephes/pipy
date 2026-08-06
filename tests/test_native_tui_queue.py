@@ -14,6 +14,7 @@ from types import TracebackType
 import pytest
 
 from pipy_harness.native.editor_state import EditorState
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import TURN_STEERED, TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
     CustomEditorEffects,
@@ -32,7 +33,7 @@ def _ui(tmp_path: Path) -> TerminalUi:
 
 
 def _frame_text(ui: TerminalUi) -> str:
-    return "\n".join(ui._screen.render_lines(width=88, height=24))
+    return "\n".join(ui.components.screen.render_lines(width=88, height=24))
 
 
 class _InterleavingPaintLock(PaintLock):
@@ -70,11 +71,11 @@ class _InterleavingPaintLock(PaintLock):
 
 def test_terminal_wires_pending_owner_to_shared_state_and_lock(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    owner = ui.pending_messages
+    owner = ui.components.pending_messages
 
     assert isinstance(owner, PendingMessages)
-    assert owner._editor is ui.input_editor.editor_state  # noqa: SLF001
-    assert owner._paint_lock is ui._screen.paint_lock  # noqa: SLF001
+    assert owner._editor is ui.components.input_editor.editor_state  # noqa: SLF001
+    assert owner._paint_lock is ui.components.screen.paint_lock  # noqa: SLF001
 
 
 def test_mid_turn_steering_is_published_before_abort_signal(
@@ -93,10 +94,18 @@ def test_mid_turn_steering_is_published_before_abort_signal(
 
     ui = _ui(tmp_path)
     ui.input_stream = _FilenoInput()
-    ui._driver = _SingleEnterDriver()  # type: ignore[assignment]  # noqa: SLF001
+    fake_driver = _SingleEnterDriver()
+    monkeypatch.setattr(
+        TerminalDriver, "raw_mode", lambda _self: fake_driver.raw_mode()
+    )
+    monkeypatch.setattr(
+        TerminalDriver,
+        "read_key_if_available",
+        lambda _self, fd, timeout: fake_driver.read_key_if_available(fd, timeout),
+    )
     monkeypatch.setattr(Screen, "poll_resize_repaint", lambda _self: False)
-    ui.input_editor.text = "redirect here"
-    owner = ui.pending_messages
+    ui.components.input_editor.text = "redirect here"
+    owner = ui.components.pending_messages
     events: list[str] = []
     owner._repaint = lambda: events.append("repaint")  # noqa: SLF001
     enqueue_steering = owner.enqueue_steering
@@ -113,7 +122,7 @@ def test_mid_turn_steering_is_published_before_abort_signal(
             assert events == ["owner-enter", "repaint", "owner-return"]
             assert [
                 (message.kind, message.content)
-                for message in ui.input_editor.editor_state.pending_messages()  # noqa: SLF001
+                for message in ui.components.input_editor.editor_state.pending_messages()  # noqa: SLF001
             ] == [("steering", "redirect here")]
             events.append("abort")
             super().set()
@@ -130,8 +139,8 @@ def test_mid_turn_steering_is_published_before_abort_signal(
 
 def test_enqueue_renders_pending_region(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.pending_messages.enqueue_steering("redirect here")
-    ui.pending_messages.enqueue_follow_up("and then this")
+    ui.components.pending_messages.enqueue_steering("redirect here")
+    ui.components.pending_messages.enqueue_follow_up("and then this")
     text = _frame_text(ui)
     assert "Steering: redirect here" in text
     assert "Follow-up: and then this" in text
@@ -139,14 +148,14 @@ def test_enqueue_renders_pending_region(tmp_path: Path) -> None:
 
 
 def test_blank_messages_are_not_queued(tmp_path: Path) -> None:
-    owner = _ui(tmp_path).pending_messages
+    owner = _ui(tmp_path).components.pending_messages
     owner.enqueue_steering("   ")
     owner.enqueue_follow_up("")
     assert not owner.has_pending_messages()
 
 
 def test_promote_drains_steering_before_follow_up(tmp_path: Path) -> None:
-    owner = _ui(tmp_path).pending_messages
+    owner = _ui(tmp_path).components.pending_messages
     owner.enqueue_follow_up("F1")
     owner.enqueue_steering("S1")
     owner.enqueue_follow_up("F2")
@@ -160,12 +169,12 @@ def test_promote_drains_steering_before_follow_up(tmp_path: Path) -> None:
 
 def test_restore_to_editor_joins_with_blank_lines(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.input_editor.text = ""
-    ui.pending_messages.enqueue_steering("first")
-    ui.pending_messages.enqueue_follow_up("second")
-    ui.pending_messages.restore_pending_to_editor()
-    assert ui.input_editor.text == "first\n\nsecond"
-    assert not ui.pending_messages.has_pending_messages()
+    ui.components.input_editor.text = ""
+    ui.components.pending_messages.enqueue_steering("first")
+    ui.components.pending_messages.enqueue_follow_up("second")
+    ui.components.pending_messages.restore_pending_to_editor()
+    assert ui.components.input_editor.text == "first\n\nsecond"
+    assert not ui.components.pending_messages.has_pending_messages()
 
 
 @pytest.mark.parametrize("custom_active", [False, True])
@@ -247,9 +256,9 @@ def test_pending_region_keeps_input_footer_in_frame(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     for n in range(60):
         ui.components.transcript.submit_user_message(f"history line {n:02d}")
-    ui.pending_messages.enqueue_steering("steer one")
-    ui.pending_messages.enqueue_follow_up("follow one")
-    frame = ui._screen.render_lines(width=88, height=24)
+    ui.components.pending_messages.enqueue_steering("steer one")
+    ui.components.pending_messages.enqueue_follow_up("follow one")
+    frame = ui.components.screen.render_lines(width=88, height=24)
     assert len(frame) == 24
     joined = "\n".join(frame)
     assert "Steering: steer one" in joined
@@ -260,23 +269,23 @@ def test_pending_region_keeps_input_footer_in_frame(tmp_path: Path) -> None:
 
 def test_restore_survives_next_read_line_reset(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.pending_messages.enqueue_steering("redirect")
-    ui.pending_messages.enqueue_follow_up("later")
-    ui.pending_messages.restore_pending_to_editor()
-    assert ui.input_editor.pending_initial_text == "redirect\n\nlater"
+    ui.components.pending_messages.enqueue_steering("redirect")
+    ui.components.pending_messages.enqueue_follow_up("later")
+    ui.components.pending_messages.restore_pending_to_editor()
+    assert ui.components.input_editor.pending_initial_text == "redirect\n\nlater"
 
 
 def test_restore_prepends_to_existing_editor_text(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.input_editor.text = "typed so far"
-    ui.pending_messages.enqueue_steering("queued")
-    ui.pending_messages.restore_pending_to_editor()
-    assert ui.input_editor.text == "queued\n\ntyped so far"
+    ui.components.input_editor.text = "typed so far"
+    ui.components.pending_messages.enqueue_steering("queued")
+    ui.components.pending_messages.restore_pending_to_editor()
+    assert ui.components.input_editor.text == "queued\n\ntyped so far"
 
 
 def test_abort_restores_remaining_drain_to_editor(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    owner = ui.pending_messages
+    owner = ui.components.pending_messages
     owner.enqueue_steering("S1")
     owner.enqueue_follow_up("F1")
     owner.promote_pending_to_drain()
@@ -284,23 +293,23 @@ def test_abort_restores_remaining_drain_to_editor(tmp_path: Path) -> None:
     owner.restore_pending_to_editor()
     assert owner.take_next_drain() is None
     assert not owner.has_pending_messages()
-    assert ui.input_editor.text == "F1"
+    assert ui.components.input_editor.text == "F1"
 
 
 def test_abort_restores_drain_before_unpromoted_lanes(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    owner = ui.pending_messages
+    owner = ui.components.pending_messages
     owner.enqueue_follow_up("F1")
     owner.promote_pending_to_drain()
     owner.enqueue_steering("S2")
     owner.restore_pending_to_editor()
-    assert ui.input_editor.text == "F1\n\nS2"
+    assert ui.components.input_editor.text == "F1\n\nS2"
     assert owner.take_next_drain() is None
     assert not owner.has_pending_messages()
 
 
 def test_pending_region_is_capped(tmp_path: Path) -> None:
-    owner = _ui(tmp_path).pending_messages
+    owner = _ui(tmp_path).components.pending_messages
     for n in range(20):
         owner.enqueue_follow_up(f"msg {n:02d}")
     lines = owner.region_lines(width=88)
