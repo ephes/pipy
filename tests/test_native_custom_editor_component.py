@@ -911,8 +911,11 @@ def test_custom_editor_component_extension_shortcut_routes_to_session(
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(Screen, "read_key_polling_resize", lambda self, fd: next(keys))
-    ui.autocomplete.replace_command_surface(
-        replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl+x"}))
+    ui.components.autocomplete.replace_command_surface(
+        replace(
+            ui.components.autocomplete.command_surface,
+            shortcut_keys=frozenset({"ctrl+x"}),
+        )
     )
     ui._custom_editor.set_editor_component(lambda tui, theme, keybindings: component)
 
@@ -1320,8 +1323,11 @@ def test_default_editor_external_editor_action_precedes_extension_shortcut(
 
     ui = _ui(tmp_path)
     ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})
-    ui.autocomplete.replace_command_surface(
-        replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl-x"}))
+    ui.components.autocomplete.replace_command_surface(
+        replace(
+            ui.components.autocomplete.command_surface,
+            shortcut_keys=frozenset({"ctrl-x"}),
+        )
     )
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     ui.input_editor.pending_initial_text = "seed"

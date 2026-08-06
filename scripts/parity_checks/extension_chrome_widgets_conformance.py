@@ -90,15 +90,15 @@ def run_checks() -> list[Check]:
 
     # 2. widget set/replace/clear + insertion order + placement.
     ui = _ui()
-    ui._chrome.component.set_widget("z", ["z"])  # noqa: SLF001
-    ui._chrome.component.set_widget("a", ["a"])  # noqa: SLF001
-    ui._chrome.component.set_widget(  # noqa: SLF001
+    ui.components.chrome.component.set_widget("z", ["z"])  # noqa: SLF001
+    ui.components.chrome.component.set_widget("a", ["a"])  # noqa: SLF001
+    ui.components.chrome.component.set_widget(  # noqa: SLF001
         "b", ["b"], placement="below_editor"
     )
-    order_ok = list(ui._chrome.record.widgets_above) == ["z", "a"]  # noqa: SLF001
-    place_ok = "b" in ui._chrome.record.widgets_below  # noqa: SLF001
-    ui._chrome.component.set_widget("z", None)  # noqa: SLF001
-    cleared = "z" not in ui._chrome.record.widgets_above  # noqa: SLF001
+    order_ok = list(ui.components.chrome.record.widgets_above) == ["z", "a"]  # noqa: SLF001
+    place_ok = "b" in ui.components.chrome.record.widgets_below  # noqa: SLF001
+    ui.components.chrome.component.set_widget("z", None)  # noqa: SLF001
+    cleared = "z" not in ui.components.chrome.record.widgets_above  # noqa: SLF001
     checks.append(
         Check(
             "widget_lifecycle",
@@ -109,15 +109,17 @@ def run_checks() -> list[Check]:
 
     # 3. header/footer exclusive replace + restore.
     ui = _ui()
-    ui._chrome.component.set_header(lambda theme: _LC(["h"]))  # noqa: SLF001
-    ui._chrome.footer.set_footer(lambda theme, fd: _LC(["f"]))  # noqa: SLF001
+    ui.components.chrome.component.set_header(lambda theme: _LC(["h"]))  # noqa: SLF001
+    ui.components.chrome.footer.set_footer(lambda theme, fd: _LC(["f"]))  # noqa: SLF001
     set_ok = (  # noqa: SLF001
-        ui._chrome.record.header is not None and ui._chrome.record.footer is not None
+        ui.components.chrome.record.header is not None
+        and ui.components.chrome.record.footer is not None
     )
-    ui._chrome.component.set_header(None)  # noqa: SLF001
-    ui._chrome.footer.set_footer(None)  # noqa: SLF001
+    ui.components.chrome.component.set_header(None)  # noqa: SLF001
+    ui.components.chrome.footer.set_footer(None)  # noqa: SLF001
     restore_ok = (  # noqa: SLF001
-        ui._chrome.record.header is None and ui._chrome.record.footer is None
+        ui.components.chrome.record.header is None
+        and ui.components.chrome.record.footer is None
     )
     checks.append(
         Check("header_footer_exclusive", set_ok and restore_ok, "replace+restore")
@@ -134,28 +136,28 @@ def run_checks() -> list[Check]:
 
     # 5. indicator override / default-frames-custom-interval / hide / restore.
     ui = _ui()
-    ui._chrome.component.set_working_indicator(["x"], 120)  # noqa: SLF001
+    ui.components.chrome.component.set_working_indicator(["x"], 120)  # noqa: SLF001
     a = (  # noqa: SLF001
-        ui._chrome.record.indicator_frames == ("x",)
-        and ui._chrome.record.indicator_interval_ms == 120.0
+        ui.components.chrome.record.indicator_frames == ("x",)
+        and ui.components.chrome.record.indicator_interval_ms == 120.0
     )
     # frames=None restores defaults while preserving the explicit interval.
-    ui._chrome.component.set_working_indicator(None, 120)  # noqa: SLF001
+    ui.components.chrome.component.set_working_indicator(None, 120)  # noqa: SLF001
     b = (  # noqa: SLF001
-        ui._chrome.record.indicator_frames is None
-        and ui._chrome.record.indicator_interval_ms == 120.0
+        ui.components.chrome.record.indicator_frames is None
+        and ui.components.chrome.record.indicator_interval_ms == 120.0
     )
-    ui._chrome.component.set_working_indicator([], None)  # noqa: SLF001
-    c = ui._chrome.record.indicator_frames == ()  # noqa: SLF001
+    ui.components.chrome.component.set_working_indicator([], None)  # noqa: SLF001
+    c = ui.components.chrome.record.indicator_frames == ()  # noqa: SLF001
     checks.append(
         Check("indicator_semantics", a and b and c, "override / reset / hide")
     )
 
     # 6. resize re-render of a factory widget.
     ui = _ui()
-    ui._chrome.component.set_widget("k", lambda tui, theme: _WComp())  # noqa: SLF001
-    l40 = ui._chrome.component.widget_lines("above_editor", 40)  # noqa: SLF001
-    l70 = ui._chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
+    ui.components.chrome.component.set_widget("k", lambda tui, theme: _WComp())  # noqa: SLF001
+    l40 = ui.components.chrome.component.widget_lines("above_editor", 40)  # noqa: SLF001
+    l70 = ui.components.chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
     checks.append(
         Check(
             "resize_rerender",
@@ -173,12 +175,12 @@ def run_checks() -> list[Check]:
         def render(self, width):
             return [state["value"]]
 
-    ui._chrome.component.set_widget(  # noqa: SLF001
+    ui.components.chrome.component.set_widget(  # noqa: SLF001
         "k", lambda tui, theme: handles.append(tui) or _LiveComp()
     )
-    first = ui._chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
+    first = ui.components.chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
     state["value"] = "b"
-    second = ui._chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
+    second = ui.components.chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
     request_ok = bool(handles) and hasattr(handles[0], "requestRender")
     before = ui.terminal_stream.getvalue()
     handles[0].requestRender()
@@ -197,10 +199,10 @@ def run_checks() -> list[Check]:
     # 8. dispose called on replace + clear.
     ui = _ui()
     disposed = []
-    ui._chrome.component.set_widget(  # noqa: SLF001
+    ui.components.chrome.component.set_widget(  # noqa: SLF001
         "k", lambda theme: _DComp(disposed)
     )
-    ui._chrome.component.set_widget("k", ["plain"])  # noqa: SLF001
+    ui.components.chrome.component.set_widget("k", ["plain"])  # noqa: SLF001
     ui.clear_extension_chrome()
     checks.append(Check("dispose", disposed == [True], "dispose on replace/clear"))
 

@@ -136,15 +136,17 @@ def run_checks(tmp_path: Path) -> list[Check]:
     )
     first = render_extension_entry(renderers, payload, expanded=False, theme=_Theme())
     assert first is not None
-    ui._transcript.add_entry_renderer_component(
+    ui.components.transcript.add_entry_renderer_component(
         first.lines,
         custom_type="card",
         entry=payload,
         renderers=renderers,
     )
-    ui.set_tools_expanded(True)
+    ui.components.transcript.set_tools_expanded(True)
     block_text = "\n".join(
-        line for _kind, lines in ui._transcript.custom_entry_blocks() for line in lines
+        line
+        for _kind, lines in ui.components.transcript.custom_entry_blocks()
+        for line in lines
     )
     checks.append(
         Check(

@@ -6,8 +6,8 @@ the error stream. Diagnostics routinely carry extension-supplied text, so an
 unsanitized line could smuggle escape sequences into a terminal -- but the two
 destinations sanitize in different places, and only one of them is here. The
 stderr path sanitizes below; the notice path relies on the sink doing it, which
-`TerminalUi.add_notice` does before the text reaches a frame. A sink that
-did not sanitize would reintroduce that hole silently, so `NoticeSink` is a
+`TranscriptComponent.add_notice` does before the text reaches a frame. A sink
+that did not sanitize would reintroduce that hole silently, so `NoticeSink` is a
 deliberately tiny port with exactly one production implementation.
 
 The sink is a one-method structural port rather than the terminal UI itself.

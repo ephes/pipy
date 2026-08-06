@@ -85,7 +85,7 @@ def run_project_trust_selector(
             and option.trusted == saved_decision.decision
         ):
             saved_row_index = len(rows) - 1
-    chosen = ui.run_settings_dialog(
+    chosen = ui.components.modals.run_settings_dialog(
         rows,
         on_local_action=lambda _action: rows,
         exit_actions=frozenset(action_to_option),
@@ -119,7 +119,7 @@ def run_startup_project_trust_selector(
             startup=True,
         )
     finally:
-        ui.close()
+        ui.components.screen.close()
 
 
 def run_startup_session_picker(
@@ -156,7 +156,7 @@ def run_startup_session_picker(
         cwd=Path(current_cwd),
     )
     try:
-        return ui.run_session_picker(
+        return ui.components.modals.run_session_picker(
             project_sessions=project_sessions,
             all_sessions=all_sessions,
             current_path=None,
@@ -164,4 +164,4 @@ def run_startup_session_picker(
             on_delete=on_delete,
         )
     finally:
-        ui.close()
+        ui.components.screen.close()

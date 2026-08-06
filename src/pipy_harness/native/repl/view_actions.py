@@ -39,17 +39,23 @@ def toggle_view_fold(
     """
 
     if hotkey == HOTKEY_TOGGLE_TOOLS:
-        new_value = not (terminal_ui.tools_expanded if terminal_ui else False)
+        new_value = not (
+            terminal_ui.components.transcript.tools_expanded if terminal_ui else False
+        )
         if terminal_ui is not None:
             # The transcript owner's verb bundles the retained rich-row
             # rerender with the flag write.
-            terminal_ui.set_tools_expanded(new_value)
+            terminal_ui.components.transcript.set_tools_expanded(new_value)
         label = "expanded" if new_value else "collapsed"
-        emit_diagnostic(terminal_ui, error_stream, f"pipy: tool output: {label}")
+        emit_diagnostic(
+            terminal_ui.components.transcript if terminal_ui is not None else None,
+            error_stream,
+            f"pipy: tool output: {label}",
+        )
         return
     # HOTKEY_TOGGLE_THINKING
     current = (
-        terminal_ui.thinking_hidden
+        terminal_ui.components.transcript.thinking_hidden
         if terminal_ui is not None
         else settings.get_hide_thinking_block()
     )
@@ -57,14 +63,18 @@ def toggle_view_fold(
     if terminal_ui is not None:
         # Route through set_thinking_hidden so unfolding reveals any
         # reasoning that settled while folded (deferred, not dropped).
-        terminal_ui.set_thinking_hidden(new_hidden)
+        terminal_ui.components.transcript.set_thinking_hidden(new_hidden)
     try:
         settings.set_value("hideThinkingBlock", new_hidden)
     except RuntimeError:
         # A read-only/locked settings file must not break the live toggle.
         pass
     label = "hidden" if new_hidden else "visible"
-    emit_diagnostic(terminal_ui, error_stream, f"pipy: thinking blocks: {label}")
+    emit_diagnostic(
+        terminal_ui.components.transcript if terminal_ui is not None else None,
+        error_stream,
+        f"pipy: thinking blocks: {label}",
+    )
 
 
 def cycle_thinking_level_action(
@@ -86,7 +96,7 @@ def cycle_thinking_level_action(
     state = provider_state
     if not isinstance(state, NativeReplProviderState):
         emit_diagnostic(
-            terminal_ui,
+            terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
             "pipy: thinking-level cycling is unavailable for this REPL state.",
         )
@@ -94,9 +104,13 @@ def cycle_thinking_level_action(
     next_level = cycle_thinking_level()
     if next_level is None:
         emit_diagnostic(
-            terminal_ui,
+            terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
             "pipy: current model does not support thinking.",
         )
         return
-    emit_diagnostic(terminal_ui, error_stream, f"pipy: thinking level: {next_level}")
+    emit_diagnostic(
+        terminal_ui.components.transcript if terminal_ui is not None else None,
+        error_stream,
+        f"pipy: thinking level: {next_level}",
+    )

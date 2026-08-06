@@ -6,6 +6,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -457,6 +458,7 @@ def test_tool_loop_tui_share_command_cancels_worker_with_cancel_token(
     class CancelUi:
         def __init__(self) -> None:
             self.notices: list[str] = []
+            self.components = SimpleNamespace(transcript=self)
 
         def add_notice(self, message: str) -> None:
             self.notices.append(message)

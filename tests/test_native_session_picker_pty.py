@@ -1,6 +1,6 @@
 """Real-PTY integration tests for the interactive session picker overlay.
 
-These drive ``TerminalUi.run_session_picker`` over a real pseudo-TTY:
+These drive ``TerminalModalDriver.run_session_picker`` over a real pseudo-TTY:
 the inline overlay renders (no alternate screen), real arrow/Enter/Esc key
 decoding works, a TIOCSWINSZ resize repaints coherently while the picker is
 open, and the chosen native session file is returned. No provider turn runs.
@@ -117,7 +117,7 @@ def test_pty_picker_navigate_resize_and_select(
 
     def _run() -> None:
         result.append(
-            ui.run_session_picker(
+            ui.components.modals.run_session_picker(
                 project_sessions=_rows(tmp_path),
                 all_sessions=_rows(tmp_path),
                 current_path=Path("/store/a.jsonl"),
@@ -169,7 +169,7 @@ def test_pty_picker_esc_cancels(
 
     def _run() -> None:
         result.append(
-            ui.run_session_picker(
+            ui.components.modals.run_session_picker(
                 project_sessions=_rows(tmp_path),
                 all_sessions=_rows(tmp_path),
             )

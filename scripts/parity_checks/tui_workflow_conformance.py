@@ -391,7 +391,7 @@ def run_checks(base: Path) -> list[Check]:
         time.sleep(0.2)
         prose_noop = (
             run.ui.input_editor.text == "justprose"
-            and not run.ui.autocomplete.autocomplete_open
+            and not run.ui.components.autocomplete.autocomplete_open
         )
         run.write(b"\x15")
     captures.append(run.text())
@@ -488,13 +488,17 @@ def run_checks(base: Path) -> list[Check]:
         workspace=ws6, provider=cast(ProviderPort, provider6), settings=settings6
     ) as run:
         thinking_ok = (
-            run.toggle_until_flip(b"\x14", lambda: run.ui.thinking_hidden)
-            and run.ui.thinking_hidden
+            run.toggle_until_flip(
+                b"\x14", lambda: run.ui.components.transcript.thinking_hidden
+            )
+            and run.ui.components.transcript.thinking_hidden
             and run.wait_for("thinking blocks: hidden")
         )
         tools_ok = (
-            run.toggle_until_flip(b"\x0f", lambda: run.ui.tools_expanded)
-            and run.ui.tools_expanded
+            run.toggle_until_flip(
+                b"\x0f", lambda: run.ui.components.transcript.tools_expanded
+            )
+            and run.ui.components.transcript.tools_expanded
             and run.wait_for("tool output: expanded")
         )
         fold_no_turn = provider6.calls == 0

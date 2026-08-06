@@ -246,7 +246,7 @@ def test_restore_is_one_atomic_transition_with_callbacks_outside_lock(
 def test_pending_region_keeps_input_footer_in_frame(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     for n in range(60):
-        ui.submit_user_message(f"history line {n:02d}")
+        ui.components.transcript.submit_user_message(f"history line {n:02d}")
     ui.pending_messages.enqueue_steering("steer one")
     ui.pending_messages.enqueue_follow_up("follow one")
     frame = ui._screen.render_lines(width=88, height=24)

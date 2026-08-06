@@ -82,7 +82,7 @@ def run_interactive_session_picker(
     def on_delete(path: Path) -> tuple[bool, str]:
         return delete_native_session(path)
 
-    return terminal_ui.run_session_picker(
+    return terminal_ui.components.modals.run_session_picker(
         project_sessions=project_sessions,
         all_sessions=all_sessions,
         current_path=session_tree.path,
@@ -127,7 +127,7 @@ def run_interactive_tree_selector(
         existing = session_tree.get_label(entry_id)
         session_tree.append_label_change(entry_id, None if existing else "marked")
 
-    closed = terminal_ui.run_tree_selector(
+    closed = terminal_ui.components.modals.run_tree_selector(
         build_rows=build_rows,
         filter_modes=FILTER_MODES,
         initial_filter=filter_mode if filter_mode in FILTER_MODES else "default",
@@ -136,26 +136,30 @@ def run_interactive_tree_selector(
     new_filter = closed.filter_mode
     chosen = closed.entry_id
     if chosen is None:
-        emit_diagnostic(terminal_ui, error_stream, "pipy: /tree cancelled.")
+        emit_diagnostic(
+            terminal_ui.components.transcript if terminal_ui is not None else None,
+            error_stream,
+            "pipy: /tree cancelled.",
+        )
         return TreeCommandOutcome(filter_mode=new_filter)
     selection = apply_tree_selection(session_tree, chosen)
     rebuild_messages()
     if selection.is_noop:
         emit_diagnostic(
-            terminal_ui,
+            terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
             "pipy: already at the selected point (no change).",
         )
         return TreeCommandOutcome(filter_mode=new_filter)
     if selection.is_user_selection:
         emit_diagnostic(
-            terminal_ui,
+            terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
             "pipy: selected user message; rehydrating editor for a new branch.",
         )
         return TreeCommandOutcome(prefill=selection.editor_text, filter_mode=new_filter)
     emit_diagnostic(
-        terminal_ui,
+        terminal_ui.components.transcript if terminal_ui is not None else None,
         error_stream,
         f"pipy: continuing from entry {sanitize_label_text(chosen[:8])}.",
     )
@@ -177,7 +181,7 @@ def run_tree_command(
 
     del repl_input
     interactive_selector: Callable[[], TreeCommandOutcome] | None = None
-    if terminal_ui is not None and hasattr(terminal_ui, "run_tree_selector"):
+    if terminal_ui is not None:
         interactive_selector = partial(
             run_interactive_tree_selector,
             session_tree=session_tree,
@@ -191,7 +195,11 @@ def run_tree_command(
         session_tree=session_tree,
         filter_mode=filter_mode,
         rebuild_messages=rebuild_messages,
-        diagnostic=lambda message: emit_diagnostic(terminal_ui, error_stream, message),
+        diagnostic=lambda message: emit_diagnostic(
+            terminal_ui.components.transcript if terminal_ui is not None else None,
+            error_stream,
+            message,
+        ),
         summarizer=summarizer,
         interactive_selector=interactive_selector,
     )
@@ -320,11 +328,7 @@ class SessionCommandEffects:
         resume_tokens = argument.split()
         resume_sub = resume_tokens[0].lower() if resume_tokens else ""
 
-        if (
-            not argument
-            and self.terminal_ui is not None
-            and hasattr(self.terminal_ui, "run_session_picker")
-        ):
+        if not argument and self.terminal_ui is not None:
             self._resume_from_picker()
         elif not argument:
             self._list_sessions()

@@ -86,6 +86,13 @@ class _FakeTerminalUi:
             ),
             footer=SimpleNamespace(set_footer=self.set_extension_footer),
             listeners=SimpleNamespace(add=self.add_extension_terminal_input_listener),
+            generation=SimpleNamespace(
+                reconcile_generation=lambda snapshot, *, retirement_scope: (
+                    self.reconcile_extension_chrome(
+                        snapshot, retirement_scope=retirement_scope
+                    )
+                )
+            ),
         )
         self._transcript = SimpleNamespace(
             set_hidden_thinking_label=self.set_extension_hidden_thinking_label
@@ -97,6 +104,7 @@ class _FakeTerminalUi:
             set_editor_component=self.set_editor_component,
             factory=None,
         )
+        self.input_editor = SimpleNamespace()
 
     def reconcile_extension_chrome(
         self,
@@ -147,16 +155,37 @@ class _FakeTerminalUi:
         return lambda: self.calls.append(("listener-dispose", handler))
 
 
+def _live_driver(ui: _FakeTerminalUi | TerminalUi) -> _LiveExtensionUiDriver:
+    if isinstance(ui, TerminalUi):
+        components = ui.components
+        return _LiveExtensionUiDriver(
+            components.chrome,
+            components.modals,
+            components.transcript,
+            components.autocomplete,
+            components.custom_editor,
+            components.input_editor,
+        )
+    return _LiveExtensionUiDriver(
+        cast(Any, ui._chrome),
+        cast(Any, SimpleNamespace()),
+        cast(Any, ui._transcript),
+        cast(Any, ui._autocomplete),
+        cast(Any, ui._custom_editor),
+        cast(Any, ui.input_editor),
+    )
+
+
 def _assert_driver_guard_released(driver: _LiveExtensionUiDriver) -> None:
     acquired: list[bool] = []
 
     def probe() -> None:
-        ok = driver._chrome._sink_guard.acquire(  # noqa: SLF001 - lock instrumentation
+        ok = driver._router._sink_guard.acquire(  # noqa: SLF001 - lock instrumentation
             timeout=1.0
         )
         acquired.append(ok)
         if ok:
-            driver._chrome._sink_guard.release()  # noqa: SLF001 - lock instrumentation
+            driver._router._sink_guard.release()  # noqa: SLF001 - lock instrumentation
 
     thread = threading.Thread(target=probe)
     thread.start()
@@ -447,7 +476,7 @@ def test_candidate_listener_and_callback_identities_close_without_delivery() -> 
 def test_r4c_retired_generation_chrome_closes_before_stale_bound_writes() -> None:
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     old_sink = driver.startup_chrome_sink()
     old_bound = driver.generation_driver(old_sink)
     old_bound.set_title("old-live")
@@ -518,7 +547,7 @@ def test_r4c_chrome_callbacks_and_last_references_release_after_all_guards() -> 
 def test_live_driver_handoff_queues_write_and_targets_accepted_owner() -> None:
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
     candidate = driver.new_candidate_sink()
     candidate.set_title("candidate")
@@ -568,8 +597,8 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
 ) -> None:
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
-    previous = driver._chrome._active_sink  # noqa: SLF001 - ownership instrumentation
+    driver = _live_driver(ui)
+    previous = driver._router._active_sink  # noqa: SLF001 - ownership instrumentation
     lease_entered = threading.Event()
     lease_release = threading.Event()
     wait_entered = threading.Event()
@@ -610,9 +639,9 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
     lease_thread = threading.Thread(target=hold_active_lease)
     lease_thread.start()
     assert lease_entered.wait(timeout=2.0)
-    assert driver._chrome._active_sink_leases == 1  # noqa: SLF001
+    assert driver._router._active_sink_leases == 1  # noqa: SLF001
 
-    original_wait = driver._chrome._sink_idle.wait  # noqa: SLF001
+    original_wait = driver._router._sink_idle.wait  # noqa: SLF001
 
     def failing_wait(timeout: float | None = None) -> bool:
         wait_entered.set()
@@ -630,7 +659,7 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
             acceptance_errors.append(error)
 
     with monkeypatch.context() as patch:
-        patch.setattr(driver._chrome._sink_idle, "wait", failing_wait)  # noqa: SLF001
+        patch.setattr(driver._router._sink_idle, "wait", failing_wait)  # noqa: SLF001
         accept_thread = threading.Thread(target=accept)
         accept_thread.start()
         assert wait_entered.wait(timeout=2.0)
@@ -644,9 +673,9 @@ def test_handoff_wait_failure_restores_previous_without_leaks_or_lost_writes(
     assert writer_errors == []
     assert len(acceptance_errors) == 1
     assert type(acceptance_errors[0]) is failure_type
-    assert driver._chrome._handoff is None  # noqa: SLF001
-    assert driver._chrome._active_sink_leases == 0  # noqa: SLF001
-    assert not cast(Any, driver._chrome._sink_idle)._waiters  # noqa: SLF001
+    assert driver._router._handoff is None  # noqa: SLF001
+    assert driver._router._active_sink_leases == 0  # noqa: SLF001
+    assert not cast(Any, driver._router._sink_idle)._waiters  # noqa: SLF001
     assert driver.owns_sink(previous)
     assert previous.snapshot().title == "queued-during-wait"
     assert ui.calls.count(("title", "queued-during-wait")) == 1
@@ -670,10 +699,10 @@ def test_explicit_reconcile_retirement_route_drops_disposal_reentry_without_fall
 ):
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     session_mutex = threading.Lock()
     driver.add_terminal_input_listener(lambda key: key)
-    previous = driver._chrome._active_sink  # noqa: SLF001 - ownership instrumentation
+    previous = driver._router._active_sink  # noqa: SLF001 - ownership instrumentation
     disposal_reentry: list[str] = []
 
     def editor_factory(_tui: object, _theme: object, _keybindings: object) -> object:
@@ -740,9 +769,9 @@ def test_explicit_reconcile_retirement_route_drops_disposal_reentry_without_fall
 def test_early_closed_candidate_refusal_keeps_previous_without_double_close() -> None:
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
-    previous = driver._chrome._active_sink  # noqa: SLF001 - ownership assertion
+    previous = driver._router._active_sink  # noqa: SLF001 - ownership assertion
     candidate = _CountingCloseSink()
     candidate.set_title("candidate")
     candidate.close()
@@ -767,14 +796,14 @@ def test_early_closed_candidate_refusal_keeps_previous_without_double_close() ->
 def test_post_reconcile_close_restores_previous_and_cleans_candidate_once() -> None:
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
 
     def old_listener(key: str) -> str:
         return key
 
     driver.add_terminal_input_listener(old_listener)
-    previous = driver._chrome._active_sink  # noqa: SLF001 - ownership assertion
+    previous = driver._router._active_sink  # noqa: SLF001 - ownership assertion
     candidate = _CountingCloseSink()
     candidate.set_title("candidate")
 
@@ -851,7 +880,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
         terminal_stream=terminal,
         cwd=Path("."),
     )
-    driver = _LiveExtensionUiDriver(ui, Path("."))
+    driver = _live_driver(ui)
     disposed: list[str] = []
 
     class _ExtensionEditorFailure(BaseException):
@@ -900,7 +929,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
     assert ui._custom_editor.factory is candidate.snapshot().editor_component
     assert new_editor.text == "safe built-in draft"
     assert ui.input_editor.get_input_text() == "safe built-in draft"
-    assert ui._chrome.record.title == "new"
+    assert ui.components.chrome.record.title == "new"
     assert disposed == ["old"]
     assert "must stay bounded" not in terminal.getvalue()
     assert result.retired_sink is not None
@@ -909,7 +938,7 @@ def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None
 
 def test_accept_failure_restores_previous_owner_and_closes_candidate_once() -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
     candidate = driver.new_candidate_sink()
     candidate.set_title("candidate")
@@ -944,7 +973,7 @@ def test_accept_failure_restores_previous_owner_and_closes_candidate_once() -> N
 
 def test_factory_failure_never_publishes_candidate_chrome() -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
     candidate = driver.new_candidate_sink()
 
@@ -981,9 +1010,9 @@ def test_retired_cleanup_interrupt_propagates_after_live_ownership_transfer(
 ) -> None:
     ui = _FakeTerminalUi()
     ui.semantic_committed = True
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.add_terminal_input_listener(lambda key: key)
-    active = driver._chrome._active_sink  # noqa: SLF001 - injected cleanup boundary
+    active = driver._router._active_sink  # noqa: SLF001 - injected cleanup boundary
 
     def interrupt_cleanup() -> None:
         raise interrupt_type()
@@ -1011,7 +1040,7 @@ def test_retired_cleanup_interrupt_propagates_after_live_ownership_transfer(
 
 def test_failed_old_restore_retries_candidate_and_transfers_live_ownership() -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
     old_disposals: list[str] = []
 
@@ -1020,7 +1049,7 @@ def test_failed_old_restore_retries_candidate_and_transfers_live_ownership() -> 
 
     driver.add_terminal_input_listener(old_listener)
     # Replace the fake's disposer with one whose exact call count is observable.
-    active = driver._chrome._active_sink  # noqa: SLF001 - ownership assertion
+    active = driver._router._active_sink  # noqa: SLF001 - ownership assertion
     active._terminal_input_disposers[0] = lambda: old_disposals.append("old")  # noqa: SLF001
     candidate = driver.new_candidate_sink()
     candidate.set_title("candidate")
@@ -1137,7 +1166,7 @@ def test_invalid_flags_keep_live_title_widgets_and_listeners_without_candidate_p
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
 
     def old_handler(key: str) -> str:
         return key
@@ -1168,7 +1197,7 @@ def test_invalid_flag_diagnostic_interrupt_still_closes_candidate_chrome(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
 
     class _CleanupFailingSink(_CountingCloseSink):
         def close(self) -> None:
@@ -1200,7 +1229,7 @@ def test_injected_activation_failure_keeps_live_chrome_and_disposes_candidate_si
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("OLD_TITLE")
     before = list(ui.calls)
     candidate_sink = _preloaded_candidate()
@@ -1227,7 +1256,7 @@ def test_post_acceptance_presentation_failure_leaves_candidate_chrome_live(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old-live")
     sink = driver.new_candidate_sink()
     monkeypatch.setattr(driver, "new_candidate_sink", lambda: sink)
@@ -1271,7 +1300,7 @@ def test_post_publication_interrupt_finishes_live_candidate_chrome_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("old")
     sink = _CountingCloseSink()
     sink.set_title("candidate")
@@ -1362,7 +1391,7 @@ def test_production_reload_restores_retired_chrome_after_candidate_reconcile_fai
         encoding="utf-8",
     )
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), tmp_path)
+    driver = _live_driver(ui)
     driver.set_title("OLD_TITLE")
     driver.add_terminal_input_listener(lambda key: key)
     previous_sink = driver.startup_chrome_sink()
@@ -1382,7 +1411,7 @@ def test_production_reload_restores_retired_chrome_after_candidate_reconcile_fai
     )
     driver_owned = cast(
         Callable[[], bool],
-        getattr(driver._chrome._sink_guard, "_is_owned"),  # noqa: SLF001
+        getattr(driver._router._sink_guard, "_is_owned"),  # noqa: SLF001
     )
     finalizer_guards: list[tuple[bool, bool, bool]] = []
     previous_sink._terminal_input_disposers[0] = (  # noqa: SLF001
@@ -1524,7 +1553,7 @@ def test_successful_removal_reconciles_empty_chrome_once_after_acceptance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
-    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver = _live_driver(ui)
     driver.set_title("OLD_TITLE")
     driver.set_widget("old", ["OLD_WIDGET"], "above_editor")
     driver.add_terminal_input_listener(lambda key: key)
@@ -1537,7 +1566,7 @@ def test_successful_removal_reconciles_empty_chrome_once_after_acceptance(
     live = ctl.extension_generation
 
     replacement_accepted = effects._reload_extensions(_ExtensionCandidate())
-    candidate_sink = driver._chrome._active_sink  # noqa: SLF001 - accepted owner
+    candidate_sink = driver._router._active_sink  # noqa: SLF001 - accepted owner
 
     assert replacement_accepted
     assert candidate_sink is not None

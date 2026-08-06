@@ -26,6 +26,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
@@ -68,6 +69,7 @@ class _StubThemeSelectorUi:
         self.notices: list[str] = []
         self.selector_title: str | None = None
         self.offered_labels: list[str] = []
+        self.components = SimpleNamespace(modals=self, transcript=self)
 
     def run_model_selector(self, options, *, current_index: int = 0, title=None):
         self.selector_title = title

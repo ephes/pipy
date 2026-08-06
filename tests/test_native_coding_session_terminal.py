@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TextIO, cast
 
 import pytest
@@ -33,6 +34,7 @@ from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.frame_renderer import visible_len as _visible_len_allow_sgr
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.overlay_state import ModelSelectorOption, SettingsRow
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
     ProjectTrustStore,
@@ -51,11 +53,7 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.startup_selectors import run_project_trust_selector
 from pipy_harness.native.terminal_screen import parse_ansi_screen
-from pipy_harness.native.tui import (
-    ModelSelectorOption,
-    SettingsRow,
-    TerminalUi,
-)
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.autocomplete import AutocompleteComponent
 from pipy_harness.native.ui.clipboard_images import ClipboardImages
@@ -65,14 +63,16 @@ from pipy_harness.native.ui.components.custom_editor import (
     CustomEditorOwner,
     CustomEditorState,
 )
+from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.input_editor import InputEditor
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
+from pipy_harness.native.ui.modal_driver import TerminalModalDriver
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.pending_messages import PendingMessages
-from pipy_harness.native.ui.screen import ScreenRenderInputs
+from pipy_harness.native.ui.screen import Screen, ScreenRenderInputs
 
 
 class _FixedProviderReplState(NativeReplProviderState):
@@ -202,6 +202,56 @@ class _ExitOnlyUi:
             custom_editor=self.custom_editor,
             insert_paste=self.clipboard_images.insert_paste,
         )
+        render_inputs = ScreenRenderInputs(lambda: 80, io.StringIO(), lambda: False)
+        transcript = TranscriptComponent(
+            paint_lock,
+            noop,
+            reset_scrollback=noop,
+            render_inputs=render_inputs,
+        )
+
+        @contextmanager
+        def noop_scope() -> Iterator[None]:
+            yield
+
+        chrome = SimpleNamespace(
+            record=ExtensionChromeState(),
+            component=SimpleNamespace(
+                set_status=lambda *_args: None,
+                set_widget=lambda *_args, **_kwargs: None,
+                set_header=lambda *_args: None,
+                set_title=lambda *_args: None,
+                set_working_indicator=lambda *_args: None,
+                set_working_message=lambda *_args: None,
+                set_working_visible=lambda *_args: None,
+            ),
+            footer=SimpleNamespace(
+                set_footer=lambda *_args: None,
+                set_builtin_text=self.set_footer_text,
+            ),
+            listeners=SimpleNamespace(add=lambda _handler: lambda: None),
+            generation=SimpleNamespace(
+                reconcile_generation=lambda *_args, **_kwargs: {},
+                retire_generation=self.clear_extension_chrome,
+            ),
+        )
+        self.components = SimpleNamespace(
+            driver=SimpleNamespace(),
+            screen=SimpleNamespace(
+                render_inputs=render_inputs,
+                close=self.close,
+                external_io_suspension=noop_scope,
+            ),
+            overlays=SimpleNamespace(),
+            input_editor=self.input_editor,
+            transcript=transcript,
+            chrome=chrome,
+            autocomplete=self.autocomplete,
+            pending_messages=self.pending_messages,
+            clipboard_images=self.clipboard_images,
+            custom_editor=self.custom_editor,
+            modals=SimpleNamespace(),
+        )
 
     def set_footer_text(self, text: str) -> None:
         del text
@@ -254,9 +304,11 @@ class _RawCustomComponent:
 
 def test_tui_frame_owns_distinct_regions(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
-    ui.submit_user_message("hello world!")
-    ui.set_working("⠋ Working...")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)"))
+    )
+    ui.components.transcript.submit_user_message("hello world!")
+    ui.components.transcript.set_working("⠋ Working...")
     ui.input_editor.text = "next"
 
     frame = ui._screen.render_lines(width=72, height=14, pad=False)
@@ -297,17 +349,19 @@ def test_tui_keeps_input_row_stable_when_working_line_settles(
         terminal_stream=cast(TextIO, stream),
         cwd=tmp_path,
     )
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) status")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) status"))
+    )
     ui.input_editor.text = "next prompt"
 
-    ui.set_working("⠋ Working...")
-    ui.append_assistant("line one\nline two")
+    ui.components.transcript.set_working("⠋ Working...")
+    ui.components.transcript.append_assistant("line one\nline two")
     active = parse_ansi_screen(stream.getvalue(), columns=80, rows=24)
     active_input = next(
         index for index, line in enumerate(active.viewport) if "next prompt" in line
     )
 
-    ui.settle_assistant()
+    ui.components.transcript.settle_assistant()
     settled = parse_ansi_screen(stream.getvalue(), columns=80, rows=24)
     settled_input = next(
         index for index, line in enumerate(settled.viewport) if "next prompt" in line
@@ -318,12 +372,12 @@ def test_tui_keeps_input_row_stable_when_working_line_settles(
 
 def test_tui_keeps_working_region_below_assistant_stream(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.submit_user_message("hello world!")
-    ui.set_working("⠋ Working...")
+    ui.components.transcript.submit_user_message("hello world!")
+    ui.components.transcript.set_working("⠋ Working...")
     active = ui._screen.render_lines(width=72, height=14)
     assert sum("Working..." in line for line in active) == 1
 
-    ui.append_assistant("Hello from pipy.")
+    ui.components.transcript.append_assistant("Hello from pipy.")
     streamed = ui._screen.render_lines(width=72, height=14)
 
     assert sum("Working..." in line for line in streamed) == 1
@@ -335,11 +389,11 @@ def test_tui_keeps_working_region_below_assistant_stream(tmp_path: Path):
 
 def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.footer_lines = ("workspace", "model")
-    ui._chrome.component.set_status("build", "green")
-    ui._chrome.component.set_status("lint", "run\rning")
-    ui._chrome.component.set_status("zeta", "queued")
-    ui._chrome.component.set_status("alpha", "\x1b[31mred")
+    ui.components.chrome.footer.set_builtin_text("\n".join(("workspace", "model")))
+    ui.components.chrome.component.set_status("build", "green")
+    ui.components.chrome.component.set_status("lint", "run\rning")
+    ui.components.chrome.component.set_status("zeta", "queued")
+    ui.components.chrome.component.set_status("alpha", "\x1b[31mred")
     ui.input_editor.text = "next"
 
     frame = ui._screen.render_lines(width=72, height=14, pad=False)
@@ -397,7 +451,7 @@ def test_add_custom_entry_styled_preserves_sgr_and_clips(tmp_path: Path):
 def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.add_notice("bad\x1b[31mred\rreturn")
+    ui.components.transcript.add_notice("bad\x1b[31mred\rreturn")
 
     frame = "\n".join(ui._screen.render_lines(width=72, height=14))
     assert "\x1b" not in frame
@@ -409,8 +463,10 @@ def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
 def test_tui_tool_blocks_sanitize_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.add_tool_call("ext-tool\x1b[31mred\rreturn")
-    ui.add_tool_result(lines=["result\x1b[31mred\rreturn"], is_error=False)
+    ui.components.transcript.add_tool_call("ext-tool\x1b[31mred\rreturn")
+    ui.components.transcript.add_tool_result(
+        lines=["result\x1b[31mred\rreturn"], is_error=False
+    )
 
     frame = "\n".join(ui._screen.render_lines(width=72, height=20))
     assert "\x1b" not in frame
@@ -422,7 +478,7 @@ def test_tui_tool_blocks_sanitize_control_characters(tmp_path: Path):
 def test_tui_custom_overlay_sanitizes_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
     ui._overlays.custom_component = _RawCustomComponent()
-    ui.custom_overlay_open = True
+    ui.components.overlays.supersede("custom")
 
     frame = "\n".join(ui._screen.render_lines(width=72, height=14))
     assert "\x1b[31m" in frame
@@ -436,7 +492,11 @@ def test_tui_custom_overlay_sanitizes_control_characters(tmp_path: Path):
 
 def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
 
     adapter = RenderingAgentEventAdapter(renderer)
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
@@ -457,17 +517,21 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
 
 def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
     adapter = RenderingAgentEventAdapter(renderer)
 
-    ui._chrome.component.set_working_message("Checking")
+    ui.components.chrome.component.set_working_message("Checking")
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     frame = _wait_for_frame_text(ui, "Checking")
     assert "Checking" in frame
     assert "Working..." not in frame
 
     adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
-    ui._chrome.component.set_working_visible(False)
+    ui.components.chrome.component.set_working_visible(False)
     renderer.show_working()
     frame = "\n".join(ui._screen.render_lines(width=72, height=14))
     assert "Checking" not in frame
@@ -479,7 +543,11 @@ def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
     tmp_path: Path, reason: AgentCancellationReason
 ) -> None:
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
     adapter = RenderingAgentEventAdapter(renderer)
 
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
@@ -495,7 +563,11 @@ def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
 
 def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -520,7 +592,11 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
 
 def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -546,7 +622,11 @@ def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
     # Pi-style live streaming: while a tool runs, incremental output (e.g.
     # pytest dots) shows in the live region before the result settles.
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -571,7 +651,11 @@ def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
 
 def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -595,10 +679,12 @@ def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
 
 def test_tui_preserves_input_and_footer_when_history_overflows(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
-    ui.submit_user_message("use a tool")
-    ui.add_tool_call("ls")
-    ui.add_tool_result(
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)"))
+    )
+    ui.components.transcript.submit_user_message("use a tool")
+    ui.components.transcript.add_tool_call("ls")
+    ui.components.transcript.add_tool_result(
         lines=[f"file {index}" for index in range(30)],
         is_error=False,
         duration_seconds=0.1,
@@ -625,17 +711,19 @@ def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
         ("section", ("[Skills]",)),
         ("resource", ("  commit-ready, review-handoff", "", "")),
     ]
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
-    ui.submit_user_message(
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)"))
+    )
+    ui.components.transcript.submit_user_message(
         "Use the ls tool on the current directory, then reply exactly: TOOL SMOKE DONE"
     )
-    ui.add_tool_call("ls .")
-    ui.add_tool_result(
+    ui.components.transcript.add_tool_call("ls .")
+    ui.components.transcript.add_tool_result(
         lines=[f"file {index}" for index in range(24)],
         is_error=False,
         duration_seconds=0.1,
     )
-    ui.append_assistant("TOOL SMOKE DONE")
+    ui.components.transcript.append_assistant("TOOL SMOKE DONE")
 
     frame_lines = ui._screen._frame_lines(width=100, height=30, pad=False)
     frame = [line.text for line in frame_lines]
@@ -680,12 +768,16 @@ def test_tui_short_height_retains_startup_chrome_before_prompt(tmp_path: Path):
         ("section", ("[Skills]",)),
         ("resource", ("  commit-ready, commit-workflow, review-handoff", "", "")),
     ]
-    ui.footer_lines = (
-        "~/projects/pipy (main)",
-        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(
+            (
+                "~/projects/pipy (main)",
+                "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+            )
+        )
     )
-    ui.submit_user_message("hello world")
-    ui.append_assistant("Hello!")
+    ui.components.transcript.submit_user_message("hello world")
+    ui.components.transcript.append_assistant("Hello!")
 
     frame = ui._screen.render_lines(width=100, height=24, pad=False)
     prompt_index = next(
@@ -712,12 +804,16 @@ def test_tui_user_message_background_matches_pi_three_row_band(
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
-    ui.footer_lines = (
-        "~/projects/pipy (main)",
-        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(
+            (
+                "~/projects/pipy (main)",
+                "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+            )
+        )
     )
-    ui.submit_user_message("hello world")
-    ui.append_assistant("Hello!")
+    ui.components.transcript.submit_user_message("hello world")
+    ui.components.transcript.append_assistant("Hello!")
 
     ui._screen.paint()
 
@@ -745,12 +841,16 @@ def test_tui_user_message_band_fills_last_column(
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
-    ui.footer_lines = (
-        "~/projects/pipy (main)",
-        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(
+            (
+                "~/projects/pipy (main)",
+                "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+            )
+        )
     )
-    ui.submit_user_message("hello world")
-    ui.append_assistant("Hello!")
+    ui.components.transcript.submit_user_message("hello world")
+    ui.components.transcript.append_assistant("Hello!")
 
     ui._screen.paint()
 
@@ -778,7 +878,9 @@ def test_tui_input_separator_spans_full_width(
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "x")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "x"))
+    )
 
     ui._screen.paint()
 
@@ -808,7 +910,9 @@ def test_tui_tool_command_band_fills_last_column(
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "x")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "x"))
+    )
     ui._transcript.history_blocks.append(("tool", ('bash(command="ls")',)))
 
     ui._screen.paint()
@@ -831,9 +935,11 @@ def test_tui_tool_command_band_fills_last_column(
 def test_tui_drops_tail_when_context_and_prompt_fill_history_region(tmp_path: Path):
     ui = _ui(tmp_path)
     ui._transcript.history_blocks = [("normal", ("ctx1", "ctx2", "ctx3", "ctx4"))]
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
-    ui.submit_user_message("prompt")
-    ui.append_assistant("tail1\ntail2\ntail3")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)"))
+    )
+    ui.components.transcript.submit_user_message("prompt")
+    ui.components.transcript.append_assistant("tail1\ntail2\ntail3")
 
     frame = ui._screen.render_lines(width=72, height=13, pad=False)
     input_index = next(index for index, line in enumerate(frame) if line == " ")
@@ -849,7 +955,11 @@ def test_tui_renderer_accumulates_reasoning_chunks_without_token_lines(
     tmp_path: Path,
 ):
     ui = _ui(tmp_path)
-    renderer = ui.create_tool_loop_renderer()
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
     renderer.begin_provider_turn()
 
     renderer.reasoning_sink("Thinking ")
@@ -864,9 +974,9 @@ def test_tui_renderer_accumulates_reasoning_chunks_without_token_lines(
 def test_tui_settles_reasoning_before_turn_reset(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.append_reasoning("Thinking ")
-    ui.append_reasoning("through it.")
-    ui.begin_assistant_turn()
+    ui.components.transcript.append_reasoning("Thinking ")
+    ui.components.transcript.append_reasoning("through it.")
+    ui.components.transcript.begin_assistant_turn()
 
     frame = "\n".join(ui._screen.render_lines(width=72, height=14))
     assert "Thinking through it." in frame
@@ -884,7 +994,7 @@ def test_tui_reasoning_row_emits_italic_escape(
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
-    ui.append_reasoning("Thinking about this.")
+    ui.components.transcript.append_reasoning("Thinking about this.")
     ui._screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
@@ -898,7 +1008,7 @@ def test_tui_reasoning_row_drops_italic_under_no_color(
     monkeypatch.setenv("TERM", "xterm-256color")
     ui = _ui(tmp_path)
 
-    ui.append_reasoning("Thinking about this.")
+    ui.components.transcript.append_reasoning("Thinking about this.")
     ui._screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
@@ -918,7 +1028,7 @@ def test_tui_tool_call_uses_pi_command_background(
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
-    ui.add_tool_call("ls")
+    ui.components.transcript.add_tool_call("ls")
     ui._screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
@@ -933,7 +1043,7 @@ def test_tui_tool_call_uses_fallback_background_for_plain_256color(
     monkeypatch.setenv("TERM", "xterm-256color")
     ui = _ui(tmp_path)
 
-    ui.add_tool_call("ls")
+    ui.components.transcript.add_tool_call("ls")
     ui._screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
@@ -949,7 +1059,9 @@ def test_tui_tool_result_uses_pi_command_background(
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
-    ui.add_tool_result(lines=["result line"], is_error=False, duration_seconds=0.1)
+    ui.components.transcript.add_tool_result(
+        lines=["result line"], is_error=False, duration_seconds=0.1
+    )
     ui._screen.paint()
 
     snapshot = parse_ansi_screen(
@@ -970,8 +1082,10 @@ def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
     monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
-    ui.add_tool_call("ls")
-    ui.add_tool_result(lines=["alpha"], is_error=False, duration_seconds=0.1)
+    ui.components.transcript.add_tool_call("ls")
+    ui.components.transcript.add_tool_result(
+        lines=["alpha"], is_error=False, duration_seconds=0.1
+    )
     ui._screen.paint()
 
     snapshot = parse_ansi_screen(
@@ -1042,14 +1156,17 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         assert executable in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 
     ui = _ui(tmp_path)
-    assert ui.autocomplete.command_names == TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
-    assert ui.autocomplete.command_descriptions.get("/copy")
-    assert ui.autocomplete.command_descriptions.get("/login")
-    assert ui.autocomplete.command_descriptions.get("/logout")
-    assert ui.autocomplete.command_descriptions.get("/compact")
-    assert ui.autocomplete.command_descriptions.get("/export")
-    assert ui.autocomplete.command_descriptions.get("/import")
-    assert ui.autocomplete.command_descriptions.get("/share")
+    assert (
+        ui.components.autocomplete.command_names
+        == TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+    )
+    assert ui.components.autocomplete.command_descriptions.get("/copy")
+    assert ui.components.autocomplete.command_descriptions.get("/login")
+    assert ui.components.autocomplete.command_descriptions.get("/logout")
+    assert ui.components.autocomplete.command_descriptions.get("/compact")
+    assert ui.components.autocomplete.command_descriptions.get("/export")
+    assert ui.components.autocomplete.command_descriptions.get("/import")
+    assert ui.components.autocomplete.command_descriptions.get("/share")
 
 
 def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
@@ -1060,7 +1177,7 @@ def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
     frame = ui._screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
-    assert ui.autocomplete.slash_menu_open is True
+    assert ui.components.autocomplete.slash_menu_open is True
     # Both auth commands match the /log prefix and render together.
     assert "login" in rendered
     assert "logout" in rendered
@@ -1076,7 +1193,7 @@ def test_tui_slash_menu_shows_copy_command(tmp_path: Path):
     frame = ui._screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
-    assert ui.autocomplete.slash_menu_open is True
+    assert ui.components.autocomplete.slash_menu_open is True
     assert "copy" in rendered
 
 
@@ -1088,7 +1205,7 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     frame = ui._screen._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
 
-    assert ui.autocomplete.slash_menu_open is True
+    assert ui.components.autocomplete.slash_menu_open is True
     assert "→ hotkeys" in rendered
     assert "Show keyboard shortcuts" in rendered
     # The interactive settings dialog is executable in tool-loop mode, so the
@@ -1114,7 +1231,7 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
 
 def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.autocomplete.set_max_visible(3)
+    ui.components.autocomplete.set_max_visible(3)
     ui.input_editor.insert_text("/")
     frame = ui._screen._frame_lines(width=88, height=24, pad=False)
     menu_rows = [
@@ -1130,22 +1247,22 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.input_editor.insert_text("/")
 
-    ui.autocomplete.navigate_slash_menu("down")
-    assert ui.autocomplete.slash_menu_selection == 1
+    ui.components.autocomplete.navigate_slash_menu("down")
+    assert ui.components.autocomplete.slash_menu_selection == 1
 
-    ui.autocomplete.accept_slash_menu_selection()
+    ui.components.autocomplete.accept_slash_menu_selection()
     # Menu order is hotkeys(0), model(1), scoped-models(2), ...; one step down
     # lands on the /model command (auto-completed into the editor).
     assert ui.input_editor.text == "/model"
     assert ui.input_editor.cursor == len("/model")
-    assert ui.autocomplete.slash_menu_open is False
+    assert ui.components.autocomplete.slash_menu_open is False
 
     ui.input_editor.text = "/"
     ui.input_editor.cursor = 1
-    ui.autocomplete.refresh_slash_menu()
-    assert ui.autocomplete.slash_menu_open is True
+    ui.components.autocomplete.refresh_slash_menu()
+    assert ui.components.autocomplete.slash_menu_open is True
 
-    ui.autocomplete.slash_menu_open = False
+    ui.components.autocomplete.slash_menu_open = False
     frame = "\n".join(ui._screen.render_lines(width=88, height=24, pad=False))
     assert "→ hotkeys" not in frame
     assert ui.input_editor.text == "/"
@@ -1154,8 +1271,6 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
 def test_tui_model_selector_renders_rows_with_highlight_and_reasons(
     tmp_path: Path,
 ):
-    from pipy_harness.native.tui import ModelSelectorOption
-
     ui = _ui(tmp_path)
     assert ui._overlays.begin_model(
         (
@@ -1199,8 +1314,6 @@ def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it
 
 
 def test_tui_model_selector_keeps_cursor_hidden(tmp_path: Path):
-    from pipy_harness.native.tui import ModelSelectorOption
-
     ui = _ui(tmp_path)
     assert ui._overlays.begin_model(
         (ModelSelectorOption("a  [available]", True),),
@@ -1233,10 +1346,12 @@ def test_tui_start_is_inline_and_close_restores_cursor(
     monkeypatch.setenv("COLUMNS", "80")
     monkeypatch.setenv("LINES", "24")
     ui = _ui(tmp_path)
-    ui.set_footer_text("~/projects/pipy (main)\n$0.000 (sub) status")
+    ui.components.chrome.footer.set_builtin_text(
+        "~/projects/pipy (main)\n$0.000 (sub) status"
+    )
 
     ui.start()
-    ui.close()
+    ui.components.screen.close()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     # Inline scrollback model: no alternate screen, so native terminal
@@ -1265,8 +1380,10 @@ def test_tui_paint_places_live_cursor_on_input_row(
     monkeypatch.setenv("COLUMNS", "80")
     monkeypatch.setenv("LINES", "24")
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) status")
-    ui.submit_user_message("hello world!")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) status"))
+    )
+    ui.components.transcript.submit_user_message("hello world!")
     ui.input_editor.text = "next"
 
     ui._screen.paint()
@@ -1288,13 +1405,15 @@ def test_tui_paint_does_not_reprint_committed_history(
     monkeypatch.setenv("LINES", "40")
     ui = _ui(tmp_path)
     ui.start()
-    ui.submit_user_message("UNIQUE_MARKER_X")
+    ui.components.transcript.submit_user_message("UNIQUE_MARKER_X")
     terminal = cast(_TtyBuffer, ui.terminal_stream)
     boundary = len(terminal.getvalue())
 
     # A later paint that adds no new history must not reprint the committed
     # block: it lives in the terminal's native scrollback, not in the frame.
-    ui.set_footer_text("~/projects/pipy (main)\n$0.000 (sub) status")
+    ui.components.chrome.footer.set_builtin_text(
+        "~/projects/pipy (main)\n$0.000 (sub) status"
+    )
     ui._screen.paint()
 
     delta = terminal.getvalue()[boundary:]
@@ -1307,10 +1426,12 @@ def test_tui_paint_uses_full_height_and_scrolls_history(
     monkeypatch.setenv("COLUMNS", "80")
     monkeypatch.setenv("LINES", "20")
     ui = _ui(tmp_path)
-    ui.set_footer_text("~/projects/pipy (main)\n$0.000 (sub) status")
+    ui.components.chrome.footer.set_builtin_text(
+        "~/projects/pipy (main)\n$0.000 (sub) status"
+    )
     ui.start()
     for index in range(8):
-        ui.submit_user_message(f"message number {index}")
+        ui.components.transcript.submit_user_message(f"message number {index}")
     ui.input_editor.text = "typing"
     ui._screen.paint()
 
@@ -1576,7 +1697,7 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
         return chosen
 
     monkeypatch.setattr(TerminalUi, "read_line", _read_line)
-    monkeypatch.setattr(TerminalUi, "run_model_selector", _select_model)
+    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _select_model)
     from pipy_harness.native.tui import TURN_SETTLED
 
     monkeypatch.setattr(
@@ -1643,7 +1764,7 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
         selector_calls.append(None)
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_model_selector", _cancel_selector)
+    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _cancel_selector)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -1843,7 +1964,7 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
         # dialog rather than committing a static text block.
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     session = CodingSession(
         provider=provider,
@@ -1928,7 +2049,7 @@ def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state
         )
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     assert (
         run_project_trust_selector(
@@ -1981,7 +2102,7 @@ def test_project_trust_selector_sanitizes_untrusted_path_labels(
         captured_rows.extend(rows)
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     assert (
         run_project_trust_selector(
@@ -2026,7 +2147,7 @@ def test_trust_command_persists_next_start_decision_without_hot_activation(
         assert "trust-option-0" in exit_actions
         return "trust-option-0"
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _select_exact_trust)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _select_exact_trust)
     settings = SettingsManager.for_workspace(cwd, project_trusted=False)
 
     handle_trust_command(
@@ -2123,8 +2244,6 @@ def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(
 
 
 def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: Path):
-    from pipy_harness.native.tui import SettingsRow
-
     rows = [SettingsRow(label="header", kind="header")]
     rows.extend(
         SettingsRow(label=f"action {index}", kind="action", action=f"a{index}")
@@ -2319,7 +2438,7 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
         on_local_action("clear_history")
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     session = CodingSession(
         provider=provider,
@@ -2421,7 +2540,7 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
         on_local_action("theme")  # no-op for a non-exit action: selector unopened
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     def _fake_model_selector(self, options, *, current_index=0, title=None):
         captured_selector_titles.append(title)
@@ -2429,7 +2548,7 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
         labels = [option.label for option in options]
         return next(i for i, label in enumerate(labels) if target_theme in label)
 
-    monkeypatch.setattr(TerminalUi, "run_model_selector", _fake_model_selector)
+    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _fake_model_selector)
 
     session = CodingSession(
         provider=provider,
@@ -2540,13 +2659,13 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
         on_local_action("theme")
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     def _fake_model_selector(self, options, *, current_index=0, title=None):
         labels = [option.label for option in options]
         return next(i for i, label in enumerate(labels) if target_theme in label)
 
-    monkeypatch.setattr(TerminalUi, "run_model_selector", _fake_model_selector)
+    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _fake_model_selector)
 
     # Build the session with no provider_state, forcing the static fallback.
     session = CodingSession(
@@ -2632,7 +2751,7 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
         on_local_action("scoped_models")
         return None
 
-    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalModalDriver, "run_settings_dialog", _fake_dialog)
 
     def _fake_scope_selector(self, rows, *, checked=()):
         # Reaching here proves the scoped-models branch/overlay was driven.
@@ -2640,7 +2759,9 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
         overlay_opened.append(refs)
         return frozenset(refs)  # save all available refs as the scope
 
-    monkeypatch.setattr(TerminalUi, "run_scoped_models_selector", _fake_scope_selector)
+    monkeypatch.setattr(
+        TerminalModalDriver, "run_scoped_models_selector", _fake_scope_selector
+    )
 
     session = CodingSession(
         provider=provider,
@@ -3045,12 +3166,14 @@ def test_tui_paste_inserts_without_submission_or_menu(tmp_path: Path):
     assert ui.input_editor.text == "/not-a-command and more\nsecond line"
     # A paste with whitespace never opens the slash menu (so it cannot be
     # mistaken for / command completion), and never submits on its own.
-    assert ui.autocomplete.slash_menu_open is False
+    assert ui.components.autocomplete.slash_menu_open is False
 
 
 def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 status")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 status"))
+    )
     ui.clipboard_images.insert_paste("line one\nline two")
 
     frame = ui._screen._frame_lines(width=72, height=16, pad=False)
@@ -3116,7 +3239,9 @@ def test_tui_long_multiline_input_wraps_with_literal_newline_projection(
 
 def test_tui_long_input_soft_wraps_inside_input_frame(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 status")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 status"))
+    )
     ui.input_editor.text = "".join(str(i % 10) for i in range(120))
     ui.input_editor.cursor = len(ui.input_editor.text)
 
@@ -3394,13 +3519,13 @@ def _install_auth_trace(
 
     original_rebind = CodingSessionState.rebind_provider
 
-    def record_footer(self: TerminalUi, text: str) -> None:
+    def record_footer(self: FooterComponent, text: str) -> None:
         del self
         assert "$" in text
         trace.append("usage-footer")
 
     @contextmanager
-    def record_external_io(self: TerminalUi) -> Iterator[None]:
+    def record_external_io(self: Screen) -> Iterator[None]:
         del self
         trace.append("external-io-suspend")
         try:
@@ -3408,7 +3533,7 @@ def _install_auth_trace(
         finally:
             trace.append("external-io-resume")
 
-    def record_notice(self: TerminalUi, text: str) -> None:
+    def record_notice(self: TranscriptComponent, text: str) -> None:
         del self
         trace.append("diagnostic")
         diagnostics.append(text)
@@ -3432,9 +3557,9 @@ def _install_auth_trace(
             usage_accumulator=usage_accumulator,
         )
 
-    monkeypatch.setattr(TerminalUi, "set_footer_text", record_footer)
-    monkeypatch.setattr(TerminalUi, "external_io_suspension", record_external_io)
-    monkeypatch.setattr(TerminalUi, "add_notice", record_notice)
+    monkeypatch.setattr(FooterComponent, "set_builtin_text", record_footer)
+    monkeypatch.setattr(Screen, "external_io_suspension", record_external_io)
+    monkeypatch.setattr(TranscriptComponent, "add_notice", record_notice)
     monkeypatch.setattr(CodingSessionState, "rebind_provider", record_rebind)
     monkeypatch.setattr(
         CodingSession,

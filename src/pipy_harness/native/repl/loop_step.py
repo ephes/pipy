@@ -12,6 +12,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
+from typing import cast
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
@@ -172,7 +173,13 @@ class _AcceptedInputEffects:
 
     def emit_diagnostic(self, message: str) -> None:
         scope = self.turn.scope
-        emit_diagnostic(scope.terminal_ui, scope.error_stream, message)
+        emit_diagnostic(
+            scope.terminal_ui.components.transcript
+            if scope.terminal_ui is not None
+            else None,
+            scope.error_stream,
+            message,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +221,13 @@ class _RequestPreparationEffects:
         ):
             return
         notice = scope.apply_compaction("auto")
-        emit_diagnostic(scope.terminal_ui, scope.error_stream, notice)
+        emit_diagnostic(
+            scope.terminal_ui.components.transcript
+            if scope.terminal_ui is not None
+            else None,
+            scope.error_stream,
+            notice,
+        )
 
     def _provider_request(
         self,
@@ -396,7 +409,9 @@ def _dispatch_extension_hotkey(turn_input: _TurnInput) -> None:
     if dispatch is None or dispatch.ran or not dispatch.error:
         return
     emit_diagnostic(
-        scope.terminal_ui,
+        scope.terminal_ui.components.transcript
+        if scope.terminal_ui is not None
+        else None,
         scope.error_stream,
         f"pipy: extension shortcut {shortcut_key!r} failed ({dispatch.error})",
     )
@@ -420,6 +435,11 @@ def _phase_c2_shell(turn_input: _TurnInput) -> LoopStepSignal | None:
     shell_context_text = run_local_shell_shortcut(
         turn_input.stripped,
         terminal_ui=scope.terminal_ui,
+        transcript=(
+            scope.terminal_ui.components.transcript
+            if scope.terminal_ui is not None
+            else None
+        ),
         error_stream=scope.error_stream,
         cwd=scope.cwd,
         user_bash_hooks=hooks,
@@ -549,7 +569,10 @@ def _phase_f2_run_and_settle(
     result_snapshot = scope.coding_state.result_snapshot()
     ended_at = datetime.now(UTC)
     try:
-        scope.repl_input.close()
+        if scope.terminal_ui is not None:
+            scope.terminal_ui.components.screen.close()
+        else:
+            cast(NativeReplInput, scope.repl_input).close()
     except Exception:  # noqa: BLE001 - the run failure retains precedence
         pass
     return LoopStepSignal.return_result(
@@ -592,11 +615,15 @@ class _ReplLoopStep:
         self,
         *,
         coding_state: CodingSessionState,
+        terminal_ui: TerminalUi | None,
         repl_input: "TerminalUi | NativeReplInput",
         started_at: datetime,
     ) -> CodingSessionResult:
         try:
-            repl_input.close()
+            if terminal_ui is not None:
+                terminal_ui.components.screen.close()
+            else:
+                cast(NativeReplInput, repl_input).close()
         except Exception:  # noqa: BLE001 - teardown close is best-effort
             pass
         ended_at = datetime.now(UTC)
@@ -657,7 +684,3 @@ class _ReplLoopStep:
         chrome_finalize_error = finish_chrome_retirement(chrome_retirement)
         del retained, generation
         raise_first((queue_error, chrome_close_error, chrome_finalize_error))
-
-    def clear_extension_chrome(self, *, terminal_ui: TerminalUi | None) -> None:
-        if terminal_ui is not None:
-            terminal_ui.clear_extension_chrome()

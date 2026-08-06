@@ -36,6 +36,7 @@ from pipy_harness.native.tui import (
     TURN_SETTLED,
     TerminalUi,
 )
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
 # Bound on a ``!``/``!!`` editor shell command so it cannot hang the session
 # indefinitely (Escape cancels earlier in a live TTY; a non-TTY script has no
@@ -48,6 +49,7 @@ def run_local_shell_shortcut(
     command_line: str,
     *,
     terminal_ui: TerminalUi | None,
+    transcript: TranscriptComponent | None,
     error_stream: TextIO,
     cwd: Path,
     user_bash_hooks: Sequence[HookHandler] = (),
@@ -69,7 +71,7 @@ def run_local_shell_shortcut(
     command = (command_line[2:] if exclude_from_context else command_line[1:]).strip()
     if not command:
         emit_diagnostic(
-            terminal_ui,
+            transcript,
             error_stream,
             "pipy: ! needs a command, e.g. !ls (use !! to skip recording).",
         )
@@ -82,7 +84,7 @@ def run_local_shell_shortcut(
         cwd=str(cwd),
         has_ui=terminal_ui is not None,
         notify_sink=lambda kind, message: emit_diagnostic(
-            terminal_ui, error_stream, message
+            transcript, error_stream, message
         ),
         ui_driver=ui_driver,
         model_runtime=model_runtime,
@@ -91,7 +93,7 @@ def run_local_shell_shortcut(
     )
     if not decision.allowed:
         emit_diagnostic(
-            terminal_ui,
+            transcript,
             error_stream,
             f"pipy: shell command blocked by extension: {decision.reason}",
         )
@@ -99,9 +101,9 @@ def run_local_shell_shortcut(
     command = decision.command
     exclude_from_context = decision.exclude_from_context
 
-    if terminal_ui is not None:
-        terminal_ui.add_tool_call(f"$ {command}")
-        sink: Callable[[str], None] = terminal_ui.append_tool_output
+    if transcript is not None:
+        transcript.add_tool_call(f"$ {command}")
+        sink: Callable[[str], None] = transcript.append_tool_output
     else:
         print(f"$ {command}", file=error_stream)
 
@@ -143,9 +145,9 @@ def run_local_shell_shortcut(
             and result.exit_code != 0
         )
     )
-    if terminal_ui is not None:
+    if transcript is not None:
         rendered = [status_line, *(output_text.splitlines() or [""])]
-        terminal_ui.add_tool_result(lines=rendered, is_error=is_error)
+        transcript.add_tool_result(lines=rendered, is_error=is_error)
     else:
         # Captured-stream path: the body already streamed through the sink,
         # so print only the status line (never re-print the output — that

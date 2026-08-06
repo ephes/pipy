@@ -24,6 +24,7 @@ from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tui import TerminalUi
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
 
 class _RecordingProvider:
@@ -128,8 +129,7 @@ def _install_terminal(
         return next(scripted)
 
     @contextmanager
-    def suspend(self: TerminalUi) -> Iterator[None]:
-        del self
+    def suspend() -> Iterator[None]:
         trace.append("external-io-suspend")
         try:
             yield
@@ -138,7 +138,7 @@ def _install_terminal(
 
     monkeypatch.setattr(CodingSession, "_build_terminal_ui", build)
     monkeypatch.setattr(TerminalUi, "read_line", read_line)
-    monkeypatch.setattr(TerminalUi, "external_io_suspension", suspend)
+    monkeypatch.setattr(terminal.components.screen, "external_io_suspension", suspend)
     return terminal
 
 
@@ -157,7 +157,7 @@ def _run_live(session: CodingSession, cwd: Path) -> tuple[str, str]:
 def _notice_text(terminal: TerminalUi) -> list[str]:
     return [
         "\n".join(lines)
-        for kind, lines in terminal._transcript.history_blocks
+        for kind, lines in terminal.components.transcript.history_blocks
         if kind == "notice"
     ]
 
@@ -231,16 +231,16 @@ def test_live_trust_success_orders_effects_and_keeps_runtime_state_unchanged(
         return selected
 
     cwd_path = cwd
-    original_notice = TerminalUi.add_notice
+    original_notice = TranscriptComponent.add_notice
 
-    def notice(self: TerminalUi, text: str) -> None:
+    def notice(self: TranscriptComponent, text: str) -> None:
         if text.startswith("pipy: saved trust decision"):
             trace.append("success")
         original_notice(self, text)
 
     monkeypatch.setattr(selector_module, "ProjectTrustStore", lambda: store)
     monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
-    monkeypatch.setattr(TerminalUi, "add_notice", notice)
+    monkeypatch.setattr(TranscriptComponent, "add_notice", notice)
     provider = _RecordingProvider()
 
     output, error = _run_live(

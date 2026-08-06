@@ -11,6 +11,7 @@ import io
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Protocol, TextIO
 
 import pytest
@@ -31,7 +32,7 @@ from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.diagnostics import emit_diagnostic
+from pipy_harness.native.diagnostics import NoticeSink, emit_diagnostic
 from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
@@ -502,7 +503,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
             return TreeCommandOutcome(prefill="RESTORED", filter_mode="all")
         return TreeCommandOutcome()
 
-    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
         if "editor rehydrated" in message:
             trace.append("prefill")
         original_diag(ui, stream, message)
@@ -555,7 +556,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
         trace.append("diagnostic")
         original_diag(ui, stream, message)
 
@@ -713,7 +714,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
         trace.append("diagnostic")
         original_diag(ui, stream, message)
 
@@ -1291,7 +1292,7 @@ def test_resume_switch_order_gate_and_fresh_history(
         del self, entries
         trace.append("redraw")
 
-    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
         if message.startswith("pipy: resumed native session"):
             trace.append("diagnostic")
         original_diag(ui, stream, message)
@@ -1623,6 +1624,7 @@ class _StubPickerUi:
     def __init__(self, choose):
         self._choose = choose
         self.kwargs = None
+        self.components = SimpleNamespace(modals=self)
 
     def run_session_picker(self, **kwargs):
         self.kwargs = kwargs
@@ -1669,6 +1671,7 @@ class _RenameActiveUi:
     def __init__(self, target: Path, name: str) -> None:
         self._target = target
         self._name = name
+        self.components = SimpleNamespace(modals=self)
 
     def run_session_picker(self, **kwargs):
         kwargs["on_rename"](self._target, self._name)

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         CodingSessionUsageSnapshot,
     )
     from pipy_harness.native.package_resources import PackageRoot
+    from pipy_harness.native.ui.components.footer import FooterComponent
 
 from pipy_harness.native.themes import (
     DEFAULT_PALETTE,
@@ -447,10 +448,6 @@ class BottomStatusFields:
     attention: str = ""
 
 
-class _FooterUi(Protocol):
-    def set_footer_text(self, text: str) -> None: ...
-
-
 class _ReplRuntime(Protocol):
     runtime_label: str
 
@@ -463,7 +460,7 @@ class _ChromeFooterEffects:
     coding_state: CodingSessionState
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
     error_stream: TextIO
-    terminal_ui: _FooterUi | None
+    footer: FooterComponent | None
     repl_runtime: _ReplRuntime
 
     def _effort_label(self, provider_name: str, model_id: str) -> str:
@@ -596,13 +593,11 @@ class _ChromeFooterEffects:
         )
 
     def refresh_footer_text(self) -> None:
-        if self.terminal_ui is not None:
-            self.terminal_ui.set_footer_text(self.coding_footer_text())
+        if self.footer is not None:
+            self.footer.set_builtin_text(self.coding_footer_text())
 
     def legacy_footer_enabled(self) -> bool:
-        return (
-            self.terminal_ui is None and self.repl_runtime.runtime_label != "slash-menu"
-        )
+        return self.footer is None and self.repl_runtime.runtime_label != "slash-menu"
 
     def refresh_legacy_footer(self) -> None:
         if self.legacy_footer_enabled():

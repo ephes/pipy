@@ -205,7 +205,9 @@ class AgentTurnStatusPresentationAdapter:
 
     def emit_diagnostic(self, message: str, /) -> None:
         emit_diagnostic(
-            self.terminal_ui,
+            self.terminal_ui.components.transcript
+            if self.terminal_ui is not None
+            else None,
             self.error_stream,
             message,
         )

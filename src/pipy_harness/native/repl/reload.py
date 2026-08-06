@@ -119,7 +119,7 @@ def maybe_save_implicit_trust_after_reload(
         store.set(resolved, True)
     except ProjectTrustError as exc:
         emit_diagnostic(
-            terminal_ui,
+            terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
             f"pipy: could not save project trust after reload: {exc}",
         )
@@ -368,10 +368,10 @@ class ReloadCommandEffects:
             if projection is None:
                 raise RuntimeError("published extension generation has no projection")
             commands = projection.commands
-            self.terminal_ui.autocomplete.set_max_visible(
+            self.terminal_ui.components.autocomplete.set_max_visible(
                 self.settings.get_autocomplete_max_visible()
             )
-            self.terminal_ui.autocomplete.replace_command_surface(
+            self.terminal_ui.components.autocomplete.replace_command_surface(
                 published_command_surface(self.ctl.workspace_resources, commands)
             )
             self.redraw_custom_entries_for_active_branch()

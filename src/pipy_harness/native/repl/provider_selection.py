@@ -401,7 +401,7 @@ class ProviderMutationEffects:
                         output_stream=self.error_stream,
                     )
                 else:
-                    with self.terminal_ui.external_io_suspension():
+                    with self.terminal_ui.components.screen.external_io_suspension():
                         _ok, message = state.login(
                             provider_name,
                             input_stream=self.input_stream,
@@ -510,7 +510,9 @@ class ProviderMutationEffects:
         if fallback is None:
             self._bind_unavailable_after_reload(unavailable_message)
             emit_diagnostic(
-                self.terminal_ui,
+                self.terminal_ui.components.transcript
+                if self.terminal_ui is not None
+                else None,
                 self.error_stream,
                 f"pipy: {unavailable_message}.",
             )
@@ -525,14 +527,18 @@ class ProviderMutationEffects:
             ),
         )
         emit_diagnostic(
-            self.terminal_ui,
+            self.terminal_ui.components.transcript
+            if self.terminal_ui is not None
+            else None,
             self.error_stream,
             f"{selected_message} {fallback.reference}.",
         )
         persistence_error = _report_default_persistence(state)
         if persistence_error is not None:
             emit_diagnostic(
-                self.terminal_ui,
+                self.terminal_ui.components.transcript
+                if self.terminal_ui is not None
+                else None,
                 self.error_stream,
                 persistence_error,
             )

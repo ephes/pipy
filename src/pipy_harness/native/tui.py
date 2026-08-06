@@ -13,21 +13,13 @@ import os
 import sys
 from collections.abc import (
     Callable,
-    Iterable,
     Iterator,
-    Mapping,
     Sequence,
 )
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    TextIO,
-    TypeVar,
-    cast,
-)
+from typing import Any, TextIO, cast
 
 from pipy_harness.native.chrome import (
     chrome_style_for,
@@ -44,29 +36,13 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSnapshot,
     ExtensionChromeState,
 )
-from pipy_harness.native.extension_types import ExtensionTool
-from pipy_harness.native.extensions.tool_port import ToolRenderDetailsSink
 from pipy_harness.native.keybindings import (
     KeybindingsManager,
 )
-from pipy_harness.native.overlay_state import (
-    ModelSelectorOption as ModelSelectorOption,
-)
-from pipy_harness.native.overlay_state import (
-    OverlayState,
-    SettingsOverlayKind,
-    TreeSelectorRow,
-)
-from pipy_harness.native.overlay_state import (
-    ScopedModelRow as ScopedModelRow,
-)
-from pipy_harness.native.overlay_state import (
-    SettingsRow as SettingsRow,
-)
+from pipy_harness.native.overlay_state import OverlayState
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
-from pipy_harness.native.session_tree_commands import SessionListEntry
 from pipy_harness.native.terminal_driver import (
     TerminalDriver,
 )
@@ -88,19 +64,9 @@ from pipy_harness.native.ui.components.custom_editor import (
     CustomEditorEffects,
     CustomEditorOwner,
     CustomEditorState,
-    ExtensionEditorComponent,
-)
-from pipy_harness.native.ui.components.custom_entry_renderer import (
-    CustomEntryTerminalTarget,
-)
-from pipy_harness.native.ui.components.custom_overlay import (
-    CustomComponentRunner,
 )
 from pipy_harness.native.ui.components.extension_prompts import (
-    ExtensionConfirmComponent,
     ExtensionExternalEditor,
-    ExtensionInputComponent,
-    ExtensionSelectComponent,
 )
 from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.input_editor import (
@@ -111,55 +77,26 @@ from pipy_harness.native.ui.components.input_editor import (
     LineEditingEffects,
     apply_editing_key,
 )
-from pipy_harness.native.ui.components.model_selector import (
-    ModelSelectorComponent,
-)
-from pipy_harness.native.ui.components.scoped_models_selector import (
-    ScopedModelsSelectorComponent,
-)
-from pipy_harness.native.ui.components.session_picker import (
-    SessionPickerComponent,
-)
-from pipy_harness.native.ui.components.settings_dialog import (
-    SettingsDialogComponent,
-)
-from pipy_harness.native.ui.components.tool_loop_renderer import (
-    TuiToolLoopRenderer,
-)
 from pipy_harness.native.ui.components.transcript import (
     HistoryBlock,
     HistoryBlockTuple,
     TranscriptComponent,
 )
-from pipy_harness.native.ui.components.tree_selector import (
-    TreeSelectorClose,
-    TreeSelectorComponent,
-)
+from pipy_harness.native.ui.composition import TerminalComponents
 from pipy_harness.native.ui.extension_chrome import ExtensionChromeComponent
 from pipy_harness.native.ui.extension_generation import (
     ExtensionChromeOwners,
     build_extension_chrome_owners,
 )
-from pipy_harness.native.ui.key_specs import (
-    matches_key_specs,
-    resolved_key_specs,
-)
+from pipy_harness.native.ui.key_specs import matches_key_specs, resolved_key_specs
+from pipy_harness.native.ui.modal_driver import TerminalModalDriver
 from pipy_harness.native.ui.pending_messages import PendingMessages
 from pipy_harness.native.ui.screen import (
-    DriveOwner,
-    DriveResult,
     FrameRegionSources,
     FrameSources,
     Screen,
 )
 from pipy_harness.native.ui.terminal_input_listeners import TerminalInputListeners
-
-if TYPE_CHECKING:
-    from pipy_harness.native.extension_types import (
-        CustomComponentFactory,
-        CustomComponentOptions,
-    )
-
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
 # Curated ordered projection: an explicit advertised-name list validated against
@@ -193,24 +130,6 @@ TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
 
 
-_CloseT = TypeVar("_CloseT")
-_ResultT = TypeVar("_ResultT")
-
-
-def _open_result(opened: bool, cancelled: _ResultT) -> DriveResult[_ResultT] | None:
-    return None if opened else DriveResult(cancelled)
-
-
-def _open_void(callback: Callable[..., None], *args: object, **kwargs: object) -> None:
-    callback(*args, **kwargs)
-
-
-def _drive_result(
-    closed: _CloseT | None, project: Callable[[_CloseT], _ResultT]
-) -> DriveResult[_ResultT] | None:
-    return None if closed is None else DriveResult(project(closed))
-
-
 def _active_editing_mode(accept_queue: bool, accept_commands: bool) -> EditingMode:
     if accept_queue:
         return EditingMode.ACTIVE_QUEUE
@@ -220,32 +139,41 @@ def _active_editing_mode(accept_queue: bool, accept_commands: bool) -> EditingMo
 
 
 class _LiveExtensionUiDriver:
-    """Live `ExtensionUiDriver` backed by the product TUI (one per session)."""
+    """Live `ExtensionUiDriver` backed by explicit concrete terminal owners."""
 
-    def __init__(self, terminal_ui: "TerminalUi", cwd: Path) -> None:
-        self._terminal_ui = terminal_ui
-        self._cwd = cwd
-        # Ownership of chrome is a transaction with its own state and no terminal
-        # access; it lives in `ui.chrome_handoff` and reaches back only through the
-        # delivery callable below. What stays here is the binding half: turning each
-        # extension verb into a routed operation, and applying an accepted event to
-        # the real terminal.
-        self._chrome = ExtensionChromeRouter(self._deliver_chrome_event)
+    def __init__(
+        self,
+        chrome: ExtensionChromeOwners,
+        modals: TerminalModalDriver,
+        transcript: TranscriptComponent,
+        autocomplete: AutocompleteComponent,
+        custom_editor: CustomEditorOwner,
+        input_editor: InputEditor,
+    ) -> None:
+        self._chrome = chrome
+        self._modals = modals
+        self._transcript = transcript
+        self._autocomplete = autocomplete
+        self._custom_editor = custom_editor
+        self._input_editor = input_editor
+        # Ownership of chrome handoff is a transaction with no terminal access.
+        # This binding applies each accepted event to the concrete owner graph.
+        self._router = ExtensionChromeRouter(self._deliver_chrome_event)
 
     # -- chrome-transaction delegation -----------------------------------
     # `_LiveExtensionUiDriver` keeps its whole public surface: extensions, the
     # session and the generation proxy all reach the transaction through it.
 
     def new_candidate_sink(self) -> ExtensionChromeSink:
-        return self._chrome.new_candidate_sink()
+        return self._router.new_candidate_sink()
 
     def startup_chrome_sink(self) -> ExtensionChromeSink:
-        return self._chrome.startup_chrome_sink()
+        return self._router.startup_chrome_sink()
 
     def prepare_candidate(
         self, prepared: ExtensionChromePrepareInput
     ) -> ExtensionChromeCommitToken | None:
-        return self._chrome.prepare_candidate(prepared)
+        return self._router.prepare_candidate(prepared)
 
     def accept_candidate(
         self,
@@ -253,30 +181,30 @@ class _LiveExtensionUiDriver:
         *,
         rollback_snapshot: ExtensionChromeSnapshot | None = None,
     ) -> ChromeAcceptanceResult:
-        return self._chrome.accept_candidate(
+        return self._router.accept_candidate(
             candidate, rollback_snapshot=rollback_snapshot
         )
 
     def owns_sink(self, sink: ExtensionChromeSink) -> bool:
-        return self._chrome.owns_sink(sink)
+        return self._router.owns_sink(sink)
 
     def dispose_retired_sink(self, retired: ExtensionChromeSink) -> str | None:
-        return self._chrome.dispose_retired_sink(retired)
+        return self._router.dispose_retired_sink(retired)
 
     def _route_sink_operation(self, operation: ChromeHandoffOperation) -> object:
-        return self._chrome._route_sink_operation(operation)  # noqa: SLF001 - exact transaction owner
+        return self._router._route_sink_operation(operation)  # noqa: SLF001 - exact transaction owner
 
     def _route_bound_sink_operation(
         self, sink: ExtensionChromeSink, operation: ChromeHandoffOperation
     ) -> object:
-        return self._chrome._route_bound_sink_operation(sink, operation)  # noqa: SLF001 - exact transaction owner
+        return self._router._route_bound_sink_operation(sink, operation)  # noqa: SLF001 - exact transaction owner
 
     def _dispose_handoff_listener(self, operation: ChromeHandoffOperation) -> None:
-        self._chrome._dispose_handoff_listener(operation)  # noqa: SLF001 - exact transaction owner
+        self._router._dispose_handoff_listener(operation)  # noqa: SLF001 - exact transaction owner
 
     @contextmanager
     def _retiring_disposal_route(self) -> Iterator[None]:
-        with self._chrome._retiring_disposal_route():  # noqa: SLF001 - exact transaction owner
+        with self._router._retiring_disposal_route():  # noqa: SLF001 - exact transaction owner
             yield
 
     def candidate_driver(
@@ -295,7 +223,7 @@ class _LiveExtensionUiDriver:
 
     def _deliver_chrome_event(self, event: ExtensionChromeEvent) -> object:
         if event.kind == "reconcile":
-            return self._terminal_ui.reconcile_extension_chrome(
+            return self._chrome.generation.reconcile_generation(
                 cast(ExtensionChromeSnapshot, event.values[0]),
                 retirement_scope=self._retiring_disposal_route,
             )
@@ -307,62 +235,52 @@ class _LiveExtensionUiDriver:
     def _deliver_chrome_region_event(self, event: ExtensionChromeEvent) -> None:
         values = event.values
         if event.kind == "widget":
-            self._terminal_ui._chrome.component.set_widget(  # noqa: SLF001
+            self._chrome.component.set_widget(
                 cast(str, values[0]), values[1], placement=cast(str, values[2])
             )
         elif event.kind == "header":
-            self._terminal_ui._chrome.component.set_header(values[0])  # noqa: SLF001
+            self._chrome.component.set_header(values[0])
         elif event.kind == "footer":
-            self._terminal_ui._chrome.footer.set_footer(values[0])  # noqa: SLF001
+            self._chrome.footer.set_footer(values[0])
         elif event.kind == "title":
-            self._terminal_ui._chrome.component.set_title(  # noqa: SLF001
-                cast(str, values[0])
-            )
+            self._chrome.component.set_title(cast(str, values[0]))
         elif event.kind == "indicator":
-            self._terminal_ui._chrome.component.set_working_indicator(  # noqa: SLF001
-                values[0], values[1]
-            )
+            self._chrome.component.set_working_indicator(values[0], values[1])
 
     def _deliver_chrome_input_event(self, event: ExtensionChromeEvent) -> object:
         values = event.values
         if event.kind == "hidden-thinking-label":
-            self._terminal_ui._transcript.set_hidden_thinking_label(  # noqa: SLF001
-                cast("str | None", values[0])
-            )
+            self._transcript.set_hidden_thinking_label(cast("str | None", values[0]))
         elif event.kind == "autocomplete":
-            self._terminal_ui._autocomplete.add_extension_provider(values[0])  # noqa: SLF001
+            self._autocomplete.add_extension_provider(values[0])
         elif event.kind == "editor-component":
-            self._terminal_ui._custom_editor.set_editor_component(values[0])  # noqa: SLF001
+            self._custom_editor.set_editor_component(values[0])
         elif event.kind == "listener":
-            return self._terminal_ui._chrome.listeners.add(  # noqa: SLF001
+            return self._chrome.listeners.add(
                 cast("Callable[[str], object]", values[1])
             )
         return None
 
     def select(self, title: str, options: Sequence[str]) -> str | None:
-        return self._terminal_ui.run_extension_select(title, options)
+        return self._modals.run_extension_select(title, options)
 
     def input(self, title: str, placeholder: str | None = None) -> str | None:
-        return self._terminal_ui.run_extension_input(title, placeholder)
+        return self._modals.run_extension_input(title, placeholder)
 
     def editor(self, title: str, prefill: str | None = None) -> str | None:
-        return self._terminal_ui.run_extension_editor(title, prefill)
+        return self._modals.run_extension_editor(title, prefill)
 
     def confirm(self, title: str, message: str) -> bool:
-        return self._terminal_ui.run_extension_confirm(title, message)
+        return self._modals.run_extension_confirm(title, message)
 
     def set_status(self, key: str, text: str | None) -> None:
-        self._terminal_ui._chrome.component.set_status(key, text)  # noqa: SLF001
+        self._chrome.component.set_status(key, text)
 
     def set_working_message(self, message: str | None = None) -> None:
-        self._terminal_ui._chrome.component.set_working_message(  # noqa: SLF001
-            message
-        )
+        self._chrome.component.set_working_message(message)
 
     def set_working_visible(self, visible: bool) -> None:
-        self._terminal_ui._chrome.component.set_working_visible(  # noqa: SLF001
-            visible
-        )
+        self._chrome.component.set_working_visible(visible)
 
     def set_widget(self, key: str, content: object, placement: str) -> None:
         self._route_sink_operation(
@@ -389,13 +307,13 @@ class _LiveExtensionUiDriver:
         )
 
     def get_editor_text(self) -> str:
-        return self._terminal_ui.input_editor.get_input_text()
+        return self._input_editor.get_input_text()
 
     def set_editor_text(self, text: str) -> None:
-        self._terminal_ui.input_editor.set_input_text(text)
+        self._input_editor.set_input_text(text)
 
     def paste_to_editor(self, text: str) -> None:
-        self._terminal_ui.input_editor.paste_input_text(text)
+        self._input_editor.paste_input_text(text)
 
     def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
         operation = ChromeHandoffOperation("listener", (handler,))
@@ -405,14 +323,12 @@ class _LiveExtensionUiDriver:
         return lambda: self._dispose_handoff_listener(operation)
 
     def get_tools_expanded(self) -> bool:
-        return bool(self._terminal_ui.tools_expanded)
+        return bool(self._transcript.tools_expanded)
 
     def set_tools_expanded(self, expanded: bool) -> None:
         # The terminal UI's verb bundles the retained rich-row rerender with
         # the flag write, so the two writers can never disagree on refresh.
-        self._terminal_ui._transcript.set_tools_expanded(  # noqa: SLF001
-            bool(expanded)
-        )
+        self._transcript.set_tools_expanded(bool(expanded))
 
     def add_autocomplete_provider(self, factory: object) -> None:
         self._route_sink_operation(ChromeHandoffOperation("autocomplete", (factory,)))
@@ -423,7 +339,7 @@ class _LiveExtensionUiDriver:
         )
 
     def get_editor_component(self) -> object | None:
-        return self._terminal_ui._custom_editor.factory  # noqa: SLF001
+        return self._custom_editor.factory
 
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
@@ -510,13 +426,11 @@ class TerminalUi:
     # also injected into autocomplete, pending messages, and clipboard images.
     input_editor: InputEditor = field(init=False)
     # Single owner for committed history blocks, the live stream buffers, and
-    # the Ctrl+O/Ctrl+T view flags (``ui/components/transcript.py``). The
-    # facade keeps thin verb delegates and two read-only flag projections.
+    # the Ctrl+O/Ctrl+T view flags (``ui/components/transcript.py``).
     _transcript: TranscriptComponent = field(init=False)
-    # One composition handle groups the dependency-neutral extension record,
-    # its three effect owners, and the ordered generation owner. This replaces
-    # the pre-slice record handle without growing facade state.
-    _chrome: ExtensionChromeOwners = field(init=False)
+    # One concrete graph exposes every composed owner without restating their
+    # methods on the terminal shell.
+    components: TerminalComponents = field(init=False)
     available_provider_count: int = 0
     # Single owner for the slash menu, the @/path completion popup, the
     # published CommandSurface (names/descriptions/extension shortcut keys),
@@ -524,9 +438,8 @@ class TerminalUi:
     # (``ui/autocomplete.py``). Session startup and ``/reload`` publish through
     # its ``replace_command_surface``/``set_max_visible`` verbs.
     _autocomplete: AutocompleteComponent = field(init=False)
-    # Exactly one selector/dialog/custom overlay is active. Terminal I/O,
-    # callbacks, extension execution, rendering, and lifecycle effects stay in
-    # this facade; the owner holds only synchronous transition state.
+    # Exactly one selector/dialog/custom overlay is active. This owner holds
+    # only synchronous transition state; TerminalModalDriver owns orchestration.
     _overlays: OverlayState = field(init=False)
     # Queue and clipboard effects share EditorState and the one paint lock but
     # own their transitions outside this shell. Their public handles let the
@@ -559,6 +472,12 @@ class TerminalUi:
             self.terminal_stream,
             input_fd=lambda: self.input_stream.fileno(),
         )
+        external_editor = ExtensionExternalEditor(
+            external_io_suspension=self._screen.external_io_suspension,
+            terminal_write=self._driver.write,
+            input_stream=self.input_stream,
+            terminal_stream=self.terminal_stream,
+        )
         self._custom_editor = CustomEditorOwner(
             CustomEditorState(),
             editor,
@@ -579,12 +498,7 @@ class TerminalUi:
                 paste_clipboard_image=lambda: (
                     self.clipboard_images.paste_clipboard_image()
                 ),
-                external_editor=lambda current_text: ExtensionExternalEditor(
-                    external_io_suspension=self.external_io_suspension,
-                    terminal_write=self._driver.write,
-                    input_stream=self.input_stream,
-                    terminal_stream=self.terminal_stream,
-                ).run_configured(current_text),
+                external_editor=external_editor.run_configured,
                 autocomplete_provider=lambda: (
                     self._autocomplete.custom_editor_provider()
                 ),
@@ -621,7 +535,7 @@ class TerminalUi:
             config=clipboard_config,
             command_names=lambda: self._autocomplete.command_names,
             refresh_autocomplete=self._autocomplete.refresh,
-            add_notice=self.add_notice,
+            add_notice=self._transcript.add_notice,
             custom_editor=self._custom_editor,
         )
         self.input_editor = InputEditor(
@@ -653,12 +567,13 @@ class TerminalUi:
             build_region=chrome.build_region,
             dispose_region=chrome.dispose_region,
             render_region=chrome.render_region,
+            builtin_lines=self.footer_lines,
         )
         listeners = TerminalInputListeners(
             chrome_record, self._screen.paint_lock, self._screen.paint
         )
 
-        self._chrome = build_extension_chrome_owners(
+        chrome_owners = build_extension_chrome_owners(
             chrome_record,
             self._screen.paint_lock,
             self._screen.paint,
@@ -697,31 +612,30 @@ class TerminalUi:
                         else None
                     ),
                 ),
-                footer_lines=lambda: self.footer_lines,
+                footer_lines=footer.builtin_lines,
                 poll_idle=footer.poll_branch,
             )
         )
-
-    @property
-    def autocomplete(self) -> AutocompleteComponent:
-        """Owner handle for slash-menu/completion state and command surface."""
-
-        return self._autocomplete
-
-    # Overlay/chrome projections are direct views into slotted owners. They
-    # preserve characterized facade access without a second stored copy; an
-    # ``*_open`` write changes the one active-overlay discriminator, so two
-    # overlays cannot become renderable simultaneously.
-    @property
-    def custom_overlay_open(self) -> bool:
-        return self._overlays.is_open("custom")
-
-    @custom_overlay_open.setter
-    def custom_overlay_open(self, value: bool) -> None:
-        if value:
-            self._overlays.supersede("custom")
-        else:
-            self._overlays.close("custom")
+        modals = TerminalModalDriver(
+            self._overlays,
+            self._screen,
+            self.input_editor,
+            external_editor,
+            lambda: self.keybindings_manager,
+        )
+        self.components = TerminalComponents(
+            driver=self._driver,
+            screen=self._screen,
+            overlays=self._overlays,
+            input_editor=self.input_editor,
+            transcript=self._transcript,
+            chrome=chrome_owners,
+            autocomplete=self._autocomplete,
+            pending_messages=self.pending_messages,
+            clipboard_images=self.clipboard_images,
+            custom_editor=self._custom_editor,
+            modals=modals,
+        )
 
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
@@ -745,17 +659,18 @@ class TerminalUi:
         host terminal/multiplexer keeps them in native scrollback.
         """
 
-        if not self._transcript.history_blocks:
-            self._transcript.seed_history(self._startup_blocks())
-        self._driver.install_resize_handler()
-        self._screen.paint()
+        transcript = self.components.transcript
+        if not transcript.history_blocks:
+            transcript.seed_history(self._startup_blocks())
+        self.components.driver.install_resize_handler()
+        self.components.screen.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
         """Read one input line while keeping the input/footer regions live."""
 
         del prompt_label
         if footer is not None:
-            self.set_footer_text(footer)
+            self.components.chrome.footer.set_builtin_text(footer)
         self.input_editor.begin_line()
         self._custom_editor.prepare_line(self.input_editor.text)
         self._screen.paint()
@@ -787,7 +702,7 @@ class TerminalUi:
                     resolved_key_specs("app.editor.external", self.keybindings_manager),
                 ),
                 run_external_editor=lambda text: ExtensionExternalEditor(
-                    external_io_suspension=self.external_io_suspension,
+                    external_io_suspension=self.components.screen.external_io_suspension,
                     terminal_write=self._driver.write,
                     input_stream=self.input_stream,
                     terminal_stream=self.terminal_stream,
@@ -799,14 +714,14 @@ class TerminalUi:
                 consume_custom_exit=self._custom_editor.consume_exit_requested,
             ),
             allow_listener_replacement=True,
-            listener_replaced=lambda: self._chrome.listeners.last_replaced,
+            listener_replaced=lambda: self.components.chrome.listeners.last_replaced,
         )
         with self._driver.raw_mode():
             while True:
                 key = self._screen.read_key_polling_resize(fd)
                 if key is None:
                     return ""
-                key = self._chrome.listeners.apply(key)
+                key = self.components.chrome.listeners.apply(key)
                 outcome = apply_editing_key(self.input_editor, key, editing_context)
                 if outcome.action is EditingAction.INTERRUPT:
                     raise KeyboardInterrupt
@@ -896,353 +811,6 @@ class TerminalUi:
                 elif outcome.action is EditingAction.RESTORE_PENDING:
                     self.pending_messages.restore_pending_to_editor()
             return TURN_SETTLED
-
-    def run_model_selector(
-        self,
-        options: Sequence[ModelSelectorOption],
-        *,
-        current_index: int = 0,
-        title: str | None = None,
-    ) -> int | None:
-        """Drive the interactive provider/model selector."""
-
-        selector = ModelSelectorComponent(
-            self._overlays, self._screen.paint_lock, self._screen.paint
-        )
-        owner: DriveOwner[int | None] = DriveOwner(
-            open=lambda: _open_result(
-                selector.open(options, current_index=current_index, title=title),
-                cast("int | None", None),
-            ),
-            handle_key=lambda key: _drive_result(
-                selector.handle_key(key), lambda closed: closed.index
-            ),
-            consume_paste=self.input_editor.consume_paste,
-        )
-        return self._screen.drive(owner)
-
-    def run_scoped_models_selector(
-        self,
-        rows: Sequence[ScopedModelRow],
-        *,
-        checked: Iterable[int] = (),
-    ) -> frozenset[str] | None:
-        """Drive the ``/scoped-models`` multi-select overlay."""
-
-        selector = ScopedModelsSelectorComponent(
-            self._overlays, self._screen.paint_lock, self._screen.paint
-        )
-        owner: DriveOwner[frozenset[str] | None] = DriveOwner(
-            open=lambda: _open_result(
-                selector.open(rows, checked), cast("frozenset[str] | None", None)
-            ),
-            handle_key=lambda key: _drive_result(
-                selector.handle_key(key), lambda closed: closed.references
-            ),
-            consume_paste=self.input_editor.consume_paste,
-        )
-        return self._screen.drive(owner)
-
-    def run_settings_dialog(
-        self,
-        rows: Sequence[SettingsRow],
-        *,
-        on_local_action: Callable[[str], Sequence[SettingsRow]],
-        exit_actions: frozenset[str] = frozenset(),
-        current_index: int | None = None,
-        title: str = "Settings",
-        overlay_kind: SettingsOverlayKind = "settings",
-    ) -> str | None:
-        """Drive one settings-family overlay while preserving nested state."""
-
-        dialog = SettingsDialogComponent(
-            self._overlays,
-            self._screen.paint_lock,
-            self._screen.paint,
-            on_local_action=on_local_action,
-            exit_actions=exit_actions,
-        )
-        owner: DriveOwner[str | None] = DriveOwner(
-            open=lambda: _open_result(
-                dialog.open(
-                    rows, current_index=current_index, title=title, kind=overlay_kind
-                ),
-                cast("str | None", None),
-            ),
-            handle_key=lambda key: _drive_result(
-                dialog.handle_key(key), lambda closed: closed.action
-            ),
-            consume_paste=self.input_editor.consume_paste,
-        )
-        return self._screen.drive(owner)
-
-    def run_tree_selector(
-        self,
-        *,
-        build_rows: Callable[[str], Sequence["TreeSelectorRow"]],
-        filter_modes: Sequence[str],
-        initial_filter: str,
-        on_label_toggle: Callable[[str], None],
-    ) -> TreeSelectorClose:
-        """Drive the interactive session-tree selector."""
-
-        selector = TreeSelectorComponent(
-            self._overlays,
-            self._screen.paint_lock,
-            self._screen.paint,
-            build_rows=build_rows,
-            filter_modes=filter_modes,
-            on_label_toggle=on_label_toggle,
-        )
-        owner: DriveOwner[TreeSelectorClose] = DriveOwner(
-            open=lambda: _open_void(selector.open, initial_filter),
-            handle_key=lambda key: _drive_result(
-                selector.handle_key(key), lambda closed: closed
-            ),
-            consume_paste=self.input_editor.consume_paste,
-        )
-        return self._screen.drive(owner)
-
-    # -- custom extension overlay (ctx.ui.custom) ---------------------------
-
-    def run_custom_component(
-        self,
-        factory: CustomComponentFactory,
-        options: CustomComponentOptions | None = None,
-    ) -> object:
-        """Drive one trusted extension component through the screen lifecycle."""
-
-        runner = CustomComponentRunner(self._overlays, self._screen.paint)
-        runner.create(factory, options)
-        owner: DriveOwner[object] = DriveOwner(
-            open=lambda: _open_void(runner.begin),
-            handle_key=lambda key: (
-                DriveResult(None) if runner.handle_key(key) else None
-            ),
-            is_finished=lambda: runner.finished,
-            dispose=runner.dispose,
-        )
-        return self._screen.drive(owner)
-
-    def run_extension_select(self, title: str, options: Sequence[str]) -> str | None:
-        """Run a Pi-shaped extension selector over string options."""
-
-        choices = tuple(str(option) for option in options if str(option))
-        if not choices:
-            return None
-        result = self.run_custom_component(
-            lambda done: ExtensionSelectComponent(str(title), choices, done)
-        )
-        return result if isinstance(result, str) else None
-
-    def run_extension_input(
-        self, title: str, placeholder: str | None = None
-    ) -> str | None:
-        """Run a Pi-shaped extension text input overlay."""
-
-        result = self.run_custom_component(
-            lambda done: ExtensionInputComponent(str(title), placeholder, done)
-        )
-        return result if isinstance(result, str) else None
-
-    def run_extension_editor(
-        self, title: str, prefill: str | None = None
-    ) -> str | None:
-        """Run a Pi-shaped extension multi-line editor overlay."""
-
-        external_editor = ExtensionExternalEditor(
-            external_io_suspension=self.external_io_suspension,
-            terminal_write=self._driver.write,
-            input_stream=self.input_stream,
-            terminal_stream=self.terminal_stream,
-        ).callback()
-        external_editor_keys = resolved_key_specs(
-            "app.editor.external", self.keybindings_manager
-        )
-        result = self.run_custom_component(
-            lambda done: ExtensionEditorComponent(
-                str(title), prefill, done, external_editor, external_editor_keys
-            )
-        )
-        return result if isinstance(result, str) else None
-
-    def run_extension_confirm(self, title: str, message: str) -> bool:
-        """Run a Pi-shaped extension confirmation dialog."""
-
-        result = self.run_custom_component(
-            lambda done: ExtensionConfirmComponent(str(title), str(message), done)
-        )
-        return result == "Yes"
-
-    def clear_extension_chrome(
-        self,
-        *,
-        retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
-    ) -> None:
-        """Retire accepted extension UI through its ordered owner."""
-
-        self._chrome.generation.retire_generation(retirement_scope=retirement_scope)
-
-    def reconcile_extension_chrome(
-        self,
-        snapshot: ExtensionChromeSnapshot,
-        *,
-        retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
-    ) -> dict[int, Callable[[], None]]:
-        """Replace accepted extension UI through its ordered owner."""
-
-        return self._chrome.generation.reconcile_generation(
-            snapshot, retirement_scope=retirement_scope
-        )
-
-    # -- interactive session picker (/resume + -r overlay) ------------------
-
-    def run_session_picker(
-        self,
-        *,
-        project_sessions: Sequence[SessionListEntry],
-        all_sessions: Sequence[SessionListEntry],
-        current_path: Path | None = None,
-        on_rename: Callable[[Path, str], None] | None = None,
-        on_delete: Callable[[Path], tuple[bool, str]] | None = None,
-        now: float | None = None,
-    ) -> Path | None:
-        """Drive the interactive session picker."""
-
-        picker = SessionPickerComponent(
-            self._overlays,
-            self._screen.paint_lock,
-            self._screen.paint,
-            on_rename=on_rename,
-            on_delete=on_delete,
-            consume_paste=self.input_editor.consume_paste,
-        )
-        owner: DriveOwner[Path | None] = DriveOwner(
-            open=lambda: _open_void(
-                picker.open,
-                project_sessions=project_sessions,
-                all_sessions=all_sessions,
-                current_path=current_path,
-                now=now,
-            ),
-            handle_key=lambda key: _drive_result(
-                picker.handle_key(key), lambda closed: closed.path
-            ),
-        )
-        return self._screen.drive(owner)
-
-    def close(self) -> None:
-        self._screen.close()
-
-    def external_io_suspension(self) -> AbstractContextManager[None]:
-        return self._screen.external_io_suspension()
-
-    def set_footer_text(self, text: str) -> None:
-        lines = text.splitlines()
-        if len(lines) >= 2:
-            self.footer_lines = (lines[0], lines[1])
-        elif lines:
-            self.footer_lines = (lines[0], "")
-        else:
-            self.footer_lines = ("", "")
-        self._screen.paint()
-
-    # -- transcript facade ---------------------------------------------------
-    #
-    # Committed history, the live stream buffers, and the Ctrl+O/Ctrl+T view
-    # flags live on ``self._transcript`` (ui/components/transcript.py). Both
-    # renderer adapters commit straight to the component (built by
-    # :meth:`create_tool_loop_renderer` / :meth:`custom_entry_render_target`);
-    # the delegates below remain only for the shell's own callers — the local
-    # `!`/`!!` shell blocks, the view hotkeys, and the characterization tests
-    # that drive frames through the public surface.
-
-    @property
-    def tools_expanded(self) -> bool:
-        return self._transcript.tools_expanded
-
-    @property
-    def thinking_hidden(self) -> bool:
-        return self._transcript.thinking_hidden
-
-    def submit_user_message(self, text: str) -> None:
-        self._transcript.submit_user_message(text)
-
-    def begin_assistant_turn(self) -> None:
-        self._transcript.begin_assistant_turn()
-
-    def set_working(self, text: str) -> None:
-        self._transcript.set_working(text)
-
-    def append_assistant(self, chunk: str) -> None:
-        self._transcript.append_assistant(chunk)
-
-    def settle_assistant(self, final_text: str = "") -> None:
-        self._transcript.settle_assistant(final_text)
-
-    def append_reasoning(self, chunk: str) -> None:
-        self._transcript.append_reasoning(chunk)
-
-    def set_thinking_hidden(self, hidden: bool) -> None:
-        self._transcript.set_thinking_hidden(hidden)
-
-    def set_tools_expanded(self, expanded: bool) -> None:
-        self._transcript.set_tools_expanded(expanded)
-
-    def add_notice(self, text: str) -> None:
-        self._transcript.add_notice(text)
-
-    def custom_entry_render_target(self) -> CustomEntryTerminalTarget:
-        """Bundle the transcript and live render inputs for custom entries.
-
-        The custom-entry renderer commits rows straight to the transcript and
-        reads width, expansion, and styling through the screen-owned record.
-        """
-
-        return CustomEntryTerminalTarget(
-            transcript=self._transcript,
-            render_inputs=self._screen.render_inputs,
-        )
-
-    def create_tool_loop_renderer(
-        self,
-        *,
-        tool_renderers: Mapping[str, ExtensionTool] | None = None,
-        render_details_sink: ToolRenderDetailsSink | None = None,
-    ) -> TuiToolLoopRenderer:
-        """Build the agent-event renderer bound to this shell's owners.
-
-        The renderer commits straight to the transcript, reads working chrome
-        from its record, and shares the screen-owned live render inputs.
-        """
-
-        return TuiToolLoopRenderer(
-            transcript=self._transcript,
-            chrome=self._chrome.record,
-            render_inputs=self._screen.render_inputs,
-            tool_renderers=tool_renderers,
-            render_details_sink=render_details_sink,
-        )
-
-    def add_tool_call(self, header: str) -> None:
-        self._transcript.add_tool_call(header)
-
-    def append_tool_output(self, chunk: str) -> None:
-        self._transcript.append_tool_output(chunk)
-
-    def add_tool_result(
-        self,
-        *,
-        lines: Iterable[str],
-        is_error: bool,
-        duration_seconds: float | None = None,
-    ) -> None:
-        self._transcript.add_tool_result(
-            lines=lines, is_error=is_error, duration_seconds=duration_seconds
-        )
-
-    def rerender_custom_messages(self) -> None:
-        self._transcript.rerender_custom_messages()
 
     def _startup_blocks(self) -> list[HistoryBlock]:
         raw_blocks: list[tuple[str, tuple[str, ...]]] = [
@@ -1337,13 +905,3 @@ class TerminalUi:
 
         stripped = text.strip()
         return stripped.startswith("/") or stripped.startswith("!")
-
-    def _is_bash_mode(self) -> bool:
-        """True when the editor buffer is a ``!``/``!!`` local-shell shortcut.
-
-        Mirrors Pi's ``isBashMode`` editor border: while the first non-space
-        character of the input is ``!`` the input frame paints a distinct
-        bash-mode affordance (Enter runs a shell command, not a provider turn).
-        """
-
-        return self.input_editor.text.lstrip().startswith("!")

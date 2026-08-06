@@ -299,7 +299,7 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
         cwd=tmp_path,
     )
     ui._transcript.add_custom_entry("old", ["OLD-BODY"])
-    ui.add_notice("ordinary history remains")
+    ui.components.transcript.add_notice("ordinary history remains")
 
     ui._transcript.redraw_custom_entries(
         (
@@ -404,7 +404,7 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         ("custom_message_custom", ("expanded=False:BODY",)),
     )
 
-    ui.set_tools_expanded(True)
+    ui.components.transcript.set_tools_expanded(True)
 
     assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=True:BODY",)),
@@ -436,7 +436,7 @@ def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
     assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=False:alpha",)),
     )
-    ui.set_tools_expanded(True)
+    ui.components.transcript.set_tools_expanded(True)
 
     assert ui._transcript.custom_entry_blocks() == (
         ("custom_message_custom", ("expanded=True:alpha",)),
@@ -465,7 +465,7 @@ def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_pa
         renderers=renderers,
     )
 
-    ui.set_tools_expanded(True)
+    ui.components.transcript.set_tools_expanded(True)
 
     blocks = ui._transcript.custom_entry_blocks()
     assert blocks[0][0] == "custom"

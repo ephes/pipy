@@ -5,6 +5,7 @@ import json
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -654,6 +655,7 @@ def test_extension_trust_decision_drives_and_closes_interactive_startup_ui(
             cwd: Path,
         ) -> None:
             calls.append(("open", input_stream, terminal_stream, cwd))
+            self.components = SimpleNamespace(modals=self, screen=self)
 
         def run_extension_select(self, title: str, options: object) -> str:
             calls.append(("select", title, options))

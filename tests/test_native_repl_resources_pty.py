@@ -135,7 +135,7 @@ def _drive_session(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    ui.autocomplete.replace_command_surface(
+    ui.components.autocomplete.replace_command_surface(
         CommandSurface(
             names=tool_loop_command_names(resources),
             descriptions=tool_loop_command_descriptions(resources),

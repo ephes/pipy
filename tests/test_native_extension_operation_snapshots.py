@@ -448,7 +448,7 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         repaint=noop,
         custom_editor=custom_editor,
     )
-    terminal_ui = SimpleNamespace(autocomplete=autocomplete)
+    terminal_ui = SimpleNamespace(components=SimpleNamespace(autocomplete=autocomplete))
     effect = SimpleNamespace(
         settings=SimpleNamespace(
             get_theme=lambda: None,

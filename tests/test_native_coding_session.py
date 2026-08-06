@@ -516,7 +516,7 @@ def test_footer_paths_read_constant_time_state_scalars(
         coding_state=state,
         provider_state=session.provider_state,
         error_stream=io.StringIO(),
-        terminal_ui=None,
+        footer=None,
         repl_runtime=cast(Any, None),
     )
     monkeypatch.setattr(chrome, "chrome_width", lambda _stream: 120)
@@ -2812,7 +2812,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     assert "LEGACY_HIDE" not in committed_frame
     assert tree.path.read_text(encoding="utf-8") == before
 
-    terminal_ui.set_tools_expanded(True)
+    terminal_ui.components.transcript.set_tools_expanded(True)
     rerendered_frame = "\n".join(
         terminal_ui._screen.render_lines(width=101, height=24, pad=False)
     )

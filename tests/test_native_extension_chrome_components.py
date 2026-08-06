@@ -169,6 +169,7 @@ def test_footer_factory_uses_shared_lock_but_branch_callback_and_repaint_do_not(
         build_region=build_region,
         dispose_region=lambda _region: None,
         render_region=lambda *_args, **_kwargs: (),
+        builtin_lines=("first", "second"),
     )
     footer.set_footer("first")
     head.write_text("ref: refs/heads/next\n", encoding="utf-8")
@@ -182,6 +183,30 @@ def test_footer_factory_uses_shared_lock_but_branch_callback_and_repaint_do_not(
         ("branch-callback", True),
         ("repaint", True),
     ]
+
+
+def test_builtin_footer_pair_is_atomic_and_repaint_runs_after_unlock(
+    tmp_path: Path,
+) -> None:
+    record = ExtensionChromeState()
+    lock = PaintLock(threading.RLock())
+    events: list[tuple[str, bool]] = []
+    footer = FooterComponent(
+        record,
+        lock,
+        lambda: events.append(("repaint", _lock_is_available(lock))),
+        cwd=tmp_path,
+        available_provider_count=lambda: 0,
+        build_region=lambda *_args: None,
+        dispose_region=lambda _region: None,
+        render_region=lambda *_args, **_kwargs: (),
+        builtin_lines=("old-a", "old-b"),
+    )
+
+    footer.set_builtin_text("new-a\nnew-b\nignored")
+
+    assert footer.builtin_lines() == ("new-a", "new-b")
+    assert events == [("repaint", True)]
 
 
 def test_terminal_listener_callbacks_are_unlocked_and_ordered_replacements_atomic() -> (

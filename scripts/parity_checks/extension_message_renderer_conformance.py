@@ -296,8 +296,8 @@ def run_checks() -> list[Check]:
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=Path.cwd(),
     )
-    ui._transcript.add_custom_entry("old", ["OLD-BODY"])
-    ui.add_notice("ordinary history remains")
+    ui.components.transcript.add_custom_entry("old", ["OLD-BODY"])
+    ui.components.transcript.add_notice("ordinary history remains")
     custom_message = CustomMessageEntry(
         "entry-1", None, "2026-07-06T00:00:00Z", "card", "BODY", True, {"n": 3}
     )
@@ -311,7 +311,9 @@ def run_checks() -> list[Check]:
             True,
         ),
     )
-    ui._transcript.redraw_custom_entries(rows + [("plain", "note", ("NEW-PLAIN",))])
+    ui.components.transcript.redraw_custom_entries(
+        rows + [("plain", "note", ("NEW-PLAIN",))]
+    )
     frame = "\n".join(ui._screen.render_lines(width=80, height=20))
     checks.append(
         Check(

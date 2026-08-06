@@ -24,7 +24,7 @@ from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.diagnostics import emit_diagnostic
+from pipy_harness.native.diagnostics import NoticeSink, emit_diagnostic
 from pipy_harness.native.extension_types import SessionDecision
 from pipy_harness.native.session_tree import (
     CompactionEntry,
@@ -409,7 +409,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
         if message.startswith("pipy: forked into"):
             trace.append("diagnostic")
         original_diag(ui, stream, message)

@@ -243,13 +243,13 @@ def test_settings_overlay_identity_is_explicit_not_title_coupled(
             cwd=tmp_path,
         )
         rows = (SettingsRow("choose", kind="action", action="choose"),)
-        ui.run_settings_dialog(
+        ui.components.modals.run_settings_dialog(
             rows,
             on_local_action=lambda _action: rows,
             title="A title chosen by the caller",
             overlay_kind="project_trust",
         )
-        ui.run_settings_dialog(
+        ui.components.modals.run_settings_dialog(
             rows,
             on_local_action=lambda _action: rows,
             title="Project trust",
@@ -305,7 +305,7 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
         def open_inner(_action: str) -> tuple[SettingsRow, ...]:
             assert ui._overlays.active == "settings"
             assert (
-                ui.run_model_selector(
+                ui.components.modals.run_model_selector(
                     (ModelSelectorOption("inner model", True),), title="Inner"
                 )
                 is None
@@ -315,7 +315,10 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
             assert restore_calls == []
             return rows
 
-        assert ui.run_settings_dialog(rows, on_local_action=open_inner) is None
+        assert (
+            ui.components.modals.run_settings_dialog(rows, on_local_action=open_inner)
+            is None
+        )
         assert ui._overlays.settings_selection == 0
         assert ui._driver._raw_mode_depth == 0
         assert ui._driver._old_termios is None
@@ -394,7 +397,7 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         def open_project_trust(action: str) -> tuple[SettingsRow, ...]:
             assert action == "open"
             assert (
-                ui.run_settings_dialog(
+                ui.components.modals.run_settings_dialog(
                     inner_rows,
                     on_local_action=lambda _action: inner_rows,
                     title="Inner project trust",
@@ -410,7 +413,7 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
             assert restore_calls == []
             return outer_rows
 
-        chosen = ui.run_settings_dialog(
+        chosen = ui.components.modals.run_settings_dialog(
             outer_rows,
             on_local_action=open_project_trust,
             exit_actions=frozenset({"finish"}),
@@ -475,9 +478,9 @@ def test_external_io_scope_pairs_nested_exception_and_repaints_once(
         ui._driver.enter_raw_mode()
 
         with pytest.raises(ValueError, match="foreign failure"):
-            with ui.external_io_suspension():
+            with ui.components.screen.external_io_suspension():
                 assert ui._driver._terminal_mode_suspend_depth == 1
-                with ui.external_io_suspension():
+                with ui.components.screen.external_io_suspension():
                     assert ui._driver._terminal_mode_suspend_depth == 2
                     raise ValueError("foreign failure")
 
@@ -514,9 +517,9 @@ def test_tui_close_forces_unbalanced_raw_mode_restoration_once(
         ui._driver.enter_raw_mode()
         ui._driver.enter_raw_mode()
 
-        ui.close()
+        ui.components.screen.close()
         first_close = terminal.getvalue()
-        ui.close()
+        ui.components.screen.close()
 
         assert ui._driver._raw_mode_depth == 0
         assert ui._driver._old_termios is None
@@ -557,9 +560,9 @@ def test_tui_close_forces_suspended_raw_owners_safe_and_idempotent(
         assert ui._driver._terminal_mode_suspend_depth == 1
         assert restore_calls == [(input_fd, termios.TCSADRAIN, "saved")]
 
-        ui.close()
+        ui.components.screen.close()
         first_close = terminal.getvalue()
-        ui.close()
+        ui.components.screen.close()
 
         assert ui._driver._raw_mode_depth == 0
         assert ui._driver._terminal_mode_suspend_depth == 0
@@ -829,14 +832,14 @@ def test_footer_rebuild_abort_resets_without_publishing_partial_slots() -> None:
     _assert_footer_rebuild_reset(state)
 
 
-def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
+def test_terminal_shell_stores_the_exact_concrete_owner_graph(
     tmp_path: Path,
 ) -> None:
     names = {item.name for item in fields(TerminalUi)}
     assert {
         "input_editor",
         "_overlays",
-        "_chrome",
+        "components",
         "pending_messages",
         "clipboard_images",
     } <= names
@@ -864,17 +867,29 @@ def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
     ui = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
-    assert ui.input_editor._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert ui.pending_messages._editor is ui.input_editor.editor_state  # noqa: SLF001
-    assert ui.pending_messages._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert ui.clipboard_images._editor is ui.input_editor.editor_state  # noqa: SLF001
-    assert ui.clipboard_images._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    owners = ui._chrome
+    components = ui.components
+    assert components.input_editor is ui.input_editor
+    assert components.pending_messages is ui.pending_messages
+    assert components.clipboard_images is ui.clipboard_images
+    assert components.screen is ui._screen  # noqa: SLF001
+    assert components.transcript is ui._transcript  # noqa: SLF001
+    assert components.autocomplete is ui._autocomplete  # noqa: SLF001
+    assert components.custom_editor is ui._custom_editor  # noqa: SLF001
+    assert components.input_editor._paint_lock is components.screen.paint_lock  # noqa: SLF001
+    assert (  # noqa: SLF001
+        components.pending_messages._editor is components.input_editor.editor_state
+    )
+    assert components.pending_messages._paint_lock is components.screen.paint_lock  # noqa: SLF001
+    assert (  # noqa: SLF001
+        components.clipboard_images._editor is components.input_editor.editor_state
+    )
+    assert components.clipboard_images._paint_lock is components.screen.paint_lock  # noqa: SLF001
+    owners = components.chrome
     assert owners.component._record is owners.record  # noqa: SLF001
     assert owners.footer._record is owners.record  # noqa: SLF001
     assert owners.listeners._record is owners.record  # noqa: SLF001
     assert owners.generation._record is owners.record  # noqa: SLF001
-    assert owners.component._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert owners.footer._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert owners.listeners._paint_lock is ui._screen.paint_lock  # noqa: SLF001
-    assert owners.generation._paint_lock is ui._screen.paint_lock  # noqa: SLF001
+    assert owners.component._paint_lock is components.screen.paint_lock  # noqa: SLF001
+    assert owners.footer._paint_lock is components.screen.paint_lock  # noqa: SLF001
+    assert owners.listeners._paint_lock is components.screen.paint_lock  # noqa: SLF001
+    assert owners.generation._paint_lock is components.screen.paint_lock  # noqa: SLF001

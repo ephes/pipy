@@ -139,7 +139,7 @@ def _install_resize_frame_sentinel(
     """Publish and capture a visible footer sentinel before changing geometry."""
 
     start = len(output_bytes(collected))
-    ui.set_footer_text(sentinel)
+    ui.components.chrome.footer.set_builtin_text(sentinel)
     return wait_for_output(collected, sentinel, after=start) is not None
 
 
@@ -3042,7 +3042,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
             )
             is not None
         ), f"{label}: ctrl+t did not return to ready input"
-        assert ui.thinking_hidden is True
+        assert ui.components.transcript.thinking_hidden is True
         visible_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\x14")  # toggle back
         assert (
@@ -3059,7 +3059,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
             )
             is not None
         ), f"{label}: ctrl+o did not return to ready input"
-        assert ui.tools_expanded is True
+        assert ui.components.transcript.tools_expanded is True
         assert provider.calls == 0, f"{label}: a fold toggle ran a provider turn"
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)

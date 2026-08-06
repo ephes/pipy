@@ -134,7 +134,13 @@ class SessionCollaborators:
     extension_notify: Callable[[str, str], None]
 
     def diag(self, message: str) -> None:
-        emit_diagnostic(self.terminal_ui, self.error_stream, message)
+        emit_diagnostic(
+            self.terminal_ui.components.transcript
+            if self.terminal_ui is not None
+            else None,
+            self.error_stream,
+            message,
+        )
 
     def extension_set_session_name(self, name: str | None) -> object:
         with self.coding_effects.effect() as admitted:
@@ -351,7 +357,7 @@ class SessionCollaborators:
         # enforced by ExtensionUi.custom when has_ui is False).
         if self.terminal_ui is None:
             return None
-        return self.terminal_ui.run_custom_component(factory, options)
+        return self.terminal_ui.components.modals.run_custom_component(factory, options)
 
     def summarize_branch(
         self, branch_messages: list[AgentMessage], focus: str | None

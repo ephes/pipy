@@ -1,4 +1,4 @@
-"""Real-PTY integration test for `TerminalUi.run_custom_component`.
+"""Real-PTY integration test for `TerminalModalDriver.run_custom_component`.
 
 Drives a trusted extension custom component over a real pseudo-TTY: its lines
 render inline (no alternate screen), decoded keystrokes reach `handle_input`,
@@ -176,7 +176,11 @@ def test_pty_custom_component_types_and_submits(
     result: list[object] = []
 
     def _run() -> None:
-        result.append(ui.run_custom_component(lambda done: _ProbeComponent(done)))
+        result.append(
+            ui.components.modals.run_custom_component(
+                lambda done: _ProbeComponent(done)
+            )
+        )
 
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
@@ -219,7 +223,9 @@ def test_pty_custom_component_paint_precedes_observable_input_readiness(
     monkeypatch.setattr(type(ui._driver), "enter_raw_mode", delayed_enter)
     worker = threading.Thread(
         target=lambda: result.append(
-            ui.run_custom_component(lambda done: _ProbeComponent(done))
+            ui.components.modals.run_custom_component(
+                lambda done: _ProbeComponent(done)
+            )
         ),
         daemon=True,
     )
@@ -253,7 +259,11 @@ def test_pty_custom_component_esc_cancels(
     result: list[object] = []
 
     def _run() -> None:
-        result.append(ui.run_custom_component(lambda done: _ProbeComponent(done)))
+        result.append(
+            ui.components.modals.run_custom_component(
+                lambda done: _ProbeComponent(done)
+            )
+        )
 
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
@@ -280,7 +290,7 @@ def test_pty_extension_editor_accepts_newline_and_submits(
     result: list[object] = []
 
     def _run() -> None:
-        result.append(ui.run_extension_editor("Draft", "seed"))
+        result.append(ui.components.modals.run_extension_editor("Draft", "seed"))
 
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
@@ -327,7 +337,7 @@ def test_pty_extension_editor_external_editor_success(
     ui._driver.enter_raw_mode()
 
     def _run() -> None:
-        result.append(ui.run_extension_editor("Draft", "seed"))
+        result.append(ui.components.modals.run_extension_editor("Draft", "seed"))
 
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
@@ -380,7 +390,7 @@ def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
         ui._driver.enter_raw_mode()
 
         external_editor = ExtensionExternalEditor(
-            external_io_suspension=ui.external_io_suspension,
+            external_io_suspension=ui.components.screen.external_io_suspension,
             terminal_write=ui._driver.write,
             input_stream=ui.input_stream,
             terminal_stream=ui.terminal_stream,
@@ -429,7 +439,7 @@ def test_pty_extension_editor_external_editor_failure_keeps_text(
     result: list[object] = []
 
     def _run() -> None:
-        result.append(ui.run_extension_editor("Draft", "seed"))
+        result.append(ui.components.modals.run_extension_editor("Draft", "seed"))
 
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
@@ -470,7 +480,7 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
     result: list[object] = []
 
     def _run() -> None:
-        result.append(ui.run_extension_editor("Draft", "seed"))
+        result.append(ui.components.modals.run_extension_editor("Draft", "seed"))
 
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
@@ -506,8 +516,11 @@ def test_pty_extension_shortcut_returns_sentinel(
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
         tmp_path
     )
-    ui.autocomplete.replace_command_surface(
-        replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl-x"}))
+    ui.components.autocomplete.replace_command_surface(
+        replace(
+            ui.components.autocomplete.command_surface,
+            shortcut_keys=frozenset({"ctrl-x"}),
+        )
     )
     result: list[str] = []
 

@@ -30,6 +30,7 @@ class FooterComponent:
         build_region: Callable[[object, object | None, int], ChromeRegion | None],
         dispose_region: Callable[[ChromeRegion | None], None],
         render_region: Callable[..., tuple[str, ...] | None],
+        builtin_lines: tuple[str, str],
     ) -> None:
         self._record = record
         self._paint_lock = paint_lock
@@ -39,6 +40,27 @@ class FooterComponent:
         self._build_region = build_region
         self._dispose_region = dispose_region
         self._render_region = render_region
+        self._builtin_lines = builtin_lines
+
+    def builtin_lines(self) -> tuple[str, str]:
+        """Return the complete built-in footer pair under the paint lock."""
+
+        with self._paint_lock:
+            return self._builtin_lines
+
+    def set_builtin_text(self, text: str) -> None:
+        """Replace both built-in rows atomically, then repaint after unlocking."""
+
+        lines = text.splitlines()
+        if len(lines) >= 2:
+            replacement = (lines[0], lines[1])
+        elif lines:
+            replacement = (lines[0], "")
+        else:
+            replacement = ("", "")
+        with self._paint_lock:
+            self._builtin_lines = replacement
+        self._repaint()
 
     def _detect_branch(self) -> str | None:
         candidate: Path | None = self._cwd

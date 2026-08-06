@@ -68,6 +68,7 @@ def test_failing_command_records_nonzero_exit_in_context(tmp_path: Path) -> None
     context = run_local_shell_shortcut(
         "!false",
         terminal_ui=None,
+        transcript=None,
         error_stream=cast(TextIO, err),
         cwd=tmp_path,
     )
@@ -80,6 +81,7 @@ def test_successful_command_records_zero_exit(tmp_path: Path) -> None:
     context = run_local_shell_shortcut(
         "!echo hi",
         terminal_ui=None,
+        transcript=None,
         error_stream=cast(TextIO, io.StringIO()),
         cwd=tmp_path,
     )

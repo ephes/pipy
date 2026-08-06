@@ -18,6 +18,7 @@ from pipy_harness.extensions import (
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.tui import TerminalUi
+from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
 
 def _render_result(ctx: ToolRenderContext):
@@ -74,7 +75,10 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
         handler=lambda ctx, inp: ToolResult(content="x", details={"k": "v"}),
         render_result=_render_result,
     )
-    renderer = ui.create_tool_loop_renderer(
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
         tool_renderers={"kv": tool},
         render_details_sink={"c": {"k": "v"}},
     )

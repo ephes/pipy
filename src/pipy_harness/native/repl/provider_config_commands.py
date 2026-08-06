@@ -116,20 +116,22 @@ class ProviderConfigurationCommandEffects:
         # keybindings.json overrides remain reflected.
         hotkeys_text = render_hotkeys(self.keybindings)
         if self.terminal_ui is not None:
-            self.terminal_ui.add_notice(hotkeys_text)
+            self.terminal_ui.components.transcript.add_notice(hotkeys_text)
         else:
             print(hotkeys_text, file=self.error_stream)
 
     def _show_changelog(self, _command_outcome: CodingCommandOutcome) -> None:
         changelog_text = render_changelog(read_changelog_entries())
         if self.terminal_ui is not None:
-            self.terminal_ui.add_notice(changelog_text)
+            self.terminal_ui.components.transcript.add_notice(changelog_text)
         else:
             print(changelog_text, file=self.error_stream)
 
     def _copy_last_answer(self, _command_outcome: CodingCommandOutcome) -> None:
         emit_diagnostic(
-            self.terminal_ui,
+            self.terminal_ui.components.transcript
+            if self.terminal_ui is not None
+            else None,
             self.error_stream,
             copy_last_answer(
                 self.coding_state.messages,
@@ -184,13 +186,21 @@ class ProviderConfigurationCommandEffects:
         state = self.provider_state
         if not isinstance(state, NativeReplProviderState):
             emit_diagnostic(
-                self.terminal_ui,
+                self.terminal_ui.components.transcript
+                if self.terminal_ui is not None
+                else None,
                 self.error_stream,
                 "pipy: /model is unavailable for this REPL provider state.",
             )
         elif argument:
             _ok, message = self.provider_mutation.apply_model_selection(argument)
-            emit_diagnostic(self.terminal_ui, self.error_stream, message)
+            emit_diagnostic(
+                self.terminal_ui.components.transcript
+                if self.terminal_ui is not None
+                else None,
+                self.error_stream,
+                message,
+            )
         elif self.terminal_ui is not None:
             ui_options, selections = model_selector_rows(state)
             current = state.current_selection()
@@ -203,14 +213,14 @@ class ProviderConfigurationCommandEffects:
                 ),
                 0,
             )
-            chosen = self.terminal_ui.run_model_selector(
+            chosen = self.terminal_ui.components.modals.run_model_selector(
                 ui_options, current_index=current_index
             )
             if chosen is not None:
                 _ok, message = self.provider_mutation.apply_model_selection(
                     selections[chosen].reference
                 )
-                self.terminal_ui.add_notice(message)
+                self.terminal_ui.components.transcript.add_notice(message)
         else:
             for overlay_line in tool_loop_settings_overlay_lines(
                 self.settings,
@@ -252,14 +262,26 @@ class ProviderConfigurationCommandEffects:
                 f"  patterns: {pattern_text}",
                 f"  cycle set: {cycle_text}",
             ):
-                emit_diagnostic(self.terminal_ui, self.error_stream, self.ctl.line)
+                emit_diagnostic(
+                    self.terminal_ui.components.transcript
+                    if self.terminal_ui is not None
+                    else None,
+                    self.error_stream,
+                    self.ctl.line,
+                )
         elif argument == "clear":
             try:
                 self.settings.set_enabled_models([])
                 message = "pipy: scoped models cleared (cycle uses the full catalog)."
             except RuntimeError as exc:
                 message = f"pipy: could not update scoped models: {exc}"
-            emit_diagnostic(self.terminal_ui, self.error_stream, message)
+            emit_diagnostic(
+                self.terminal_ui.components.transcript
+                if self.terminal_ui is not None
+                else None,
+                self.error_stream,
+                message,
+            )
         elif argument in {"next", "prev"}:
             current_ref = (
                 state.current_selection().reference
@@ -273,7 +295,9 @@ class ProviderConfigurationCommandEffects:
             )
             if cycle_target is None:
                 emit_diagnostic(
-                    self.terminal_ui,
+                    self.terminal_ui.components.transcript
+                    if self.terminal_ui is not None
+                    else None,
                     self.error_stream,
                     "pipy: no models available to cycle.",
                 )
@@ -281,7 +305,13 @@ class ProviderConfigurationCommandEffects:
                 _ok, message = self.provider_mutation.apply_model_selection(
                     cycle_target
                 )
-                emit_diagnostic(self.terminal_ui, self.error_stream, message)
+                emit_diagnostic(
+                    self.terminal_ui.components.transcript
+                    if self.terminal_ui is not None
+                    else None,
+                    self.error_stream,
+                    message,
+                )
         else:
             new_patterns = argument.split()
             try:
@@ -289,7 +319,13 @@ class ProviderConfigurationCommandEffects:
                 message = "pipy: scoped models set: " + ", ".join(new_patterns)
             except RuntimeError as exc:
                 message = f"pipy: could not update scoped models: {exc}"
-            emit_diagnostic(self.terminal_ui, self.error_stream, message)
+            emit_diagnostic(
+                self.terminal_ui.components.transcript
+                if self.terminal_ui is not None
+                else None,
+                self.error_stream,
+                message,
+            )
 
     def _auth(self, command_outcome: CodingCommandOutcome) -> None:
         argument = self._argument(command_outcome)
@@ -297,4 +333,10 @@ class ProviderConfigurationCommandEffects:
             "login" if command_outcome.action is CodingCommandAction.LOGIN else "logout"
         )
         message = self.provider_mutation.apply_auth_change(auth_action, argument)
-        emit_diagnostic(self.terminal_ui, self.error_stream, message)
+        emit_diagnostic(
+            self.terminal_ui.components.transcript
+            if self.terminal_ui is not None
+            else None,
+            self.error_stream,
+            message,
+        )

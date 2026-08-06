@@ -44,34 +44,36 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 48; **not complete**. The concrete
+**Program status:** Landed through slice 48a; **not complete**. The concrete
 terminal class is `native.tui.TerminalUi`; the old name is deleted without an
 alias or re-export, both raw-mode loops remain in `tui.py`, and the TUI/session
 C901 pins are gone. The coding-session facade is 336 lines with a 67-AST-line/
 C901-5 `run`; activation is the accepted 1,807-line owner; the native ceiling is
 2,488 because out-of-scope `native/session.py` remains that size.
 
-A clean fail-closed slice-49 audit measured `native/tui.py` at 1,349 physical
-lines and `TerminalUi` at 856 AST lines / 43 definitions / 18 fields. The four
-planned residual methods are only 170 AST lines; 39 omitted definitions are 569
-(constructor 153, projections 14, modal/chrome/screen/footer facade 231,
-transcript facade 70, startup/input helpers 101). Only 32 lines have zero
-production callers. The existing structure therefore cannot meet ~720, and the
-stale screen-architecture test actively preserves six modal facade methods.
+The blocked slice-49 audit measured `native/tui.py` at 1,349 physical lines and
+`TerminalUi` at 856 AST lines / 43 definitions / 18 fields. Slice 48a retired
+the measured terminal facade, moved the ten modal entry points to concrete
+`TerminalModalDriver`, published the exact concrete `TerminalComponents` owner
+graph, and repointed production callers. Built-in footer state now lives in
+`FooterComponent` as one lock-guarded two-row value. The measured result is 907
+physical `tui.py` lines and a 498-AST-line / 7-definition / 18-field
+`TerminalUi`: a 442-line file reduction and 358-line class reduction. This
+outperformed the intermediate forecast because the retired delegates and their
+supporting facade-only structure accounted for more physical lines than the
+planning estimate; the owner and AST inventories remain the controlling gates.
 
-The operator authorized exactly two corrective implementation slices after this
-blocked audit: **48a terminal facade retirement/repointing**, then **48b terminal
-composition/startup ownership**, followed by a tests/docs-only retry of 49. 48a
-is next. It must repoint the measured callers to concrete typed owners, move
-modal orchestration under `native.ui` without a `TerminalUi` back-edge, and
-replace the stale facade test. 48b then moves the 153-line constructor
-transaction to a typed composition builder and gives startup blocks/local-command
-classification their measured definition-site owners. Neither slice may add a
-shim, alias, re-export, facade, lock, C901 pin, or boundary relaxation. Retry 49
-still owns exact field/lock audits, final ratchets, parity ownership-doc fixes,
-and the final milestone, and still fails closed above the plan's 710–760 band.
-This planning correction is internal documentation only, so no changelog or
-release note applies.
+**Slice 48b terminal composition/startup ownership is next**, followed by a
+tests/docs-only retry of 49. It moves the retained constructor transaction to a
+typed composition builder and gives the retained startup blocks and
+local-command classifier their measured definition-site owners; it does not
+move either raw-mode loop. Paired with the measured 48a result, 48b owns a
+147–197-line physical reduction to reach the plan's 710–760 band and an
+at-most-310-line class. Neither slice may add a shim, alias, re-export, facade,
+lock, C901 pin, or boundary relaxation. Retry 49 still owns exact field/lock
+audits, final ratchets, parity ownership-doc fixes, and the final milestone, and
+still fails closed above that band. No changelog or release note applies to this
+behavior-preserving internal decomposition.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

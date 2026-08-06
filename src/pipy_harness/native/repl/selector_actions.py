@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TextIO
 
 from pipy_harness.native.diagnostics import emit_diagnostic
+from pipy_harness.native.overlay_state import ModelSelectorOption, ScopedModelRow
 from pipy_harness.native.project_trust import (
     DefaultProjectTrust,
     ProjectTrustError,
@@ -30,11 +31,7 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.scoped_models import filter_scoped_references
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.startup_selectors import run_project_trust_selector
-from pipy_harness.native.tui import (
-    ModelSelectorOption,
-    ScopedModelRow,
-    TerminalUi,
-)
+from pipy_harness.native.tui import TerminalUi
 
 
 def handle_trust_command(
@@ -48,7 +45,7 @@ def handle_trust_command(
 
     if terminal_ui is None:
         emit_diagnostic(
-            terminal_ui,
+            terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
             "pipy: /trust requires the interactive product TUI; use "
             "--approve for this run.",
@@ -58,7 +55,9 @@ def handle_trust_command(
     try:
         saved = store.get_entry(cwd)
     except ProjectTrustError as exc:
-        terminal_ui.add_notice(f"pipy: could not read project trust: {exc}")
+        terminal_ui.components.transcript.add_notice(
+            f"pipy: could not read project trust: {exc}"
+        )
         return
     selected = run_project_trust_selector(
         terminal_ui,
@@ -72,9 +71,11 @@ def handle_trust_command(
     try:
         store.set_many(selected.updates)
     except ProjectTrustError as exc:
-        terminal_ui.add_notice(f"pipy: could not save project trust: {exc}")
+        terminal_ui.components.transcript.add_notice(
+            f"pipy: could not save project trust: {exc}"
+        )
         return
-    terminal_ui.add_notice(
+    terminal_ui.components.transcript.add_notice(
         "pipy: saved trust decision: "
         f"{'trusted' if selected.trusted else 'untrusted'}. "
         "Restart pipy for this to take effect."
@@ -101,12 +102,16 @@ def open_scoped_models_overlay(
         if option.available
     ]
     if not available_refs:
-        terminal_ui.add_notice("pipy: no available models to scope.")
+        terminal_ui.components.transcript.add_notice(
+            "pipy: no available models to scope."
+        )
         return
     scoped = filter_scoped_references(available_refs, settings.get_enabled_models())
     rows = [ScopedModelRow(reference=ref, available=True) for ref in available_refs]
     pre_checked = [index for index, ref in enumerate(available_refs) if ref in scoped]
-    chosen = terminal_ui.run_scoped_models_selector(rows, checked=pre_checked)
+    chosen = terminal_ui.components.modals.run_scoped_models_selector(
+        rows, checked=pre_checked
+    )
     if chosen is None:
         return
     try:
@@ -118,7 +123,7 @@ def open_scoped_models_overlay(
         )
     except RuntimeError as exc:
         message = f"pipy: could not update scoped models: {exc}"
-    terminal_ui.add_notice(message)
+    terminal_ui.components.transcript.add_notice(message)
 
 
 def open_default_project_trust_selector(
@@ -146,7 +151,7 @@ def open_default_project_trust_selector(
         )
         for value in values
     ]
-    chosen = terminal_ui.run_model_selector(
+    chosen = terminal_ui.components.modals.run_model_selector(
         options,
         current_index=values.index(current),
         title="Default project trust",
@@ -157,9 +162,11 @@ def open_default_project_trust_selector(
     try:
         settings.set_default_project_trust(value)
     except (OSError, RuntimeError, ValueError) as exc:
-        terminal_ui.add_notice(f"pipy: could not update default project trust: {exc}")
+        terminal_ui.components.transcript.add_notice(
+            f"pipy: could not update default project trust: {exc}"
+        )
         return
-    terminal_ui.add_notice(
+    terminal_ui.components.transcript.add_notice(
         f"pipy: default project trust set to {labels[value]}; "
         "the current session is unchanged."
     )

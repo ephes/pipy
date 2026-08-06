@@ -19,7 +19,6 @@ _spec.loader.exec_module(architecture_metrics)
 
 EXPECTED_TERMINAL_UI_FIELDS = (
     "_autocomplete",
-    "_chrome",
     "_custom_editor",
     "_driver",
     "_overlays",
@@ -27,6 +26,7 @@ EXPECTED_TERMINAL_UI_FIELDS = (
     "_transcript",
     "available_provider_count",
     "clipboard_images",
+    "components",
     "cwd",
     "footer_lines",
     "include_workspace_defaults",
@@ -136,8 +136,8 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 856
-_TUI_CLASS_DEF_RATCHET = 43
+_TUI_CLASS_SPAN_RATCHET = 498
+_TUI_CLASS_DEF_RATCHET = 7
 
 
 def test_terminal_ui_class_ratchet_never_grows() -> None:

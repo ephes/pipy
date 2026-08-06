@@ -62,7 +62,7 @@ def _footer(session: CodingSession, tmp_path: Path) -> _ChromeFooterEffects:
         coding_state=session._coding_state,
         provider_state=session.provider_state,
         error_stream=io.StringIO(),
-        terminal_ui=None,
+        footer=None,
         repl_runtime=_Runtime(),
     )
 

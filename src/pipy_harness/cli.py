@@ -2000,15 +2000,21 @@ def _resolve_runtime_project_trust_startup(
 
             class _StartupUiDriver:
                 def select(self, title: str, options: Any) -> str | None:
-                    return live_ui.run_extension_select(title, options)
+                    return live_ui.components.modals.run_extension_select(
+                        title, options
+                    )
 
                 def input(
                     self, title: str, placeholder: str | None = None
                 ) -> str | None:
-                    return live_ui.run_extension_input(title, placeholder)
+                    return live_ui.components.modals.run_extension_input(
+                        title, placeholder
+                    )
 
                 def confirm(self, title: str, message: str) -> bool:
-                    return live_ui.run_extension_confirm(title, message)
+                    return live_ui.components.modals.run_extension_confirm(
+                        title, message
+                    )
 
             ui_driver = _StartupUiDriver()
 
@@ -2029,7 +2035,7 @@ def _resolve_runtime_project_trust_startup(
             )
         finally:
             if terminal_ui is not None:
-                terminal_ui.close()
+                terminal_ui.components.screen.close()
         for error in dispatched.errors:
             print(
                 f'pipy: Extension "{error.extension}" project_trust error: '

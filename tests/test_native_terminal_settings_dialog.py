@@ -27,6 +27,11 @@ from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.overlay_state import (
+    ModelSelectorOption,
+    ScopedModelRow,
+    SettingsRow,
+)
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl.settings_actions import drive_settings_dialog
@@ -42,12 +47,8 @@ from pipy_harness.native.session_tree import (
 )
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.themes import NativeThemeStore, available_theme_names
-from pipy_harness.native.tui import (
-    ModelSelectorOption,
-    ScopedModelRow,
-    SettingsRow,
-    TerminalUi,
-)
+from pipy_harness.native.tui import TerminalUi
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.runner import HarnessRunner
 
 _SETTINGS_BODY_MARKER = "PIPY_PRIVATE_SETTINGS_MARKER_58a7f4d2"
@@ -128,6 +129,33 @@ class _ScriptedSettingsUi(TerminalUi):
         self.footer_updates = 0
         self.trace: list[str] = []
         self._lines = ["/settings\n", ""]
+        setattr(
+            self.components.modals,
+            "run_settings_dialog",
+            self.run_settings_dialog,
+        )
+        setattr(
+            self.components.modals,
+            "run_model_selector",
+            self.run_model_selector,
+        )
+        setattr(
+            self.components.modals,
+            "run_scoped_models_selector",
+            self.run_scoped_models_selector,
+        )
+        setattr(self.components.screen, "close", self.close)
+        setattr(
+            self.components.screen,
+            "external_io_suspension",
+            self.external_io_suspension,
+        )
+        setattr(
+            self.components.chrome.footer,
+            "set_builtin_text",
+            self.set_footer_text,
+        )
+        setattr(self.components.transcript, "add_notice", self.add_notice)
 
     def paint(self) -> None:
         return
@@ -159,7 +187,7 @@ class _ScriptedSettingsUi(TerminalUi):
 
     def add_notice(self, text: str) -> None:
         self.trace.append(f"notice:{text}")
-        super().add_notice(text)
+        TranscriptComponent.add_notice(self.components.transcript, text)
 
     def run_settings_dialog(
         self,
@@ -475,8 +503,8 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
     assert store.enabled is False
     assert store.entries() == []
     assert ui.input_editor.input_history == ["private saved prompt"]
-    assert ui.tools_expanded is True
-    assert ui.thinking_hidden is True
+    assert ui.components.transcript.tools_expanded is True
+    assert ui.components.transcript.thinking_hidden is True
     assert settings.get_hide_thinking_block() is True
     assert state.current_thinking_level() == "minimal"
     thinking_entries = [
@@ -557,7 +585,7 @@ def test_settings_fold_and_theme_write_failures_keep_live_partial_effects(
     )
 
     assert ui.dialog_calls == 2
-    assert ui.thinking_hidden is True
+    assert ui.components.transcript.thinking_hidden is True
     assert settings.get_hide_thinking_block() is False
     assert settings.get_theme() is None
     assert NativeThemeStore(tmp_path / "theme.json").load() == target_theme
@@ -885,7 +913,7 @@ def test_live_settings_private_sources_stay_out_of_finalized_metadata_archive(
         "\n".join(ui.input_editor.input_history), (_PROMPT_HISTORY_MARKER,)
     )
     assert settings.get_hide_thinking_block() is True
-    assert ui.thinking_hidden is True
+    assert ui.components.transcript.thinking_hidden is True
     assert "openai" in auth_reads
 
     result_metadata = json.dumps(result.metadata, sort_keys=True)

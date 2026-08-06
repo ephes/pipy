@@ -92,9 +92,11 @@ def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     ui, terminal = _ui(tmp_path)
-    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
-    ui.submit_user_message("visible prompt")
-    ui.append_assistant("visible answer")
+    ui.components.chrome.footer.set_builtin_text(
+        "\n".join(("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)"))
+    )
+    ui.components.transcript.submit_user_message("visible prompt")
+    ui.components.transcript.append_assistant("visible answer")
     ui.input_editor.text = "next"
 
     ui._screen.paint()

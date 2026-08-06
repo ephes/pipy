@@ -494,8 +494,8 @@ def test_input_owner_treats_zero_as_one_row(tmp_path: Path) -> None:
 
 def test_facade_publishes_detached_immutable_snapshot(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui.footer_lines = ("workspace", "status")
-    ui.submit_user_message("snapshot message")
+    ui.components.chrome.footer.set_builtin_text("\n".join(("workspace", "status")))
+    ui.components.transcript.submit_user_message("snapshot message")
     snapshot = ui._screen._frame_snapshot(
         width=60, height=12, include_session_picker=False
     )
@@ -554,7 +554,9 @@ def test_overlay_snapshot_does_not_execute_hidden_extension_chrome(
             renders.append(width)
             return ["chrome"]
 
-    ui._chrome.component.set_widget("widget", lambda _tui, _theme: Component())
+    ui.components.chrome.component.set_widget(
+        "widget", lambda _tui, _theme: Component()
+    )
     ui._overlays.supersede("model")
     before = len(renders)
 

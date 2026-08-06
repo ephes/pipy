@@ -1,4 +1,6 @@
+import os
 from types import SimpleNamespace
+from typing import Any, cast
 
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
@@ -7,6 +9,7 @@ from pipy_harness.native.extension_types import (
     FooterData,
     LifecycleEvent,
 )
+from pipy_harness.native.themes import THEME_ENV_VAR, NativeThemeStore
 from pipy_harness.native.tui import _LiveExtensionUiDriver
 
 
@@ -53,8 +56,12 @@ class _FakeUi:
             ),
             footer=SimpleNamespace(set_footer=self.set_extension_footer),
             listeners=SimpleNamespace(add=self.add_extension_terminal_input_listener),
+            generation=SimpleNamespace(
+                reconcile_generation=self.reconcile_extension_chrome
+            ),
         )
         self._transcript = SimpleNamespace(
+            tools_expanded=False,
             set_hidden_thinking_label=self.set_extension_hidden_thinking_label,
             set_tools_expanded=self.set_tools_expanded,
         )
@@ -119,6 +126,7 @@ class _FakeUi:
 
     def set_tools_expanded(self, expanded):
         self.tools_expanded = bool(expanded)
+        self._transcript.tools_expanded = self.tools_expanded
         self.calls.append(("tools-expanded", self.tools_expanded))
 
     def get_input_text(self):
@@ -142,9 +150,39 @@ class _FakeUi:
         )
 
 
+def _live_driver(ui: _FakeUi) -> _LiveExtensionUiDriver:
+    return _LiveExtensionUiDriver(
+        cast(Any, ui._chrome),
+        cast(Any, SimpleNamespace()),
+        cast(Any, ui._transcript),
+        cast(Any, ui._autocomplete),
+        cast(Any, ui._custom_editor),
+        cast(Any, ui.input_editor),
+    )
+
+
+def test_driver_apply_theme_without_legacy_terminal_ui_state(tmp_path, monkeypatch):
+    theme_path = tmp_path / "native-theme.json"
+    monkeypatch.setenv("PIPY_NATIVE_THEME_PATH", str(theme_path))
+    monkeypatch.delenv(THEME_ENV_VAR, raising=False)
+    driver = _live_driver(_FakeUi())
+
+    assert not hasattr(driver, "_terminal_ui")
+    assert not hasattr(driver, "_cwd")
+    assert driver.apply_theme("high-contrast") == (True, None)
+    assert os.environ[THEME_ENV_VAR] == "high-contrast"
+    assert NativeThemeStore(theme_path).load() == "high-contrast"
+
+    ok, error = driver.apply_theme("does-not-exist")
+    assert not ok
+    assert error
+    assert os.environ[THEME_ENV_VAR] == "high-contrast"
+    assert NativeThemeStore(theme_path).load() == "high-contrast"
+
+
 def test_driver_delegates_all_five(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
     factory = lambda theme: None  # noqa: E731
     driver.set_widget("k", ["a"], "below_editor")
     driver.set_header(factory)
@@ -158,7 +196,7 @@ def test_driver_delegates_all_five(tmp_path):
 
 def test_driver_delegates_sticky_chrome_owner_operations(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
 
     driver.set_status("build", "ready")
     driver.set_working_message("Waiting")
@@ -173,7 +211,7 @@ def test_driver_delegates_sticky_chrome_owner_operations(tmp_path):
 
 def test_driver_listener_owner_registers_invokes_and_disposes(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
     seen = []
 
     def handler(key):
@@ -194,7 +232,7 @@ def test_driver_listener_owner_registers_invokes_and_disposes(tmp_path):
 
 def test_driver_tools_expanded_uses_transcript_owner_verb(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
 
     assert driver.get_tools_expanded() is False
     driver.set_tools_expanded(1)
@@ -205,7 +243,7 @@ def test_driver_tools_expanded_uses_transcript_owner_verb(tmp_path):
 
 def test_driver_footer_delegates_snapshot_to_terminal_ui(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
     factory = lambda theme, fd: None  # noqa: E731
     driver.set_footer(factory)
     _kind, passed_factory, footer_data = ui.calls[-1]
@@ -215,14 +253,14 @@ def test_driver_footer_delegates_snapshot_to_terminal_ui(tmp_path):
 
 def test_driver_footer_none_passes_none(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
     driver.set_footer(None)
     assert ui.calls[-1] == ("footer", None, None)
 
 
 def test_driver_delegates_editor_text_helpers(tmp_path):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
 
     assert driver.get_editor_text() == "draft"
 
@@ -241,7 +279,7 @@ def test_generation_bound_driver_returns_its_own_editor_factory_across_handoff(
     tmp_path,
 ):
     ui = _FakeUi()
-    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver = _live_driver(ui)
     live_component = object()
     candidate_component = object()
     invocations = []

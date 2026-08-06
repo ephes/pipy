@@ -186,7 +186,10 @@ from pipy_harness.native.tool_renderers import (
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import TerminalUi, _LiveExtensionUiDriver
 from pipy_harness.native.ui import RenderingAgentEventAdapter
-from pipy_harness.native.ui.components.custom_entry_renderer import CustomEntryRenderer
+from pipy_harness.native.ui.components.custom_entry_renderer import (
+    CustomEntryRenderer,
+    CustomEntryTerminalTarget,
+)
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.version_check import pipy_version
 
@@ -302,7 +305,7 @@ class _RuntimePhase:
 
 @dataclass(frozen=True, slots=True)
 class _ChromePhase:
-    repl_input: NativeReplInput
+    repl_input: TerminalUi | NativeReplInput
     footer: _ChromeFooterEffects
 
 
@@ -533,7 +536,7 @@ def _compose_extension_phase(
         and not settings.project_trusted
         and has_trust_requiring_project_resources(cwd)
     ):
-        terminal_ui.add_notice(
+        terminal_ui.components.transcript.add_notice(
             "This project is not trusted. Project .pipy resources and "
             "packages are ignored. Use /trust to save a trust decision, "
             "then restart pipy."
@@ -543,10 +546,23 @@ def _compose_extension_phase(
         safe_message = "\n".join(
             sanitize_label_text(line) for line in str(message).splitlines()
         )
-        emit_diagnostic(terminal_ui, error_stream, safe_message)
+        emit_diagnostic(
+            terminal_ui.components.transcript if terminal_ui is not None else None,
+            error_stream,
+            safe_message,
+        )
 
     extension_ui_driver = (
-        _LiveExtensionUiDriver(terminal_ui, cwd) if terminal_ui is not None else None
+        _LiveExtensionUiDriver(
+            terminal_ui.components.chrome,
+            terminal_ui.components.modals,
+            terminal_ui.components.transcript,
+            terminal_ui.components.autocomplete,
+            terminal_ui.components.custom_editor,
+            terminal_ui.components.input_editor,
+        )
+        if terminal_ui is not None
+        else None
     )
     render_details = _tool_renderers._extension_render_details_sinks(
         terminal_ui is not None
@@ -650,8 +666,10 @@ def _prepare_startup_extension_consumers(
 ) -> None:
     if terminal_ui is None:
         return
-    terminal_ui.autocomplete.set_max_visible(settings.get_autocomplete_max_visible())
-    terminal_ui.autocomplete.replace_command_surface(
+    terminal_ui.components.autocomplete.set_max_visible(
+        settings.get_autocomplete_max_visible()
+    )
+    terminal_ui.components.autocomplete.replace_command_surface(
         published_command_surface(workspace_resources, startup_commands)
     )
     if not keybindings.has_user_binding("app.editor.external"):
@@ -741,8 +759,9 @@ def _compose_product_session(
     system_prompt = inputs.system_prompt
     image_reference_roots = inputs.reference_roots
     if terminal_ui is not None:
-        terminal_ui.set_thinking_hidden(settings.get_hide_thinking_block())
-        clipboard_config = terminal_ui.clipboard_images.config
+        components = terminal_ui.components
+        components.transcript.set_thinking_hidden(settings.get_hide_thinking_block())
+        clipboard_config = components.clipboard_images.config
         if clipboard_config is not None:
             image_reference_roots = (
                 *inputs.reference_roots,
@@ -759,10 +778,14 @@ def _compose_product_session(
     if settings.get_prompt_history_enabled() and not prompt_history_store.enabled:
         prompt_history_store.set_enabled(True)
     if terminal_ui is not None and prompt_history_store.enabled:
-        terminal_ui.input_editor.load_history(prompt_history_store.entries())
+        terminal_ui.components.input_editor.load_history(prompt_history_store.entries())
     renderer: _ToolLoopRenderer | TuiToolLoopRenderer
     if terminal_ui is not None:
-        renderer = terminal_ui.create_tool_loop_renderer(
+        components = terminal_ui.components
+        renderer = TuiToolLoopRenderer(
+            transcript=components.transcript,
+            chrome=components.chrome.record,
+            render_inputs=components.screen.render_inputs,
             render_details_sink=render_details.tui,
         )
     else:
@@ -951,7 +974,14 @@ def _compose_runtime_adapters(
     # bound methods are passed wherever the deleted closures were consumed.
     custom_renderer = CustomEntryRenderer(
         ctl=_ExtensionCustomEntryRunState(ctl=ctl),
-        terminal=terminal_ui.custom_entry_render_target() if terminal_ui else None,
+        terminal=(
+            CustomEntryTerminalTarget(
+                transcript=terminal_ui.components.transcript,
+                render_inputs=terminal_ui.components.screen.render_inputs,
+            )
+            if terminal_ui
+            else None
+        ),
         coding_input_queue=coding_input_queue,
         coding_effects=coding_effects,
         error_stream=error_stream,
@@ -1011,7 +1041,9 @@ def _start_chrome(
         coding_state=coding_state,
         provider_state=inputs.provider_state,
         error_stream=error_stream,
-        terminal_ui=terminal_ui,
+        footer=(
+            terminal_ui.components.chrome.footer if terminal_ui is not None else None
+        ),
         repl_runtime=repl_input,
     )
     if terminal_ui is None:
@@ -1031,13 +1063,15 @@ def _start_chrome(
                 file=error_stream,
             )
     else:
-        terminal_ui.set_footer_text(footer.coding_footer_text())
+        terminal_ui.components.chrome.footer.set_builtin_text(
+            footer.coding_footer_text()
+        )
         terminal_ui.start()
         if inputs.resume_context is not None:
             # Safe resumed-state notice committed to scrollback at startup:
             # prior session id, provider, model, turn count, finalized time
             # (and branch label) only — never prompts, output, or summary.
-            terminal_ui.add_notice(
+            terminal_ui.components.transcript.add_notice(
                 compose_resume_status_line(
                     inputs.resume_context,
                     branch_label=inputs.resume_branch_label,
@@ -1058,7 +1092,7 @@ def _start_chrome(
     )
     for line in changelog_lines:
         if terminal_ui is not None:
-            terminal_ui.add_notice(line)
+            terminal_ui.components.transcript.add_notice(line)
         else:
             print(line, file=error_stream)
     if store_version is not None:
@@ -1344,6 +1378,7 @@ def _assemble_session_wiring(
         finalize=partial(
             repl_loop_step.finalize,
             coding_state=coding_state,
+            terminal_ui=terminal_ui,
             repl_input=repl_input,
             started_at=started_at,
         ),
@@ -1357,8 +1392,10 @@ def _assemble_session_wiring(
             coding_effects=coding_effects,
             generation_ref=ctl.generation_ref,
         ),
-        clear_extension_chrome=partial(
-            repl_loop_step.clear_extension_chrome, terminal_ui=terminal_ui
+        clear_extension_chrome=(
+            terminal_ui.components.chrome.generation.retire_generation
+            if terminal_ui is not None
+            else lambda: None
         ),
     )
     return SessionWiring(startup_failure=None, delegation=delegation)

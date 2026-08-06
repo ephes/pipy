@@ -106,11 +106,11 @@ def test_pty_chrome_header_widget_and_footer_render_with_input(
         def footer_factory(theme: object, fd: object) -> object:
             return type("C", (), {"render": lambda self, w: ["CHROME_FOOTER_LINE"]})()
 
-        ui._chrome.component.set_header(header_factory)
-        ui._chrome.component.set_widget(
+        ui.components.chrome.component.set_header(header_factory)
+        ui.components.chrome.component.set_widget(
             "w", ["CHROME_ABOVE_WIDGET"], placement="above_editor"
         )
-        ui._chrome.footer.set_footer(footer_factory)
+        ui.components.chrome.footer.set_footer(footer_factory)
 
         assert _wait_for(err_chunks, "CHROME_HEADER_LINE"), "header never painted"
         assert _wait_for(err_chunks, "CHROME_ABOVE_WIDGET"), "widget never painted"

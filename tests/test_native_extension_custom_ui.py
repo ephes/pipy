@@ -98,7 +98,7 @@ def _ui(tmp_path: Path) -> TerminalUi:
 
 def _external_editor(ui: TerminalUi) -> ExtensionExternalEditor:
     return ExtensionExternalEditor(
-        external_io_suspension=ui.external_io_suspension,
+        external_io_suspension=ui.components.screen.external_io_suspension,
         terminal_write=ui._driver.write,
         input_stream=ui.input_stream,
         terminal_stream=ui.terminal_stream,
@@ -216,7 +216,7 @@ def test_custom_component_failed_nested_acquisition_preserves_outer_raw_owner(
     ui._driver.suspend_terminal_mode()
 
     with pytest.raises(RuntimeError, match="while terminal I/O is suspended"):
-        ui.run_custom_component(lambda done: _ScriptedComponent(done))
+        ui.components.modals.run_custom_component(lambda done: _ScriptedComponent(done))
 
     assert ui._driver._raw_mode_depth == 1
     assert ui._driver._terminal_mode_suspend_depth == 1
@@ -253,7 +253,7 @@ def test_custom_component_failed_physical_acquisition_has_no_release(
     monkeypatch.setattr(Screen, "paint", lambda _self: None)
 
     with pytest.raises(termios.error, match="raw transition failed"):
-        ui.run_custom_component(lambda done: _ScriptedComponent(done))
+        ui.components.modals.run_custom_component(lambda done: _ScriptedComponent(done))
 
     assert ui._driver._raw_mode_depth == 0
     assert ui._driver._old_termios is None
@@ -263,7 +263,7 @@ def test_custom_component_failed_physical_acquisition_has_no_release(
 def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui._overlays.custom_component = _ScriptedComponent(lambda _v=None: None)
-    ui.custom_overlay_open = True
+    ui.components.overlays.supersede("custom")
     frame = "\n".join(ui._screen.render_lines())
     assert "CUSTOM-OVERLAY-LINE" in frame
 
@@ -505,7 +505,7 @@ def test_tui_custom_component_options_width_handle_and_dispose(
         handle.update()
         handle.requestRender()
 
-    result = ui.run_custom_component(
+    result = ui.components.modals.run_custom_component(
         lambda done: Component(done),
         {
             "overlay": True,
@@ -557,7 +557,7 @@ def test_tui_custom_component_callable_snake_case_options(
         def handle_input(self, _key: str) -> None:
             self._done("done")
 
-    result = ui.run_custom_component(
+    result = ui.components.modals.run_custom_component(
         lambda done: Component(done),
         {"overlay_options": lambda: {"width": 31.8}},
     )
@@ -593,7 +593,7 @@ def test_tui_custom_component_factory_can_finish_repeated_runs_before_return(
             done("ignored")
             return Component()
 
-        assert ui.run_custom_component(factory) == expected
+        assert ui.components.modals.run_custom_component(factory) == expected
 
 
 def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -> None:
@@ -607,7 +607,7 @@ def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -
 
     monkeypatch.setattr(Screen, "read_key_polling_resize", fail_read)
 
-    result = ui.run_custom_component(
+    result = ui.components.modals.run_custom_component(
         lambda done: _ScriptedComponent(done),
         {"on_handle": lambda handle: handle.hide()},
     )
@@ -662,7 +662,7 @@ def test_tui_custom_component_handle_visibility_and_focus(
         handle.setHidden(True)
         assert handle.isHidden() is True
 
-    result = ui.run_custom_component(
+    result = ui.components.modals.run_custom_component(
         lambda done: Component(done), {"onHandle": on_handle}
     )
 

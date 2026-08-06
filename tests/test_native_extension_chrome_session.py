@@ -222,9 +222,9 @@ def test_pty_session_renders_then_reload_clears_chrome(
         os.write(in_master, b"/reload\n")
         assert _wait_for(err_chunks, "reloaded settings"), "reload never finished"
         deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline and ui._chrome.record.widgets_above:
+        while time.monotonic() < deadline and ui.components.chrome.record.widgets_above:
             time.sleep(0.02)
-        assert ui._chrome.record.widgets_above == {}
+        assert ui.components.chrome.record.widgets_above == {}
         # Delayed acceptance intentionally lets the old live frame become host
         # scrollback when /reload is submitted; only the post-reload live region
         # is replaceable. The accepted sink must not repaint the removed widget.
@@ -327,7 +327,9 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
         assert _wait_for(err_chunks, "OLD_FLAG_WIDGET"), (
             "startup session_start chrome never painted"
         )
-        listeners_before = tuple(ui._chrome.record.terminal_input_listeners.values())
+        listeners_before = tuple(
+            ui.components.chrome.record.terminal_input_listeners.values()
+        )
         providers_before = tuple(
             ui.input_editor.editor_state.autocomplete_provider_factories
         )
@@ -356,17 +358,17 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
             else:
                 pytest.fail("invalid candidate flag was not reported")
 
-            assert tuple(ui._chrome.record.terminal_input_listeners.values()) == (
-                listeners_before
-            )
+            assert tuple(
+                ui.components.chrome.record.terminal_input_listeners.values()
+            ) == (listeners_before)
             assert (
                 tuple(ui.input_editor.editor_state.autocomplete_provider_factories)
                 == providers_before
             )
             assert ui._custom_editor.factory is editor_before
-            assert ui._chrome.record.title == "OLD_FLAG_TITLE"
-            assert "old" in ui._chrome.record.widgets_above
-            assert ui._chrome.listeners.apply("x") == "z"
+            assert ui.components.chrome.record.title == "OLD_FLAG_TITLE"
+            assert "old" in ui.components.chrome.record.widgets_above
+            assert ui.components.chrome.listeners.apply("x") == "z"
             assert callback_marker.read_text(encoding="utf-8") == "x" * (
                 reload_index + 1
             )

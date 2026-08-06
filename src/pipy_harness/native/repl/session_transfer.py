@@ -209,7 +209,7 @@ def share_native_session_command(
             done_event.set()
 
     emit_diagnostic(
-        terminal_ui,
+        terminal_ui.components.transcript if terminal_ui is not None else None,
         error_stream,
         "pipy: sharing native session... press Escape to cancel.",
     )
@@ -222,18 +222,30 @@ def share_native_session_command(
     except KeyboardInterrupt:
         cancel_token.cancel()
         worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
-        emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+        emit_diagnostic(
+            terminal_ui.components.transcript if terminal_ui is not None else None,
+            error_stream,
+            "pipy: Share cancelled.",
+        )
         return None
     if outcome == TURN_ABORTED:
         cancel_token.cancel()
         worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
-        emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+        emit_diagnostic(
+            terminal_ui.components.transcript if terminal_ui is not None else None,
+            error_stream,
+            "pipy: Share cancelled.",
+        )
         return None
     worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
     if error_holder:
         error = error_holder[0]
         if isinstance(error, ShareCancelled):
-            emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+            emit_diagnostic(
+                terminal_ui.components.transcript if terminal_ui is not None else None,
+                error_stream,
+                "pipy: Share cancelled.",
+            )
             return None
         if isinstance(error, NativeExportError):
             raise error

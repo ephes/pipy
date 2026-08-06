@@ -17,6 +17,7 @@ from collections.abc import Callable
 from typing import TextIO
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native.overlay_state import ModelSelectorOption, SettingsRow
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.selector_actions import (
@@ -40,11 +41,7 @@ from pipy_harness.native.themes import (
     resolve_active_theme_name,
     select_theme,
 )
-from pipy_harness.native.tui import (
-    ModelSelectorOption,
-    SettingsRow,
-    TerminalUi,
-)
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
@@ -101,7 +98,9 @@ def open_theme_selector(
 
     names = available_theme_names()
     if not names:
-        terminal_ui.add_notice("pipy: no themes available to select.")
+        terminal_ui.components.transcript.add_notice(
+            "pipy: no themes available to select."
+        )
         return
     active = resolve_active_theme_name(env=os.environ, store=NativeThemeStore())
     options = [
@@ -114,7 +113,7 @@ def open_theme_selector(
     current_index = next(
         (index for index, name in enumerate(names) if name == active), 0
     )
-    chosen = terminal_ui.run_model_selector(
+    chosen = terminal_ui.components.modals.run_model_selector(
         options, current_index=current_index, title="Select theme"
     )
     if chosen is None:
@@ -129,7 +128,7 @@ def open_theme_selector(
             settings.set_theme(name)
         except (OSError, RuntimeError):
             pass
-    terminal_ui.add_notice(message)
+    terminal_ui.components.transcript.add_notice(message)
 
 
 def settings_dialog_rows(
@@ -208,7 +207,7 @@ def settings_dialog_rows(
             SettingsRow(
                 label=(
                     "tool output: "
-                    f"{'expanded' if terminal_ui.tools_expanded else 'collapsed'}"
+                    f"{'expanded' if terminal_ui.components.transcript.tools_expanded else 'collapsed'}"
                     " — toggle (ctrl+o)"
                 ),
                 kind="action",
@@ -219,7 +218,7 @@ def settings_dialog_rows(
             SettingsRow(
                 label=(
                     "thinking blocks: "
-                    f"{'hidden' if terminal_ui.thinking_hidden else 'visible'}"
+                    f"{'hidden' if terminal_ui.components.transcript.thinking_hidden else 'visible'}"
                     " — toggle (ctrl+t)"
                 ),
                 kind="action",
@@ -350,7 +349,7 @@ def drive_settings_dialog(
         return _rows()
 
     while True:
-        action = terminal_ui.run_settings_dialog(
+        action = terminal_ui.components.modals.run_settings_dialog(
             _rows(),
             on_local_action=_local_action,
             exit_actions=exit_actions,
@@ -424,7 +423,7 @@ def _run_settings_exit_action(
     if action == "model" and isinstance(state, NativeReplProviderState):
         _run_model_selection(terminal_ui, state, apply_model_selection)
     elif action in {"login", "logout"}:
-        terminal_ui.add_notice(apply_auth_change(action, ""))
+        terminal_ui.components.transcript.add_notice(apply_auth_change(action, ""))
     elif action == "scoped_models" and isinstance(state, NativeReplProviderState):
         open_scoped_models_overlay(terminal_ui, state=state, settings=settings)
     elif action == "theme":
@@ -451,7 +450,9 @@ def _run_model_selection(
         ),
         0,
     )
-    chosen = terminal_ui.run_model_selector(ui_options, current_index=current_index)
+    chosen = terminal_ui.components.modals.run_model_selector(
+        ui_options, current_index=current_index
+    )
     if chosen is not None:
         _ok, message = apply_model_selection(selections[chosen].reference)
-        terminal_ui.add_notice(message)
+        terminal_ui.components.transcript.add_notice(message)

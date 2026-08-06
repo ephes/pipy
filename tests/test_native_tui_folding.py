@@ -32,8 +32,8 @@ class TestThinkingFold:
         self, tmp_path: Path
     ) -> None:
         ui = _ui(tmp_path)
-        ui.set_thinking_hidden(True)
-        ui.append_reasoning("SECRET-THOUGHT")
+        ui.components.transcript.set_thinking_hidden(True)
+        ui.components.transcript.append_reasoning("SECRET-THOUGHT")
         frame = _frame_text(ui)
         assert "SECRET-THOUGHT" not in frame
         assert "Thinking..." in frame
@@ -42,8 +42,8 @@ class TestThinkingFold:
         self, tmp_path: Path
     ) -> None:
         ui = _ui(tmp_path)
-        ui.set_thinking_hidden(True)
-        ui.append_reasoning("SECRET-THOUGHT")
+        ui.components.transcript.set_thinking_hidden(True)
+        ui.components.transcript.append_reasoning("SECRET-THOUGHT")
         ui._transcript.set_hidden_thinking_label("Still thinking")
         assert "Still thinking" in _frame_text(ui)
         assert "SECRET-THOUGHT" not in _frame_text(ui)
@@ -52,14 +52,14 @@ class TestThinkingFold:
 
     def test_visible_reasoning_rendered_live(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        ui.set_thinking_hidden(False)
-        ui.append_reasoning("VISIBLE-THOUGHT")
+        ui.components.transcript.set_thinking_hidden(False)
+        ui.components.transcript.append_reasoning("VISIBLE-THOUGHT")
         assert "VISIBLE-THOUGHT" in _frame_text(ui)
 
     def test_settle_defers_reasoning_when_hidden(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        ui.set_thinking_hidden(True)
-        ui.append_reasoning("DEFER-ME")
+        ui.components.transcript.set_thinking_hidden(True)
+        ui.components.transcript.append_reasoning("DEFER-ME")
         ui._transcript.settle_reasoning()
         # Not committed to scrollback while hidden, but retained (not dropped).
         assert all(
@@ -70,12 +70,12 @@ class TestThinkingFold:
 
     def test_unhiding_reveals_deferred_reasoning(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        ui.set_thinking_hidden(True)
-        ui.append_reasoning("WAS-HIDDEN")
+        ui.components.transcript.set_thinking_hidden(True)
+        ui.components.transcript.append_reasoning("WAS-HIDDEN")
         ui._transcript.settle_reasoning()
         assert "WAS-HIDDEN" not in _frame_text(ui)
         # Toggling visibility back commits the deferred reasoning into history.
-        ui.set_thinking_hidden(False)
+        ui.components.transcript.set_thinking_hidden(False)
         assert "WAS-HIDDEN" in _frame_text(ui)
         assert ui._transcript.deferred_reasoning == []
 
@@ -85,10 +85,12 @@ class TestToolExpansion:
         ui = _ui(tmp_path)
         # 16 lines: more than the 12-line collapsed live tail, but few enough
         # that they all fit a tall frame when expanded.
-        ui.append_tool_output("\n".join(f"line{n:02d}" for n in range(16)))
-        ui.set_tools_expanded(False)
+        ui.components.transcript.append_tool_output(
+            "\n".join(f"line{n:02d}" for n in range(16))
+        )
+        ui.components.transcript.set_tools_expanded(False)
         collapsed = "\n".join(ui._screen.render_lines(width=88, height=40))
-        ui.set_tools_expanded(True)
+        ui.components.transcript.set_tools_expanded(True)
         expanded = "\n".join(ui._screen.render_lines(width=88, height=40))
         # The earliest line is hidden in the collapsed live tail but shown when
         # expanded.
@@ -107,7 +109,7 @@ class TestToggleDispatch:
             error_stream=cast(TextIO, err),
             settings=settings,
         )
-        assert ui.tools_expanded is True
+        assert ui.components.transcript.tools_expanded is True
 
     def test_toggle_thinking_persists_to_settings(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
@@ -119,7 +121,7 @@ class TestToggleDispatch:
             error_stream=cast(TextIO, err),
             settings=settings,
         )
-        assert ui.thinking_hidden is True
+        assert ui.components.transcript.thinking_hidden is True
         # The persisted setting survives into a freshly loaded manager (so a new
         # session seeds the fold), proving cross-session persistence.
         fresh = SettingsManager.for_workspace(tmp_path)
