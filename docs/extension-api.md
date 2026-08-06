@@ -1292,7 +1292,7 @@ landed to support porting Pi's `answer.ts`
 (id/file/dir/cwd/header/entries/labels/branch/tree/name), a bounded one-shot
 `ctx.complete(system_prompt, user_text)` on the active provider, a full-screen
 `ctx.ui.custom(factory, options=None)` interactive overlay
-(`ToolLoopTerminalUi.run_custom_component`), and
+(`TerminalUi.run_custom_component`), and
 `api.register_shortcut(key, handler)` keyboard shortcuts. The `custom` options
 surface accepts Pi-shaped `overlay`, `overlayOptions`/`overlay_options`, and
 `onHandle`/`on_handle` fields: pipy's bounded inline overlay path honors static

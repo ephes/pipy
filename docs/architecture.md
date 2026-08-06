@@ -951,7 +951,7 @@ resolved values and keep the hardware cursor hidden even when the same paint
 commits history. Non-positive input row budgets still produce one cursor row.
 The façade's clip/pad methods delegate to renderer helpers, whose plain clipping
 reuses the shared label sanitizer. `TerminalDriver` remains
-the sole byte sink. `ToolLoopTerminalUi` publishes the returned live-height,
+the sole byte sink. `TerminalUi` publishes the returned live-height,
 input-row, committed-block count, and painted geometry before attempting the
 write, preserving failed-write bookkeeping, and retains paint re-entry
 coalescing, resize clear/home, deferred flush, and restoration. Finalized blocks
@@ -1002,8 +1002,8 @@ cursor, slash/completion selection and anchor state, prompt recall navigation,
 undo/redo snapshots, bracketed-paste hand-off, initial-text rehydration, and the
 terminal steering/follow-up/local-command queue. Its transitions are synchronous
 and terminal-independent. It imports only the standard library and is unit-tested
-without streams, file descriptors, termios, PTYs, or a `ToolLoopTerminalUi`.
-`ToolLoopTerminalUi` retains narrow properties and methods for callers and
+without streams, file descriptors, termios, PTYs, or a `TerminalUi`.
+`TerminalUi` retains narrow properties and methods for callers and
 characterized test access, but they project directly to that owner rather than
 storing a mirrored copy; its existing slots reject retired names instead of
 silently accepting dead writes. Queue entries carry typed content/kind pairs,
@@ -1039,7 +1039,7 @@ raw acquisition while suspended and unmatched resume fail loudly, failed entry
 launches no consumer, and a failed final resume remains recoverable by forced
 close. Local `!` commands and model tools do not receive the TTY
 (their stdin is detached and the active-turn watcher still owns raw input), so
-they do not suspend it. The actual `ToolLoopTerminalUi.close` boundary uses the
+they do not suspend it. The actual `TerminalUi.close` boundary uses the
 driver's third, forced-recovery operation, which zeroes abandoned ownership and
 suspension state and restores saved termios/bracketed-paste state whether the
 terminal is physically raw or suspended; repeated close is idempotent. Decoded
@@ -1203,7 +1203,7 @@ C901-pinned file. The load-bearing summary is:
 - the harness/SDK one-shot compatibility runtime is an intentional
   metadata-fixture difference, with canonical provider execution and executable
   non-equivalence tests;
-- `ToolLoopTerminalUi` intentionally remains the effectful terminal adapter at
+- `TerminalUi` intentionally remains the effectful terminal adapter at
   **43 measured fields**, down from 128, while editor, overlay, chrome, and pure
   frame state have dedicated owners;
 - tests intentionally retain their non-strict baseline while both complete

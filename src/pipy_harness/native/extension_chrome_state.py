@@ -7,7 +7,7 @@ terminal-input registrations, and footer rebuild state belong to the retired
 generation and are detached. Candidate sidecars use one local guard for their
 closed-check/write/close lifecycle. This owner performs no extension factory or
 component calls, terminal I/O, filesystem inspection, or painting; those effects
-remain on ``ToolLoopTerminalUi`` after the sidecar guard is released.
+remain on ``TerminalUi`` after the sidecar guard is released.
 """
 
 from __future__ import annotations

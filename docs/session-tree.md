@@ -27,7 +27,7 @@ Implementation map:
   `/resume`, `/fork`, `/clone`, durable `/compact`, and branch summaries:
   `src/pipy_harness/native/coding/session.py`.
 - Live-TTY `/tree` selector and the interactive session picker overlay
-  (`ToolLoopTerminalUi.run_tree_selector`, `run_session_picker`, and the
+  (`TerminalUi.run_tree_selector`, `run_session_picker`, and the
   standalone `run_startup_session_picker`) in
   `src/pipy_harness/native/tui.py`.
 - CLI startup flags (`-c`/`-r`/`--session`/`--session-id`/`--session-dir`/
@@ -42,7 +42,7 @@ Shipped follow-ons (previously deferred, now complete):
   current-project/all-projects scope, `Ctrl+P` path column, `Ctrl+S` sort,
   `Ctrl+N` named-only, `Ctrl+R` rename, `Ctrl+X` delete with confirmation,
   `Esc`/`Ctrl+C`/`Ctrl+D` cancel) and the `-r` interactive **startup picker**
-  ship through `ToolLoopTerminalUi.run_session_picker` /
+  ship through `TerminalUi.run_session_picker` /
   `run_startup_session_picker`. On a non-TTY (captured) stream `/resume` keeps
   the deterministic listing plus the `named`, `rename <ref> <name>`, and
   `delete <ref> --yes` subcommands, and `-r` continues the most recent native
@@ -321,7 +321,7 @@ same context.
 ## `/resume` Picker Behavior
 
 Status: **shipped.** `/resume` opens an interactive session picker overlay
-(`ToolLoopTerminalUi.run_session_picker`) over native product session files. It
+(`TerminalUi.run_session_picker`) over native product session files. It
 runs no provider turn and no model-visible tool call while the picker is open,
 renders inline (no alternate screen), repaints coherently on resize, and
 sanitizes user-controlled names/paths so they cannot inject terminal escape

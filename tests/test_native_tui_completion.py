@@ -1,6 +1,6 @@
 """TUI-level tests for the editor @ file picker and Tab path completion.
 
-These drive ``ToolLoopTerminalUi`` state transitions and ``render_lines`` (the
+These drive ``TerminalUi`` state transitions and ``render_lines`` (the
 inspectable frame the real paint path also composes) to prove the popup opens,
 ranks, navigates, and accepts. The observable live-region behavior over a real
 PTY is covered in ``tests/test_native_coding_session_terminal_pty.py``.
@@ -12,28 +12,28 @@ import io
 from pathlib import Path
 
 from pipy_harness.native.editor_state import CompletionItem
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.screen import Screen
 
 
-def _ui(workspace: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(workspace: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=workspace,
     )
 
 
-def _frame_text(ui: ToolLoopTerminalUi) -> str:
+def _frame_text(ui: TerminalUi) -> str:
     return "\n".join(ui._screen.render_lines(width=88, height=24))
 
 
-def _terminal_text(ui: ToolLoopTerminalUi) -> str:
+def _terminal_text(ui: TerminalUi) -> str:
     assert isinstance(ui.terminal_stream, io.StringIO)
     return ui.terminal_stream.getvalue()
 
 
-def _type(ui: ToolLoopTerminalUi, text: str) -> None:
+def _type(ui: TerminalUi, text: str) -> None:
     for char in text:
         ui.input_editor.insert_text(char)
 
@@ -97,7 +97,7 @@ class TestAtPicker:
             original_paint(target)
 
         monkeypatch.setattr(Screen, "paint", counting_paint)
-        cases: list[tuple[ToolLoopTerminalUi, str]] = []
+        cases: list[tuple[TerminalUi, str]] = []
 
         slash_closed = _ui(tmp_path)
         slash_closed.input_editor.set_buffer("/")

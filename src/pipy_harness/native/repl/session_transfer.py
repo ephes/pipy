@@ -44,7 +44,7 @@ from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.turn_leaves import CANCEL_JOIN_TIMEOUT_SECONDS
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.session_tree_commands import sanitize_label_text
-from pipy_harness.native.tui import TURN_ABORTED, ToolLoopTerminalUi
+from pipy_harness.native.tui import TURN_ABORTED, TerminalUi
 
 
 def export_session(
@@ -175,7 +175,7 @@ def share_native_session_command(
     session_tree: NativeSessionTree,
     token: str,
     abort_event: threading.Event | _AbortCallbackSignal | None,
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     error_stream: TextIO,
 ) -> ShareResult | None:
     """Run ``/share`` with product cancellation when the TUI is active."""
@@ -251,7 +251,7 @@ class TransferCommandEffects:
     system_prompt: str
     input_stream: TextIO
     error_stream: TextIO
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     diag: Callable[[str], None]
     current_session_dir: Callable[[], Path]
     session_switch_allows: Callable[[str], bool]

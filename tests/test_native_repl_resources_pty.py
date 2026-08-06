@@ -30,7 +30,7 @@ from pipy_harness.native.repl.command_menu import (
     tool_loop_command_names,
 )
 from pipy_harness.native.resources import WorkspaceResources
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.autocomplete import CommandSurface
 
 
@@ -130,7 +130,7 @@ def _drive_session(
         home_dir=tmp_path,
         include_workspace_defaults=True,
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

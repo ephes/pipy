@@ -45,7 +45,7 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def copy_last_answer(
@@ -84,7 +84,7 @@ class ProviderConfigurationCommandEffects:
     clipboard_copy: Callable[..., ClipboardResult]
     ctl: RunControlState
     coding_state: CodingSessionState
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     error_stream: TextIO
     keybindings: KeybindingsManager
     settings: SettingsManager

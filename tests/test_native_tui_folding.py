@@ -8,22 +8,22 @@ from typing import TextIO, cast
 
 from pipy_harness.native.repl.view_actions import toggle_view_fold
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
 )
 
 
-def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,
     )
 
 
-def _frame_text(ui: ToolLoopTerminalUi) -> str:
+def _frame_text(ui: TerminalUi) -> str:
     return "\n".join(ui._screen.render_lines(width=88, height=24))
 
 

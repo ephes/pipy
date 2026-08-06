@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCREEN_PATH = REPO_ROOT / "src/pipy_harness/native/ui/screen.py"
@@ -92,7 +92,7 @@ def test_paint_lock_requires_the_one_explicit_production_rlock() -> None:
 
 def test_facade_screen_state_and_private_implementation_are_gone() -> None:
     source = TUI_PATH.read_text(encoding="utf-8")
-    class_node = _class(source, "ToolLoopTerminalUi")
+    class_node = _class(source, "TerminalUi")
     definitions = {
         node.name for node in class_node.body if isinstance(node, ast.FunctionDef)
     }
@@ -114,7 +114,7 @@ def test_facade_screen_state_and_private_implementation_are_gone() -> None:
 
 
 def test_six_modal_methods_delegate_to_one_drive_loop() -> None:
-    tui_class = _class(TUI_PATH.read_text(encoding="utf-8"), "ToolLoopTerminalUi")
+    tui_class = _class(TUI_PATH.read_text(encoding="utf-8"), "TerminalUi")
     for name in MODAL_METHODS:
         method = _method(tui_class, name)
         assert not any(
@@ -137,7 +137,7 @@ def test_six_modal_methods_delegate_to_one_drive_loop() -> None:
 
 
 def test_deferred_input_loops_stay_in_facade_and_use_screen_services() -> None:
-    tui_class = _class(TUI_PATH.read_text(encoding="utf-8"), "ToolLoopTerminalUi")
+    tui_class = _class(TUI_PATH.read_text(encoding="utf-8"), "TerminalUi")
     for name in ("read_line", "wait_for_active_turn_interrupt"):
         method = _method(tui_class, name)
         assert any(isinstance(node, ast.While) for node in ast.walk(method))
@@ -152,7 +152,7 @@ def test_deferred_input_loops_stay_in_facade_and_use_screen_services() -> None:
 
 
 def test_contributor_order_and_shared_render_inputs_are_exact(tmp_path: Path) -> None:
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
     assert tuple(item.name for item in ui._screen.contributors.ordinary) == (

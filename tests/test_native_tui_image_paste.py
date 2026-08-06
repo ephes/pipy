@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.clipboard import ImageClipboardResult
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.clipboard_images import ClipboardConfig, ClipboardImages
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
@@ -27,8 +27,8 @@ def _config(path: Path, *, found: bool = True) -> ClipboardConfig:
     )
 
 
-def _ui(tmp_path: Path, config: ClipboardConfig | None = None) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path, config: ClipboardConfig | None = None) -> TerminalUi:
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,

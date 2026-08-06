@@ -47,7 +47,7 @@ from pipy_harness.native.coding.session_controller import (
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 class _FakeProvider:
@@ -1029,9 +1029,7 @@ def test_run_loop_shutdown_clears_editor_when_extension_text_capture_throws() ->
     controller = _run_loop_controller(log)
     result = _repl_result()
     terminal = io.StringIO()
-    ui = ToolLoopTerminalUi(
-        input_stream=io.StringIO(), terminal_stream=terminal, cwd=Path(".")
-    )
+    ui = TerminalUi(input_stream=io.StringIO(), terminal_stream=terminal, cwd=Path("."))
     disposed: list[str] = []
 
     class _ExtensionEditorFailure(BaseException):

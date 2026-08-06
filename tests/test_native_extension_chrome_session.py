@@ -31,7 +31,7 @@ from pipy_harness.native.coding.session import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.terminal_screen import parse_ansi_screen
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 # Sets a widget + title on session_start. In a captured-stream run there is no
 # live ui_driver, so this never reaches the screen/archive (the no-leak case).
@@ -186,7 +186,7 @@ def test_pty_session_renders_then_reload_clears_chrome(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -298,7 +298,7 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
     stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -424,7 +424,7 @@ def test_pty_reload_session_start_hook_restores_chrome_live(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -499,7 +499,7 @@ def test_pty_session_start_hook_renders_chrome_live(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

@@ -32,7 +32,7 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
 )
@@ -88,15 +88,15 @@ class _ScriptedComponent:
             self._done(None)
 
 
-def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
     )
 
 
-def _external_editor(ui: ToolLoopTerminalUi) -> ExtensionExternalEditor:
+def _external_editor(ui: TerminalUi) -> ExtensionExternalEditor:
     return ExtensionExternalEditor(
         external_io_suspension=ui.external_io_suspension,
         terminal_write=ui._driver.write,
@@ -206,7 +206,7 @@ def test_custom_component_failed_nested_acquisition_preserves_outer_raw_owner(
         "tcsetattr",
         lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, _InputBuffer()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
@@ -245,7 +245,7 @@ def test_custom_component_failed_physical_acquisition_has_no_release(
         "tcsetattr",
         lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, _InputBuffer()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,

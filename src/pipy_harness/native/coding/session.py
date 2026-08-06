@@ -82,7 +82,7 @@ from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.clipboard_images import create_clipboard_config
 
 
@@ -314,13 +314,13 @@ class CodingSession:
         workspace: Path,
         keybindings_manager: KeybindingsManager | None = None,
         include_workspace_defaults: bool = False,
-    ) -> ToolLoopTerminalUi | None:
+    ) -> TerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
-        if not ToolLoopTerminalUi.is_supported(input_stream, error_stream):
+        if not TerminalUi.is_supported(input_stream, error_stream):
             return None
         clipboard_config = create_clipboard_config(self.clipboard_image_read)
-        return ToolLoopTerminalUi(
+        return TerminalUi(
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,

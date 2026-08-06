@@ -105,7 +105,7 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.tools import ToolDefinition
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_CYCLE_NEXT,
@@ -592,7 +592,7 @@ class _ReplLoopStep:
         self,
         *,
         coding_state: CodingSessionState,
-        repl_input: "ToolLoopTerminalUi | NativeReplInput",
+        repl_input: "TerminalUi | NativeReplInput",
         started_at: datetime,
     ) -> CodingSessionResult:
         try:
@@ -658,6 +658,6 @@ class _ReplLoopStep:
         del retained, generation
         raise_first((queue_error, chrome_close_error, chrome_finalize_error))
 
-    def clear_extension_chrome(self, *, terminal_ui: ToolLoopTerminalUi | None) -> None:
+    def clear_extension_chrome(self, *, terminal_ui: TerminalUi | None) -> None:
         if terminal_ui is not None:
             terminal_ui.clear_extension_chrome()

@@ -74,7 +74,7 @@ from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tool_renderers import _parse_tool_input, _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
-    ToolLoopTerminalUi,
+    TerminalUi,
     _LiveExtensionUiDriver,
 )
 from pipy_harness.native.ui.components.custom_entry_renderer import (
@@ -124,7 +124,7 @@ class SessionCollaborators:
     product_session: CodingProductSessionCoordinator
     coding_input_queue: CodingInputQueue
     coding_effects: CodingEffectCoordinator
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     settings: SettingsManager
     cwd: Path
     error_stream: TextIO
@@ -183,7 +183,7 @@ class SessionCollaborators:
         return resolve_session_target(self.current_session_dir(), ref)
 
     def session_command_effects(
-        self, repl_input: "ToolLoopTerminalUi | NativeReplInput"
+        self, repl_input: "TerminalUi | NativeReplInput"
     ) -> SessionCommandEffects:
         """Assemble the session-command executor from this run's narrow ports."""
 

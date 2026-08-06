@@ -1,6 +1,6 @@
 """Real-PTY integration tests for the interactive session picker overlay.
 
-These drive ``ToolLoopTerminalUi.run_session_picker`` over a real pseudo-TTY:
+These drive ``TerminalUi.run_session_picker`` over a real pseudo-TTY:
 the inline overlay renders (no alternate screen), real arrow/Enter/Esc key
 decoding works, a TIOCSWINSZ resize repaints coherently while the picker is
 open, and the chosen native session file is returned. No provider turn runs.
@@ -22,7 +22,7 @@ import pytest
 from pty_sync import wait_for_input_ready_after, wait_for_output
 
 from pipy_harness.native.session_tree_commands import SessionListEntry
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
@@ -108,7 +108,7 @@ def test_pty_picker_navigate_resize_and_select(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     _err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -160,7 +160,7 @@ def test_pty_picker_esc_cancels(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     _err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

@@ -97,7 +97,7 @@ from pipy_harness.native.tui import (
     TURN_LOCAL_COMMAND,
     TURN_SETTLED,
     TURN_STEERED,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 
 
@@ -1359,7 +1359,7 @@ def test_provider_interrupt_waiter_maps_terminal_outcomes(
     cancel_event = threading.Event()
 
     interruption = wait_for_provider_interrupt(
-        cast(ToolLoopTerminalUi, ui), done_event, cancel_event
+        cast(TerminalUi, ui), done_event, cancel_event
     )
 
     assert interruption is expected_interruption
@@ -1376,7 +1376,7 @@ def test_provider_interrupt_waiter_maps_keyboard_interrupt_and_signals_cancel() 
     cancel_event = threading.Event()
 
     interruption = wait_for_provider_interrupt(
-        cast(ToolLoopTerminalUi, ui), done_event, cancel_event
+        cast(TerminalUi, ui), done_event, cancel_event
     )
 
     assert interruption is ProviderTurnInterruption.OPERATOR_ABORT
@@ -2110,7 +2110,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
         raise RuntimeError("disk is read-only")
 
     def record_diagnostic(
-        terminal_ui: ToolLoopTerminalUi | None,
+        terminal_ui: TerminalUi | None,
         error_stream: TextIO,
         message: str,
     ) -> None:
@@ -2464,7 +2464,7 @@ def test_reload_refreshes_extension_entry_renderers(
     provider = FakeNativeProvider(supports_tool_calls=True)
     session = CodingSession(provider=provider, tool_registry={})
     terminal_stream = _TtyBuffer()
-    terminal_ui = ToolLoopTerminalUi(
+    terminal_ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, terminal_stream),
         cwd=tmp_path,
@@ -2475,7 +2475,7 @@ def test_reload_refreshes_extension_entry_renderers(
         del self, prompt_label, footer
         return queued.pop(0) if queued else ""
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(TerminalUi, "read_line", _read_line)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -2749,7 +2749,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
 
     reopened = NativeSessionTree.open(tree.path)
     terminal_stream = _TtyBuffer()
-    terminal_ui = ToolLoopTerminalUi(
+    terminal_ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, terminal_stream),
         cwd=tmp_path,
@@ -2760,7 +2760,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
         del self, prompt_label, footer
         return queued.pop(0) if queued else ""
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(TerminalUi, "read_line", _read_line)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -2842,7 +2842,7 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
         encoding="utf-8",
     )
     terminal_stream = _TtyBuffer()
-    terminal_ui = ToolLoopTerminalUi(
+    terminal_ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, terminal_stream),
         cwd=tmp_path,
@@ -2855,7 +2855,7 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
         del self, prompt_label, footer
         return queued.pop(0) if queued else ""
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(TerminalUi, "read_line", _read_line)
     provider = FakeNativeProvider(supports_tool_calls=True)
     session = CodingSession(provider=provider, tool_registry={})
     monkeypatch.setattr(

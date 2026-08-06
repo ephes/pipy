@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pipy_harness.native.tool_renderers import render_chrome_component
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 @dataclass
@@ -35,7 +35,7 @@ class _Tty(io.StringIO):
 
 
 def _ui(tty: bool = False):
-    return ToolLoopTerminalUi(
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=_Tty() if tty else io.StringIO(),
         cwd=Path("."),
@@ -90,13 +90,15 @@ def run_checks() -> list[Check]:
 
     # 2. widget set/replace/clear + insertion order + placement.
     ui = _ui()
-    ui.set_extension_widget("z", ["z"])
-    ui.set_extension_widget("a", ["a"])
-    ui.set_extension_widget("b", ["b"], placement="below_editor")
-    order_ok = list(ui.extension_widgets_above.keys()) == ["z", "a"]
-    place_ok = "b" in ui.extension_widgets_below
-    ui.set_extension_widget("z", None)
-    cleared = "z" not in ui.extension_widgets_above
+    ui._chrome.component.set_widget("z", ["z"])  # noqa: SLF001
+    ui._chrome.component.set_widget("a", ["a"])  # noqa: SLF001
+    ui._chrome.component.set_widget(  # noqa: SLF001
+        "b", ["b"], placement="below_editor"
+    )
+    order_ok = list(ui._chrome.record.widgets_above) == ["z", "a"]  # noqa: SLF001
+    place_ok = "b" in ui._chrome.record.widgets_below  # noqa: SLF001
+    ui._chrome.component.set_widget("z", None)  # noqa: SLF001
+    cleared = "z" not in ui._chrome.record.widgets_above  # noqa: SLF001
     checks.append(
         Check(
             "widget_lifecycle",
@@ -107,50 +109,53 @@ def run_checks() -> list[Check]:
 
     # 3. header/footer exclusive replace + restore.
     ui = _ui()
-    ui.set_extension_header(lambda theme: _LC(["h"]))
-    ui.set_extension_footer(lambda theme, fd: _LC(["f"]))
-    set_ok = ui.extension_header is not None and ui.extension_footer is not None
-    ui.set_extension_header(None)
-    ui.set_extension_footer(None)
-    restore_ok = ui.extension_header is None and ui.extension_footer is None
+    ui._chrome.component.set_header(lambda theme: _LC(["h"]))  # noqa: SLF001
+    ui._chrome.footer.set_footer(lambda theme, fd: _LC(["f"]))  # noqa: SLF001
+    set_ok = (  # noqa: SLF001
+        ui._chrome.record.header is not None and ui._chrome.record.footer is not None
+    )
+    ui._chrome.component.set_header(None)  # noqa: SLF001
+    ui._chrome.footer.set_footer(None)  # noqa: SLF001
+    restore_ok = (  # noqa: SLF001
+        ui._chrome.record.header is None and ui._chrome.record.footer is None
+    )
     checks.append(
         Check("header_footer_exclusive", set_ok and restore_ok, "replace+restore")
     )
 
     # 4. title OSC on TTY, no-op off.
     ui_tty = _ui(tty=True)
-    ui_tty.set_extension_title("hello")
+    ui_tty._chrome.component.set_title("hello")  # noqa: SLF001
     osc_ok = "\x1b]0;hello\x07" in ui_tty.terminal_stream.getvalue()
     ui_off = _ui(tty=False)
-    ui_off.set_extension_title("hello")
+    ui_off._chrome.component.set_title("hello")  # noqa: SLF001
     noop_ok = ui_off.terminal_stream.getvalue() == ""
     checks.append(Check("title_osc", osc_ok and noop_ok, "OSC on TTY / no-op off"))
 
     # 5. indicator override / default-frames-custom-interval / hide / restore.
     ui = _ui()
-    ui.set_extension_working_indicator(["x"], 120)
-    a = (
-        ui._chrome.indicator_frames == ("x",)
-        and ui._chrome.indicator_interval_ms == 120.0
+    ui._chrome.component.set_working_indicator(["x"], 120)  # noqa: SLF001
+    a = (  # noqa: SLF001
+        ui._chrome.record.indicator_frames == ("x",)
+        and ui._chrome.record.indicator_interval_ms == 120.0
     )
-    ui.set_extension_working_indicator(
-        None, 120
-    )  # frames=None -> default frames, interval still applies
-    b = (
-        ui._chrome.indicator_frames is None
-        and ui._chrome.indicator_interval_ms == 120.0
+    # frames=None restores defaults while preserving the explicit interval.
+    ui._chrome.component.set_working_indicator(None, 120)  # noqa: SLF001
+    b = (  # noqa: SLF001
+        ui._chrome.record.indicator_frames is None
+        and ui._chrome.record.indicator_interval_ms == 120.0
     )
-    ui.set_extension_working_indicator([], None)  # hide
-    c = ui._chrome.indicator_frames == ()
+    ui._chrome.component.set_working_indicator([], None)  # noqa: SLF001
+    c = ui._chrome.record.indicator_frames == ()  # noqa: SLF001
     checks.append(
         Check("indicator_semantics", a and b and c, "override / reset / hide")
     )
 
     # 6. resize re-render of a factory widget.
     ui = _ui()
-    ui.set_extension_widget("k", lambda tui, theme: _WComp())
-    l40 = ui._extension_widgets_lines("above_editor", 40)
-    l70 = ui._extension_widgets_lines("above_editor", 70)
+    ui._chrome.component.set_widget("k", lambda tui, theme: _WComp())  # noqa: SLF001
+    l40 = ui._chrome.component.widget_lines("above_editor", 40)  # noqa: SLF001
+    l70 = ui._chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
     checks.append(
         Check(
             "resize_rerender",
@@ -168,10 +173,12 @@ def run_checks() -> list[Check]:
         def render(self, width):
             return [state["value"]]
 
-    ui.set_extension_widget("k", lambda tui, theme: handles.append(tui) or _LiveComp())
-    first = ui._extension_widgets_lines("above_editor", 70)
+    ui._chrome.component.set_widget(  # noqa: SLF001
+        "k", lambda tui, theme: handles.append(tui) or _LiveComp()
+    )
+    first = ui._chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
     state["value"] = "b"
-    second = ui._extension_widgets_lines("above_editor", 70)
+    second = ui._chrome.component.widget_lines("above_editor", 70)  # noqa: SLF001
     request_ok = bool(handles) and hasattr(handles[0], "requestRender")
     before = ui.terminal_stream.getvalue()
     handles[0].requestRender()
@@ -190,8 +197,10 @@ def run_checks() -> list[Check]:
     # 8. dispose called on replace + clear.
     ui = _ui()
     disposed = []
-    ui.set_extension_widget("k", lambda theme: _DComp(disposed))
-    ui.set_extension_widget("k", ["plain"])
+    ui._chrome.component.set_widget(  # noqa: SLF001
+        "k", lambda theme: _DComp(disposed)
+    )
+    ui._chrome.component.set_widget("k", ["plain"])  # noqa: SLF001
     ui.clear_extension_chrome()
     checks.append(Check("dispose", disposed == [True], "dispose on replace/clear"))
 

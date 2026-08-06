@@ -9,7 +9,7 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSnapshot,
 )
 from pipy_harness.native.tui import (
-    ToolLoopTerminalUi,
+    TerminalUi,
     _LiveExtensionUiDriver,
 )
 from pipy_harness.native.ui.components.tool_loop_renderer import (
@@ -18,7 +18,7 @@ from pipy_harness.native.ui.components.tool_loop_renderer import (
 
 
 def _ui():
-    return ToolLoopTerminalUi(
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=Path("."),
@@ -913,7 +913,7 @@ def test_footer_branch_change_rebuilds_and_invokes_callbacks(tmp_path):
     subprocess.run(
         ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,
@@ -960,7 +960,7 @@ def test_footer_branch_change_disposer_and_clear_suppress_callbacks(tmp_path):
     subprocess.run(
         ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,
@@ -1026,7 +1026,7 @@ def test_footer_branch_change_detached_head_uses_stable_label(tmp_path):
         check=True,
         capture_output=True,
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,
@@ -1061,7 +1061,7 @@ def test_footer_branch_change_preserves_disposed_callback_slots(tmp_path):
     subprocess.run(
         ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,

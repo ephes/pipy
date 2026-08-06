@@ -1,4 +1,4 @@
-"""Real-PTY integration test for `ToolLoopTerminalUi.run_custom_component`.
+"""Real-PTY integration test for `TerminalUi.run_custom_component`.
 
 Drives a trusted extension custom component over a real pseudo-TTY: its lines
 render inline (no alternate screen), decoded keystrokes reach `handle_input`,
@@ -26,7 +26,7 @@ import pytest
 from pty_sync import wait_for_input_ready, wait_for_input_ready_after
 
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionExternalEditor,
 )
@@ -155,7 +155,7 @@ def _make_ui(tmp_path: Path):
     stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

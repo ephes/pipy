@@ -43,7 +43,7 @@ from pipy_harness.native.themes import (
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_TOGGLE_THINKING,
@@ -83,7 +83,7 @@ def tool_loop_settings_overlay_lines(
 
 
 def open_theme_selector(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     *,
     settings: "SettingsManager",
 ) -> None:
@@ -137,7 +137,7 @@ def settings_dialog_rows(
     prompt_history_store: PromptHistoryStore,
     *,
     in_memory_depth: int,
-    terminal_ui: ToolLoopTerminalUi | None = None,
+    terminal_ui: TerminalUi | None = None,
     settings: "SettingsManager | None" = None,
 ) -> list[SettingsRow]:
     """Build the interactive ``/settings`` dialog rows.
@@ -290,7 +290,7 @@ def settings_dialog_rows(
 
 
 def drive_settings_dialog(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     prompt_history_store: PromptHistoryStore,
     *,
     provider: ProviderPort,
@@ -370,7 +370,7 @@ def drive_settings_dialog(
 def _apply_local_settings_action(
     action: str,
     *,
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     prompt_history_store: PromptHistoryStore,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
     cycle_thinking_level: Callable[[], str | None],
@@ -412,7 +412,7 @@ def _apply_local_settings_action(
 
 def _run_settings_exit_action(
     action: str,
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     *,
     state: NativeReplProviderState | StaticNativeReplProviderState,
     apply_model_selection: Callable[[str], tuple[bool, str]],
@@ -434,7 +434,7 @@ def _run_settings_exit_action(
 
 
 def _run_model_selection(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     state: NativeReplProviderState,
     apply_model_selection: Callable[[str], tuple[bool, str]],
 ) -> None:

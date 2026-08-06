@@ -1,6 +1,6 @@
 """Hard conformance gate for the Pi-style interactive TUI/editor workflow.
 
-This script drives pipy's **real product TUI** (`ToolLoopTerminalUi` over a real
+This script drives pipy's **real product TUI** (`TerminalUi` over a real
 pseudo-TTY, the same path `pipy repl --agent pipy-native --repl-mode tool-loop`
 uses) with the deterministic fake provider in a temporary workspace, then
 inspects the observable result. It is the implementation source of truth for the
@@ -81,7 +81,10 @@ from pipy_harness.native.repl_state import (  # noqa: E402
 )
 from pipy_harness.native.session_tree import NativeSessionTree  # noqa: E402
 from pipy_harness.native.settings import SettingsManager  # noqa: E402
-from pipy_harness.native.tui import ToolLoopTerminalUi  # noqa: E402
+from pipy_harness.native.tui import TerminalUi  # noqa: E402
+from pipy_harness.native.ui.clipboard_images import (  # noqa: E402
+    create_clipboard_config,
+)
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
 
@@ -229,10 +232,15 @@ class _PtyRun:
         self._drain = threading.Thread(target=self._drain_loop, daemon=True)
         self._drain.start()
 
-        self.ui = ToolLoopTerminalUi(
+        self.ui = TerminalUi(
             input_stream=cast(TextIO, self._stdin),
             terminal_stream=cast(TextIO, self._terminal),
             cwd=workspace,
+            clipboard_config=(
+                None
+                if clipboard_image_read is None
+                else create_clipboard_config(clipboard_image_read)
+            ),
         )
         kwargs: dict[str, object] = {"tool_registry": {}}
         if provider_state is not None:

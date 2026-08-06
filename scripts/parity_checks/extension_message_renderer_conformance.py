@@ -32,7 +32,7 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
 )
 from pipy_harness.native.session_tree import CustomMessageEntry
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 @dataclass
@@ -291,7 +291,7 @@ def run_checks() -> list[Check]:
         def isatty(self):
             return True
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, StringIO()),
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=Path.cwd(),

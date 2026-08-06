@@ -1,7 +1,7 @@
 """Terminal output, raw-mode, and restoration driver for the native TUI.
 
 ``TerminalDriver`` owns the low-level terminal I/O for
-:class:`~pipy_harness.native.tui.ToolLoopTerminalUi`: the error-swallowing
+:class:`~pipy_harness.native.tui.TerminalUi`: the error-swallowing
 write/flush sink (with a deferred, unflushed variant for screen-clears that
 must coalesce with the following frame's flush), the termios raw-mode
 lifecycle, ANSI bracketed-paste toggling, the xterm terminal-title OSC

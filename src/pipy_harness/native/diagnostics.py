@@ -6,13 +6,13 @@ the error stream. Diagnostics routinely carry extension-supplied text, so an
 unsanitized line could smuggle escape sequences into a terminal -- but the two
 destinations sanitize in different places, and only one of them is here. The
 stderr path sanitizes below; the notice path relies on the sink doing it, which
-`ToolLoopTerminalUi.add_notice` does before the text reaches a frame. A sink that
+`TerminalUi.add_notice` does before the text reaches a frame. A sink that
 did not sanitize would reintroduce that hole silently, so `NoticeSink` is a
 deliberately tiny port with exactly one production implementation.
 
 The sink is a one-method structural port rather than the terminal UI itself.
 That is what lets this module sit below the UI, the REPL tier and the session at
-once -- all three emit diagnostics, and a concrete `ToolLoopTerminalUi` here
+once -- all three emit diagnostics, and a concrete `TerminalUi` here
 would invert the dependency for two of them.
 """
 

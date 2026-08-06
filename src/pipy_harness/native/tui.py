@@ -85,12 +85,6 @@ from pipy_harness.native.ui.chrome_handoff import (
 )
 from pipy_harness.native.ui.clipboard_images import ClipboardConfig, ClipboardImages
 from pipy_harness.native.ui.components.custom_editor import (
-    HOTKEY_EXTENSION_SHORTCUT_PREFIX,
-    HOTKEY_MODEL_CYCLE_NEXT,
-    HOTKEY_MODEL_CYCLE_PREV,
-    HOTKEY_THINKING_CYCLE,
-    HOTKEY_TOGGLE_THINKING,
-    HOTKEY_TOGGLE_TOOLS,
     CustomEditorEffects,
     CustomEditorOwner,
     CustomEditorState,
@@ -110,8 +104,11 @@ from pipy_harness.native.ui.components.extension_prompts import (
 )
 from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.input_editor import (
+    EditingAction,
     EditingKeyContext,
+    EditingMode,
     InputEditor,
+    LineEditingEffects,
     apply_editing_key,
 )
 from pipy_harness.native.ui.components.model_selector import (
@@ -214,10 +211,18 @@ def _drive_result(
     return None if closed is None else DriveResult(project(closed))
 
 
+def _active_editing_mode(accept_queue: bool, accept_commands: bool) -> EditingMode:
+    if accept_queue:
+        return EditingMode.ACTIVE_QUEUE
+    if accept_commands:
+        return EditingMode.ACTIVE_COMMAND
+    return EditingMode.ACTIVE_WATCH
+
+
 class _LiveExtensionUiDriver:
     """Live `ExtensionUiDriver` backed by the product TUI (one per session)."""
 
-    def __init__(self, terminal_ui: "ToolLoopTerminalUi", cwd: Path) -> None:
+    def __init__(self, terminal_ui: "TerminalUi", cwd: Path) -> None:
         self._terminal_ui = terminal_ui
         self._cwd = cwd
         # Ownership of chrome is a transaction with its own state and no terminal
@@ -289,39 +294,46 @@ class _LiveExtensionUiDriver:
         return _GenerationExtensionUiDriver(self, sink)
 
     def _deliver_chrome_event(self, event: ExtensionChromeEvent) -> object:
-        kind = event.kind
-        values = event.values
-        if kind == "reconcile":
-            snapshot = cast(ExtensionChromeSnapshot, values[0])
+        if event.kind == "reconcile":
             return self._terminal_ui.reconcile_extension_chrome(
-                snapshot,
+                cast(ExtensionChromeSnapshot, event.values[0]),
                 retirement_scope=self._retiring_disposal_route,
             )
-        if kind == "widget":
+        if event.kind in {"widget", "header", "footer", "title", "indicator"}:
+            self._deliver_chrome_region_event(event)
+            return None
+        return self._deliver_chrome_input_event(event)
+
+    def _deliver_chrome_region_event(self, event: ExtensionChromeEvent) -> None:
+        values = event.values
+        if event.kind == "widget":
             self._terminal_ui._chrome.component.set_widget(  # noqa: SLF001
                 cast(str, values[0]), values[1], placement=cast(str, values[2])
             )
-        elif kind == "header":
+        elif event.kind == "header":
             self._terminal_ui._chrome.component.set_header(values[0])  # noqa: SLF001
-        elif kind == "footer":
+        elif event.kind == "footer":
             self._terminal_ui._chrome.footer.set_footer(values[0])  # noqa: SLF001
-        elif kind == "title":
+        elif event.kind == "title":
             self._terminal_ui._chrome.component.set_title(  # noqa: SLF001
                 cast(str, values[0])
             )
-        elif kind == "indicator":
+        elif event.kind == "indicator":
             self._terminal_ui._chrome.component.set_working_indicator(  # noqa: SLF001
                 values[0], values[1]
             )
-        elif kind == "hidden-thinking-label":
+
+    def _deliver_chrome_input_event(self, event: ExtensionChromeEvent) -> object:
+        values = event.values
+        if event.kind == "hidden-thinking-label":
             self._terminal_ui._transcript.set_hidden_thinking_label(  # noqa: SLF001
                 cast("str | None", values[0])
             )
-        elif kind == "autocomplete":
+        elif event.kind == "autocomplete":
             self._terminal_ui._autocomplete.add_extension_provider(values[0])  # noqa: SLF001
-        elif kind == "editor-component":
+        elif event.kind == "editor-component":
             self._terminal_ui._custom_editor.set_editor_component(values[0])  # noqa: SLF001
-        elif kind == "listener":
+        elif event.kind == "listener":
             return self._terminal_ui._chrome.listeners.add(  # noqa: SLF001
                 cast("Callable[[str], object]", values[1])
             )
@@ -480,7 +492,7 @@ class _GenerationExtensionUiDriver:
 
 
 @dataclass(slots=True)
-class ToolLoopTerminalUi:
+class TerminalUi:
     """Stateful terminal frame for the native tool-loop REPL.
 
     The UI intentionally uses whole-frame repainting (`cursor home` +
@@ -749,16 +761,43 @@ class ToolLoopTerminalUi:
         self._screen.paint()
         fd = self.input_stream.fileno()
         editing_context = EditingKeyContext(
+            mode=EditingMode.LINE,
             slash_menu_open=lambda: self._autocomplete.slash_menu_open,
             slash_menu_has_matches=lambda: bool(self._autocomplete.filtered_commands()),
+            slash_menu_exact_match=lambda text: (
+                text in self._autocomplete.filtered_commands()
+            ),
             autocomplete_open=lambda: self._autocomplete.autocomplete_open,
             navigate_slash_menu=self._autocomplete.navigate_slash_menu,
             navigate_autocomplete=self._autocomplete.navigate,
             accept_slash_menu=self._autocomplete.accept_slash_menu_selection,
             accept_autocomplete=self._autocomplete.accept_selection,
+            dismiss_slash_menu=self._autocomplete.dismiss_slash_menu,
+            close_autocomplete=self._autocomplete.close,
             attempt_path_completion=self._autocomplete.attempt_path_completion,
+            consume_paste=self.input_editor.consume_paste,
+            insert_paste=self.clipboard_images.insert_paste,
+            repaint=self._screen.paint,
+            is_local_command=self._submitted_text_is_local_command,
             allow_history=True,
             allow_path_completion=True,
+            line_effects=LineEditingEffects(
+                matches_external_editor=lambda key: matches_key_specs(
+                    key,
+                    resolved_key_specs("app.editor.external", self.keybindings_manager),
+                ),
+                run_external_editor=lambda text: ExtensionExternalEditor(
+                    external_io_suspension=self.external_io_suspension,
+                    terminal_write=self._driver.write,
+                    input_stream=self.input_stream,
+                    terminal_stream=self.terminal_stream,
+                ).run_configured(text),
+                paste_clipboard_image=self.clipboard_images.paste_clipboard_image,
+                shortcut_keys=lambda: tuple(self._autocomplete.shortcut_keys),
+                custom_editor_active=lambda: self._custom_editor.active,
+                handle_custom_editor=self._custom_editor.handle_key,
+                consume_custom_exit=self._custom_editor.consume_exit_requested,
+            ),
             allow_listener_replacement=True,
             listener_replaced=lambda: self._chrome.listeners.last_replaced,
         )
@@ -768,115 +807,13 @@ class ToolLoopTerminalUi:
                 if key is None:
                     return ""
                 key = self._chrome.listeners.apply(key)
-                if self._custom_editor.active:
-                    submitted = self._custom_editor.handle_key(key)
-                    if submitted is not None:
-                        if self._custom_editor.consume_exit_requested():
-                            self.input_editor.reset_line_editor_state()
-                            self._screen.paint()
-                            return ""
-                        self.input_editor.record_history(submitted)
-                        self.input_editor.reset_line_editor_state()
-                        self._screen.paint()
-                        return f"{submitted}\n"
-                    continue
-                if key is None:
-                    self._screen.paint()
-                    continue
-                if key == "enter":
-                    if self._autocomplete.autocomplete_open:
-                        # Enter accepts the highlighted completion (Pi: Enter/Tab
-                        # accept) and keeps editing rather than submitting.
-                        self._autocomplete.accept_selection()
-                        continue
-                    if (
-                        self._autocomplete.slash_menu_open
-                        and self._autocomplete.filtered_commands()
-                    ):
-                        matches = self._autocomplete.filtered_commands()
-                        if self.input_editor.text not in matches:
-                            self._autocomplete.accept_slash_menu_selection()
-                    submitted = self.input_editor.submit_line()
-                    self._screen.paint()
-                    return f"{submitted}\n"
-                if key == "ctrl-c":
+                outcome = apply_editing_key(self.input_editor, key, editing_context)
+                if outcome.action is EditingAction.INTERRUPT:
                     raise KeyboardInterrupt
-                if key == "ctrl-d":
-                    if not self.input_editor.text:
-                        return ""
-                    continue
-                if self._matches_keybinding(key, "app.editor.external"):
-                    edited = ExtensionExternalEditor(
-                        external_io_suspension=self.external_io_suspension,
-                        terminal_write=self._driver.write,
-                        input_stream=self.input_stream,
-                        terminal_stream=self.terminal_stream,
-                    ).run_configured(self.input_editor.text)
-                    if edited is None:
-                        self._screen.paint()
-                    else:
-                        self.input_editor.replace_after_external_edit(edited)
-                    continue
-                if key in {"ctrl-p", "shift-ctrl-p"}:
-                    # app.model.cycleForward (ctrl+p) / cycleBackward
-                    # (shift+ctrl+p): cycle the active model through the scoped
-                    # set. Delegated to the session's /scoped-models dispatch so
-                    # the live provider rebinds through the shared select_model
-                    # boundary; no provider turn. Any partially-typed input is
-                    # preserved and re-injected into the next prompt so the cycle
-                    # never drops what the user was typing. (shift+ctrl+p is only
-                    # decodable on terminals speaking the kitty keyboard
-                    # protocol; legacy terminals send plain ctrl+p and cycle
-                    # forward — a documented input-decoding limit.)
-                    self.input_editor.preserve_for_next_line()
-                    return (
-                        f"{HOTKEY_MODEL_CYCLE_PREV}\n"
-                        if key == "shift-ctrl-p"
-                        else f"{HOTKEY_MODEL_CYCLE_NEXT}\n"
-                    )
-                if key == "shift-tab":
-                    # app.thinking.cycle: cycle the reasoning level. Dispatched
-                    # by the session without a provider turn; the partially-typed
-                    # buffer is preserved into the next prompt.
-                    self.input_editor.preserve_for_next_line()
-                    return f"{HOTKEY_THINKING_CYCLE}\n"
-                if key in {"ctrl-o", "ctrl-t"}:
-                    # app.tools.expand (ctrl+o) / app.thinking.toggle (ctrl+t):
-                    # renderer view-flag toggles dispatched by the session (so the
-                    # thinking-visibility setting can be persisted and a status
-                    # shown). The partially-typed buffer is preserved.
-                    self.input_editor.preserve_for_next_line()
-                    return (
-                        f"{HOTKEY_TOGGLE_TOOLS}\n"
-                        if key == "ctrl-o"
-                        else f"{HOTKEY_TOGGLE_THINKING}\n"
-                    )
-                if key == "paste":
-                    self.clipboard_images.insert_paste(
-                        self.input_editor.consume_paste()
-                    )
-                    continue
-                if key == "ctrl-v":
-                    # app.clipboard.pasteImage: read an image from the OS
-                    # clipboard, write it to an owner-only temp file, and insert
-                    # an @image: reference. No provider turn.
-                    self.clipboard_images.paste_clipboard_image()
-                    continue
-                if key in self._autocomplete.shortcut_keys:
-                    # An activated extension bound this key via
-                    # api.register_shortcut. Preserve any partially-typed input
-                    # into the next prompt (like the app hotkeys) and hand the
-                    # session the sentinel so it dispatches the bound handler.
-                    self.input_editor.preserve_for_next_line()
-                    return f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key}\n"
-                if key == "esc":
-                    if self._autocomplete.slash_menu_open:
-                        self._autocomplete.dismiss_slash_menu()
-                    elif self._autocomplete.autocomplete_open:
-                        self._autocomplete.close()
-                        self._screen.paint()
-                    continue
-                apply_editing_key(self.input_editor, key, editing_context)
+                if outcome.action is EditingAction.EOF:
+                    return ""
+                if outcome.action in {EditingAction.SUBMIT, EditingAction.APP_COMMAND}:
+                    return f"{outcome.text}\n"
 
     def wait_for_active_turn_interrupt(
         self,
@@ -905,107 +842,59 @@ class ToolLoopTerminalUi:
         """
 
         fd = self.input_stream.fileno()
-        command_only = accept_commands and not accept_queue
+        editing_mode = _active_editing_mode(accept_queue, accept_commands)
+        command_only = editing_mode is EditingMode.ACTIVE_COMMAND
         editing_context = EditingKeyContext(
+            mode=editing_mode,
             slash_menu_open=lambda: self._autocomplete.slash_menu_open,
             slash_menu_has_matches=lambda: bool(self._autocomplete.filtered_commands()),
+            slash_menu_exact_match=lambda text: (
+                text in self._autocomplete.filtered_commands()
+            ),
             autocomplete_open=lambda: self._autocomplete.autocomplete_open,
             navigate_slash_menu=self._autocomplete.navigate_slash_menu,
             navigate_autocomplete=self._autocomplete.navigate,
             accept_slash_menu=self._autocomplete.accept_slash_menu_selection,
             accept_autocomplete=self._autocomplete.accept_selection,
+            dismiss_slash_menu=self._autocomplete.dismiss_slash_menu,
+            close_autocomplete=self._autocomplete.close,
             attempt_path_completion=self._autocomplete.attempt_path_completion,
+            consume_paste=self.input_editor.consume_paste,
+            insert_paste=self.clipboard_images.insert_paste,
+            repaint=self._screen.paint,
+            is_local_command=self._submitted_text_is_local_command,
             allow_history=False,
             allow_path_completion=not command_only,
             tab_repaint="always",
         )
         with self._driver.raw_mode():
             while not done_event.is_set():
-                # Keep the streaming frame coherent if the terminal is resized
-                # mid-turn: streamed chunks repaint at the live size, but a
-                # stalled stream would not, so poll here too.
                 self._screen.poll_resize_repaint()
                 key = self._screen.read_driver_key(
                     self._driver.read_key_if_available(fd, poll_seconds)
                 )
                 if key is None:
                     continue
-                if key == "esc":
+                outcome = apply_editing_key(self.input_editor, key, editing_context)
+                if outcome.action is EditingAction.ABORT:
                     abort_event.set()
                     return TURN_ABORTED
-                if key == "ctrl-c":
+                if outcome.action is EditingAction.INTERRUPT:
                     abort_event.set()
                     raise KeyboardInterrupt
-                if not accept_queue and not accept_commands:
-                    if key == "paste":
-                        # A paste mid-turn is not editor input; drop it so its
-                        # body never lingers into the next prompt.
-                        self.input_editor.consume_paste()
-                    continue
-                # In command-only mode, preserve the old "ignore random typing"
-                # behavior until the user explicitly starts a local command.
-                if (
-                    command_only
-                    and not self.input_editor.text
-                    and key not in {"/", "!"}
-                ):
-                    if key == "paste":
-                        self.input_editor.consume_paste()
-                    continue
-                # accept_queue / accept_commands: a mid-turn editor for
-                # steering/follow-up and/or local commands.
-                if key == "enter":
-                    if self._autocomplete.autocomplete_open:
-                        self._autocomplete.accept_selection()
-                        continue
-                    if (
-                        self._autocomplete.slash_menu_open
-                        and self._autocomplete.filtered_commands()
-                    ):
-                        matches = self._autocomplete.filtered_commands()
-                        if self.input_editor.text not in matches:
-                            self._autocomplete.accept_slash_menu_selection()
-                    text = self.input_editor.text
-                    self.input_editor.reset_mid_turn_input()
-                    if not text.strip():
-                        self._screen.paint()
-                        continue
-                    # A recognized local command (`/…` or `!…`) is never queued
-                    # for the provider: like Pi's editor, Enter runs it
-                    # immediately rather than steering. It interrupts the turn
-                    # and is handed to the session loop to dispatch locally.
-                    if self._submitted_text_is_local_command(text):
-                        self.input_editor.set_pending_command(text)
-                        abort_event.set()
-                        self._screen.paint()
-                        return TURN_LOCAL_COMMAND
-                    if command_only:
-                        self._screen.paint()
-                        continue
-                    self.pending_messages.enqueue_steering(text)
+                if outcome.action is EditingAction.LOCAL_COMMAND:
+                    self.input_editor.set_pending_command(outcome.text or "")
+                    abort_event.set()
+                    self._screen.paint()
+                    return TURN_LOCAL_COMMAND
+                if outcome.action is EditingAction.STEER:
+                    self.pending_messages.enqueue_steering(outcome.text or "")
                     abort_event.set()
                     return TURN_STEERED
-                if key == "alt-enter":
-                    if command_only:
-                        continue
-                    text = self.input_editor.text
-                    self.input_editor.reset_mid_turn_input()
-                    self.pending_messages.enqueue_follow_up(text)
-                    continue
-                if key == "alt-up":
-                    if command_only:
-                        continue
+                if outcome.action is EditingAction.FOLLOW_UP:
+                    self.pending_messages.enqueue_follow_up(outcome.text or "")
+                elif outcome.action is EditingAction.RESTORE_PENDING:
                     self.pending_messages.restore_pending_to_editor()
-                    continue
-                if key == "paste":
-                    if command_only:
-                        self.input_editor.consume_paste()
-                        continue
-                    self.clipboard_images.insert_paste(
-                        self.input_editor.consume_paste()
-                    )
-                    continue
-                apply_editing_key(self.input_editor, key, editing_context)
             return TURN_SETTLED
 
     def run_model_selector(
@@ -1176,12 +1065,6 @@ class ToolLoopTerminalUi:
             )
         )
         return result if isinstance(result, str) else None
-
-    def _matches_keybinding(self, key: str, action: str) -> bool:
-        return matches_key_specs(
-            key,
-            resolved_key_specs(action, self.keybindings_manager),
-        )
 
     def run_extension_confirm(self, title: str, message: str) -> bool:
         """Run a Pi-shaped extension confirmation dialog."""

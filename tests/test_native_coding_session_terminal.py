@@ -54,7 +54,7 @@ from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.autocomplete import AutocompleteComponent
@@ -108,8 +108,8 @@ class _TtyBuffer:
         return self._buffer.getvalue()
 
 
-def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
@@ -117,7 +117,7 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
 
 
 def _wait_for_frame_text(
-    ui: ToolLoopTerminalUi, text: str, *, width: int = 72, height: int = 14
+    ui: TerminalUi, text: str, *, width: int = 72, height: int = 14
 ) -> str:
     deadline = time.monotonic() + 1.0
     frame = ""
@@ -292,7 +292,7 @@ def test_tui_keeps_input_row_stable_when_working_line_settles(
     monkeypatch.setenv("COLUMNS", "80")
     monkeypatch.setenv("LINES", "24")
     stream = _TtyBuffer()
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, stream),
         cwd=tmp_path,
@@ -1575,12 +1575,12 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
         chosen_labels.append(options[chosen].label)
         return chosen
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _select_model)
+    monkeypatch.setattr(TerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(TerminalUi, "run_model_selector", _select_model)
     from pipy_harness.native.tui import TURN_SETTLED
 
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "wait_for_active_turn_interrupt",
         lambda self, done_event, abort_event, **kwargs: TURN_SETTLED,
     )
@@ -1633,7 +1633,7 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
     selector_calls: list[None] = []
 
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -1643,7 +1643,7 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
         selector_calls.append(None)
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _cancel_selector)
+    monkeypatch.setattr(TerminalUi, "run_model_selector", _cancel_selector)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -1827,7 +1827,7 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     ui = _ui(tmp_path)
     scripted = iter(["/settings\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -1843,7 +1843,7 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
         # dialog rather than committing a static text block.
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     session = CodingSession(
         provider=provider,
@@ -1928,7 +1928,7 @@ def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state
         )
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     assert (
         run_project_trust_selector(
@@ -1981,7 +1981,7 @@ def test_project_trust_selector_sanitizes_untrusted_path_labels(
         captured_rows.extend(rows)
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     assert (
         run_project_trust_selector(
@@ -2026,7 +2026,7 @@ def test_trust_command_persists_next_start_decision_without_hot_activation(
         assert "trust-option-0" in exit_actions
         return "trust-option-0"
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _select_exact_trust)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _select_exact_trust)
     settings = SettingsManager.for_workspace(cwd, project_trusted=False)
 
     handle_trust_command(
@@ -2219,7 +2219,7 @@ def test_persistent_history_seeds_tui_recall_when_enabled(
 
     ui = _ui(tmp_path)
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: "",  # immediate EOF
     )
@@ -2260,7 +2260,7 @@ def test_disabled_store_does_not_seed_tui_recall(
 
     ui = _ui(tmp_path)
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: "",
     )
@@ -2305,7 +2305,7 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
     ui.input_editor.input_history = list(store.entries())
     scripted = iter(["/settings\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -2319,7 +2319,7 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
         on_local_action("clear_history")
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     session = CodingSession(
         provider=provider,
@@ -2391,7 +2391,7 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
     ui = _ui(tmp_path)
     scripted = iter(["/settings\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -2421,7 +2421,7 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
         on_local_action("theme")  # no-op for a non-exit action: selector unopened
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     def _fake_model_selector(self, options, *, current_index=0, title=None):
         captured_selector_titles.append(title)
@@ -2429,7 +2429,7 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
         labels = [option.label for option in options]
         return next(i for i, label in enumerate(labels) if target_theme in label)
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _fake_model_selector)
+    monkeypatch.setattr(TerminalUi, "run_model_selector", _fake_model_selector)
 
     session = CodingSession(
         provider=provider,
@@ -2512,7 +2512,7 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
     ui = _ui(tmp_path)
     scripted = iter(["/settings\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -2540,13 +2540,13 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
         on_local_action("theme")
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     def _fake_model_selector(self, options, *, current_index=0, title=None):
         labels = [option.label for option in options]
         return next(i for i, label in enumerate(labels) if target_theme in label)
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _fake_model_selector)
+    monkeypatch.setattr(TerminalUi, "run_model_selector", _fake_model_selector)
 
     # Build the session with no provider_state, forcing the static fallback.
     session = CodingSession(
@@ -2607,7 +2607,7 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
     ui = _ui(tmp_path)
     scripted = iter(["/settings\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -2632,7 +2632,7 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
         on_local_action("scoped_models")
         return None
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+    monkeypatch.setattr(TerminalUi, "run_settings_dialog", _fake_dialog)
 
     def _fake_scope_selector(self, rows, *, checked=()):
         # Reaching here proves the scoped-models branch/overlay was driven.
@@ -2640,9 +2640,7 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
         overlay_opened.append(refs)
         return frozenset(refs)  # save all available refs as the scope
 
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "run_scoped_models_selector", _fake_scope_selector
-    )
+    monkeypatch.setattr(TerminalUi, "run_scoped_models_selector", _fake_scope_selector)
 
     session = CodingSession(
         provider=provider,
@@ -2769,7 +2767,7 @@ def test_tui_copy_command_is_local_only_when_nothing_to_copy(
     recorder = _ClipboardRecorder()
     scripted = iter(["/copy\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -2815,7 +2813,7 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     recorder = _ClipboardRecorder()
     scripted = iter(["hello\n", "/copy\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -2825,7 +2823,7 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     from pipy_harness.native.tui import TURN_SETTLED
 
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "wait_for_active_turn_interrupt",
         lambda self, done_event, abort_event, **kwargs: (
             done_event.wait(5),
@@ -2930,7 +2928,7 @@ def test_tui_session_does_not_print_legacy_separator(
 # --------------------------------------------------------------------------- #
 
 
-def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
+def _decode_key(ui: TerminalUi, data: bytes) -> str | None:
     """Feed raw bytes through the real key decoder over an OS pipe."""
 
     read_fd, write_fd = os.pipe()
@@ -3346,7 +3344,7 @@ def _raising_auth_session(
     tmp_path: Path,
     trace: list[str],
     failure: BaseException,
-) -> tuple[CodingSession, _CountingProvider, ToolLoopTerminalUi]:
+) -> tuple[CodingSession, _CountingProvider, TerminalUi]:
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
@@ -3385,7 +3383,7 @@ def _raising_auth_session(
 def _install_auth_trace(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    ui: ToolLoopTerminalUi,
+    ui: TerminalUi,
     trace: list[str],
     diagnostics: list[str],
     rebinds: list[tuple[str, str]],
@@ -3396,13 +3394,13 @@ def _install_auth_trace(
 
     original_rebind = CodingSessionState.rebind_provider
 
-    def record_footer(self: ToolLoopTerminalUi, text: str) -> None:
+    def record_footer(self: TerminalUi, text: str) -> None:
         del self
         assert "$" in text
         trace.append("usage-footer")
 
     @contextmanager
-    def record_external_io(self: ToolLoopTerminalUi) -> Iterator[None]:
+    def record_external_io(self: TerminalUi) -> Iterator[None]:
         del self
         trace.append("external-io-suspend")
         try:
@@ -3410,7 +3408,7 @@ def _install_auth_trace(
         finally:
             trace.append("external-io-resume")
 
-    def record_notice(self: ToolLoopTerminalUi, text: str) -> None:
+    def record_notice(self: TerminalUi, text: str) -> None:
         del self
         trace.append("diagnostic")
         diagnostics.append(text)
@@ -3434,11 +3432,9 @@ def _install_auth_trace(
             usage_accumulator=usage_accumulator,
         )
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "set_footer_text", record_footer)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "external_io_suspension", record_external_io
-    )
-    monkeypatch.setattr(ToolLoopTerminalUi, "add_notice", record_notice)
+    monkeypatch.setattr(TerminalUi, "set_footer_text", record_footer)
+    monkeypatch.setattr(TerminalUi, "external_io_suspension", record_external_io)
+    monkeypatch.setattr(TerminalUi, "add_notice", record_notice)
     monkeypatch.setattr(CodingSessionState, "rebind_provider", record_rebind)
     monkeypatch.setattr(
         CodingSession,
@@ -3466,7 +3462,7 @@ def test_tui_login_refreshes_availability_without_provider_turn(
     ui = _ui(tmp_path)
     scripted = iter(["/login\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -3517,7 +3513,7 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     ui = _ui(tmp_path)
     scripted = iter(["/logout\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -3571,7 +3567,7 @@ def test_tui_auth_failure_rebinds_before_safe_diagnostic_and_usage_footer(
     )
     scripted = iter([f"/{action}\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -3630,7 +3626,7 @@ def test_tui_auth_process_interrupt_propagates_before_rebind_diagnostic_or_foote
         tmp_path, trace, failure_type("stop auth")
     )
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: f"/{action}\n",
     )
@@ -3719,7 +3715,7 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     ui = _ui(tmp_path)
     scripted = iter(["first prompt\n", "second prompt\n", ""])
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
+        TerminalUi,
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
@@ -3736,9 +3732,7 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
         done_event.wait(5)
         return TURN_SETTLED
 
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "wait_for_active_turn_interrupt", _fake_interrupt
-    )
+    monkeypatch.setattr(TerminalUi, "wait_for_active_turn_interrupt", _fake_interrupt)
     session = CodingSession(
         provider=cast(ProviderPort, provider),
         provider_state=provider_state,

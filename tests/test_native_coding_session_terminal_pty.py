@@ -53,7 +53,7 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.terminal_screen import parse_ansi_screen
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 _RETAINED_PTY_STREAMS: list[object] = []
 _ABANDONED_PTY_FDS: list[int] = []
@@ -132,7 +132,7 @@ def _wait_for_resize_frame(
 
 
 def _install_resize_frame_sentinel(
-    ui: ToolLoopTerminalUi,
+    ui: TerminalUi,
     collected: list[bytes],
     sentinel: str,
 ) -> bool:
@@ -244,7 +244,7 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
         final_text=answer,
     )
     recorder = _ClipboardRecorder()
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -448,7 +448,7 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -573,7 +573,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = FakeNativeProvider(supports_tool_calls=True)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -683,7 +683,7 @@ def _run_editor_pty(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -815,7 +815,7 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -981,7 +981,7 @@ def test_pty_at_file_reference_loads_bounded_context_into_turn(
 ):
     """A typed `@file` reference in the product TUI loads bounded context.
 
-    This drives the real `ToolLoopTerminalUi.read_line` over a PTY (not the
+    This drives the real `TerminalUi.read_line` over a PTY (not the
     captured-stream fallback used by the adapter-level test), proving the
     user-directed `@file` context resolves on the same submitted-prompt path the
     TUI uses: the user's literal text is preserved and the bounded excerpt is
@@ -1075,7 +1075,7 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
             if option.selection.provider_name == "openai-codex"
         )
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -1182,7 +1182,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = FakeNativeProvider(supports_tool_calls=True)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -1330,7 +1330,7 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -1456,7 +1456,7 @@ def test_pty_resize_rewraps_long_input_and_keeps_footer_pinned(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -1574,7 +1574,7 @@ def _start_pty_repl_session(
     stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2238,7 +2238,7 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
         cancellable_turns=1,
         final_text="SECOND_TURN_ANSWER_DONE",
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2373,7 +2373,7 @@ def test_pty_at_file_picker_ranks_and_accepts(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("PICKER_TURN_DONE")
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2464,7 +2464,7 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("RECALL_DONE")
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2589,7 +2589,7 @@ def test_pty_slash_quit_during_local_shell_output_exits(
 
     prompts: list[str] = []
     provider = _PromptRecordingProvider(prompts)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2682,7 +2682,7 @@ def test_pty_slash_quit_during_model_bash_tool_output_exits(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = BashToolCallProvider()
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2803,7 +2803,7 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = MultiToolCallProvider()
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -2909,7 +2909,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
     provider = _PromptCapturingProvider("TURN_DONE")
     provider.model_id = "gpt-5.5"
     state = _reasoning_catalog_state(tmp_path, cast(ProviderPort, provider), "gpt-5.5")
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -3008,7 +3008,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("TURN_DONE")
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -3104,7 +3104,7 @@ def test_pty_never_enables_mouse_tracking(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("MOUSE_TURN_DONE")
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -3228,7 +3228,7 @@ def test_pty_steering_and_follow_up_queue_and_drain_order(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _SteeringProvider()
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -3342,7 +3342,7 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
     )
     provider = _PromptCapturingProvider("IMAGE_TURN_DONE")
     clipboard_config = create_clipboard_config(read_image)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
@@ -3439,7 +3439,7 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
     provider.model_id = "gpt-5.5"
     state = _reasoning_catalog_state(tmp_path, cast(ProviderPort, provider), "gpt-5.5")
     settings = SettingsManager.for_workspace(tmp_path)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

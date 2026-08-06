@@ -49,7 +49,7 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.tui import (
-    ToolLoopTerminalUi,
+    TerminalUi,
     _LiveExtensionUiDriver,
 )
 
@@ -846,7 +846,7 @@ def test_post_reconcile_close_restores_previous_and_cleans_candidate_once() -> N
 
 def test_throwing_old_editor_text_fails_soft_during_accepted_reconcile() -> None:
     terminal = io.StringIO()
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=terminal,
         cwd=Path("."),

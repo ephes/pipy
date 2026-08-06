@@ -61,7 +61,7 @@ from pipy_harness.native.session_tree import CompactionEntry as _CompactionEntry
 from pipy_harness.native.session_tree import MessageEntry as _MessageEntry
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def _report_default_persistence(
@@ -128,7 +128,7 @@ class ProviderMutationEffects:
     extension_operations: SessionExtensionOperations
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     tool_capabilities: NativeToolCapabilities
     settings: SettingsManager
     cwd: Path

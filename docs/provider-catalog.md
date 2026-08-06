@@ -936,7 +936,7 @@ Pipy target:
   no-models-available guidance. Output goes to stdout and exits; it runs no
   provider turn.
 - The product-TUI `/model` selector
-  (`ToolLoopTerminalUi.run_model_selector` over `model_options()`) reads the
+  (`TerminalUi.run_model_selector` over `model_options()`) reads the
   full catalog with availability state and reasons. The existing selector
   already gates unavailable/non-tool-capable providers; this track widens
   `model_options()` from one-default-per-provider to the full catalog, with the

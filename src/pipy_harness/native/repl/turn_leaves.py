@@ -30,7 +30,7 @@ from pipy_harness.native.tui import (
     TURN_LOCAL_COMMAND,
     TURN_SETTLED,
     TURN_STEERED,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 
 # Bound on how long the main thread waits for a cancelled worker to unwind
@@ -66,7 +66,7 @@ def raise_first(errors: tuple[BaseException | None, ...]) -> None:
 
 
 def wait_for_tool_interrupt(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     done_event: threading.Event,
     cancel_event: threading.Event,
 ) -> ToolExecutionInterruption:
@@ -87,7 +87,7 @@ def wait_for_tool_interrupt(
 
 
 def wait_for_provider_interrupt(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     done_event: threading.Event,
     cancel_event: threading.Event,
 ) -> ProviderTurnInterruption:

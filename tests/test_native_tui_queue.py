@@ -14,7 +14,7 @@ from types import TracebackType
 import pytest
 
 from pipy_harness.native.editor_state import EditorState
-from pipy_harness.native.tui import TURN_STEERED, ToolLoopTerminalUi
+from pipy_harness.native.tui import TURN_STEERED, TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
     CustomEditorEffects,
     CustomEditorOwner,
@@ -25,13 +25,13 @@ from pipy_harness.native.ui.pending_messages import PendingMessages
 from pipy_harness.native.ui.screen import Screen
 
 
-def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
 
 
-def _frame_text(ui: ToolLoopTerminalUi) -> str:
+def _frame_text(ui: TerminalUi) -> str:
     return "\n".join(ui._screen.render_lines(width=88, height=24))
 
 

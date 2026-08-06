@@ -3,7 +3,7 @@
 An extension command and an extension hook are exercised end to end against
 fake ``ExtensionCodingSessionControl`` (coding-session) and
 ``ExtensionModelRuntimeControl`` (model-runtime) ports and a plain in-memory
-conversation snapshot — with no real terminal, no ``ToolLoopTerminalUi``, and no
+conversation snapshot — with no real terminal, no ``TerminalUi``, and no
 concrete ``CodingSession`` product session. This proves the host ports
 are sufficient to drive extension dispatch: everything the handler reaches
 (``complete`` / ``append_entry`` / session-name / label / ``send_message`` /

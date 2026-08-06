@@ -34,7 +34,7 @@ from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
     TURN_SETTLED,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 
 # Bound on a ``!``/``!!`` editor shell command so it cannot hang the session
@@ -47,7 +47,7 @@ _LOCAL_SHELL_TIMEOUT_SECONDS = 600
 def run_local_shell_shortcut(
     command_line: str,
     *,
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     error_stream: TextIO,
     cwd: Path,
     user_bash_hooks: Sequence[HookHandler] = (),
@@ -164,7 +164,7 @@ def _execute_local_shell(
     command: str,
     *,
     sink: Callable[[str], None],
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     cwd: Path,
 ) -> LocalShellResult:
     """Execute ``command`` locally, watching stdin for Escape cancellation.

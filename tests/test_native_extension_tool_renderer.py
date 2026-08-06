@@ -16,7 +16,7 @@ from pipy_harness.native.tools.base import (
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def test_render_details_sinks_select_renderer_and_preserve_writer_identity():
@@ -81,7 +81,7 @@ def test_port_writes_none_details_when_absent(tmp_path: Path):
 
 
 def _tui(tmp_path):
-    return ToolLoopTerminalUi(
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=tmp_path,

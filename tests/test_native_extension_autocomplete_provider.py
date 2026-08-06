@@ -18,7 +18,7 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredCommand,
 )
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 class _Driver:
@@ -29,15 +29,15 @@ class _Driver:
         self.factories.append(factory)
 
 
-def _ui(workspace: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(workspace: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=workspace,
     )
 
 
-def _type(ui: ToolLoopTerminalUi, text: str) -> None:
+def _type(ui: TerminalUi, text: str) -> None:
     for char in text:
         ui.input_editor.insert_text(char)
 

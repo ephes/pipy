@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
 
 from pipy_harness.native.editor_state import EditorState
@@ -26,24 +27,86 @@ from pipy_harness.native.frame_renderer import (
     display_input_text,
     input_lines,
 )
-from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
+from pipy_harness.native.ui.components.custom_editor import (
+    HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    HOTKEY_MODEL_CYCLE_NEXT,
+    HOTKEY_MODEL_CYCLE_PREV,
+    HOTKEY_THINKING_CYCLE,
+    HOTKEY_TOGGLE_THINKING,
+    HOTKEY_TOGGLE_TOOLS,
+    CustomEditorOwner,
+)
 from pipy_harness.native.ui.paint_lock import PaintLock
+
+
+class EditingMode(Enum):
+    """Terminal drive mode for one decoded editing key."""
+
+    LINE = "line"
+    ACTIVE_QUEUE = "active_queue"
+    ACTIVE_COMMAND = "active_command"
+    ACTIVE_WATCH = "active_watch"
+
+
+class EditingAction(Enum):
+    """Explicit terminal-owned outcome of shared key dispatch."""
+
+    CONTINUE = "continue"
+    SUBMIT = "submit"
+    EOF = "eof"
+    INTERRUPT = "interrupt"
+    APP_COMMAND = "app_command"
+    ABORT = "abort"
+    LOCAL_COMMAND = "local_command"
+    STEER = "steer"
+    FOLLOW_UP = "follow_up"
+    RESTORE_PENDING = "restore_pending"
+
+
+@dataclass(frozen=True, slots=True)
+class EditingKeyOutcome:
+    """Value returned to the terminal loop after shared key dispatch."""
+
+    action: EditingAction
+    text: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LineEditingEffects:
+    """Narrow line-mode effects that stay outside the editor state owner."""
+
+    matches_external_editor: Callable[[str], bool]
+    run_external_editor: Callable[[str], str | None]
+    paste_clipboard_image: Callable[[], None]
+    shortcut_keys: Callable[[], tuple[str, ...]]
+    custom_editor_active: Callable[[], bool]
+    handle_custom_editor: Callable[[str | None], str | None]
+    consume_custom_exit: Callable[[], bool]
 
 
 @dataclass(frozen=True, slots=True)
 class EditingKeyContext:
     """Mode-specific popup and key-loop effects used by ``apply_editing_key``."""
 
+    mode: EditingMode
     slash_menu_open: Callable[[], bool]
     slash_menu_has_matches: Callable[[], bool]
+    slash_menu_exact_match: Callable[[str], bool]
     autocomplete_open: Callable[[], bool]
     navigate_slash_menu: Callable[[str], None]
     navigate_autocomplete: Callable[[str], None]
     accept_slash_menu: Callable[[], None]
     accept_autocomplete: Callable[[], None]
+    dismiss_slash_menu: Callable[[], None]
+    close_autocomplete: Callable[[], None]
     attempt_path_completion: Callable[[], bool]
+    consume_paste: Callable[[], str]
+    insert_paste: Callable[[str], None]
+    repaint: Callable[[], None]
+    is_local_command: Callable[[str], bool]
     allow_history: bool
     allow_path_completion: bool
+    line_effects: LineEditingEffects | None = None
     allow_listener_replacement: bool = False
     listener_replaced: Callable[[], bool] = lambda: False
     tab_repaint: Literal["path", "always"] = "path"
@@ -189,6 +252,22 @@ class InputEditor:
     def preserve_for_next_line(self) -> None:
         with self._paint_lock:
             self._editor.preserve_for_next_line()
+
+    def take_mid_turn_input(self) -> str:
+        """Atomically take and reset the mid-turn editor buffer."""
+
+        with self._paint_lock:
+            text = self._editor.text
+            self._editor.reset_mid_turn_input()
+            return text
+
+    def finish_custom_line(self, submitted: str, *, record_history: bool) -> None:
+        """Atomically record a custom submission and reset line state."""
+
+        with self._paint_lock:
+            if record_history:
+                self._editor.record_history(submitted)
+            self._editor.reset_line_editor_state()
 
     def reset_mid_turn_input(self) -> None:
         with self._paint_lock:
@@ -354,13 +433,306 @@ class InputEditor:
             self._editor.set_pending_command(text)
 
 
+_CONTINUE = EditingKeyOutcome(EditingAction.CONTINUE)
+
+
 def apply_editing_key(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome:
+    """Classify and apply one decoded key for either product input loop."""
+
+    if context.mode is EditingMode.LINE:
+        outcome = _apply_line_key(editor, key, context)
+    else:
+        outcome = _apply_active_key(editor, key, context)
+    if outcome is not None:
+        return outcome
+    if key is not None:
+        _apply_common_editing_key(editor, key, context)
+    return _CONTINUE
+
+
+def _apply_line_key(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    for handler in (
+        _apply_custom_editor_key,
+        _apply_line_missing_key,
+        _apply_line_enter,
+        _apply_line_control_key,
+        _apply_line_external_editor,
+        _apply_line_app_hotkey,
+        _apply_line_clipboard_key,
+        _apply_line_extension_shortcut,
+        _apply_line_escape,
+    ):
+        outcome = handler(editor, key, context)
+        if outcome is not None:
+            return outcome
+    return None
+
+
+def _line_effects(context: EditingKeyContext) -> LineEditingEffects:
+    effects = context.line_effects
+    if effects is None:  # pragma: no cover - construction invariant
+        raise ValueError("line editing mode requires line effects")
+    return effects
+
+
+def _apply_custom_editor_key(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    effects = _line_effects(context)
+    if not effects.custom_editor_active():
+        return None
+    submitted = effects.handle_custom_editor(key)
+    if submitted is None:
+        return _CONTINUE
+    exited = effects.consume_custom_exit()
+    editor.finish_custom_line(submitted, record_history=not exited)
+    context.repaint()
+    action = EditingAction.EOF if exited else EditingAction.SUBMIT
+    return EditingKeyOutcome(action, submitted)
+
+
+def _apply_line_missing_key(
+    _editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key is not None:
+        return None
+    context.repaint()
+    return _CONTINUE
+
+
+def _apply_line_enter(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key != "enter":
+        return None
+    if context.autocomplete_open():
+        context.accept_autocomplete()
+        return _CONTINUE
+    if _should_accept_slash_menu(editor, context):
+        context.accept_slash_menu()
+    submitted = editor.submit_line()
+    context.repaint()
+    return EditingKeyOutcome(EditingAction.SUBMIT, submitted)
+
+
+def _should_accept_slash_menu(editor: InputEditor, context: EditingKeyContext) -> bool:
+    return (
+        context.slash_menu_open()
+        and context.slash_menu_has_matches()
+        and not context.slash_menu_exact_match(editor.text)
+    )
+
+
+def _apply_line_control_key(
+    editor: InputEditor,
+    key: str | None,
+    _context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key == "ctrl-c":
+        return EditingKeyOutcome(EditingAction.INTERRUPT)
+    if key == "ctrl-d":
+        action = EditingAction.EOF if not editor.text else EditingAction.CONTINUE
+        return EditingKeyOutcome(action)
+    return None
+
+
+def _apply_line_external_editor(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    effects = _line_effects(context)
+    if key is None or not effects.matches_external_editor(key):
+        return None
+    edited = effects.run_external_editor(editor.text)
+    if edited is None:
+        context.repaint()
+    else:
+        editor.replace_after_external_edit(edited)
+    return _CONTINUE
+
+
+def _apply_line_app_hotkey(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    sentinels = {
+        "ctrl-p": HOTKEY_MODEL_CYCLE_NEXT,
+        "shift-ctrl-p": HOTKEY_MODEL_CYCLE_PREV,
+        "shift-tab": HOTKEY_THINKING_CYCLE,
+        "ctrl-o": HOTKEY_TOGGLE_TOOLS,
+        "ctrl-t": HOTKEY_TOGGLE_THINKING,
+    }
+    sentinel = None if key is None else sentinels.get(key)
+    if sentinel is None:
+        return None
+    editor.preserve_for_next_line()
+    return EditingKeyOutcome(EditingAction.APP_COMMAND, sentinel)
+
+
+def _apply_line_clipboard_key(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key == "paste":
+        context.insert_paste(context.consume_paste())
+        return _CONTINUE
+    if key == "ctrl-v":
+        _line_effects(context).paste_clipboard_image()
+        return _CONTINUE
+    return None
+
+
+def _apply_line_extension_shortcut(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    effects = _line_effects(context)
+    if key is None or key not in effects.shortcut_keys():
+        return None
+    editor.preserve_for_next_line()
+    sentinel = f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key}"
+    return EditingKeyOutcome(EditingAction.APP_COMMAND, sentinel)
+
+
+def _apply_line_escape(
+    _editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key != "esc":
+        return None
+    if context.slash_menu_open():
+        context.dismiss_slash_menu()
+    elif context.autocomplete_open():
+        context.close_autocomplete()
+        context.repaint()
+    return _CONTINUE
+
+
+def _apply_active_key(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    for handler in (
+        _apply_active_control_key,
+        _apply_active_mode_gate,
+        _apply_active_enter,
+        _apply_active_alt_key,
+        _apply_active_paste,
+    ):
+        outcome = handler(editor, key, context)
+        if outcome is not None:
+            return outcome
+    return None
+
+
+def _apply_active_control_key(
+    _editor: InputEditor,
+    key: str | None,
+    _context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    actions = {
+        "esc": EditingAction.ABORT,
+        "ctrl-c": EditingAction.INTERRUPT,
+    }
+    action = None if key is None else actions.get(key)
+    return None if action is None else EditingKeyOutcome(action)
+
+
+def _apply_active_mode_gate(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if context.mode is EditingMode.ACTIVE_WATCH:
+        if key == "paste":
+            context.consume_paste()
+        return _CONTINUE
+    if context.mode is not EditingMode.ACTIVE_COMMAND or editor.text:
+        return None
+    if key in {"/", "!"}:
+        return None
+    if key == "paste":
+        context.consume_paste()
+    return _CONTINUE
+
+
+def _apply_active_enter(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key != "enter":
+        return None
+    if context.autocomplete_open():
+        context.accept_autocomplete()
+        return _CONTINUE
+    if _should_accept_slash_menu(editor, context):
+        context.accept_slash_menu()
+    text = editor.take_mid_turn_input()
+    if not text.strip():
+        context.repaint()
+        return _CONTINUE
+    if context.is_local_command(text):
+        return EditingKeyOutcome(EditingAction.LOCAL_COMMAND, text)
+    if context.mode is EditingMode.ACTIVE_COMMAND:
+        context.repaint()
+        return _CONTINUE
+    return EditingKeyOutcome(EditingAction.STEER, text)
+
+
+def _apply_active_alt_key(
+    editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key not in {"alt-enter", "alt-up"}:
+        return None
+    if context.mode is EditingMode.ACTIVE_COMMAND:
+        return _CONTINUE
+    if key == "alt-up":
+        return EditingKeyOutcome(EditingAction.RESTORE_PENDING)
+    text = editor.take_mid_turn_input()
+    return EditingKeyOutcome(EditingAction.FOLLOW_UP, text)
+
+
+def _apply_active_paste(
+    _editor: InputEditor,
+    key: str | None,
+    context: EditingKeyContext,
+) -> EditingKeyOutcome | None:
+    if key != "paste":
+        return None
+    pasted = context.consume_paste()
+    if context.mode is not EditingMode.ACTIVE_COMMAND:
+        context.insert_paste(pasted)
+    return _CONTINUE
+
+
+def _apply_common_editing_key(
     editor: InputEditor,
     key: str,
     context: EditingKeyContext,
 ) -> bool:
-    """Apply one shared built-in editing key; return whether it was handled."""
-
     if key == "backspace":
         editor.delete_before_cursor()
         return True

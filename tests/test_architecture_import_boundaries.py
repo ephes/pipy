@@ -1161,7 +1161,7 @@ ARCHITECTURE_RULES = (
             "extension_types contracts and the native.themes registry, never on "
             "the concrete CodingSession or the terminal UI (tui); the live "
             "_LiveExtensionUiDriver is owned by tui alongside the "
-            "ToolLoopTerminalUi boundary it binds"
+            "TerminalUi boundary it binds"
         ),
     ),
 )
@@ -3742,7 +3742,7 @@ def test_startup_selectors_boundary_activates_for_single_file_module(
     source_path = _write_module(
         source_root,
         "pipy_harness.native.startup_selectors",
-        f"from pipy_harness.native.tui import ToolLoopTerminalUi\n{forbidden_import}\n",
+        f"from pipy_harness.native.tui import TerminalUi\n{forbidden_import}\n",
     )
     rule = next(
         rule
@@ -3762,7 +3762,7 @@ def test_rule_activates_for_single_file_source_module(tmp_path: Path) -> None:
     source_path = _write_module(
         source_root,
         "pipy_harness.native.extensions",
-        "from pipy_harness.native.tui import ToolLoopTerminalUi\n",
+        "from pipy_harness.native.tui import TerminalUi\n",
     )
     extensions_rule = next(
         rule
@@ -3784,7 +3784,7 @@ def test_extensions_package_rule_recursively_governs_activation_module(
     source_path = _write_module(
         source_root,
         "pipy_harness.native.extensions.activation",
-        "from pipy_harness.native.tui import ToolLoopTerminalUi\n",
+        "from pipy_harness.native.tui import TerminalUi\n",
     )
     extensions_rule = next(
         rule

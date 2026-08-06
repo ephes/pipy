@@ -17,7 +17,7 @@ sys.modules[_spec.name] = architecture_metrics
 _spec.loader.exec_module(architecture_metrics)
 
 
-EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
+EXPECTED_TERMINAL_UI_FIELDS = (
     "_autocomplete",
     "_chrome",
     "_custom_editor",
@@ -83,12 +83,12 @@ def test_class_state_fields_requires_one_top_level_class() -> None:
         raise AssertionError("missing class did not fail closed")
 
 
-def test_product_tool_loop_terminal_ui_field_baseline_is_stable() -> None:
+def test_product_terminal_ui_field_baseline_is_stable() -> None:
     source = (REPO_ROOT / "src/pipy_harness/native/tui.py").read_text(encoding="utf-8")
 
-    fields = architecture_metrics.class_state_fields(source, "ToolLoopTerminalUi")
+    fields = architecture_metrics.class_state_fields(source, "TerminalUi")
 
-    assert fields == EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS
+    assert fields == EXPECTED_TERMINAL_UI_FIELDS
     assert len(fields) == 18
     assert len(fields) <= 89  # Slice 12 ceiling: floor(128 * 0.70)
 
@@ -128,7 +128,7 @@ class Synthetic:
     assert defs == 3
 
 
-# --- ToolLoopTerminalUi class ratchet ----------------------------------------
+# --- TerminalUi class ratchet ------------------------------------------------
 #
 # §2d of the decomposition plan: of the 922 lines that left `tui.py`, the god
 # class itself lost 31 — the file ratchet in
@@ -136,22 +136,22 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 985
-_TUI_CLASS_DEF_RATCHET = 44
+_TUI_CLASS_SPAN_RATCHET = 856
+_TUI_CLASS_DEF_RATCHET = 43
 
 
-def test_tool_loop_terminal_ui_class_ratchet_never_grows() -> None:
+def test_terminal_ui_class_ratchet_never_grows() -> None:
     source = (REPO_ROOT / "src/pipy_harness/native/tui.py").read_text(encoding="utf-8")
 
-    span, defs = architecture_metrics.class_size(source, "ToolLoopTerminalUi")
+    span, defs = architecture_metrics.class_size(source, "TerminalUi")
 
     assert span <= _TUI_CLASS_SPAN_RATCHET, (
-        f"ToolLoopTerminalUi grew to {span} ast-lines, above its ratchet of "
+        f"TerminalUi grew to {span} ast-lines, above its ratchet of "
         f"{_TUI_CLASS_SPAN_RATCHET}. Move code out of the class rather than "
         "raising the bound."
     )
     assert defs <= _TUI_CLASS_DEF_RATCHET, (
-        f"ToolLoopTerminalUi grew to {defs} defs, above its ratchet of "
+        f"TerminalUi grew to {defs} defs, above its ratchet of "
         f"{_TUI_CLASS_DEF_RATCHET}. Move code out of the class rather than "
         "raising the bound."
     )
@@ -171,9 +171,7 @@ def test_metrics_publish_the_coding_session_key(
     (native / "coding").mkdir(parents=True)
     (tmp_path / "tests").mkdir()
     (native / "coding/session.py").write_text("# facade\n", encoding="utf-8")
-    (native / "tui.py").write_text(
-        "class ToolLoopTerminalUi:\n    pass\n", encoding="utf-8"
-    )
+    (native / "tui.py").write_text("class TerminalUi:\n    pass\n", encoding="utf-8")
     monkeypatch.setattr(
         architecture_metrics,
         "_ruff_c901_counts",
@@ -184,3 +182,7 @@ def test_metrics_publish_the_coding_session_key(
 
     assert metrics["physical_lines"]["coding_session"] == 1
     assert "tool_" + "loop_session" not in metrics["physical_lines"]
+    assert metrics["terminal_ui_size"] == {"ast_line_span": 2, "defs": 0}
+    assert metrics["terminal_ui_state_fields"] == {"count": 0, "names": []}
+    assert "tool_loop_" + "terminal_ui_size" not in metrics
+    assert "tool_loop_" + "terminal_ui_state_fields" not in metrics

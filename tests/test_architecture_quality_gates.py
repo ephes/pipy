@@ -104,7 +104,7 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # slice that shrinks a file; never raise one. A slice that needs a bound raised
 # is a slice that put code back.
 _SIZE_RATCHET = {
-    "src/pipy_harness/native/tui.py": 1466,
+    "src/pipy_harness/native/tui.py": 1349,
     "src/pipy_harness/native/coding/session.py": 336,
 }
 
@@ -148,6 +148,26 @@ def test_slice_46_retires_activation_module_and_keeps_new_owner_below_ceiling() 
     assert _line_count(REPO_ROOT / activation_relative) <= _NATIVE_FILE_CEILING
     assert activation_relative not in per_file_ignores
     assert retired_relative not in per_file_ignores
+
+
+def test_slice_48_retires_old_terminal_ui_name_and_c901_pin() -> None:
+    retired = "ToolLoop" + "TerminalUi"
+    scanned = [
+        *REPO_ROOT.joinpath("src").rglob("*.py"),
+        *REPO_ROOT.joinpath("scripts").rglob("*.py"),
+        *REPO_ROOT.joinpath("tests").rglob("*.py"),
+    ]
+    offenders = {
+        str(path.relative_to(REPO_ROOT))
+        for path in scanned
+        if retired in path.read_text(encoding="utf-8")
+    }
+    config = tomllib.loads(_read("pyproject.toml"))
+    per_file_ignores = config["tool"]["ruff"]["lint"]["per-file-ignores"]
+
+    assert not offenders
+    assert _read("src/pipy_harness/native/tui.py").count("class TerminalUi:") == 1
+    assert "src/pipy_harness/native/tui.py" not in per_file_ignores
 
 
 def test_slice_45_owns_the_session_and_command_router_exactly_once() -> None:

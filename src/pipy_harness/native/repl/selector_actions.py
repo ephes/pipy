@@ -33,13 +33,13 @@ from pipy_harness.native.startup_selectors import run_project_trust_selector
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     ScopedModelRow,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 
 
 def handle_trust_command(
     *,
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     error_stream: TextIO,
     cwd: Path,
     settings: "SettingsManager",
@@ -82,7 +82,7 @@ def handle_trust_command(
 
 
 def open_scoped_models_overlay(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     *,
     state: NativeReplProviderState,
     settings: "SettingsManager",
@@ -122,7 +122,7 @@ def open_scoped_models_overlay(
 
 
 def open_default_project_trust_selector(
-    terminal_ui: ToolLoopTerminalUi,
+    terminal_ui: TerminalUi,
     *,
     settings: "SettingsManager",
 ) -> None:

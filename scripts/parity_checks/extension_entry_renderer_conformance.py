@@ -26,7 +26,7 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_entry,
 )
 from pipy_harness.native.session_tree import CustomEntry
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 @dataclass
@@ -129,7 +129,7 @@ def run_checks(tmp_path: Path) -> list[Check]:
         )
     )
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, StringIO()),
         terminal_stream=cast(TextIO, _Tty()),
         cwd=tmp_path,

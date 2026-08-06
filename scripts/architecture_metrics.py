@@ -194,8 +194,10 @@ def collect_metrics(repo_root: Path = REPO_ROOT) -> dict[str, JsonValue]:
     coding_session_path = repo_root / CODING_SESSION
     tui_path = repo_root / TUI
     tui_source = tui_path.read_text(encoding="utf-8")
-    tui_fields = class_state_fields(tui_source, "ToolLoopTerminalUi")
-    tui_class_span, tui_class_defs = class_size(tui_source, "ToolLoopTerminalUi")
+    terminal_ui_fields = class_state_fields(tui_source, "TerminalUi")
+    terminal_ui_class_span, terminal_ui_class_defs = class_size(
+        tui_source, "TerminalUi"
+    )
     type_ignore_count = sum(
         len(TYPE_IGNORE_RE.findall(path.read_text(encoding="utf-8")))
         for path in sorted(src_root.rglob("*.py"))
@@ -210,13 +212,13 @@ def collect_metrics(repo_root: Path = REPO_ROOT) -> dict[str, JsonValue]:
             "tui": _physical_lines(tui_path),
         },
         "src_type_ignores": type_ignore_count,
-        "tool_loop_terminal_ui_size": {
-            "ast_line_span": tui_class_span,
-            "defs": tui_class_defs,
+        "terminal_ui_size": {
+            "ast_line_span": terminal_ui_class_span,
+            "defs": terminal_ui_class_defs,
         },
-        "tool_loop_terminal_ui_state_fields": {
-            "count": len(tui_fields),
-            "names": list(tui_fields),
+        "terminal_ui_state_fields": {
+            "count": len(terminal_ui_fields),
+            "names": list(terminal_ui_fields),
         },
     }
 

@@ -1989,9 +1989,9 @@ def _resolve_runtime_project_trust_startup(
             if extension.status == "activated"
         )
         if interactive_tty and has_trust_handlers:
-            from pipy_harness.native.tui import ToolLoopTerminalUi
+            from pipy_harness.native.tui import TerminalUi
 
-            live_ui = ToolLoopTerminalUi(
+            live_ui = TerminalUi(
                 input_stream=sys.stdin,
                 terminal_stream=sys.stdout,
                 cwd=resolved_cwd,

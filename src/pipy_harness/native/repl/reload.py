@@ -75,7 +75,7 @@ from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
-    ToolLoopTerminalUi,
+    TerminalUi,
     _LiveExtensionUiDriver,
 )
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
@@ -99,7 +99,7 @@ def maybe_save_implicit_trust_after_reload(
     *,
     cwd: Path,
     settings: "SettingsManager",
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     error_stream: TextIO,
 ) -> bool:
     """Persist Pi's narrowly guarded no-resource-start reload exception."""
@@ -139,7 +139,7 @@ class ReloadCommandEffects:
     ctl: RunControlState
     settings: SettingsManager
     keybindings: KeybindingsManager
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     renderer: "_ToolLoopRenderer | TuiToolLoopRenderer"
     error_stream: TextIO
     emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter

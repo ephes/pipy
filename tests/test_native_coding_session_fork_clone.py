@@ -33,7 +33,7 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
     SessionInfoEntry,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
 
@@ -131,26 +131,24 @@ def _install_terminal(
     cwd: Path,
     commands: Sequence[str],
     read_trace: list[str] | None = None,
-) -> ToolLoopTerminalUi:
-    terminal = ToolLoopTerminalUi(
+) -> TerminalUi:
+    terminal = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=cwd
     )
     scripted = iter(commands)
 
-    def build(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
+    def build(self: CodingSession, **_kwargs: object) -> TerminalUi:
         del self
         return terminal
 
-    def read_line(
-        self: ToolLoopTerminalUi, prompt_label: str, *, footer: object = None
-    ) -> str:
+    def read_line(self: TerminalUi, prompt_label: str, *, footer: object = None) -> str:
         del self, prompt_label, footer
         if read_trace is not None:
             read_trace.append("footer")
         return next(scripted)
 
     def wait_for_turn(
-        self: ToolLoopTerminalUi,
+        self: TerminalUi,
         done_event: object,
         abort_event: object,
         **_kwargs: object,
@@ -159,10 +157,8 @@ def _install_terminal(
         return "settled"
 
     monkeypatch.setattr(CodingSession, "_build_terminal_ui", build)
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "wait_for_active_turn_interrupt", wait_for_turn
-    )
+    monkeypatch.setattr(TerminalUi, "read_line", read_line)
+    monkeypatch.setattr(TerminalUi, "wait_for_active_turn_interrupt", wait_for_turn)
     return terminal
 
 
@@ -413,7 +409,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
         if message.startswith("pipy: forked into"):
             trace.append("diagnostic")
         original_diag(ui, stream, message)

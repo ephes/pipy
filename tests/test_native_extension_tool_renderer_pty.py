@@ -17,7 +17,7 @@ from pipy_harness.extensions import (
     lines_component,
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def _render_result(ctx: ToolRenderContext):
@@ -62,7 +62,7 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
     err_master, err_slave = pty.openpty()
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     chunks = _spawn_drainer(err_master)
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

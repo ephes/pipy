@@ -29,7 +29,7 @@ from pty_sync import wait_for_input_ready_after
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 # A 2-arg `(entry, ctx)` durable-entry renderer takes the rich styled path: it
 # themes a known body sentinel via ctx.theme.fg. The
@@ -132,7 +132,7 @@ def test_rich_message_renderer_color_visible_over_pty(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

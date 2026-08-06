@@ -23,7 +23,7 @@ from pipy_harness.native.overlay_state import (
 )
 from pipy_harness.native.session_tree_commands import SessionListEntry
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
 )
@@ -237,7 +237,7 @@ def test_settings_overlay_identity_is_explicit_not_title_coupled(
 
     monkeypatch.setattr(Screen, "read_key_polling_resize", cancel)
     with input_path.open(encoding="utf-8") as input_stream:
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=input_stream,
             terminal_stream=io.StringIO(),
             cwd=tmp_path,
@@ -292,7 +292,7 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
     monkeypatch.setattr(Screen, "paint", capture_paint)
     with input_path.open(encoding="utf-8") as input_stream:
         input_fd = input_stream.fileno()
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=input_stream,
             terminal_stream=io.StringIO(),
             cwd=tmp_path,
@@ -385,7 +385,7 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
 
     with input_path.open(encoding="utf-8") as input_stream:
         input_fd = input_stream.fileno()
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=input_stream,
             terminal_stream=io.StringIO(),
             cwd=tmp_path,
@@ -464,7 +464,7 @@ def test_external_io_scope_pairs_nested_exception_and_repaints_once(
     )
 
     with input_path.open(encoding="utf-8") as input_stream:
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=input_stream,
             terminal_stream=io.StringIO(),
             cwd=tmp_path,
@@ -506,7 +506,7 @@ def test_tui_close_forces_unbalanced_raw_mode_restoration_once(
     with input_path.open(encoding="utf-8") as input_stream:
         input_fd = input_stream.fileno()
         terminal = io.StringIO()
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=input_stream,
             terminal_stream=terminal,
             cwd=tmp_path,
@@ -544,7 +544,7 @@ def test_tui_close_forces_suspended_raw_owners_safe_and_idempotent(
     with input_path.open(encoding="utf-8") as input_stream:
         input_fd = input_stream.fileno()
         terminal = io.StringIO()
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=input_stream,
             terminal_stream=terminal,
             cwd=tmp_path,
@@ -615,7 +615,7 @@ def test_scoped_clear_and_end_detach_previous_checked_sets() -> None:
 def test_single_row_facade_navigation_repaints_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
     paints: list[None] = []
@@ -726,7 +726,7 @@ def test_chrome_clear_retires_generation_hooks_but_retains_sticky_values() -> No
 
 
 def test_chrome_record_projections_are_deleted_from_the_facade(tmp_path: Path) -> None:
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
 
@@ -745,7 +745,7 @@ def test_chrome_record_projections_are_deleted_from_the_facade(tmp_path: Path) -
 def test_facade_overlay_end_detaches_assignable_live_containers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
     monkeypatch.setattr(Screen, "paint", lambda _self: None)
@@ -832,7 +832,7 @@ def test_footer_rebuild_abort_resets_without_publishing_partial_slots() -> None:
 def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
     tmp_path: Path,
 ) -> None:
-    names = {item.name for item in fields(ToolLoopTerminalUi)}
+    names = {item.name for item in fields(TerminalUi)}
     assert {
         "input_editor",
         "_overlays",
@@ -861,7 +861,7 @@ def test_terminal_facade_stores_extension_owners_in_one_composition_handle(
         "_clipboard_image_count",
     }
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=io.StringIO(), terminal_stream=io.StringIO(), cwd=tmp_path
     )
     assert ui.input_editor._paint_lock is ui._screen.paint_lock  # noqa: SLF001

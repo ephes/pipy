@@ -13,7 +13,7 @@ This module imports only the `extension_types` contracts and the `native.themes`
 registry helpers, so it never reaches the product session (`native.coding.session`)
 or the terminal UI (`tui`). Context and dispatch owners import `_CollectingUi`
 from here for invocation contexts; the live `_LiveExtensionUiDriver` that binds
-`ToolLoopTerminalUi` is owned beside that terminal boundary in `tui`.
+`TerminalUi` is owned beside that terminal boundary in `tui`.
 """
 
 from __future__ import annotations

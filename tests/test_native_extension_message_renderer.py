@@ -291,9 +291,9 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
     from io import StringIO
     from typing import TextIO, cast
 
-    from pipy_harness.native.tui import ToolLoopTerminalUi
+    from pipy_harness.native.tui import TerminalUi
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, StringIO()),
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
@@ -365,7 +365,7 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         _custom_message_renderer_payload,
     )
     from pipy_harness.native.session_tree import CustomMessageEntry
-    from pipy_harness.native.tui import ToolLoopTerminalUi
+    from pipy_harness.native.tui import TerminalUi
 
     def render(data, ctx):
         return lines_component([f"expanded={ctx.expanded}:{data['content']}"])
@@ -394,7 +394,7 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         render_metadata=renderers,
     )
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, StringIO()),
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
@@ -415,12 +415,12 @@ def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
     from io import StringIO
     from typing import TextIO, cast
 
-    from pipy_harness.native.tui import ToolLoopTerminalUi
+    from pipy_harness.native.tui import TerminalUi
 
     def render(data, ctx):
         return lines_component([f"expanded={ctx.expanded}:{data['title']}"])
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, StringIO()),
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,
@@ -447,12 +447,12 @@ def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_pa
     from io import StringIO
     from typing import TextIO, cast
 
-    from pipy_harness.native.tui import ToolLoopTerminalUi
+    from pipy_harness.native.tui import TerminalUi
 
     def render(data, ctx):
         raise RuntimeError(f"secret {data['secret']}")
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, StringIO()),
         terminal_stream=cast(TextIO, _NoopTty()),
         cwd=tmp_path,

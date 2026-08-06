@@ -59,7 +59,7 @@ sticky working message/visibility remain preserved. Clearing a custom editor
 round-trips its text to the built-in editor, while a built-in editor's text,
 cursor, and undo/redo state are not restaged. Paint, callbacks, disposal, and
 session-mutex acquisition never run while the sink guard is held. The same
-`ToolLoopTerminalUi` methods and
+`TerminalUi` methods and
 live extension UI bridge remain the effect adapters: raw mode, decoded input,
 callbacks/components, disposal, filesystem/git reads, terminal titles, painting,
 and locks did not move. `TerminalDriver.raw_mode()` balances nested ownership
@@ -120,7 +120,7 @@ empty overlays stay cursor-hidden, and non-positive editor budgets restore one
 cursor row. Terminal writes,
 physical relative-cursor ownership, paint locks/re-entry coalescing, committed-
 scrollback publication, deferred resize/full-redraw clears, and restoration stay
-in `ToolLoopTerminalUi`/`TerminalDriver`. The captured `render_lines()`
+in `TerminalUi`/`TerminalDriver`. The captured `render_lines()`
 projection still excludes the session-picker overlay even though live paint
 renders it. This document specifies the **remaining** gaps only.
 
@@ -164,9 +164,9 @@ Pi reference (read for exact keybindings and behavior):
 
 Pipy current state (the boundaries this track extends):
 
-- `docs/harness-spec.md` (ToolLoopTerminalUi / product-TUI section, ~513-729).
+- `docs/harness-spec.md` (TerminalUi / product-TUI section, ~513-729).
 - `docs/backlog.md` (Pi Gap Queue item 3; Current Largest Gaps item 3).
-- `src/pipy_harness/native/tui.py` — `ToolLoopTerminalUi`: `read_line`,
+- `src/pipy_harness/native/tui.py` — `TerminalUi`: `read_line`,
   `wait_for_active_turn_interrupt`, effectful overlay/snapshot drivers, and the
   startup footer (which already advertises `! bash` and `ctrl+o more`);
   `native.frame_renderer` is the terminal-independent immutable frame/layout/
@@ -459,7 +459,7 @@ global meaning above applies in the main editor view.
 renders inline and commits finalized blocks into native scrollback, "folding" is
 a forward-looking render-mode toggle plus a re-render of the live history the UI
 still owns, not a mutation of bytes already in the host terminal's scrollback.
-Add two pipy-owned view flags on `ToolLoopTerminalUi`:
+Add two pipy-owned view flags on `TerminalUi`:
 
 - `tools_expanded` (toggled by `ctrl+o`): when collapsed (default), tool-result
   blocks render the existing bounded preview; when expanded, they render the
@@ -683,7 +683,7 @@ rather than only hiding chunks that keep arriving.
 
 - Pipy-owned Python boundaries only. This is not a TypeScript port and not a
   port of `@earendil-works/pi-tui`. Behaviors are delivered through pipy's
-  `ToolLoopTerminalUi`, `repl_input`, `coding.session`, `ProviderPort`, and
+  `TerminalUi`, `repl_input`, `coding.session`, `ProviderPort`, and
   the existing `file_references` / `image_attachment` / `clipboard` /
   provider-state / native-session-tree boundaries.
 - Stdlib-only. No new runtime dependency. The completion scorer, file walk, image

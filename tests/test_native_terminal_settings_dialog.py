@@ -46,7 +46,7 @@ from pipy_harness.native.tui import (
     ModelSelectorOption,
     ScopedModelRow,
     SettingsRow,
-    ToolLoopTerminalUi,
+    TerminalUi,
 )
 from pipy_harness.runner import HarnessRunner
 
@@ -106,7 +106,7 @@ class _RecordingProvider:
         )
 
 
-class _ScriptedSettingsUi(ToolLoopTerminalUi):
+class _ScriptedSettingsUi(TerminalUi):
     def __init__(self, tmp_path: Path, actions: Sequence[str] = ()) -> None:
         super().__init__(
             input_stream=cast(TextIO, io.StringIO()),
@@ -278,7 +278,7 @@ def _install_ui(
         workspace: Path,
         resources: object = None,
         **kwargs: object,
-    ) -> ToolLoopTerminalUi:
+    ) -> TerminalUi:
         del self, input_stream, error_stream, workspace, resources, kwargs
         return ui
 

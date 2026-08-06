@@ -42,24 +42,21 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 47. Startup and `/reload` generation
-attachment now route through the single typed
-`native/repl/extension_attach.py::attach_generation(predecessor=None)` owner;
-the former `_attach_extensions` transaction and reload phase methods are gone
-without aliases or shims. Startup's no-predecessor edge and reload's retained-
-predecessor, candidate-lifecycle, provider/capability, chrome, and presentation
-edges remain explicit typed inputs/results. The deliberate alignment is limited
-to attachment ownership: startup now installs its initial generation/capability
-pair in one shared-lock section while preserving provider/UI preparation before
-candidate ownership transfer, and every failed or exceptional startup attach
-retires its route and closes its chrome instead of leaving candidate sidecars
-alive. Successful startup/reload ordering,
-diagnostics, provider selection, presentation, UI, persistence, and commands
-are unchanged. This failure-path resource cleanup is not a user-facing feature
-or normal-path behavior change, so no changelog or release note applies.
-`native/tui.py` remains 1,466 physical lines and the coding-session facade
-remains 336 lines with a 67 AST-line/C901-5 `run`. Slice 48 is next; no slice-47
-milestone checkpoint is added to the decomposition plan.
+**Program status:** Landed through slice 48. The concrete terminal façade is now
+`native.tui.TerminalUi`; the former `ToolLoopTerminalUi` code/test/script import
+name is deleted without an alias or re-export. Both retained raw-mode drive loops
+stay in `tui.py`, while their decoded-key classification/action ladder now routes
+through the typed, back-edge-free `ui/components/input_editor.py::apply_editing_key`
+and returns explicit mode outcomes for the terminal boundary to interpret.
+`_LiveExtensionUiDriver._deliver_chrome_event` now delegates to cohesive region
+and input/chrome dispatch helpers without changing retirement scoping or fail-soft
+semantics. `native/tui.py` is 1,349 physical lines; `TerminalUi` spans 856 AST
+lines with 43 direct defs and 18 fields. Its three former C901 findings are gone,
+so the sole `tui.py` Ruff pin is deleted. The coding-session façade remains 336
+lines with a 67 AST-line/C901-5 `run`. This is a behavior-preserving private
+rename/refactor, so no changelog or release note applies. Slice 49's final
+ratchet and boundary audit is next; the final milestone remains owned by that
+slice.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

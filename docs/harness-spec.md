@@ -585,7 +585,7 @@ startup-chrome section lists the loadable skill names from the same loader the
 dispatcher uses.
 The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
 stderr are real TTY streams and the input runtime is `auto`. That boundary is
-`pipy_harness.native.tui.ToolLoopTerminalUi`: it remains the product façade for
+`pipy_harness.native.tui.TerminalUi`: it remains the product façade for
 chat history, submitted user-message blocks, the active assistant-output buffer,
 transient working text, overlays, and the two-row footer/status. The façade owns
 no parallel editor fields: `pipy_harness.native.editor_state.EditorState` is its
@@ -619,7 +619,7 @@ and deterministic logical paint plans. Repeated rendering of the same snapshot i
 identical and does not mutate it. It performs no callback/component execution,
 filesystem/git reads, stream/terminal inspection, locking, or writes.
 
-`ToolLoopTerminalUi` remains the effectful snapshot adapter: live paint holds
+`TerminalUi` remains the effectful snapshot adapter: live paint holds
 its existing paint lock while it may call/invalidate/dispose trusted extension
 components and resolve custom editor/overlay/chrome values before freezing them.
 Custom-editor output crosses as detached `ResolvedCustomEditorLine` rows, an
@@ -634,7 +634,7 @@ It also owns
 paint coalescing/re-entry, error handling, publication of attempted-frame
 bookkeeping, resize clear/home, and restoration. `TerminalDriver` remains the
 sole sink and serializes plans into physical ANSI erase/newline/relative-cursor
-sequences. `ToolLoopTerminalUi` renders inline (no alternate screen): each
+sequences. `TerminalUi` renders inline (no alternate screen): each
 finalized block —
 startup chrome, submitted prompts, settled assistant turns, settled reasoning,
 tool call/result rows, and notices — is committed once into
@@ -664,7 +664,7 @@ most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,
 login/logout, or model switching. `/settings` opens an interactive in-frame
-settings/control dialog (`ToolLoopTerminalUi.run_settings_dialog`) — a live
+settings/control dialog (`TerminalUi.run_settings_dialog`) — a live
 overlay drawn in the pinned live region (not a committed history block), like
 the `/model` selector. It lists section headers, read-only status rows (the
 active provider/model and per-provider local availability reasons, the same safe
@@ -698,7 +698,7 @@ legacy local-state stores kept as caches/fallbacks. See
 [settings-config.md](/settings-config/) for the full surface.
 
 `/model` is an executable interactive provider/model selector in the product
-TUI. Bare `/model` opens an in-frame selector (`ToolLoopTerminalUi.run_model_selector`)
+TUI. Bare `/model` opens an in-frame selector (`TerminalUi.run_model_selector`)
 built from `NativeReplProviderState.model_options()`: each row shows the
 `provider/model` reference and its availability state (`[available]`, or
 `[unavailable: <reason>]` for missing credentials or a provider that does not
@@ -734,7 +734,7 @@ command text, or secrets to the metadata archive.
 product TUI through the `NativeReplProviderState` auth boundary. Both run no
 provider turn and no tool call. `/login` calls
 `OpenAICodexAuthManager.login_interactive()` (the inline frame is suspended via
-`ToolLoopTerminalUi.external_io_suspension()` so the OAuth URL/prompt prints to
+`TerminalUi.external_io_suspension()` so the OAuth URL/prompt prints to
 and reads from the terminal in cooked mode, then the scope resumes and repaints
 below it);
 `/logout` removes the stored OpenAI Codex credentials and resets the selection to
@@ -809,7 +809,7 @@ output lives in scrollback rather than a fixed-height frame, long tool output
 and answers scroll up out of the live viewport and stay reviewable; the live
 input/footer frame keeps its shape regardless of how much history precedes it.
 The same pure snapshot renderer exposes logical full-screen composition through
-`ToolLoopTerminalUi.render_lines()` for unit tests. Its plain clipping uses the
+`TerminalUi.render_lines()` for unit tests. Its plain clipping uses the
 shared label sanitizer, while the façade's clip/pad adapters delegate to the
 renderer so there is one clipping and padding policy; this captured projection
 intentionally excludes the session picker while live paint includes it. The real
@@ -2229,7 +2229,7 @@ extension-UI relocation is Slice 6.4.
 ### Terminal Output and Restoration Driver
 
 Slice 4.2 introduces `native.terminal_driver`, the terminal-I/O ownership
-boundary for `ToolLoopTerminalUi`. After Slice 13 the shell resolves effectful
+boundary for `TerminalUi`. After Slice 13 the shell resolves effectful
 snapshot inputs, the pure `native.frame_renderer` decides *what* to draw, and
 the `TerminalDriver` collaborator (built once in `__post_init__` from
 the input/terminal streams) owns *how* bytes and mode/title transitions reach
@@ -2279,7 +2279,7 @@ flag plus saved SIGWINCH disposition) and exposes:
   must remain ordered before raw release.
 - `suspend_terminal_mode`/`resume_terminal_mode`: temporary physical handoff to
   a foreign TTY consumer without releasing logical raw owners, used through
-  `ToolLoopTerminalUi.external_io_suspension()`. The first suspension
+  `TerminalUi.external_io_suspension()`. The first suspension
   immediately disables bracketed paste and restores the saved cooked attributes
   with `TCSADRAIN`, including at ownership depth greater than one; nested scopes
   are independently guarded. A scope is published even when no raw owner exists
@@ -2293,7 +2293,7 @@ flag plus saved SIGWINCH disposition) and exposes:
   shell/model-tool subprocesses keep detached stdin while pipy's interrupt
   watcher owns the TTY, so they are not foreign TTY consumers and do not use it.
 - `force_restore_terminal_mode`: shutdown recovery, not release or temporary
-  suspension. It is reserved for the actual `ToolLoopTerminalUi.close` boundary,
+  suspension. It is reserved for the actual `TerminalUi.close` boundary,
   clears abandoned raw and suspension depths, and restores the saved cooked
   attributes/bracketed-paste state whether the terminal was physically raw or
   already suspended. Repeated close is idempotent.

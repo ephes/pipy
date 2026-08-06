@@ -25,7 +25,7 @@ from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.terminal_screen import parse_ansi_screen
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
@@ -118,7 +118,7 @@ def test_pty_resume_and_compact(
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,

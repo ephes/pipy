@@ -68,7 +68,7 @@ from pipy_harness.native.session_generation import (
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
 
@@ -185,7 +185,7 @@ class AgentTurnStatusStateAdapter:
 class AgentTurnStatusPresentationAdapter:
     """Bind status presentation ports without leaking the concrete UI inward."""
 
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     error_stream: TextIO
     refresh_legacy_footer_with_usage: Callable[[], None]
 
@@ -237,10 +237,10 @@ class ReplLoopScope:
 
     ctl: RunControlState
     loop_controller: CodingSessionController
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     error_stream: TextIO
     coding_state: CodingSessionState
-    repl_input: "ToolLoopTerminalUi | NativeReplInput"
+    repl_input: "TerminalUi | NativeReplInput"
     renderer: "_ToolLoopRenderer | TuiToolLoopRenderer"
     emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
     settings: SettingsManager

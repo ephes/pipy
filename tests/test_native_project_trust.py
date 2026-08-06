@@ -672,7 +672,7 @@ def test_extension_trust_decision_drives_and_closes_interactive_startup_ui(
         def close(self) -> None:
             calls.append(("close",))
 
-    monkeypatch.setattr("pipy_harness.native.tui.ToolLoopTerminalUi", FakeTerminalUi)
+    monkeypatch.setattr("pipy_harness.native.tui.TerminalUi", FakeTerminalUi)
 
     class Args:
         trust_override = None

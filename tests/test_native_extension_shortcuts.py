@@ -27,7 +27,7 @@ from pipy_harness.native.extensions.dispatch import (
     extension_shortcuts,
 )
 from pipy_harness.native.keybindings import KeybindingsManager
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def test_normalize_canonicalizes_modifier_order() -> None:
@@ -319,7 +319,7 @@ def activate(api):
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
     error_stream = StringIO()
-    terminal_ui = ToolLoopTerminalUi(
+    terminal_ui = TerminalUi(
         input_stream=StringIO(),
         terminal_stream=error_stream,
         cwd=tmp_path,
@@ -329,7 +329,7 @@ def activate(api):
         del self, prompt_label, footer
         return "/exit"
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
+    monkeypatch.setattr(TerminalUi, "read_line", read_line)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",

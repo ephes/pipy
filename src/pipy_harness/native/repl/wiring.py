@@ -184,7 +184,7 @@ from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer as _ToolLoopRenderer,
 )
 from pipy_harness.native.tools import ToolPort
-from pipy_harness.native.tui import ToolLoopTerminalUi, _LiveExtensionUiDriver
+from pipy_harness.native.tui import TerminalUi, _LiveExtensionUiDriver
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.components.custom_entry_renderer import CustomEntryRenderer
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
@@ -201,7 +201,7 @@ class SessionWiringInput:
     system_prompt: str
     provider_name: str | None
     model_id: str | None
-    build_terminal_ui: Callable[..., ToolLoopTerminalUi | None]
+    build_terminal_ui: Callable[..., TerminalUi | None]
     build_repl_input: Callable[..., NativeReplInput]
     coding_state: CodingSessionState
     abort_event: threading.Event | _AbortCallbackSignal | None
@@ -263,7 +263,7 @@ class _StartupPhase:
 
 @dataclass(frozen=True, slots=True)
 class _ExtensionPhase:
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     extension_notify: Callable[[str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
     render_details: _ExtensionRenderDetailsSinks
@@ -641,7 +641,7 @@ def _compose_extension_phase(
 
 def _prepare_startup_extension_consumers(
     *,
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     settings: SettingsManager,
     workspace_resources: WorkspaceResources,
     startup_commands: ExtensionCommandProjection,
@@ -688,7 +688,7 @@ def _compose_emitter(
     append_agent_message: Callable[[AgentMessage], None],
     generation_ref: SessionGenerationRef,
     cwd: Path,
-    terminal_ui: ToolLoopTerminalUi | None,
+    terminal_ui: TerminalUi | None,
     extension_notify: Callable[[str, str], None],
     extension_ui_driver: _LiveExtensionUiDriver | None,
     project_trusted: bool,

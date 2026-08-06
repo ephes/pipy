@@ -21,7 +21,7 @@ from pipy_harness.native.extensions.dispatch import (
     extension_command_map,
 )
 from pipy_harness.native.extensions.packages import discover_extensions
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 _EXAMPLE = (
     Path(__file__).resolve().parents[1]
@@ -94,7 +94,7 @@ def test_component_tui_custom_overlay_preserves_safe_sgr(tmp_path: Path) -> None
         [{"question": "Which database?", "context": "only mysql/pg"}],
         done.append,
     )
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, io.StringIO()),
         cwd=tmp_path,

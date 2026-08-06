@@ -13,11 +13,11 @@ from pipy_harness.native.session_tree_commands import (
     SessionListEntry,
     sanitize_label_text,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def run_project_trust_selector(
-    ui: ToolLoopTerminalUi,
+    ui: TerminalUi,
     *,
     cwd: Path,
     options: Sequence[ProjectTrustOption],
@@ -106,7 +106,7 @@ def run_startup_project_trust_selector(
             return None
     except (ValueError, OSError):
         return None
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=sys.stdin,
         terminal_stream=sys.stdout,
         cwd=cwd,
@@ -150,7 +150,7 @@ def run_startup_session_picker(
     def on_delete(path: Path) -> tuple[bool, str]:
         return delete_native_session(path)
 
-    ui = ToolLoopTerminalUi(
+    ui = TerminalUi(
         input_stream=sys.stdin,
         terminal_stream=sys.stdout,
         cwd=Path(current_cwd),

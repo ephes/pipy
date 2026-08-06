@@ -45,13 +45,13 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
     visible_tree_entries,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 def run_interactive_session_picker(
     *,
     session_tree: NativeSessionTree,
-    terminal_ui: "ToolLoopTerminalUi",
+    terminal_ui: "TerminalUi",
 ) -> Path | None:
     """Drive the live-TTY ``/resume`` picker over native product sessions.
 
@@ -94,7 +94,7 @@ def run_interactive_session_picker(
 def run_interactive_tree_selector(
     *,
     session_tree: NativeSessionTree,
-    terminal_ui: "ToolLoopTerminalUi",
+    terminal_ui: "TerminalUi",
     error_stream: TextIO,
     filter_mode: str,
     rebuild_messages: Callable[[], None],
@@ -166,7 +166,7 @@ def run_tree_command(
     argument: str,
     *,
     session_tree: NativeSessionTree,
-    terminal_ui: "ToolLoopTerminalUi | None",
+    terminal_ui: "TerminalUi | None",
     error_stream: TextIO,
     repl_input: object,
     filter_mode: str,
@@ -209,9 +209,9 @@ class SessionCommandEffects:
 
     ctl: RunControlState
     cwd: Path
-    terminal_ui: ToolLoopTerminalUi | None
+    terminal_ui: TerminalUi | None
     error_stream: TextIO
-    repl_input: "ToolLoopTerminalUi | NativeReplInput"
+    repl_input: "TerminalUi | NativeReplInput"
     diag: Callable[[str], None]
     apply_compaction: Callable[[str], str]
     extension_session_allows: Callable[..., bool]

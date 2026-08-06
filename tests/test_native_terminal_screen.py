@@ -13,7 +13,7 @@ from pipy_harness.native.terminal_screen import (
     analyze_frame_files,
     parse_ansi_screen,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 
 
 class _TtyBuffer:
@@ -33,10 +33,10 @@ class _TtyBuffer:
         return self._buffer.getvalue()
 
 
-def _ui(tmp_path: Path) -> tuple[ToolLoopTerminalUi, _TtyBuffer]:
+def _ui(tmp_path: Path) -> tuple[TerminalUi, _TtyBuffer]:
     terminal = _TtyBuffer()
     return (
-        ToolLoopTerminalUi(
+        TerminalUi(
             input_stream=cast(TextIO, io.StringIO()),
             terminal_stream=cast(TextIO, terminal),
             cwd=tmp_path,

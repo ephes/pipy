@@ -51,7 +51,7 @@ from pipy_harness.native.session_tree import (
     SessionInfoEntry,
 )
 from pipy_harness.native.session_tree_commands import TreeCommandOutcome
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
 
@@ -366,7 +366,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
-    terminal_ui = ToolLoopTerminalUi(
+    terminal_ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=cwd,
@@ -376,13 +376,11 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
     scripted = iter(("/tree", "/exit"))
     original_gate = ops_module.dispatch_session_before_hooks
 
-    def build_terminal_ui(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
+    def build_terminal_ui(self: CodingSession, **_kwargs: object) -> TerminalUi:
         del self
         return terminal_ui
 
-    def read_line(
-        self: ToolLoopTerminalUi, prompt_label: str, *, footer: object = None
-    ) -> str:
+    def read_line(self: TerminalUi, prompt_label: str, *, footer: object = None) -> str:
         del self, prompt_label, footer
         return next(scripted)
 
@@ -396,7 +394,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
     monkeypatch.setattr(CodingSession, "_build_terminal_ui", build_terminal_ui)
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
+    monkeypatch.setattr(TerminalUi, "read_line", read_line)
     monkeypatch.setattr(commands_module, "run_tree_command", handle_tree)
 
     provider = _SeenProvider()
@@ -489,7 +487,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
         argument: str,
         *,
         session_tree: NativeSessionTree,
-        terminal_ui: ToolLoopTerminalUi | None,
+        terminal_ui: TerminalUi | None,
         error_stream: TextIO,
         repl_input: object,
         filter_mode: str,
@@ -504,7 +502,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
             return TreeCommandOutcome(prefill="RESTORED", filter_mode="all")
         return TreeCommandOutcome()
 
-    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
         if "editor rehydrated" in message:
             trace.append("prefill")
         original_diag(ui, stream, message)
@@ -557,7 +555,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
         trace.append("diagnostic")
         original_diag(ui, stream, message)
 
@@ -614,9 +612,7 @@ def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
     def clear(self: CodingInputQueue) -> None:
         trace.append("clear-extension")
 
-    def diagnostic(
-        _ui: ToolLoopTerminalUi | None, _stream: TextIO, _message: str
-    ) -> None:
+    def diagnostic(_ui: TerminalUi | None, _stream: TextIO, _message: str) -> None:
         trace.append("diagnostic")
 
     def record_footer(*_args: object, **_kwargs: object) -> None:
@@ -717,7 +713,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
         trace.append("diagnostic")
         original_diag(ui, stream, message)
 
@@ -1113,26 +1109,24 @@ def _install_resume_terminal(
     *,
     cwd: Path,
     commands: Sequence[str],
-) -> ToolLoopTerminalUi:
-    terminal_ui = ToolLoopTerminalUi(
+) -> TerminalUi:
+    terminal_ui = TerminalUi(
         input_stream=io.StringIO(),
         terminal_stream=io.StringIO(),
         cwd=cwd,
     )
     scripted = iter(commands)
 
-    def build_terminal_ui(self: CodingSession, **_kwargs: object) -> ToolLoopTerminalUi:
+    def build_terminal_ui(self: CodingSession, **_kwargs: object) -> TerminalUi:
         del self
         return terminal_ui
 
-    def read_line(
-        self: ToolLoopTerminalUi, prompt_label: str, *, footer: object = None
-    ) -> str:
+    def read_line(self: TerminalUi, prompt_label: str, *, footer: object = None) -> str:
         del self, prompt_label, footer
         return next(scripted)
 
     def wait_for_turn(
-        self: ToolLoopTerminalUi,
+        self: TerminalUi,
         done_event: object,
         abort_event: object,
         *,
@@ -1145,10 +1139,8 @@ def _install_resume_terminal(
         return "settled"
 
     monkeypatch.setattr(CodingSession, "_build_terminal_ui", build_terminal_ui)
-    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "wait_for_active_turn_interrupt", wait_for_turn
-    )
+    monkeypatch.setattr(TerminalUi, "read_line", read_line)
+    monkeypatch.setattr(TerminalUi, "wait_for_active_turn_interrupt", wait_for_turn)
     return terminal_ui
 
 
@@ -1230,7 +1222,7 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
     def pick(
         *,
         session_tree: NativeSessionTree,
-        terminal_ui: ToolLoopTerminalUi,
+        terminal_ui: TerminalUi,
     ) -> Path | None:
         del terminal_ui
         return None if picker_result == "cancel" else session_tree.path
@@ -1278,7 +1270,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     def pick(
         *,
         session_tree: NativeSessionTree,
-        terminal_ui: ToolLoopTerminalUi,
+        terminal_ui: TerminalUi,
     ) -> Path | None:
         del session_tree, terminal_ui
         return selected.path
@@ -1299,7 +1291,7 @@ def test_resume_switch_order_gate_and_fresh_history(
         del self, entries
         trace.append("redraw")
 
-    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+    def diagnostic(ui: TerminalUi | None, stream: TextIO, message: str) -> None:
         if message.startswith("pipy: resumed native session"):
             trace.append("diagnostic")
         original_diag(ui, stream, message)

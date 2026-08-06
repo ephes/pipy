@@ -35,7 +35,7 @@ from pipy_harness.native.frame_renderer import (
     style_line,
 )
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 
@@ -366,8 +366,8 @@ class _ReleaseInterleavingPaintLock(PaintLock):
             callback()
 
 
-def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path) -> TerminalUi:
+    return TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,

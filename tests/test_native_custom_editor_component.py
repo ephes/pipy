@@ -13,7 +13,7 @@ from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsManager
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.clipboard_images import ClipboardConfig
 from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
@@ -49,10 +49,8 @@ class _TtyBuffer:
         return True
 
 
-def _ui(
-    tmp_path: Path, clipboard_config: ClipboardConfig | None = None
-) -> ToolLoopTerminalUi:
-    return ToolLoopTerminalUi(
+def _ui(tmp_path: Path, clipboard_config: ClipboardConfig | None = None) -> TerminalUi:
+    return TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
@@ -60,7 +58,7 @@ def _ui(
     )
 
 
-def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
+def _decode_key(ui: TerminalUi, data: bytes) -> str | None:
     read_fd, write_fd = os.pipe()
     os.write(write_fd, data)
     os.close(write_fd)
@@ -1111,7 +1109,7 @@ def test_custom_editor_external_editor_action_updates_draft_on_success(
         open(os.devnull, "r", encoding="utf-8") as input_file,
         open(os.devnull, "w", encoding="utf-8") as terminal_file,
     ):
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=cast(TextIO, input_file),
             terminal_stream=cast(TextIO, terminal_file),
             cwd=tmp_path,
@@ -1178,7 +1176,7 @@ def test_custom_editor_external_editor_action_preserves_draft_on_failure(
         open(os.devnull, "r", encoding="utf-8") as input_file,
         open(os.devnull, "w", encoding="utf-8") as terminal_file,
     ):
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=cast(TextIO, input_file),
             terminal_stream=cast(TextIO, terminal_file),
             cwd=tmp_path,
@@ -1220,7 +1218,7 @@ def test_default_editor_external_editor_action_updates_draft_on_success(
         open(os.devnull, "r", encoding="utf-8") as input_file,
         open(os.devnull, "w", encoding="utf-8") as terminal_file,
     ):
-        ui = ToolLoopTerminalUi(
+        ui = TerminalUi(
             input_stream=cast(TextIO, input_file),
             terminal_stream=cast(TextIO, terminal_file),
             cwd=tmp_path,
