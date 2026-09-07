@@ -9,15 +9,18 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** D1b — canonical semantic compaction generation and guarded
-conditional publication, after the preparation-cancellation refinement in this
-planning chunk commits. Its Opus 5 review ended advisory with three
-clarifications applied and no Warning/Critical; full checks remained green. D1a landed at `17089f3`: 5,405 tests
-passed (two skipped), eight PTY smoke tests, lint/format/Mypy and docs build green;
-Opus 5 returned two advisory suggestions, no Warning/Critical, with full coverage.
-D0 landed at `f1fa668` with full validation and advisory Opus disposition. A/B/C
-contracts landed at `ba08e9b` after two advisory Opus rounds. None of those
-advisory dispositions is CLEAN. D2a/D2b follow D1b and refresh against its code.
+**Next dispatch:** D1b0 — guard coding-run mutable publication, after this
+shared-state contract commits. Focused Opus 5 review ended ISSUES; the remaining
+warning was resolved by explicitly preserving the existing post-compaction capture
+order, and two suggestions were clarified against source. No material finding
+remains open; this is advisory acceptance, not CLEAN. D1b semantic compaction follows.
+Source verification of an Opus warning found a supported pre-existing history
+lost update, so the repository's shared-state rule makes the guard a prerequisite.
+D1a landed at `17089f3` with 5,405 tests (two skipped), eight PTY smoke tests and
+full checks; D0 at `f1fa668` also passed full checks. Their Opus dispositions were
+advisory with no unresolved material findings. The typed preparation-cancellation
+contract landed at `297b055`; A/B/C at `ba08e9b`. Advisory is not CLEAN. D2a/D2b
+follow semantic D1b and refresh against its code.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -291,6 +294,36 @@ compaction record, the daily-harness comparison, and an earlier canonical
 cancellation-contract review. These support reusing established cancellation
 ownership; no raw transcripts were inspected and no priority was changed.
 
+### D1b0 — guarded coding-run prerequisite
+
+Source verification at `297b055` confirmed a supported lost update before the
+summary freshness window: retained command/input/before-agent-start model
+controls may replace the binding and clear history after `run_turn` reads it,
+then request preparation mirrors the old history back. The summary-only safe
+stop would miss this write, canonical message appends, and usage publication.
+This is a shared mutable-state correctness defect, not a precision-only finding;
+the repository exception requires repairing it before dependent implementation.
+
+The [guarded run contract](harness-spec.md#guarded-coding-run-publication-contract)
+adds a scoped state-owned witness captured atomically with initial history.
+Binding identity and a replacement epoch detect context changes while ordinary
+canonical appends/mirrors/compaction remain valid. Guard preparation/final mirrors,
+canonical appends, compaction and usage plus run-dependent history/binding reads
+under the state mutex. No active witness leaves ordinary shell/manual-compaction
+writes admitted. Capture binding labels for pricing and provider execution; order
+live and durable appends with the existing outer tree lock. A stale writer raises before
+mutation and existing cleanup closes the session lifetime. No recovery framework,
+queue migration, event schema change, or assignment-only publisher weakening is
+selected. D1b still needs its separate full summary-freshness snapshot.
+
+D1b0's bounded write set is `coding/state.py`, `coding/agent_run.py`,
+`repl/wiring.py` and `repl/loop_step.py`, their focused tests and matching
+docs/release notes. Preserve
+canonical duplicate-message normalization and completed tool effects. Summary-
+safe history searches found no prior lost-update lesson to substitute for these
+source/test contracts. The previously saved partial D1b implementation resumes
+only after this prerequisite commits and its handoff is refreshed.
+
 ### C — D2 contract decisions
 
 The reviewed [product-session boundary](sdk.md#d2-implementation-contract) keeps
@@ -310,8 +343,8 @@ compatibility retirement. Refresh this proposal against D1 before dispatch.
 
 ## Implementation queue
 
-D0 is committed at `f1fa668` and D1a at `17089f3`. D1b follows this
-preparation-cancellation contract review and commit.
+D0 is committed at `f1fa668` and D1a at `17089f3`. D1b0 implements the reviewed
+guard first; D1b resumes after that prerequisite commit.
 Each successor needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
 would contain multiple independently useful changes, split the task here before
 dispatch; the table is not permission for a large uncommitted batch. A thread implements
@@ -323,7 +356,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | --- | --- | --- | --- |
 | D0 | Complete at `f1fa668`; A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
 | D1a | Complete at `17089f3`; D0 committed; B reviewed | Structural origin and prior-summary projection, pre-resolved durable cut, destination-owned context rebuild; matching docs/release note | Repeated durable cuts and equivalent reopen; no synthetic summary group; no text-based origin lookup; state-first failure preserved |
-| D1b | D1a; reviewed preparation-cancellation refinement | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; cancelled preparation invokes no ordinary request construction/hooks/render refresh/provider turn; late completion, overlays and privacy pinned |
+| D1b0 | D1a; reviewed guarded-run contract | State-owned run witness and guarded history/compaction/usage publication; ordered durable append; matching docs/release note | Supported context mutation cannot be overwritten by preparation, message, usage or final settlement; stale run closes safely; ordinary multi-iteration runs and publisher guards preserved |
+| D1b | D1b0; reviewed preparation-cancellation refinement | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; cancelled preparation invokes no ordinary request construction/hooks/render refresh/provider turn; stale automatic context closes before further mutable publication; late completion, overlays and privacy pinned |
 | D2a | D1b; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b | D2a | Distinct supported product-session SDK factory over that lifetime; API tests and SDK docs | Two-turn tool workflow, events, cross-thread cancel, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a | D1b | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |

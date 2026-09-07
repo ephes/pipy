@@ -1699,6 +1699,96 @@ owners retain steering and local commands. Tests pin invalid alternatives,
 anchor/overlay rejection, first/later-iteration event and queue behavior, no
 ordinary request after cancellation, and successful reuse on a subsequent run.
 
+### Guarded coding-run publication contract
+
+This selected D1b0 prerequisite is pending implementation. `CodingSessionState`
+owns one scoped run witness: exact provider-binding identity plus a context-
+replacement epoch. Advance that epoch on `begin_run`, explicit `clear_history`
+and destination `rebuild_history`. Fresh bindings already invalidate provider
+refresh/unavailable/rebind and model/reload publication; their assignment-only
+publication methods remain unchanged. Ordinary canonical appends, mirrors and
+accepted compaction stay within the same context. D1b's separate history epoch
+still advances on those writes to detect changes during summary I/O.
+
+`CodingAgentRunCoordinator.run_turn` atomically captures initial history and
+installs the witness under the state mutex before constructing `AgentLoopRunInput`
+or emitting `AgentRunStarted`. It uses that captured history without rereading it.
+The capture also returns the exact binding; derive run pricing from those captured
+provider/model labels outside the mutex through an injected lookup, not separately
+read live labels. Initial tool-policy counters retain their accepted-input,
+session-thread ownership; model rebind does not reset them.
+The mutex is released for the run body; no effect lease or shared lock spans
+provider I/O, callbacks or rendering. A `finally` clears only the exact witness
+installed by that invocation. Overlapping accepted runs are refused, not supported
+by another witness. Context-changing owners may still mutate while a run waits;
+they invalidate its witness rather than being blocked by its lifetime.
+
+Under the same state mutex, validate the active witness before preparation and
+final `mirror_history`, canonical product `append_message`, `apply_compaction`,
+and `absorb_usage`. With no active witness, existing session-thread-owned writes
+remain admitted: `!` shell-context appends and manual `/compact` still work.
+Only a present, mismatching witness raises. A mismatch raises one bounded coding-context exception before
+that writer mutates the newer context. Include usage: provider settlement
+publishes it before assistant message completion, and a model rebind replaces
+the accumulator. Existing session-thread-owned counters retain their ownership.
+Canonical appends/mirrors/compaction do not replace the witness's context; never
+infer ownership by tuple equality or expected counts of message/epoch updates.
+The first accepted message's temporary duplicate in live state remains normalized
+by ordinary canonical mirrors without false staleness.
+
+Run-dependent reads use the same guard. Request preparation first performs its
+guarded mirror and any automatic compaction, then captures the coherent
+post-compaction binding/history/summary-suffix value under the state mutex. It
+builds the request and invokes hooks outside the mutex, then revalidates before
+returning that exact post-compaction history. Thus an accepted automatic cut and
+summary affect this same request and the canonical loop continuation. Do not use the unvalidated trailing `state.messages` read after hooks.
+The provider-completion adapter validates and captures its provider from the run's
+binding before execution, rather than rereading a possibly replaced live provider.
+A context change before either guarded read raises the bounded exception; a
+change after provider admission is caught before later mutable publication. The external-abort wrapper must also wrap this captured provider instead of
+rereading live state. No lock spans provider/header hooks, pricing lookup or
+provider execution.
+
+Binding identity deliberately invalidates even history-preserving provider
+refresh/unavailable transitions. Current reload invokes them outside accepted
+runs; if they occur during a run they close it at its next guarded boundary.
+Do not weaken identity to value equality to make such refreshes pass. Reload
+usage fallback publication is paired with binding replacement under the same
+shared mutex in the existing generation publisher; it is not an independent
+in-run usage-replacement operation.
+
+The composition-owned product-message append wrapper holds the outer coding-
+effect/tree lock across guarded live-state append and the synchronous append to
+the selected active tree. Release the inner state mutex before persistence.
+This preserves state-first failure behavior while preventing a context mutation
+between live acceptance and durable append. The pure product coordinator keeps
+its existing injected persistence port. No concrete tree dependency enters state
+or coding-run coordination.
+
+Stale-write exceptions escape the coding run before further settlement or queued
+input retention and follow existing controller exception cleanup, closing the
+`CodingSession` lifetime. There is no live recovery, retry or new finalized-result
+conversion. A subsequent separately started lifetime can use the newer context.
+Already admitted observer/render callbacks retain existing semantics; the guard
+protects mutable product history/tree/usage, not rollback of arbitrary callbacks.
+
+Tests cover supported retained model mutation before first preparation, mutation
+between the preparation mirror and guarded read-back, mutation between preparation/
+turn-start and canonical append, later-iteration mutation
+after completed tools, mutation before usage/final-history publication, explicit
+clear and equal-content rebuild, coherent binding/pricing/provider reads, witness
+cleanup, ordinary multi-iteration runs, out-of-run shell/manual compaction writes,
+and tree/state lock ordering. Preserve assignment-only publisher and privacy
+gates. Expected sources are existing coding state/run coordination, REPL wiring
+and preparation; no event schema, second queue or lifecycle framework is needed.
+
+D1b's separate summary snapshot additionally detects same-context history/tree/
+generation changes during summary work. Automatic freshness loss raises the same
+bounded exception before ordinary request construction or turn-start publication;
+freshness loss wins when cancellation coincides. Unchanged-context cancellation
+uses the typed preparation alternative, and manual stale compaction reports
+refusal. See [the compaction contract](compaction.md#guarded-run-context-and-stale-automatic-summaries).
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical

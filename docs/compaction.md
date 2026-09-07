@@ -236,6 +236,49 @@ when messages are present. Execute with the captured provider binding and the
 existing run-owned canonical executor, not a newly resolved provider or a second
 agent loop. Summary requests and results stay private product content.
 
+### Guarded run context and stale automatic summaries
+
+D1b depends on D1b0's [guarded coding-run publication contract](harness-spec.md#guarded-coding-run-publication-contract).
+A retained authorized model control can replace the binding and clear history
+between the coding run's initial history read and its preparation mirror. This
+existing lost update must be fixed before semantic summary generation adds its
+longer freshness window. Guarding only the final history mirror or only the
+summary result would miss earlier canonical message and history writes.
+
+The state-owned run witness distinguishes context replacement from legitimate
+canonical appends, mirrors, usage and compaction. Every such mutable publication
+validates a present witness under the state mutex. With no active run witness,
+existing session-thread-owned shell-context and manual-compaction writes remain
+admitted. Run-dependent history/binding reads validate it too, including the
+prepared-history read-back after request hooks. The composition append wrapper
+holds the outer tree/effect lock across live acceptance and synchronous durable
+append, releasing the state mutex before filesystem I/O. Context replacement
+still succeeds through its current owner; a stale run's next guarded write raises
+a bounded coding-context exception before mutation.
+
+D1b additionally checks its complete summary freshness snapshot. Any freshness
+loss during automatic summarization raises the same bounded exception before
+ordinary request construction or turn-start publication, even when cancellation
+and mutation coincide. Unchanged-context cancellation uses the normal typed
+preparation alternative. Manual stale compaction reports refusal without summary
+publication. The broader summary snapshot still detects same-context appends,
+metadata/tree changes and generation windows that need not replace a run context.
+
+The exception escapes `CodingSession.run`; existing controller exception cleanup
+closes the session lifetime. It does not return to the prompt, produce a normal
+finalized result, or manufacture the ordinary provider-cancellation event path.
+Existing callers retain their current exception handling; D1b0/D1b add no new
+CLI/RPC error-to-result conversion or traceback-hiding promise. Error text carries
+no summary or provider failure body. Live recovery after context replacement is
+not selected.
+
+Tests preserve the newer binding/history/tree/usage at guarded write boundaries,
+including the pre-summary preparation mirror, canonical append, summary acceptance
+and final mirror; they also pin exceptional lifetime cleanup and no ordinary
+provider request after an automatic stale summary. Already admitted synchronous
+observer/render callbacks retain their existing semantics; the guard does not
+retract callback effects or replay earlier tools.
+
 ### Failure and validation
 
 Generation exceptions, failed/empty/tool-requesting results, cancellation,
@@ -254,7 +297,9 @@ atomic durability promise. Preserve the tests
 
 Decisive D1 acceptance covers prior-summary input; exact retained tool exchanges;
 a second cut after only one added group; reopen after both cuts; no synthetic
-summary group; failure/veto/cancel/stale refusal; late completion; each guarded
+summary group; failure/veto/cancel and manual stale refusal; automatic-stale
+exceptional lifetime cleanup with no ordinary provider request or stale mutable
+publication; late completion; each guarded
 invalidating writer; unchanged request-only extension overlays; automatic
 compaction affecting the same next request; and state-first persistence failure.
 Full product summaries stay private in provider context and native JSONL.
