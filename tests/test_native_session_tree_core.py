@@ -34,6 +34,42 @@ def _new_tree(tmp_path: Path) -> NativeSessionTree:
     return NativeSessionTree.create(cwd, session_dir=session_dir)
 
 
+def test_coding_projection_separates_summary_and_keeps_structural_origins(
+    tmp_path: Path,
+) -> None:
+    tree = _new_tree(tmp_path)
+    old = tree.append_message(AgentUserMessage(ProductContent("old")))
+    first = tree.append_custom_message("note", "duplicate")
+    second = tree.append_custom_message("note", "duplicate", display=False)
+    branch = tree.branch_with_summary(second.id, "branch facts")
+    tree.append_compaction(
+        summary="durable summary", first_kept_entry_id=first.id, tokens_before=12
+    )
+    later_message = AgentUserMessage(ProductContent("later"))
+    later = tree.append_message(later_message)
+    coding = tree.build_coding_context()
+    assert coding.prior_summary == "durable summary"
+    assert coding.entry_ids == (first.id, second.id, branch.id, later.id)
+    assert [message.content.value for message in coding.messages] == [
+        "duplicate",
+        "duplicate",
+        "[Summary of an abandoned conversation branch:]\nbranch facts",
+        "later",
+    ]
+    assert coding.messages[0] is not coding.messages[1]
+    assert coding.messages[-1] is later_message
+    legacy = tree.build_context().messages
+    assert len(legacy) == len(coding.messages) + 1
+    assert "durable summary" in legacy[0].content.value
+    assert legacy[1:] == coding.messages
+    assert tree.path is not None
+    assert NativeSessionTree.open(tree.path).build_coding_context() == coding
+    tree.set_leaf(old.id)
+    assert tree.build_coding_context().prior_summary is None
+    tree.reset_leaf()
+    assert tree.build_coding_context().messages == ()
+
+
 # --------------------------------------------------------------------------
 # Storage path encoding
 # --------------------------------------------------------------------------

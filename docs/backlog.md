@@ -9,14 +9,17 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** D1a — durable compaction provenance and destination-summary
-rebuild, followed by D1b semantic generation. D0's deterministic edit/check/reopen
-scenario and truthful support matrix are complete in this chunk: 5,385 tests
-passed with two skipped, lint/format/Mypy and docs build passed. Two Opus 5
-rounds ended advisory with no Warning/Critical; the final two documentation
-suggestions were applied without another precision-only round. A/B/C contracts landed at
-`ba08e9b` after two Opus 5 rounds, finally advisory (no Warning/Critical), not
-CLEAN. D2a/D2b follow D1b and refresh their handoff against that code.
+**Next dispatch:** D1b — canonical semantic compaction generation and guarded
+conditional publication, after this D1a chunk commits. D0 landed at `f1fa668`
+with 5,385 tests passing (two skipped), lint/format/Mypy and docs build green;
+two Opus 5 rounds ended advisory with no unresolved Warning/Critical, not CLEAN.
+D1a implements structural provenance, repeated durable cuts and destination-summary
+rebuilds. Full checks passed 5,405 tests (two skipped), eight PTY smoke tests,
+lint/format/Mypy and docs build. Opus 5 reviewed complete code/context with two
+advisory suggestions and no Warning/Critical; comment/doc clarifications were
+applied without another precision-only review round. A/B/C
+contracts landed at `ba08e9b` after two advisory Opus 5 rounds (no Warning/Critical).
+D2a/D2b follow D1b and refresh their handoff against that code.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -279,7 +282,7 @@ compatibility retirement. Refresh this proposal against D1 before dispatch.
 
 ## Implementation queue
 
-D0 is complete in this chunk; D1a is next after its commit.
+D0 is committed at `f1fa668`. D1a is complete in this chunk; D1b follows its commit.
 Each successor needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
 would contain multiple independently useful changes, split the task here before
 dispatch; the table is not permission for a large uncommitted batch. A thread implements
@@ -289,8 +292,8 @@ every listed module. Add a file only when the selected behavior needs it.
 
 | ID | Prerequisites | Bounded outcome / expected write owners | Acceptance |
 | --- | --- | --- | --- |
-| D0 | Complete in current chunk; A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
-| D1a | D0 committed; B reviewed | Structural origin and prior-summary projection, pre-resolved durable cut, destination-owned context rebuild; matching docs/release note | Repeated durable cuts and equivalent reopen; no synthetic summary group; no text-based origin lookup; state-first failure preserved |
+| D0 | Complete at `f1fa668`; A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
+| D1a | Complete in current chunk; D0 committed; B reviewed | Structural origin and prior-summary projection, pre-resolved durable cut, destination-owned context rebuild; matching docs/release note | Repeated durable cuts and equivalent reopen; no synthetic summary group; no text-based origin lookup; state-first failure preserved |
 | D1b | D1a | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; late completion, overlays and privacy pinned |
 | D2a | D1b; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b | D2a | Distinct supported product-session SDK factory over that lifetime; API tests and SDK docs | Two-turn tool workflow, events, cross-thread cancel, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,7 +23,11 @@ from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
-from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.session_tree import (
+    CodingSessionTreeContext,
+    CompactionEntry,
+    NativeSessionTree,
+)
 
 
 class _RecordingToolProvider:
@@ -311,3 +316,158 @@ def test_tool_loop_adapter_emits_compaction_event(tmp_path: Path) -> None:
     assert payload is not None
     assert payload["compaction_count"] == 1
     assert payload["compaction_dropped_group_count"] == 2
+
+
+def test_repeated_compaction_persists_each_cut_and_reopens_without_summary_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    provider = _RecordingToolProvider()
+    session = CodingSession(provider=provider, native_session=tree)
+    reopened_contexts: list[CodingSessionTreeContext] = []
+    append = tree.append_compaction
+
+    def record_append(
+        *, summary: str, first_kept_entry_id: str, tokens_before: int
+    ) -> CompactionEntry:
+        entry = append(
+            summary=summary,
+            first_kept_entry_id=first_kept_entry_id,
+            tokens_before=tokens_before,
+        )
+        assert tree.path is not None
+        reopened = NativeSessionTree.open(tree.path).build_coding_context()
+        assert reopened.messages == session._coding_state.messages
+        assert (
+            session._coding_state.compaction_suffix == f"\n\n{reopened.prior_summary}"
+        )
+        reopened_contexts.append(reopened)
+        return entry
+
+    monkeypatch.setattr(tree, "append_compaction", record_append)
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("a\nb\nc\nd\n/compact\ne\n/compact\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert result.compaction_count == 2
+    assert result.compaction_dropped_group_count == 3
+    assert len(reopened_contexts) == 2
+    assert [
+        [
+            message.content.value
+            for message in context.messages
+            if isinstance(message, AgentUserMessage)
+        ]
+        for context in reopened_contexts
+    ] == [["c", "d"], ["d", "e"]]
+    entries = tree.get_branch()
+    compactions = [entry for entry in entries if isinstance(entry, CompactionEntry)]
+    second_boundary = tree.get_entry(compactions[1].first_kept_entry_id)
+    assert second_boundary is not None
+    assert entries.index(second_boundary) < entries.index(compactions[0])
+    assert tree.path is not None
+    resumed_provider = _RecordingToolProvider()
+    resumed = CodingSession(
+        provider=resumed_provider, native_session=NativeSessionTree.open(tree.path)
+    )
+    resumed_result = resumed.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("f\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert resumed_result.compaction_count == 0
+    assert resumed_result.compaction_dropped_group_count == 0
+    request = resumed_provider.requests[0]
+    assert request.system_prompt.endswith(f"\n\n{reopened_contexts[-1].prior_summary}")
+    assert request.messages[:-1] == reopened_contexts[-1].messages
+    assert [
+        message.content.value
+        for message in request.messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["d", "e", "f"]
+
+
+def test_compaction_missing_durable_origin_refuses_before_state_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    provider = _RecordingToolProvider()
+    session = CodingSession(provider=provider, native_session=tree)
+    projection = tree.build_coding_context
+
+    def unavailable_origin() -> CodingSessionTreeContext:
+        if len(provider.requests) == 4:
+            return CodingSessionTreeContext((), (), None)
+        return projection()
+
+    monkeypatch.setattr(tree, "build_coding_context", unavailable_origin)
+    errors = io.StringIO()
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("a\nb\nc\nd\n/compact\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=errors,
+    )
+    assert result.compaction_count == 0
+    assert len(session._coding_state.messages) == 8
+    assert session._coding_state.compaction_suffix == ""
+    assert not any(isinstance(entry, CompactionEntry) for entry in tree.get_entries())
+    assert "no durable origin" in errors.getvalue()
+
+
+def test_compaction_persistence_holds_tree_order_but_releases_session_mutex(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    session = CodingSession(provider=_RecordingToolProvider(), native_session=tree)
+    append = tree.append_compaction
+    checked: list[bool] = []
+
+    def append_with_lock_probe(
+        *, summary: str, first_kept_entry_id: str, tokens_before: int
+    ) -> CompactionEntry:
+        state_read = threading.Event()
+        tree_read_started = threading.Event()
+        tree_read = threading.Event()
+
+        def read_state() -> None:
+            assert session._coding_state.compaction_count == 1
+            state_read.set()
+
+        def read_tree() -> None:
+            tree_read_started.set()
+            tree.get_leaf_id()
+            tree_read.set()
+
+        state_worker = threading.Thread(target=read_state)
+        tree_worker = threading.Thread(target=read_tree)
+        state_worker.start()
+        tree_worker.start()
+        assert state_read.wait(5), "session mutex held during persistence"
+        assert tree_read_started.wait(5)
+        assert not tree_read.wait(0.1), "tree ordering released before persistence"
+        state_worker.join(5)
+        # The tree reader is joined after the compaction releases its outer lock.
+        readers.append((tree_worker, tree_read))
+        checked.append(True)
+        return append(
+            summary=summary,
+            first_kept_entry_id=first_kept_entry_id,
+            tokens_before=tokens_before,
+        )
+
+    readers: list[tuple[threading.Thread, threading.Event]] = []
+    monkeypatch.setattr(tree, "append_compaction", append_with_lock_probe)
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("a\nb\nc\nd\n/compact\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert checked == [True]
+    for worker, finished in readers:
+        worker.join(5)
+        assert finished.is_set()

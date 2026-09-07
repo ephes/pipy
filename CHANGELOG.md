@@ -214,6 +214,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Repeated compaction now persists the exact retained boundary even after only
+  one additional user group. Resume and branch replacement restore the destination
+  summary separately from conversation groups, including duplicate custom/branch
+  messages, while preserving current-run counters. Unmapped durable cuts refuse
+  before mutation; accepted writes retain state-first failure behavior. Summary
+  generation remains count-only.
 - `--mode rpc` `get_state` and `set_model` responses no longer report a
   fabricated `fake`/`fake-tools` provider selection when the session adapter is
   built without a provider. The underlying `ValueError` now reaches the RPC

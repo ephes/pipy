@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import FrozenInstanceError
 from typing import cast
@@ -124,6 +125,7 @@ def _action(
         durable_summary=ProductContent("Durable branch summary"),
         dropped_group_count=2,
         measure_before=4096,
+        first_kept_entry_id="retained-entry",
     )
 
 
@@ -202,7 +204,10 @@ def test_append_callback_failure_propagates_after_state_advances() -> None:
     assert state.messages[0] is message
 
 
-def test_rebuild_loads_exact_context_and_preserves_cumulative_counters() -> None:
+@pytest.mark.parametrize("summary", [None, ProductContent("destination summary")])
+def test_rebuild_loads_exact_context_and_preserves_cumulative_counters(
+    summary: ProductContent | None,
+) -> None:
     old = _messages()[0]
     state = _state((old,))
     state.record_input_accepted()
@@ -214,7 +219,7 @@ def test_rebuild_loads_exact_context_and_preserves_cumulative_counters() -> None
     loaded = _messages()
     callbacks = _callbacks(
         state=state,
-        context=CodingProductSessionContext(loaded),
+        context=CodingProductSessionContext(loaded, prior_summary=summary),
     )
 
     CodingProductSessionCoordinator(
@@ -224,7 +229,7 @@ def test_rebuild_loads_exact_context_and_preserves_cumulative_counters() -> None
 
     assert state.messages == loaded
     _assert_message_identity_order(state.messages, loaded)
-    assert state.compaction_suffix == ""
+    assert state.compaction_suffix == (f"\n\n{summary.value}" if summary else "")
     assert state.compaction_count == 1
     assert state.compaction_dropped_group_count == 3
     assert state.user_turn_count == 1
@@ -346,6 +351,8 @@ def test_compaction_callback_failure_propagates_after_state_advances() -> None:
         ("dropped_group_count", True),
         ("measure_before", -1),
         ("measure_before", 1.0),
+        ("first_kept_entry_id", ""),
+        ("first_kept_entry_id", 3),
     ],
 )
 def test_invalid_compaction_is_rejected_before_state_or_callback(
@@ -483,3 +490,117 @@ def test_coordinator_module_has_no_filesystem_or_product_adapter_dependency() ->
             "extensions",
         }
     )
+
+
+@pytest.mark.parametrize(
+    "kwargs,error",
+    [
+        ({"prior_summary": ProductContent("")}, ValueError),
+        ({"prior_summary": "summary"}, TypeError),
+        ({"entry_ids": []}, TypeError),
+        ({"entry_ids": ()}, ValueError),
+        ({"entry_ids": ("",)}, ValueError),
+        ({"entry_ids": (3,)}, TypeError),
+    ],
+)
+def test_context_rejects_invalid_summary_or_provenance(kwargs, error) -> None:  # noqa: ANN001
+    with pytest.raises(error):
+        CodingProductSessionContext((_messages()[0],), **kwargs)
+
+
+def test_origin_resolution_uses_loaded_identity_and_validates_active_origin() -> None:
+    first = AgentUserMessage(ProductContent("duplicate"))
+    second = AgentUserMessage(ProductContent("duplicate"))
+    loaded = CodingProductSessionContext((first, second), entry_ids=("first", "second"))
+    state = _state()
+    coordinator = CodingProductSessionCoordinator(
+        state=state, port=_callbacks(state=state, context=loaded)
+    )
+    coordinator.rebuild_active_history()
+    active = CodingProductSessionContext(
+        (AgentUserMessage(first.content), AgentUserMessage(second.content)),
+        entry_ids=("first", "second"),
+    )
+    assert coordinator.resolve_entry_id(second, active) == "second"
+    assert coordinator.resolve_entry_id(first, active) == "first"
+    assert coordinator.resolve_entry_id(AgentUserMessage(first.content), active) is None
+    assert (
+        coordinator.resolve_entry_id(
+            second, CodingProductSessionContext((first,), entry_ids=("first",))
+        )
+        is None
+    )
+    assert (
+        coordinator.resolve_entry_id(
+            second,
+            CodingProductSessionContext(
+                (AgentUserMessage(ProductContent("changed")),), entry_ids=("second",)
+            ),
+        )
+        is None
+    )
+
+
+def test_rebuild_and_provenance_read_use_current_state_lock_without_locking_loader() -> (
+    None
+):
+    state = _state()
+    message = _messages()[0]
+    context = CodingProductSessionContext((message,), entry_ids=("origin",))
+    loader_entered = threading.Event()
+    finished = threading.Event()
+
+    def load() -> CodingProductSessionContext:
+        loader_entered.set()
+        return context
+
+    coordinator = CodingProductSessionCoordinator(
+        state=state,
+        port=CodingProductSessionCallbacks(load, lambda _: None, lambda _: None),
+    )
+    # Composition can rebind after coordinator construction; never cache the lock.
+    lock = threading.RLock()
+    state.bind_state_lock(lock)
+
+    def rebuild() -> None:
+        coordinator.rebuild_active_history()
+        finished.set()
+
+    worker = threading.Thread(target=rebuild)
+    with lock:
+        worker.start()
+        assert loader_entered.wait(5)
+        assert not finished.wait(0.1)
+        assert state.messages == ()
+    worker.join(5)
+    assert finished.is_set()
+    read_started = threading.Event()
+    read_finished = threading.Event()
+
+    def read() -> None:
+        read_started.set()
+        assert coordinator.resolve_entry_id(message, context) == "origin"
+        read_finished.set()
+
+    reader = threading.Thread(target=read)
+    with lock:
+        reader.start()
+        assert read_started.wait(5)
+        assert not read_finished.wait(0.1)
+    reader.join(5)
+    assert read_finished.is_set()
+
+
+def test_split_compaction_acceptance_does_not_invoke_persistence() -> None:
+    state = _state()
+    calls: list[str] = []
+    coordinator = CodingProductSessionCoordinator(
+        state=state, port=_callbacks(state=state, events=calls)
+    )
+    action = _action()
+    coordinator.accept_compaction(action)
+    assert state.compaction_count == 1
+    assert calls == []
+    coordinator.persist_compaction(action)
+    assert calls == ["compact"]
+    assert state.compaction_count == 1

@@ -29,11 +29,12 @@ from typing import TextIO
 
 import pipy_harness.native.agent.history as _agent_history
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native.agent import AgentUserMessage, ProductContent
+from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.agent.history import compact_agent_history
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCompaction,
+    CodingProductSessionContext,
     CodingProductSessionCoordinator,
 )
 from pipy_harness.native.coding.state import (
@@ -57,8 +58,6 @@ from pipy_harness.native.repl_state import (
     UnavailableAfterReloadProvider,
     normalize_repl_fake_selection,
 )
-from pipy_harness.native.session_tree import CompactionEntry as _CompactionEntry
-from pipy_harness.native.session_tree import MessageEntry as _MessageEntry
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tui import TerminalUi
@@ -569,46 +568,52 @@ class ProviderMutationEffects:
         if not decision.allow:
             reason = decision.reason or "blocked by extension"
             return f"pipy: compact blocked by extension: {reason}"
-        result = compact_agent_history(
-            self.coding_state.messages,
-            keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
-        )
-        if not result.changed:
-            return "pipy: nothing to compact yet."
-        summary_block = _agent_history._agent_history_summary(result)
-        self.product_session.apply_compaction(
-            CodingProductSessionCompaction(
-                retained_messages=result.messages,
-                summary_suffix=ProductContent(f"\n\n{summary_block}"),
-                durable_summary=ProductContent(summary_block),
-                dropped_group_count=result.dropped_group_count,
-                measure_before=result.bytes_before,
-            )
-        )
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if self.ctl.coding_effects.terminal:
+                    return "pipy: compact unavailable after session close."
+                tree = self.ctl.session_tree
+                result = compact_agent_history(
+                    self.coding_state.messages,
+                    keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
+                )
+                if not result.changed:
+                    return "pipy: nothing to compact yet."
+                projected = tree.build_coding_context()
+                first_kept = self.product_session.resolve_entry_id(
+                    result.messages[0],
+                    CodingProductSessionContext(
+                        messages=projected.messages, entry_ids=projected.entry_ids
+                    ),
+                )
+                if first_kept is None and tree.persist:
+                    return (
+                        "pipy: compact refused: retained history has no durable origin."
+                    )
+                summary_block = _agent_history._agent_history_summary(result)
+                action = CodingProductSessionCompaction(
+                    retained_messages=result.messages,
+                    summary_suffix=ProductContent(f"\n\n{summary_block}"),
+                    durable_summary=ProductContent(summary_block),
+                    dropped_group_count=result.dropped_group_count,
+                    measure_before=result.bytes_before,
+                    first_kept_entry_id=first_kept,
+                )
+                self.product_session.accept_compaction(action)
+            self.product_session.persist_compaction(action)
         return (
             f"pipy: compacted conversation context ({trigger}; dropped "
             f"{result.dropped_group_count} earlier exchange(s), kept "
             f"{result.retained_group_count})."
         )
 
-    def append_durable_compaction(self, summary_block: str, bytes_before: int) -> None:
-        branch = self.ctl.session_tree.get_branch()
-        last_compaction = -1
-        for i, entry in enumerate(branch):
-            if isinstance(entry, _CompactionEntry):
-                last_compaction = i
-        segment = branch[last_compaction + 1 :]
-        user_entries = [
-            entry
-            for entry in segment
-            if isinstance(entry, _MessageEntry)
-            and isinstance(entry.message, AgentUserMessage)
-        ]
-        if len(user_entries) <= AGENT_HISTORY_KEEP_RECENT_GROUPS:
+    def append_durable_compaction(self, action: CodingProductSessionCompaction) -> None:
+        """Persist the exact boundary resolved before live state acceptance."""
+
+        if action.first_kept_entry_id is None:
             return
-        first_kept = user_entries[len(user_entries) - AGENT_HISTORY_KEEP_RECENT_GROUPS]
         self.ctl.session_tree.append_compaction(
-            summary=summary_block.strip(),
-            first_kept_entry_id=first_kept.id,
-            tokens_before=bytes_before,
+            summary=action.durable_summary.value.strip(),
+            first_kept_entry_id=action.first_kept_entry_id,
+            tokens_before=action.measure_before,
         )

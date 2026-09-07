@@ -298,6 +298,23 @@ Rules to match Pi:
   `firstKeptEntryId` through the compaction boundary and all later active-branch
   messages.
 
+The coding product uses `NativeSessionTree.build_coding_context()` to project the
+same retained entries with parallel structural entry IDs and a separate optional
+compaction summary. Its summary becomes the coding system suffix, so resumed
+summaries do not count as user groups in later cuts. Ordinary `build_context()`
+continues to return its synthetic summary message; the JSONL format is unchanged.
+Custom-message and branch-summary groups keep their existing projection semantics,
+including duplicate text and hidden custom messages. Origin lookup uses message
+identity or the immutable last-loaded provenance, never a text search.
+
+A compaction action resolves `firstKeptEntryId` before live acceptance, including
+entries retained from before an earlier compaction. Failure to map a durable cut
+refuses without changing live context. Accepted transitions remain state-first:
+live history/summary/counters advance before synchronous persistence, and an
+append failure propagates without rollback. Every destination rebuild replaces
+the branch summary while preserving current-run counters; a new run restores
+summary context with fresh counters.
+
 Canonical tool results require both the provider correlation id and tool name.
 The stable JSON format does not add a `tool_name` field: reload resolves it from
 the matching assistant tool call on that result's own parent chain. A historical

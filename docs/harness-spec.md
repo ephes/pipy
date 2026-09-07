@@ -1848,9 +1848,10 @@ exception; the read-only `provider_port` projection observes that same owner.
 Provider/model/auth and reload-fallback rebinds clear provider-visible history
 and install a newly priced usage accumulator without clearing the durable native
 session tree. A same-context extension-provider refresh replaces only the port.
-Session/tree rebuilds replace live history and clear the branch-local compaction
-suffix while preserving run-lifetime counters and cumulative compaction
-metrics. For behavioral compatibility, a provider-context rebind continues to
+Session/tree rebuilds replace live history and install the destination's separate
+compaction summary suffix, or clear it for uncompacted/empty destinations. They
+preserve run-lifetime counters and cumulative compaction metrics; startup can
+restore a summary with zero new-run compactions. For behavioral compatibility, a provider-context rebind continues to
 preserve the current in-memory compaction suffix; deciding whether that suffix
 should also reset is a separately characterized behavior change, not part of
 this ownership extraction.
@@ -1866,10 +1867,17 @@ concrete-tool dependencies.
 
 Phase 3.1c adds `native.coding.product_session` as a synchronous coordination
 seam over the state owner. `CodingProductSessionContext` is an exact immutable
-tuple of canonical full-content messages. `CodingProductSessionCompaction`
+tuple of canonical full-content messages, optional prior compaction summary, and
+optional parallel structural origin entry IDs. The concrete tree's coding
+projection supplies real messages separately from its compaction summary; the
+legacy tree projection retains its synthetic summary user message. The coordinator
+retains only the immutable last-loaded context for projected custom/branch-message
+origin lookup, guarded together with history by the state's existing mutex.
+`CodingProductSessionCompaction`
 contains the retained canonical history, the exact in-memory prompt suffix, the
 durable private summary, the dropped-group count, and the pre-compaction
-measure. These are product-session values by classification; they are never
+measure, plus the first retained entry ID resolved before acceptance (`None` only
+for explicitly non-durable unmapped context). These are product-session values by classification; they are never
 metadata-safe archive DTOs and are not exposed through generic serializers or
 the workflow projection.
 
@@ -1879,11 +1887,18 @@ The coordinator preserves the existing blocking order:
    the exact same object is passed to the durable callback.
 2. A compaction action is validated completely, its live retained history,
    suffix, and counters are applied, then the exact action is passed to the
-   durable callback.
+   durable callback. D1a holds the outer tree/effect lock then session mutex
+   across snapshot, pure whole-group cut, structural boundary resolution and
+   live acceptance. The narrow coordinator acceptance/persistence seam releases
+   the session mutex before the callback while retaining outer tree ordering.
+   An unresolved durable origin refuses before live mutation. A second cut may
+   retain an entry preceding the previous compaction; persistence consumes the
+   pre-resolved ID rather than recounting users after that compaction.
 3. A session command performs its concrete tree create/open/move/fork/import
    operation first. The load callback then returns one exact immutable active
-   context, live history rebuilds only after validation, and composition clears
-   extension-scoped pending input immediately afterward.
+   context, live history and destination summary rebuild only after validation,
+   the immutable provenance changes under that same state guard, and composition
+   clears extension-scoped pending input immediately afterward.
 
 Callbacks are synchronous and backpressured. Their exceptions propagate before
 the next event or lifecycle step. Append or compaction callback failure retains

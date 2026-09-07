@@ -20,6 +20,8 @@ class CodingProductSessionContext:
     """Exact full-content provider history loaded from product persistence."""
 
     messages: tuple[AgentMessage, ...]
+    prior_summary: ProductContent | None = None
+    entry_ids: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         _require_context(self)
@@ -34,6 +36,7 @@ class CodingProductSessionCompaction:
     durable_summary: ProductContent
     dropped_group_count: int
     measure_before: int
+    first_kept_entry_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_compaction(self)
@@ -99,7 +102,7 @@ class CodingProductSessionCallbacks:
 class CodingProductSessionCoordinator:
     """Coordinate state-first transitions with synchronous durable effects."""
 
-    __slots__ = ("_port", "_state")
+    __slots__ = ("_port", "_state", "_loaded_context")
 
     def __init__(
         self,
@@ -113,6 +116,7 @@ class CodingProductSessionCoordinator:
             raise TypeError("port must implement CodingProductSessionPort")
         self._state = state
         self._port = port
+        self._loaded_context: CodingProductSessionContext | None = None
 
     def append_message(self, message: AgentMessage) -> None:
         """Apply a canonical message, then synchronously persist that object."""
@@ -130,10 +134,65 @@ class CodingProductSessionCoordinator:
 
         context = self._port.load_active_history()
         _require_context(context)
-        self._state.rebuild_history(context.messages)
+        with self._state.state_lock:
+            self._state.rebuild_history(
+                context.messages,
+                summary_suffix=(
+                    f"\n\n{context.prior_summary.value}"
+                    if context.prior_summary is not None
+                    else ""
+                ),
+            )
+            self._loaded_context = context
+
+    def resolve_entry_id(
+        self, message: AgentMessage, active: CodingProductSessionContext
+    ) -> str | None:
+        """Resolve identity against active entries or the last loaded projection.
+
+        Loaded custom/branch messages are newly projected objects. Their stored
+        origin is checked against the active projection, never found by text.
+        """
+
+        _require_context(active)
+        if active.entry_ids is None:
+            return None
+        with self._state.state_lock:
+            direct = [
+                entry_id
+                for item, entry_id in zip(
+                    active.messages, active.entry_ids, strict=True
+                )
+                if item is message
+            ]
+            if direct:
+                return direct[0] if len(direct) == 1 else None
+            loaded = self._loaded_context
+            if loaded is None or loaded.entry_ids is None:
+                return None
+            origins = [
+                entry_id
+                for item, entry_id in zip(
+                    loaded.messages, loaded.entry_ids, strict=True
+                )
+                if item is message
+            ]
+            if len(origins) != 1:
+                return None
+            origin = origins[0]
+            for item, entry_id in zip(active.messages, active.entry_ids, strict=True):
+                if entry_id == origin:
+                    return origin if item == message else None
+            return None
 
     def apply_compaction(self, action: CodingProductSessionCompaction) -> None:
         """Apply full-content compaction, then synchronously persist it."""
+
+        self.accept_compaction(action)
+        self.persist_compaction(action)
+
+    def accept_compaction(self, action: CodingProductSessionCompaction) -> None:
+        """Apply validated live state; composition holds its acceptance guards."""
 
         _require_compaction(action)
         self._state.apply_compaction(
@@ -141,6 +200,11 @@ class CodingProductSessionCoordinator:
             summary_suffix=action.summary_suffix.value,
             dropped_group_count=action.dropped_group_count,
         )
+
+    def persist_compaction(self, action: CodingProductSessionCompaction) -> None:
+        """Persist an accepted action after the session mutex is released."""
+
+        _require_compaction(action)
         apply_compaction = cast(
             Callable[[CodingProductSessionCompaction], object],
             self._port.apply_compaction,
@@ -153,6 +217,17 @@ def _require_context(context: object) -> None:
     if type(context) is not CodingProductSessionContext:
         raise TypeError("loaded context must be an exact CodingProductSessionContext")
     require_exact_agent_messages(context.messages, "context.messages")
+    if context.prior_summary is not None:
+        _require_non_empty_product_content(context.prior_summary, "prior_summary")
+    if context.entry_ids is not None:
+        if type(context.entry_ids) is not tuple:
+            raise TypeError("entry_ids must be an exact tuple or None")
+        if len(context.entry_ids) != len(context.messages):
+            raise ValueError("entry_ids must correspond to every message")
+        for entry_id in context.entry_ids:
+            _require_entry_id(entry_id)
+        if len(set(context.entry_ids)) != len(context.entry_ids):
+            raise ValueError("entry_ids must be unique")
 
 
 def _require_compaction(action: object) -> None:
@@ -165,6 +240,15 @@ def _require_compaction(action: object) -> None:
     if action.dropped_group_count == 0:
         raise ValueError("dropped_group_count must be positive")
     _require_non_negative_int(action.measure_before, "measure_before")
+    if action.first_kept_entry_id is not None:
+        _require_entry_id(action.first_kept_entry_id)
+
+
+def _require_entry_id(entry_id: object) -> None:
+    if type(entry_id) is not str:
+        raise TypeError("entry id must be an exact string")
+    if not entry_id:
+        raise ValueError("entry id must not be empty")
 
 
 def _require_non_empty_product_content(content: object, field_name: str) -> None:

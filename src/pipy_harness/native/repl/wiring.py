@@ -344,8 +344,8 @@ class _ProviderMutationBinding:
     def set_active_tools(self, generation_id: int, names: Sequence[str]) -> bool:
         return self._bound().extension_set_active_tools(generation_id, names)
 
-    def append_durable_compaction(self, summary: str, measure_before: int) -> None:
-        self._bound().append_durable_compaction(summary, measure_before)
+    def append_durable_compaction(self, action: CodingProductSessionCompaction) -> None:
+        self._bound().append_durable_compaction(action)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -826,8 +826,16 @@ def _compose_product_session(
     )
 
     def _load_product_session_history() -> CodingProductSessionContext:
+        with ctl.session_tree_section() as tree:
+            context = tree.build_coding_context()
         return CodingProductSessionContext(
-            messages=tuple(ctl.session_tree.build_context().messages)
+            messages=context.messages,
+            prior_summary=(
+                ProductContent(context.prior_summary)
+                if context.prior_summary is not None
+                else None
+            ),
+            entry_ids=context.entry_ids,
         )
 
     def _persist_agent_message(message: AgentMessage) -> None:
@@ -835,13 +843,10 @@ def _compose_product_session(
 
     def _persist_compaction(action: CodingProductSessionCompaction) -> None:
         # `provider_mutation` is assigned later in this run scope; this
-        # callback only fires at runtime (via `product_session.apply_compaction`
-        # inside the handler's `apply_compaction`), by which point the handler
+        # callback only fires at runtime through `product_session.persist_compaction`
+        # after the handler releases the session mutex, by which point the handler
         # is bound, so the late name reference is safe.
-        provider_binding.append_durable_compaction(
-            action.durable_summary.value,
-            action.measure_before,
-        )
+        provider_binding.append_durable_compaction(action)
 
     product_session = CodingProductSessionCoordinator(
         state=coding_state,

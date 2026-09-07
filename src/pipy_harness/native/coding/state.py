@@ -263,6 +263,16 @@ class CodingSessionState:
             self._state_lock = lock
 
     @property
+    def state_lock(self) -> threading.RLock:
+        """Existing shared mutex for compound product-history transitions.
+
+        Read the current lock rather than caching it during composition;
+        ``bind_state_lock`` may replace it only before workers become active.
+        """
+
+        return self._state_lock
+
+    @property
     def provider(self) -> ProviderPort:
         with self._state_lock:
             return self._binding.provider
@@ -609,13 +619,17 @@ class CodingSessionState:
         with self._state_lock:
             self._messages = ()
 
-    def rebuild_history(self, messages: tuple[AgentMessage, ...]) -> None:
-        """Replace history from product persistence and clear its live suffix."""
+    def rebuild_history(
+        self, messages: tuple[AgentMessage, ...], *, summary_suffix: str = ""
+    ) -> None:
+        """Replace destination history/summary, preserving run-lifetime counters."""
 
         require_exact_agent_messages(messages)
+        if type(summary_suffix) is not str:
+            raise TypeError("summary_suffix must be an exact string")
         with self._state_lock:
             self._messages = messages
-            self._compaction_suffix = ""
+            self._compaction_suffix = summary_suffix
 
     def sync_tool_policy(self, state: AgentToolPolicyState) -> None:
         """Mirror the exact reusable-loop cumulative tool counters."""

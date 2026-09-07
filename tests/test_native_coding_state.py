@@ -1415,3 +1415,22 @@ def test_compaction_metadata_readers_wait_for_the_shared_mutex() -> None:
         is True
     )
     assert _blocks_while_lock_held(lock, lambda: state.compaction_suffix) is True
+
+
+def test_destination_rebuild_restores_summary_under_guard_and_default_clears_it() -> (
+    None
+):
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+    message = _message("destination")
+    assert _blocks_while_lock_held(
+        lock, lambda: state.rebuild_history((message,), summary_suffix="\n\nsummary")
+    )
+    assert state.compaction_suffix == "\n\nsummary"
+    assert state.compaction_count == 0
+    assert state.compaction_dropped_group_count == 0
+    state.rebuild_history((message,))
+    assert state.compaction_suffix == ""
+    with pytest.raises(TypeError, match="summary_suffix"):
+        state.rebuild_history((), summary_suffix=cast(str, None))
+    assert state.messages == (message,)

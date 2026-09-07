@@ -63,7 +63,7 @@ prompts in a TTY before forking it into the current project.
 | `/tree` | Browse the session tree and continue from an earlier point. |
 | `/fork` | Create a new session from an earlier message/session. |
 | `/clone` | Duplicate the current active branch into a new session. |
-| `/compact` | Reduce provider-visible context and append a durable compaction entry when enough history exists. |
+| `/compact` | Reduce provider-visible context and append a durable compaction entry with the exact retained boundary. |
 | `/export [file]` | Export the current session to HTML by default, or active-branch JSONL when `file` ends in `.jsonl`. |
 | `/import <file>` | Import a native session JSONL file. |
 | `/share` | Upload the session as a private GitHub gist when configured. |
@@ -90,7 +90,7 @@ export, but they are not sent as active context unless selected.
 
 Long sessions can be compacted manually with `/compact` and automatically when
 history grows. Compaction keeps recent turns verbatim, drops older provider
-context from the next request, and normally records a durable `compaction` entry so
+context from the next request, and records a durable `compaction` entry so
 resume and `/tree` rebuild the same reduced active branch. See
 [Compaction](compaction.md) for details and limitations.
 
@@ -118,16 +118,16 @@ separate for the following workflows; test references are under `tests/`.
 | Edit/check/reopen | `test_native_daily_use_baseline.py::test_production_edit_check_and_durable_reopen_preserve_exact_context` | Scripted provider; no interruption or compaction in this scenario. |
 | Interrupt/steer | `test_native_coding_session_terminal_pty.py::test_pty_active_turn_interrupt_cancels_and_returns_to_prompt` and `::test_pty_steering_and_follow_up_queue_and_drain_order` | Real PTY input with fake-provider cancellation and queue ordering; live-provider behavior unverified. |
 | Provider failure | `test_coding_session_provider_failure.py::test_exhausted_transport_failure_leaves_repl_usable_for_next_prompt` | A new prompt succeeds after failure; there is no agent-wide automatic request retry. |
-| Compaction | `test_native_coding_session_resume_compact.py` and `test_native_coding_session_tree.py::test_durable_compaction_entry_survives_reload` | Whole-group reduction and one durable reopen are covered. Summaries currently contain counts; repeated semantic continuity is not established. |
+| Compaction | `test_native_coding_session_resume_compact.py::test_repeated_compaction_persists_each_cut_and_reopens_without_summary_groups` and `test_native_coding_session_tree.py` | Whole-group cuts, reopen after each cut, and destination-summary replacement are covered. Summaries still contain counts; semantic continuity and live quality remain unverified. |
 | Extension load/close | `test_native_extension_conformance.py::test_golden_conformance_extension` exercises the existing conformance example, tool/command hooks and shutdown. | Separate from the persisted edit/check/reopen scenario. |
 | Extension reload | `test_native_coding_session.py::test_successful_reload_publishes_one_coherent_generation_across_real_consumers` | Tests generation coherence across real consumers, not live-provider usability. |
 | Headless control | `test_native_automation_rpc.py::test_prompt_emits_correlated_success_then_event_sequence` and `test_architecture_mode_contracts.py::test_json_mode_preserves_real_loop_order_with_mode_boundaries` | Protocol/event evidence; equivalent edit/check/resume through a supported public multi-turn Python API is not yet available. See [RPC](rpc.md) and [SDK](sdk.md) limits. |
 
-Repeated compaction also has a current persistence gap: a later reduction can
-advance live context without writing a durable compaction entry when too few new
-user groups have arrived since the previous compaction. Reopening can therefore
-lose the latest reduction. The selected D1a work in the [backlog](backlog.md)
-owns this repair; it is not covered by the single-compaction reopen test above.
+Repeated cuts retain their durable boundary even after only one new user group.
+Reopened coding context restores the summary separately from user groups. A
+durable cut whose retained entry cannot be mapped is refused before live mutation;
+an actual persistence failure after acceptance retains the existing state-first
+failure behavior described in [Compaction](compaction.md).
 
 `just test-pty-smoke` covers streaming, chrome, and project trust. The
 interrupt/steer tests above live in the separate terminal PTY module.

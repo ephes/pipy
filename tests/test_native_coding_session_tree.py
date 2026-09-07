@@ -1618,6 +1618,75 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
     assert " a " not in f" {texts} "
 
 
+@pytest.mark.parametrize("entry_kind", ["custom", "branch"])
+def test_compaction_resolves_duplicate_projected_users_by_loaded_origin(
+    tmp_path: Path, entry_kind: str
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
+    tree.append_message(AgentUserMessage(ProductContent("old")))
+    if entry_kind == "custom":
+        dropped_id = tree.append_custom_message("note", "duplicate").id
+        kept_id = tree.append_custom_message("note", "duplicate").id
+    else:
+        dropped_id = tree.branch_with_summary(tree.get_leaf_id(), "duplicate").id
+        kept_id = tree.branch_with_summary(tree.get_leaf_id(), "duplicate").id
+    tree.append_message(AgentUserMessage(ProductContent("tail")))
+    session = CodingSession(provider=_SeenProvider(), native_session=tree)
+    _run(session, cwd, "/compact\n/exit\n")
+    assert session._coding_state.compaction_count == 1
+    compaction = tree.get_leaf_entry()
+    assert isinstance(compaction, CompactionEntry)
+    assert compaction.first_kept_entry_id == kept_id
+    assert compaction.first_kept_entry_id != dropped_id
+    assert tree.path is not None
+    reopened = NativeSessionTree.open(tree.path).build_coding_context()
+    assert reopened.messages == session._coding_state.messages
+    assert reopened.entry_ids[0] == kept_id
+
+
+def test_resume_and_new_replace_destination_summary_without_resetting_run_counters(
+    tmp_path: Path,
+) -> None:
+    cwd = _workspace(tmp_path)
+    compacted = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
+    compacted.append_message(AgentUserMessage(ProductContent("discarded")))
+    retained = compacted.append_message(AgentUserMessage(ProductContent("retained")))
+    compacted.append_compaction(
+        summary="destination summary", first_kept_entry_id=retained.id, tokens_before=1
+    )
+    plain = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
+    plain.append_message(AgentUserMessage(ProductContent("plain")))
+    assert compacted.path is not None and plain.path is not None
+    provider = _SeenProvider()
+    session = CodingSession(provider=provider)
+    _run(
+        session,
+        cwd,
+        (
+            "a\nb\nc\nd\n/compact\n"
+            f"/resume {compacted.path}\ncontinued\n"
+            f"/resume {plain.path}\nplain continuation\n"
+            f"/resume {compacted.path}\n/new\nfresh\n/exit\n"
+        ),
+    )
+    assert session._coding_state.compaction_count == 1
+    assert session._coding_state.compaction_dropped_group_count == 2
+    continued, uncompacted, fresh = provider.requests[-3:]
+    assert continued.system_prompt.endswith("\n\ndestination summary")
+    assert [
+        m.content.value for m in continued.messages if isinstance(m, AgentUserMessage)
+    ] == ["retained", "continued"]
+    assert "destination summary" not in uncompacted.system_prompt
+    assert [
+        m.content.value for m in uncompacted.messages if isinstance(m, AgentUserMessage)
+    ] == ["plain", "plain continuation"]
+    assert "destination summary" not in fresh.system_prompt
+    assert [
+        m.content.value for m in fresh.messages if isinstance(m, AgentUserMessage)
+    ] == ["fresh"]
+
+
 class _StubPickerUi:
     """Minimal terminal-ui stand-in exposing only ``run_session_picker``."""
 

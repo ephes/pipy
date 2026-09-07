@@ -568,6 +568,15 @@ class SessionContext:
     model: tuple[str, str] | None  # (provider, model_id)
 
 
+@dataclass(frozen=True, slots=True)
+class CodingSessionTreeContext:
+    """Coding history with structural origins and a separate compaction summary."""
+
+    messages: tuple[AgentMessage, ...]
+    entry_ids: tuple[str, ...]
+    prior_summary: str | None
+
+
 def _compaction_summary_message(summary: str) -> AgentUserMessage:
     return AgentUserMessage(
         content=ProductContent(
@@ -660,13 +669,24 @@ def _project_context_entry(entry: SessionEntry) -> AgentMessage | None:
 def _project_context_messages(
     path: list[SessionEntry], compaction: CompactionEntry | None
 ) -> list[AgentMessage]:
+    messages: list[AgentMessage] = (
+        [_compaction_summary_message(compaction.summary)] if compaction else []
+    )
+    messages.extend(
+        message
+        for entry in _retained_context_entries(path, compaction)
+        if (message := _project_context_entry(entry)) is not None
+    )
+    return messages
+
+
+def _retained_context_entries(
+    path: list[SessionEntry], compaction: CompactionEntry | None
+) -> list[SessionEntry]:
+    """Select the shared active cut before either consumer projects messages."""
+
     if compaction is None:
-        return [
-            message
-            for entry in path
-            if (message := _project_context_entry(entry)) is not None
-        ]
-    messages: list[AgentMessage] = [_compaction_summary_message(compaction.summary)]
+        return path
     compaction_idx = next(
         (
             index
@@ -676,18 +696,14 @@ def _project_context_messages(
         -1,
     )
     found_first_kept = False
+    retained: list[SessionEntry] = []
     for entry in path[:compaction_idx]:
         if entry.id == compaction.first_kept_entry_id:
             found_first_kept = True
         if found_first_kept:
-            message = _project_context_entry(entry)
-            if message is not None:
-                messages.append(message)
-    for entry in path[compaction_idx + 1 :]:
-        message = _project_context_entry(entry)
-        if message is not None:
-            messages.append(message)
-    return messages
+            retained.append(entry)
+    retained.extend(path[compaction_idx + 1 :])
+    return retained
 
 
 # ---------------------------------------------------------------------------
@@ -1271,6 +1287,25 @@ class NativeSessionTree:
     @_guarded_tree_api
     def build_context(self) -> SessionContext:
         return build_context(self.entries, self.leaf_id, self.by_id)
+
+    @_guarded_tree_api
+    def build_coding_context(self) -> CodingSessionTreeContext:
+        """Project real coding groups without a synthetic compaction user group."""
+
+        path = _active_branch_path(self.leaf_id, self.by_id)
+        _, _, compaction = _reconstruct_context_settings(path)
+        projected = [
+            (entry.id, message)
+            for entry in _retained_context_entries(path, compaction)
+            if (message := _project_context_entry(entry)) is not None
+        ]
+        return CodingSessionTreeContext(
+            messages=tuple(message for _, message in projected),
+            entry_ids=tuple(entry_id for entry_id, _ in projected),
+            prior_summary=compaction.summary
+            if compaction and compaction.summary
+            else None,
+        )
 
     @_guarded_tree_api
     def get_tree(self) -> list[SessionTreeNode]:

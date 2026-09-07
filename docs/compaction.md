@@ -13,8 +13,11 @@ Pipy's current compaction is a safe, deterministic reduction:
    request.
 3. It drops older groups from the in-memory provider context and adds a
    metadata/count summary block to the system prompt.
-4. When enough durable session history exists, it appends a `compaction` entry to
-   the native session JSONL file.
+4. It resolves the exact first retained entry before changing live context and
+   appends a `compaction` entry to the native session JSONL file. A durable
+   session refuses a cut whose retained entry cannot be resolved.
+   If that mismatch persists, the automatic threshold check can report the
+   refusal again on later requests; it leaves live context unchanged.
 
 The native session file still contains the full transcript entries that were
 written before compaction. Compaction changes what future provider requests see;
@@ -71,8 +74,21 @@ retention policy.
 ## Durable session behavior
 
 When compaction changes history, pipy appends a `compaction` tree entry with the
-summary and the first retained entry ID. On resume, `/tree` navigation, fork, and
-clone, pipy rebuilds the active branch with that compaction boundary honored.
+summary and the first retained entry ID. That boundary may precede the previous
+compaction entry: a second cut works even after only one new user group. On
+resume, `/tree` navigation, fork, clone, and import, pipy rebuilds the active branch
+with that compaction boundary honored. Coding context restores the summary in
+the system suffix and keeps real messages separate, so a summary does not become
+another user group. An uncompacted destination or `/new` clears the suffix.
+
+Compaction counters describe the current run, independently of a restored branch
+summary. Startup can restore a summary with zero compactions in the new run;
+navigation replaces the summary while preserving cumulative run counters.
+
+Persistence remains state-first: live history, summary, and counters advance
+before the synchronous tree append. A write failure propagates before the success
+diagnostic and does not roll back or retry. Tree memory can also advance before
+the file write fails; this is not an atomic durability guarantee.
 
 This means:
 
@@ -106,8 +122,10 @@ spec [Session Tree](session-tree.md).
 
 ## D1 implementation contract
 
-This is the selected **future implementation contract**, pending D1; the current
-behavior above remains count-only. Task selection and status live only in
+This is the selected D1 contract. D1a implements structural provenance, repeated
+durable cuts and destination-summary rebuilds; D1b's semantic provider generation
+and conditional acceptance remain pending. The current behavior above remains
+count-only. Task selection and status live only in
 [the backlog](backlog.md). D1 changes semantic continuity at existing whole-user-
 group boundaries, with no budgeting, within-run cuts, retries, custom `/compact`
 instructions, or RPC controls.
@@ -131,22 +149,22 @@ with the combined summary rather than stacking summaries. A deterministic test
 can prove supplied facts and request continuity; it cannot establish live summary
 quality.
 
-Extend `CodingProductSessionContext` with a separate optional prior summary.
-The product loader resolves it structurally from the latest active compaction
-entry, never by recognizing prose, and supplies real retained messages separately.
-Extend the existing guarded `CodingSessionState.rebuild_history` transition with
+`CodingProductSessionContext` carries a separate optional prior summary and
+parallel origin entry IDs. The product loader resolves the summary structurally
+from the latest active compaction entry, never by recognizing prose, and supplies
+real retained messages and their originating entry IDs separately.
+The guarded `CodingSessionState.rebuild_history` transition accepts
 an explicit summary suffix whose default is empty. The coordinator passes the
 loaded destination summary to that transition for **every** tree rebuild:
 startup/resume, `/tree`, `/fork`, `/clone`, `/import` and `/new`. An uncompacted or
 empty destination clears the suffix; a compacted destination installs only its
 own summary. Never carry the source branch's suffix into the destination.
 
-This intentionally replaces the current unconditional suffix clearing for a
-compacted destination while preserving the default clear behavior. Update the
-harness-spec's headless-state rebuild sentence when implemented. Preserve and
-extend `test_rebuild_loads_exact_context_and_preserves_cumulative_counters` for
-both cases and pin compacted/uncompacted branch replacement in the session-tree
-suite. The two persistence-failure tests below are additional requirements, not
+This intentionally replaces unconditional suffix clearing for a compacted
+destination while preserving the default clear behavior.
+`test_rebuild_loads_exact_context_and_preserves_cumulative_counters` covers both
+cases; the session-tree suite pins compacted/uncompacted destination replacement.
+The two persistence-failure tests below are additional requirements, not
 an exhaustive list of affected tests.
 
 Immediate and rebuilt coding context must have equivalent summary placement and
