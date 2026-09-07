@@ -113,6 +113,29 @@ class ReloadPreparationRefused(RuntimeError):
     """A detached reload cannot safely reach semantic acceptance."""
 
 
+@contextmanager
+def startup_candidate_scope(
+    sink: Callable[[str], None],
+) -> Iterator[_ExtensionCandidate]:
+    """Own unpublished startup activation for the entire caller lifetime."""
+
+    candidate = _ExtensionCandidate()
+    body_succeeded = False
+    try:
+        yield candidate
+        body_succeeded = True
+    finally:
+        try:
+            _report_activation_cleanup(candidate.dispose(), sink)
+        except BaseException as error:
+            if body_succeeded:
+                raise
+            try:
+                sink(f"pipy: cleanup report failed: {type(error).__name__}.")
+            except BaseException:  # noqa: BLE001 - preserve the original error
+                pass
+
+
 def balance_startup_candidate(
     function: Callable[Concatenate[Any, _ExtensionCandidate, _P], _R],
 ) -> Callable[Concatenate[Any, _P], _R]:
@@ -120,25 +143,12 @@ def balance_startup_candidate(
 
     @wraps(function)
     def guarded(session: Any, /, *args: _P.args, **kwargs: _P.kwargs) -> _R:
-        candidate = _ExtensionCandidate()
-        bound = signature.bind(session, candidate, *args, **kwargs)
+        # Bind before acquisition; the hidden candidate is never caller-owned.
+        bound = signature.bind(session, None, *args, **kwargs)
         bound.apply_defaults()
         sink = partial(emit_diagnostic, None, bound.arguments["error_stream"])
-        body_succeeded = False
-        try:
-            result = function(session, candidate, *args, **kwargs)
-            body_succeeded = True
-            return result
-        finally:
-            try:
-                _report_activation_cleanup(candidate.dispose(), sink)
-            except BaseException as error:
-                if body_succeeded:
-                    raise
-                try:
-                    sink(f"pipy: cleanup report failed: {type(error).__name__}.")
-                except BaseException:  # noqa: BLE001 - must not replace the original error
-                    pass
+        with startup_candidate_scope(sink) as candidate:
+            return function(session, candidate, *args, **kwargs)
 
     parameters = list(signature.parameters.values())
     parameters.pop(1)

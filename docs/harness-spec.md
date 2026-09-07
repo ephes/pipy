@@ -1789,6 +1789,33 @@ freshness loss wins when cancellation coincides. Unchanged-context cancellation
 uses the typed preparation alternative, and manual stale compaction reports
 refusal. See [the compaction contract](compaction.md#guarded-run-context-and-stale-automatic-summaries).
 
+### Internal Persistent Coding Lifetime
+
+`CodingSession._open_lifetime` composes the existing product once and exposes an
+internal seed/drive/close handle composed by existing `repl/wiring.py`. Wiring
+enters the shared startup-candidate scope and passes its candidate to the facade's
+explicit wiring-input conversion callback. It keeps the same coding state, input queue,
+controller, generation, effect coordinator, and mutex across explicit idle
+yields. `CodingSession.run` and this internal path use the same controller-owned
+lifecycle and loop; the stream path retains blocking input and EOF semantics.
+
+A drive without a fresh-input reader drains outboxes and eligible inputs,
+emits any pending settlement, then drains and polls again before yielding idle.
+Observer-enqueued continuations therefore run before the caller regains control.
+The persistent path emits no fresh-input separators into its diagnostic stream.
+Idle does not finalize, close, or fire shutdown. Explicit close is idempotent;
+fatal/exception exits retain the established once-only cleanup and exception
+precedence. Driving after disposal refuses, including a failed-startup handle.
+The startup-candidate scope surrounds the full context and preserves cleanup on
+construction failure; `session_start` failure does not fabricate a shutdown
+bookend for an unstarted session.
+
+Run witnesses still belong to individual `CodingAgentRunCoordinator.run_turn`
+invocations, including semantic preparation and cancellation, and are released
+before idle. Stale context still closes the lifetime through the existing bounded
+exception path. This seam adds no cross-thread control, alternate queue, public
+SDK, or changed persistence guarantee; see [the D2 SDK contract](sdk.md#d2-implementation-contract).
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical

@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Native coding composition now has an internal persistent lifetime that yields
+  at idle and continues with the same conversation and resources. The stream
+  entrypoint shares its loop and once-only cleanup; the supported multi-turn
+  Python SDK remains a separate follow-up.
+
 - Python extension tools can now activate additional registered tools during
   execution with `ctx.set_active_tools(...)`. Purely additive changes persist a
   provider-agnostic load-point marker on that tool result; supported first-party

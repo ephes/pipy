@@ -1285,3 +1285,142 @@ def test_loop_step_signal_invariants() -> None:
     signal = LoopStepSignal.return_result(carried)
     assert signal.kind is LoopStepSignalKind.RETURN_RESULT
     assert signal.result is carried
+
+
+def test_no_reader_yields_idle_after_settlement_and_repoll() -> None:
+    queue = CodingInputQueue()
+    controller, emitter = _controller(queue)
+    drain_calls: list[None] = []
+    step = controller.select_next_step(
+        settle_pending=True,
+        drain_outbox=lambda: drain_calls.append(None),
+        read_fresh_line=None,
+        input_queued_input_port=None,
+    )
+    assert step == CodingLoopStep.idle(settle_pending=False)
+    assert emitter.settled_calls == 1
+    assert len(drain_calls) == 2
+    eof = controller.select_next_step(
+        settle_pending=False,
+        drain_outbox=_noop_drain,
+        read_fresh_line=lambda: "",
+        input_queued_input_port=None,
+    )
+    assert eof.kind is CodingLoopStepKind.EOF
+
+
+def test_idle_driver_drains_settled_observer_continuation_before_yield() -> None:
+    queue = CodingInputQueue()
+    controller, emitter = _controller(queue)
+    pending = False
+    seen: list[str] = []
+    lifecycle: list[str] = []
+
+    def on_settled() -> None:
+        if emitter.settled_calls == 1:
+            queue.enqueue_extension_follow_up(ProductContent("continuation\n\n"))
+
+    emitter.on_settled.append(on_settled)
+
+    def step_once() -> LoopStepSignal:
+        nonlocal pending
+        step = controller.select_next_step(
+            settle_pending=pending,
+            drain_outbox=_noop_drain,
+            read_fresh_line=None,
+            input_queued_input_port=None,
+        )
+        pending = step.settle_pending
+        if step.kind is CodingLoopStepKind.IDLE:
+            return LoopStepSignal.idle()
+        assert step.selected_provider_content is not None
+        seen.append(step.selected_provider_content.value)
+        pending = True
+        return LoopStepSignal.continue_loop()
+
+    with controller.open_lifetime(
+        finalize=_repl_result,
+        fire_session_start=lambda: lifecycle.append("start"),
+        fire_session_shutdown=lambda: lifecycle.append("shutdown"),
+        consume_settle_pending=lambda: pending,
+        close_extension_session=lambda: lifecycle.append("close"),
+        clear_extension_chrome=lambda: lifecycle.append("clear"),
+    ) as lifetime:
+        lifetime.enqueue_seed(ProductContent("seed"))
+        assert lifetime.drive(step_once) is None
+        assert seen == ["seed", "continuation\n\n"]
+        assert emitter.settled_calls == 2
+        assert lifecycle == ["start"]
+        assert not lifetime.closed
+        assert lifetime.drive(step_once) is None
+        assert emitter.settled_calls == 2
+    assert lifecycle == ["start", "shutdown", "close", "clear"]
+
+
+@pytest.mark.parametrize("ending", ["close", "eof", "fatal", "exception"])
+def test_persistent_lifetime_idle_then_terminal_disposal_once(ending: str) -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+    result = _repl_result()
+    fatal = _repl_result(HarnessStatus.FAILED)
+
+    def finalize() -> CodingSessionResult:
+        log.append("finalize")
+        return result
+
+    def fail() -> LoopStepSignal:
+        raise LookupError("step failed")
+
+    with controller.open_lifetime(
+        finalize=finalize,
+        fire_session_start=lambda: log.append("start"),
+        fire_session_shutdown=lambda: log.append("shutdown"),
+        consume_settle_pending=lambda: True,
+        close_extension_session=lambda: log.append("close"),
+        clear_extension_chrome=lambda: log.append("clear"),
+    ) as lifetime:
+        assert lifetime.drive(LoopStepSignal.idle) is None
+        assert log == ["start"]
+        if ending == "exception":
+            with pytest.raises(LookupError, match="step failed"):
+                lifetime.drive(fail)
+        elif ending == "fatal":
+            assert lifetime.drive(lambda: LoopStepSignal.return_result(fatal)) is fatal
+        elif ending == "eof":
+            assert lifetime.drive(LoopStepSignal.break_loop) is result
+        else:
+            assert lifetime.close() is result
+        assert lifetime.closed
+        lifetime.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            lifetime.drive(LoopStepSignal.idle)
+        with pytest.raises(RuntimeError, match="closed"):
+            lifetime.enqueue_seed(ProductContent("late"))
+    expected = ["start"]
+    if ending in {"close", "eof"}:
+        expected.append("finalize")
+    assert log == expected + ["settled", "shutdown", "close", "clear"]
+
+
+def test_exception_between_idle_drives_retires_without_successful_finalize() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+    with pytest.raises(LookupError, match="caller failed"):
+        with controller.open_lifetime(
+            finalize=_never_finalize,
+            fire_session_start=lambda: log.append("start"),
+            fire_session_shutdown=lambda: log.append("shutdown"),
+            consume_settle_pending=lambda: False,
+            close_extension_session=lambda: log.append("close"),
+            clear_extension_chrome=lambda: log.append("clear"),
+        ) as lifetime:
+            assert lifetime.drive(LoopStepSignal.idle) is None
+            raise LookupError("caller failed")
+    assert log == ["start", "shutdown", "close", "clear"]
+
+
+def test_idle_step_rejects_terminal_payload() -> None:
+    with pytest.raises(ValueError, match="idle step has no line"):
+        CodingLoopStep(CodingLoopStepKind.IDLE, "not empty", False)
+    with pytest.raises(ValueError, match="idle step has no keyboard interrupt"):
+        CodingLoopStep(CodingLoopStepKind.IDLE, "", False, keyboard_interrupt=True)

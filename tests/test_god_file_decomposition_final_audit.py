@@ -2920,7 +2920,9 @@ def test_final_measured_shape_and_complexity_pin_are_exact() -> None:
         for path in (PRODUCTION_ROOT / "native").rglob("*.py")
     }
     assert relative_counts["src/pipy_harness/native/tui.py"] == 580
-    assert relative_counts["src/pipy_harness/native/coding/session.py"] <= 336
+    # D2a reviewed one-time measured reset; keep the same downward-only bound
+    # as _SIZE_RATCHET in test_architecture_quality_gates.py (architecture.md).
+    assert relative_counts["src/pipy_harness/native/coding/session.py"] <= 399
     assert relative_counts["src/pipy_harness/native/extensions/activation.py"] == 1807
     assert max(relative_counts.values()) == 2488
     assert sorted(path for path, count in relative_counts.items() if count == 2488) == [

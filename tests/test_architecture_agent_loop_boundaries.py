@@ -626,19 +626,87 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
 
     controller_source = SESSION_CONTROLLER_PATH.read_text(encoding="utf-8")
     assert "self._emitter.agent_settled()" in controller_source
-    # The ``while True`` step skeleton lives in run_loop, not only in the monolith.
+    # Both drivers reach one controller-owned lifetime and one step skeleton.
     controller_ast = ast.parse(controller_source, filename=str(SESSION_CONTROLLER_PATH))
+    lifetime_def = next(
+        node
+        for node in controller_ast.body
+        if isinstance(node, ast.ClassDef) and node.name == "_CodingSessionLifetime"
+    )
+    drive_def = next(
+        node
+        for node in lifetime_def.body
+        if isinstance(node, ast.FunctionDef) and node.name == "drive"
+    )
+    loops = [node for node in ast.walk(controller_ast) if isinstance(node, ast.While)]
+    assert len(loops) == 1
+    assert loops[0] in list(ast.walk(drive_def))
+    assert isinstance(loops[0].test, ast.Constant) and loops[0].test.value is True
     run_loop_def = next(
         node
         for node in ast.walk(controller_ast)
         if isinstance(node, ast.FunctionDef) and node.name == "run_loop"
     )
     assert any(
-        isinstance(node, ast.While)
-        and isinstance(node.test, ast.Constant)
-        and node.test.value is True
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "open_lifetime"
         for node in ast.walk(run_loop_def)
-    ), "CodingSessionController.run_loop must own the `while True` step skeleton"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "drive"
+        for node in ast.walk(run_loop_def)
+    )
+    persistent_def = next(
+        node
+        for node in ast.walk(session_tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_open_lifetime"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "open_session_lifetime"
+        for node in ast.walk(persistent_def)
+    )
+    wiring_tree = ast.parse(REPL_WIRING_PATH.read_text(encoding="utf-8"))
+    persistent_wiring = next(
+        node
+        for node in wiring_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "open_session_lifetime"
+    )
+    persistent_calls = [
+        node
+        for node in ast.walk(persistent_wiring)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "open_lifetime"
+    ]
+    assert len(persistent_calls) == 1
+    lifecycle_ports = {
+        "finalize",
+        "fire_session_start",
+        "fire_session_shutdown",
+        "consume_settle_pending",
+        "close_extension_session",
+        "clear_extension_chrome",
+    }
+    assert lifecycle_ports <= {kw.arg for kw in persistent_calls[0].keywords}
+    assert lifecycle_ports <= delegated_kwargs
+    prepared_def = next(
+        node
+        for node in wiring_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "_PreparedCodingSession"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "drive"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "lifetime"
+        for node in ast.walk(prepared_def)
+    )
 
     # Slice 44 leaves the facade responsible only for validation, its explicit
     # frozen wiring input, and the final controller delegation. All production
@@ -655,9 +723,21 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
         f"measured {run_ast_lines}"
     )
 
+    wire_def = next(
+        node
+        for node in ast.walk(session_tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_wire"
+    )
+    for entry in (run_def, persistent_def):
+        assert any(
+            isinstance(node, ast.Attribute)
+            and node.attr == "_wire"
+            and isinstance(node.ctx, ast.Load)
+            for node in ast.walk(entry)
+        )
     collaborator_names = {
         node.func.id
-        for node in ast.walk(run_def)
+        for node in ast.walk(wire_def)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert collaborator_names - {"ValueError", "RuntimeError"} == {

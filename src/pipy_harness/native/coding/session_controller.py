@@ -1,9 +1,11 @@
 """Headless controller for a product coding session's outer transitions.
 
 This module owns the outer transitions of ``CodingSession.run``. The
-loop skeleton and start/shutdown lifecycle live in
-:meth:`CodingSessionController.run_loop`: the controller fires ``session_start``,
-runs the ``while True`` skeleton itself — calling the injected per-iteration
+loop skeleton and start/shutdown lifecycle live in the controller-owned
+``_CodingSessionLifetime``. Both :meth:`CodingSessionController.run_loop` and
+the internal persistent composition enter :meth:`CodingSessionController.open_lifetime`:
+the controller fires ``session_start`` once and drives the same ``while True``
+skeleton, calling the injected per-iteration
 ``step_once`` port and routing its returned :class:`LoopStepSignal`
 (``CONTINUE`` re-enters the loop, ``BREAK`` finalizes the post-loop
 ``SUCCEEDED`` projection through the injected ``finalize`` port, ``RETURN_RESULT``
@@ -28,7 +30,7 @@ monolith:
   single ``KeyboardInterrupt`` guard spanning both, matching the deleted inline
   block; and
 * return a typed, frozen :class:`CodingLoopStep` describing the selected input or
-  an EOF/Ctrl-C sentinel.
+  an EOF/Ctrl-C sentinel, or idle when no fresh reader is supplied.
 
 The controller is headless: it drives only the injected ports (the input queue,
 an outbox-drain callable, a fresh-line reader callable, and the settled-event
@@ -40,7 +42,8 @@ prefill rehydration, and separator printing stay in the composition root.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
@@ -183,14 +186,16 @@ class CodingLoopStepKind(Enum):
     PROVIDER_CONTENT = "provider_content"
     FRESH_LINE = "fresh_line"
     EOF = "eof"
+    IDLE = "idle"
 
 
 @dataclass(frozen=True, slots=True)
 class CodingLoopStep:
-    """One outer-loop step: the selected input, or an EOF/Ctrl-C sentinel.
+    """One outer-loop step: selected input, EOF/Ctrl-C, or explicit idle.
 
     ``line`` is the exact line the composition loop consumes next. It is empty
-    only for :attr:`CodingLoopStepKind.EOF`. ``selected_provider_content`` and
+    only for :attr:`CodingLoopStepKind.EOF` or :attr:`CodingLoopStepKind.IDLE`.
+    ``selected_provider_content`` and
     ``queued_input`` are carried only for provider-visible content. ``settle_pending``
     is the post-boundary value of the run's true-idle flag; the composition loop
     assigns it straight back so the inline ``try/finally`` observes the exact
@@ -238,6 +243,10 @@ class CodingLoopStep:
         return cls(CodingLoopStepKind.FRESH_LINE, line, settle_pending)
 
     @classmethod
+    def idle(cls, *, settle_pending: bool) -> CodingLoopStep:
+        return cls(CodingLoopStepKind.IDLE, "", settle_pending)
+
+    @classmethod
     def eof(cls, *, settle_pending: bool, keyboard_interrupt: bool) -> CodingLoopStep:
         return cls(
             CodingLoopStepKind.EOF,
@@ -251,6 +260,7 @@ class LoopStepSignalKind(Enum):
     """Closed classification of one per-iteration outcome the step port returns."""
 
     CONTINUE = "continue"
+    IDLE = "idle"
     BREAK = "break"
     RETURN_RESULT = "return_result"
 
@@ -259,8 +269,8 @@ class LoopStepSignalKind(Enum):
 class LoopStepSignal:
     """The routing signal one ``step_once`` call returns to :meth:`run_loop`.
 
-    ``CONTINUE`` re-enters the loop (the composition step handled the iteration
-    itself), ``BREAK`` ends the loop through the ``finalize`` port (the post-loop
+    ``IDLE`` yields without finalizing. ``CONTINUE`` re-enters the loop (the
+    composition step handled the iteration itself), ``BREAK`` ends the loop through the ``finalize`` port (the post-loop
     ``SUCCEEDED`` projection), and ``RETURN_RESULT`` ends the loop returning the
     exact bounded :class:`CodingSessionResult` the step already built (the
     terminate ``FAILED`` projection). ``result`` is carried only for
@@ -282,6 +292,10 @@ class LoopStepSignal:
     @classmethod
     def continue_loop(cls) -> LoopStepSignal:
         return cls(LoopStepSignalKind.CONTINUE)
+
+    @classmethod
+    def idle(cls) -> LoopStepSignal:
+        return cls(LoopStepSignalKind.IDLE)
 
     @classmethod
     def break_loop(cls) -> LoopStepSignal:
@@ -370,43 +384,76 @@ class CodingSessionController:
             clear_extension_chrome=clear_extension_chrome,
         )
 
-        # ``session_start`` fires once the session is set up (reason "startup"),
-        # outside the try so a setup-fire failure does not run the shutdown
-        # bookend for a session that never started; ``session_shutdown`` fires
-        # from the finally below before terminal sidecar and chrome close, which
-        # still run on EVERY exit path.
+        with self.open_lifetime(
+            finalize=finalize,
+            fire_session_start=fire_session_start,
+            fire_session_shutdown=fire_session_shutdown,
+            consume_settle_pending=consume_settle_pending,
+            close_extension_session=close_extension_session,
+            clear_extension_chrome=clear_extension_chrome,
+        ) as lifetime:
+            result = lifetime.drive(step_once)
+            if result is None:
+                raise RuntimeError("a stream-driven session cannot yield idle")
+            return result
+
+    @contextmanager
+    def open_lifetime(
+        self,
+        *,
+        finalize: Callable[[], CodingSessionResult],
+        fire_session_start: Callable[[], None],
+        fire_session_shutdown: Callable[[], None],
+        consume_settle_pending: Callable[[], bool],
+        close_extension_session: Callable[[], None],
+        clear_extension_chrome: Callable[[], None],
+    ) -> Iterator[_CodingSessionLifetime]:
+        """Keep one controller lifetime open across explicit idle yields.
+
+        Startup failure has no shutdown bookend, matching the stream driver.
+        All exits after successful startup retire through the same once-only
+        cleanup, including exceptions between drives.
+        """
+
+        _require_run_loop_ports(
+            step_once=LoopStepSignal.idle,
+            finalize=finalize,
+            fire_session_start=fire_session_start,
+            fire_session_shutdown=fire_session_shutdown,
+            consume_settle_pending=consume_settle_pending,
+            close_extension_session=close_extension_session,
+            clear_extension_chrome=clear_extension_chrome,
+        )
+        lifetime = _CodingSessionLifetime(
+            input_queue=self._input_queue,
+            emitter=self._emitter,
+            finalize=finalize,
+            fire_session_shutdown=fire_session_shutdown,
+            consume_settle_pending=consume_settle_pending,
+            close_extension_session=close_extension_session,
+            clear_extension_chrome=clear_extension_chrome,
+        )
         fire_session_start()
         try:
-            while True:
-                signal = step_once()
-                if type(signal) is not LoopStepSignal:
-                    raise TypeError("step_once must return a LoopStepSignal")
-                if signal.kind is LoopStepSignalKind.RETURN_RESULT:
-                    assert signal.result is not None
-                    return signal.result
-                if signal.kind is LoopStepSignalKind.BREAK:
-                    return finalize()
-                # CONTINUE: the step handled the iteration; re-enter the loop.
-        finally:
-            try:
-                if consume_settle_pending():
-                    self._emitter.agent_settled()
-                fire_session_shutdown()
-            finally:
-                try:
-                    close_extension_session()
-                finally:
-                    clear_extension_chrome()
+            yield lifetime
+        except BaseException:
+            lifetime._retire_lifetime()
+            raise
+        else:
+            lifetime.close()
 
     def select_next_step(
         self,
         *,
         settle_pending: bool,
         drain_outbox: Callable[[], None],
-        read_fresh_line: Callable[[], str],
+        read_fresh_line: Callable[[], str] | None,
         input_queued_input_port: AgentQueuedInputPort | None,
     ) -> CodingLoopStep:
-        """Select the next outer-loop step using the exact product priority.
+        """Select input or idle using the exact product priority.
+
+        A missing fresh reader yields idle after settlement and re-poll; an
+        actual reader returning an empty string remains EOF.
 
         ``settle_pending`` is the run's current true-idle flag; the returned step
         carries its post-boundary value. ``drain_outbox`` drains extension-enqueued
@@ -418,7 +465,7 @@ class CodingSessionController:
 
         if not callable(drain_outbox):
             raise TypeError("drain_outbox must be callable")
-        if not callable(read_fresh_line):
+        if read_fresh_line is not None and not callable(read_fresh_line):
             raise TypeError("read_fresh_line must be callable")
 
         drain_outbox()
@@ -439,6 +486,9 @@ class CodingSessionController:
             )
             if step is not None:
                 return step
+
+        if read_fresh_line is None:
+            return CodingLoopStep.idle(settle_pending=settle_pending)
 
         # The fresh read AND the external-wake overlay share one
         # ``KeyboardInterrupt`` guard, exactly as the superseded inline block did:
@@ -568,6 +618,81 @@ class CodingSessionController:
         )
 
 
+@dataclass
+class _CodingSessionLifetime:
+    """Controller-owned lifecycle; input/state still belong to their owners.
+
+    This internal driver is confined to its caller's session thread. Its closed
+    flag prevents repeated cleanup; it is not an agent-run witness or RPC
+    admission state. The accepted run installs and releases its own witness.
+    """
+
+    input_queue: CodingInputQueue
+    emitter: SettledEventEmitter
+    finalize: Callable[[], CodingSessionResult]
+    fire_session_shutdown: Callable[[], None]
+    consume_settle_pending: Callable[[], bool]
+    close_extension_session: Callable[[], None]
+    clear_extension_chrome: Callable[[], None]
+    closed: bool = False
+    result: CodingSessionResult | None = None
+
+    def enqueue_seed(self, content: ProductContent) -> None:
+        if self.closed:
+            raise RuntimeError("coding session lifetime is closed")
+        self.input_queue.enqueue_seed(content)
+
+    def drive(
+        self, step_once: Callable[[], LoopStepSignal]
+    ) -> CodingSessionResult | None:
+        """Drive to idle (None) or terminal result, retiring on any failure."""
+
+        if self.closed:
+            raise RuntimeError("coding session lifetime is closed")
+        try:
+            while True:
+                signal = step_once()
+                if type(signal) is not LoopStepSignal:
+                    raise TypeError("step_once must return a LoopStepSignal")
+                if signal.kind is LoopStepSignalKind.IDLE:
+                    return None
+                if signal.kind is LoopStepSignalKind.RETURN_RESULT:
+                    self.result = signal.result
+                    self._retire_lifetime()
+                    return self.result
+                if signal.kind is LoopStepSignalKind.BREAK:
+                    return self.close()
+        except BaseException:
+            self._retire_lifetime()
+            raise
+
+    def close(self) -> CodingSessionResult | None:
+        """Finalize normal disposal once, before lifecycle retirement."""
+
+        if not self.closed:
+            try:
+                self.result = self.finalize()
+            finally:
+                self._retire_lifetime()
+        return self.result
+
+    def _retire_lifetime(self) -> None:
+        """Retire without successful finalization after fatal/exception exits."""
+
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            if self.consume_settle_pending():
+                self.emitter.agent_settled()
+            self.fire_session_shutdown()
+        finally:
+            try:
+                self.close_extension_session()
+            finally:
+                self.clear_extension_chrome()
+
+
 def _require_exact_coding_loop_step_fields(step: CodingLoopStep) -> None:
     """Validate the step's exact closed field types in declaration order."""
 
@@ -599,14 +724,24 @@ def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
             )
         if step.queued_input is not None:
             raise ValueError("only provider-content steps carry queued_input")
-    if step.kind is CodingLoopStepKind.EOF:
-        if step.line != "":
-            raise ValueError("an EOF step has no line")
+    if step.kind in (CodingLoopStepKind.IDLE, CodingLoopStepKind.EOF):
+        _require_empty_step(step)
         return
     if step.line == "":
         raise ValueError("a non-EOF step requires a non-empty line")
     if step.keyboard_interrupt:
         raise ValueError("only an EOF step may record a keyboard interrupt")
+
+
+def _require_empty_step(step: CodingLoopStep) -> None:
+    if step.line != "":
+        raise ValueError(
+            "an EOF step has no line"
+            if step.kind is CodingLoopStepKind.EOF
+            else "an idle step has no line"
+        )
+    if step.kind is CodingLoopStepKind.IDLE and step.keyboard_interrupt:
+        raise ValueError("an idle step has no keyboard interrupt")
 
 
 def _require_run_loop_ports(

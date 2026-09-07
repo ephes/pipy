@@ -1258,6 +1258,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
     runtime_path = Path(activation.__file__ or "")
     native_root = runtime_path.parents[1]
     constructions: set[tuple[str, str, int]] = set()
+    startup_scopes: set[tuple[str, str]] = set()
     candidate_calls: set[tuple[str, str, str]] = set()
     activation_calls: set[tuple[str, str, str, bool]] = set()
 
@@ -1305,6 +1306,11 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
             ):
                 constructions.add((relative, scope(call), len(call.args)))
             if (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "startup_candidate_scope"
+            ):
+                startup_scopes.add((relative, scope(call)))
+            if (
                 isinstance(call.func, ast.Attribute)
                 and isinstance(call.func.value, ast.Name)
                 and call.func.value.id == "candidate"
@@ -1324,9 +1330,13 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
                     )
                 )
 
+    assert startup_scopes == {
+        ("session_generation.py", "guarded"),
+        ("repl/wiring.py", "open_session_lifetime"),
+    }
     assert constructions == {
         ("repl/reload.py", "ReloadCommandEffects.execute", 0),
-        ("session_generation.py", "guarded", 0),
+        ("session_generation.py", "startup_candidate_scope", 0),
     }
     assert candidate_calls == {
         ("repl/reload.py", "ReloadCommandEffects.execute", "dispose"),
@@ -1336,7 +1346,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
             "adopt",
         ),
         ("session_generation.py", "publish_candidate_ownership", "publish"),
-        ("session_generation.py", "guarded", "dispose"),
+        ("session_generation.py", "startup_candidate_scope", "dispose"),
         ("repl/wiring.py", "_prepare_startup", "adopt"),
     }
     assert activation_calls == {
@@ -1451,7 +1461,7 @@ def test_activation_producer_and_cleanup_reporting_inventories() -> None:
         ("native/extensions/activation.py", "_dispose_activation_host_with_diagnostic"),
         ("native/extensions/activation.py", "activate_extension_batch"),
         ("native/extensions/activation.py", "adopt"),
-        ("native/session_generation.py", "guarded"),
+        ("native/session_generation.py", "startup_candidate_scope"),
         ("native/repl/reload.py", "execute"),
     }
     assert catalog_finalizers == {

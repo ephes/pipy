@@ -293,8 +293,10 @@ class _ProviderTurnCompletion:
         return provider, waiter
 
 
-def _phase_a_unpack_and_prefill(scope: ReplLoopScope) -> _TurnScope:
-    if scope.terminal_ui is None:
+def _phase_a_unpack_and_prefill(
+    scope: ReplLoopScope, *, read_fresh_input: bool
+) -> _TurnScope:
+    if read_fresh_input and scope.terminal_ui is None:
         print_input_separator(scope.error_stream)
     turn = _TurnScope(scope=scope, footer_text=scope.coding_footer_text())
     prefill = scope.ctl.pending_prefill
@@ -313,17 +315,23 @@ def _phase_a_unpack_and_prefill(scope: ReplLoopScope) -> _TurnScope:
     return turn
 
 
-def _phase_b_intake(turn: _TurnScope) -> _TurnInput | LoopStepSignal:
+def _phase_b_intake(
+    turn: _TurnScope, *, read_fresh_input: bool
+) -> _TurnInput | LoopStepSignal:
     scope = turn.scope
     step = scope.loop_controller.select_next_step(
         settle_pending=scope.ctl.agent_settled_pending,
         drain_outbox=scope.drain_extension_outboxes,
-        read_fresh_line=partial(
-            scope.repl_input.read_line, "", footer=turn.footer_text
+        read_fresh_line=(
+            partial(scope.repl_input.read_line, "", footer=turn.footer_text)
+            if read_fresh_input
+            else None
         ),
         input_queued_input_port=scope.input_queued_input_port,
     )
     scope.ctl.agent_settled_pending = step.settle_pending
+    if step.kind is CodingLoopStepKind.IDLE:
+        return LoopStepSignal.idle()
     if step.kind is CodingLoopStepKind.EOF:
         if step.keyboard_interrupt:
             print(file=scope.error_stream)
@@ -584,9 +592,11 @@ class _ReplLoopStep:
 
     __slots__ = ()
 
-    def step_once(self, *, scope: ReplLoopScope) -> LoopStepSignal:
-        turn = _phase_a_unpack_and_prefill(scope)
-        intake = _phase_b_intake(turn)
+    def step_once(
+        self, *, scope: ReplLoopScope, read_fresh_input: bool = True
+    ) -> LoopStepSignal:
+        turn = _phase_a_unpack_and_prefill(scope, read_fresh_input=read_fresh_input)
+        intake = _phase_b_intake(turn, read_fresh_input=read_fresh_input)
         if isinstance(intake, LoopStepSignal):
             return intake
         hotkey = _phase_c1_hotkeys(intake)

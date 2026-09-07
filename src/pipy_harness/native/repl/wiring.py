@@ -8,8 +8,9 @@ owned by ``RunControlState`` and the collaborators assembled here.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -82,6 +83,7 @@ from pipy_harness.native.coding.session_controller import (
     CodingSessionController,
     LoopStepSignal,
     _CallableCodingCommandEffects,
+    _CodingSessionLifetime,
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic
@@ -160,6 +162,7 @@ from pipy_harness.native.session_generation import (
     ExtensionCommandProjection,
     ExtensionProjection,
     SessionGenerationRef,
+    startup_candidate_scope,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -233,6 +236,7 @@ class SessionWiringInput:
 class _LoopDelegation:
     loop_controller: CodingSessionController
     step_once: Callable[[], LoopStepSignal]
+    step_until_idle: Callable[[], LoopStepSignal]
     finalize: Callable[[], CodingSessionResult]
     fire_session_start: Callable[[], None]
     fire_session_shutdown: Callable[[], None]
@@ -245,6 +249,73 @@ class _LoopDelegation:
 class SessionWiring:
     startup_failure: CodingSessionResult | None
     delegation: _LoopDelegation | None
+
+
+@dataclass
+class _PreparedCodingSession:
+    """Bound existing composition callbacks to one controller lifetime."""
+
+    wiring: SessionWiring
+    lifetime: _CodingSessionLifetime | None
+    _startup_closed: bool = field(default=False, init=False)
+
+    def enqueue_seed(self, content: ProductContent) -> None:
+        if self.lifetime is None:
+            raise RuntimeError("coding session startup failed")
+        self.lifetime.enqueue_seed(content)
+
+    def drive(self) -> CodingSessionResult | None:
+        if self.lifetime is None:
+            if self._startup_closed:
+                raise RuntimeError("coding session lifetime is closed")
+            return self.wiring.startup_failure
+        delegation = self.wiring.delegation
+        assert delegation is not None
+        return self.lifetime.drive(delegation.step_until_idle)
+
+    def close(self) -> CodingSessionResult | None:
+        if self.lifetime is None:
+            self._startup_closed = True
+            return self.wiring.startup_failure
+        return self.lifetime.close()
+
+
+@contextmanager
+def open_session_lifetime(
+    *,
+    prepare: Callable[[_ExtensionCandidate], SessionWiring],
+    error_stream: TextIO,
+) -> Iterator[_PreparedCodingSession]:
+    """Compose once inside the existing candidate and controller lifetimes.
+
+    The facade supplies its explicit conversion callback, not a session object.
+    Candidate acquisition/disposal stay in the generation owner; this function
+    only nests that scope around preparation, driving and controller disposal.
+    Frozen wiring records remain values, and the started controller owns state.
+    """
+
+    sink = partial(emit_diagnostic, None, error_stream)
+    with startup_candidate_scope(sink) as candidate:
+        wiring = prepare(candidate)
+        delegation = wiring.delegation
+        if delegation is None:
+            if wiring.startup_failure is None:
+                raise RuntimeError("successful session wiring has no loop delegation")
+            failed = _PreparedCodingSession(wiring, None)
+            try:
+                yield failed
+            finally:
+                failed.close()
+            return
+        with delegation.loop_controller.open_lifetime(
+            finalize=delegation.finalize,
+            fire_session_start=delegation.fire_session_start,
+            fire_session_shutdown=delegation.fire_session_shutdown,
+            consume_settle_pending=delegation.consume_settle_pending,
+            close_extension_session=delegation.close_extension_session,
+            clear_extension_chrome=delegation.clear_extension_chrome,
+        ) as lifetime:
+            yield _PreparedCodingSession(wiring, lifetime)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1387,6 +1458,9 @@ def _assemble_session_wiring(
     delegation = _LoopDelegation(
         loop_controller=loop_controller,
         step_once=partial(repl_loop_step.step_once, scope=scope),
+        step_until_idle=partial(
+            repl_loop_step.step_once, scope=scope, read_fresh_input=False
+        ),
         finalize=partial(
             repl_loop_step.finalize,
             coding_state=coding_state,

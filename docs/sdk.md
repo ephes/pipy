@@ -101,9 +101,10 @@ streams by design, while archive privacy remains unchanged.
 
 ## D2 implementation contract
 
-This is the selected **future product-session contract**, pending D2a/D2b; it does
-not describe a shipped public API. [The backlog](backlog.md) owns task status.
-Refresh composition details after D1's semantic compaction lands.
+This is the selected product-session contract. D2a provides the internal
+persistent lifetime; the supported public API remains pending D2b.
+[The backlog](backlog.md) owns task status. The internal lifetime preserves D1's
+guarded run and semantic-preparation contracts.
 
 Provide a distinct `create_product_session(...)` entry point. Construct one
 persistent synchronous product lifetime and drive it on its construction thread.
@@ -143,12 +144,21 @@ Dropping an unclosed object does not guarantee shutdown hooks or retirement;
 D2 promises no garbage-collection/thread-unsafe finalizer. This caller obligation
 does not weaken cleanup on a driver failure or explicit close.
 
-D2a introduces explicit idle yield and a persistent lifecycle in the existing
-controller/composition seam. The stream-driven `run_loop` delegates to that same
+D2a implements explicit idle yield and a persistent lifecycle in the existing
+controller/composition seam. `CodingSession._open_lifetime` is internal and still
+takes composition streams; it is not the supported SDK factory. Its prepared
+handle seeds the existing coding queue and drives it without reading fresh input
+until the controller settles and re-polls to idle. The prepared adapter and
+candidate-scoped composition live in existing `repl/wiring.py`; the facade
+supplies only its explicit conversion callback. The stream-driven `run_loop` delegates to that same
 owner and preserves its startup, EOF, fatal-return, settlement and shutdown
 ordering. Idle is not EOF: yielding between submits must neither finalize nor
 close the session. Preserve startup-failure cleanup and existing extension
-candidate ownership. D2b adds the supported factory/facade, thread-entry checks,
+candidate ownership. The startup-candidate scope surrounds the complete lifetime,
+including all idle intervals and disposal. Closing a failed-startup handle also
+prevents subsequent driving. Each agent run releases its witness before idle;
+a later run captures current context without reinitializing session state.
+D2b adds the supported factory/facade, thread-entry checks,
 cancel linkage, immutable snapshots and two-turn headless acceptance.
 
 The acceptance scenario uses a recording fake provider and real bounded tools in

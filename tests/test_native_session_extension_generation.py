@@ -3162,7 +3162,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     attach_startup = ("function:_attach_startup_generation",)
     attach_startup_delivery = ("function:_deliver_startup_staged",)
     attach_retire = ("function:_retire_reload_attempt",)
-    startup_guard = ("function:balance_startup_candidate", "function:guarded")
+    startup_guard = ("function:startup_candidate_scope",)
     chrome_prepare = ("class:ExtensionChromeRouter", "function:prepare_candidate")
     prepare = ("function:prepare_production_reload",)
     sequencer = ("function:deliver_accepted_staged_batch",)

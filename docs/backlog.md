@@ -9,10 +9,15 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** resume D2a after this D2a0 contract commit, followed by D2b.
-The scoped facade-gate transition below is accepted; the preserved implementation
-needs relocation, full validation and its own code review. Retain semantic
-preparation and release each per-run witness before idle. No live recovery is selected.
+**Next dispatch:** D2b contract/handoff refresh after this D2a commit. The shared
+persistent lifetime is complete; both facade ratchets use the measured 399 lines
+without headroom. Final validation passed 5,585 tests (two skipped), static checks,
+eight PTY smoke tests and docs/diff checks. Two exact Opus 5 code rounds had full
+coverage; the final two Suggestions were applied, with no Warning/Critical.
+Disposition: advisory acceptance, not CLEAN. The reproduced idle-separator issue
+is fixed; lifecycle arguments are explicit and the unused handle mode is removed.
+Refresh D2b's preparation, trust and cancellation boundaries before dispatch.
+No live recovery is selected.
 
 Completed implementation: D0 `f1fa668`, D1a `17089f3`, D1b0 `8ad7d66`, and semantic
 D1b `527b846`. D1b passed 5,568 tests (two skipped), static checks, eight PTY smoke
@@ -389,7 +394,7 @@ downward-only ratchet then continues. Removing it was declined because structura
 direction checks alone previously allowed facade regrowth. Retain the TUI ratchet,
 general native-owner ceiling, complexity and behavior gates.
 
-This docs-only prerequisite completes in this commit before D2a resumes.
+This docs-only prerequisite committed at `936b96d` before D2a resumed.
 Two exact Opus 5 plan rounds had complete coverage. The second returned three
 Suggestions and no Warning/Critical; all were applied as bounded clarifications.
 The disposition is advisory acceptance, not CLEAN. Full baseline validation passed
@@ -404,7 +409,7 @@ created.
 ## Implementation queue
 
 D0 is committed at `f1fa668`, D1a at `17089f3`, and D1b0 at `8ad7d66`.
-D1b is committed at `527b846`. D2a0 completes in this commit; D2a resumes next.
+D1b is committed at `527b846`; D2a0 at `936b96d`. D2a completes in this commit.
 Each successor needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
 would contain multiple independently useful changes, split the task here before
 dispatch; the table is not permission for a large uncommitted batch. A thread implements
@@ -418,8 +423,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D1a | Complete at `17089f3`; D0 committed; B reviewed | Structural origin and prior-summary projection, pre-resolved durable cut, destination-owned context rebuild; matching docs/release note | Repeated durable cuts and equivalent reopen; no synthetic summary group; no text-based origin lookup; state-first failure preserved |
 | D1b0 | Complete at `8ad7d66`; full checks and advisory Opus review; contract `4c5986d` | State-owned run witness and guarded history/compaction/usage publication; ordered durable append; matching docs/release note | Supported context mutation cannot be overwritten by preparation, message, usage or final settlement; stale run closes safely; ordinary multi-iteration runs and publisher guards preserved |
 | D1b | Complete at `527b846`; full checks and advisory Opus review; D1b0 and preparation-cancellation contract accepted | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; cancelled preparation invokes no ordinary request construction/hooks/render refresh/provider turn; stale automatic context closes before further mutable publication; late completion, overlays and privacy pinned |
-| D2a0 | Complete in this commit; full checks and advisory Opus plan review | Docs-only scoped facade placement and size-gate contract | Independent plan review and commit before dependent test/code changes |
-| D2a | D2a0; D1b; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
+| D2a0 | Complete at `936b96d`; full checks and advisory Opus plan review | Docs-only scoped facade placement and size-gate contract | Independent plan review and commit before dependent test/code changes |
+| D2a | Complete in this commit; full checks and advisory Opus code review; D2a0 accepted | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b | D2a | Distinct supported product-session SDK factory over that lifetime; API tests and SDK docs | Two-turn tool workflow, events, cross-thread cancel, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a | D1b | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
 | D3b | D3a; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |

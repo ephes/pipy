@@ -102,7 +102,9 @@ canonical package does not import them back.
   classification, metadata, and dispatch outcomes;
 - `product_session.py` coordinates state-first private-session transitions; and
 - `session_controller.py` owns input selection, command/resource/extension
-  precedence, true-idle settlement, and the outer session lifecycle.
+  precedence, true-idle settlement, and the outer session lifecycle. Its internal
+  persistent lifetime drives the same loop as the stream entrypoint, yielding
+  explicitly at idle without repeating startup or disposing the session.
 
 This package is headless: terminal rendering, extension implementation,
 provider construction, concrete tools, filesystem persistence, automation, and
@@ -110,8 +112,15 @@ the metadata archive are injected or remain outside it.
 
 ## Product composition and one-shot runtime
 
-`native/coding/session.py` is the interactive product composition root. It
-constructs settings and trust state, catalog-backed providers, tools,
+`native/coding/session.py` is the interactive product composition root. Its
+internal `_open_lifetime` context keeps the prepared wiring and startup-candidate
+scope alive across repeated queue submissions through the prepared adapter and
+`open_session_lifetime` composition function in `repl/wiring.py`. The facade
+retains its single explicit wiring-input mapping. Stream `run` and persistent
+driving share the controller-owned loop and cleanup. The internal handle is
+not a public SDK; supported construction and thread-entry controls remain D2b.
+
+The composition root constructs settings and trust state, catalog-backed providers, tools,
 extensions, the private session tree, event projections, automation or terminal
 input, and the headless coding/agent collaborators. Dynamic command effects and
 cross-boundary orchestration remain here. The session-owned built-in effects
@@ -1106,14 +1115,13 @@ checks remain in force. `tests/test_architecture_import_boundaries.py` forbids a
 must not recreate that cycle. The 580-line TUI ratchet, other enumerated owner
 limits and the 2,488-line general native-module ceiling remain unchanged.
 
-D2a has one scoped size-gate transition: reset the historical 336-line
-`native/coding/session.py` bound once to its measured, formatted size after the
-placement below. Update the existing `_SIZE_RATCHET` entry in
+D2a makes one scoped size-gate transition: the historical 336-line
+`native/coding/session.py` bound is reset once to **399 lines**, its measured,
+formatted size after the placement below. The `_SIZE_RATCHET` entry in
 `tests/test_architecture_quality_gates.py` and the duplicate bound in
-`tests/test_god_file_decomposition_final_audit.py` to the same measured count,
-without headroom. Update the adjacent ratchet comment to record this one-time
-exception and the continuing downward-only rule. The current 336-line assertions
-remain until D2a lands.
+`tests/test_god_file_decomposition_final_audit.py` both use 399, without headroom.
+Their adjacent comments record this one-time exception and the continuing
+downward-only rule.
 This explicitly overrides the tests' "never raise one" rule only for D2a's
 reviewed persistent-lifetime addition; afterward the same downward-only ratchet
 continues. It is not permission to raise other limits or reset this bound for

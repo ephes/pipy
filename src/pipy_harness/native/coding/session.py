@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import InitVar, dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import ClassVar, TextIO
 
@@ -58,7 +60,13 @@ from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.reload import ImplicitTrustState
-from pipy_harness.native.repl.wiring import SessionWiringInput, wire_session
+from pipy_harness.native.repl.wiring import (
+    SessionWiring,
+    SessionWiringInput,
+    _PreparedCodingSession,
+    open_session_lifetime,
+    wire_session,
+)
 from pipy_harness.native.repl_input import (
     REPL_INPUT_RUNTIME_AUTO,
     NativeReplInput,
@@ -232,13 +240,50 @@ class CodingSession:
         provider_name: str | None = None,
         model_id: str | None = None,
     ) -> CodingSessionResult:
+        wiring = self._wire(
+            candidate,
+            workspace_root=workspace_root,
+            input_stream=input_stream,
+            output_stream=output_stream,
+            error_stream=error_stream,
+            system_prompt=system_prompt,
+            provider_name=provider_name,
+            model_id=model_id,
+        )
+        if wiring.startup_failure is not None:
+            return wiring.startup_failure
+        delegation = wiring.delegation
+        if delegation is None:
+            raise RuntimeError("successful session wiring has no loop delegation")
+        return delegation.loop_controller.run_loop(
+            step_once=delegation.step_once,
+            finalize=delegation.finalize,
+            fire_session_start=delegation.fire_session_start,
+            fire_session_shutdown=delegation.fire_session_shutdown,
+            consume_settle_pending=delegation.consume_settle_pending,
+            close_extension_session=delegation.close_extension_session,
+            clear_extension_chrome=delegation.clear_extension_chrome,
+        )
+
+    def _wire(
+        self,
+        candidate: _ExtensionCandidate,
+        *,
+        workspace_root: Path | None,
+        input_stream: TextIO,
+        output_stream: TextIO,
+        error_stream: TextIO,
+        system_prompt: str,
+        provider_name: str | None,
+        model_id: str | None,
+    ) -> SessionWiring:
         cwd = workspace_root or self.workspace_root
         if cwd is None:
-            raise ValueError("CodingSession.run requires a workspace_root")
+            raise ValueError("a coding session requires a workspace_root")
         cwd = cwd.expanduser().resolve()
         if not cwd.is_dir():
             raise ValueError(f"workspace_root is not a directory: {cwd}")
-        wiring = wire_session(
+        return wire_session(
             SessionWiringInput(
                 candidate=candidate,
                 cwd=cwd,
@@ -273,19 +318,37 @@ class CodingSession:
                 verbose_startup=self.verbose_startup,
             )
         )
-        if wiring.startup_failure is not None:
-            return wiring.startup_failure
-        delegation = wiring.delegation
-        if delegation is None:
-            raise RuntimeError("successful session wiring has no loop delegation")
-        return delegation.loop_controller.run_loop(
-            step_once=delegation.step_once,
-            finalize=delegation.finalize,
-            fire_session_start=delegation.fire_session_start,
-            fire_session_shutdown=delegation.fire_session_shutdown,
-            consume_settle_pending=delegation.consume_settle_pending,
-            close_extension_session=delegation.close_extension_session,
-            clear_extension_chrome=delegation.clear_extension_chrome,
+
+    def _open_lifetime(
+        self,
+        *,
+        workspace_root: Path | None = None,
+        input_stream: TextIO,
+        output_stream: TextIO,
+        error_stream: TextIO,
+        system_prompt: str = "",
+        provider_name: str | None = None,
+        model_id: str | None = None,
+    ) -> AbstractContextManager[_PreparedCodingSession]:
+        """Internal composition lifetime; public stream-free API follows in D2b.
+
+        The candidate scope surrounds every drive and disposal, just as it
+        surrounds the full stream-driven run. Neither composition nor startup
+        repeats when the caller resumes after an idle yield.
+        """
+
+        return open_session_lifetime(
+            prepare=partial(
+                self._wire,
+                workspace_root=workspace_root,
+                input_stream=input_stream,
+                output_stream=output_stream,
+                error_stream=error_stream,
+                system_prompt=system_prompt,
+                provider_name=provider_name,
+                model_id=model_id,
+            ),
+            error_stream=error_stream,
         )
 
     def _build_repl_input(
