@@ -1100,15 +1100,62 @@ boundaries and the current dependency posture until that decision is accepted.
 
 ## Executable architecture gates
 
-The completed decomposition's existing size ratchets remain in
-`tests/test_architecture_quality_gates.py`: 580 physical lines for `native/tui.py`,
-336 for `native/coding/session.py`, and the separately enumerated native-owner
-limits. Their purpose is to prevent regrowth after extraction, not to initiate
-another size-driven program. `tests/test_architecture_import_boundaries.py`
-forbids a `native.ui` back-edge into `native.tui` or session/repl internals:
-otherwise moving an owner into the UI package could recreate the same cycle.
-Keep these executable limits and import rules; new work does not add arbitrary
-shape gates.
+The completed decomposition's executable ownership, import and complexity
+checks remain in force. `tests/test_architecture_import_boundaries.py` forbids a
+`native.ui` back-edge into `native.tui` or session/repl internals; moving code
+must not recreate that cycle. The 580-line TUI ratchet, other enumerated owner
+limits and the 2,488-line general native-module ceiling remain unchanged.
+
+D2a has one scoped size-gate transition: reset the historical 336-line
+`native/coding/session.py` bound once to its measured, formatted size after the
+placement below. Update the existing `_SIZE_RATCHET` entry in
+`tests/test_architecture_quality_gates.py` and the duplicate bound in
+`tests/test_god_file_decomposition_final_audit.py` to the same measured count,
+without headroom. Update the adjacent ratchet comment to record this one-time
+exception and the continuing downward-only rule. The current 336-line assertions
+remain until D2a lands.
+This explicitly overrides the tests' "never raise one" rule only for D2a's
+reviewed persistent-lifetime addition; afterward the same downward-only ratchet
+continues. It is not permission to raise other limits or reset this bound for
+later features without another explicit contract decision.
+
+Deleting the facade ratchet and relying on the 2,488-line general ceiling was
+considered and declined: structural direction checks alone previously allowed
+facade regrowth. A one-time measured reset accommodates the new supported
+lifetime while retaining that separate constraint on accumulated code size.
+
+The original ratchet prevented extracted responsibilities from returning to the
+facade. D2a adds a reviewed persistent lifetime alongside the typed stream entry
+point. Keep the single explicit conversion to `SessionWiringInput` in the facade;
+put the new prepared-handle adapter and candidate-scoped composition function in
+existing `repl/wiring.py`, and the reusable loop/retirement in the existing
+controller. Neither the frozen wiring records nor the facade becomes another
+runtime owner. Candidate acquisition, disposal and cleanup reporting stay in
+one shared scope in `session_generation.py`; wiring enters that scope rather
+than constructing another candidate owner. For the persistent path, wiring calls
+the shared scope and passes its candidate to the facade-provided conversion
+callback. Started handles delegate closed/result
+state to the controller lifetime. D2a's tests must pin disposal and later-drive
+refusal for failed-startup handles, which have no started controller lifetime.
+Do not pass the whole facade back into wiring, add reflection or
+a new structural protocol to avoid the explicit mapping, or move unrelated
+terminal/input factories merely to meet a physical-line count.
+
+Retain executable proof that both drivers use one controller-owned loop and
+lifecycle, composition occurs once, existing state/queue/generation owners persist
+across idle, semantic preparation remains on the canonical step path, each run
+witness is released before idle, candidate cleanup spans the lifetime, and headless imports remain
+bounded. Retarget the facade construction-call inventory in
+`test_session_controller_owns_the_loop_skeleton_and_lifecycle` from `run` to the
+shared explicit wiring helper, retaining its exact `SessionWiringInput` /
+`wire_session` set and keeping `run`'s existing 67-AST-line bound. Update the
+single-loop/delegation checks and exact candidate construction/disposal/reporting
+inventories to their actual owners, and allow only the needed standard-library
+context-manager imports in the controller. These are ownership-preserving
+retargets, not deletion of the checks. Keep the exact field/read/write inventories,
+no C901 waiver, and all behavioral, privacy, cancellation and concurrency tests.
+Only the two session-specific size bounds receive the measured reset; other
+limits and boundary rules are not relaxed.
 
 `pyproject.toml` retains the exact Ruff additions `C901`, `I001`, `UP035`,
 `B008`, `B905`, and `BLE001` for complexity, import ordering/modern imports,
