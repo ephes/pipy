@@ -104,8 +104,17 @@ This means:
 
 Extensions can observe or block session compaction through the
 `session_before_compact` hook. If an extension blocks compaction, pipy reports a
-safe diagnostic such as `compact blocked by extension` and leaves the active
-context unchanged.
+safe diagnostic such as `compact blocked by extension` and applies no compaction
+cut. The hook may still perform its separately authorized model mutation.
+
+The gate continues to offer `ctx.set_model(...)`. If that call successfully
+replaces the model during automatic compaction, it replaces the binding and
+clears history while an accepted coding run is active. The stale run then raises
+`CodingContextChangedError` and closes the session through existing exceptional
+cleanup; it cannot submit an ordinary provider request or republish its old
+history. Manual `/compact` runs outside an accepted coding run, so the same gate
+mutation remains valid and the next prompt can use the selected model. Per-provider
+and tool hooks continue to deny `set_model` by returning `False`.
 
 ## Limitations and follow-ons
 
@@ -238,11 +247,11 @@ agent loop. Summary requests and results stay private product content.
 
 ### Guarded run context and stale automatic summaries
 
-D1b depends on D1b0's [guarded coding-run publication contract](harness-spec.md#guarded-coding-run-publication-contract).
+D1b depends on the implemented D1b0 [guarded coding-run publication contract](harness-spec.md#guarded-coding-run-publication-contract).
 A retained authorized model control can replace the binding and clear history
 between the coding run's initial history read and its preparation mirror. This
-existing lost update must be fixed before semantic summary generation adds its
-longer freshness window. Guarding only the final history mirror or only the
+lost update is prevented by the run witness before semantic summary generation
+adds its longer freshness window. Guarding only the final history mirror or only the
 summary result would miss earlier canonical message and history writes.
 
 The state-owned run witness distinguishes context replacement from legitimate

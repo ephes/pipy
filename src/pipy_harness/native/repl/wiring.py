@@ -629,7 +629,6 @@ def _compose_extension_phase(
         execution_projections = SessionExecutionProjections(
             generation_ref=generation_ref,
             tool_capabilities=tool_capabilities,
-            coding_state=coding_state,
             ui_driver=extension_ui_driver,
         )
         provider_turn_executor = ProviderTurnExecutor(
@@ -867,7 +866,12 @@ def _compose_product_session(
     # mutated. base_system_prompt already carries any resume seed block.
     base_system_prompt = system_prompt
 
-    append_agent_message = product_session.append_message
+    def append_agent_message(message: AgentMessage) -> None:
+        # Keep guarded live acceptance and its selected-tree append in one
+        # mutation order. The coordinator releases the inner state mutex before
+        # invoking persistence; no callback or filesystem I/O holds that mutex.
+        with coding_effects.lock:
+            product_session.append_message(message)
 
     # Preserve the fixed renderer -> automation -> product -> archive -> caller
     # order before wrapping the completed product sink with extension lifecycle.

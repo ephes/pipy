@@ -1701,7 +1701,7 @@ ordinary request after cancellation, and successful reuse on a subsequent run.
 
 ### Guarded coding-run publication contract
 
-This selected D1b0 prerequisite is pending implementation. `CodingSessionState`
+The D1b0 prerequisite is implemented. `CodingSessionState`
 owns one scoped run witness: exact provider-binding identity plus a context-
 replacement epoch. Advance that epoch on `begin_run`, explicit `clear_history`
 and destination `rebuild_history`. Fresh bindings already invalidate provider

@@ -20,7 +20,10 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.state import (
+    CodingContextChangedError,
+    CodingSessionState,
+)
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import (
@@ -531,7 +534,7 @@ def _execution_generation(
     return SessionExtensionGeneration(runtime, projection)
 
 
-def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
+def test_r4b_tools_and_renderers_stay_pinned_while_provider_replacement_invalidates_run(
     tmp_path: Path,
 ) -> None:
     lock = threading.RLock()
@@ -571,15 +574,15 @@ def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
     execution = SessionExecutionProjections(
         generation_ref=generation_ref,
         tool_capabilities=tool_capabilities,
-        coding_state=coding_state,
         ui_driver=None,
     )
 
+    witness = coding_state.begin_agent_run()
     assert [item.description for item in execution.definitions()] == [
         "old-tool generation"
     ]
     assert execution.tool_renderers(("probe",)) == {"probe": old_renderer}
-    assert execution.provider is old_provider
+    assert coding_state.capture_run_context().binding.provider is old_provider
 
     with lock:
         generation_ref.publish_locked(new_generation)
@@ -593,14 +596,16 @@ def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
     )
     assert execution.execute(call).result.content == ProductContent("old-tool")
     assert execution.tool_renderers(("probe",)) == {"probe": old_renderer}
-    assert execution.provider is old_provider
+    with pytest.raises(CodingContextChangedError):
+        coding_state.capture_run_context()
+    coding_state.end_agent_run(witness)
     assert (old_tool.calls, new_tool.calls) == (1, 0)
 
     assert [item.description for item in execution.definitions()] == [
         "new-tool generation"
     ]
     assert execution.tool_renderers(("probe",)) == {"probe": new_renderer}
-    assert execution.provider is new_provider
+    assert coding_state.capture_run_context().binding.provider is new_provider
     assert execution.execute(call).result.content == ProductContent("new-tool")
     assert (old_tool.calls, new_tool.calls) == (1, 1)
 
@@ -631,18 +636,9 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
     )
     new = _execution_generation(lock, "new", capability, object())
     generation_ref = SessionGenerationRef(old, lock=lock)
-    provider = FakeNativeProvider(supports_tool_calls=True)
-    coding = CodingSessionState(
-        provider=provider,
-        provider_name=provider.name,
-        model_id=provider.model_id,
-        usage_accumulator=AgentUsageAccumulator(),
-        state_lock=lock,
-    )
     execution = SessionExecutionProjections(
         generation_ref=generation_ref,
         tool_capabilities=capabilities,
-        coding_state=coding,
         ui_driver=None,
     )
     execution.definitions()

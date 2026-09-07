@@ -30,6 +30,7 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.state import (
+    CodingContextChangedError,
     CodingProviderBinding,
     CodingReloadBindingValue,
     CodingReloadRebindState,
@@ -1434,3 +1435,123 @@ def test_destination_rebuild_restores_summary_under_guard_and_default_clears_it(
     with pytest.raises(TypeError, match="summary_suffix"):
         state.rebuild_history((), summary_suffix=cast(str, None))
     assert state.messages == (message,)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "clear",
+        "rebuild",
+        "begin",
+        "refresh",
+        "direct-refresh",
+        "unavailable",
+        "rebind",
+        "model",
+        "reload",
+    ],
+)
+@pytest.mark.parametrize(
+    "publication", ["mirror", "append", "compaction", "usage", "capture", "validate"]
+)
+def test_run_witness_refuses_replaced_context_before_publication(
+    replacement: str, publication: str
+) -> None:
+    message = _message()
+    state = _state(messages=(message,))
+    witness = state.begin_agent_run()
+    captured = state.capture_run_context()
+    provider = state.provider
+    if replacement == "clear":
+        state.clear_history()
+    elif replacement == "rebuild":
+        state.rebuild_history((message,))
+    elif replacement == "begin":
+        state.begin_run(
+            provider_name=state.provider_name,
+            model_id=state.model_id,
+            usage_accumulator=AgentUsageAccumulator(),
+        )
+    elif replacement == "refresh":
+        state.publish_reload_refresh(state.prepare_reload_refresh(provider))
+    elif replacement == "direct-refresh":
+        state.refresh_provider(provider)
+    elif replacement == "unavailable":
+        state.mark_provider_unavailable(provider)
+    elif replacement == "rebind":
+        state.rebind_provider(
+            provider,
+            provider_name=state.provider_name,
+            model_id=state.model_id,
+            usage_accumulator=AgentUsageAccumulator(),
+        )
+    elif replacement == "model":
+        state.publish_model_mutation(
+            state.prepare_model_mutation(
+                provider,
+                expected_binding=state.provider_binding,
+                provider_name=state.provider_name,
+                model_id=state.model_id,
+                usage_accumulator=AgentUsageAccumulator(),
+            )
+        )
+    else:
+        prepared = state.prepare_reload_rebind(
+            provider, provider_name=state.provider_name, model_id=state.model_id
+        )
+        state.publish_reload_rebind(binding=prepared.binding, history=prepared.history)
+    before = state.result_snapshot()
+    operations: dict[str, Callable[[], object]] = {
+        "mirror": lambda: state.mirror_history((message,)),
+        "append": lambda: state.append_message(message),
+        "compaction": lambda: state.apply_compaction(
+            (message,), summary_suffix="summary", dropped_group_count=1
+        ),
+        "usage": lambda: state.absorb_usage(AgentProviderUsageSample(input_tokens=7)),
+        "capture": state.capture_run_context,
+        "validate": lambda: state.validate_run_context(captured),
+    }
+    with pytest.raises(CodingContextChangedError, match="coding context changed"):
+        operations[publication]()
+    assert state.result_snapshot() == before
+    state.end_agent_run(witness)
+    # Ordinary shell/manual writes resume only after the old run has unwound.
+    state.append_message(message)
+    state.apply_compaction((message,), summary_suffix="manual", dropped_group_count=1)
+
+
+def test_run_witness_admits_canonical_duplicate_normalization_and_compaction() -> None:
+    message = _message()
+    state = _state()
+    witness = state.begin_agent_run()
+    state.mirror_history((message,))
+    state.append_message(message)
+    assert state.messages == (message, message)
+    state.mirror_history((message,))
+    state.apply_compaction((message,), summary_suffix="summary", dropped_group_count=1)
+    state.absorb_usage(AgentProviderUsageSample(input_tokens=7))
+    captured = state.capture_run_context()
+    assert captured.messages == (message,)
+    assert captured.summary_suffix == "summary"
+    state.validate_run_context(captured)
+    with pytest.raises(RuntimeError, match="already active"):
+        state.begin_agent_run()
+    state.end_agent_run(witness)
+    other = state.begin_agent_run()
+    state.end_agent_run(witness)
+    with pytest.raises(RuntimeError, match="already active"):
+        state.begin_agent_run()
+    state.end_agent_run(other)
+
+
+def test_run_witness_readers_and_lifecycle_use_shared_mutex() -> None:
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+    witnesses = []
+    assert _blocks_while_lock_held(
+        lock, lambda: witnesses.append(state.begin_agent_run())
+    )
+    context = state.capture_run_context()
+    assert _blocks_while_lock_held(lock, state.capture_run_context)
+    assert _blocks_while_lock_held(lock, lambda: state.validate_run_context(context))
+    assert _blocks_while_lock_held(lock, lambda: state.end_agent_run(witnesses[0]))

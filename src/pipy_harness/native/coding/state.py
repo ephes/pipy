@@ -49,6 +49,32 @@ class CodingProviderBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class CodingRunWitness:
+    """Initial history and exact context admitted for one canonical agent run."""
+
+    binding: CodingProviderBinding
+    context_epoch: int
+    messages: tuple[AgentMessage, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CodingRunContext:
+    """Coherent run-dependent request values captured after any compaction."""
+
+    binding: CodingProviderBinding
+    context_epoch: int
+    messages: tuple[AgentMessage, ...]
+    summary_suffix: str
+
+
+class CodingContextChangedError(RuntimeError):
+    """A stale run cannot publish into its replacement coding context."""
+
+    def __init__(self) -> None:
+        super().__init__("coding context changed during an active run; session stopped")
+
+
+@dataclass(frozen=True, slots=True)
 class CodingModelMutation:
     """Prepared provider/history/usage replacement for one model switch."""
 
@@ -177,11 +203,14 @@ class CodingSessionState:
     to this object; callers interact with it through typed state transitions.
 
     **Synchronization.** The provider binding, canonical history, usage
-    accumulator, and compaction state are guarded state: an extension handler
+    accumulator, compaction state, context-replacement epoch, and active run witness
+    are guarded state: an extension handler
     on a detached worker thread reaches them through ``set_model``, which
     rebinds the provider, clears live history, and resets usage. Every reader
     and writer of that group therefore takes ``state_lock`` — the session
-    thread included, since a lock only one side takes excludes nobody.
+    thread included, since a lock only one side takes excludes nobody. The witness
+    guards run publication; begin/reset, explicit clear and destination rebuild
+    advance the replacement epoch while binding identity detects provider changes.
 
     The remaining counters (turn, tool, resource, file-reference, and
     image-attachment tallies, plus the provider-failure slot) are written only
@@ -207,6 +236,8 @@ class CodingSessionState:
         "_image_attachment_loaded_count",
         "_malformed_argument_count",
         "_messages",
+        "_context_epoch",
+        "_run_witness",
         "_provider_failure",
         "_resource_invocation_count",
         "_tool_invocation_count",
@@ -233,6 +264,8 @@ class CodingSessionState:
         )
         require_exact_agent_messages(messages)
         self._messages = messages
+        self._context_epoch = 0
+        self._run_witness: CodingRunWitness | None = None
         self._user_turn_count = 0
         self._tool_invocation_count = 0
         self._resource_invocation_count = 0
@@ -271,6 +304,56 @@ class CodingSessionState:
         """
 
         return self._state_lock
+
+    def begin_agent_run(self) -> CodingRunWitness:
+        """Capture initial history and install its witness before any run callback."""
+
+        with self._state_lock:
+            if self._run_witness is not None:
+                raise RuntimeError("a coding agent run is already active")
+            witness = CodingRunWitness(
+                self._binding, self._context_epoch, self._messages
+            )
+            self._run_witness = witness
+            return witness
+
+    def end_agent_run(self, witness: CodingRunWitness) -> None:
+        """Release only this invocation's witness, including on exceptional exit."""
+
+        with self._state_lock:
+            if self._run_witness is witness:
+                self._run_witness = None
+
+    def capture_run_context(self) -> CodingRunContext:
+        """Read binding/history/summary together after checking run ownership."""
+
+        with self._state_lock:
+            self._require_run_context_locked()
+            return CodingRunContext(
+                self._binding,
+                self._context_epoch,
+                self._messages,
+                self._compaction_suffix,
+            )
+
+    def validate_run_context(self, context: CodingRunContext) -> None:
+        """Refuse a captured request whose context changed during callbacks."""
+
+        with self._state_lock:
+            self._require_run_context_locked()
+            if (
+                self._binding is not context.binding
+                or self._context_epoch != context.context_epoch
+            ):
+                raise CodingContextChangedError()
+
+    def _require_run_context_locked(self) -> None:
+        witness = self._run_witness
+        if witness is not None and (
+            self._binding is not witness.binding
+            or self._context_epoch != witness.context_epoch
+        ):
+            raise CodingContextChangedError()
 
     @property
     def provider(self) -> ProviderPort:
@@ -402,6 +485,7 @@ class CodingSessionState:
             self._binding = binding
             self._usage_accumulator = accumulator
             self._messages = ()
+            self._context_epoch += 1
             self._user_turn_count = 0
             self._tool_invocation_count = 0
             self._resource_invocation_count = 0
@@ -604,6 +688,7 @@ class CodingSessionState:
 
         require_exact_agent_message(message, "message")
         with self._state_lock:
+            self._require_run_context_locked()
             self._messages += (message,)
 
     def mirror_history(self, messages: tuple[AgentMessage, ...]) -> None:
@@ -611,6 +696,7 @@ class CodingSessionState:
 
         require_exact_agent_messages(messages)
         with self._state_lock:
+            self._require_run_context_locked()
             self._messages = messages
 
     def clear_history(self) -> None:
@@ -618,6 +704,7 @@ class CodingSessionState:
 
         with self._state_lock:
             self._messages = ()
+            self._context_epoch += 1
 
     def rebuild_history(
         self, messages: tuple[AgentMessage, ...], *, summary_suffix: str = ""
@@ -630,6 +717,7 @@ class CodingSessionState:
         with self._state_lock:
             self._messages = messages
             self._compaction_suffix = summary_suffix
+            self._context_epoch += 1
 
     def sync_tool_policy(self, state: AgentToolPolicyState) -> None:
         """Mirror the exact reusable-loop cumulative tool counters."""
@@ -709,6 +797,7 @@ class CodingSessionState:
             "sample.effective_total_tokens",
         )
         with self._state_lock:
+            self._require_run_context_locked()
             self._usage_accumulator.absorb(sample)
 
     def apply_compaction(
@@ -729,6 +818,7 @@ class CodingSessionState:
         if dropped_group_count == 0:
             raise ValueError("dropped_group_count must be positive")
         with self._state_lock:
+            self._require_run_context_locked()
             self._messages = messages
             self._compaction_suffix = summary_suffix
             self._compaction_count += 1

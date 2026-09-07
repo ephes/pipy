@@ -34,7 +34,6 @@ from pipy_harness.native.extensions.tool_port import (
     ToolRenderDetailsWriter,
     _ExtensionToolPort,
 )
-from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.turn_leaves import pricing_for
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
@@ -63,15 +62,13 @@ class ExecutionProjectionSnapshot:
     tool_call_hooks: tuple[HookHandler, ...]
     flags: Mapping[str, object]
     ui_driver: ExtensionUiDriver | None
-    provider: ProviderPort
 
 
 class SessionExecutionProjections:
-    """Bind one provider turn to one published tool/renderer/provider view."""
+    """Bind one provider turn to one published tool/renderer view."""
 
     __slots__ = (
         "_active",
-        "_coding_state",
         "_generation_ref",
         "_tools",
         "_ui_driver",
@@ -82,12 +79,10 @@ class SessionExecutionProjections:
         *,
         generation_ref: SessionGenerationRef,
         tool_capabilities: NativeToolCapabilities,
-        coding_state: CodingSessionState,
         ui_driver: _LiveExtensionUiDriver | None,
     ) -> None:
         self._generation_ref = generation_ref
         self._tools = tool_capabilities
-        self._coding_state = coding_state
         self._ui_driver = ui_driver
         self._active: ExecutionProjectionSnapshot | None = None
 
@@ -110,7 +105,6 @@ class SessionExecutionProjections:
                 tool_call_hooks=projection.hooks.tool_call,
                 flags=projection.runtime_flags.values,
                 ui_driver=ui_driver,
-                provider=self._coding_state.provider,
             )
             self._active = active
             return active
@@ -155,10 +149,6 @@ class SessionExecutionProjections:
     ) -> Mapping[str, ExtensionTool]:
         renderers = self._require_active().renderers
         return {name: renderers[name] for name in advertised_names if name in renderers}
-
-    @property
-    def provider(self) -> ProviderPort:
-        return self._require_active().provider
 
     def tool_call_policy_inputs(
         self,

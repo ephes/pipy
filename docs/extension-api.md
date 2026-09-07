@@ -123,8 +123,14 @@ pre-existing tool-capability-refusal compatibility remains narrower: selection
 and coding state stay unchanged, while an explicit `:level` is retained as the
 thinking level and the prior selection remains the pending default. A retained
 call first released after teardown is refused before provider construction.
-Mid-turn provider/tool hook contexts continue to expose a generation-bound
-denied `set_model()` that always returns `False`. R4a now
+The `session_before_compact` gate continues to allow `set_model()`. A successful
+replacement during automatic compaction invalidates the accepted coding run:
+`CodingContextChangedError` escapes and existing exceptional cleanup closes the
+session lifetime before stale history, tree entries, or usage can be published.
+This is not a recoverable return to the prompt. Manual compaction outside an
+accepted run admits the same mutation and permits a subsequent prompt with the
+selected model. Mid-turn provider/tool hook contexts continue to expose a
+generation-bound denied `set_model()` that always returns `False`. R4a now
 synchronizes later accepted/live queue
 append versus drain. R4c binds every ordinary retained-chrome read/write to the
 exact `SessionGenerationSnapshot` that created its context: publication captures
@@ -1444,7 +1450,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     terminal, failed-construction, and superseded calls return `False` without a
     partial effect. A tool-incompatible resolved target retains the established
     explicit-thinking-level side effect while leaving selection/coding state
-    unchanged. In-turn provider/tool hooks reject `ctx.set_model(...)` by
+    unchanged. `session_before_compact` also offers model replacement; during
+    automatic compaction, success invalidates the active run and closes the
+    session with `CodingContextChangedError`. Manual compaction outside a run
+    remains valid. In-turn provider/tool hooks reject `ctx.set_model(...)` by
     returning `False` so they cannot clear conversation state mid-turn.
     `ctx.set_active_tools([])` is a
     real empty active-tool set, disabling model-visible tools until a later

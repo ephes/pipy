@@ -10,9 +10,10 @@ composition, UI, persistence, providers, or extensions.
 
 ``CodingAgentRunCoordinator`` receives those three product adapters plus the
 already-composed reusable-loop ports and drives one accepted turn: it assembles
-the canonical :class:`~pipy_harness.native.agent.loop.AgentLoop`, builds the run
-input from the live coding-session history, invokes the loop, mirrors the final
-history back into :class:`CodingSessionState`, and forwards the loop's
+the canonical :class:`~pipy_harness.native.agent.loop.AgentLoop`, scopes a
+state-owned run witness, builds the run input from its captured history, invokes
+the loop, guards the final history mirror into :class:`CodingSessionState`,
+and forwards the loop's
 controller handoff to the input-queue retention seam. It owns neither queue
 storage/ordering/reservation nor persistence writes; those stay with the
 product controller.
@@ -196,10 +197,12 @@ class CodingAgentRunCoordinator:
 
     The controller builds one coordinator per accepted turn from its freshly
     bound product adapters and the already-composed reusable-loop ports. A
-    single :meth:`run_turn` call assembles the canonical loop, constructs the
-    run input from the live coding-session history, invokes the loop, mirrors
-    the returned final history back into the session state, and forwards the
-    loop's controller handoff to the input-queue retention seam. Queue storage,
+    single :meth:`run_turn` call installs a state-owned witness with atomically
+    captured history and binding before constructing the run input. Overlapping
+    runs refuse. Pricing uses the captured labels through an injected lookup
+    outside the mutex. The call invokes the loop, guards the final history mirror,
+    and forwards its handoff; ``finally`` releases only its own witness, including
+    after a stale-context exception. Queue storage,
     ordering, reservation, idle transitions, lifecycle, and persistence writes
     remain the product controller's responsibility.
     """
@@ -240,7 +243,7 @@ class CodingAgentRunCoordinator:
         active_input: AgentActiveInput,
         initial_tool_state: AgentToolPolicyState,
         *,
-        pricing: AgentTokenPricing | None,
+        pricing_lookup: Callable[[str, str], AgentTokenPricing | None],
         accepted_queued_input: AgentQueuedInput | None,
     ) -> AgentLoopOutcome:
         agent_loop = AgentLoop(
@@ -254,15 +257,22 @@ class CodingAgentRunCoordinator:
             status_policy=self._status_policy,
             tool_waiter=self._tool_waiter,
         )
-        outcome = agent_loop.run(
-            AgentLoopRunInput(
-                self._coding_state.messages,
-                active_input,
-                initial_tool_state,
-                pricing=pricing,
-                accepted_queued_input=accepted_queued_input,
+        witness = self._coding_state.begin_agent_run()
+        try:
+            pricing = pricing_lookup(
+                witness.binding.provider_name, witness.binding.model_id
             )
-        )
-        self._coding_state.mirror_history(outcome.final_history)
-        self._retain_next_input(outcome.next_input)
-        return outcome
+            outcome = agent_loop.run(
+                AgentLoopRunInput(
+                    witness.messages,
+                    active_input,
+                    initial_tool_state,
+                    pricing=pricing,
+                    accepted_queued_input=accepted_queued_input,
+                )
+            )
+            self._coding_state.mirror_history(outcome.final_history)
+            self._retain_next_input(outcome.next_input)
+            return outcome
+        finally:
+            self._coding_state.end_agent_run(witness)

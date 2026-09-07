@@ -681,9 +681,11 @@ session-gate operations now each take one `SessionGenerationRef.snapshot()` and
 use its immutable command/hook/flag projection throughout. R4b's
 `_SessionExecutionProjections` takes one snapshot per provider iteration and
 binds its projected tool registry/executor, tool-call hooks/flags, filtered tool
-renderer map, and current already-constructed coding provider. Tool execution
-and renderer pending state retain that old value across reload; the next
-iteration sees the successor. Custom message/entry render, append, direct-send,
+renderer map. Tool execution and renderer pending state retain their captured
+values across reload. Provider admission instead uses `CodingSessionState`'s
+guarded run witness and captured binding. Binding replacement invalidates the
+active run, which stops at its next guarded boundary; it does not promise live
+provider continuation across reload. Custom message/entry render, append, direct-send,
 replay, and redraw operations each select one projected renderer map. Startup
 and refusal-path provider contribution/refresh consumers use projected tuples;
 R0 selection and coding refresh/fallback rebinding are unchanged, and provider
@@ -1282,8 +1284,9 @@ effects may consult routing. Installed activation-send publication races obey
 guarded acceptance/detach or nonraising drop. No registry discovery or second renderer-visible pointer exists. R4a now ships
 coherent command/request/session-gate snapshots, request-local provider trust,
 and synchronized live queue append/detach/close. R4b now ships one-snapshot tool
-advertisement/execution, tool/custom rendering, provider turns, and provider
-contribution/refresh consumers. The obsolete legacy tool-port builder,
+advertisement/execution, tool/custom rendering, and provider contribution/refresh
+consumers. D1b0 admits provider execution through the state-owned guarded run
+binding, with no duplicate provider field in the tool/renderer projection. The obsolete legacy tool-port builder,
 runtime-to-renderer mapper, direct runtime renderer/provider reads, separately
 published renderer map, and only their R3a equivalence arms are gone. R4c now
 also removes the separately stored generation flag map, temporary lifecycle/flag

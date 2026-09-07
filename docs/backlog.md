@@ -9,18 +9,17 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** D1b0 — guard coding-run mutable publication, after this
-shared-state contract commits. Focused Opus 5 review ended ISSUES; the remaining
-warning was resolved by explicitly preserving the existing post-compaction capture
-order, and two suggestions were clarified against source. No material finding
-remains open; this is advisory acceptance, not CLEAN. D1b semantic compaction follows.
-Source verification of an Opus warning found a supported pre-existing history
-lost update, so the repository's shared-state rule makes the guard a prerequisite.
-D1a landed at `17089f3` with 5,405 tests (two skipped), eight PTY smoke tests and
-full checks; D0 at `f1fa668` also passed full checks. Their Opus dispositions were
-advisory with no unresolved material findings. The typed preparation-cancellation
-contract landed at `297b055`; A/B/C at `ba08e9b`. Advisory is not CLEAN. D2a/D2b
-follow semantic D1b and refresh against its code.
+**Next dispatch:** D1b — refresh and resume canonical semantic compaction after
+this D1b0 commit. D1b0 closes the retained-model-control lost update and removes the
+unused provider projection; its contract landed at `4c5986d`. Final validation:
+5,473 tests passed (two skipped), eight PTY smoke tests, lint/format/Mypy and docs
+build green. Exact Opus 5 code review ended with two documentation suggestions,
+applied after the focused second round; no Warning/Critical remains. This is
+advisory acceptance, not CLEAN.
+D1a landed at `17089f3`, D0 at `f1fa668`, and the typed preparation-cancellation
+contract at `297b055`; all had full validation and advisory Opus dispositions.
+A/B/C contracts landed at `ba08e9b`. D2a/D2b follow semantic D1b. Reconcile the saved
+partial semantic work with the new guard before reuse; no live recovery is selected.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -301,11 +300,14 @@ summary freshness window: retained command/input/before-agent-start model
 controls may replace the binding and clear history after `run_turn` reads it,
 then request preparation mirrors the old history back. The summary-only safe
 stop would miss this write, canonical message appends, and usage publication.
-This is a shared mutable-state correctness defect, not a precision-only finding;
-the repository exception requires repairing it before dependent implementation.
+The D1b0 implementation in this chunk repairs that shared-state defect before
+dependent semantic work resumes.
 
 The [guarded run contract](harness-spec.md#guarded-coding-run-publication-contract)
-adds a scoped state-owned witness captured atomically with initial history.
+is implemented with a scoped state-owned witness captured atomically with initial
+history. Deterministic tests exercise retained controls before preparation, after
+its mirror and hooks, during turn start, after tools, before usage and final
+settlement; newer binding/history/tree/usage survive and cleanup closes the lifetime.
 Binding identity and a replacement epoch detect context changes while ordinary
 canonical appends/mirrors/compaction remain valid. Guard preparation/final mirrors,
 canonical appends, compaction and usage plus run-dependent history/binding reads
@@ -356,7 +358,7 @@ every listed module. Add a file only when the selected behavior needs it.
 | --- | --- | --- | --- |
 | D0 | Complete at `f1fa668`; A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
 | D1a | Complete at `17089f3`; D0 committed; B reviewed | Structural origin and prior-summary projection, pre-resolved durable cut, destination-owned context rebuild; matching docs/release note | Repeated durable cuts and equivalent reopen; no synthetic summary group; no text-based origin lookup; state-first failure preserved |
-| D1b0 | D1a; reviewed guarded-run contract | State-owned run witness and guarded history/compaction/usage publication; ordered durable append; matching docs/release note | Supported context mutation cannot be overwritten by preparation, message, usage or final settlement; stale run closes safely; ordinary multi-iteration runs and publisher guards preserved |
+| D1b0 | Complete in this commit; full checks and advisory Opus review; contract `4c5986d` | State-owned run witness and guarded history/compaction/usage publication; ordered durable append; matching docs/release note | Supported context mutation cannot be overwritten by preparation, message, usage or final settlement; stale run closes safely; ordinary multi-iteration runs and publisher guards preserved |
 | D1b | D1b0; reviewed preparation-cancellation refinement | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; cancelled preparation invokes no ordinary request construction/hooks/render refresh/provider turn; stale automatic context closes before further mutable publication; late completion, overlays and privacy pinned |
 | D2a | D1b; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b | D2a | Distinct supported product-session SDK factory over that lifetime; API tests and SDK docs | Two-turn tool workflow, events, cross-thread cancel, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |

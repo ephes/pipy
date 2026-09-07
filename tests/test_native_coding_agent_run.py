@@ -450,7 +450,7 @@ def test_run_turn_builds_invokes_loop_and_mirrors_history() -> None:
     outcome = coordinator.run_turn(
         _active_input(),
         _initial_tool_state(),
-        pricing=None,
+        pricing_lookup=lambda _provider, _model: None,
         accepted_queued_input=None,
     )
 
@@ -481,7 +481,7 @@ def test_run_turn_retains_next_input_on_the_queue_seam() -> None:
     outcome = coordinator.run_turn(
         _active_input(),
         _initial_tool_state(),
-        pricing=None,
+        pricing_lookup=lambda _provider, _model: None,
         accepted_queued_input=None,
     )
 
@@ -501,7 +501,7 @@ def test_run_turn_forwards_none_handoff_to_the_retention_seam() -> None:
     outcome = coordinator.run_turn(
         _active_input(),
         _initial_tool_state(),
-        pricing=None,
+        pricing_lookup=lambda _provider, _model: None,
         accepted_queued_input=None,
     )
 
@@ -544,6 +544,97 @@ def test_run_turn_rejects_non_conforming_ports() -> None:
         coordinator.run_turn(
             _active_input(),
             _initial_tool_state(),
-            pricing=None,
+            pricing_lookup=lambda _provider, _model: None,
             accepted_queued_input=None,
         )
+
+
+def test_pricing_uses_captured_binding_outside_mutex_and_failure_releases_witness() -> (
+    None
+):
+    from typing import Any
+
+    state = _coding_state()
+    coordinator = _make_coordinator(coding_state=state)
+    labels: list[tuple[str, str]] = []
+
+    def pricing(provider: str, model: str) -> None:
+        labels.append((provider, model))
+        assert not cast(Any, state.state_lock)._is_owned()
+        with pytest.raises(RuntimeError, match="already active"):
+            state.begin_agent_run()
+        raise LookupError("pricing unavailable")
+
+    with pytest.raises(LookupError, match="pricing unavailable"):
+        coordinator.run_turn(
+            _active_input(),
+            _initial_tool_state(),
+            pricing_lookup=pricing,
+            accepted_queued_input=None,
+        )
+    assert labels == [(state.provider_name, state.model_id)]
+    outcome = coordinator.run_turn(
+        _active_input(),
+        _initial_tool_state(),
+        pricing_lookup=lambda _provider, _model: None,
+        accepted_queued_input=None,
+    )
+    assert state.messages == outcome.final_history
+
+
+def test_pricing_keeps_captured_labels_when_binding_changes_after_run_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pipy_harness.native.coding.state import (
+        CodingContextChangedError,
+        CodingRunWitness,
+    )
+
+    state = _coding_state()
+    original_binding = state.provider_binding
+    begin = CodingSessionState.begin_agent_run
+
+    def replaced_begin(owner: CodingSessionState) -> CodingRunWitness:
+        witness = begin(owner)
+        owner.rebind_provider(
+            _FakeProvider(),
+            provider_name="replacement",
+            model_id="replacement-model",
+            usage_accumulator=AgentUsageAccumulator(),
+        )
+        return witness
+
+    monkeypatch.setattr(CodingSessionState, "begin_agent_run", replaced_begin)
+    source = _RequestSource()
+
+    def prepare(
+        history: tuple[AgentMessage, ...],
+        active_input: AgentActiveInput,
+        turn_index: int,
+        tools: tuple[ToolDefinition, ...],
+    ) -> AgentLoopRequestPreparation:
+        state.mirror_history(history)
+        return source.prepare(history, active_input, turn_index, tools)
+
+    provider_turn = _ProviderTurn()
+    coordinator = _make_coordinator(
+        coding_state=state,
+        provider_turn=provider_turn,
+        request_source=AgentLoopRequestSourceAdapter(prepare),
+    )
+    labels: list[tuple[str, str]] = []
+
+    def pricing(provider: str, model: str) -> None:
+        labels.append((provider, model))
+
+    with pytest.raises(CodingContextChangedError):
+        coordinator.run_turn(
+            _active_input(),
+            _initial_tool_state(),
+            pricing_lookup=pricing,
+            accepted_queued_input=None,
+        )
+    assert labels == [(original_binding.provider_name, original_binding.model_id)]
+    assert state.provider_name == "replacement"
+    assert state.messages == ()
+    assert provider_turn.calls == 0

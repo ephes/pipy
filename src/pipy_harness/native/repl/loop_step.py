@@ -60,7 +60,7 @@ from pipy_harness.native.coding.session_controller import (
     CodingLoopStepKind,
     LoopStepSignal,
 )
-from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.state import CodingRunContext, CodingSessionState
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extensions.activation import (
@@ -196,10 +196,11 @@ class _RequestPreparationEffects:
         scope = self.accepted.turn_input.turn.scope
         scope.coding_state.mirror_history(history)
         self._compact_if_needed()
+        context = scope.coding_state.capture_run_context()
         snapshot = scope.provider_request_policy.prepare(
             AgentProviderRequestPolicyInput(
                 baseline=self._provider_request(
-                    active_input, turn_index, available_tools
+                    active_input, turn_index, available_tools, context
                 ),
                 active_input=active_input,
             )
@@ -207,7 +208,8 @@ class _RequestPreparationEffects:
         scope.renderer.refresh_tool_renderers(
             scope.execution_projections.tool_renderers(snapshot.advertised_tool_names)
         )
-        return AgentLoopRequestPreparation(scope.coding_state.messages, snapshot)
+        scope.coding_state.validate_run_context(context)
+        return AgentLoopRequestPreparation(context.messages, snapshot)
 
     def _compact_if_needed(self) -> None:
         scope = self.accepted.turn_input.turn.scope
@@ -234,19 +236,17 @@ class _RequestPreparationEffects:
         active_input: AgentActiveInput,
         turn_index: int,
         available_tools: tuple[ToolDefinition, ...],
+        context: CodingRunContext,
     ) -> ProviderRequest:
         scope = self.accepted.turn_input.turn.scope
         accepted_turn = self.accepted.accepted_turn
-        coding_state = scope.coding_state
         return ProviderRequest(
-            system_prompt=(
-                accepted_turn.agent_system_prompt + coding_state.compaction_suffix
-            ),
+            system_prompt=(accepted_turn.agent_system_prompt + context.summary_suffix),
             user_prompt=accepted_turn.provider_user_input,
-            provider_name=coding_state.provider_name,
-            model_id=coding_state.model_id,
+            provider_name=context.binding.provider_name,
+            model_id=context.binding.model_id,
             cwd=scope.cwd,
-            messages=active_input.request_messages(coding_state.messages),
+            messages=active_input.request_messages(context.messages),
             available_tools=available_tools,
             attachments=(accepted_turn.turn_attachments if turn_index == 0 else ()),
             provider_header_callback=scope.active_provider_header_callback(),
@@ -265,7 +265,7 @@ class _ProviderTurnCompletion:
     ) -> ProviderTurnOutcome:
         scope = self.turn.scope
         provider_request = materialize_provider_request(snapshot)
-        provider_for_turn = scope.execution_projections.provider
+        provider_for_turn = scope.coding_state.capture_run_context().binding.provider
         waiter: ProviderTurnWaiter | None = None
         if scope.terminal_ui is not None:
             waiter = partial(wait_for_provider_interrupt, scope.terminal_ui)
@@ -289,7 +289,7 @@ class _ProviderTurnCompletion:
         if isinstance(abort_event, _AbortCallbackSignal):
             provider_start_event = threading.Event()
             provider_for_turn = _StartGatedProvider(
-                scope.coding_state.provider, provider_start_event
+                provider_for_turn, provider_start_event
             )
         waiter = partial(
             _wait_for_external_abort,
@@ -555,10 +555,7 @@ def _phase_f2_run_and_settle(
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,
-        pricing=pricing_for(
-            scope.coding_state.provider_name,
-            scope.coding_state.model_id,
-        ),
+        pricing_lookup=pricing_for,
         accepted_queued_input=accepted.turn_input.queued_input,
     )
     scope.ctl.extension_in_agent_turn = False

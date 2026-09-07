@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -15,6 +16,11 @@ from session_generation_test_support import build_test_projection
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentUserMessage, ProductContent
+from pipy_harness.native.agent.events import (
+    AgentRunCompleted,
+    AgentRunStarted,
+    TurnStarted,
+)
 from pipy_harness.native.agent.usage import AgentProviderUsageSample
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
@@ -35,6 +41,7 @@ from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
     GenerationMessageRouting,
 )
+from pipy_harness.native.models import ProviderResult, ProviderToolCall
 from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
@@ -1160,3 +1167,311 @@ def test_retained_model_callable_after_terminal_cannot_prepare_or_publish(
     assert constructions == []
     assert saves == []
     assert _model_state_snapshot(effects, state, footers) == before
+
+
+def _stale_run_provider_result(
+    boundary: str,
+    owners: list[ProviderMutationEffects],
+    requests: list[object],
+    mutate: Callable[[], None],
+    request: object,
+) -> ProviderResult:
+    assert not cast(Any, owners[0].coding_state.state_lock)._is_owned()
+    assert not cast(Any, owners[0].ctl.coding_effects.lock)._is_owned()
+    requests.append(request)
+    if boundary == "provider-return":
+        mutate()
+    now = datetime.now(UTC)
+    calls: tuple[ProviderToolCall, ...] = ()
+    if boundary == "later-turn" and len(requests) == 1:
+        calls = (
+            ProviderToolCall(
+                provider_correlation_id="read-1",
+                tool_name="read",
+                arguments_json='{"path":"notes.txt"}',
+            ),
+        )
+    return ProviderResult(
+        status=HarnessStatus.SUCCEEDED,
+        provider_name="openai",
+        model_id="gpt-5.5",
+        started_at=now,
+        ended_at=now,
+        final_text="answer" if not calls else "",
+        tool_calls=calls,
+        usage={"input_tokens": 7},
+    )
+
+
+class _StaleRunMutationSink:
+    def __init__(self, boundary: str, mutate: Callable[[], None]) -> None:
+        self.boundary = boundary
+        self.mutate = mutate
+
+    def emit(self, event: object) -> None:
+        boundary = self.boundary
+        if (
+            (boundary == "run-start" and isinstance(event, AgentRunStarted))
+            or (boundary == "turn-start" and isinstance(event, TurnStarted))
+            or (
+                boundary == "later-turn"
+                and isinstance(event, TurnStarted)
+                and event.turn_index == 1
+            )
+            or (boundary == "run-finish" and isinstance(event, AgentRunCompleted))
+        ):
+            self.mutate()
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "run-start",
+        "after-mirror",
+        "request-hooks",
+        "turn-start",
+        "later-turn",
+        "provider-return",
+        "run-finish",
+    ],
+)
+def test_retained_model_control_stops_stale_coding_run_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    from pipy_harness.native.agent_loop_policy import NativeAgentProviderRequestPolicy
+    from pipy_harness.native.coding.session import CodingSession
+    from pipy_harness.native.coding.state import CodingContextChangedError
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    _effects, provider_state, _tools, _ref, _coordinator, _tree, _footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    retained: list[Callable[[str], bool]] = []
+    owners: list[ProviderMutationEffects] = []
+    original_control = ProviderMutationEffects.model_runtime_control
+
+    def capture_control(
+        owner: ProviderMutationEffects, *args: Any, **kwargs: Any
+    ) -> Any:
+        control = original_control(owner, *args, **kwargs)
+        if control.set_model_fn is not None:
+            retained.append(control.set_model_fn)
+            owners.append(owner)
+        return control
+
+    monkeypatch.setattr(
+        ProviderMutationEffects, "model_runtime_control", capture_control
+    )
+    mutations: list[object] = []
+
+    def mutate() -> None:
+        if mutations:
+            return
+        assert retained and retained[0]("openai/gpt-5.4")
+        owner = owners[0]
+        mutations.append(
+            (
+                owner.coding_state.provider_binding,
+                owner.coding_state.messages,
+                owner.ctl.session_tree.get_entries(),
+            )
+        )
+
+    original_append = NativeSessionTree.append_message
+    append_checks: list[object] = []
+
+    def append(tree: NativeSessionTree, message: Any) -> Any:
+        owner = owners[0]
+        assert cast(Any, owner.ctl.coding_effects.lock)._is_owned()
+        assert not cast(Any, owner.coding_state.state_lock)._is_owned()
+        assert owner.coding_state.messages[-1] is message
+        append_checks.append(message)
+        return original_append(tree, message)
+
+    monkeypatch.setattr(NativeSessionTree, "append_message", append)
+    requests: list[object] = []
+
+    provider = provider_state.current_provider()
+    monkeypatch.setattr(
+        type(provider),
+        "complete",
+        lambda _provider, request, **_kwargs: _stale_run_provider_result(
+            boundary, owners, requests, mutate, request
+        ),
+    )
+    (tmp_path / "notes.txt").write_text("tool evidence", encoding="utf-8")
+    from pipy_harness.native.repl.loop_step import _RequestPreparationEffects
+
+    original_compact = _RequestPreparationEffects._compact_if_needed
+
+    def compact(preparation: Any) -> None:
+        original_compact(preparation)
+        if boundary == "after-mirror":
+            mutate()
+
+    monkeypatch.setattr(_RequestPreparationEffects, "_compact_if_needed", compact)
+    original_prepare = NativeAgentProviderRequestPolicy.prepare
+
+    def prepare(policy: Any, request: Any) -> Any:
+        assert not cast(Any, owners[0].coding_state.state_lock)._is_owned()
+        assert not cast(Any, owners[0].ctl.coding_effects.lock)._is_owned()
+        result = original_prepare(policy, request)
+        if boundary == "request-hooks":
+            mutate()
+        return result
+
+    monkeypatch.setattr(NativeAgentProviderRequestPolicy, "prepare", prepare)
+
+    session = CodingSession(
+        provider=provider,
+        provider_state=provider_state,
+        agent_event_sink=_StaleRunMutationSink(boundary, mutate),
+    )
+    with pytest.raises(CodingContextChangedError, match="session stopped"):
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO("accepted input\n/exit\n"),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+    assert len(mutations) == 1
+    owner = owners[0]
+    binding, messages, entries = cast(tuple[Any, Any, Any], mutations[0])
+    assert owner.coding_state.provider_binding is binding
+    assert owner.coding_state.messages == messages == ()
+    assert owner.coding_state.usage.input_tokens == 0
+    assert owner.ctl.session_tree.get_entries() == entries
+    assert owner.ctl.coding_effects.terminal
+    assert retained[0]("openai/gpt-4o") is False
+    # The run's finally released the witness despite exceptional lifetime cleanup.
+    witness = owner.coding_state.begin_agent_run()
+    owner.coding_state.end_agent_run(witness)
+    assert len(requests) == (
+        1 if boundary in {"later-turn", "provider-return", "run-finish"} else 0
+    )
+    assert (
+        len(append_checks)
+        == {
+            "run-start": 0,
+            "after-mirror": 0,
+            "request-hooks": 0,
+            "turn-start": 0,
+            "later-turn": 3,
+            "provider-return": 1,
+            "run-finish": 2,
+        }[boundary]
+    )
+
+
+@pytest.mark.parametrize("trigger", ["auto", "manual"])
+def test_compaction_gate_model_replacement_stops_only_an_active_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trigger: str
+) -> None:
+    from pipy_harness.native.coding.session import CodingSession
+    from pipy_harness.native.coding.state import CodingContextChangedError
+    from pipy_harness.native.repl import loop_step
+    from pipy_harness.native.session_tree import MessageEntry
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    _effects, provider_state, _tools, _ref, _coordinator, _tree, _footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    evidence = tmp_path / "gate-evidence.txt"
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "compaction_gate.py").write_text(
+        "from pathlib import Path\n"
+        f"EVIDENCE = Path({str(evidence)!r})\n"
+        "def record(value):\n"
+        "    with EVIDENCE.open('a', encoding='utf-8') as file:\n"
+        "        file.write(value + '\\n')\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_compact')\n"
+        "    def compact(event, ctx):\n"
+        "        changed = ctx.set_model('openai/gpt-5.4')\n"
+        "        record(f'gate:{event.trigger}:{changed}')\n"
+        "    @api.on('before_provider_request')\n"
+        "    def provider(_event, ctx):\n"
+        "        record(f'provider-model-denied:{ctx.set_model(\"openai/gpt-4o\")}')\n"
+        "    @api.on('session_shutdown')\n"
+        "    def shutdown(_event, _ctx):\n"
+        "        record('shutdown')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        loop_step,
+        "should_compact_agent_history",
+        lambda *_args, **_kwargs: trigger == "auto",
+    )
+    provider = provider_state.current_provider()
+    requests: list[object] = []
+
+    def complete(
+        _provider: object, request: object, **_kwargs: object
+    ) -> ProviderResult:
+        requests.append(request)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name="openai",
+            model_id="gpt-5.4",
+            started_at=now,
+            ended_at=now,
+            final_text="answer",
+        )
+
+    monkeypatch.setattr(type(provider), "complete", complete)
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    for text in ("older", "recent", "latest"):
+        tree.append_message(AgentUserMessage(ProductContent(text)))
+    prior_messages = tuple(
+        entry for entry in tree.get_entries() if isinstance(entry, MessageEntry)
+    )
+    session = CodingSession(
+        provider=provider, provider_state=provider_state, native_session=tree
+    )
+    inputs = (
+        "accepted input\n/exit\n"
+        if trigger == "auto"
+        else "/compact\naccepted input\n/exit\n"
+    )
+
+    def run() -> Any:
+        return session.run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO(inputs),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+
+    if trigger == "auto":
+        with pytest.raises(CodingContextChangedError, match="session stopped"):
+            run()
+        assert session._coding_state.messages == ()
+        assert (
+            tuple(
+                entry for entry in tree.get_entries() if isinstance(entry, MessageEntry)
+            )
+            == prior_messages
+        )
+        assert requests == []
+        assert evidence.read_text(encoding="utf-8").splitlines() == [
+            "gate:auto:True",
+            "shutdown",
+        ]
+    else:
+        assert run().status is HarnessStatus.SUCCEEDED
+        assert [
+            message.content.value for message in session._coding_state.messages
+        ] == ["accepted input", "answer"]
+        assert len(requests) == 1
+        assert evidence.read_text(encoding="utf-8").splitlines() == [
+            "gate:manual:True",
+            "provider-model-denied:False",
+            "shutdown",
+        ]
+    assert session._coding_state.model_id == "gpt-5.4"
+    assert session._coding_state.compaction_count == 0
+    assert session._coding_state.usage.input_tokens == 0
+    witness = session._coding_state.begin_agent_run()
+    session._coding_state.end_agent_run(witness)

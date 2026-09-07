@@ -214,6 +214,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Retained extension model controls can no longer let an older coding run restore
+  discarded history, append messages to the replacement context, or charge its
+  usage accumulator. A context change stops the stale session lifetime through
+  existing exceptional cleanup. Accepted automatic compaction remains visible
+  to the same request and subsequent tool-loop continuation.
 - Repeated compaction now persists the exact retained boundary even after only
   one additional user group. Resume and branch replacement restore the destination
   summary separately from conversation groups, including duplicate custom/branch
