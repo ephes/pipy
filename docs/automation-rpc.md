@@ -513,8 +513,12 @@ delivered; it never re-enters local slash-command or shell-shortcut dispatch.
 
 ### Session switching, fork, clone
 
-`switch_session`, `fork`, `clone`, and `new_session` change the active session
-and must **rebind** the event subscription so subsequent session events come
+Current build: `switch_session`, `fork`, `clone`, and `new_session` are
+recognized commands without RPC handlers; each returns a correlated
+not-yet-implemented error. The following is the target contract, not shipped
+RPC behavior.
+
+When implemented, these commands change the active session and must **rebind** the event subscription so subsequent session events come
 from the new active session (Pi's `rebindSession()`), and re-bind the
 extension-UI context. Each may be cancelled by an extension hook
 (`docs/extension-api.md` `session_before_switch` / `session_before_fork`),
@@ -523,12 +527,15 @@ native session tree (`docs/session-tree.md`).
 
 ### Bash, model, and thinking controls
 
-- `bash` runs a command on a worker thread through pipy's real bash
-  tool/sandbox and returns a full `BashResult` including bounded, secret-scrubbed
-  output. The sandbox is not externally cancellable, so `abort_bash` returns a
+- `bash` runs a command on a worker thread through
+  `command_sandbox.run_command`, with its own `CommandPolicy`, and returns a
+  full `BashResult` including bounded, secret-scrubbed output. The sandbox is not externally cancellable, so `abort_bash` returns a
   well-formed error while a bash is in flight (and a no-op success when idle)
-  rather than falsely claiming a cancel. This is the same bash executor the tool
-  loop uses; full output is in-scope for this surface.
+  rather than falsely claiming a cancel. The model tool loop uses the separate
+  `BashTool` executor and model-tool policy path, not this `run_command` call.
+  Full output is in-scope for this RPC surface. The current response maps a
+  sandbox timeout to `cancelled: true`; distinct timeout and explicit-abort
+  outcomes remain part of the planned process-lifecycle work.
 - **Model controls — current build (documented boundary).**
   `get_available_models` returns the configured provider/model; `set_model`
   succeeds for the currently selected provider/model and returns a well-formed
@@ -546,11 +553,20 @@ native session tree (`docs/session-tree.md`).
 
 ### Compaction
 
-`compact` runs a real context compaction and returns a `CompactionResult`;
-`compaction_start` / `compaction_end` events bracket it on stdout.
-`set_auto_compaction` toggles threshold/overflow compaction, which emits the
-same event pair with `reason: "threshold" | "overflow"`. Durable compaction is
-written to the native session tree (`docs/session-tree.md`).
+Current build: `compact` is recognized but has no RPC handler, so it returns a
+correlated not-yet-implemented error. `set_auto_compaction` changes the RPC
+server's reported flag only; it does not change the coding session's compaction
+settings. Likewise `set_auto_retry` records a flag without enabling a retry loop,
+and `abort_retry` is currently a no-op. These controls need the shared product
+session owner proposed in the
+[daily-use harness plan](plans/2026-09-07-daily-use-harness-design.md).
+
+Target behavior: `compact` performs context compaction and returns a
+`CompactionResult`, bracketed by `compaction_start` / `compaction_end` events.
+Auto-compaction controls must affect the real session policy, emitting the same
+event pair with `reason: "threshold" | "overflow"`, with durable summaries in the native
+session tree (`docs/session-tree.md`). This target is not a claim that the
+current transport implements it.
 
 ### Extension UI request/response channel
 

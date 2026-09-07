@@ -10,11 +10,18 @@ reviewable change while keeping the source-of-truth design constraints in
 **Parity policy and historical matrices live in
 [parity-plan.md](parity-plan.md).** Its command/flag policy, accidental-surface
 ledger, and topic-spec index remain authoritative, while its older matrices are
-historical. The current architecture disposition is the
-[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md), and the
-latest ranked Pi comparison is [pi-mono-gap-audit.md](pi-mono-gap-audit.md).
-Use that audit for product selection only after the assessment's reload-contract
-follow-up. The big-topic specs indexed by the plan are
+historical. The latest cross-project design recommendation is the
+[2026-09-07 daily-use harness plan](plans/2026-09-07-daily-use-harness-design.md).
+Its proposed next slice is a daily-use baseline and truthful support inventory,
+followed by semantic compaction and a reusable product-session control surface.
+The plan includes initial RPC documentation corrections; its behavioral baseline
+and runtime implementation have not started. T1 (shared provider tests) and C1
+(contributor documentation) are already complete, as recorded in the completed
+remediation program below; neither is a pending prerequisite. The
+[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md) and
+[July Pi gap audit](pi-mono-gap-audit.md) remain historical evidence; their
+reload prerequisite is complete.
+The big-topic specs indexed by the plan are
 [session-tree.md](session-tree.md),
 [extension-api.md](extension-api.md), [provider-catalog.md](provider-catalog.md),
 [settings-config.md](settings-config.md), [automation-rpc.md](automation-rpc.md),

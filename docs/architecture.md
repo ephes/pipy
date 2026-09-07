@@ -12,11 +12,13 @@ Historical architecture-quality measurements, review evidence, and migration
 disposition are preserved in the
 [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
 
-The bounded transactional-reload correctness boundary is complete. The
-comparative-review remediation queue is complete through **A1 — extract the
-agent-turn status effect family**, and **T1 — share only the proven provider
-test contract** is the explicit next slice. The
-[Backlog](backlog.md) owns the exact pointer and next queue. The package
+The bounded transactional-reload correctness boundary, comparative-review
+remediation queue (including T1 and C1), and god-file decomposition program are
+complete. The
+[2026-09-07 daily-use harness plan](plans/2026-09-07-daily-use-harness-design.md)
+compares the current implementation with Pi and tau and proposes context
+continuity, shared product-session control, and recovery as the next priorities.
+The [Backlog](backlog.md) owns the current queue. The package
 metadata's native coding-agent description matches this architecture and stays
 unchanged; version/distribution identity, license/URLs, and wheel verification
 remain release-triggered while the project is private.
@@ -1203,9 +1205,10 @@ C901-pinned file. The load-bearing summary is:
 - the harness/SDK one-shot compatibility runtime is an intentional
   metadata-fixture difference, with canonical provider execution and executable
   non-equivalence tests;
-- `TerminalUi` intentionally remains the effectful terminal adapter at
-  **43 measured fields**, down from 128, while editor, overlay, chrome, and pure
-  frame state have dedicated owners;
+- `TerminalUi` remains the effectful terminal adapter. The completed
+  decomposition leaves nine measured fields and a concrete component graph;
+  editor, overlay, chrome, and frame state have dedicated owners. Older
+  measurements below describe their historical checkpoints;
 - tests intentionally retain their non-strict baseline while both complete
   source packages are strict-equivalent and combined Mypy checks source+tests;
   the one source suppression remains the documented runtime-selected stdlib
