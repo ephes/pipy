@@ -125,16 +125,26 @@ this initial API; it is not a prerequisite for embedding a real provider.
 
 ### Shared preparation prerequisite
 
-D2p extracts the existing preparation into reusable methods within
-`CodingSessionAdapter` in `adapters/native.py` before the public factory lands. Keep provider validation,
-fail-closed default settings (`project_trusted=False`), system-prompt resolution,
-instruction/skill composition and bounded reference roots in that existing
-composition owner. Expose only the prepared values and session construction
-needed by the stream adapter and product factory; do not copy preparation into a
-new facade or move it into the narrower workspace-instruction loader.
+D2p provides reusable internal methods within `CodingSessionAdapter` in
+`adapters/native.py` before the public factory lands.
+`prepare_session_context(cwd)` accepts an expanded, resolved and validated
+workspace directory and resolves the
+provider, fail-closed default settings (`project_trusted=False`), system prompt,
+instruction/skill composition and bounded reference roots. Its private prepared
+value retains the provider and settings identities. `build_session(context)`
+uses that value and the adapter's configured options to construct `CodingSession`
+without entering its lifetime. Call both methods on the same configured adapter,
+using one adapter per lifetime; injected trees, activation batches, cancellation
+and other mutable inputs retain their existing ownership requirements. The D2b
+factory validates and normalizes its workspace before calling preparation.
+Preparation remains in this existing composition owner; callers do not copy the
+constructor mapping or move it into the narrower workspace-instruction loader.
 
-The existing adapter retains its archive emission and failure ordering. Shared
-preparation itself creates no workflow record or archive events. D2b uses
+The stream adapter emits `native.workspace_context.loaded` after successful
+preparation and before session construction, preserving its archive emission
+and failure ordering. A preparation failure emits no context event; a failing
+event sink prevents construction; constructor failures follow the context event.
+Shared preparation itself creates no workflow record or archive events. D2b uses
 `default_workspace_instruction_loader` by default, matching normal CLI context
 loading; `load_context_files=False` selects `empty_workspace_instruction_loader`,
 matching `--no-context-files`. This switch controls AGENTS.md/pipy.md instruction

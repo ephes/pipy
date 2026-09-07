@@ -112,6 +112,16 @@ the metadata archive are injected or remain outside it.
 
 ## Product composition and one-shot runtime
 
+`CodingSessionAdapter` in `adapters/native.py` owns reusable product preparation:
+`prepare_session_context` resolves the injected provider, settings/trust, prompt,
+instructions, skills and reference roots; `build_session` constructs the configured
+native session from those private values. The same settings instance reaches
+preparation and wiring. Neither helper starts a lifetime or emits workflow archive
+events. The stream adapter retains its context event between preparation and
+construction, including the existing failure order. These internal methods do
+not change the direct adapter's empty instruction-loader default or expose a new
+public SDK.
+
 `native/coding/session.py` is the interactive product composition root. Its
 internal `_open_lifetime` context keeps the prepared wiring and startup-candidate
 scope alive across repeated queue submissions through the prepared adapter and

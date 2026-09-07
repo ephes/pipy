@@ -9,10 +9,14 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** D2p after this D2b0 contract commit, then D2b delivers the public
-factory. D2b0's two exact Opus 5 plan rounds had complete coverage; the final three
-Suggestions were applied with no Warning/Critical. Advisory acceptance, not CLEAN.
-No dependent code starts before its prerequisite commits.
+**Next eligible task:** D2b, after the D2p commit below. D2p is complete at this
+chunk: reusable preparation and construction preserve stream context-event and
+failure ordering. Root validation passed 5,602 tests (two skipped), static checks,
+eight PTY smoke tests and docs/diff checks. One exact Opus 5 code review covered
+all changes with two Suggestions and no Warning/Critical: retained the validated
+workspace precondition for D2b, and clarified one adapter per lifetime. Advisory
+acceptance, not CLEAN; no further prose-only round is warranted. The cancellation
+refresh found no new ownership blocker.
 
 D2a committed at `4b5baa9`: one persistent controller lifetime, explicit idle,
 per-run witness release and measured 399-line facade bounds. Final validation
@@ -404,7 +408,9 @@ contract tests and matching docs/release notes. D2b then owns the small outer
 product facade in `pipy_harness/product_api.py`, the public exports in
 `pipy_harness/sdk.py`, the existing cancellation primitive, a mechanical RPC import change, headless waiter composition
 in `repl/turn_leaves.py` and `repl/loop_step.py`, and corresponding
-API/cancellation/ownership tests. The harness-level facade owns the adapter-to-native
+API/cancellation/ownership tests. Allow the narrow `adapters/native.py` annotation
+and import change needed to pass the existing callback-capable abort protocol;
+its preparation implementation stays unchanged. The harness-level facade owns the adapter-to-native
 composition edge and calls `CodingSession._open_lifetime` as-is; no edit to that
 native seam is selected. Native modules do not import it or the outer adapter. D2b also
 updates `docs/automation-rpc.md`, `docs/rpc.md` and `CHANGELOG.md` for the newly
@@ -414,7 +420,7 @@ runtime ownership needs another decision before implementation expands.
 This is the focused grooming pass after the D2a phase boundary. Summary-safe
 product-session and cancellation history was inspected; the decision rests on
 current source evidence and preserves the initial continuity → session API
-sequence. D2b0 completes in this commit after two plan rounds; D2p begins next. D2p and D2b
+sequence. D2b0 committed at `e0f82b6` after two plan rounds; D2p is complete in this chunk. D2p and D2b
 each require their own full validation, code review and commit. Live-provider
 usability remains unverified; no competing roadmap or broad provider program is
 introduced.
@@ -438,8 +444,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D1b | Complete at `527b846`; full checks and advisory Opus review; D1b0 and preparation-cancellation contract accepted | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; cancelled preparation invokes no ordinary request construction/hooks/render refresh/provider turn; stale automatic context closes before further mutable publication; late completion, overlays and privacy pinned |
 | D2a0 | Complete at `936b96d`; full checks and advisory Opus plan review | Docs-only scoped facade placement and size-gate contract | Independent plan review and commit before dependent test/code changes |
 | D2a | Complete at `4b5baa9`; full checks and advisory Opus code review; D2a0 accepted | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
-| D2b0 | Complete in this commit; full checks and advisory Opus plan review | Docs-only provider, preparation and cancellation ownership contract; bounded D2p split | Independent plan review and commit before dependent code |
-| D2p | D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
+| D2b0 | Complete at `e0f82b6`; full checks and advisory Opus plan review | Docs-only provider, preparation and cancellation ownership contract; bounded D2p split | Independent plan review and commit before dependent code |
+| D2p | Complete in this chunk; full checks and advisory Opus code review; D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
 | D2b | D2p; D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a | D1b | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
 | D3b | D3a; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
 
@@ -37,12 +38,16 @@ from pipy_harness.native.session_resume import (
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
 from pipy_harness.native.skills import SkillFile, compose_skills_system_block
-from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
+from pipy_harness.native.system_prompt_inputs import (
+    ResolvedSystemPrompt,
+    resolve_system_prompt,
+)
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.workspace_context import (
+    WorkspaceInstructionDiscovery,
     WorkspaceInstructionLoader,
     compose_system_prompt,
     empty_workspace_instruction_loader,
@@ -132,6 +137,23 @@ class PipyNativeAdapter:
                 "error_message": run_output.error_message,
             },
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _CodingSessionPreparation:
+    """Private product inputs; provider/settings identities remain caller-owned.
+
+    Full prompt and instruction content stays separate from archive projections.
+    This value creates neither a session lifetime nor a workflow record.
+    """
+
+    cwd: Path
+    provider: ProviderPort = field(repr=False)
+    settings: SettingsManager = field(repr=False)
+    system_prompt: str = field(repr=False)
+    reference_roots: tuple[Path, ...]
+    discovery: WorkspaceInstructionDiscovery = field(repr=False)
+    resolved_prompt: ResolvedSystemPrompt = field(repr=False)
 
 
 class CodingSessionAdapter:
@@ -261,111 +283,31 @@ class CodingSessionAdapter:
         event_sink: EventSink,
         capture_policy: CapturePolicy,
     ) -> AdapterResult:
-        provider = self._current_provider()
-        if not provider.supports_tool_calls:
-            raise ValueError(
-                f"provider {provider.name!r} does not advertise "
-                "supports_tool_calls=True; the pipy repl requires a "
-                "tool-capable provider"
-            )
-        discovery = self.instruction_loader(prepared.cwd)
-        # A library caller that omits SettingsManager supplies no trust
-        # decision. Fail closed for every project-derived settings/resource
-        # path; callers that intentionally want the legacy trusted behavior can
-        # pass SettingsManager.for_workspace(cwd), whose direct-caller default
-        # remains project_trusted=True.
-        runtime_settings = self.settings_manager or SettingsManager.for_workspace(
-            prepared.cwd, project_trusted=False
-        )
-        # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
-        # auto-discovery) to the base prompt before workspace context is added.
-        resolved_prompt = resolve_system_prompt(
-            NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
-            cwd=prepared.cwd,
-            config_home=resolve_config_home(),
-            system_prompt_source=self.system_prompt_source,
-            append_sources=self.append_system_prompt_sources,
-            include_project_defaults=runtime_settings.project_trusted,
-        )
-        base_prompt = resolved_prompt.base_prompt
-        if self.reference_roots:
-            ref_lines = ["", "Reference roots (read-only, absolute paths):"]
-            for root in self.reference_roots:
-                ref_lines.append(f"- {root}")
-            base_prompt = base_prompt + "\n" + "\n".join(ref_lines)
-        # Discover the workspace + global skills the model may load on demand.
-        # The same loader the /skill command uses; obtained here (before the
-        # session runs) so the advertisement can enter the system prompt and the
-        # skill directories can widen the read-only reference roots.
-        skills = self._discover_skill_files(prepared.cwd, runtime_settings)
-        # Add each discovered skill's PARENT DIRECTORY to the read-only reference
-        # roots so the model can `read` skill bodies, including global skills
-        # outside cwd. Bounded to discovered skill directories; deduped; absolute.
-        reference_roots = self._reference_roots_with_skill_dirs(skills)
-        # Inject the Pi-shaped skill advertisement only when the read tool is in
-        # the active provider-visible tool set (mirrors Pi's customPromptHasRead
-        # gate); the model loads a skill body with that tool.
-        read_tool_visible = "read" in self.tool_filter_options.provider_visible_names(
-            builtin_names=self.tool_registry,
-            registered_names=self.tool_registry,
-        )
-        if read_tool_visible:
-            composed_system_prompt = compose_system_prompt(
-                base_prompt, discovery
-            ) + compose_skills_system_block(skills)
-        else:
-            composed_system_prompt = compose_system_prompt(base_prompt, discovery)
-        if self.resume_context is not None:
-            # Seed the resumed tool-loop session with only the safe
-            # metadata-only resume block; no prior prompts/output/summary text.
-            block = compose_resume_system_block(self.resume_context)
-            if self.resume_branch_label:
-                block += f" Branch: {self.resume_branch_label}."
-            composed_system_prompt = f"{composed_system_prompt}\n\n{block}"
-        instruction_metadata = workspace_instruction_safe_metadata(discovery)
+        context = self.prepare_session_context(prepared.cwd)
+        instruction_metadata = workspace_instruction_safe_metadata(context.discovery)
         event_sink.emit(
             "native.workspace_context.loaded",
             summary=(
                 "Native workspace context resolved: "
-                f"files={len(discovery.instructions)}, "
-                f"total_byte_cap_reached={discovery.total_byte_cap_reached}."
+                f"files={len(context.discovery.instructions)}, "
+                f"total_byte_cap_reached={context.discovery.total_byte_cap_reached}."
             ),
             payload={
                 "adapter": self.name,
                 "repl_mode": "tool-loop",
                 **instruction_metadata,
-                **resolved_prompt.safe_metadata(),
+                **context.resolved_prompt.safe_metadata(),
             },
         )
-        session = CodingSession(
-            provider=provider,
-            provider_state=self.provider_state,
-            tool_registry=self.tool_registry,
-            tool_budget=self.tool_budget,
-            input_runtime=self.input_runtime,
-            reference_roots=reference_roots,
-            resume_context=self.resume_context,
-            resume_branch_label=self.resume_branch_label,
-            native_session=self.native_session,
-            settings_manager=runtime_settings,
-            automation_observer=self.automation_observer,
-            agent_event_sink=self.agent_event_sink,
-            abort_event=self.abort_event,
-            resource_options=self.resource_options,
-            initial_messages=self.initial_messages,
-            tool_filter_options=self.tool_filter_options,
-            verbose_startup=self.verbose_startup,
-            auto_trust_on_reload_cwd=self.auto_trust_on_reload_cwd,
-            initial_extension_batch=self.initial_extension_batch,
-        )
+        session = self.build_session(context)
         run_output = session.run(
             workspace_root=prepared.cwd,
             input_stream=self.input_stream,
             output_stream=self.output_stream,
             error_stream=self.error_stream,
-            system_prompt=composed_system_prompt,
-            provider_name=prepared.native_provider or provider.name,
-            model_id=prepared.native_model or provider.model_id,
+            system_prompt=context.system_prompt,
+            provider_name=prepared.native_provider or context.provider.name,
+            model_id=prepared.native_model or context.provider.model_id,
         )
         if run_output.compaction_count:
             # Aggregate, metadata-only compaction record for the catalog. The
@@ -418,6 +360,115 @@ class CodingSessionAdapter:
                 "provider_failure_message": run_output.provider_failure_message,
                 **instruction_metadata,
             },
+        )
+
+    def prepare_session_context(self, cwd: Path) -> _CodingSessionPreparation:
+        """Resolve product inputs for a validated workspace without archive events.
+
+        Stream runs and internal lifetime callers use the same explicit loader,
+        trust decision, prompt inputs, skill visibility and bounded read roots.
+        Construction is separate so the stream's context event remains before
+        constructor validation and lifetime startup.
+        """
+
+        provider = self._current_provider()
+        if not provider.supports_tool_calls:
+            raise ValueError(
+                f"provider {provider.name!r} does not advertise "
+                "supports_tool_calls=True; the pipy repl requires a "
+                "tool-capable provider"
+            )
+        discovery = self.instruction_loader(cwd)
+        # A library caller that omits SettingsManager supplies no trust
+        # decision. Fail closed for every project-derived settings/resource
+        # path; callers that intentionally want the legacy trusted behavior can
+        # pass SettingsManager.for_workspace(cwd), whose direct-caller default
+        # remains project_trusted=True.
+        runtime_settings = self.settings_manager or SettingsManager.for_workspace(
+            cwd, project_trusted=False
+        )
+        # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
+        # auto-discovery) to the base prompt before workspace context is added.
+        resolved_prompt = resolve_system_prompt(
+            NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
+            cwd=cwd,
+            config_home=resolve_config_home(),
+            system_prompt_source=self.system_prompt_source,
+            append_sources=self.append_system_prompt_sources,
+            include_project_defaults=runtime_settings.project_trusted,
+        )
+        base_prompt = resolved_prompt.base_prompt
+        if self.reference_roots:
+            ref_lines = ["", "Reference roots (read-only, absolute paths):"]
+            for root in self.reference_roots:
+                ref_lines.append(f"- {root}")
+            base_prompt = base_prompt + "\n" + "\n".join(ref_lines)
+        # Discover the workspace + global skills the model may load on demand.
+        # The same loader the /skill command uses; obtained here (before the
+        # session runs) so the advertisement can enter the system prompt and the
+        # skill directories can widen the read-only reference roots.
+        skills = self._discover_skill_files(cwd, runtime_settings)
+        # Add each discovered skill's PARENT DIRECTORY to the read-only reference
+        # roots so the model can `read` skill bodies, including global skills
+        # outside cwd. Bounded to discovered skill directories; deduped; absolute.
+        reference_roots = self._reference_roots_with_skill_dirs(skills)
+        # Inject the Pi-shaped skill advertisement only when the read tool is in
+        # the active provider-visible tool set (mirrors Pi's customPromptHasRead
+        # gate); the model loads a skill body with that tool.
+        read_tool_visible = "read" in self.tool_filter_options.provider_visible_names(
+            builtin_names=self.tool_registry,
+            registered_names=self.tool_registry,
+        )
+        if read_tool_visible:
+            composed_system_prompt = compose_system_prompt(
+                base_prompt, discovery
+            ) + compose_skills_system_block(skills)
+        else:
+            composed_system_prompt = compose_system_prompt(base_prompt, discovery)
+        if self.resume_context is not None:
+            # Seed the resumed tool-loop session with only the safe
+            # metadata-only resume block; no prior prompts/output/summary text.
+            block = compose_resume_system_block(self.resume_context)
+            if self.resume_branch_label:
+                block += f" Branch: {self.resume_branch_label}."
+            composed_system_prompt = f"{composed_system_prompt}\n\n{block}"
+        return _CodingSessionPreparation(
+            cwd=cwd,
+            provider=provider,
+            settings=runtime_settings,
+            system_prompt=composed_system_prompt,
+            reference_roots=reference_roots,
+            discovery=discovery,
+            resolved_prompt=resolved_prompt,
+        )
+
+    def build_session(self, context: _CodingSessionPreparation) -> CodingSession:
+        """Construct the configured product session without starting its lifetime.
+
+        Use one configured adapter per lifetime: injected trees, activation
+        batches, cancellation and other mutable inputs retain their owners.
+        """
+
+        return CodingSession(
+            provider=context.provider,
+            provider_state=self.provider_state,
+            tool_registry=self.tool_registry,
+            tool_budget=self.tool_budget,
+            input_runtime=self.input_runtime,
+            reference_roots=context.reference_roots,
+            resume_context=self.resume_context,
+            resume_branch_label=self.resume_branch_label,
+            native_session=self.native_session,
+            settings_manager=context.settings,
+            automation_observer=self.automation_observer,
+            agent_event_sink=self.agent_event_sink,
+            abort_event=self.abort_event,
+            resource_options=self.resource_options,
+            initial_messages=self.initial_messages,
+            tool_filter_options=self.tool_filter_options,
+            verbose_startup=self.verbose_startup,
+            auto_trust_on_reload_cwd=self.auto_trust_on_reload_cwd,
+            initial_extension_batch=self.initial_extension_batch,
         )
 
     def _current_selection(self) -> NativeModelSelection:

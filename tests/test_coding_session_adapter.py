@@ -23,6 +23,8 @@ from pipy_harness.native import (
     ProviderToolCall,
 )
 from pipy_harness.native.coding.result import CodingSessionResult
+from pipy_harness.native.coding.session import CodingSession
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
@@ -552,3 +554,233 @@ def test_skill_advertisement_matches_canonical_read_visibility(
     )
     assert ("demo-skill" in prompt) is canonical_read_visible
     assert (str(skill_path) in prompt) is canonical_read_visible
+
+
+class _ContextRecordingProvider:
+    name = "fake"
+    model_id = "shared-preparation"
+    supports_tool_calls = True
+
+    def __init__(self) -> None:
+        self.requests: list[ProviderRequest] = []
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        from datetime import UTC, datetime
+
+        from pipy_harness.models import HarnessStatus
+
+        self.requests.append(request)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="PREPARATION_PRIVATE_ANSWER",
+        )
+
+
+class _CollectingEventSink:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, Mapping[str, object] | None]] = []
+
+    def emit(self, event_type, *, summary, payload=None):
+        self.events.append((event_type, summary, payload))
+
+
+@pytest.mark.parametrize("trusted", [None, False, True])
+@pytest.mark.parametrize("load_instructions", [False, True])
+@pytest.mark.parametrize("read_visible", [False, True])
+def test_shared_preparation_matches_stream_prompt_and_lifetime(
+    tmp_path: Path, monkeypatch, trusted, load_instructions, read_visible
+) -> None:
+    import pipy_session.recorder as recorder
+    from pipy_harness.native.agent import ProductContent
+    from pipy_harness.native.resource_loading import RuntimeResourceOptions
+    from pipy_harness.native.workspace_context import (
+        default_workspace_instruction_loader,
+        empty_workspace_instruction_loader,
+    )
+
+    cwd = tmp_path / "workspace"
+    cwd.mkdir()
+    (cwd / "AGENTS.md").write_text("PREPARATION_PRIVATE_INSTRUCTION", encoding="utf-8")
+    project_skill = _write_skill(
+        cwd / ".pipy" / "skills",
+        name="project-skill",
+        description="project skill description",
+        body="PREPARATION_PRIVATE_SKILL_BODY",
+    )
+    (cwd / ".pipy" / "SYSTEM.md").write_text(
+        "PREPARATION_PRIVATE_SYSTEM", encoding="utf-8"
+    )
+    (cwd / ".pipy" / "settings.json").write_text(
+        '{"compaction":{"enabled":false}}', encoding="utf-8"
+    )
+    explicit_skill = _write_skill(
+        tmp_path / "explicit-skills",
+        name="explicit-skill",
+        description="explicit skill description",
+        body="EXPLICIT_PRIVATE_SKILL_BODY",
+    )
+    supplied_root = tmp_path / "read-root"
+    supplied_root.mkdir()
+    provider = _ContextRecordingProvider()
+    settings = (
+        None
+        if trusted is None
+        else SettingsManager.for_workspace(cwd, project_trusted=trusted)
+    )
+    options = RuntimeResourceOptions(skill_paths=(explicit_skill,))
+    adapter = CodingSessionAdapter(
+        provider=provider,
+        settings_manager=settings,
+        input_stream=io.StringIO("shared prompt\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        input_runtime="plain",
+        instruction_loader=(
+            default_workspace_instruction_loader
+            if load_instructions
+            else empty_workspace_instruction_loader
+        ),
+        append_system_prompt_sources=["PREPARATION_PRIVATE_APPEND"],
+        reference_roots=(supplied_root,),
+        resource_options=options,
+        tool_filter_options=ToolFilterOptions(
+            exclude=() if read_visible else ("read",)
+        ),
+    )
+    sink = _CollectingEventSink()
+    result = adapter.run(
+        _prepared_for(adapter, cwd), event_sink=sink, capture_policy=CapturePolicy()
+    )
+    assert len(provider.requests) == 1
+    stream_request = provider.requests[0]
+
+    def refuse_archive(*_args, **_kwargs):
+        raise AssertionError("shared preparation must not create or append an archive")
+
+    monkeypatch.setattr(recorder, "init_session", refuse_archive)
+    monkeypatch.setattr(recorder, "append_event", refuse_archive)
+    context = adapter.prepare_session_context(cwd)
+    assert context.provider is provider
+    assert context.settings.project_trusted is (trusted is True)
+    if settings is not None:
+        assert context.settings is settings
+    assert context.system_prompt == stream_request.system_prompt
+    assert (
+        "PREPARATION_PRIVATE_INSTRUCTION" in context.system_prompt
+    ) is load_instructions
+    assert ("PREPARATION_PRIVATE_SYSTEM" in context.system_prompt) is (trusted is True)
+    assert "PREPARATION_PRIVATE_APPEND" in context.system_prompt
+    assert ("<name>project-skill</name>" in context.system_prompt) is (
+        trusted is True and read_visible
+    )
+    assert ("<name>explicit-skill</name>" in context.system_prompt) is read_visible
+    expected_roots = {supplied_root, explicit_skill.parent.resolve()}
+    if trusted:
+        expected_roots.add(project_skill.parent.resolve())
+    assert set(context.reference_roots) == expected_roots
+    assert len(context.reference_roots) == len(expected_roots)
+    assert context.settings.get_compaction_enabled() is (trusted is not True)
+
+    session = adapter.build_session(context)
+    assert session.provider_port is provider
+    assert session.settings_manager is context.settings
+    assert session.resource_options is options
+    assert session.tool_registry is adapter.tool_registry
+    assert session.reference_roots == context.reference_roots
+    with session._open_lifetime(
+        workspace_root=context.cwd,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        system_prompt=context.system_prompt,
+    ) as lifetime:
+        lifetime.enqueue_seed(ProductContent("shared prompt"))
+        assert lifetime.drive() is None
+        assert session.settings_manager is context.settings
+    assert len(provider.requests) == 2
+    lifetime_request = provider.requests[1]
+    assert lifetime_request.system_prompt == stream_request.system_prompt
+    assert lifetime_request.messages == stream_request.messages
+    assert lifetime_request.available_tools == stream_request.available_tools
+    assert (
+        "read" in {tool.name for tool in lifetime_request.available_tools}
+    ) is read_visible
+    assert [event[0] for event in sink.events] == ["native.workspace_context.loaded"]
+    for metadata in (sink.events, result.metadata):
+        assert "PREPARATION_PRIVATE" not in str(metadata)
+        assert "EXPLICIT_PRIVATE" not in str(metadata)
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        ("provider", ["provider"]),
+        ("instructions", ["provider", "instructions"]),
+        ("skills", ["provider", "instructions", "skills"]),
+        ("event", ["provider", "instructions", "skills", "event"]),
+        ("constructor", ["provider", "instructions", "skills", "event", "constructor"]),
+    ],
+)
+def test_shared_preparation_preserves_stream_failure_and_archive_order(
+    tmp_path: Path, monkeypatch, failure: str, expected: list[str]
+) -> None:
+    import pipy_harness.adapters.native as native_module
+    from pipy_harness.native.workspace_context import empty_workspace_instruction_loader
+
+    trace: list[str] = []
+    provider = FakeNativeProvider(supports_tool_calls=failure != "provider")
+
+    def load(cwd):
+        trace.append("instructions")
+        if failure == "instructions":
+            raise ValueError("instructions failed")
+        return empty_workspace_instruction_loader(cwd)
+
+    adapter = CodingSessionAdapter(
+        provider=provider,
+        instruction_loader=load,
+        tool_budget=0,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+
+    def current_provider():
+        trace.append("provider")
+        return provider
+
+    discover_skills = adapter._discover_skill_files
+
+    def skills(cwd, settings):
+        trace.append("skills")
+        if failure == "skills":
+            raise ValueError("skills failed")
+        return discover_skills(cwd, settings)
+
+    def construct(**kwargs):
+        trace.append("constructor")
+        return CodingSession(**kwargs)  # the real invalid-budget constructor fails
+
+    class Sink:
+        def emit(self, event_type, *, summary, payload=None):
+            assert event_type == "native.workspace_context.loaded"
+            trace.append("event")
+            if failure == "event":
+                raise ValueError("event failed")
+
+    monkeypatch.setattr(adapter, "_current_provider", current_provider)
+    monkeypatch.setattr(adapter, "_discover_skill_files", skills)
+    monkeypatch.setattr(native_module, "CodingSession", construct)
+    message = {
+        "provider": "supports_tool_calls",
+        "constructor": "tool_budget",
+    }.get(failure, f"{failure} failed")
+    with pytest.raises(ValueError, match=message):
+        adapter.run(prepared, event_sink=Sink(), capture_policy=CapturePolicy())
+    assert trace == expected
