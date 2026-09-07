@@ -110,11 +110,44 @@ Provide a distinct `create_product_session(...)` entry point. Construct one
 persistent synchronous product lifetime and drive it on its construction thread.
 Reuse `CodingSessionState`, `CodingInputQueue`, `CodingSessionController`, current
 provider/settings/trust/resource composition and fixed canonical event
-projections. Callers supply workspace and optional provider/tools/settings/
-resources/tree/observer inputs, never streams, terminal factories or private
+projections. The initial factory requires workspace and an explicit tool-capable
+`ProviderPort`; tools/settings/resources/tree/observer inputs and
+`load_context_files: bool = True` remain optional.
+Callers never supply streams, terminal factories or private
 extension candidates. The existing startup-candidate owner remains responsible
 for activation cleanup. Default to an ephemeral product tree and no implicit
 workflow archive; explicit private-tree injection enables persistence.
+
+An omitted provider does not silently select a fake or reproduce CLI catalog
+policy. Catalog-backed callers can construct and inject a provider through the
+existing provider-construction boundary. Automatic configured selection is outside
+this initial API; it is not a prerequisite for embedding a real provider.
+
+### Shared preparation prerequisite
+
+D2p extracts the existing preparation into reusable methods within
+`CodingSessionAdapter` in `adapters/native.py` before the public factory lands. Keep provider validation,
+fail-closed default settings (`project_trusted=False`), system-prompt resolution,
+instruction/skill composition and bounded reference roots in that existing
+composition owner. Expose only the prepared values and session construction
+needed by the stream adapter and product factory; do not copy preparation into a
+new facade or move it into the narrower workspace-instruction loader.
+
+The existing adapter retains its archive emission and failure ordering. Shared
+preparation itself creates no workflow record or archive events. D2b uses
+`default_workspace_instruction_loader` by default, matching normal CLI context
+loading; `load_context_files=False` selects `empty_workspace_instruction_loader`,
+matching `--no-context-files`. This switch controls AGENTS.md/pipy.md instruction
+discovery independently of project trust. Trust continues to gate project
+system-prompt defaults, settings and resources through their existing seams;
+it does not become a new instruction-file filter. The direct adapter's default
+empty loader remains unchanged. D2p compares stream and shared preparation with
+the same loader/settings/options, including untrusted project resources and
+injected providers. D2b tests separately pin default instruction loading and the explicit opt-out.
+Preparation and wiring use the same settings instance; injected settings retain
+their explicit trust decision. The compatibility one-shot SDK is unchanged.
+
+### API ownership and cancellation
 
 | Operation | Minimal contract |
 | --- | --- |
@@ -128,8 +161,54 @@ Callbacks have no promised thread affinity: provider deltas may originate on a
 worker. They may request cancellation, but may not submit, close or read a
 thread-confined snapshot. Cancellation closes admission to new deltas without
 promising that previously entered synchronous callbacks have already returned.
-No new worker, mailbox, second queue, mutable event-built history, or async loop
-is needed for D2.
+D2 uses the existing provider/tool execution workers and adds no product-driver
+thread, mailbox, second queue, mutable event-built history, or async loop.
+
+The small product facade belongs at harness level in `pipy_harness/product_api.py`,
+alongside `sdk.py`. It owns composition of `CodingSessionAdapter`, the injected
+provider, internal I/O and the entered native lifetime. `sdk.py` re-exports the
+supported factory and API types. The facade calls the existing private
+`CodingSession._open_lifetime` as-is; callers of the public factory never use that
+internal seam themselves. No `native.*` module imports the outer adapter
+or product facade. `native/coding/product_session.py` remains the existing state-first
+persistence coordinator. Reuse `CodingSessionState.result_snapshot()` and its
+frozen projection; do not reconstruct history or counters from events. Started
+lifetime closed/result state stays with the D2a controller owner.
+
+The facade's new concurrency state is limited to entry confinement and an active
+operation cancellation slot. Its required reader/writer inventory is:
+
+| State | Readers and writers | Boundary |
+| --- | --- | --- |
+| Construction-thread identity and entry-in-progress guard | Construction, submit, snapshot, close/context entry/exit, including calls made by observers or diagnostics | Identity is immutable; check thread before reading owner-thread state. Install the entry guard before callbacks and retain it through cleanup; synchronous reentry refuses. |
+| Active operation cancellation latch | Submit admission and final settlement/retirement write the slot; cancel and the existing abort-signal bridge read it | One dedicated lock covers every slot access. Each operation uses a fresh latch; retirement detaches that exact latch. Capture under the lock, invoke cancellation callbacks outside it. A delayed cancellation of an old latch cannot signal the next operation. |
+| Conversation, queue, generation and lifecycle state | Existing coding/queue/controller/effect owners | Preserve their current guards and per-run witnesses; the facade adds no second mutable owner. |
+
+Reuse the accepted-abort callback mechanism currently in RPC by moving its
+unchanged primitive to existing `native/cancellation.py`; RPC imports it without
+changing queue admission, reservations, settlement or abort clearing. The facade
+does not import RPC. D2 does not reuse or clear a retired operation's latch.
+
+Headless provider and semantic-summary cancellation already use canonical
+execution. Model-tool cancellation additionally needs the existing external-abort
+signal connected to `ToolInterruptWaiter` in `repl/turn_leaves.py` and selected by
+`repl/loop_step.py` when no terminal exists and an abort signal is installed.
+Headless runs without that signal retain direct tool execution, including current
+print/JSON paths. Reuse the canonical tool worker,
+ordered completion/cancellation, output admission and bounded cleanup; do not
+create another executor. Production model-driven bash already consumes that
+cancellation event. Arbitrary extension tools remain cooperative. This work is
+distinct from D7's direct RPC bash path through `command_sandbox.py`.
+The shared headless composition also enables canonical model-tool interruption
+for RPC's active-run abort, with focused transport regression coverage; its
+admission/settlement and event/correlation owners remain unchanged. D2b updates
+`docs/automation-rpc.md`, the user-facing `docs/rpc.md` and `CHANGELOG.md` alongside
+SDK/architecture/harness documentation when this behavior lands.
+
+Executable D2b tests must cover cancellation during provider, semantic-summary
+and model-tool execution, cancellation racing with settlement, harmless idle
+cancel and a successful next submission. Preserve existing RPC behavior when
+rehoming the signal, including accepted-abort replay and delta-admission ordering.
 
 Composition supplies internal headless I/O adapters: discard rendered transcript
 presentation and forward diagnostic text to an optional construction-time
@@ -184,9 +263,10 @@ implementation/tests when callers are gone. D2 leaves `run_native`,
 `make_native_run_request` and `NativeHarnessCompatibilityRuntime` unchanged;
 no alias may silently assign their names to different product semantics.
 
-Expected D2 owners are the existing controller, coding session, wiring and loop
-step, plus a small facade and `sdk.py`. Extract existing prompt/resource
-composition only if needed; never copy it into the facade. Update architecture,
+Remaining D2 owners are the existing adapter preparation, the small outer facade
+and `sdk.py`, the shared cancellation primitive and headless waiter composition.
+Use D2a's lifetime without moving its ownership. Never copy prompt/resource
+composition into the facade. Update architecture,
 harness contracts and release notes when the behavior lands. Validate focused
 controller/API/event/lifecycle tests, `just check`, `just docs-build` and
 `git diff --check`; controller/input changes also need PTY smoke.
