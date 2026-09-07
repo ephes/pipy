@@ -98,3 +98,85 @@ surface says otherwise.
 
 The JSON/RPC live transports are different: they are full-content automation
 streams by design, while archive privacy remains unchanged.
+
+## D2 implementation contract
+
+This is the selected **future product-session contract**, pending D2a/D2b; it does
+not describe a shipped public API. [The backlog](backlog.md) owns task status.
+Refresh composition details after D1's semantic compaction lands.
+
+Provide a distinct `create_product_session(...)` entry point. Construct one
+persistent synchronous product lifetime and drive it on its construction thread.
+Reuse `CodingSessionState`, `CodingInputQueue`, `CodingSessionController`, current
+provider/settings/trust/resource composition and fixed canonical event
+projections. Callers supply workspace and optional provider/tools/settings/
+resources/tree/observer inputs, never streams, terminal factories or private
+extension candidates. The existing startup-candidate owner remains responsible
+for activation cleanup. Default to an ephemeral product tree and no implicit
+workflow archive; explicit private-tree injection enables persistence.
+
+| Operation | Minimal contract |
+| --- | --- |
+| Submit | Construction-thread-only, non-reentrant, nonempty provider-visible content; preserve multiline text and bypass slash/shell command interpretation. Admit through the existing queue and drive through extension continuations to true idle. Preserve one state/history across calls. |
+| Observe | One canonical sink fixed at construction, synchronous existing composite order, full-content private events, no replay/subscriber registry. Preserve callback failure semantics. |
+| Cancel | Sole cross-thread method; signal the current accepted operation through canonical cancellation. Idle cancel is harmless and cannot poison the next submit. |
+| Snapshot | Detached immutable state projection on the construction thread while idle; reject observer reentry. Do not infer arbitrary-thread coherence from partially locked counters. |
+| Close | Idempotent construction-thread idle disposal/context-manager exit through existing lifecycle, effect and generation owners; later submit refuses. Fatal driver exit uses the same retirement path. |
+
+Callbacks have no promised thread affinity: provider deltas may originate on a
+worker. They may request cancellation, but may not submit, close or read a
+thread-confined snapshot. Cancellation closes admission to new deltas without
+promising that previously entered synchronous callbacks have already returned.
+No new worker, mailbox, second queue, mutable event-built history, or async loop
+is needed for D2.
+
+Composition supplies internal headless I/O adapters: discard rendered transcript
+presentation and forward diagnostic text to an optional construction-time
+`diagnostic_sink`. Do not accumulate unbounded hidden stream buffers. Without
+that sink, diagnostic text is intentionally dropped; structured run failures
+remain observable through the existing state/result projection. Canonical events
+alone do not contain compaction notices or extension diagnostics. The exact
+adapter seam and focused diagnostic-delivery tests belong to D2b.
+
+Callers must use the context manager or explicitly close the idle session.
+Dropping an unclosed object does not guarantee shutdown hooks or retirement;
+D2 promises no garbage-collection/thread-unsafe finalizer. This caller obligation
+does not weaken cleanup on a driver failure or explicit close.
+
+D2a introduces explicit idle yield and a persistent lifecycle in the existing
+controller/composition seam. The stream-driven `run_loop` delegates to that same
+owner and preserves its startup, EOF, fatal-return, settlement and shutdown
+ordering. Idle is not EOF: yielding between submits must neither finalize nor
+close the session. Preserve startup-failure cleanup and existing extension
+candidate ownership. D2b adds the supported factory/facade, thread-entry checks,
+cancel linkage, immutable snapshots and two-turn headless acceptance.
+
+The acceptance scenario uses a recording fake provider and real bounded tools in
+a temporary workspace. Submit one write workflow, then read/check in a second
+submission. Assert actual file/check results, the complete first exchange in the
+second request exactly once, accurate state, balanced ordered events, one startup,
+no intermediate shutdown and one shutdown on repeated close. Separate tests pin
+blocked-provider cancel followed by successful submit, idle cancel, foreign-thread
+and reentrant refusal, observer failure and startup/fatal cleanup. Preserve D1's
+state-first persistence behavior rather than inventing rollback.
+
+D5a later extends the shared owner before RPC migration. Its guarded inventory
+must include RPC active/reserved state, steering/follow-up queues, prompt admission,
+ended-run settlement/next reservation, abort clearing and EOF/drain. Preserve
+steering-first one-per-boundary delivery, classified raw content, truthful pending
+counts and `isStreaming`, no false-idle admission window, and one true-idle event.
+Remove old transport writers as each family migrates; leave framing/correlation
+in RPC. Model/thinking and compaction/retry controls stay D5b–d.
+
+D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
+at a time, then removes replaced compatibility surfaces and their dedicated
+implementation/tests when callers are gone. D2 leaves `run_native`,
+`make_native_run_request` and `NativeHarnessCompatibilityRuntime` unchanged;
+no alias may silently assign their names to different product semantics.
+
+Expected D2 owners are the existing controller, coding session, wiring and loop
+step, plus a small facade and `sdk.py`. Extract existing prompt/resource
+composition only if needed; never copy it into the facade. Update architecture,
+harness contracts and release notes when the behavior lands. Validate focused
+controller/API/event/lifecycle tests, `just check`, `just docs-build` and
+`git diff --check`; controller/input changes also need PTY smoke.

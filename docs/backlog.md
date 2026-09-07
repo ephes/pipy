@@ -9,11 +9,11 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** A — daily-use baseline audit, B — semantic-compaction
-contract, and C — product-session API ownership. These are three independent
-read-only threads. No runtime implementation task is ready yet. The orchestrator
-integrates their reports here and arranges Claude Code Opus 5 review before
-releasing the first implementation task, D0.
+**Next dispatch:** D0 — deterministic production-tool edit/check/reopen evidence.
+A/B/C investigations are integrated below at baseline `8cd69db`; their proposed
+contracts require the independent planning review before this chunk is committed
+and D0 receives write ownership. D1 follows D0. D2 is split into D2a/D2b and its
+handoff must be refreshed after D1. No investigation report is a review verdict.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -174,105 +174,82 @@ changes accumulate. Pure deletion of completed historical documents can have a
 large line count without being bundled with runtime implementation. Do not add
 budget caps to subscription reviewer commands or substitute a model silently.
 
-## First dispatch: three bounded investigation threads
+## Accepted investigation basis
 
-| ID | Status | Deliverable | Owns / must not do |
-| --- | --- | --- | --- |
-| A | Ready for read-only dispatch | Daily-use scenario and support matrix; propose the smallest missing acceptance scenario | No product fixes, provider calls or repository writes; distinguish source evidence, automated evidence and live-observed behavior |
-| B | Ready for read-only dispatch | Semantic-compaction contract for D1 only, including ownership and failure semantics | Whole-user-group cuts; no budgeting, within-run cuts, retries or SDK migration |
-| C | Ready for read-only dispatch | Minimal session API and ownership/migration map for D2 | No new event bus or alternate runtime; identify later queue controls without implementing RPC migration |
+A/B/C inspected clean `main` at `8cd69db0594f7eb9375f7060c3a320086f6811f0`
+concurrently without repository writes, provider calls, or new test execution.
+The following is integrated source/test evidence and the proposed contract for
+independent review. Live provider configuration, semantic-summary quality, and
+daily usability remain unverified.
 
-All three read `AGENTS.md`, this document, and the current architecture overview.
-Source paths below are relative to `/Users/jochen/projects/pipy`; each thread
-must inspect actual owners and existing tests rather than assuming the proposed
-file location already exists.
+### A — baseline evidence and D0 dispatch contract
 
-### A — daily-use baseline
+| Scenario | Existing assertion / gap | Owner of next evidence |
+| --- | --- | --- |
+| Edit/check/reopen | `test_native_tools_edit.py::test_edit_tool_replaces_unique_match_and_streams_diff` proves mutation; `test_native_coding_session_tree.py::test_tool_loop_context_reconstructed_from_resumed_tree` resumes plain messages. No combined production-tool round trip. | D0 |
+| Interrupt/steer | `test_native_coding_session_terminal_pty.py::test_pty_active_turn_interrupt_cancels_and_returns_to_prompt` and `::test_pty_steering_and_follow_up_queue_and_drain_order` cover fake-provider terminal recovery/order. | Cite existing coverage; live observation outstanding |
+| Provider failure | `test_coding_session_provider_failure.py::test_exhausted_transport_failure_leaves_repl_usable_for_next_prompt` proves recovery on a new prompt, without retry. | D4a pins retry after earlier tool effects |
+| Repeated compaction | `test_native_coding_session_resume_compact.py` pins count-only whole-group reduction; `test_native_coding_session_tree.py::test_durable_compaction_entry_survives_reload` pins one durable reduction. | D1 semantic and repeated-reopen coverage |
+| Extension lifecycle | `test_native_extension_conformance.py::test_golden_conformance_extension` exercises the existing example; `test_native_coding_session.py::test_successful_reload_publishes_one_coherent_generation_across_real_consumers` pins reload coherence. | D8 reuses these; do not duplicate examples |
+| Headless workflow | RPC tests pin event/correlation/history behavior; `test_architecture_mode_contracts.py::test_json_mode_preserves_real_loop_order_with_mode_boundaries` pins canonical order. Public multi-turn embedding is absent. | D2b; RPC controls remain D5 |
 
-Read `docs/compaction.md`, `docs/rpc.md`, `docs/automation-rpc.md`, `docs/sdk.md`,
-`tests/test_native_coding_session_resume_compact.py`,
-`tests/test_native_automation_rpc.py`, the existing PTY tests named by
-`just test-pty-smoke`, and `tests/test_native_extension_conformance.py`.
+D0 adds exactly one deterministic scenario in
+`tests/test_native_daily_use_baseline.py`: a scripted recording provider drives
+production `read`, `edit`, and `bash` against a temporary tiny program/check;
+assert actual file mutation, successful check and correlated model-visible tool
+observations, then reopen the durable tree in a fresh `CodingSession` and assert
+ordered, exactly-once replay into its first continuation request. Reopening must
+not execute tools again. This is object-lifecycle restart evidence, not a live
+provider or separate-process claim. Reuse existing tree/provider fixture patterns;
+do not expand the production fake provider or fix runtime behavior incidentally.
 
-Return a matrix for edit/check, interrupt/steer, provider failure, restart/resume,
-repeated compaction, extension load/reload/close, and an equivalent headless
-workflow. For every row cite an existing test or a concrete missing assertion.
-Identify the fake-provider scenario that D0 should reuse or extend. Mark live
-provider/model configuration and semantic summary quality as untested until an
-explicitly scoped dogfood run supplies evidence. No raw session bodies belong in
-this report. Read-only tests may use isolated temporary state; do not contact
-providers or mutate global settings.
+D0's other writes are `docs/sessions.md` for the truthful support matrix and
+`docs/rpc.md` to distinguish implemented behavior from accepted vocabulary and
+its separate direct-command policy. `docs/backlog.md` remains orchestrator-owned.
+No release note is needed for characterization alone; behavior changes need a
+separate selected slice. Run the new module plus existing resume/tree, edit,
+provider-failure, extension-conformance and RPC modules, `just check`,
+`just docs-build`, and `git diff --check`. The PTY smoke recipe covers streaming,
+chrome and trust; the interrupt/steer module is separate.
 
-### B — whole-group semantic compaction
+### B — D1 contract decisions
 
-Read `native/agent/history.py`, `native/repl/provider_selection.py`,
-`native/repl/collaborators.py`, `native/coding/product_session.py`,
-`native/coding/state.py`, and `native/agent/provider_turn.py` under
-`src/pipy_harness/`; also read `docs/session-tree.md`, the compaction sections of
-`docs/harness-spec.md`, and the focused coding/product-session compaction tests.
+The proposed [whole-group semantic contract](compaction.md#d1-implementation-contract)
+retains state-first persistence and positive dropped-user-group counts. Generate
+from prior summary plus dropped messages through canonical cancellable provider
+execution. Capture owner identity, then conditionally publish once using existing
+locks; generation failure and post-acceptance persistence failure are distinct.
 
-Return the summary inputs/output and safe publication contract: include prior
-summary plus goals, decisions, constraints, relevant files and unfinished work;
-retain valid recent tool exchanges. Reuse the existing branch-summary capability
-but run through canonical provider execution/cancellation, not a copied direct
-`provider.complete()` call. Enumerate snapshot identity, all guarded readers and
-writers, cancellation/late-completion refusal, and resume reconstruction.
+Two inspected correctness boundaries belong to D1 integration: resumed summaries
+must be separated structurally from real user groups, and durable cuts must name
+the actual first retained entry even when it precedes the previous compaction.
+The current `append_durable_compaction` counts only users after the last
+compaction and can skip that second valid durable cut. Do not reproduce it.
+Budgeting, within-run cuts, retries and custom compaction instructions remain later
+work. Source owners and decisive checks are in the contract; refresh the exact
+write manifest when D1 receives ownership.
 
-The current product-session coordinator is state-first:
-`test_compaction_callback_failure_propagates_after_state_advances` pins that a
-persistence callback failure can occur after state advances. Distinguish
-summary generation failure (must not publish) from persistence failure after
-acceptance; explicitly propose whether to retain or change that contract and
-identify all affected tests/docs. Do not claim an atomic transaction exists.
-Keep positive dropped-user-group counts in D1; D3 owns changing that invariant.
-Return an implementation write set and decisive tests, not production changes.
+### C — D2 contract decisions
 
-### C — callable product-session boundary
+The proposed [product-session boundary](sdk.md#d2-implementation-contract) keeps
+one composition, state, queue, controller and lifecycle across submissions.
+`CodingSession.run` resets run state and wires a new lifetime; calling it for
+every submission would lose continuity. The startup-candidate decorator already
+hides private extension candidates and remains their owner.
 
-Read `src/pipy_harness/sdk.py`, `native/coding/session.py`,
-`native/coding/session_controller.py`, `native/coding/product_session.py`,
-`native/coding/state.py`, `native/repl/wiring.py`, `native/automation/rpc.py`,
-`docs/sdk.md`, and existing coding-session, RPC and event-order tests.
-
-Return minimal construct/submit/observe/cancel/snapshot/close semantics, resource
-ownership and thread-entry rules. Callers must not supply `TextIO`, terminal
-factories, or private extension candidates. Reuse existing state, lifecycle,
-provider construction and event owners; do not invent a second queue/history.
-Map existing RPC shadow state and admission/settlement invariants to later D5a.
-D2 may expose only the minimal boundary; D5a explicitly extends it with queue
-admission and settlement before migrating RPC. Identify the deliberate removal
-path for the compatibility SDK in D6, rather than silently changing
-`run_native` behavior during D2. Return a narrow write set and two-turn headless
-acceptance test proposal. Refresh the proposal after D1 is integrated.
-
-### Copyable first-wave dispatch
-
-Use this prompt in each fresh thread, selecting A, B or C before sending it:
-
-```text
-Perform task [A, B, or C — select exactly one] from the First dispatch section
-of /Users/jochen/projects/pipy/docs/backlog.md. This is a read-only investigation
-and specification task, not implementation and not an independent review gate.
-Work in /Users/jochen/projects/pipy on its existing main checkout.
-Read /Users/jochen/projects/pipy/AGENTS.md,
-/Users/jochen/projects/pipy/docs/backlog.md and
-/Users/jochen/projects/pipy/docs/architecture.md, then the selected card's sources.
-Record git HEAD and the observed dirty state; do not switch branches or write
-repository files. Do not invoke coding agents or reviewers: no claude, codex,
-pi, review harness, review skill, or delegated subagents. The orchestrator owns
-review, integration and commits; a self-produced verdict will be discarded.
-Follow the card's acceptance criteria and non-goals. Return source/test evidence,
-the concrete proposed contract or scenario, dependencies, smallest implementation
-write set, decisive validation commands, and unresolved decisions. Name anything
-not verified. If a requirement needs an ownership change outside the card,
-report that boundary instead of broadening the task. Return the report by
-message; do not create another planning document. Use summary-safe findings only.
-```
+Use a synchronous construction-thread driver with an explicit controller idle
+yield. D2a first establishes the persistent controller/composition seam and
+preserves the stream-driven lifecycle. D2b exposes a distinct supported SDK
+factory with two-turn acceptance. Neither uses EOF as idle, starts a second
+queue/worker, or changes `run_native`. Cancel is the only cross-thread entry;
+full mutable result snapshots are not made thread-safe by assumption. D5a owns
+queue admission/settlement migration; D6 owns session replacement and explicit
+compatibility retirement. Refresh this proposal against D1 before dispatch.
 
 ## Implementation queue
 
-These tasks are **not yet dispatched**. Each needs a refreshed bounded handoff
-and reviewed contract when its prerequisites are accepted. If its concrete diff
+These tasks are **not yet dispatched**; D0 is next after the planning commit.
+Each needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
 would contain multiple independently useful changes, split the task here before
 dispatch; the table is not permission for a large uncommitted batch. A thread implements
 only its assigned task; completing a prerequisite does not authorize all of its
@@ -283,21 +260,22 @@ every listed module. Add a file only when the selected behavior needs it.
 | --- | --- | --- | --- |
 | D0 | A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
 | D1 | D0; B reviewed | Whole-group semantic compaction service and existing compaction integration; `repl/provider_selection.py`, `repl/collaborators.py`, necessary coding/history owners, focused tests, compaction contracts/docs/release note | Prior summary survives repeated compaction; next request retains task facts; failed/cancelled/stale generation cannot publish; explicit persistence-failure behavior; equivalent resume |
-| D2 | D0; C reviewed and refreshed after D1 | Minimal product-session facade over coding/composition owners plus an explicitly distinct supported SDK entry point; API tests and SDK docs | Two-turn tool workflow, events, cancel, snapshot and disposal; no frontend-specific caller dependencies; no duplicate state owner |
+| D2a | D1; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
+| D2b | D2a | Distinct supported product-session SDK factory over that lifetime; API tests and SDK docs | Two-turn tool workflow, events, cross-thread cancel, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a | D1 | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
 | D3b | D3a; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
-| D4a | D0; refresh against D1/D2 | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
+| D4a | D0; refresh against D1/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
 | D4b | D1, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
-| D5a | D2 | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
+| D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1 | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
 | D5d | D5a, D4a | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
-| D6a | D2, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
+| D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement, one entry point per chunk | Same session owner across SDK/modes; executable embedding example; update docs and remove replaced surfaces without aliases |
 | D7a | D0; coordinate with D5 writer | Direct RPC bash process cancellation; `command_sandbox.py`, existing process-lifetime capabilities, RPC bash handlers and tests | Process-tree termination; timeout differs from explicit abort; one terminal response; preserve direct-command versus model-tool policies |
 | D7b | D7a | Correlated incremental RPC bash output | No updates after completion; bounded output, JSONL purity and EOF disposal |
-| D8 | D0; refresh embedding after D2/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
+| D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1 is the first product improvement. D2 is the main extensibility investment.
 D3 and D4 can be reordered after measured failures justify it; D7 can move earlier
@@ -326,8 +304,8 @@ Return: files changed, behavior implemented, focused/full check results, docs
 and release-note changes, complete/partial status, out-of-scope work, risks, and
 summary-safe workflow events. Do not commit independently: release write
 ownership to the orchestrator for review, then commit through the chunk protocol.
-A self-produced review verdict is not evidence. No runtime task is currently
-ready for such an implementation handoff.
+A self-produced review verdict is not evidence. D0 receives the first handoff
+only after this planning chunk passes its review and commit gate.
 
 ## Minimum acceptance and deferred work
 

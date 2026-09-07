@@ -892,8 +892,8 @@ rechecks the gate immediately before its in-memory assignments. A rejected repla
 retained-generation lifecycle hook. The effect emits the final reload diagnostic
 next, and the root footer policy runs only after that effect returns. R7 has run
 the full R1–R6 acceptance basis, including ordered R5a then R5b, and represents
-this boundary as closed. The remediation queue contains exactly 33 execution
-slices; A1 is complete and T1 is next.
+this boundary as closed. The completed remediation program contained 33 execution
+slices; current task selection belongs to [the backlog](backlog.md).
 
 ## Sessions, automation, and trust domains
 
@@ -1295,8 +1295,8 @@ thinking contexts to their generation and guards complete selection commits,
 including ordered durable thinking append. R6 ships three-phase atomic model
 mutation. R7 adds one compact successful-reload cross-owner integration test and
 the durable six-residual/scenario reconciliation; it adds no product behavior or
-mechanism. R7 is complete, as are D1, L1–L9, P1–P2, and A1. **T1 — share only
-the proven provider test contract** is next. R3c3's two documented deltas,
+mechanism. R7 and the comparative remediation program are complete. Current work
+is selected only from [the backlog](backlog.md). R3c3's two documented deltas,
 R4a's live-message loss fix, and R4c's
 coherent publication/stale-chrome refusal are recorded in the changelog. R4b and
 R7 have no separate changelog entry because R4b adopts already-published

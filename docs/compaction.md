@@ -103,3 +103,128 @@ context unchanged.
 
 For the broader session model, see [Sessions](sessions.md) and the maintainer
 spec [Session Tree](session-tree.md).
+
+## D1 implementation contract
+
+This is the selected **future implementation contract**, pending D1; the current
+behavior above remains count-only. Task selection and status live only in
+[the backlog](backlog.md). D1 changes semantic continuity at existing whole-user-
+group boundaries, with no budgeting, within-run cuts, retries, custom `/compact`
+instructions, or RPC controls.
+
+The coding/product composition owns one auxiliary no-tool summary operation.
+Keep `native.agent.history` mechanical and its positive dropped-group invariant.
+Use the existing branch-summary request capability as the starting seam, but run
+D1's completion through `ProviderTurnExecutor` with canonical cancellation, a
+private no-op event sink and `ProviderTurnDeltaPolicy(text=False, reasoning=False)`.
+Update that policy's compatibility-only docstring to include auxiliary summaries. Do not copy the direct `provider.complete` call or run tools in a
+second agent loop. Broader branch-navigation changes are outside this slice.
+
+The summary input contains the previous summary and exact dropped conversation
+prefix, derived from the captured immutable history using the canonical result's
+`dropped_message_count`. Do not recompute user-group boundaries in the coding layer. Instructions preserve goals, decisions, constraints, relevant files,
+verified results, and unfinished work, distinguishing facts from unresolved
+questions. Conversation content is data to summarize. Retained groups remain
+verbatim, with complete tool exchanges and correlation identity. Accept only a
+successful, nonempty text result without tool calls. Replace the previous summary
+with the combined summary rather than stacking summaries. A deterministic test
+can prove supplied facts and request continuity; it cannot establish live summary
+quality.
+
+Extend `CodingProductSessionContext` with a separate optional prior summary.
+The product loader resolves it structurally from the latest active compaction
+entry, never by recognizing prose, and supplies real retained messages separately.
+Extend the existing guarded `CodingSessionState.rebuild_history` transition with
+an explicit summary suffix whose default is empty. The coordinator passes the
+loaded destination summary to that transition for **every** tree rebuild:
+startup/resume, `/tree`, `/fork`, `/clone`, `/import` and `/new`. An uncompacted or
+empty destination clears the suffix; a compacted destination installs only its
+own summary. Never carry the source branch's suffix into the destination.
+
+This intentionally replaces the current unconditional suffix clearing for a
+compacted destination while preserving the default clear behavior. Update the
+harness-spec's headless-state rebuild sentence when implemented. Preserve and
+extend `test_rebuild_loads_exact_context_and_preserves_cumulative_counters` for
+both cases and pin compacted/uncompacted branch replacement in the session-tree
+suite. The two persistence-failure tests below are additional requirements, not
+an exhaustive list of affected tests.
+
+Immediate and rebuilt coding context must have equivalent summary placement and
+real retained history, so the synthetic summary user message in the current tree
+projection does not count as another user group. Preserve other tree clients'
+existing projection and the JSONL schema where possible; do not change custom-
+message or branch-summary semantics incidentally. Capture the exact first retained entry from the active
+projected history, including entries retained from before the last compaction.
+The durable writer consumes that identity instead of counting only users since
+the last compaction. If a durable mapping cannot be established, refuse before
+acceptance; ephemeral sessions still compact without a disk requirement.
+
+### Guarded snapshot and acceptance
+
+Use existing `coding_effects.lock` (also `mutation_io_lock` and the tree lock)
+then the session/generation mutex. Never acquire them in reverse order.
+
+| Snapshot family | Owner / guarded readers | Invalidating writers |
+| --- | --- | --- |
+| Exact provider binding | `CodingSessionState` binding/provider/model readers and new snapshot reader | Begin, refresh/rebind/unavailable, model/reload publication |
+| History and previous summary | State history/suffix readers and snapshot/acceptance APIs | Begin, append, mirror, clear, rebuild, rebind and accepted compaction |
+| Active tree and branch | `RunControlState` tree section and all `NativeSessionTree` context/branch readers | Tree replacement, append, navigation and branch/leaf changes |
+| Generation and admission | `SessionGenerationRef` plus coding-effect lifecycle owner | Publication/gate changes, retirement and terminal close |
+| Pending summary | One caller-owned operation; worker returns a detached result only | Cancellation, refusal, acceptance and disposal |
+
+Capture exact binding, tree and generation identities, branch position, previous
+summary, history and lifecycle eligibility coherently. An owner-issued revision
+or equivalent identity must detect equal-content replacement and change-away/
+change-back history; all affected writers and snapshot readers participate in
+that guard. Tree snapshot identity must likewise detect intervening navigation
+or mutation rather than relying only on a leaf that could be restored.
+
+Run provider I/O, header/extension callbacks and painting outside both locks.
+Do not hold an exclusive effect lease across summary I/O if a callback can need
+that lease. Reacquire the established lock order for the final freshness and
+liveness check plus state acceptance in one uninterrupted section. Refuse stale,
+cancelled or terminal work. After acceptance, release the session mutex before
+the synchronous persistence callback, retaining the outer tree mutation ordering
+until it completes. Provider workers never publish or append independently.
+The implementation must extend the guarded-reader/writer inventory and pin each
+invalidating transition with deterministic tests.
+
+Use the current terminal interruption and external-abort bridges. Summary output
+does not stream as ordinary assistant transcript content. Late provider completion
+cannot mutate state or disk. Queued input observed during summary work remains
+with the existing input owner; no summary-specific queue may consume and lose it.
+Preserve the canonical executor's completion/cancellation ordering and already-
+admitted callback semantics.
+
+### Failure and validation
+
+Generation exceptions, failed/empty/tool-requesting results, cancellation,
+extension veto and stale snapshots publish no history, suffix, counters or tree
+entry. Extension veto invokes no provider. Diagnostics remain bounded and do not
+copy provider failures or summary bodies into workflow metadata.
+
+Retain the current **state-first persistence** contract: accepted live history,
+suffix and counters advance once, then the durable callback runs. Persistence
+failure propagates before success diagnostics/footer and does not roll back live
+state or retry the append. The tree also updates memory before its file write,
+so disk may differ from both live and tree memory after failure. This is not an
+atomic durability promise. Preserve the tests
+`test_compaction_callback_failure_propagates_after_state_advances` and
+`test_manual_compaction_persistence_failure_precedes_diagnostic_and_footer`.
+
+Decisive D1 acceptance covers prior-summary input; exact retained tool exchanges;
+a second cut after only one added group; reopen after both cuts; no synthetic
+summary group; failure/veto/cancel/stale refusal; late completion; each guarded
+invalidating writer; unchanged request-only extension overlays; automatic
+compaction affecting the same next request; and state-first persistence failure.
+Full product summaries stay private in provider context and native JSONL.
+Workflow events remain counts/labels only.
+
+Expected owners are coding state/product-context coordination, a bounded summary
+service, `repl/provider_selection.py`, `repl/collaborators.py`, and wiring, with
+narrow tree provenance and cancellation adapter changes as needed. Do not move
+provider construction into the headless coding package. Update these docs,
+relevant harness/session-tree/session-storage contracts and release notes with
+the behavior. Run focused history/state/product-session/compaction/tree/overlay
+and cancellation tests, `just check`, `just docs-build`, `git diff --check`, and
+PTY smoke when interactive cancellation changes.
