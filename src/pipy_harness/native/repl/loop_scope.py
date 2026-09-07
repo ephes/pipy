@@ -22,7 +22,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterator, MutableMapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TextIO
@@ -43,6 +43,7 @@ from pipy_harness.native.agent_runtime import (
     NativeAgentUsagePublisher,
 )
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.session_controller import (
     CodingCommandEffects,
@@ -104,6 +105,7 @@ class RunControlState:
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
+    _tree_pointer_epoch: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         with self.coding_effects.lock:
@@ -120,7 +122,13 @@ class RunControlState:
             raise TypeError("session_tree must be a NativeSessionTree")
         with self.coding_effects.lock:
             tree.bind_mutation_lock(self.coding_effects.lock)
+            self._tree_pointer_epoch += 1
             self._session_tree = tree
+
+    @property
+    def tree_pointer_epoch(self) -> int:
+        with self.coding_effects.lock:
+            return self._tree_pointer_epoch
 
     @contextmanager
     def session_tree_section(self) -> Iterator[NativeSessionTree]:
@@ -270,7 +278,7 @@ class ReplLoopScope:
     diag: Callable[[str], None]
     coding_footer_text: Callable[[], str]
     refresh_legacy_footer_with_usage: Callable[[], None]
-    apply_compaction: Callable[[str], str]
+    apply_compaction: Callable[[str], CodingCompactionOutcome]
     cycle_thinking_level: Callable[[], str | None]
     append_agent_message: Callable[[AgentMessage], None]
     drain_extension_outboxes: Callable[[], None]

@@ -5,17 +5,22 @@ the native session tree durable and navigable.
 
 ## What compaction does
 
-Pipy's current compaction is a safe, deterministic reduction:
+Pipy combines a deterministic whole-group cut with a provider-generated summary:
 
 1. It cuts history only at user-turn boundaries, so tool results are not orphaned
    from the assistant tool calls that produced them.
 2. It keeps the most recent user-turn groups verbatim for the next provider
    request.
-3. It drops older groups from the in-memory provider context and adds a
-   metadata/count summary block to the system prompt.
-4. It resolves the exact first retained entry before changing live context and
-   appends a `compaction` entry to the native session JSONL file. A durable
-   session refuses a cut whose retained entry cannot be resolved.
+3. It asks the current provider to summarize the exact older groups together
+   with any previous summary, preserving goals, constraints, decisions, files,
+   verified results and unfinished work. The request has no tools or attachments
+   and excludes request-only overlays. Its text is private and does not stream
+   into the transcript.
+4. After checking that the captured context is still current, it replaces the
+   older groups with the combined summary in the system prompt.
+5. It appends a `compaction` entry to the native session JSONL file using the
+   exact first retained entry resolved before generation or live acceptance. A
+   durable session refuses a cut whose retained entry cannot be resolved.
    If that mismatch persists, the automatic threshold check can report the
    refusal again on later requests; it leaves live context unchanged.
 
@@ -35,11 +40,29 @@ If there is not enough history to compact, pipy reports that there is nothing to
 compact. Otherwise it reports how many earlier exchange groups were dropped from
 provider-visible context and how many recent groups were kept.
 
+Generation failure or cancellation leaves the existing context intact. Escape or
+Ctrl-C can cancel summary work in the terminal. A successful summary is published
+only if its captured context remains current. Manual stale work reports refusal;
+automatic stale work closes the session through the guarded-run exception path
+rather than allowing the older run to overwrite newer context. This conservative
+stop also applies to extension writes during automatic summarization that only
+add a custom message, change a label, or rename the session: those tree changes
+invalidate the captured summary even if provider history is unchanged. The
+extension write remains accepted; the session closes without publishing the
+summary. A refused reload publication window has the same effect.
+
+Manual `/compact` has no later agent-run settlement. When the command completes,
+queued steering and follow-up messages become deliverable through the ordinary
+input queue, including after a failed, stale or provider-cancelled summary.
+Steering Enter cancels the summary and runs steering before follow-up; a local
+command runs locally before pending prompts. Escape or Ctrl-C instead restores
+pending text to the editor for editing and explicit submission. A persistence
+exception still escapes after acceptance without settlement or recovery.
+
 Only the bare `/compact` command is currently accepted. A trailing prompt such
 as `/compact summarize decisions` is rejected as an unhandled command rather
 than used as custom compaction instructions. The current implementation uses
-pipy's deterministic summary behavior rather than a model-authored custom
-summary.
+pipy's built-in semantic-summary instructions.
 
 ## Automatic compaction
 
@@ -51,8 +74,8 @@ it immediately after that run's real user message. Automatic compaction continue
 to operate on the durable history during that run, while the overlay stays out of
 the canonical run result, additional product `MessageEntry` records, and the
 metadata-only archive. The original bounded extension `CustomMessageEntry`
-remains part of the native product session. Manual `/compact`, compaction summary
-text, and public session formats are unchanged.
+remains part of the native product session. These overlays also stay out of
+semantic-summary requests. Public session formats are unchanged.
 
 Settings expose the current compaction controls:
 
@@ -118,10 +141,18 @@ and tool hooks continue to deny `set_model` by returning `False`.
 
 ## Limitations and follow-ons
 
-- The current summary is metadata/count based. It is safe and deterministic, but
-  less semantically rich than a model-authored long-context summary.
+- Auxiliary summary tokens and cost are not yet included in the session usage
+  totals, footer cost meter or run result, so those totals under-report provider
+  spend when compaction runs.
+- A failed automatic summary leaves the threshold condition unchanged. A later
+  provider iteration can therefore attempt another summary and repeat the bounded
+  failure notice. Retry policy and auxiliary attempt accounting remain later work.
+- The terminal currently shows no working indicator during summary generation;
+  Escape and Ctrl-C still cancel it.
+- Semantic summaries are lossy provider output. Synthetic tests cover the supplied
+  facts and request/reopen continuity; live-provider summary quality remains unverified.
 - `/compact <custom instructions>` is not accepted yet; use bare `/compact`.
-  Custom instructions are not yet used to produce a model-authored summary.
+  Only the built-in summary instructions are used.
 - Compaction is lossy for future provider requests: older details may no longer
   be in context unless you navigate or resume from a branch point that includes
   them before the compaction boundary.
@@ -131,10 +162,9 @@ spec [Session Tree](session-tree.md).
 
 ## D1 implementation contract
 
-This is the selected D1 contract. D1a implements structural provenance, repeated
-durable cuts and destination-summary rebuilds; D1b's semantic provider generation
-and conditional acceptance remain pending. The current behavior above remains
-count-only. Task selection and status live only in
+D1a implements structural provenance, repeated durable cuts and destination-summary
+rebuilds. D1b implements canonical semantic generation, cancellation and conditional
+acceptance. Task selection and status live only in
 [the backlog](backlog.md). D1 changes semantic continuity at existing whole-user-
 group boundaries, with no budgeting, within-run cuts, retries, custom `/compact`
 instructions, or RPC controls.
@@ -144,8 +174,10 @@ Keep `native.agent.history` mechanical and its positive dropped-group invariant.
 Use the existing branch-summary request capability as the starting seam, but run
 D1's completion through `ProviderTurnExecutor` with canonical cancellation, a
 private no-op event sink and `ProviderTurnDeltaPolicy(text=False, reasoning=False)`.
-Update that policy's compatibility-only docstring to include auxiliary summaries. Do not copy the direct `provider.complete` call or run tools in a
-second agent loop. Broader branch-navigation changes are outside this slice.
+Do not copy the direct `provider.complete` call or run tools in a
+second agent loop. The shared branch helper captures one provider binding for
+request labels and execution, including across header-callback acquisition.
+Broader branch-navigation changes are outside this slice.
 
 The summary input contains the previous summary and exact dropped conversation
 prefix, derived from the captured immutable history using the canonical result's
@@ -213,8 +245,24 @@ liveness check plus state acceptance in one uninterrupted section. Refuse stale,
 cancelled or terminal work. After acceptance, release the session mutex before
 the synchronous persistence callback, retaining the outer tree mutation ordering
 until it completes. Provider workers never publish or append independently.
-The implementation must extend the guarded-reader/writer inventory and pin each
-invalidating transition with deterministic tests.
+The freshness identities and their guards are explicit:
+
+- `CodingSessionState.compaction_snapshot()` and `compaction_matches()` read the
+  exact binding and history epoch under the session mutex. Append, mirror, clear,
+  rebuild and accepted compaction advance the history epoch, including equal
+  writes. Fresh binding identity covers begin/refresh/rebind/unavailable and
+  assignment-only model/reload publication. D1b0's run witness remains separate.
+- `NativeSessionTree.mutation_epoch` uses the tree lock. `_load_entries`,
+  `_append_entry`, `branch`, `reset_leaf`, `set_leaf` and `branch_with_summary`
+  advance it before fallible work, detecting restored leaves and failed writes.
+- `RunControlState.tree_pointer_epoch` uses the outer tree/effect lock; every
+  `session_tree` assignment advances it, including changes away and back.
+- `SessionGenerationRef.publication_epoch` uses the session mutex and advances
+  when `publishing()` opens and closes, including refused or failed publication.
+  Exact generation identity/id and terminal admission also participate.
+
+Header-callback acquisition is followed by another freshness check before
+provider admission. Deterministic tests cover these readers and writers.
 
 Use the current terminal interruption and external-abort bridges. Summary output
 does not stream as ordinary assistant transcript content. Late provider completion
@@ -225,7 +273,7 @@ admitted callback semantics.
 
 ### Automatic-generation cancellation
 
-D1b must propagate cancellation out of automatic summary generation before
+D1b propagates cancellation out of automatic summary generation before
 constructing the ordinary provider request, invoking its request hooks, or
 refreshing tool renderers. Returning only a diagnostic would let terminal Escape
 fall through into that request. Use the typed cancellation alternative in the

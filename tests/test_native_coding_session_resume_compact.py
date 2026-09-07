@@ -48,6 +48,21 @@ class _RecordingToolProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
+        if request.system_prompt.startswith("Summarize conversation context"):
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="Earlier context: "
+                + "; ".join(
+                    message.content.value
+                    for message in request.messages[:-1]
+                    if isinstance(message, AgentUserMessage)
+                ),
+            )
         calls: tuple[ProviderToolCall, ...] = ()
         if self._call_index < len(self.call_script):
             calls = self.call_script[self._call_index]
@@ -143,14 +158,10 @@ def test_tool_loop_manual_compact_reduces_history_and_keeps_protocol(
     assert "compacted conversation context" in error_stream.getvalue()
 
     # The fifth turn's request is the last one captured.
-    assert len(provider.requests) == 5
+    assert len(provider.requests) == 6
     final_request = provider.requests[-1]
-    assert final_request.system_prompt.endswith(
-        "[Context compacted to save space: 2 earlier exchange(s) "
-        "(2 assistant turn(s), 0 tool call(s)) were summarized and removed "
-        "from this request. Their details are no longer available; continue "
-        "from the retained recent turns below.]"
-    )
+    assert final_request.system_prompt.endswith("Earlier context: a; b")
+    assert provider.requests[-2].available_tools == ()
     assert [
         message.content.value
         for message in final_request.messages
@@ -203,7 +214,7 @@ def test_manual_compaction_persistence_failure_precedes_diagnostic_and_footer(
             error_stream=error_stream,
         )
 
-    assert len(provider.requests) == 4
+    assert len(provider.requests) == 5
     assert session._coding_state.compaction_count == 1
     assert [
         message.content.value
@@ -252,20 +263,14 @@ def test_tool_loop_auto_compaction_changes_the_same_provider_request(
 
     assert result.compaction_count == 1
     assert result.compaction_dropped_group_count == 1
-    assert len(provider.requests) == 4
-    for request in provider.requests[2:]:
+    assert len(provider.requests) == 5
+    for request in provider.requests[3:]:
         assert [
             message.content.value
             for message in request.messages
             if isinstance(message, AgentUserMessage)
         ] == ["old-b", "recent"]
-        assert request.system_prompt.endswith(
-            "[Context compacted to save space: 1 earlier exchange(s) "
-            "(1 assistant turn(s), 0 tool call(s)) were summarized and removed "
-            "from this request. Their details are no longer available; continue "
-            "from the retained recent turns below.]"
-        )
-        assert "old-a" not in request.system_prompt
+        assert request.system_prompt.endswith("Earlier context: old-a")
     assert (
         "compacted conversation context (auto; dropped 1 earlier exchange(s), kept 2)"
         in error_stream.getvalue()

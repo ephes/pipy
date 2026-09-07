@@ -60,10 +60,27 @@ class _ScriptProvider:
     name: str = "active-input"
     model_id: str = "active-input-model"
     requests: list[ProviderRequest] = field(default_factory=list)
+    ordinary_calls: int = 0
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
-        index = len(self.requests) - 1
+        if request.system_prompt.startswith("Summarize conversation context"):
+            now = datetime.now(UTC)
+            assert not any(
+                marker in message.content.value
+                for marker in _TRANSIENTS
+                for message in request.messages
+            )
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="Summary of earlier task facts.",
+            )
+        index = self.ordinary_calls
+        self.ordinary_calls += 1
         status = (
             self.statuses[index]
             if index < len(self.statuses)
@@ -223,8 +240,17 @@ def test_auto_compaction_keeps_identity_overlay_on_every_provider_iteration(
 
     assert result.compaction_count == 1
     assert result.compaction_dropped_group_count == 2
-    assert len(provider.requests) == 3
-    first, tool_follow_up, next_run = provider.requests
+    assert len(provider.requests) == 4
+    summary, first, tool_follow_up, next_run = provider.requests
+    assert _contents(summary.messages) == [
+        "old-0",
+        "answer-0",
+        "old-1",
+        "answer-1",
+        "Provide the combined context summary now.",
+    ]
+    assert summary.available_tools == ()
+    assert first.system_prompt.endswith("Summary of earlier task facts.")
     assert _contents(first.messages) == [
         "same",
         "answer-2",

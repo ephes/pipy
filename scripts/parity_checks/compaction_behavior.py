@@ -7,8 +7,9 @@ context was actually compacted (a positive ``compaction_count`` and at least one
 dropped user-turn group). It also proves the pure canonical agent-history
 compactor reduces a message history at a user-turn boundary without orphaning
 a tool result (provider message-protocol validity). Product-owned summary
-construction is checked on the subsequent provider request and never leaks
-dropped content.
+construction is checked on the auxiliary and subsequent provider requests: raw
+dropped messages leave canonical history, semantic facts remain in the private
+system prompt, and compaction metadata never contains those facts.
 
 Exits 0 when both behaviors hold, 1 otherwise. No real network or AI calls.
 """
@@ -40,7 +41,7 @@ from pipy_harness.native.models import (
 
 
 class _PlainToolProvider:
-    """Tool-capable provider that always answers (no tool calls)."""
+    """Record ordinary and auxiliary requests, returning a semantic fixture."""
 
     name = "fake"
     supports_tool_calls = True
@@ -58,7 +59,11 @@ class _PlainToolProvider:
             model_id=self.model_id,
             started_at=now,
             ended_at=now,
-            final_text="answer",
+            final_text=(
+                "Earlier facts: SENSITIVE_OLD_A; SENSITIVE_OLD_B."
+                if request.system_prompt.startswith("Summarize conversation context")
+                else "answer"
+            ),
             tool_calls=(),
         )
 
@@ -104,19 +109,43 @@ def _adapter_compaction_observation() -> tuple[
 
 def _adapter_compaction_holds() -> bool:
     payload, requests = _adapter_compaction_observation()
-    if payload is None:
+    if (
+        payload is None
+        or not _positive_int(payload.get("compaction_count"))
+        or not _positive_int(payload.get("compaction_dropped_group_count"))
+    ):
         return False
-    if not _positive_int(payload.get("compaction_count")):
+    if len(requests) != 6:
         return False
-    if not _positive_int(payload.get("compaction_dropped_group_count")):
+    summary_request = requests[4]
+    if (
+        not summary_request.system_prompt.startswith("Summarize conversation context")
+        or summary_request.available_tools
+        or summary_request.attachments
+    ):
         return False
-    if not requests:
+    if tuple(message.content.value for message in summary_request.messages) != (
+        "SENSITIVE_OLD_A",
+        "answer",
+        "SENSITIVE_OLD_B",
+        "answer",
+        "Provide the combined context summary now.",
+    ):
         return False
     final_request = requests[-1]
-    if "[Context compacted to save space:" not in final_request.system_prompt:
+    if (
+        "Earlier facts: SENSITIVE_OLD_A; SENSITIVE_OLD_B."
+        not in final_request.system_prompt
+    ):
+        return False
+    if tuple(
+        message.content.value
+        for message in final_request.messages
+        if isinstance(message, AgentUserMessage)
+    ) != ("recent-c", "recent-d", "after"):
         return False
     for forbidden in ("SENSITIVE_OLD_A", "SENSITIVE_OLD_B"):
-        if forbidden in final_request.system_prompt:
+        if forbidden in str(payload):
             return False
         if any(
             forbidden in message.content.value for message in final_request.messages

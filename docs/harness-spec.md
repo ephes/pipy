@@ -1671,12 +1671,12 @@ ownership remains Slice 2.2b.5.
 
 ### D1b request-preparation cancellation contract
 
-This selected contract is pending D1b implementation. Automatic semantic
+D1b implements this contract. Automatic semantic
 compaction runs during request preparation, before the ordinary provider request.
 Cancellation there must settle the accepted iteration rather than continue into
 request hooks, renderer refresh, or provider execution.
 
-`AgentLoopRequestPreparation` will carry exact canonical history and exactly one
+`AgentLoopRequestPreparation` carries exact canonical history and exactly one
 of a valid request snapshot or a typed `AgentCancellationReason`. Validate either
 alternative, the accepted-message anchor, and request-overlay exclusion before
 turn-start events. The canonical loop installs validated history and preserves
@@ -1803,11 +1803,14 @@ boundaries, so a retained tool result keeps the assistant tool call that
 introduced its provider correlation id.
 
 This module is mechanical rather than a product policy or persistence layer. It
-does not choose threshold defaults, enable compaction, format the counts-only
+does not choose threshold defaults, enable compaction, generate a semantic
 summary, inject the summary into a provider request, invoke extension hooks,
 emit diagnostics, aggregate run-result counters, or append a durable compaction
-entry. `CodingSession` retains each of those responsibilities, including
-the exact existing summary text and `firstKeptEntryId` session-tree behavior.
+entry. The coding composition owns those responsibilities through the shared
+summary request helper, current canonical provider executor and guarded compaction
+acceptance. Its semantic summary replaces the prior suffix; D1a's exact
+`firstKeptEntryId` and state-first persistence behavior remain intact. See the
+[compaction snapshot inventory](compaction.md#guarded-snapshot-and-acceptance).
 The canonical result has no archive serializer; metadata-only workflow fields
 remain explicit allowlists outside `native.agent`. The canonical package does
 not eagerly re-export the history runtime.

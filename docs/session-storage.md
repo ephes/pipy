@@ -12,6 +12,12 @@
 
 Pipy should learn from coding-agent work without coupling the core product to any one agent UI. Session storage is therefore treated as a product capability, not as a Textual, CLI, Codex, Claude, or Pi feature.
 
+Semantic compaction requests and generated summaries belong to the private native
+product conversation, including any restored prior summary. Auxiliary provider
+output is not streamed through ordinary transcript or workflow projections.
+Workflow events may record bounded outcomes and counters, but never summary
+bodies or provider error text from summary generation.
+
 ## Goals
 
 - Preserve useful context from coding sessions without making the repository large or noisy.

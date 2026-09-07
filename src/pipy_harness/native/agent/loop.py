@@ -126,10 +126,11 @@ def _validate_loop_run_input(run_input: AgentLoopRunInput) -> None:
 
 @dataclass(frozen=True, slots=True)
 class AgentLoopRequestPreparation:
-    """History and exact request snapshot prepared for one provider turn."""
+    """Validated history and exactly one request or preparation cancellation."""
 
     history: tuple[AgentMessage, ...]
-    snapshot: AgentProviderRequestSnapshot
+    snapshot: AgentProviderRequestSnapshot | None = None
+    cancellation_reason: AgentCancellationReason | None = None
 
     def __post_init__(self) -> None:
         _validate_request_preparation(self)
@@ -141,7 +142,12 @@ def _validate_request_preparation(
     if type(preparation) is not AgentLoopRequestPreparation:
         raise TypeError("request source must return AgentLoopRequestPreparation")
     _validate_history(preparation.history)
-    validate_provider_request_snapshot(preparation.snapshot)
+    if (preparation.snapshot is None) == (preparation.cancellation_reason is None):
+        raise ValueError("preparation requires exactly one snapshot or cancellation")
+    if preparation.snapshot is not None:
+        validate_provider_request_snapshot(preparation.snapshot)
+    elif type(preparation.cancellation_reason) is not AgentCancellationReason:
+        raise TypeError("preparation cancellation must be an AgentCancellationReason")
 
 
 @runtime_checkable
@@ -373,6 +379,15 @@ class AgentLoop:
         _validate_overlay_absent(preparation.history, active_input)
         state.history = preparation.history
         self._start_turn(turn_index, active_input.accepted_message)
+        if preparation.cancellation_reason is not None:
+            return self._settle_provider_cancellation(
+                state,
+                ProviderTurnOutcome(
+                    cancellation_reason=preparation.cancellation_reason
+                ),
+                turn_index,
+            )
+        assert preparation.snapshot is not None
         completion = self._provider_turn.complete(
             preparation.snapshot,
             self._events,

@@ -1171,6 +1171,8 @@ def _compose_collaborators(
         refresh_footer_text=footer.refresh_footer_text,
         extension_notify=_extension_notify,
         mutation_io_lock=coding_effects.lock,
+        provider_turn_executor=extension.provider_turn_executor,
+        abort_event=inputs.abort_event,
     )
 
     # The residual run-loop collaborators (diagnostics, session-name setters,
@@ -1373,7 +1375,7 @@ def _assemble_session_wiring(
         diag=collaborators.diag,
         coding_footer_text=footer.coding_footer_text,
         refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
-        apply_compaction=provider_mutation.apply_compaction,
+        apply_compaction=provider_mutation.compact_context,
         cycle_thinking_level=provider_mutation.cycle_thinking_level,
         append_agent_message=append_agent_message,
         drain_extension_outboxes=custom_renderer.drain_extension_outboxes,

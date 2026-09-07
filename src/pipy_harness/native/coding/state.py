@@ -49,6 +49,16 @@ class CodingProviderBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class CodingCompactionSnapshot:
+    """Guarded private history and identity for one auxiliary summary."""
+
+    binding: CodingProviderBinding
+    messages: tuple[AgentMessage, ...]
+    summary_suffix: str
+    history_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
 class CodingRunWitness:
     """Initial history and exact context admitted for one canonical agent run."""
 
@@ -203,7 +213,8 @@ class CodingSessionState:
     to this object; callers interact with it through typed state transitions.
 
     **Synchronization.** The provider binding, canonical history, usage
-    accumulator, compaction state, context-replacement epoch, and active run witness
+    accumulator, compaction state, history/summary epoch, context-replacement epoch,
+    and active run witness
     are guarded state: an extension handler
     on a detached worker thread reaches them through ``set_model``, which
     rebinds the provider, clears live history, and resets usage. Every reader
@@ -211,6 +222,10 @@ class CodingSessionState:
     thread included, since a lock only one side takes excludes nobody. The witness
     guards run publication; begin/reset, explicit clear and destination rebuild
     advance the replacement epoch while binding identity detects provider changes.
+    The separate history epoch advances on append/mirror/clear/rebuild/compaction,
+    including equal writes, and is captured/compared for auxiliary summary work.
+    Binding replacements invalidate that work without changing assignment-only
+    model/reload publication methods.
 
     The remaining counters (turn, tool, resource, file-reference, and
     image-attachment tallies, plus the provider-failure slot) are written only
@@ -237,6 +252,7 @@ class CodingSessionState:
         "_malformed_argument_count",
         "_messages",
         "_context_epoch",
+        "_history_epoch",
         "_run_witness",
         "_provider_failure",
         "_resource_invocation_count",
@@ -265,6 +281,7 @@ class CodingSessionState:
         require_exact_agent_messages(messages)
         self._messages = messages
         self._context_epoch = 0
+        self._history_epoch = 0
         self._run_witness: CodingRunWitness | None = None
         self._user_turn_count = 0
         self._tool_invocation_count = 0
@@ -304,6 +321,23 @@ class CodingSessionState:
         """
 
         return self._state_lock
+
+    def compaction_snapshot(self) -> CodingCompactionSnapshot:
+        with self._state_lock:
+            self._require_run_context_locked()
+            return CodingCompactionSnapshot(
+                self._binding,
+                self._messages,
+                self._compaction_suffix,
+                self._history_epoch,
+            )
+
+    def compaction_matches(self, snapshot: CodingCompactionSnapshot) -> bool:
+        with self._state_lock:
+            return (
+                self._binding is snapshot.binding
+                and self._history_epoch == snapshot.history_epoch
+            )
 
     def begin_agent_run(self) -> CodingRunWitness:
         """Capture initial history and install its witness before any run callback."""
@@ -690,6 +724,7 @@ class CodingSessionState:
         with self._state_lock:
             self._require_run_context_locked()
             self._messages += (message,)
+            self._history_epoch += 1
 
     def mirror_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Mirror an agent-loop history without changing compaction metadata."""
@@ -698,6 +733,7 @@ class CodingSessionState:
         with self._state_lock:
             self._require_run_context_locked()
             self._messages = messages
+            self._history_epoch += 1
 
     def clear_history(self) -> None:
         """Clear live history without changing compaction metadata."""
@@ -705,6 +741,7 @@ class CodingSessionState:
         with self._state_lock:
             self._messages = ()
             self._context_epoch += 1
+            self._history_epoch += 1
 
     def rebuild_history(
         self, messages: tuple[AgentMessage, ...], *, summary_suffix: str = ""
@@ -718,6 +755,7 @@ class CodingSessionState:
             self._messages = messages
             self._compaction_suffix = summary_suffix
             self._context_epoch += 1
+            self._history_epoch += 1
 
     def sync_tool_policy(self, state: AgentToolPolicyState) -> None:
         """Mirror the exact reusable-loop cumulative tool counters."""
@@ -823,6 +861,7 @@ class CodingSessionState:
             self._compaction_suffix = summary_suffix
             self._compaction_count += 1
             self._compaction_dropped_group_count += dropped_group_count
+            self._history_epoch += 1
 
     def record_provider_failure(self, failure: AgentFailure) -> None:
         _require_agent_failure(failure, "failure")

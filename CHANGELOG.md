@@ -214,6 +214,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Compaction now generates a semantic summary of older whole-user groups and the
+  prior summary using the current provider. Retained tool exchanges remain
+  verbatim. Failed, cancelled or stale generation cannot publish a summary;
+  automatic cancellation stops before the ordinary request, while stale automatic
+  context closes the session safely. Summary output stays private and off the
+  transcript. Even label/name/custom-message writes during automatic summary
+  generation invalidate it and close the stale session. Summary tokens and cost
+  are not yet included in session totals. Live-provider summary quality remains
+  unverified. Branch summaries also retain one coherent provider binding when
+  header callbacks change the active model. Manual `/compact` now settles queued
+  input when summary work ends: steering and follow-up remain deliverable, while
+  Escape/Ctrl-C restores pending text to the editor for explicit submission.
 - Retained extension model controls can no longer let an older coding run restore
   discarded history, append messages to the replacement context, or charge its
   usage accumulator. A context change stops the stale session lifetime through
@@ -224,7 +236,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   summary separately from conversation groups, including duplicate custom/branch
   messages, while preserving current-run counters. Unmapped durable cuts refuse
   before mutation; accepted writes retain state-first failure behavior. Summary
-  generation remains count-only.
+  generation now uses the canonical semantic-summary path.
 - `--mode rpc` `get_state` and `set_model` responses no longer report a
   fabricated `fake`/`fake-tools` provider selection when the session adapter is
   built without a provider. The underlying `ValueError` now reaches the RPC

@@ -20,11 +20,19 @@ falling back to zero. `None` disables cost rendering for that selection.
 from __future__ import annotations
 
 import threading
+from functools import partial
 
-from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
+from pipy_harness.native.agent.provider_turn import (
+    ProviderTurnInterruption,
+    ProviderTurnWaiter,
+    _AbortCallbackSignal,
+    _StartGatedProvider,
+    _wait_for_external_abort,
+)
 from pipy_harness.native.agent.tools import ToolExecutionInterruption
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.extension_chrome_state import ExtensionChromeRetirement
+from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
@@ -109,6 +117,24 @@ def wait_for_provider_interrupt(
     if outcome == TURN_LOCAL_COMMAND:
         return ProviderTurnInterruption.LOCAL_COMMAND
     raise RuntimeError(f"unexpected provider interrupt outcome: {outcome!r}")
+
+
+def provider_turn_inputs(
+    provider: ProviderPort,
+    terminal_ui: TerminalUi | None,
+    abort_event: threading.Event | _AbortCallbackSignal | None,
+) -> tuple[ProviderPort, ProviderTurnWaiter | None]:
+    """Share canonical terminal/external cancellation without rebinding a provider."""
+
+    if terminal_ui is not None:
+        return provider, partial(wait_for_provider_interrupt, terminal_ui)
+    if abort_event is None:
+        return provider, None
+    start = None
+    if isinstance(abort_event, _AbortCallbackSignal):
+        start = threading.Event()
+        provider = _StartGatedProvider(provider, start)
+    return provider, partial(_wait_for_external_abort, abort_event, start)
 
 
 def pricing_for(provider_name: str, model_id: str) -> AgentTokenPricing | None:

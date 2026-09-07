@@ -669,6 +669,7 @@ def _run_editor_pty(
     *,
     columns: int = 100,
     rows: int = 40,
+    native_session: NativeSessionTree | None = None,
 ):
     """Drive the real product TUI over a PTY; ``drive(in_master, chunks)``."""
 
@@ -688,7 +689,9 @@ def _run_editor_pty(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = CodingSession(provider=provider, tool_registry={})
+    session = CodingSession(
+        provider=provider, tool_registry={}, native_session=native_session
+    )
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -2202,11 +2205,13 @@ def test_pty_tree_selector_escape_label_and_filter(
     ("key", "label"),
     [(b"\x1b", "escape"), (b"\x03", "ctrl-c")],
 )
+@pytest.mark.parametrize("during_summary", [False, True])
 def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     key: bytes,
     label: str,
+    during_summary: bool,
 ):
     """Escape and Ctrl-C during an active provider turn truly cancel it.
 
@@ -2218,6 +2223,7 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
     the loop merely hiding late output) is asserted directly on the fake.
     """
 
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLUMNS", "100")
@@ -2243,7 +2249,28 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = CodingSession(provider=provider, tool_registry={})
+    requests: list[object] = []
+    summary_entered = threading.Event()
+    original_complete = FakeNativeProvider.complete
+
+    def observed_complete(self, request, **kwargs):
+        requests.append(request)
+        if request.system_prompt.startswith("Summarize conversation context"):
+            summary_entered.set()
+        return original_complete(self, request, **kwargs)
+
+    monkeypatch.setattr(FakeNativeProvider, "complete", observed_complete)
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    if during_summary:
+        from pipy_harness.native.agent import AgentUserMessage, ProductContent
+        from pipy_harness.native.repl import loop_step
+
+        for text in ("older", "recent", "newest"):
+            tree.append_message(AgentUserMessage(ProductContent(text)))
+        monkeypatch.setattr(
+            loop_step, "should_compact_agent_history", lambda *_args, **_kwargs: True
+        )
+    session = CodingSession(provider=provider, tool_registry={}, native_session=tree)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -2267,10 +2294,17 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        assert wait_for_input_ready_after(err_chunks, "escape interrupt") is not None
+        ready_before = input_ready_count(err_chunks)
         os.write(in_master, b"start a slow turn\n")
         # The spinner only paints once the provider turn is actually in-flight.
-        assert _wait_for(err_chunks, "Working"), f"{label}: turn never went active"
+        if during_summary:
+            assert summary_entered.wait(2), (
+                "summary never reached the canonical provider"
+            )
+            assert wait_for_input_ready_count(err_chunks, ready_before + 1) is not None
+        else:
+            assert _wait_for(err_chunks, "Working"), f"{label}: turn never went active"
         # Send the interrupt key while the turn is blocked at the boundary.
         os.write(in_master, key)
         # The abort notice is painted before the next outer raw transition;
@@ -2282,6 +2316,8 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
         assert _wait_for_predicate(lambda: provider.cancel_observed), (
             f"{label}: provider never observed cancellation"
         )
+        assert len(requests) == 1
+        assert session._coding_state.compaction_count == 0
         os.write(in_master, b"now answer me\n")
         assert _wait_for(err_chunks, "SECOND_TURN_ANSWER_DONE"), (
             f"{label}: follow-up prompt was not usable"
@@ -3167,10 +3203,11 @@ class _SteeringProvider:
     """Tool-capable provider that blocks the first turn so mid-turn input can be
     queued, then completes subsequent (drained) turns immediately."""
 
-    def __init__(self) -> None:
+    def __init__(self, first_release: threading.Event | None = None) -> None:
         self.supports_tool_calls = True
         self.model_id = "fake-model"
         self.calls = 0
+        self.first_release = first_release
         self.user_prompts: list[str] = []
 
     @property
@@ -3188,7 +3225,9 @@ class _SteeringProvider:
         del stream_sink, reasoning_sink
         self.calls += 1
         self.user_prompts.append(request.user_prompt or "")
-        if self.calls == 1 and cancel_token is not None:
+        if self.calls == 1 and self.first_release is not None:
+            assert self.first_release.wait(timeout=8.0)
+        elif self.calls == 1 and cancel_token is not None:
             # Keep the first turn active until a steering Enter aborts it.
             if cancel_token.event.wait(timeout=8.0):
                 raise ProviderCancelledError("steered")
@@ -3684,3 +3723,176 @@ def test_pty_local_command_submitted_midturn_runs_locally_not_queued(
     assert "\x1b[?1049h" not in captured
     # /hotkeys ran locally and was never sent to the provider as a prompt.
     assert prompts == ["begin the turn"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize("queued_input", ["steering", "local-command"])
+def test_pty_summary_waiter_preserves_queued_and_local_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, queued_input: str
+):
+    from pipy_harness.native.agent import AgentUserMessage, ProductContent
+    from pipy_harness.native.repl import loop_step
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(
+        loop_step, "should_compact_agent_history", lambda *_args, **_kwargs: True
+    )
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    for text in ("older", "recent", "newest"):
+        tree.append_message(AgentUserMessage(ProductContent(text)))
+    provider = _SteeringProvider()
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        assert wait_for_input_ready_after(chunks, "escape interrupt") is not None
+        ready_before = input_ready_count(chunks)
+        os.write(in_master, b"original question\n")
+        assert _wait_for_predicate(lambda: provider.calls == 1)
+        # Summary work precedes TurnStarted. Synchronize on its actual raw-input
+        # admission before sending input that a later TCSAFLUSH could discard.
+        assert wait_for_input_ready_count(chunks, ready_before + 1) is not None
+        if queued_input == "local-command":
+            start = len(output_bytes(chunks))
+            os.write(in_master, b"/hotkeys\n")
+            assert (
+                wait_for_input_ready_after(chunks, "Keyboard Shortcuts", after=start)
+                is not None
+            )
+            return
+        os.write(in_master, b"followup msg\x1b\r")
+        assert _wait_for(chunks, "Follow-up: followup msg")
+        assert provider.calls == 1
+        start = len(output_bytes(chunks))
+        os.write(in_master, b"steer msg\n")
+        # Both drained runs compact before their ordinary request: summary,
+        # steering, summary, follow-up after the cancelled first summary.
+        assert (
+            wait_for_input_ready_after(chunks, "DRAINED_TURN_5", after=start)
+            is not None
+        )
+
+    _run_editor_pty(monkeypatch, tmp_path, provider, drive, native_session=tree)
+    summary_prompt = "Provide the combined context summary now."
+    assert provider.user_prompts == (
+        [summary_prompt]
+        if queued_input == "local-command"
+        else [
+            summary_prompt,
+            summary_prompt,
+            "steer msg",
+            summary_prompt,
+            "followup msg",
+        ]
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_manual_compaction_cancellation_preserves_steering_and_follow_up(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    from pipy_harness.native.agent import AgentUserMessage, ProductContent
+    from pipy_harness.native.session_tree import CompactionEntry
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    for text in ("older", "recent", "newest"):
+        tree.append_message(AgentUserMessage(ProductContent(text)))
+    provider = _SteeringProvider()
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        assert wait_for_input_ready_after(chunks, "escape interrupt") is not None
+        ready_before = input_ready_count(chunks)
+        os.write(in_master, b"/compact\n")
+        assert _wait_for_predicate(lambda: provider.calls == 1)
+        assert wait_for_input_ready_count(chunks, ready_before + 1) is not None
+        # Alt+Enter queues without interrupting manual summary work. Enter then
+        # steers and cancels it, without a canonical run to settle /compact.
+        os.write(in_master, b"manual followup\x1b\r")
+        assert _wait_for(chunks, "Follow-up: manual followup")
+        assert provider.calls == 1
+        start = len(output_bytes(chunks))
+        os.write(in_master, b"manual steering\n")
+        assert (
+            wait_for_input_ready_after(chunks, "DRAINED_TURN_3", after=start)
+            is not None
+        ), (
+            "manual compaction cancellation lost queued input: "
+            f"provider prompts={provider.user_prompts!r}; "
+            f"cancel notice={b'compaction cancelled' in output_bytes(chunks)}"
+        )
+
+    captured = _run_editor_pty(
+        monkeypatch, tmp_path, provider, drive, native_session=tree
+    )
+    assert "pipy: compaction cancelled." in captured
+    assert provider.user_prompts == [
+        "Provide the combined context summary now.",
+        "manual steering",
+        "manual followup",
+    ]
+    assert not any(isinstance(entry, CompactionEntry) for entry in tree.get_entries())
+    assert [
+        message.content.value
+        for message in tree.build_coding_context().messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["older", "recent", "newest", "manual steering", "manual followup"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize("completion", ["success", "operator-abort", "local-command"])
+def test_pty_manual_compaction_settles_follow_up_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, completion: str
+):
+    from pipy_harness.native.agent import AgentUserMessage, ProductContent
+    from pipy_harness.native.session_tree import CompactionEntry
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    for text in ("older", "recent", "newest"):
+        tree.append_message(AgentUserMessage(ProductContent(text)))
+    release = threading.Event()
+    provider = _SteeringProvider(release if completion == "success" else None)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        assert wait_for_input_ready_after(chunks, "escape interrupt") is not None
+        ready_before = input_ready_count(chunks)
+        os.write(in_master, b"/compact\n")
+        assert _wait_for_predicate(lambda: provider.calls == 1)
+        assert wait_for_input_ready_count(chunks, ready_before + 1) is not None
+        os.write(in_master, b"pending followup\x1b\r")
+        assert _wait_for(chunks, "Follow-up: pending followup")
+        assert provider.calls == 1
+        start = len(output_bytes(chunks))
+        if completion == "success":
+            release.set()
+        elif completion == "local-command":
+            os.write(in_master, b"/hotkeys\n")
+        else:
+            os.write(in_master, b"\x1b")
+            assert (
+                wait_for_input_ready_after(chunks, "compaction cancelled", after=start)
+                is not None
+            )
+            # Operator abort restores the queued text for editing. It must not
+            # run until Enter submits that restored editor text.
+            assert provider.calls == 1
+            os.write(in_master, b"\n")
+        assert (
+            wait_for_input_ready_after(chunks, "DRAINED_TURN_2", after=start)
+            is not None
+        )
+
+    try:
+        captured = _run_editor_pty(
+            monkeypatch, tmp_path, provider, drive, native_session=tree
+        )
+    finally:
+        release.set()
+    assert provider.user_prompts == [
+        "Provide the combined context summary now.",
+        "pending followup",
+    ]
+    assert sum(isinstance(entry, CompactionEntry) for entry in tree.get_entries()) == (
+        1 if completion == "success" else 0
+    )
+    if completion == "local-command":
+        assert captured.index("Keyboard Shortcuts") < captured.index("DRAINED_TURN_2")

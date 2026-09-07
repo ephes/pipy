@@ -27,17 +27,33 @@ from functools import partial
 from pathlib import Path
 from typing import TextIO
 
-import pipy_harness.native.agent.history as _agent_history
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.agent import ProductContent
-from pipy_harness.native.agent.history import compact_agent_history
+from pipy_harness.native.agent.history import (
+    AgentHistoryCompaction,
+    compact_agent_history,
+)
+from pipy_harness.native.agent.provider_turn import (
+    ProviderTurnDeltaPolicy,
+    ProviderTurnExecutor,
+    _AbortCallbackSignal,
+)
+from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
+from pipy_harness.native.coding.compaction import (
+    CodingCompactionOutcome,
+    PrivateSummaryEvents,
+    compaction_request,
+    summary_text,
+)
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCompaction,
     CodingProductSessionContext,
     CodingProductSessionCoordinator,
 )
 from pipy_harness.native.coding.state import (
+    CodingCompactionSnapshot,
+    CodingContextChangedError,
     CodingModelMutation,
     CodingProviderBinding,
     CodingSessionState,
@@ -49,6 +65,7 @@ from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_KEEP_RECENT_GROUPS,
     pricing_for,
+    provider_turn_inputs,
 )
 from pipy_harness.native.repl_state import (
     NativeModelMutationState,
@@ -58,6 +75,8 @@ from pipy_harness.native.repl_state import (
     UnavailableAfterReloadProvider,
     normalize_repl_fake_selection,
 )
+from pipy_harness.native.session_generation import SessionGenerationSnapshot
+from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tui import TerminalUi
@@ -89,6 +108,18 @@ class _PreparedModelMutation:
     coding: CodingModelMutation | None
 
 
+@dataclass(frozen=True, slots=True)
+class _CompactionWork:
+    context: CodingCompactionSnapshot
+    cut: AgentHistoryCompaction
+    first_kept_entry_id: str | None
+    tree: NativeSessionTree
+    tree_epoch: int
+    pointer_epoch: int
+    generation: SessionGenerationSnapshot
+    publication_epoch: int
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProviderMutationEffects:
     """Composition-root handler owning the provider/model/auth/compaction
@@ -117,7 +148,9 @@ class ProviderMutationEffects:
     each bound method exactly where the deleted closures were consumed: the
     built-in interpreter's ``apply_compaction``/``apply_model_selection``/
     ``apply_auth_change``/``extension_set_active_tools`` ports, the loop-step
-    handler's ``apply_compaction``/``extension_set_*`` ports, the
+    handler's ``extension_set_*`` ports, and ``compact_context`` to its
+    automatic-compaction port. Only the built-in ``/compact`` path uses the
+    settling ``apply_compaction`` wrapper. Other consumers include the
     extension-dispatch and provider-request/tool-policy hook seams, and the
     product-session ``_persist_compaction`` durable-append callback.
     """
@@ -142,6 +175,8 @@ class ProviderMutationEffects:
     # the session mutex, never inside it, so file I/O still never runs under
     # the session boundary.
     mutation_io_lock: "threading.RLock"
+    provider_turn_executor: ProviderTurnExecutor
+    abort_event: threading.Event | _AbortCallbackSignal | None
 
     def extension_set_active_tools(
         self, generation_id: int, tool_names: Sequence[str]
@@ -551,61 +586,169 @@ class ProviderMutationEffects:
         self.coding_state.mark_provider_unavailable(unavailable_provider)
 
     def apply_compaction(self, trigger: str) -> str:
-        """Compact the in-memory provider history at a user-turn boundary.
+        """Settle manual input: this command has no later canonical settlement.
 
-        Returns a safe diagnostic string. The cut keeps the most recent
-        turns and replaces the dropped prefix with a metadata-only summary
-        appended to the system prompt; provider/model, usage counters,
-        prompt history, and the TUI frame are all left intact. No tool
-        result is orphaned because the cut is at a user-message boundary.
+        Restore operator-aborted input for editing; otherwise release queued
+        input to the ordinary drain after the command returns. Persistence
+        exceptions still escape before settlement. Automatic work calls
+        ``compact_context`` directly and retains canonical settlement.
         """
 
+        outcome = self.compact_context(trigger)
+        if self.terminal_ui is not None:
+            pending = self.terminal_ui.components.pending_messages
+            if outcome.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT:
+                pending.restore_pending_to_editor()
+            else:
+                pending.promote_pending_to_drain()
+        return outcome.notice
+
+    def compact_context(self, trigger: str) -> CodingCompactionOutcome:
+        """Generate privately, then conditionally accept and persist one summary."""
+
         decision = self.extension_operations.session_allows(
-            "compact",
-            operation="compact",
-            trigger=trigger,
+            "compact", operation="compact", trigger=trigger
         )
         if not decision.allow:
-            reason = decision.reason or "blocked by extension"
-            return f"pipy: compact blocked by extension: {reason}"
+            return CodingCompactionOutcome(
+                f"pipy: compact blocked by extension: {decision.reason or 'blocked by extension'}"
+            )
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
-                if self.ctl.coding_effects.terminal:
-                    return "pipy: compact unavailable after session close."
-                tree = self.ctl.session_tree
-                result = compact_agent_history(
-                    self.coding_state.messages,
-                    keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
-                )
-                if not result.changed:
-                    return "pipy: nothing to compact yet."
-                projected = tree.build_coding_context()
-                first_kept = self.product_session.resolve_entry_id(
-                    result.messages[0],
-                    CodingProductSessionContext(
-                        messages=projected.messages, entry_ids=projected.entry_ids
-                    ),
-                )
-                if first_kept is None and tree.persist:
-                    return (
-                        "pipy: compact refused: retained history has no durable origin."
+                work = self._capture_compaction_locked(trigger)
+        if isinstance(work, CodingCompactionOutcome):
+            return work
+        completion = None
+        try:
+            # Capturing request headers can reach extension callbacks. It must
+            # neither hold the locks nor authorize a stale provider request.
+            header = self.extension_operations.provider_header_callback(work.tree)
+            with self.mutation_io_lock:
+                with self.ctl.generation_ref.lock:
+                    if not self._compaction_matches_locked(work):
+                        return self._stale_compaction(trigger)
+            request = compaction_request(
+                binding=work.context.binding,
+                cwd=self.cwd,
+                dropped_messages=work.context.messages[
+                    : work.cut.dropped_message_count
+                ],
+                prior_summary=work.context.summary_suffix.strip(),
+                header_callback=header,
+            )
+            provider, waiter = provider_turn_inputs(
+                work.context.binding.provider, self.terminal_ui, self.abort_event
+            )
+            completion = self.provider_turn_executor.complete(
+                provider,
+                request,
+                PrivateSummaryEvents(),
+                turn_index=0,
+                delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
+                waiter=waiter,
+            )
+        except CodingContextChangedError:
+            raise
+        except Exception:  # noqa: BLE001 - auxiliary failures have content-free notices
+            pass
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if not self._compaction_matches_locked(work):
+                    return self._stale_compaction(trigger)
+                if completion is None:
+                    return CodingCompactionOutcome(
+                        "pipy: compaction failed; context unchanged."
                     )
-                summary_block = _agent_history._agent_history_summary(result)
+                if completion.cancellation_reason is not None:
+                    return CodingCompactionOutcome(
+                        "pipy: compaction cancelled.", completion.cancellation_reason
+                    )
+                result = completion.result
+                summary = (
+                    summary_text(result)
+                    if result is not None and not result.tool_calls
+                    else None
+                )
+                if summary is None:
+                    return CodingCompactionOutcome(
+                        "pipy: compaction failed; context unchanged."
+                    )
                 action = CodingProductSessionCompaction(
-                    retained_messages=result.messages,
-                    summary_suffix=ProductContent(f"\n\n{summary_block}"),
-                    durable_summary=ProductContent(summary_block),
-                    dropped_group_count=result.dropped_group_count,
-                    measure_before=result.bytes_before,
-                    first_kept_entry_id=first_kept,
+                    retained_messages=work.cut.messages,
+                    summary_suffix=ProductContent("\n\n" + summary),
+                    durable_summary=ProductContent(summary),
+                    dropped_group_count=work.cut.dropped_group_count,
+                    measure_before=work.cut.bytes_before,
+                    first_kept_entry_id=work.first_kept_entry_id,
                 )
                 self.product_session.accept_compaction(action)
+            # Accepted state intentionally survives a persistence exception.
+            # Keep this callback outside the generation-failure handler above.
             self.product_session.persist_compaction(action)
-        return (
+        return CodingCompactionOutcome(
             f"pipy: compacted conversation context ({trigger}; dropped "
-            f"{result.dropped_group_count} earlier exchange(s), kept "
-            f"{result.retained_group_count})."
+            f"{work.cut.dropped_group_count} earlier exchange(s), kept {work.cut.retained_group_count})."
         )
+
+    def _capture_compaction_locked(
+        self, trigger: str
+    ) -> _CompactionWork | CodingCompactionOutcome:
+        if (
+            self.ctl.coding_effects.terminal
+            or self.ctl.generation_ref.publication_pending
+        ):
+            return self._stale_compaction(trigger)
+        context = self.coding_state.compaction_snapshot()
+        cut = compact_agent_history(
+            context.messages, keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS
+        )
+        if not cut.changed:
+            return CodingCompactionOutcome("pipy: nothing to compact yet.")
+        tree = self.ctl.session_tree
+        projection = tree.build_coding_context()
+        first_kept = self.product_session.resolve_entry_id(
+            cut.messages[0],
+            CodingProductSessionContext(
+                messages=projection.messages, entry_ids=projection.entry_ids
+            ),
+        )
+        if first_kept is None and tree.persist:
+            return CodingCompactionOutcome(
+                "pipy: compact refused: retained history has no durable origin."
+            )
+        return _CompactionWork(
+            context,
+            cut,
+            first_kept,
+            tree,
+            tree.mutation_epoch,
+            self.ctl.tree_pointer_epoch,
+            self.ctl.generation_ref.snapshot(),
+            self.ctl.generation_ref.publication_epoch,
+        )
+
+    def _compaction_matches_locked(self, work: _CompactionWork) -> bool:
+        if (
+            self.ctl.coding_effects.terminal
+            or self.ctl.generation_ref.publication_pending
+        ):
+            return False
+        generation = self.ctl.generation_ref.snapshot()
+        return (
+            self.coding_state.compaction_matches(work.context)
+            and self.ctl.session_tree is work.tree
+            and self.ctl.tree_pointer_epoch == work.pointer_epoch
+            and work.tree.mutation_epoch == work.tree_epoch
+            and generation.generation is work.generation.generation
+            and generation.generation_id == work.generation.generation_id
+            and self.ctl.generation_ref.publication_epoch == work.publication_epoch
+        )
+
+    @staticmethod
+    def _stale_compaction(trigger: str) -> CodingCompactionOutcome:
+        if trigger == "auto":
+            raise CodingContextChangedError()
+        return CodingCompactionOutcome("pipy: compact refused: context changed.")
 
     def append_durable_compaction(self, action: CodingProductSessionCompaction) -> None:
         """Persist the exact boundary resolved before live state acceptance."""

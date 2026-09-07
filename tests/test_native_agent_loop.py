@@ -1665,3 +1665,145 @@ def test_invalid_skipped_tool_result_stops_before_turn_completion() -> None:
     ]
     assert len(completed) == 1
     assert not any(isinstance(event, TurnCompleted) for event in events.events)
+
+
+@pytest.mark.parametrize("shape", ["neither", "both", "reason-type", "snapshot-type"])
+def test_preparation_requires_exactly_one_valid_snapshot_or_cancellation(
+    shape: str,
+) -> None:
+    active = _run_input().active_input
+    prepared = _RequestSource([]).prepare((active.accepted_message,), active, 0, ())
+    snapshot = prepared.snapshot if shape == "both" else None
+    reason = AgentCancellationReason.OPERATOR_ABORT if shape == "both" else None
+    if shape == "reason-type":
+        reason = cast(AgentCancellationReason, "operator_abort")
+    if shape == "snapshot-type":
+        snapshot = cast(AgentProviderRequestSnapshot, object())
+    with pytest.raises((TypeError, ValueError)):
+        AgentLoopRequestPreparation(prepared.history, snapshot, reason)
+
+
+@pytest.mark.parametrize("turn_index", [0, 1])
+@pytest.mark.parametrize("reason", list(AgentCancellationReason))
+def test_preparation_cancellation_uses_canonical_settlement_and_allows_next_run(
+    turn_index: int, reason: AgentCancellationReason
+) -> None:
+    order: list[str] = []
+
+    class Source(_RequestSource):
+        cancel_enabled = True
+
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            current: int,
+            definitions: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            if self.cancel_enabled and current == turn_index:
+                order.append(f"request:{current}")
+                return AgentLoopRequestPreparation(history, cancellation_reason=reason)
+            return super().prepare(history, active_input, current, definitions)
+
+    source = Source(order)
+    prior_results = (
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(calls=(_provider_call("prior-tool"),))
+            )
+        ]
+        if turn_index
+        else []
+    )
+    queued = AgentQueuedInput(
+        ProductContent("queued once"), AgentQueuedInputKind.FOLLOW_UP
+    )
+    queue = _QueuedInputs((queued,), order=order)
+    tools = _Tools(order)
+    loop, provider, events, usage = _make_loop(
+        order,
+        [*prior_results, ProviderTurnOutcome(result=_provider_result())],
+        request_source=source,
+        queued_input_port=queue,
+        tools=tools,
+    )
+    run_input = _run_input()
+    outcome = loop.run(run_input)
+    assert outcome.result.cancellation_reason is reason
+    assert provider.calls == turn_index
+    assert len(tools.executed) == turn_index
+    assert len(usage.publications) == turn_index
+    assert outcome.next_input is queued and queue.calls == 1
+    assert (
+        sum(
+            message is run_input.active_input.accepted_message
+            for message in outcome.final_history
+        )
+        == 1
+    )
+    assert (
+        sum(
+            isinstance(message, AgentToolResultMessage)
+            for message in outcome.final_history
+        )
+        == turn_index
+    )
+    assert (
+        sum(
+            isinstance(event, MessageCompleted)
+            and event.message is run_input.active_input.accepted_message
+            for event in events.events
+        )
+        == 1
+    )
+    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
+    assert order.index("event:RunCancelled") < order.index("status:provider_cancelled")
+    assert isinstance(events.events[-3], MessageCompleted)
+    assert isinstance(events.events[-2], TurnCompleted)
+    assert events.events[-2].outcome is AgentTurnOutcome.CANCELLED
+    source.cancel_enabled = False
+    resumed = loop.run(_run_input())
+    assert resumed.result.outcome is AgentRunOutcome.SUCCEEDED
+    assert provider.calls == turn_index + 1
+
+
+@pytest.mark.parametrize("history_shape", ["missing", "duplicate", "overlay"])
+def test_cancelled_preparation_validates_anchor_and_overlay_before_turn_start(
+    history_shape: str,
+) -> None:
+    class Source(_RequestSource):
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            current: int,
+            definitions: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            del history, current, definitions
+            accepted = active_input.accepted_message
+            histories = {
+                "missing": (),
+                "duplicate": (accepted, accepted),
+                "overlay": (accepted, *active_input.request_overlay),
+            }
+            return AgentLoopRequestPreparation(
+                histories[history_shape],
+                cancellation_reason=AgentCancellationReason.OPERATOR_ABORT,
+            )
+
+    order: list[str] = []
+    run_input = _run_input()
+    run_input = replace(
+        run_input,
+        active_input=AgentActiveInput(
+            run_input.active_input.accepted_message,
+            (AgentUserMessage(ProductContent("private overlay")),),
+        ),
+    )
+    loop, provider, events, usage = _make_loop(order, [], request_source=Source(order))
+    with pytest.raises(ValueError):
+        loop.run(run_input)
+    assert provider.calls == 0 and usage.publications == []
+    assert not any(
+        isinstance(event, (TurnStarted, RunCancelled)) for event in events.events
+    )

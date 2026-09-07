@@ -358,9 +358,13 @@ def test_publication_gate_opens_and_closes_around_a_publication(
     ref = SessionGenerationRef(_generation(tmp_path, "first"))
 
     assert ref.publication_pending is False
+    before = ref.publication_epoch
     with ref.publishing():
         assert ref.publication_pending is True
+        assert ref.publication_epoch > before
+        opened = ref.publication_epoch
     assert ref.publication_pending is False
+    assert ref.publication_epoch > opened
 
 
 def test_the_gate_closes_even_when_candidate_preparation_raises(
@@ -370,11 +374,13 @@ def test_the_gate_closes_even_when_candidate_preparation_raises(
 
     ref = SessionGenerationRef(_generation(tmp_path, "first"))
 
+    before = ref.publication_epoch
     with pytest.raises(RuntimeError):
         with ref.publishing():
             raise RuntimeError("candidate build failed")
 
     assert ref.publication_pending is False
+    assert ref.publication_epoch > before
 
 
 def test_the_gate_stays_open_across_the_pointer_swap(tmp_path: Path) -> None:

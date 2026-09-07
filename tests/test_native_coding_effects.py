@@ -21,6 +21,7 @@ from pipy_harness.native.agent.events import (
     AgentRunStarted,
     TurnStarted,
 )
+from pipy_harness.native.agent.provider_turn import ProviderTurnExecutor
 from pipy_harness.native.agent.usage import AgentProviderUsageSample
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
@@ -681,6 +682,8 @@ def _provider_mutation_fixture(
         refresh_footer_text=lambda: footers.append("footer"),
         extension_notify=lambda _kind, _message: None,
         mutation_io_lock=coordinator.lock,
+        provider_turn_executor=ProviderTurnExecutor(),
+        abort_event=None,
     )
     return effects, state, tools, generation_ref, coordinator, tree, footers
 

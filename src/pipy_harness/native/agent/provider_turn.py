@@ -32,10 +32,10 @@ class ProviderTurnInterruption(StrEnum):
 class ProviderTurnDeltaPolicy:
     """Select which provider delta channels receive canonical sinks.
 
-    The canonical agent loop uses both channels. Compatibility runtimes may
-    disable a channel only when their established provider contract was
-    buffered or text-only; disabled channels are passed to the provider as
-    ``None`` rather than as no-op callables.
+    The canonical agent loop uses both channels. Compatibility runtimes preserve
+    their buffered or text-only contracts; private auxiliary summaries disable
+    both channels. Disabled channels are passed to the provider as ``None``
+    rather than as no-op callables.
     """
 
     text: bool = True

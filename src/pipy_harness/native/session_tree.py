@@ -818,7 +818,12 @@ def _guarded_tree_api(
 
 @dataclass
 class NativeSessionTree:
-    """In-memory manager for one native product session file."""
+    """In-memory manager for one native product session file.
+
+    The mutation epoch shares the tree guard with entries and leaf selection;
+    load, append and navigation advance it before fallible work. Auxiliary
+    summaries read it through ``mutation_epoch`` to detect restored leaves too.
+    """
 
     header: SessionHeader
     path: Path | None
@@ -834,6 +839,7 @@ class NativeSessionTree:
     _write_lock: threading.RLock = field(
         default_factory=threading.RLock, repr=False, compare=False
     )
+    _mutation_epoch: int = field(default=0, init=False, repr=False, compare=False)
 
     MAX_NAME_LENGTH: ClassVar[int] = 200
 
@@ -971,10 +977,18 @@ class NativeSessionTree:
     def mutation_lock(self) -> threading.RLock:
         return self._write_lock
 
+    @property
+    @_guarded_tree_api
+    def mutation_epoch(self) -> int:
+        """Invalidate auxiliary work even when a leaf is changed back."""
+
+        return self._mutation_epoch
+
     # -- internal load ------------------------------------------------------
 
     @_guarded_tree_api
     def _load_entries(self, entries: Iterable[SessionEntry]) -> None:
+        self._mutation_epoch += 1
         for entry in entries:
             self.entries.append(entry)
             self.by_id[entry.id] = entry
@@ -1014,6 +1028,7 @@ class NativeSessionTree:
 
     @_guarded_tree_api
     def _append_entry(self, entry: _SessionEntryT) -> _SessionEntryT:
+        self._mutation_epoch += 1
         self.entries.append(entry)
         self.by_id[entry.id] = entry
         self.leaf_id = entry.id
@@ -1202,16 +1217,19 @@ class NativeSessionTree:
     def branch(self, branch_from_id: str) -> None:
         if branch_from_id not in self.by_id:
             raise KeyError(f"entry {branch_from_id} not found")
+        self._mutation_epoch += 1
         self.leaf_id = branch_from_id
 
     @_guarded_tree_api
     def reset_leaf(self) -> None:
+        self._mutation_epoch += 1
         self.leaf_id = None
 
     @_guarded_tree_api
     def set_leaf(self, leaf_id: str | None) -> None:
         if leaf_id is not None and leaf_id not in self.by_id:
             raise KeyError(f"entry {leaf_id} not found")
+        self._mutation_epoch += 1
         self.leaf_id = leaf_id
 
     @_guarded_tree_api
@@ -1220,6 +1238,7 @@ class NativeSessionTree:
     ) -> BranchSummaryEntry:
         if branch_from_id is not None and branch_from_id not in self.by_id:
             raise KeyError(f"entry {branch_from_id} not found")
+        self._mutation_epoch += 1
         self.leaf_id = branch_from_id
         entry = BranchSummaryEntry(
             id=self._next_id(),

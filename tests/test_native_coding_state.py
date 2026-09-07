@@ -1555,3 +1555,11 @@ def test_run_witness_readers_and_lifecycle_use_shared_mutex() -> None:
     assert _blocks_while_lock_held(lock, state.capture_run_context)
     assert _blocks_while_lock_held(lock, lambda: state.validate_run_context(context))
     assert _blocks_while_lock_held(lock, lambda: state.end_agent_run(witnesses[0]))
+
+
+def test_compaction_snapshot_readers_take_the_shared_mutex() -> None:
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+    snapshot = state.compaction_snapshot()
+    assert _blocks_while_lock_held(lock, state.compaction_snapshot)
+    assert _blocks_while_lock_held(lock, lambda: state.compaction_matches(snapshot))

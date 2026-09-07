@@ -36,6 +36,7 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchKind,
     ResourceDispatchResolution,
 )
+from pipy_harness.native.coding.compaction import build_summary_request, summary_text
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.coding.state import CodingSessionState
@@ -377,23 +378,20 @@ class SessionCollaborators:
         )
         if focus:
             instruction += f" Focus on: {focus}."
-        request = ProviderRequest(
-            system_prompt=instruction,
+        binding = self.coding_state.provider_binding
+        request = build_summary_request(
+            instruction=instruction,
             user_prompt="Provide the branch summary now.",
-            provider_name=self.coding_state.provider_name,
-            model_id=self.coding_state.model_id,
+            binding=binding,
             cwd=self.cwd,
             messages=tuple(branch_messages),
-            available_tools=(),
-            provider_header_callback=self.active_provider_header_callback(),
+            header_callback=self.active_provider_header_callback(),
         )
         try:
-            result = self.coding_state.provider.complete(request)
+            result = binding.provider.complete(request)
         except Exception:  # noqa: BLE001 - never crash the REPL
             return None
-        if result.status != HarnessStatus.SUCCEEDED:
-            return None
-        return (result.final_text or "").strip() or None
+        return summary_text(result)
 
     def active_provider_header_callback(
         self,

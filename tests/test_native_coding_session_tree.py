@@ -1584,12 +1584,7 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
         if isinstance(entry.message, AgentUserMessage)
     ]
     assert compaction.first_kept_entry_id == users_before[-2].id
-    assert compaction.summary == (
-        "[Context compacted to save space: 2 earlier exchange(s) "
-        "(2 assistant turn(s), 0 tool call(s)) were summarized and removed "
-        "from this request. Their details are no longer available; continue "
-        "from the retained recent turns below.]"
-    )
+    assert compaction.summary == "SEEN:a,b,Provide the combined context summary now."
     canonical_messages_before: list[AgentMessage] = []
     for entry in messages_before:
         if isinstance(

@@ -315,6 +315,14 @@ append failure propagates without rollback. Every destination rebuild replaces
 the branch summary while preserving current-run counters; a new run restores
 summary context with fresh counters.
 
+Before that acceptance, semantic compaction summarizes the previous summary and
+exact dropped prefix through the run's canonical provider executor. Tree
+mutation/navigation and active-pointer epochs join the guarded state/generation
+snapshot: equal writes, restored leaves and refused publication windows invalidate
+pending summaries. Failed, cancelled or stale generation appends no compaction
+entry. The accepted summary remains full-content private product data; native
+JSONL and other tree projections retain their existing format.
+
 Canonical tool results require both the provider correlation id and tool name.
 The stable JSON format does not add a `tool_name` field: reload resolves it from
 the matching assistant tool call on that result's own parent chain. A historical

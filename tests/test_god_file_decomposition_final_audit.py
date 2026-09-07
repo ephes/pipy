@@ -40,6 +40,7 @@ MEMBER_LIST = {
     ),
     "RunControlState": (
         "_session_tree",
+        "_tree_pointer_epoch",
         "agent_settled_pending",
         "coding_effects",
         "extension_in_agent_turn",
@@ -1358,6 +1359,12 @@ ALLOWED_WRITES = {
     ),
     _Access(
         "RunControlState",
+        "_tree_pointer_epoch",
+        "pipy_harness.native.repl.loop_scope",
+        "write",
+    ),
+    _Access(
+        "RunControlState",
         "agent_settled_pending",
         "pipy_harness.native.repl.loop_step",
         "write",
@@ -1471,6 +1478,7 @@ from dataclasses import dataclass
 class RunControlState:
     coding_effects: object
     _session_tree: object
+    _tree_pointer_epoch: int
     tree_filter_mode: str
     pending_prefill: str | None
     package_roots: object
@@ -2331,7 +2339,7 @@ def test_field_inventory_rejects_a_second_definition_owner(tmp_path: Path) -> No
     ("target", "relative", "expected_count"),
     [
         ("TerminalUi", "pipy_harness/native/tui.py", 9),
-        ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 10),
+        ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 11),
         ("CodingSession", "pipy_harness/native/coding/session.py", 24),
     ],
 )

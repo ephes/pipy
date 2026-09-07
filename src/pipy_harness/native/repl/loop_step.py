@@ -8,7 +8,6 @@ single shared ``scope.ctl`` instance; no phase snapshots or copies it.
 
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -29,9 +28,6 @@ from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInpu
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnOutcome,
     ProviderTurnWaiter,
-    _AbortCallbackSignal,
-    _StartGatedProvider,
-    _wait_for_external_abort,
 )
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.agent.runtime_ports import AgentQueuedInput
@@ -51,6 +47,7 @@ from pipy_harness.native.coding.commands import (
     CommandDispatchResolution,
     CommandDispatchResolutionKind,
 )
+from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.result import (
     CodingSessionResult,
@@ -91,6 +88,7 @@ from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_MAX_MESSAGES,
     finish_chrome_retirement,
     pricing_for,
+    provider_turn_inputs,
     raise_first,
     wait_for_provider_interrupt,
     wait_for_tool_interrupt,
@@ -195,8 +193,12 @@ class _RequestPreparationEffects:
     ) -> AgentLoopRequestPreparation:
         scope = self.accepted.turn_input.turn.scope
         scope.coding_state.mirror_history(history)
-        self._compact_if_needed()
+        compaction = self._compact_if_needed()
         context = scope.coding_state.capture_run_context()
+        if compaction is not None and compaction.cancellation_reason is not None:
+            return AgentLoopRequestPreparation(
+                context.messages, cancellation_reason=compaction.cancellation_reason
+            )
         snapshot = scope.provider_request_policy.prepare(
             AgentProviderRequestPolicyInput(
                 baseline=self._provider_request(
@@ -211,25 +213,26 @@ class _RequestPreparationEffects:
         scope.coding_state.validate_run_context(context)
         return AgentLoopRequestPreparation(context.messages, snapshot)
 
-    def _compact_if_needed(self) -> None:
+    def _compact_if_needed(self) -> CodingCompactionOutcome | None:
         scope = self.accepted.turn_input.turn.scope
         if not scope.settings.get_compaction_enabled():
-            return
+            return None
         if not should_compact_agent_history(
             scope.coding_state.messages,
             max_messages=AGENT_HISTORY_MAX_MESSAGES,
             max_bytes=AGENT_HISTORY_MAX_BYTES,
             keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
         ):
-            return
-        notice = scope.apply_compaction("auto")
+            return None
+        outcome = scope.apply_compaction("auto")
         emit_diagnostic(
             scope.terminal_ui.components.transcript
             if scope.terminal_ui is not None
             else None,
             scope.error_stream,
-            notice,
+            outcome.notice,
         )
+        return outcome
 
     def _provider_request(
         self,
@@ -285,18 +288,9 @@ class _ProviderTurnCompletion:
         scope = self.turn.scope
         abort_event = scope.abort_event
         assert abort_event is not None
-        provider_start_event = None
-        if isinstance(abort_event, _AbortCallbackSignal):
-            provider_start_event = threading.Event()
-            provider_for_turn = _StartGatedProvider(
-                provider_for_turn, provider_start_event
-            )
-        waiter = partial(
-            _wait_for_external_abort,
-            abort_event,
-            provider_start_event,
-        )
-        return provider_for_turn, waiter
+        provider, waiter = provider_turn_inputs(provider_for_turn, None, abort_event)
+        assert waiter is not None
+        return provider, waiter
 
 
 def _phase_a_unpack_and_prefill(scope: ReplLoopScope) -> _TurnScope:

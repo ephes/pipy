@@ -46,10 +46,6 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     UsageUpdated,
 )
-from pipy_harness.native.agent.history import (
-    AgentHistoryCompaction,
-    _agent_history_summary,
-)
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
 from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
@@ -978,29 +974,6 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
         "session_effects",
         "transfer_effects",
     ]
-
-
-def test_changed_agent_history_compaction_has_nonempty_product_summary() -> None:
-    result = AgentHistoryCompaction(
-        messages=(),
-        changed=True,
-        dropped_group_count=1,
-        dropped_message_count=3,
-        dropped_user_count=1,
-        dropped_assistant_count=1,
-        dropped_tool_call_count=1,
-        dropped_tool_result_count=1,
-        retained_group_count=2,
-        retained_message_count=4,
-        bytes_before=100,
-        bytes_after=40,
-    )
-
-    summary = _agent_history_summary(result)
-
-    assert summary
-    assert "1 earlier exchange(s)" in summary
-    assert "1 assistant turn(s), 1 tool call(s)" in summary
 
 
 def test_composition_keeps_callback_counters_and_rebinds_final_history(

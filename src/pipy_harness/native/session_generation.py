@@ -1043,7 +1043,13 @@ class SessionGenerationRef:
     callback on a retired generation cannot run inside the critical section.
     """
 
-    __slots__ = ("_lock", "_generation", "_generation_id", "_publication_pending")
+    __slots__ = (
+        "_lock",
+        "_generation",
+        "_generation_id",
+        "_publication_pending",
+        "_publication_epoch",
+    )
 
     def __init__(
         self,
@@ -1059,6 +1065,7 @@ class SessionGenerationRef:
         self._generation: SessionExtensionGeneration | None = generation
         self._generation_id = 0
         self._publication_pending = False
+        self._publication_epoch = 0
 
     @property
     def lock(self) -> "threading.RLock":
@@ -1247,6 +1254,13 @@ class SessionGenerationRef:
         return None, retired_chrome
 
     @property
+    def publication_epoch(self) -> int:
+        """Identify publication windows even when a candidate is refused."""
+
+        with self._lock:
+            return self._publication_epoch
+
+    @property
     def publication_pending(self) -> bool:
         """Whether a reload is between reading live state and publishing it."""
 
@@ -1273,9 +1287,11 @@ class SessionGenerationRef:
         """
 
         with self._lock:
+            self._publication_epoch += 1
             self._publication_pending = True
         try:
             yield
         finally:
             with self._lock:
+                self._publication_epoch += 1
                 self._publication_pending = False
