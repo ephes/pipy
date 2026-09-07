@@ -46,3 +46,9 @@ surfaces:
 5. [Automation & RPC](automation-rpc.md)
 6. [TUI Workflow](tui-workflow.md)
 7. [Export & Distribution](export-distribution.md)
+
+## Contributor planning
+
+[Integrated planning](backlog.md) owns the current direction, thread tasks,
+dependencies and commit/review workflow. Historical comparisons and completed
+implementation records do not define another active queue.

@@ -84,11 +84,16 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    the open lessons and proceed; the run-end backstop drains the rest.
    *Done-when:* either the count was below threshold (noted, proceeding), or it
    met the threshold and `parity-improve` drove the open count to zero.
-1. **Select the gap.** Read `docs/pi-mono-gap-audit.md` (ranked) and
-   `docs/backlog.md`; pick the highest-value incomplete slice, or accept an
-   operator-supplied gap. Confirm it is a single reviewable slice (decompose if
-   not). *Done-when:* one named gap with a one-paragraph scope and the relevant
-   `~/src/pi-mono` reference path(s).
+1. **Select the gap.** Read `docs/backlog.md` as the sole active task index.
+   Use `docs/pi-mono-gap-audit.md` and `docs/parity-plan.md` as historical
+   comparison evidence, not competing queues. Select one ready implementation
+   gap from the index, or accept an operator-supplied gap. Read-only investigation
+   tasks are not implementation gaps. If neither is available, report that there
+   is no eligible task and stop; do not promote an audit into implementation or
+   choose an old historical ranking automatically. Confirm the selected gap is
+   a single reviewable slice (decompose if not). *Done-when:* one named gap with a one-paragraph scope and the relevant
+   `~/src/pi-mono` reference path(s), or an explicit report that no eligible
+   implementation gap exists.
 2. **Plan.** Read the pi-mono reference; write a short design/plan (what Pi does,
    how pipy matches it through pipy-owned Python boundaries, constraints from
    `AGENTS.md`). **Write the plan to a file** so it is reviewable. *Done-when:* a

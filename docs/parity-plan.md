@@ -1,61 +1,34 @@
-# Pipy → Pi Real Parity Plan
+# Historical Pi parity inventory
 
-Status: historical parity plan written 2026-06-02 and last matrix-validated
-through 2026-07-16 against local Pi main `b084d2fb` (`0.80.6` plus 2026-07-13
-unreleased changes) at `/Users/jochen/src/pi-mono`. Those matrices remain useful
-baseline evidence; they have not been revalidated row by row against current Pi.
+Status: historical matrices written 2026-06-02 and last matrix-validated through
+2026-07-16 against Pi `b084d2fb` (0.80.6 plus then-unreleased changes). The July
+comparison used `7df73a00c6cf85c000bf1ce1594c9284067a92f0` / 0.82.0. Neither
+snapshot is a claim of current row-by-row parity.
 
-The current comparison reference is clean Pi main
-`7df73a00c6cf85c000bf1ce1594c9284067a92f0`, coding-agent version `0.82.0`.
-Use the [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md)
-and [Pi-Mono Gap Audit](pi-mono-gap-audit.md) for current selection, after the
-queued reload-contract reconciliation. This document remains the policy and
-matrix index for reaching **real feature parity** with Pi. Use it to answer
-two questions at any time:
+[Integrated planning](backlog.md) is the sole active direction and task queue.
+The user selected dependable daily-use capability rather than full Pi feature
+coverage on 2026-09-07. This supersedes this document's former rule that every Pi
+surface is an implementation target. Old targets, rankings and next-step wording
+below are historical inventory, not work authorization. Reload reconciliation
+and the architecture programs are complete.
 
-1. What does Pi do that pipy does not yet do? (the parity gaps)
-2. What does pipy do that Pi does not do, and should it stay? (the accidental
-   surfaces)
+## Policy for selected surfaces
 
-It supersedes the older "we diverge for privacy" framing wherever that framing
-was used to justify not matching Pi.
+For a selected feature, Pi remains the reference for command names, flags and
+specified behavior. Keep pipy-native as the Python product runtime. Do not add
+aliases/deprecation shims when replacing pipy-only surfaces. Retaining this
+inventory does not authorize removing an unrelated surface or adding every Pi
+feature.
 
-## Guiding Principle
+Full private conversation history belongs to native product sessions. The
+separate metadata-only workflow archive is not a substitute for product memory.
+Credentials and secrets must not enter session files, event streams, exports or
+shared artifacts. Existing trust and privacy contracts remain in force.
 
-Pipy is a Python slopfork of Pi. The product target is **Pi-class capability
-with Pi-equivalent behavior**, reached through pipy-owned Python boundaries.
-
-Two rules drive every decision below:
-
-- **Match Pi.** A surface that exists in Pi is a parity target until pipy has a
-  comparable end-user workflow. Pi command names, flags, modes, session
-  semantics, and data captured are the reference.
-- **Remove pipy-only accretions.** A surface that exists only in pipy and not in
-  Pi is removed from the product (and from the docs/specs that present it as a
-  feature) unless there is a genuinely good reason to keep it. **Privacy and
-  security are explicitly not good reasons.** Pi stores full session
-  transcripts, streams full session events, and exports full sessions; pipy's
-  "metadata-first" posture is a pipy preference, not a parity virtue, and must
-  not be used to justify diverging from Pi.
-
-### Architectural constraints that are NOT divergences
-
-These stay in force. They are engineering constraints on *how* pipy reaches
-parity, not feature differences from Pi, so they are never grounds to skip a
-parity target:
-
-- **Python, pipy-owned boundaries.** Not a TypeScript port, not a wrapper around
-  Pi/Codex/Claude. Pi's lifecycle, names, and semantics are the reference; the
-  implementation is idiomatic Python.
-- **Standard-library-first transports; no provider SDKs.** Provider adapters
-  use `urllib` + stdlib `json` and no vendor SDKs; the OpenAI Codex WebSocket
-  transport uses the bounded declared `websockets` dependency. No pydantic,
-  jsonschema, attrs, httpx, boto3, vendor SDKs, or TUI frameworks are added
-  without a separately reviewed dependency decision.
-- **Credential hygiene.** Auth tokens, API keys, OAuth refresh material, and
-  secrets are never written to session files, event streams, exports, or shared
-  artifacts. This is standard hygiene that Pi also observes — it is not the
-  "metadata-first" divergence and does not reduce captured conversation content.
+Provider transports remain standard-library-first with the existing bounded
+WebSocket dependency. New libraries, provider SDKs or TUI frameworks need their
+own reviewed dependency decision. Existing Python ownership boundaries remain
+engineering requirements for the selected work.
 
 ## 1. Slash-command parity matrix
 

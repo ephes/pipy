@@ -100,7 +100,7 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # of the import DAG, which means nothing gates what it accretes.
 #
 # These bounds are the mass gate for the god-file decomposition
-# (docs/plans/2026-08-03-god-file-decomposition-plan.md). Lower them in any
+# (docs/architecture.md). Lower them in any
 # slice that shrinks a file; never raise one. A slice that needs a bound raised
 # is a slice that put code back.
 _SIZE_RATCHET = {

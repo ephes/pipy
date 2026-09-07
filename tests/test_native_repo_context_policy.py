@@ -114,12 +114,9 @@ def test_session_storage_matches_repo_context_archive_boundary():
     )
 
 
-def test_backlog_records_repo_context_policy_as_done():
-    backlog = read_repo_file("docs/backlog.md")
-    done = backlog[: backlog.index("## Next Slice")]
-
-    assert "Native provider-visible repo context policy" in done
-    assert "### Provider-Visible Repo Context Policy" not in backlog
+def test_repo_context_policy_is_documented_in_its_runtime_contract():
+    spec = read_repo_file("docs/harness-spec.md")
+    assert "### Provider-Visible Repo Context Policy" in spec
 
 
 def test_provider_visible_repo_context_policy_remains_narrow_in_native_runtime():

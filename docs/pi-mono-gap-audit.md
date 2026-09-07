@@ -5,7 +5,7 @@ input, not authorization to implement a gap inside the architecture closeout.
 
 Current selection note (2026-09-07): the reload and decomposition prerequisites
 below are complete. Use the
-[daily-use harness plan](plans/2026-09-07-daily-use-harness-design.md) for the
+[integrated planning basis](backlog.md) for the
 latest local Pi/tau comparison and proposed priority order. This page retains
 its July reference snapshot; its counts and next-slice pointers are historical.
 
@@ -21,9 +21,9 @@ node -p "require('/Users/jochen/src/pi-mono/packages/coding-agent/package.json')
 
 This page is a selection aid, not an implementation plan and not a claim of
 line-by-line TypeScript parity. Detailed pipy behavior remains owned by the
-topic specs and conformance gates. The reviewed
-[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-is completed/reconciled historical evidence.
+topic specs and conformance gates. The completed architecture-quality program is recorded in the
+[dated assessment](2026-07-29-architecture-quality-assessment.md); its removed
+execution plan remains in Git history.
 
 The final integration ledger is closed/reconciled at reviewed endpoint
 `87c6f887f4afb719da89e68074551e9b8786ac1d`: 13 program/integration commits
@@ -125,7 +125,7 @@ deltas—not the active queue by default.
 | Usage/session refinements | Pi persists tool, compaction, and branch-summary usage in session totals and isolates summary requests with fresh routing session IDs and cache writes disabled. | **Partial.** Pipy tracks agent/provider usage and durable compaction metadata but should be compared with exact product-session totals and summary request/cache semantics before claiming equivalence. Keep accounting and routing/cache policy as separate slices if both differ. |
 | Smaller 0.81–0.82 fixes | Literal bracketed scoped-model IDs, `/model` reloading changed `models.json`, model catalog startup refresh timing, Wayland clipboard fallback, loaded llama output limits, and release packaging/catalog freshness. | **Groom individually.** Some are applicable correctness fixes, some concern Pi-only packaging/provider surfaces, and none should be bundled into the architecture program. |
 
-## Recommended queue after the architecture program
+## Historical queue recommendation (superseded)
 
 First complete or formally reconcile the bounded transactional reload contract
 identified by the 2026-07-29 assessment. Only then select product work. The

@@ -477,10 +477,8 @@ def test_explicit_file_excerpt_result_separates_in_memory_text_from_metadata():
 
 def test_explicit_file_excerpt_tool_boundary_is_documented():
     spec = (ROOT / "docs/harness-spec.md").read_text(encoding="utf-8")
-    backlog = (ROOT / "docs/backlog.md").read_text(encoding="utf-8")
     storage = (ROOT / "docs/session-storage.md").read_text(encoding="utf-8")
     compact_spec = " ".join(spec.split())
-    compact_backlog = " ".join(backlog.split())
     compact_storage = " ".join(storage.split())
 
     assert "### Native Explicit File Excerpt Tool" in spec
@@ -496,16 +494,6 @@ def test_explicit_file_excerpt_tool_boundary_is_documented():
     assert "fuller ignore semantics remain deferred" in spec
     assert "metadata helper" in spec
     assert "excludes raw excerpt text" in spec
-
-    done = backlog[: backlog.index("## Next Slice")]
-    assert "Native explicit file excerpt read-only tool implementation" in done
-    assert (
-        "bounded post-tool provider turn against synthetic sanitized observations"
-        in compact_backlog
-    )
-    assert (
-        "Native bounded read-only tool observation into follow-up provider turn" in done
-    )
 
     assert (
         "explicit file excerpt tool keeps successful excerpt text in memory only"

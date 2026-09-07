@@ -9,16 +9,19 @@ sessions, automation modes, extensions, and terminal UI. `pipy_session` is a
 separate metadata-only workflow archive and catalog.
 
 Historical architecture-quality measurements, review evidence, and migration
-disposition are preserved in the
+disposition are preserved in the retained
 [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
+Completed program execution plans are recoverable through Git history; they are
+not dependencies of this overview.
 
 The bounded transactional-reload correctness boundary, comparative-review
 remediation queue (including T1 and C1), and god-file decomposition program are
 complete. The
-[2026-09-07 daily-use harness plan](plans/2026-09-07-daily-use-harness-design.md)
+[integrated planning basis](backlog.md)
 compares the current implementation with Pi and tau and proposes context
 continuity, shared product-session control, and recovery as the next priorities.
-The [Backlog](backlog.md) owns the current queue. The package
+That index owns direction, task dependencies and dispatch; this overview owns
+current architecture. The package
 metadata's native coding-agent description matches this architecture and stays
 unchanged; version/distribution identity, license/URLs, and wheel verification
 remain release-triggered while the project is private.
@@ -1084,7 +1087,33 @@ added. Polling/deadline sleeps remain safety bounds, not sequencing. Real-PTY
 and effect-layer tests protect these handshakes, nested key handling, and
 restoration.
 
+## Dependency decisions
+
+Do not hide runtime dependency expansion in a refactor. A new runtime dependency
+requires a separate ADR at `docs/decisions/YYYY-MM-DD-<slug>.md`, with Status,
+Context, Decision, Alternatives, Consequences, and Verification/Reversal.
+Link it from the selected backlog task, run `just docs-build`, and obtain the
+same independent review as other architecture changes. Keep existing Python
+boundaries and the current dependency posture until that decision is accepted.
+
 ## Executable architecture gates
+
+The completed decomposition's existing size ratchets remain in
+`tests/test_architecture_quality_gates.py`: 580 physical lines for `native/tui.py`,
+336 for `native/coding/session.py`, and the separately enumerated native-owner
+limits. Their purpose is to prevent regrowth after extraction, not to initiate
+another size-driven program. `tests/test_architecture_import_boundaries.py`
+forbids a `native.ui` back-edge into `native.tui` or session/repl internals:
+otherwise moving an owner into the UI package could recreate the same cycle.
+Keep these executable limits and import rules; new work does not add arbitrary
+shape gates.
+
+`pyproject.toml` retains the exact Ruff additions `C901`, `I001`, `UP035`,
+`B008`, `B905`, and `BLE001` for complexity, import ordering/modern imports,
+call defaults, zip-length intent, and broad exception handling. Broad category
+selection would change the agreed gate scope; the focused configuration tests
+preserve those exact rules. The historical measurements below describe earlier
+checkpoints, while the current configuration and executable tests own the gates.
 
 `tests/test_architecture_import_boundaries.py` statically rejects forbidden
 imports without importing product entrypoints. It activates package- and

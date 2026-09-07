@@ -68,7 +68,9 @@ the explicit next slice; ordinary product-parity selection is no longer blocked
 by an unimplemented reload residual once that gate commits.
 
 This is the durable closeout assessment for the
-[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
+Architecture Quality Improvement Program. Its completed execution plan remains
+in Git history (`git log --all -- docs/specs/2026-07-24-architecture-quality-improvement-plan.md`).
+This is historical evidence; [integrated planning](backlog.md) owns selection.
 It separates verified facts, intentional product differences, actual gaps, and
 queued recommendations. It does not authorize product-parity implementation.
 

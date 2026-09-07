@@ -1016,7 +1016,7 @@ ARCHITECTURE_RULES = (
             "program exists to break: `tui.py`'s owners move *into* `native.ui`, "
             "so a new module there importing `tui` would recreate the cycle one "
             "extraction at a time while every individual slice still looked "
-            "green (docs/plans/2026-08-03-god-file-decomposition-plan.md)."
+            "green (docs/architecture.md)."
         ),
     ),
     BoundaryRule(

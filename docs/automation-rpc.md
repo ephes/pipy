@@ -559,7 +559,7 @@ server's reported flag only; it does not change the coding session's compaction
 settings. Likewise `set_auto_retry` records a flag without enabling a retry loop,
 and `abort_retry` is currently a no-op. These controls need the shared product
 session owner proposed in the
-[daily-use harness plan](plans/2026-09-07-daily-use-harness-design.md).
+[integrated planning basis](backlog.md).
 
 Target behavior: `compact` performs context compaction and returns a
 `CompactionResult`, bracketed by `compaction_start` / `compaction_end` events.

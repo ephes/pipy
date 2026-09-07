@@ -1,44 +1,21 @@
 # Pi Parity And Differences
 
-Status: current slopfork map for the Python `pipy` runtime compared with the
-local Pi reference in `/Users/jochen/src/pi-mono`.
+Status: feature map with historical comparison snapshots. Current priorities,
+reference commits and thread tasks live only in [integrated planning](backlog.md).
 
-Pipy is a Python slopfork inspired by Pi. The goal is Pi-class local
-coding-agent usefulness — including the terminal UI — through pipy-owned
-Python boundaries. It is not a literal port of Pi's TypeScript packages or
-extension implementation. Selection is capability-first, while Pi command
-names and flags remain the reference wherever user-visible behavior specifies
-them.
+Pipy targets dependable Pi-class daily coding through its native Python runtime,
+with selective feature coverage. Full Pi parity is not required. Pi remains the
+reference for the behavior of selected interfaces; Python extension boundaries
+and the implementation need not copy Pi's TypeScript layout.
 
-**Parity stance (2026-06-02):** real parity means Pi-equivalent *behavior*,
-including Pi's storage and output model. The latest ranked comparison snapshot
-against `/Users/jochen/src/pi-mono` is
-[Pi-Mono Gap Audit](pi-mono-gap-audit.md). Where this doc previously framed pipy's
-"metadata-first" archive as a deliberate divergence, that framing is retired:
-the metadata-only archive is a pipy-specific layer, not a parity virtue, and is
-not a reason to diverge from Pi. The full-transcript native session tree
-(`docs/session-tree.md`) is the product session store, and full session content
-is streamed (`docs/automation-rpc.md`) and exported (`docs/export-distribution.md`)
-like Pi. See [parity-plan.md](/parity-plan/) for the full plan and the list of
-accidental pipy-only surfaces being removed or realigned.
+The [historical parity inventory](parity-plan.md) and
+[July gap audit](pi-mono-gap-audit.md) retain comparison evidence; their old
+rankings and next-step language do not own current selection. Native product
+sessions retain full content, while the optional metadata-only workflow archive
+remains separate. Existing trust and credential hygiene still apply.
 
-**Current delta note (2026-07-29):** the exact local Pi reference is clean
-main `7df73a00c6cf85c000bf1ce1594c9284067a92f0`, coding-agent version
-`0.82.0`. GPT-5.6 Sol/`max`, RPC `get_entries`/`get_tree`, and the true-idle
-`agent_settled` event (on both the `--mode rpc` and `--mode json` streams)
-shipped 2026-07-14. The project-trust design, trust-core/settings-resource
-gate, interactive/package management integration, and extension-owned trust
-decision/read APIs, request-scoped extension `before_provider_headers`
-mutation, and the extension-surface true-idle `agent_settled` hook now ship.
-Durable extension entry renderers and cache-friendly dynamic tool loading for
-Anthropic plus OpenAI/Codex Responses now also ship. Kimi deferred tools and
-bare-update/config semantics remain real gaps. The detailed ranked queue in
-[backlog.md](backlog.md) and
-[pi-mono-gap-audit.md](pi-mono-gap-audit.md) supersedes older broad status
-wording in this map. Current high-confidence gaps also include Pi's default
-parallel tool execution with per-tool sequential overrides, and direct RPC bash
-correlated updates plus actual `abort_bash` cancellation; pipy is sequential and
-cannot externally cancel a running direct RPC bash command.
+The older feature notes below are not a fresh parity measurement. Confirm a
+selected task against source/tests and the integrated index before dispatch.
 
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare
@@ -113,7 +90,7 @@ This is an input gate, not a sandbox.
 | Workspace skills and prompt templates | Implemented Pi-parity pass | The `skills`, `prompt_templates`, and shared `_resource_files` discovery modules were reintroduced **with** a runtime consumer (the prior 2026-05-26 audit cleanup had removed them as dead code). `/skill [<name>]` lists and runs workspace/global skills, and each discovered prompt template is invokable as its own `/<template-name> [args]` command, in the product tool-loop REPL via `pipy_harness.native.resources`; only safe metadata (path label, sha256, byte length, truncated, name) reaches the archive. Discovery enforces secret-shaped-name, binary-content, ignored/generated, oversized, and symlink-escape rejection. (The 2026-06-20 cleanup kept `/skill` but removed the pipy-only `/template` wrapper — Pi has no literal `/template` — so templates now register as `/<name>` like Pi.) pipy's own system-prompt skill advertisement is now wired: when the `read` tool is available, discovered skills are advertised in the tool-loop system prompt as `<available_skills>` entries (per-skill `<name>`, `<description>`, and absolute `<location>`, XML-escaped, matching Pi's `formatSkillsForPrompt`), each skill's parent directory is added to the read-only reference roots, and the model loads a skill body on demand via `read` (including global skills outside the workspace). The archive-safe skill metadata is unchanged (path label, sha256, byte length, truncated, name only). |
 | Custom slash commands | Implemented Pi-parity pass | The `custom_commands` discovery module is reintroduced with a dispatcher consumer: workspace/global `.pipy/commands/<name>.md` files run as `/<name>` through the same local-command boundary as built-ins (reserved built-in names cannot be shadowed), expanding `$ARGUMENTS`/`$1..$9` into a bounded provider turn. Valid custom commands appear in the product tool-loop TUI slash menu. Unsupported/unsafe commands fail closed with no provider turn. |
 | Themes / color schemes | Implemented | `pipy_harness.native.themes` is the palette registry (`pi` default plus `high-contrast` and `ocean`) behind `chrome.ChromeStyle`, which renders through the active `ChromePalette`. Theme selection lives in the `/settings` dialog (a theme row + picker, matching Pi, which has no `/theme` command — the pipy-only `/theme` command was removed outright in the 2026-06-20 cleanup); the chosen theme persists to a non-secret `NativeThemeStore` and resolves per render through `PIPY_THEME` (env override > store > default), so the next chrome frame repaints with the new palette. The palette only changes *which* ANSI codes are emitted: `chrome_style_for` decides color enablement (NO_COLOR / non-TTY → plain) before a palette is consulted, so a theme never overrides the no-color contract. Behavior check: `scripts/parity_checks/theme_behavior.py`. |
-| Streaming provider output | Implemented in REPL | The [Streaming Output Parity Track](backlog.md#streaming-output-parity-track) closed parity-criterion row C14. `ProviderPort.complete(..., stream_sink=...)` exposes an optional synchronous chunk sink; `OpenAICodexResponsesProvider` forwards each parsed `response.output_text.delta` event through it. In real TTY tool-loop sessions, `TuiToolLoopRenderer` routes streaming text into the active assistant-output region and clears the transient working region. Captured streams keep the deterministic `_ToolLoopRenderer` fallback and `pipy run --stream` keeps the stdout/stderr split for automation use. |
+| Streaming provider output | Implemented in REPL | The [streaming output contract](harness-spec.md) closed parity-criterion row C14. `ProviderPort.complete(..., stream_sink=...)` exposes an optional synchronous chunk sink; `OpenAICodexResponsesProvider` forwards each parsed `response.output_text.delta` event through it. In real TTY tool-loop sessions, `TuiToolLoopRenderer` routes streaming text into the active assistant-output region and clears the transient working region. Captured streams keep the deterministic `_ToolLoopRenderer` fallback and `pipy run --stream` keeps the stdout/stderr split for automation use. |
 | Tool call / output rendering | Pi-shape inline blocks + TUI frame | Real TTY tool-loop sessions render tool calls/results into the TUI history region through `TerminalUi`, while captured streams still use `_ToolLoopRenderer`'s readable stderr blocks. Successful read calls collapse to the compact shaded `read <path>` row; non-read result previews remain bounded. Errors are tagged, long result bodies are bounded, ANSI styling is gated on TTY detection and `NO_COLOR`, and captured logs stay readable. |
 | Cross-repo read-only inspection | Reference-root tools | Model-driven `read`/`ls`/`grep`/`find` accept absolute paths under the workspace or any configured read-only reference root. Roots come from repeated `--read-root <PATH>` CLI flags, the `PIPY_READ_ROOTS=:`-separated env var, or auto-discovery of `~/<dir>` paths mentioned in `AGENTS.md`, `docs/parity-criterion.md`, and `docs/pi-parity.md` (deepest existing path wins). Mutation tools (`write`/`edit`) always stay inside the workspace. The reference-root boundary reuses the existing `.git`/`.gitignore`/symlink/binary defenses and gates content through `has_secret_shaped_content`, a stricter shape-based secret detector that lets prose discussing auth pass while blocking `api_key=<value>`, AWS key IDs, JWTs, and PEM private-key blocks. |
 | Image/binary attachment loading | Implemented (provider-visible) | `pipy_harness.native.image_attachment` resolves `@image:<path>` (alias `@img:`) references in a genuine user prompt into bounded, fail-closed image attachments: it reuses the `read` tool's path policy (workspace/read-root, `.git`/`.gitignore`, traversal/shell-expansion refusal), validates type by magic bytes (PNG/JPEG/GIF/WebP only — arbitrary binary fails closed), and caps per-image (5 MiB), per-turn (4 images), and aggregate (16 MiB) size. Loaded images travel on `ProviderRequest.attachments` and the Anthropic, OpenAI-Responses, and Google adapters render them as native image content blocks attached to the current user message. The product tool-loop REPL wires resolution in. The metadata-first archive records only safe metadata — media type, byte count, sha256, counts — never the raw base64 bytes. Behavior check: `scripts/parity_checks/attachment_behavior.py`. |
