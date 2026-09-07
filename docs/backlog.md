@@ -9,11 +9,14 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next dispatch:** D0 — deterministic production-tool edit/check/reopen evidence.
-A/B/C investigations are integrated below at baseline `8cd69db`; their proposed
-contracts require the independent planning review before this chunk is committed
-and D0 receives write ownership. D1 follows D0. D2 is split into D2a/D2b and its
-handoff must be refreshed after D1. No investigation report is a review verdict.
+**Next dispatch:** D1a — durable compaction provenance and destination-summary
+rebuild, followed by D1b semantic generation. D0's deterministic edit/check/reopen
+scenario and truthful support matrix are complete in this chunk: 5,385 tests
+passed with two skipped, lint/format/Mypy and docs build passed. Two Opus 5
+rounds ended advisory with no Warning/Critical; the final two documentation
+suggestions were applied without another precision-only round. A/B/C contracts landed at
+`ba08e9b` after two Opus 5 rounds, finally advisory (no Warning/Critical), not
+CLEAN. D2a/D2b follow D1b and refresh their handoff against that code.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -178,11 +181,11 @@ budget caps to subscription reviewer commands or substitute a model silently.
 
 A/B/C inspected clean `main` at `8cd69db0594f7eb9375f7060c3a320086f6811f0`
 concurrently without repository writes, provider calls, or new test execution.
-The following is integrated source/test evidence and the proposed contract for
-independent review. Live provider configuration, semantic-summary quality, and
+The following integrates their source/test evidence. The supporting D1/D2
+contracts passed the planning commit gate with advisory Opus 5 disposition. Live provider configuration, semantic-summary quality, and
 daily usability remain unverified.
 
-### A — baseline evidence and D0 dispatch contract
+### A — baseline evidence and D0 acceptance
 
 | Scenario | Existing assertion / gap | Owner of next evidence |
 | --- | --- | --- |
@@ -193,7 +196,7 @@ daily usability remain unverified.
 | Extension lifecycle | `test_native_extension_conformance.py::test_golden_conformance_extension` exercises the existing example; `test_native_coding_session.py::test_successful_reload_publishes_one_coherent_generation_across_real_consumers` pins reload coherence. | D8 reuses these; do not duplicate examples |
 | Headless workflow | RPC tests pin event/correlation/history behavior; `test_architecture_mode_contracts.py::test_json_mode_preserves_real_loop_order_with_mode_boundaries` pins canonical order. Public multi-turn embedding is absent. | D2b; RPC controls remain D5 |
 
-D0 adds exactly one deterministic scenario in
+D0 implements exactly one deterministic scenario in
 `tests/test_native_daily_use_baseline.py`: a scripted recording provider drives
 production `read`, `edit`, and `bash` against a temporary tiny program/check;
 assert actual file mutation, successful check and correlated model-visible tool
@@ -214,7 +217,7 @@ chrome and trust; the interrupt/steer module is separate.
 
 ### B — D1 contract decisions
 
-The proposed [whole-group semantic contract](compaction.md#d1-implementation-contract)
+The reviewed [whole-group semantic contract](compaction.md#d1-implementation-contract)
 retains state-first persistence and positive dropped-user-group counts. Generate
 from prior summary plus dropped messages through canonical cancellable provider
 execution. Capture owner identity, then conditionally publish once using existing
@@ -227,11 +230,39 @@ The current `append_durable_compaction` counts only users after the last
 compaction and can skip that second valid durable cut. Do not reproduce it.
 Budgeting, within-run cuts, retries and custom compaction instructions remain later
 work. Source owners and decisive checks are in the contract; refresh the exact
-write manifest when D1 receives ownership.
+write manifest separately when D1a and D1b receive ownership.
+
+### D1 staging after source refresh
+
+The read-only refresh at `ba08e9b` splits D1 into two independently useful
+commits under the same reviewed contract. D1a fixes durable cuts and rebuilds
+while generation stays count-only; D1b adds semantic generation and its provider-
+I/O freshness window. This changes commit size, not product scope or priority.
+
+D1a's tree-owned coding projection carries real messages, separate prior summary,
+and structural origin IDs while ordinary `build_context()` and JSONL stay
+compatible. The existing product coordinator may retain the immutable loaded
+projection to map reconstructed custom/branch-summary objects by identity; it
+must not maintain another mutable conversation or match repeated text. Resolve
+`first_kept_entry_id` into the compaction action before live acceptance. One
+outer tree/effect lock then session-mutex section covers snapshot, pure cut,
+mapping and state acceptance; the narrow coordinator seam releases the session
+mutex before persistence while retaining outer tree ordering. No provider I/O or
+new freshness epochs are needed in D1a. Keep the state-first failure contract.
+
+D1a owns `session_tree.py`, `coding/product_session.py`, `coding/state.py`,
+`repl/provider_selection.py` and `repl/wiring.py`, their focused tests and docs.
+Pin repeated cuts after one new group, duplicate-text custom/branch origins,
+compacted/uncompacted destination rebuilds and unchanged cumulative counters.
+Update both the harness DTO description and rebuild sentence. A restored branch
+summary can coexist with zero new-run compaction counters. D1b's handoff then
+refreshes the guarded writer inventory and cancellation adapters; reload/model
+publishers must remain assignment-only, using prebuilt binding identity for
+invalidation rather than adding an allocating revision update there.
 
 ### C — D2 contract decisions
 
-The proposed [product-session boundary](sdk.md#d2-implementation-contract) keeps
+The reviewed [product-session boundary](sdk.md#d2-implementation-contract) keeps
 one composition, state, queue, controller and lifecycle across submissions.
 `CodingSession.run` resets run state and wires a new lifetime; calling it for
 every submission would lose continuity. The startup-candidate decorator already
@@ -248,8 +279,8 @@ compatibility retirement. Refresh this proposal against D1 before dispatch.
 
 ## Implementation queue
 
-These tasks are **not yet dispatched**; D0 is next after the planning commit.
-Each needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
+D0 is complete in this chunk; D1a is next after its commit.
+Each successor needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
 would contain multiple independently useful changes, split the task here before
 dispatch; the table is not permission for a large uncommitted batch. A thread implements
 only its assigned task; completing a prerequisite does not authorize all of its
@@ -258,17 +289,18 @@ every listed module. Add a file only when the selected behavior needs it.
 
 | ID | Prerequisites | Bounded outcome / expected write owners | Acceptance |
 | --- | --- | --- | --- |
-| D0 | A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
-| D1 | D0; B reviewed | Whole-group semantic compaction service and existing compaction integration; `repl/provider_selection.py`, `repl/collaborators.py`, necessary coding/history owners, focused tests, compaction contracts/docs/release note | Prior summary survives repeated compaction; next request retains task facts; failed/cancelled/stale generation cannot publish; explicit persistence-failure behavior; equivalent resume |
-| D2a | D1; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
+| D0 | Complete in current chunk; A accepted | Reuse/extend one deterministic daily-use scenario and record a truthful support matrix; focused tests and user docs only | Tool-backed edit/check/resume evidence; identify uncovered cancel/compaction/extension behavior; live-provider status explicit; no incidental fixes |
+| D1a | D0 committed; B reviewed | Structural origin and prior-summary projection, pre-resolved durable cut, destination-owned context rebuild; matching docs/release note | Repeated durable cuts and equivalent reopen; no synthetic summary group; no text-based origin lookup; state-first failure preserved |
+| D1b | D1a | Canonical semantic generation and guarded conditional publication through existing compaction owners; matching docs/release note | Prior summary and task facts survive; failed/cancelled/stale generation publishes nothing; late completion, overlays and privacy pinned |
+| D2a | D1b; C reviewed and refreshed | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b | D2a | Distinct supported product-session SDK factory over that lifetime; API tests and SDK docs | Two-turn tool workflow, events, cross-thread cancel, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
-| D3a | D1 | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
+| D3a | D1b | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
 | D3b | D3a; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
-| D4a | D0; refresh against D1/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
-| D4b | D1, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
+| D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
+| D4b | D1b, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
-| D5c | D5a, D1 | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
+| D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
 | D5d | D5a, D4a | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
 | D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
@@ -277,11 +309,13 @@ every listed module. Add a file only when the selected behavior needs it.
 | D7b | D7a | Correlated incremental RPC bash output | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
-D1 is the first product improvement. D2 is the main extensibility investment.
+D1a/D1b deliver the first product improvement. D2a/D2b are the main
+extensibility investment.
 D3 and D4 can be reordered after measured failures justify it; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
-runtime writers: D1/D2/D3/D4 share session/provider integration, and D5/D7 share
+runtime writers: the D1a–D4b slices share session/provider integration, and the
+D5/D7 families share
 `rpc.py`. Read-only investigation of later tasks can proceed during any of them.
 
 For retry ownership, the coding session owns limits and enable/abort policy;
@@ -304,8 +338,8 @@ Return: files changed, behavior implemented, focused/full check results, docs
 and release-note changes, complete/partial status, out-of-scope work, risks, and
 summary-safe workflow events. Do not commit independently: release write
 ownership to the orchestrator for review, then commit through the chunk protocol.
-A self-produced review verdict is not evidence. D0 receives the first handoff
-only after this planning chunk passes its review and commit gate.
+A self-produced review verdict is not evidence. D1a receives the next handoff
+only after D0 passes its review and commit gate.
 
 ## Minimum acceptance and deferred work
 

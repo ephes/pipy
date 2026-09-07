@@ -10,12 +10,13 @@ uv run pipy repl --mode rpc
 
 Use RPC mode when a controller needs process isolation plus mid-session control:
 prompting, aborting, queueing follow-up input, inspecting state, running bash,
-or switching session-related state without driving the terminal UI.
+or naming the current session without driving the terminal UI.
 
 ## Framing
 
 - stdin and stdout are LF-delimited JSON objects.
-- Each request carries an `id`; the matching response repeats that `id`.
+- Requests may carry an `id`; known-command responses repeat it. Unknown-command
+  errors omit the input `id`.
 - stdout may also contain asynchronous session events that are not direct
   responses to a request.
 - stderr is for diagnostics that are not protocol messages.
@@ -25,16 +26,39 @@ The exact command and event contract is maintained in
 
 ## Command families
 
-The shipped protocol accepts Pi-shaped commands for:
+The shipped protocol implements:
 
 - prompting and asynchronous prompt execution;
 - steering/follow-up queue control and abort;
-- model, provider, thinking, and queue-mode controls;
-- message, state, stats, and command introspection;
-- compaction, retry, session naming, and session operations;
-- bash execution through the same bounded shell tool boundary used by the
-  product runtime;
-- extension-UI request/response plumbing for headless extension integrations.
+- thinking controls and reported queue-mode settings;
+- message/state introspection and message/tool counters;
+- current-session naming;
+- bash execution with bounded output through `command_sandbox.run_command`
+  and its direct-command policy, separate from the model's `BashTool` policy.
+
+Recognized command names do not imply implemented behavior:
+
+- `compact`, `new_session`, `switch_session`, `fork`, `clone`, and `export_html` return
+  correlated not-yet-implemented errors.
+- `set_auto_compaction` and `set_auto_retry` only record RPC flags; they do not
+  enable or change the coding session's compaction/retry policy. `abort_retry`
+  is a no-op.
+- Live model switching is unavailable: `set_model` accepts only the current
+  provider/model, `get_available_models` reports that selection, and
+  `cycle_model` returns `null`.
+- Steering and follow-up delivery remains one message per turn boundary, steering
+  first, regardless of the reported queue mode.
+- Thinking controls affect the next provider construction in catalog-backed
+  sessions. Injected providers without that boundary only record the level.
+- `get_commands` returns an empty command list. `get_session_stats` counts
+  messages and tool calls/results, but token totals and cost are zero placeholders.
+- The extension-UI channel is unwired: no `extension_ui_request` is emitted,
+  and received `extension_ui_response` lines are accepted and ignored.
+- Direct RPC `bash` cannot be externally aborted. `abort_bash` returns an error
+  while a command runs and succeeds without action when idle. Timeouts currently
+  map to `cancelled: true`; this is not evidence of explicit-abort support.
+
+See [Automation & RPC](automation-rpc.md) for exact response and event contracts.
 
 ## Minimal client shape
 
@@ -67,8 +91,8 @@ page intentionally avoids duplicating the full RPC type table.
 - Use [JSON Mode](json.md) for one prompt with a complete event stream.
 - Use `--print`/`-p` for one prompt when only final assistant text is needed.
 - Use RPC mode for a long-lived out-of-process controller.
-- Use the [Python SDK](sdk.md) for in-process Python embedding without JSONL
-  subprocess framing.
+- Use the [Python SDK](sdk.md) for one-shot in-process compatibility runs without
+  JSONL subprocess framing. It does not yet expose the multi-turn product session.
 
 ## Content and privacy
 
