@@ -214,6 +214,28 @@ with the existing input owner; no summary-specific queue may consume and lose it
 Preserve the canonical executor's completion/cancellation ordering and already-
 admitted callback semantics.
 
+### Automatic-generation cancellation
+
+D1b must propagate cancellation out of automatic summary generation before
+constructing the ordinary provider request, invoking its request hooks, or
+refreshing tool renderers. Returning only a diagnostic would let terminal Escape
+fall through into that request. Use the typed cancellation alternative in the
+[harness request-preparation contract](harness-spec.md#d1b-request-preparation-cancellation-contract)
+and the canonical loop's existing cancellation settlement. Keep the accepted
+message anchor and exclude request-only overlays in the returned history.
+Steering and local commands stay with the existing input owner; no pending
+cancellation side channel or synthetic request is needed. Manual cancellation
+ends `/compact` without publication and leaves queued input deliverable.
+
+Reuse the branch-summary request/result capability through a small shared helper,
+while preserving branch-navigation behavior. For compaction, include prior summary
+as labeled content only in the auxiliary summary request, the exact dropped
+prefix, and a final explicit
+summary instruction in `messages`: provider adapters can ignore `user_prompt`
+when messages are present. Execute with the captured provider binding and the
+existing run-owned canonical executor, not a newly resolved provider or a second
+agent loop. Summary requests and results stay private product content.
+
 ### Failure and validation
 
 Generation exceptions, failed/empty/tool-requesting results, cancellation,

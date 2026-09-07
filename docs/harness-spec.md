@@ -1669,6 +1669,36 @@ Public JSON/RPC/SDK/session/extension formats, extension hook order, and the
 metadata-only archive allowlist are unchanged. Full provider/tool-cycle
 ownership remains Slice 2.2b.5.
 
+### D1b request-preparation cancellation contract
+
+This selected contract is pending D1b implementation. Automatic semantic
+compaction runs during request preparation, before the ordinary provider request.
+Cancellation there must settle the accepted iteration rather than continue into
+request hooks, renderer refresh, or provider execution.
+
+`AgentLoopRequestPreparation` will carry exact canonical history and exactly one
+of a valid request snapshot or a typed `AgentCancellationReason`. Validate either
+alternative, the accepted-message anchor, and request-overlay exclusion before
+turn-start events. The canonical loop installs validated history and preserves
+its existing turn-start ordering. For the cancellation alternative it delegates
+directly to its existing provider-cancellation settlement with a cancellation-only
+`ProviderTurnOutcome`; it never calls the provider-turn port.
+
+This reuses the current cancellation events/status effects and post-run queued
+input handoff. The accepted user message is recorded once; earlier completed
+tool effects remain intact. No ordinary provider result, usage sample, or tool
+execution follows cancelled preparation. Genuine preparation exceptions continue
+to propagate. There is no mutable pending-cancellation field, synthetic request
+snapshot, extra queue, or separate cleanup protocol.
+
+The coding request-source adapter forwards the exact preparation value. After
+summary cancellation, its producer returns immediately before ordinary request
+construction, provider-request hooks and renderer refresh. Manual `/compact`
+returns its cancellation notice without publishing a summary; existing input
+owners retain steering and local commands. Tests pin invalid alternatives,
+anchor/overlay rejection, first/later-iteration event and queue behavior, no
+ordinary request after cancellation, and successful reuse on a subsequent run.
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical
