@@ -550,6 +550,72 @@ EOF drain and cleanup tests. D5b model/thinking, D5c compaction, D5d retry, D6
 session replacement/public lifecycle, D7 bash cancellation and true in-turn
 message injection remain separate tasks.
 
+### D5b RPC model and thinking control adoption contract
+
+D5b removes RPC's local model/thinking answers and binds a private configuration
+port from the existing `ProviderMutationEffects` owner into the D5a startup
+outcome. The outcome is not ready until both the native queue control and this
+port are bound, so command intake cannot observe a partially composed session.
+The port exposes immutable model/thinking/catalog projections and bounded
+operations. It never exposes the provider-state object, coding-state object,
+catalog, settings, locks or provider constructors to the transport.
+
+`NativeReplProviderState` remains the provider/model/thinking owner and
+`CodingSessionState` remains the live provider binding used by the next canonical
+request. `ProviderMutationEffects` retains detached provider construction,
+expected-state validation, atomic publication, model capability checks, footer
+refresh and default persistence. RPC serializes commands and projects results;
+it does not duplicate those policies. Available-model projection includes the
+current custom selection plus catalog rows that are locally available and
+tool-capable. Cycling applies the existing `enabledModels` scope over that same
+effective set and reports whether the scoped set was used. Every RPC model value
+uses the exact immutable projection `{ "provider": string, "id": string }`;
+base URLs, headers, compatibility data and other catalog internals never cross
+the transport. Selecting the already active pair is an idempotent success with
+no provider construction, persistence write or event.
+
+Mutations are idle-only. Capture the expected queue and configuration values,
+prepare fallible provider work without the native-control gate, then enter the
+D5a gate for one final true-idle check and the existing provider-mutation commit.
+The lock order is native-control gate, coding-effects/mutation-I/O lock, then the
+session/generation mutex. No provider construction, filesystem I/O, JSONL output,
+callback, latch signal or worker wake occurs under the native-control gate. If a
+prompt is admitted or reserved during preparation, admission wins and the
+configuration operation returns a correlated failure without changing live or
+durable state. Once the in-memory commit succeeds, later prompts observe the new
+binding. Existing state-first handling applies to post-commit presentation,
+default-persistence and thinking-entry failures: report bounded diagnostics but
+do not claim that an already live mutation failed.
+
+`set_model` and `cycle_model` publish provider state and the coding binding
+together through the existing prepared mutation. They preserve the current
+product behavior that clears provider-visible coding history and installs a new
+usage accumulator for a model switch. The prior thinking level is clamped through
+the existing model-capability helper for the selected model. If the effective
+level changes, the existing persistence boundary attempts one durable
+thinking-level append before returning the successful owner result. RPC then
+writes the model command's correlated response followed by one
+`thinking_level_changed` event. No effective thinking change means neither the
+append nor the event occurs.
+
+`set_thinking_level` and `cycle_thinking_level` accept only levels supported by
+the selected model, construct the replacement provider for that same selection,
+and atomically refresh only the provider object in the existing coding binding.
+Thinking-only rebinds retain provider-visible history, the usage accumulator and
+its counters. The owner appends one durable thinking-level entry only when the
+effective value changes.
+`get_state` obtains model and thinking from one immutable owner snapshot; RPC has
+no `_thinking_level` cache. A successful thinking command writes its correlated
+response before `thinking_level_changed`; a no-op produces no event. D5b adds no
+model-change protocol event.
+
+An injected provider without `NativeReplProviderState` is an explicit static
+fallback, not a second mutable owner. It exposes a singleton current model,
+accepts only that same model, returns `null` for model/thinking cycles, reports
+`off`, rejects unsupported non-`off` levels, and never promises that a provider
+can be rebuilt. Public `ProductSession` and compatibility `run_native` semantics
+remain unchanged.
+
 D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
 at a time, then removes replaced compatibility surfaces and their dedicated
 implementation/tests when callers are gone. D2 leaves `run_native`,

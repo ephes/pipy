@@ -1041,6 +1041,23 @@ re-poll. The callback rechecks the native queue under the same gate, preventing 
 new admission from racing a stale idle record. EOF retains its current bounded
 drain and teardown policy.
 
+D5b keeps configuration ownership in the already composed
+`ProviderMutationEffects`. A private immutable/callback port joins the D5a
+startup outcome and gives RPC only truthful catalog/configuration projections and
+bounded mutations. Fallible provider preparation occurs without the native
+control gate. Final publication re-enters that gate, verifies true idle, then
+uses the existing coding-effects/mutation-I/O and session/generation lock order
+to publish `NativeReplProviderState` and `CodingSessionState` together. Admission
+wins any race with preparation, so an accepted or queued run is never retargeted.
+RPC retains correlation and protocol output but owns no model or thinking cache,
+catalog filtering, provider factory, trust/auth decision or persistence policy.
+Its model projection is the immutable `{provider, id}` identity pair, including
+the active custom selection. Model switches retain the existing coding-history
+and usage reset; thinking-only provider refresh preserves both values. A
+model-induced effective thinking change uses the same durable owner entry as an
+explicit thinking change, and its RPC event follows the correlated model
+response. Static injected providers expose only their immutable singleton identity.
+
 Project trust is fail-closed. Final-workspace project settings, packages,
 resources, and executable extensions are unavailable until saved or run-local
 trust is resolved; global and explicit CLI sources follow their documented

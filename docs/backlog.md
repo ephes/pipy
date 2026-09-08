@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** refresh and implement D5b's bounded RPC model/thinking-control
-handoff against the committed D5a shared-control boundary. Keep model selection
-and provider refresh/trust policy in their existing owner.
+**Next task:** implement D5b1 against the reviewed D5b0 RPC
+model/thinking-control contract. Keep model selection, provider construction and
+refresh/trust policy in their existing owner.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -111,6 +111,17 @@ failure publication, added deterministic no-intake coverage and corrected the
 contract; focused R2 returned CLEAN. These are independent contexts within the
 selected Terra model family, not different-family evidence. D5a3 and the D5a
 shared-control milestone are complete; D5b is now eligible.
+
+D5b0 fixes the RPC model/thinking-control adoption contract after a read-only
+Terra High investigation at `112397a`. Root validation passed 368 focused tests
+and the full 6,022-test gate (two skipped), with lint, formatting, Mypy,
+unchanged interpreter snapshots, docs-build and diff hygiene green. Fresh Terra
+High plan review R1 found two Warnings about custom-model projection and
+model-induced thinking persistence/event ordering, plus one Suggestion to state
+model-switch versus thinking-only history and usage behavior. All were resolved;
+focused R2 returned CLEAN. These are independent contexts within the selected
+Terra model family, not different-family evidence. D5b1 is the sole next
+eligible implementation.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -576,7 +587,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5a3b | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | 276 focused and 6,022 full tests; stream-driven startup/failure readiness, wake/EOF-only transport, exact settlement, post-extension true idle, framing/correlation, typed delivery and EOF drain preserved |
 | D5a3 | Complete in this chunk; D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
 | D5a | Complete in this chunk; D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
-| D5b | Eligible; D5a complete | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
+| D5b0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a `112397a` | Fix the private RPC-to-provider-mutation handoff, idle commit ordering, catalog/scoped-cycle projection and injected-provider fallback | Reviewed implementation contract; no runtime change |
+| D5b1 | Eligible after D5b0 commit | Route RPC model/thinking commands through the existing provider-mutation owner and delete RPC-local thinking authority | Truthful coherent snapshots, real next-request provider/level, catalog/trust/tool-capability filtering, durable thinking entry, correlated results |
+| D5b | D5b0–D5b1 complete | RPC model/thinking controls milestone, not a separate dispatch | Existing provider construction, refresh/trust, settings and coding-binding owners remain authoritative |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
 | D5d | D5a, D4a3 | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
 | D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
@@ -588,7 +601,7 @@ every listed module. Add a file only when the selected behavior needs it.
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, and D5a queue/RPC shared-control
-adoption is complete in the current chunk. D5b is the next eligible slice; D7 can move earlier
+adoption is complete at `112397a`. D5b0 is the next eligible slice; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the
@@ -792,6 +805,89 @@ Existing response correlation, LF-only JSONL, one writer, prompt success before
 its run events and queue-update visibility remain unchanged. A promoted successor
 keeps the existing `agent_end → queue_update(post-promotion) → wake/next
 agent_start` order. D5b–d, D6 and D7 retain their current dependencies and scope.
+
+### D5b — RPC model and thinking control adoption
+
+A read-only Terra High investigation at `112397a` found that current RPC model
+commands do not reach the live coding binding: `set_model` only acknowledges the
+already selected model, `cycle_model` always returns `null`, and
+`get_available_models` fabricates a singleton. Thinking commands keep an
+RPC-local value and directly assign provider state, but the running coding
+session continues to use the provider captured in `CodingSessionState`; they also
+bypass model-supported levels and the durable thinking entry. The sole mutation
+owner remains `repl/provider_selection.py::ProviderMutationEffects`, with
+`NativeReplProviderState` and `CodingSessionState` as its atomically published
+values. D5b must reuse that owner rather than teach RPC to construct providers,
+interpret catalog/auth/trust policy or persist defaults.
+
+D5b0 fixes the implementation contract in `docs/sdk.md`,
+`docs/automation-rpc.md` and `docs/architecture.md`. D5b1 may then write
+`native/automation/rpc.py`, `native/coding/input_queue.py`,
+`native/coding/session_controller.py`, `native/repl/wiring.py`,
+`native/repl/provider_selection.py` and `native/repl_state.py`. A listed file is
+used only when the selected behavior needs it. Focused tests are
+`tests/test_native_automation_rpc.py`, `tests/test_native_coding_input_queue.py`,
+`tests/test_native_coding_session_controller.py`,
+`tests/test_native_coding_effects.py`, `tests/test_native_repl_state.py` and
+`tests/test_native_thinking_model_hotkeys.py`. Matching user documentation is
+`docs/automation-rpc.md` and `docs/rpc.md`; ownership text is `docs/sdk.md` and
+`docs/architecture.md`; behavior changes require `CHANGELOG.md`.
+
+The private D5a startup outcome gains one once-bound configuration port owned by
+`ProviderMutationEffects`. RPC waits for that complete outcome before command
+intake. The port exposes immutable configuration/catalog projections and bounded
+model/thinking operations, never live state, locks, provider factories or
+settings objects. Catalog enumeration includes only locally available,
+tool-capable selections; unavailable, unauthenticated and non-tool-capable rows
+cannot be selected. Cycling applies the existing `enabledModels` scope and
+returns whether that scope selected the cycle set. The current selection remains
+truthfully observable even when it is a custom row outside the catalog. Every
+RPC model value is the exact privacy-safe `{provider, id}` projection; richer
+catalog fields stay private and outside D5b. Selecting the active pair is an
+idempotent success without provider construction, persistence or events.
+
+Configuration mutation is idle-only. Capture expected queue and provider state,
+perform fallible catalog/provider preparation without the D5a gate, then re-enter
+the D5a outer gate. The final operation rechecks true idle and invokes the
+existing provider mutation commit using the established outer-gate →
+coding-effects/mutation-I/O lock → session/generation lock order. A prompt or
+reservation admitted during preparation wins and makes the mutation fail without
+changing provider state, coding binding, durable tree or defaults. Provider
+construction, filesystem I/O, output, callbacks and worker wakes never run under
+the D5a gate. A successful in-memory commit is visible to every later prompt;
+presentation/default or durable-append failure follows the existing state-first
+policy, returns truthful success for the live state and emits only bounded
+diagnostics.
+
+`get_state` reads model and thinking from one immutable owner snapshot and queue
+state from the D5a control; it deletes the RPC-local thinking cache. Catalog-backed
+`set_model` and `cycle_model` use the existing detached prepare/exact commit/live
+coding rebind, including its current provider-visible history clear and new usage
+accumulator. They clamp the prior level through the existing model-capability
+helper; an effective level change is durably appended and emits one
+`thinking_level_changed` after the model response. The durable append remains an
+owner-side attempt before it returns the successful live-state result.
+`set_thinking_level` and `cycle_thinking_level` use model-supported levels,
+rebuild and atomically refresh
+the same selection's provider binding while retaining provider-visible history
+and the usage accumulator/counters, and append exactly one thinking-level entry
+only for an effective change. A successful thinking response precedes its
+`thinking_level_changed` event; a no-op emits no event. No model-change event is
+added. An injected provider without `NativeReplProviderState` is a truthful static
+singleton: selecting the current model succeeds, model/thinking cycles return
+`null`, non-current models and unsupported non-`off` levels fail, and no
+transport-local configuration state is created.
+
+Acceptance deterministically covers two available tool-capable catalog models,
+scoped and unscoped cycling, singleton `null`, unavailable/auth-blocked and
+non-tool-capable refusal, next-request provider/model/thinking changes, coherent
+state, durable effective thinking changes, no-op event suppression, and prompt
+admission racing detached preparation in both orders. Tests separately pin model
+switch history/usage reset, thinking-only history/usage retention, and
+model-induced thinking response/entry/event ordering. Existing D5a queue,
+settlement, idle, cancellation and EOF tests remain green. Synthetic tests do not
+verify live credentials, provider-side model/reasoning acceptance or daily-use
+switching; those remain explicit dogfood evidence.
 
 ### D4a — Refreshed retry execution basis
 

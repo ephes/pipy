@@ -617,6 +617,39 @@ native session tree (`docs/session-tree.md`).
   Live provider switching over RPC remains an explicit follow-on; the accepted
   command vocabulary and response shapes stay Pi-compatible.
 
+#### Planned D5b model/thinking adoption
+
+D5b routes these commands through the session's existing provider-mutation
+owner. For catalog-backed sessions, `get_available_models` will return the
+locally available, tool-capable catalog choices plus the active custom selection
+when it is outside that catalog list. D5b's immutable, privacy-safe `Model`
+projection is exactly `{ "provider": string, "id": string }`; richer catalog
+metadata remains outside this slice. `set_model` and `cycle_model` will rebuild
+and atomically publish the live coding provider used by the next request.
+Selecting the already active pair is an idempotent success with no construction,
+persistence or event. Cycling uses `enabledModels` when that scope selects at
+least one effective choice and reports `isScoped`; a singleton effective set
+returns explicit `null`.
+
+Model and thinking changes are idle-only. Provider construction happens before
+the final native-control gate; the commit rechecks that no prompt, reservation or
+pending continuation was admitted. A racing prompt wins and the correlated
+configuration command fails without retargeting that run. Thinking changes use
+the selected model's supported levels, rebind the same model's provider, append
+one durable entry for an effective change, and emit
+`thinking_level_changed` only after the successful response. `get_state` reads
+one owner snapshot instead of RPC-local thinking state. A model switch clamps
+the prior level through the existing model-capability helper; if that changes the
+effective level, the owner records one durable thinking entry as part of the
+successful operation, then RPC writes the model response followed by one
+`thinking_level_changed` event. Model switches retain the existing coding-history
+and usage reset, while a thinking-only rebind preserves both values.
+
+An injected-provider session without the catalog/state owner remains a truthful
+static singleton. It cannot switch or record a transport-only thinking level.
+Live credential refresh and provider-side acceptance remain dogfood checks, not
+claims established by synthetic RPC tests.
+
 ### Compaction
 
 Current build: `compact` is recognized but has no RPC handler, so it returns a
