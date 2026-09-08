@@ -1841,11 +1841,12 @@ semantics; the one-shot compatibility SDK remains separate.
 
 ### Model-Aware Request Budget Contract
 
-D3a1 implements the pure measurement and catalog-provenance foundation below.
-Recoverable refusal and live request admission remain pending as D3a2/D3a3 in
-the sole [backlog](backlog.md). D1 semantic continuity and D2 persistent lifetime
-remain the foundation. Budgeting is an estimate of the native request, not a guarantee
-of provider acceptance or an exact tokenizer/wire-size calculation.
+D3a1 implements the pure measurement and catalog-provenance foundation below;
+D3a2 implements recoverable preparation refusal and its result projections.
+Live request admission remains pending as D3a3 in the sole [backlog](backlog.md).
+D1 semantic continuity and D2 persistent lifetime remain the foundation. Budgeting
+is an estimate of the native request, not a guarantee of provider acceptance or an
+exact tokenizer/wire-size calculation.
 
 **Measurement and limits.** A pure bounded helper in
 `native/coding/request_budget.py` returns immutable numeric components for system
@@ -1925,7 +1926,7 @@ explicit ceiling retain the existing message/byte trigger and fixed recent-group
 policy, with no model-aware fit verdict. `compaction.enabled` controls automatic
 summary generation, not permission to send a known oversized request.
 
-**Recoverable refusal.** Extend the canonical preparation result with an exact
+**Recoverable refusal.** The canonical preparation result has an exact
 three-way alternative: frozen request, cancellation, or typed preparation
 failure. Preserve history/accepted-anchor/overlay validation for every branch.
 Refusal fails that accepted run while keeping the product lifetime usable; it
@@ -1947,16 +1948,26 @@ final result projection. All live reads/writes use the existing state guard;
 publication also validates the existing live run witness. No callbacks or I/O
 occur under that mutex. Clear the last preparation failure when a new input is
 accepted or context is replaced, preserving existing provider-failure semantics.
-The status adapter supplies truthful preparation diagnostics. D3a2 pins this
-branch through the existing `native/ui/state.py` reducer and JSON/RPC projections:
+The status adapter publishes refusal under the state guard before pending-input
+promotion, truthful diagnostics and footer refresh, which run outside the guard.
+Publication requires an installed run witness as well as a current binding and
+context. D3a2 pins this branch through the existing `native/ui/state.py` reducer
+and JSON/RPC projections:
 no assistant message lifecycle events and no empty assistant block rendered by
 the reducer. `turn_end`/`agent_end` retain their existing failed-turn shape,
 including the required empty assistant value in `turn_end.message`; this is not
 permission to change the public automation format. Full-content
 canonical events and SDK snapshots may carry the typed failure; bounded
 compatibility/archive projections carry only summary-safe failure classification,
-never private preparation text. Update the existing result/event consumers and
-guard inventories together in D3a2; no new event bus or RPC queue owner.
+never private preparation text or arbitrary failure type strings. The bounded
+`CodingSessionResult.preparation_failure_type` and adapter metadata use only
+`request_preparation_refused`. Print mode returns its existing failure exit path
+and suppresses any earlier assistant answer when the final accepted run refuses.
+That current refusal takes precedence over a retained earlier provider failure;
+a terminal driver failure retains precedence over both. JSON/RPC envelopes and
+aggregate lifetime result semantics stay unchanged. No new event bus or RPC
+queue owner is introduced. This infrastructure does not yet refuse live requests
+based on estimated size; D3a3 wires that policy.
 
 **Product admission and one summary attempt.** After guarded history mirroring,
 capture coherent binding/history/suffix. Measure a callback-free baseline with

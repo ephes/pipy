@@ -58,11 +58,12 @@ reach settings; it is not a live rebinding facility.
 construction thread and reject synchronous callback reentry. Whitespace-only or
 non-string submissions refuse without retiring the session. `snapshot()` returns
 the existing detached immutable native projection, including messages, usage and
-provider failure. It remains readable after close. Both observer and diagnostic
-callbacks may originate on provider or tool
-workers as well as the construction thread. Sinks must tolerate those calling
-threads; the facade adds no callback serialization. They may call `cancel()`, but
-cannot call the thread-confined operations from workers or through reentry.
+provider failure and a separate `preparation_failure: AgentFailure | None`. It
+remains readable after close. Both observer and diagnostic callbacks may
+originate on provider or tool workers as well as the construction thread. Sinks
+must tolerate those calling threads; the facade adds no callback serialization.
+They may call `cancel()`, but cannot call the thread-confined operations from
+workers or through reentry.
 
 `cancel()` is the sole cross-thread method. It signals the current accepted
 submission through canonical provider, semantic-summary and model-tool
@@ -72,11 +73,21 @@ or guarantee that an already accepted tool will not run. A tool result that
 completed before its cancellation signal remains recorded; late success after
 cancellation is discarded. Uncooperative extension tools use bounded cleanup;
 already entered callbacks may finish later, while the native output gates prevent
-new provider deltas and tool live-output callbacks after execution retirement. No additional driver worker or queue is created.
+new provider deltas and tool live-output callbacks after execution retirement.
+No additional driver worker or queue is created.
 
 A returned provider failure remains visible in the snapshot and can be followed
-by another submission. A terminal driver failure, such as three consecutive
-malformed tool calls, retires the lifetime and raises `RuntimeError` containing
+by another submission. A request-preparation refusal also settles recoverably,
+without a provider call or assistant message lifecycle events. Its full typed
+failure appears in `preparation_failure` and the canonical failed run event;
+accepted input, completed tools and usage remain recorded. The preparation field
+clears before a new accepted input's callbacks or when context is replaced,
+including an extension continuation in the same submit. Provider-failure
+retention is independent. The refusal infrastructure is implemented; live
+model-budget admission is still pending.
+
+A terminal driver failure, such as three consecutive malformed tool calls,
+retires the lifetime and raises `RuntimeError` containing
 the native failure type and explanation. Its retained history and counters remain
 available through `snapshot()`. Unexpected provider or observer exceptions propagate
 through native cleanup and retire the lifetime; later submissions refuse.

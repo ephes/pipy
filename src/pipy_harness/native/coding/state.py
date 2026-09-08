@@ -157,6 +157,7 @@ class CodingSessionResultSnapshot:
     compaction_count: int = 0
     compaction_dropped_group_count: int = 0
     provider_failure: AgentFailure | None = None
+    preparation_failure: AgentFailure | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.provider_name, "provider_name")
@@ -185,6 +186,8 @@ class CodingSessionResultSnapshot:
             raise TypeError("compaction_suffix must be an exact string")
         if self.provider_failure is not None:
             _require_agent_failure(self.provider_failure, "provider_failure")
+        if self.preparation_failure is not None:
+            _require_agent_failure(self.preparation_failure, "preparation_failure")
 
 
 _COUNTER_FIELD_NAMES = (
@@ -214,7 +217,7 @@ class CodingSessionState:
 
     **Synchronization.** The provider binding, canonical history, usage
     accumulator, compaction state, history/summary epoch, context-replacement epoch,
-    and active run witness
+    active run witness, and preparation-failure slot
     are guarded state: an extension handler
     on a detached worker thread reaches them through ``set_model``, which
     rebinds the provider, clears live history, and resets usage. Every reader
@@ -255,6 +258,7 @@ class CodingSessionState:
         "_history_epoch",
         "_run_witness",
         "_provider_failure",
+        "_preparation_failure",
         "_resource_invocation_count",
         "_tool_invocation_count",
         "_usage_accumulator",
@@ -299,6 +303,7 @@ class CodingSessionState:
         self._compaction_count = 0
         self._compaction_dropped_group_count = 0
         self._provider_failure: AgentFailure | None = None
+        self._preparation_failure: AgentFailure | None = None
 
     def bind_state_lock(self, lock: "threading.RLock") -> None:
         """Adopt the session's mutex, keeping this object's identity.
@@ -420,6 +425,11 @@ class CodingSessionState:
             return self._compaction_suffix
 
     @property
+    def preparation_failure(self) -> AgentFailure | None:
+        with self._state_lock:
+            return self._preparation_failure
+
+    @property
     def provider_failure(self) -> AgentFailure | None:
         return self._provider_failure
 
@@ -516,6 +526,7 @@ class CodingSessionState:
         )
         accumulator = _require_usage_accumulator(usage_accumulator)
         with self._state_lock:
+            self._preparation_failure = None
             self._binding = binding
             self._usage_accumulator = accumulator
             self._messages = ()
@@ -605,6 +616,7 @@ class CodingSessionState:
         """Publish the prevalidated binding/history/usage by assignments only."""
 
         with self._state_lock:
+            self._preparation_failure = None
             self._binding = prepared.replacement_binding
             self._messages = ()
             self._usage_accumulator = prepared.replacement_usage
@@ -647,6 +659,7 @@ class CodingSessionState:
         """Publish only the binding and history owned by fallback rebind."""
 
         with self._state_lock:
+            self._preparation_failure = None
             self._binding = binding.replacement
             self._messages = history.messages
 
@@ -713,6 +726,7 @@ class CodingSessionState:
         # Binding, usage, and history move together or not at all: a reader
         # must never see the new provider paired with the old usage.
         with self._state_lock:
+            self._preparation_failure = None
             self._binding = binding
             self._usage_accumulator = accumulator
             self._messages = ()
@@ -739,6 +753,7 @@ class CodingSessionState:
         """Clear live history without changing compaction metadata."""
 
         with self._state_lock:
+            self._preparation_failure = None
             self._messages = ()
             self._context_epoch += 1
             self._history_epoch += 1
@@ -752,6 +767,7 @@ class CodingSessionState:
         if type(summary_suffix) is not str:
             raise TypeError("summary_suffix must be an exact string")
         with self._state_lock:
+            self._preparation_failure = None
             self._messages = messages
             self._compaction_suffix = summary_suffix
             self._context_epoch += 1
@@ -772,7 +788,9 @@ class CodingSessionState:
         self._budget_exhausted_count = budget_exhausted_count
 
     def record_input_accepted(self) -> None:
-        self._user_turn_count += 1
+        with self._state_lock:
+            self._preparation_failure = None
+            self._user_turn_count += 1
 
     def record_resource_invocation(self) -> None:
         self._resource_invocation_count += 1
@@ -863,6 +881,18 @@ class CodingSessionState:
             self._compaction_dropped_group_count += dropped_group_count
             self._history_epoch += 1
 
+    def record_preparation_failure(self, failure: AgentFailure) -> None:
+        """Publish refusal only for the installed, still-current accepted run."""
+
+        _require_agent_failure(failure, "preparation_failure")
+        with self._state_lock:
+            if self._run_witness is None:
+                raise RuntimeError(
+                    "preparation failure requires an active coding agent run"
+                )
+            self._require_run_context_locked()
+            self._preparation_failure = failure
+
     def record_provider_failure(self, failure: AgentFailure) -> None:
         _require_agent_failure(failure, "failure")
         self._provider_failure = failure
@@ -902,6 +932,7 @@ class CodingSessionState:
             compaction_count=self._compaction_count,
             compaction_dropped_group_count=self._compaction_dropped_group_count,
             provider_failure=self._provider_failure,
+            preparation_failure=self._preparation_failure,
         )
 
 

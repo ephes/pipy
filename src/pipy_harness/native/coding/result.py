@@ -48,6 +48,7 @@ class CodingSessionResult:
     error_message: str | None = None
     provider_failure_type: str | None = None
     provider_failure_message: str | None = None
+    preparation_failure_type: str | None = None
 
 
 def build_coding_session_result(
@@ -73,6 +74,9 @@ def build_coding_session_result(
       attachments and projects the snapshot's optional provider failure into
       ``provider_failure_type``/``provider_failure_message``.
 
+    Both paths project preparation failure to a fixed safe classification only,
+    never the private failure type or message.
+
     ``error_type``/``error_message`` are plain strings so the projection stays
     free of provider/agent failure types; the caller unpacks the loop failure at
     the terminate site.
@@ -80,12 +84,18 @@ def build_coding_session_result(
 
     if type(snapshot) is not CodingSessionResultSnapshot:
         raise TypeError("snapshot must be an exact CodingSessionResultSnapshot")
+    preparation_failure_type = (
+        "request_preparation_refused"
+        if snapshot.preparation_failure is not None
+        else None
+    )
     if status is HarnessStatus.FAILED:
         return CodingSessionResult(
             status=HarnessStatus.FAILED,
             exit_code=exit_code,
             started_at=started_at,
             ended_at=ended_at,
+            preparation_failure_type=preparation_failure_type,
             provider_name=snapshot.provider_name,
             model_id=snapshot.model_id,
             user_turn_count=snapshot.user_turn_count,
@@ -109,6 +119,7 @@ def build_coding_session_result(
             exit_code=exit_code,
             started_at=started_at,
             ended_at=ended_at,
+            preparation_failure_type=preparation_failure_type,
             provider_name=snapshot.provider_name,
             model_id=snapshot.model_id,
             user_turn_count=snapshot.user_turn_count,

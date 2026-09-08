@@ -9,9 +9,17 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next eligible:** D3a2, canonical recoverable preparation refusal. D3a1 is
-complete: pure request estimates and catalog provenance, with no live admission
-or compaction-policy changes. Final validation passed 5,691 tests (two skipped),
+**Next eligible:** D3a3, live request-budget admission and one whole-group semantic
+attempt. D3a2 is complete: canonical recoverable preparation refusal, guarded
+snapshot state, normal queue handoff and safe result classification. Root checks
+passed 5,746 tests (two skipped), static checks, 277 focused tests, eight PTY tests,
+docs and diff checks. Exact Opus 5 code review had complete unredacted coverage
+and two Suggestions, with no Warning/Critical. Prose wrapping was applied;
+fixed classification literals remain consistent with the contract. Advisory
+acceptance, not CLEAN; another round would add little defect-prevention value.
+
+D3a1 committed at `d4b5c50`: pure request estimates and catalog provenance, with
+no live admission or compaction-policy changes. Final validation passed 5,691 tests (two skipped),
 static checks, focused tests, docs and diff checks. Exact Opus 5 code follow-up
 was CLEAN; only an unchanged auth-test fixture value was redacted, with no changed
 code omitted. The first round's dependency/provenance safeguards were added;
@@ -400,7 +408,7 @@ D2 phase boundary. Summary-safe searches for context budgeting and preparation
 refusal had no matching records; current source/tests and committed ownership
 contracts supply the evidence. Completed D2 dispatch prose is retired, task
 status is reconciled, and D3a1 was selected immediately after D3a0. The completed
-foundation now releases D3a2; no dependency or priority changed. Priority
+foundation and refusal infrastructure now release D3a3; no dependency changed. Priority
 remains unchanged; no competing queue or speculative parity work is introduced.
 
 ## Implementation queue
@@ -427,8 +435,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D2p | Complete at `365e0ae`; full checks and advisory Opus code review; D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
 | D2b | Complete at `faffcd0`; full checks and Opus follow-up CLEAN; D2p/D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a0 | Complete at `5819b25`; full checks and advisory Opus plan review; D1b/D2b | Reviewed budget, provenance, refusal and cut contract; backlog grooming | Docs-only independent review and commit before new contracts are implemented |
-| D3a1 | Complete; full checks and focused Opus follow-up CLEAN; D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
-| D3a2 | D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
+| D3a1 | Complete at `d4b5c50`; full checks and focused Opus follow-up CLEAN; D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
+| D3a2 | Complete; full checks and advisory Opus code review; D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
 | D3a3 | D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
 | D3b | D3a3; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
 | D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |

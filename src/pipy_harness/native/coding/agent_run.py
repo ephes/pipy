@@ -119,6 +119,7 @@ class AgentLoopStatusPolicyAdapter:
         *,
         run_entered: Callable[[], None],
         input_accepted: Callable[[], None],
+        preparation_failed: Callable[[AgentFailure], None],
         provider_result_observed: Callable[[ProviderResult], None],
         provider_cancellation_observed: Callable[[AgentCancellationReason], None],
         tool_policy_state_changed: Callable[[AgentToolPolicyState], None],
@@ -133,6 +134,7 @@ class AgentLoopStatusPolicyAdapter:
     ) -> None:
         self._run_entered = run_entered
         self._input_accepted = input_accepted
+        self._preparation_failed = preparation_failed
         self._provider_result_observed = provider_result_observed
         self._provider_cancellation_observed = provider_cancellation_observed
         self._tool_policy_state_changed = tool_policy_state_changed
@@ -146,6 +148,9 @@ class AgentLoopStatusPolicyAdapter:
 
     def input_accepted(self) -> None:
         self._input_accepted()
+
+    def preparation_failed(self, failure: AgentFailure, /) -> None:
+        self._preparation_failed(failure)
 
     def provider_result_observed(self, result: ProviderResult, /) -> None:
         self._provider_result_observed(result)

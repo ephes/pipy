@@ -666,6 +666,24 @@ separate full-content durable store. The **only** thing that changes is that the
 JSON/RPC *transport* is also a full-content surface; its payloads never cross
 into the metadata-only archive.
 
+### Recoverable request-preparation refusal
+
+The native preparation boundary can refuse an accepted run without calling the
+provider. It retains accepted user events, previous tools and usage, then emits
+the existing `turn_end` and `agent_end` envelopes. The refused iteration emits no
+assistant `message_start` or `message_end`; `turn_end.message` remains the
+required empty assistant value (`role: assistant`, `content: []`). No provider
+failure or cancellation is fabricated. Ordinary queue settlement still delivers
+pending input and permits the next prompt in the same RPC lifetime.
+
+Print mode reports `request_preparation_refused` and uses the existing failure
+exit path instead of printing a stale answer from an earlier iteration. A current
+refusal takes precedence over a retained older provider failure. JSON/RPC event
+shapes and aggregate lifetime exit semantics are unchanged. Full failure details
+remain private canonical product events/SDK state; bounded archive metadata
+contains only that fixed classification. This prepares the refusal path; live
+model-budget admission remains pending.
+
 ## (e) Python SDK Relationship
 
 `src/pipy_harness/sdk.py` (`create_product_session` and the separate

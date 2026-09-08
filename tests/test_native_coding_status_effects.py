@@ -45,6 +45,9 @@ class _StatePort:
     def clear_provider_failure(self) -> None:
         self.trace.append(("provider-success",))
 
+    def record_preparation_failure(self, failure: AgentFailure, /) -> None:
+        self.trace.append(("preparation-failure", failure))
+
     def record_provider_failure(self, failure: AgentFailure, /) -> None:
         self.trace.append(("provider-failure", failure))
 
@@ -179,3 +182,44 @@ def test_cancellation_reason_preserves_pending_input_transition(
     effects.provider_cancellation_observed(reason)
 
     assert trace == [(expected_effect,)]
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_preparation_failure_publishes_before_pending_and_presentation(
+    pending: bool,
+) -> None:
+    trace: Trace = []
+    failure = AgentFailure("Preparation", ProductContent("actionable private reason"))
+    effects = CodingAgentTurnStatusEffects(
+        state=_StatePort(trace, None),
+        presentation=_PresentationPort(trace, pending_input=pending),
+    )
+    effects.preparation_failed(failure)
+    expected: Trace = [("preparation-failure", failure), ("pending-input-query",)]
+    if pending:
+        expected.append(("pending-input-promote",))
+    expected.extend(
+        [
+            (
+                "diagnostic",
+                "pipy: request preparation refused: Preparation: actionable private reason",
+            ),
+            ("footer",),
+        ]
+    )
+    assert trace == expected
+
+
+def test_refused_publication_failure_prevents_presentation() -> None:
+    trace: Trace = []
+
+    class State(_StatePort):
+        def record_preparation_failure(self, failure: AgentFailure, /) -> None:
+            raise RuntimeError("stale publication")
+
+    effects = CodingAgentTurnStatusEffects(
+        state=State(trace, None), presentation=_PresentationPort(trace)
+    )
+    with pytest.raises(RuntimeError, match="stale publication"):
+        effects.preparation_failed(AgentFailure("refused", ProductContent("reason")))
+    assert not trace

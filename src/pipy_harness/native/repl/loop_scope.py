@@ -188,6 +188,9 @@ class AgentTurnStatusStateAdapter:
     def record_provider_failure(self, failure: AgentFailure, /) -> None:
         self.coding_state.record_provider_failure(failure)
 
+    def record_preparation_failure(self, failure: AgentFailure, /) -> None:
+        self.coding_state.record_preparation_failure(failure)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AgentTurnStatusPresentationAdapter:

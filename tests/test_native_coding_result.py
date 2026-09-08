@@ -196,3 +196,25 @@ def test_projection_rejects_unsupported_status() -> None:
             started_at=_STARTED_AT,
             ended_at=_ENDED_AT,
         )
+
+
+@pytest.mark.parametrize("status", [HarnessStatus.SUCCEEDED, HarnessStatus.FAILED])
+def test_preparation_failure_projects_only_fixed_classification(
+    status: HarnessStatus,
+) -> None:
+    from dataclasses import replace
+
+    failure = AgentFailure(
+        "PRIVATE_PREPARATION_TYPE", ProductContent("PRIVATE_PREPARATION_BODY")
+    )
+    snapshot = replace(_populated_snapshot(), preparation_failure=failure)
+    result = build_coding_session_result(
+        snapshot,
+        status=status,
+        exit_code=0 if status is HarnessStatus.SUCCEEDED else 1,
+        started_at=_STARTED_AT,
+        ended_at=_ENDED_AT,
+    )
+    assert result.preparation_failure_type == "request_preparation_refused"
+    assert "PRIVATE_PREPARATION" not in repr(result)
+    assert result.status is status

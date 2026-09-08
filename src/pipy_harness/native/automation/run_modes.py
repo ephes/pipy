@@ -199,6 +199,9 @@ def run_print_mode(
     adapter.error_stream = error_stream
     result = _run_oneshot(adapter, cwd)
     metadata = result.metadata or {}
+    if not metadata.get("error_type") and metadata.get("preparation_failure_type"):
+        print("pipy: run failed with request_preparation_refused", file=error_stream)
+        return result.exit_code or 1
     error_type = metadata.get("error_type") or metadata.get("provider_failure_type")
     if error_type:
         error_message = metadata.get("error_message") or metadata.get(

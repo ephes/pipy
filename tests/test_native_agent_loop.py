@@ -17,6 +17,7 @@ from pipy_harness.native.agent.events import (
     AgentRunCompleted,
     AssistantTextDelta,
     MessageCompleted,
+    MessageStarted,
     ProviderFailed,
     RunCancelled,
     SteeringConsumed,
@@ -375,6 +376,10 @@ class _StatusPolicy:
     ) -> None:
         del decision, tool_state
         self._record("provider_succeeded")
+
+    def preparation_failed(self, failure: AgentFailure, /) -> None:
+        del failure
+        self._record("preparation_failed")
 
     def provider_failed(
         self,
@@ -1807,3 +1812,148 @@ def test_cancelled_preparation_validates_anchor_and_overlay_before_turn_start(
     assert not any(
         isinstance(event, (TurnStarted, RunCancelled)) for event in events.events
     )
+
+
+@pytest.mark.parametrize("turn_index", [0, 1])
+def test_preparation_refusal_preserves_prior_effects_and_normal_handoff(
+    turn_index: int,
+) -> None:
+    order: list[str] = []
+    failure = AgentFailure("RequestPreparation", ProductContent("private reason"))
+
+    class Source(_RequestSource):
+        refuse = True
+
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            current: int,
+            definitions: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            if self.refuse and current == turn_index:
+                return AgentLoopRequestPreparation(history, preparation_failure=failure)
+            return super().prepare(history, active_input, current, definitions)
+
+    source = Source(order)
+    previous = (
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    calls=(_provider_call("prior"),), usage={"input_tokens": 7}
+                )
+            )
+        ]
+        if turn_index
+        else []
+    )
+    queued = AgentQueuedInput(ProductContent("next"), AgentQueuedInputKind.FOLLOW_UP)
+    queue = _QueuedInputs((queued,), order=order)
+    tools = _Tools(order)
+    loop, provider, sink, usage = _make_loop(
+        order,
+        [*previous, ProviderTurnOutcome(result=_provider_result())],
+        request_source=source,
+        tools=tools,
+        queued_input_port=queue,
+    )
+    run_input = _run_input()
+    outcome = loop.run(run_input)
+    assert outcome.result.outcome is AgentRunOutcome.FAILED
+    assert outcome.result.failure is failure and not outcome.terminate_session
+    assert outcome.next_input is queued and queue.calls == 1
+    assert provider.calls == turn_index and len(tools.executed) == turn_index
+    assert len(usage.publications) == turn_index
+    assert outcome.result.usage.input_tokens == 7 * turn_index
+    assert (
+        sum(m is run_input.active_input.accepted_message for m in outcome.final_history)
+        == 1
+    )
+    assert (
+        sum(isinstance(m, AgentToolResultMessage) for m in outcome.final_history)
+        == turn_index
+    )
+    assert not any(isinstance(e, (ProviderFailed, RunCancelled)) for e in sink.events)
+    refused_events = [
+        e for e in sink.events if getattr(e, "turn_index", None) == turn_index
+    ]
+    assert [type(e) for e in refused_events] == (
+        [TurnStarted, MessageStarted, MessageCompleted, TurnCompleted]
+        if turn_index == 0
+        else [TurnStarted, TurnCompleted]
+    )
+    assert isinstance(refused_events[-1], TurnCompleted)
+    assert refused_events[-1].outcome is AgentTurnOutcome.FAILED
+    assert refused_events[-1].message == AgentAssistantMessage(ProductContent(""))
+    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
+    assert "status:preparation_failed" in order
+    source.refuse = False
+    assert loop.run(_run_input()).result.outcome is AgentRunOutcome.SUCCEEDED
+    assert provider.calls == turn_index + 1
+
+
+@pytest.mark.parametrize("combination", ["request", "cancel", "all"])
+def test_preparation_failure_is_exclusive(combination: str) -> None:
+    active = _run_input().active_input
+    normal = _RequestSource([]).prepare((active.accepted_message,), active, 0, ())
+    with pytest.raises(ValueError, match="exactly one"):
+        AgentLoopRequestPreparation(
+            normal.history,
+            snapshot=normal.snapshot if combination != "cancel" else None,
+            cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
+            if combination != "request"
+            else None,
+            preparation_failure=AgentFailure("refused", ProductContent("reason")),
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("error_type", ""), ("error_type", 42), ("message", "raw"), ("retryable", 1)],
+)
+def test_preparation_failure_is_recursively_revalidated(
+    field: str, value: object
+) -> None:
+    failure = AgentFailure("refused", ProductContent("reason"))
+    object.__setattr__(failure, field, value)
+    with pytest.raises((TypeError, ValueError)):
+        AgentLoopRequestPreparation((), preparation_failure=failure)
+
+
+@pytest.mark.parametrize("history_shape", ["missing", "duplicate", "overlay"])
+def test_refused_preparation_validates_history_before_turn_start(
+    history_shape: str,
+) -> None:
+    class Source(_RequestSource):
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            current: int,
+            definitions: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            accepted = active_input.accepted_message
+            histories = {
+                "missing": (),
+                "duplicate": (accepted, accepted),
+                "overlay": (accepted, *active_input.request_overlay),
+            }
+            return AgentLoopRequestPreparation(
+                histories[history_shape],
+                preparation_failure=AgentFailure("refused", ProductContent("reason")),
+            )
+
+    order: list[str] = []
+    run_input = _run_input()
+    run_input = replace(
+        run_input,
+        active_input=AgentActiveInput(
+            run_input.active_input.accepted_message,
+            (AgentUserMessage(ProductContent("overlay")),),
+        ),
+    )
+    loop, provider, events, usage = _make_loop(order, [], request_source=Source(order))
+    with pytest.raises(ValueError):
+        loop.run(run_input)
+    assert provider.calls == 0 and not usage.publications
+    assert not any(isinstance(e, TurnStarted) for e in events.events)

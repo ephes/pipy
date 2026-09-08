@@ -359,6 +359,7 @@ class CodingSessionAdapter:
                 "error_message": run_output.error_message,
                 "provider_failure_type": run_output.provider_failure_type,
                 "provider_failure_message": run_output.provider_failure_message,
+                "preparation_failure_type": run_output.preparation_failure_type,
                 **instruction_metadata,
             },
         )

@@ -92,14 +92,14 @@ canonical package does not import them back.
 - `input_queue.py` owns command precedence and steering/follow-up/trigger
   ordering;
 - `state.py` owns the active provider/model labels, canonical history, usage,
-  counters, compaction state, and provider-failure state;
+  counters, compaction state, and separate provider/preparation-failure state;
 - `accepted_input.py` prepares one accepted prompt and request-only context;
 - `agent_run.py` assembles and invokes the canonical loop;
 - `request_budget.py` supplies pure numeric request estimates and declared/explicit
   limit resolution, without live admission policy or catalog/settings ownership;
 - `status_effects.py` owns the run-entry, input-accepted, result, cancellation,
-  tool-policy, provider-settlement, no-tool, and malformed-fatal status family
-  behind narrow state and presentation ports;
+  tool-policy, preparation-refusal, provider-settlement, no-tool, and
+  malformed-fatal status family behind narrow state and presentation ports;
 - `commands.py` and `command_registry.py` own the closed command vocabulary,
   classification, metadata, and dispatch outcomes;
 - `product_session.py` coordinates state-first private-session transitions; and
@@ -118,6 +118,18 @@ rows. An exact direct-import allowlist and fresh-process dependency check pin
 the helper's separation from settings, catalog selection and image loading.
 See the [budget contract](harness-spec.md#model-aware-request-budget-contract)
 for the implemented heuristic and the pending live integration.
+
+Canonical request preparation now returns exactly one frozen request, cancellation
+or typed recoverable failure. Refusal stops only the accepted agent run, retaining
+normal turn/run completion and queue handoff without admitting an assistant
+message or fabricating a provider result. The existing coding state guards every
+preparation-failure reader and writer; publication requires its installed live run
+witness. Accepted-input reset and context replacement clear the field, while
+same-context history publication and compaction retain it. Status effects publish
+before pending-input promotion, diagnostics and presentation, with callbacks
+outside the state mutex. Frozen product snapshots preserve the full failure;
+bounded results and archive metadata expose only `request_preparation_refused`.
+Live budget admission remains a later integration of these existing owners.
 
 ## Product composition and one-shot runtime
 

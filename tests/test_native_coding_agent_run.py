@@ -172,6 +172,7 @@ def test_status_policy_adapter_forwards_each_seam_and_satisfies_protocol() -> No
     adapter = AgentLoopStatusPolicyAdapter(
         run_entered=record("run_entered"),
         input_accepted=record("input_accepted"),
+        preparation_failed=record("preparation_failed"),
         provider_result_observed=record("provider_result_observed"),
         provider_cancellation_observed=record("provider_cancellation_observed"),
         tool_policy_state_changed=record("tool_policy_state_changed"),
@@ -201,6 +202,7 @@ def test_status_policy_adapter_forwards_each_seam_and_satisfies_protocol() -> No
     adapter.provider_failed(decision, tool_state)
     adapter.no_tool_assistant(tool_state)
     adapter.malformed_fatal(failure, tool_state)
+    adapter.preparation_failed(failure)
 
     assert calls == [
         ("run_entered", ()),
@@ -212,6 +214,7 @@ def test_status_policy_adapter_forwards_each_seam_and_satisfies_protocol() -> No
         ("provider_failed", (decision, tool_state)),
         ("no_tool_assistant", (tool_state,)),
         ("malformed_fatal", (failure, tool_state)),
+        ("preparation_failed", (failure,)),
     ]
 
 
@@ -418,6 +421,7 @@ def _status_policy_noop() -> AgentLoopStatusPolicyAdapter:
     return AgentLoopStatusPolicyAdapter(
         run_entered=noop,
         input_accepted=noop,
+        preparation_failed=noop,
         provider_result_observed=noop,
         provider_cancellation_observed=noop,
         tool_policy_state_changed=noop,

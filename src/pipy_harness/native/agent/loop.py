@@ -126,11 +126,12 @@ def _validate_loop_run_input(run_input: AgentLoopRunInput) -> None:
 
 @dataclass(frozen=True, slots=True)
 class AgentLoopRequestPreparation:
-    """Validated history and exactly one request or preparation cancellation."""
+    """Validated history and exactly one request, cancellation or refusal."""
 
     history: tuple[AgentMessage, ...]
     snapshot: AgentProviderRequestSnapshot | None = None
     cancellation_reason: AgentCancellationReason | None = None
+    preparation_failure: AgentFailure | None = None
 
     def __post_init__(self) -> None:
         _validate_request_preparation(self)
@@ -142,12 +143,33 @@ def _validate_request_preparation(
     if type(preparation) is not AgentLoopRequestPreparation:
         raise TypeError("request source must return AgentLoopRequestPreparation")
     _validate_history(preparation.history)
-    if (preparation.snapshot is None) == (preparation.cancellation_reason is None):
-        raise ValueError("preparation requires exactly one snapshot or cancellation")
+    alternatives = (
+        preparation.snapshot,
+        preparation.cancellation_reason,
+        preparation.preparation_failure,
+    )
+    if sum(value is not None for value in alternatives) != 1:
+        raise ValueError(
+            "preparation requires exactly one snapshot, cancellation or failure"
+        )
     if preparation.snapshot is not None:
         validate_provider_request_snapshot(preparation.snapshot)
-    elif type(preparation.cancellation_reason) is not AgentCancellationReason:
-        raise TypeError("preparation cancellation must be an AgentCancellationReason")
+    elif preparation.cancellation_reason is not None:
+        if type(preparation.cancellation_reason) is not AgentCancellationReason:
+            raise TypeError(
+                "preparation cancellation must be an AgentCancellationReason"
+            )
+    else:
+        _validate_preparation_failure(preparation.preparation_failure)
+
+
+def _validate_preparation_failure(failure: object) -> None:
+    if type(failure) is not AgentFailure:
+        raise TypeError("preparation_failure must be an exact AgentFailure")
+    if type(failure.error_type) is not str:
+        raise TypeError("preparation_failure.error_type must be an exact str")
+    validate_product_content(failure.message, "preparation_failure.message")
+    AgentFailure.__post_init__(failure)
 
 
 @runtime_checkable
@@ -190,6 +212,8 @@ class AgentLoopStatusPolicy(Protocol):
         state: AgentToolPolicyState,
         /,
     ) -> None: ...
+
+    def preparation_failed(self, failure: AgentFailure, /) -> None: ...
 
     def provider_result_observed(self, result: ProviderResult, /) -> None: ...
 
@@ -379,6 +403,13 @@ class AgentLoop:
         _validate_overlay_absent(preparation.history, active_input)
         state.history = preparation.history
         self._start_turn(turn_index, active_input.accepted_message)
+        if preparation.preparation_failure is not None:
+            return self._settle_preparation_failure(
+                state, preparation.preparation_failure, turn_index
+            )
+        self._events.emit(
+            MessageStarted(turn_index, AgentAssistantMessage(ProductContent("")))
+        )
         if preparation.cancellation_reason is not None:
             return self._settle_provider_cancellation(
                 state,
@@ -414,9 +445,23 @@ class AgentLoop:
         if turn_index == 0:
             self._events.emit(MessageStarted(turn_index, accepted_message))
             self._events.emit(MessageCompleted(turn_index, accepted_message))
+
+    def _settle_preparation_failure(
+        self,
+        state: _RunState,
+        failure: AgentFailure,
+        turn_index: int,
+    ) -> _IterationDisposition:
+        state.failure = failure
+        self._status.preparation_failed(failure)
         self._events.emit(
-            MessageStarted(turn_index, AgentAssistantMessage(ProductContent("")))
+            TurnCompleted(
+                turn_index,
+                AgentTurnOutcome.FAILED,
+                AgentAssistantMessage(ProductContent("")),
+            )
         )
+        return _IterationDisposition.STOP
 
     def _settle_provider_cancellation(
         self,

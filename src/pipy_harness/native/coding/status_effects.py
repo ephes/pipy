@@ -46,6 +46,8 @@ class CodingAgentStatusStatePort(Protocol):
 
     def record_provider_failure(self, failure: AgentFailure, /) -> None: ...
 
+    def record_preparation_failure(self, failure: AgentFailure, /) -> None: ...
+
 
 class CodingAgentStatusPresentationPort(Protocol):
     """Narrow presentation operations used by agent-turn status effects."""
@@ -76,6 +78,16 @@ class CodingAgentTurnStatusEffects:
         prompt_for_recall = self.state.prompt_for_recall
         if prompt_for_recall is not None:
             self.state.record_prompt_recall(prompt_for_recall)
+
+    def preparation_failed(self, failure: AgentFailure, /) -> None:
+        self.state.record_preparation_failure(failure)
+        if self.presentation.has_pending_input():
+            self.presentation.promote_pending_input()
+        self.presentation.emit_diagnostic(
+            "pipy: request preparation refused: "
+            f"{failure.error_type}: {failure.message.value}"
+        )
+        self.presentation.refresh_usage_footer()
 
     def provider_result_observed(self, result: ProviderResult, /) -> None:
         del result

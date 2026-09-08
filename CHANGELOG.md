@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Native request preparation can now settle a typed recoverable refusal without
+  calling the provider or creating an empty assistant message. Product snapshots
+  retain the separate failure, earlier tools and usage survive, and the next
+  prompt can continue. Bounded archive results expose only a safe classification;
+  print mode suppresses stale earlier answers. Live model-budget admission remains
+  pending.
 - Python embeddings can now use `create_product_session` with an explicit
   tool-capable provider for persistent native coding: repeated literal prompts,
   real tools, fixed full-content events, immutable idle snapshots, cross-thread

@@ -191,8 +191,8 @@ def test_reload_refresh_matches_live_transition_for_owned_binding() -> None:
         ),
         (
             "publish_reload_rebind",
-            ["self._binding", "self._messages"],
-            ["binding.replacement", "history.messages"],
+            ["self._preparation_failure", "self._binding", "self._messages"],
+            ["None", "binding.replacement", "history.messages"],
         ),
     ),
 )
@@ -266,11 +266,13 @@ def test_model_mutation_uses_exact_binding_identity_and_assignment_only_publish(
     assert isinstance(guard, ast.With)
     assignments = cast(list[ast.Assign], guard.body)
     assert [ast.unparse(node.targets[0]) for node in assignments] == [
+        "self._preparation_failure",
         "self._binding",
         "self._messages",
         "self._usage_accumulator",
     ]
     assert [ast.unparse(node.value) for node in assignments] == [
+        "None",
         "prepared.replacement_binding",
         "()",
         "prepared.replacement_usage",
@@ -1452,7 +1454,8 @@ def test_destination_rebuild_restores_summary_under_guard_and_default_clears_it(
     ],
 )
 @pytest.mark.parametrize(
-    "publication", ["mirror", "append", "compaction", "usage", "capture", "validate"]
+    "publication",
+    ["mirror", "append", "compaction", "usage", "capture", "validate", "preparation"],
 )
 def test_run_witness_refuses_replaced_context_before_publication(
     replacement: str, publication: str
@@ -1510,6 +1513,9 @@ def test_run_witness_refuses_replaced_context_before_publication(
         "usage": lambda: state.absorb_usage(AgentProviderUsageSample(input_tokens=7)),
         "capture": state.capture_run_context,
         "validate": lambda: state.validate_run_context(captured),
+        "preparation": lambda: state.record_preparation_failure(
+            AgentFailure("refused", ProductContent("reason"))
+        ),
     }
     with pytest.raises(CodingContextChangedError, match="coding context changed"):
         operations[publication]()
@@ -1563,3 +1569,165 @@ def test_compaction_snapshot_readers_take_the_shared_mutex() -> None:
     snapshot = state.compaction_snapshot()
     assert _blocks_while_lock_held(lock, state.compaction_snapshot)
     assert _blocks_while_lock_held(lock, lambda: state.compaction_matches(snapshot))
+
+
+def _state_with_preparation_failure() -> CodingSessionState:
+    state = _state(messages=(_message(),))
+    witness = state.begin_agent_run()
+    state.record_preparation_failure(AgentFailure("refused", ProductContent("reason")))
+    state.end_agent_run(witness)
+    return state
+
+
+@pytest.mark.parametrize(
+    "replacement", ["input", "begin", "model", "reload", "rebind", "clear", "rebuild"]
+)
+def test_preparation_failure_clears_only_on_acceptance_or_context_replacement(
+    replacement: str,
+) -> None:
+    state = _state_with_preparation_failure()
+    previous = state.result_snapshot()
+    provider_failure = AgentFailure("provider", ProductContent("previous failure"))
+    state.record_provider_failure(provider_failure)
+    provider = state.provider
+    if replacement == "input":
+        state.record_input_accepted()
+    elif replacement == "begin":
+        state.begin_run(
+            provider_name=state.provider_name,
+            model_id=state.model_id,
+            usage_accumulator=AgentUsageAccumulator(),
+        )
+    elif replacement == "model":
+        state.publish_model_mutation(
+            state.prepare_model_mutation(
+                provider,
+                expected_binding=state.provider_binding,
+                provider_name=state.provider_name,
+                model_id=state.model_id,
+                usage_accumulator=AgentUsageAccumulator(),
+            )
+        )
+    elif replacement == "reload":
+        prepared = state.prepare_reload_rebind(
+            provider, provider_name=state.provider_name, model_id=state.model_id
+        )
+        state.publish_reload_rebind(binding=prepared.binding, history=prepared.history)
+    elif replacement == "rebind":
+        state.rebind_provider(
+            provider,
+            provider_name=state.provider_name,
+            model_id=state.model_id,
+            usage_accumulator=AgentUsageAccumulator(),
+        )
+    elif replacement == "clear":
+        state.clear_history()
+    else:
+        state.rebuild_history((_message("replacement"),))
+    assert (
+        state.preparation_failure is None
+        and state.result_snapshot().preparation_failure is None
+    )
+    assert previous.preparation_failure is not None
+    assert state.provider_failure is (
+        None if replacement == "begin" else provider_failure
+    )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["append", "mirror", "compact", "refresh", "direct_refresh", "unavailable"],
+)
+def test_preparation_failure_survives_same_context_operations(operation: str) -> None:
+    state = _state_with_preparation_failure()
+    failure = state.preparation_failure
+    if operation == "append":
+        state.append_message(_message("another"))
+    elif operation == "mirror":
+        state.mirror_history(state.messages)
+    elif operation == "compact":
+        state.apply_compaction(
+            state.messages, summary_suffix="summary", dropped_group_count=1
+        )
+    elif operation == "refresh":
+        state.publish_reload_refresh(state.prepare_reload_refresh(state.provider))
+    elif operation == "direct_refresh":
+        state.refresh_provider(state.provider)
+    else:
+        state.mark_provider_unavailable(state.provider)
+    assert state.preparation_failure is failure
+
+
+def test_preparation_failure_requires_live_witness_and_uses_state_guard() -> None:
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+    failure = AgentFailure("refused", ProductContent("reason"))
+    with pytest.raises(RuntimeError, match="active coding agent run"):
+        state.record_preparation_failure(failure)
+    assert state.preparation_failure is None
+    witness = state.begin_agent_run()
+    assert _blocks_while_lock_held(
+        lock, lambda: state.record_preparation_failure(failure)
+    )
+    assert _blocks_while_lock_held(lock, lambda: state.preparation_failure)
+    assert _blocks_while_lock_held(lock, state.result_snapshot)
+    assert state.result_snapshot().preparation_failure is failure
+    assert _blocks_while_lock_held(lock, state.record_input_accepted)
+    assert state.preparation_failure is None
+    state.end_agent_run(witness)
+    with pytest.raises(RuntimeError, match="active coding agent run"):
+        state.record_preparation_failure(failure)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("error_type", ""), ("error_type", []), ("message", "body"), ("retryable", 1)],
+)
+def test_preparation_failure_rejects_corrupted_nested_fields_without_mutation(
+    field: str, value: object
+) -> None:
+    state = _state_with_preparation_failure()
+    before = state.result_snapshot()
+    witness = state.begin_agent_run()
+    failure = AgentFailure("candidate", ProductContent("reason"))
+    object.__setattr__(failure, field, value)
+    with pytest.raises((TypeError, ValueError)):
+        state.record_preparation_failure(failure)
+    assert state.result_snapshot() == before
+    with pytest.raises((TypeError, ValueError)):
+        replace(before, preparation_failure=failure)
+    state.end_agent_run(witness)
+
+
+def test_preparation_failure_field_reader_writer_inventory_is_exact() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/coding/state.py"
+    tree = ast.parse(source.read_text())
+    owner = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "CodingSessionState"
+    )
+    inventory: dict[str, set[str]] = {}
+    for method in owner.body:
+        if isinstance(method, ast.FunctionDef):
+            contexts = {
+                type(node.ctx).__name__
+                for node in ast.walk(method)
+                if isinstance(node, ast.Attribute)
+                and node.attr == "_preparation_failure"
+            }
+            if contexts:
+                inventory[method.name] = contexts
+    assert inventory == {
+        "__init__": {"Store"},
+        "preparation_failure": {"Load"},
+        "begin_run": {"Store"},
+        "publish_model_mutation": {"Store"},
+        "publish_reload_rebind": {"Store"},
+        "rebind_provider": {"Store"},
+        "clear_history": {"Store"},
+        "rebuild_history": {"Store"},
+        "record_input_accepted": {"Store"},
+        "record_preparation_failure": {"Store"},
+        "_result_snapshot_locked": {"Load"},
+    }

@@ -301,6 +301,9 @@ class _NoopStatusPolicy:
     ) -> None:
         del status, tool_state
 
+    def preparation_failed(self, failure: AgentFailure, /) -> None:
+        del failure
+
     def provider_failed(
         self,
         status: AgentProviderStatusDecision,
