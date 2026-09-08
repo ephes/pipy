@@ -862,6 +862,7 @@ class CodingSessionState:
         *,
         summary_suffix: str,
         dropped_group_count: int,
+        dropped_message_count: int,
     ) -> None:
         """Apply one changed compaction result as a single state transition."""
 
@@ -871,10 +872,28 @@ class CodingSessionState:
         if not summary_suffix:
             raise ValueError("summary_suffix must not be empty")
         _require_non_negative_int(dropped_group_count, "dropped_group_count")
-        if dropped_group_count == 0:
-            raise ValueError("dropped_group_count must be positive")
+        _require_non_negative_int(dropped_message_count, "dropped_message_count")
+        if dropped_message_count == 0:
+            raise ValueError("dropped_message_count must be positive")
         with self._state_lock:
             self._require_run_context_locked()
+            if len(self._messages) - len(messages) != dropped_message_count:
+                raise ValueError(
+                    "dropped_message_count must match actual history reduction"
+                )
+            if len({id(message) for message in messages}) != len(messages):
+                raise ValueError("retained messages must not duplicate identities")
+            retained_index = 0
+            for current in self._messages:
+                if (
+                    retained_index < len(messages)
+                    and current is messages[retained_index]
+                ):
+                    retained_index += 1
+            if retained_index != len(messages):
+                raise ValueError(
+                    "retained messages must be an identity-preserving ordered subsequence"
+                )
             self._messages = messages
             self._compaction_suffix = summary_suffix
             self._compaction_count += 1

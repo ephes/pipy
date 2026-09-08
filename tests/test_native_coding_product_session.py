@@ -17,6 +17,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCallbacks,
@@ -124,6 +125,7 @@ def _action(
         summary_suffix=ProductContent("\n\nProvider suffix"),
         durable_summary=ProductContent("Durable branch summary"),
         dropped_group_count=2,
+        dropped_message_count=1,
         measure_before=4096,
         first_kept_entry_id="retained-entry",
     )
@@ -209,12 +211,14 @@ def test_rebuild_loads_exact_context_and_preserves_cumulative_counters(
     summary: ProductContent | None,
 ) -> None:
     old = _messages()[0]
-    state = _state((old,))
+    removed = AgentAssistantMessage(ProductContent("removed"))
+    state = _state((removed, old))
     state.record_input_accepted()
     state.apply_compaction(
         (old,),
         summary_suffix="old suffix",
         dropped_group_count=3,
+        dropped_message_count=1,
     )
     loaded = _messages()
     callbacks = _callbacks(
@@ -237,11 +241,12 @@ def test_rebuild_loads_exact_context_and_preserves_cumulative_counters(
 
 def test_load_failure_leaves_state_unchanged_and_propagates() -> None:
     messages = _messages()
-    state = _state(messages)
+    state = _state((AgentAssistantMessage(ProductContent("removed")), *messages))
     state.apply_compaction(
         messages,
         summary_suffix="existing suffix",
         dropped_group_count=1,
+        dropped_message_count=1,
     )
     before = state.result_snapshot()
     coordinator = CodingProductSessionCoordinator(
@@ -290,9 +295,11 @@ def test_invalid_loaded_context_leaves_state_unchanged(invalid_kind: str) -> Non
 
 
 def test_compaction_applies_state_first_and_passes_the_exact_action() -> None:
-    state = _state()
-    observed: list[CodingProductSessionCompaction] = []
     action = _action()
+    state = _state(
+        (AgentUserMessage(ProductContent("removed")), *action.retained_messages)
+    )
+    observed: list[CodingProductSessionCompaction] = []
 
     def compact(persisted: CodingProductSessionCompaction) -> None:
         assert state.messages == action.retained_messages
@@ -317,8 +324,10 @@ def test_compaction_applies_state_first_and_passes_the_exact_action() -> None:
 
 
 def test_compaction_callback_failure_propagates_after_state_advances() -> None:
-    state = _state()
     action = _action()
+    state = _state(
+        (AgentUserMessage(ProductContent("removed")), *action.retained_messages)
+    )
 
     def fail(persisted: CodingProductSessionCompaction) -> None:
         assert persisted is action
@@ -347,8 +356,9 @@ def test_compaction_callback_failure_propagates_after_state_advances() -> None:
         ("retained_messages", []),
         ("summary_suffix", ProductContent("")),
         ("durable_summary", ProductContent("")),
-        ("dropped_group_count", 0),
         ("dropped_group_count", True),
+        ("dropped_message_count", 0),
+        ("dropped_message_count", True),
         ("measure_before", -1),
         ("measure_before", 1.0),
         ("first_kept_entry_id", ""),
@@ -396,8 +406,42 @@ def test_compaction_context_and_action_are_exact_frozen_slotted_dtos() -> None:
             ProductContent("suffix"),
             ProductContent("summary"),
             1,
+            1,
             0,
         )
+
+
+def test_product_compaction_accepts_positive_message_removal_with_zero_groups() -> None:
+    user = AgentUserMessage(ProductContent("accepted"))
+    old_call = AgentToolCall("old", "read", ProductContent("{}"))
+    new_call = AgentToolCall("new", "read", ProductContent("{}"))
+    old_assistant = AgentAssistantMessage(ProductContent(""), (old_call,))
+    old_result = AgentToolResultMessage(
+        "pipy-tool-old", "read", ProductContent("old"), "old"
+    )
+    new_assistant = AgentAssistantMessage(ProductContent(""), (new_call,))
+    new_result = AgentToolResultMessage(
+        "pipy-tool-new", "read", ProductContent("new"), "new"
+    )
+    original = (user, old_assistant, old_result, new_assistant, new_result)
+    cut = compact_agent_history_tool_cycles(original, accepted_user=user)
+    state = _state(original)
+    action = CodingProductSessionCompaction(
+        retained_messages=cut.messages,
+        summary_suffix=ProductContent("\n\nProvider suffix"),
+        durable_summary=ProductContent("Durable branch summary"),
+        dropped_group_count=cut.dropped_group_count,
+        dropped_message_count=cut.dropped_message_count,
+        measure_before=cut.bytes_before,
+        first_kept_entry_id="retained-entry",
+    )
+    CodingProductSessionCoordinator(
+        state=state,
+        port=_callbacks(state=state),
+    ).accept_compaction(action)
+    assert state.messages == cut.messages
+    assert state.compaction_count == 1
+    assert state.compaction_dropped_group_count == 0
 
 
 def test_runtime_protocol_and_callback_adapter_validation() -> None:
@@ -449,8 +493,10 @@ def test_append_rejects_awaitable_return_after_synchronous_state_transition() ->
 
 
 def test_compaction_rejects_non_none_return_after_state_transition() -> None:
-    state = _state()
     action = _action()
+    state = _state(
+        (AgentUserMessage(ProductContent("removed")), *action.retained_messages)
+    )
 
     def compact_returning_value(
         action_to_persist: CodingProductSessionCompaction,
@@ -592,12 +638,14 @@ def test_rebuild_and_provenance_read_use_current_state_lock_without_locking_load
 
 
 def test_split_compaction_acceptance_does_not_invoke_persistence() -> None:
-    state = _state()
+    action = _action()
+    state = _state(
+        (AgentUserMessage(ProductContent("removed")), *action.retained_messages)
+    )
     calls: list[str] = []
     coordinator = CodingProductSessionCoordinator(
         state=state, port=_callbacks(state=state, events=calls)
     )
-    action = _action()
     coordinator.accept_compaction(action)
     assert state.compaction_count == 1
     assert calls == []

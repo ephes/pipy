@@ -1080,10 +1080,14 @@ def test_successful_model_commit_preserves_rebind_contract_for_current_turn(
     )
     coding = effects.coding_state
     message = AgentUserMessage(content=ProductContent("prior context"))
+    coding.append_message(AgentUserMessage(content=ProductContent("removed")))
     coding.append_message(message)
     coding.absorb_usage(AgentProviderUsageSample(input_tokens=7, total_tokens=7))
     coding.apply_compaction(
-        (message,), summary_suffix="\nretained compaction", dropped_group_count=1
+        (message,),
+        summary_suffix="\nretained compaction",
+        dropped_group_count=1,
+        dropped_message_count=1,
     )
     construct_locks: list[bool] = []
     save_locks: list[bool] = []

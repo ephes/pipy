@@ -142,7 +142,8 @@ def test_reload_refresh_publishes_only_binding_and_preserves_later_state() -> No
     message = _message("before")
     later = _message("live-later")
     failure = AgentFailure("ProviderFailure", ProductContent("safe failure"))
-    state = _state(messages=(message,))
+    removed = _message("removed")
+    state = _state(messages=(removed, message))
     replacement = _provider("replacement", "replacement-model")
 
     expected = state.provider_binding
@@ -154,7 +155,10 @@ def test_reload_refresh_publishes_only_binding_and_preserves_later_state() -> No
 
     state.append_message(later)
     state.apply_compaction(
-        (message, later), summary_suffix="\n\nsummary", dropped_group_count=2
+        (message, later),
+        summary_suffix="\n\nsummary",
+        dropped_group_count=2,
+        dropped_message_count=1,
     )
     state.record_provider_failure(failure)
     state.publish_reload_refresh(prepared)
@@ -347,8 +351,9 @@ def test_reload_rebind_matches_live_transition_and_preserves_later_retained_stat
     message = _message("prior history")
     failure = AgentFailure("ProviderFailure", ProductContent("safe failure"))
     original = _provider()
-    live = _state(provider=original, messages=(message,))
-    detached = _state(provider=original, messages=(message,))
+    removed = _message("removed")
+    live = _state(provider=original, messages=(removed, message))
+    detached = _state(provider=original, messages=(removed, message))
     replacement = _provider("fallback", "fallback-model")
     prepared = detached.prepare_reload_rebind(
         replacement,
@@ -362,6 +367,7 @@ def test_reload_rebind_matches_live_transition_and_preserves_later_retained_stat
             (message,),
             summary_suffix="\n\nsummary",
             dropped_group_count=2,
+            dropped_message_count=1,
         )
         owner.record_provider_failure(failure)
     live.rebind_provider(
@@ -574,12 +580,13 @@ def test_coding_usage_owner_adapters_use_only_public_accumulator_methods() -> No
 
 def test_refresh_and_unavailable_provider_transitions_retain_context() -> None:
     message = _message()
-    state = _state(messages=(message,))
+    state = _state(messages=(_message("removed"), message))
     state.absorb_usage(AgentProviderUsageSample(input_tokens=4, total_tokens=4))
     state.apply_compaction(
         (message,),
         summary_suffix="\n\nsummary",
         dropped_group_count=2,
+        dropped_message_count=1,
     )
     refreshed = _provider("refreshed-name", "refreshed-model")
 
@@ -608,12 +615,13 @@ def test_refresh_and_unavailable_provider_transitions_retain_context() -> None:
 def test_rebind_clears_history_and_usage_but_preserves_compaction_suffix() -> None:
     message = _message()
     old_accumulator = AgentUsageAccumulator()
-    state = _state(messages=(message,), accumulator=old_accumulator)
+    state = _state(messages=(_message("removed"), message), accumulator=old_accumulator)
     state.absorb_usage(AgentProviderUsageSample(input_tokens=7, total_tokens=7))
     state.apply_compaction(
         (message,),
         summary_suffix="\n\nold summary",
         dropped_group_count=1,
+        dropped_message_count=1,
     )
     replacement = _provider("replacement-port", "replacement-port-model")
     new_accumulator = AgentUsageAccumulator(AgentTokenPricing(1.0, 2.0, 3.0))
@@ -642,7 +650,8 @@ def test_rebind_clears_history_and_usage_but_preserves_compaction_suffix() -> No
 
 def test_begin_run_resets_run_state_and_retains_the_state_owned_provider() -> None:
     provider = _provider()
-    state = _state(provider=provider, messages=(_message(),))
+    kept = _message()
+    state = _state(provider=provider, messages=(_message("removed"), kept))
     state.record_input_accepted()
     state.record_resource_invocation()
     state.record_file_references(
@@ -651,9 +660,10 @@ def test_begin_run_resets_run_state_and_retains_the_state_owned_provider() -> No
         failed_count=0,
     )
     state.apply_compaction(
-        state.messages,
+        (kept,),
         summary_suffix="\n\nold summary",
         dropped_group_count=1,
+        dropped_message_count=1,
     )
     state.record_provider_failure(
         AgentFailure("ProviderFailure", ProductContent("safe failure"))
@@ -694,10 +704,13 @@ def test_history_transitions_preserve_identity_and_rebuild_clears_only_suffix() 
     assert state.messages == (second,)
     assert state.messages[0] is second
 
+    removed = _message("removed")
+    state.mirror_history((removed, second))
     state.apply_compaction(
         (second,),
         summary_suffix="\n\nsummary",
         dropped_group_count=3,
+        dropped_message_count=1,
     )
     state.clear_history()
     assert state.messages == ()
@@ -710,6 +723,57 @@ def test_history_transitions_preserve_identity_and_rebuild_clears_only_suffix() 
     assert snapshot.compaction_suffix == ""
     assert snapshot.compaction_count == 1
     assert snapshot.compaction_dropped_group_count == 3
+
+
+@pytest.mark.parametrize(
+    "case", ["no-removal", "count", "replacement", "reorder", "duplicate"]
+)
+def test_compaction_refuses_unproved_actual_removal_without_state_effects(
+    case: str,
+) -> None:
+    first = _message("first")
+    second = _message("second")
+    third = _message("third")
+    state = _state(messages=(first, second, third))
+    before = state.result_snapshot()
+    retained: tuple[AgentMessage, ...] = (second, third)
+    dropped = 1
+    if case == "no-removal":
+        retained = (first, second, third)
+    elif case == "count":
+        dropped = 2
+    elif case == "replacement":
+        retained = (_message("second"), third)
+    elif case == "reorder":
+        retained = (third, second)
+    elif case == "duplicate":
+        state.mirror_history((first, second, second))
+        before = state.result_snapshot()
+        retained = (second, second)
+
+    with pytest.raises(ValueError):
+        state.apply_compaction(
+            retained,
+            summary_suffix="summary",
+            dropped_group_count=0,
+            dropped_message_count=dropped,
+        )
+    assert state.result_snapshot() == before
+
+
+def test_compaction_accepts_real_zero_group_reduction_and_updates_counters() -> None:
+    first = AgentAssistantMessage(ProductContent("removed"))
+    second = _message("retained")
+    state = _state(messages=(second, first))
+    state.apply_compaction(
+        (second,),
+        summary_suffix="summary",
+        dropped_group_count=0,
+        dropped_message_count=1,
+    )
+    assert state.messages == (second,)
+    assert state.compaction_count == 1
+    assert state.compaction_dropped_group_count == 0
 
 
 def test_tool_policy_and_product_counters_are_projected_exactly() -> None:
@@ -1060,6 +1124,7 @@ def test_negative_usage_samples_are_rejected_before_state_mutation(
                 (),
                 summary_suffix="",
                 dropped_group_count=1,
+                dropped_message_count=1,
             ),
             ValueError,
         ),
@@ -1068,6 +1133,7 @@ def test_negative_usage_samples_are_rejected_before_state_mutation(
                 (),
                 summary_suffix="summary",
                 dropped_group_count=True,
+                dropped_message_count=1,
             ),
             TypeError,
         ),
@@ -1076,6 +1142,7 @@ def test_negative_usage_samples_are_rejected_before_state_mutation(
                 (),
                 summary_suffix="summary",
                 dropped_group_count=0,
+                dropped_message_count=0,
             ),
             ValueError,
         ),
@@ -1508,7 +1575,10 @@ def test_run_witness_refuses_replaced_context_before_publication(
         "mirror": lambda: state.mirror_history((message,)),
         "append": lambda: state.append_message(message),
         "compaction": lambda: state.apply_compaction(
-            (message,), summary_suffix="summary", dropped_group_count=1
+            (),
+            summary_suffix="summary",
+            dropped_group_count=1,
+            dropped_message_count=1,
         ),
         "usage": lambda: state.absorb_usage(AgentProviderUsageSample(input_tokens=7)),
         "capture": state.capture_run_context,
@@ -1522,8 +1592,14 @@ def test_run_witness_refuses_replaced_context_before_publication(
     assert state.result_snapshot() == before
     state.end_agent_run(witness)
     # Ordinary shell/manual writes resume only after the old run has unwound.
-    state.append_message(message)
-    state.apply_compaction((message,), summary_suffix="manual", dropped_group_count=1)
+    removed = _message("manual-removed")
+    state.mirror_history((removed, message))
+    state.apply_compaction(
+        (message,),
+        summary_suffix="manual",
+        dropped_group_count=1,
+        dropped_message_count=1,
+    )
 
 
 def test_run_witness_admits_canonical_duplicate_normalization_and_compaction() -> None:
@@ -1534,7 +1610,14 @@ def test_run_witness_admits_canonical_duplicate_normalization_and_compaction() -
     state.append_message(message)
     assert state.messages == (message, message)
     state.mirror_history((message,))
-    state.apply_compaction((message,), summary_suffix="summary", dropped_group_count=1)
+    removed = _message("removed")
+    state.append_message(removed)
+    state.apply_compaction(
+        (message,),
+        summary_suffix="summary",
+        dropped_group_count=1,
+        dropped_message_count=1,
+    )
     state.absorb_usage(AgentProviderUsageSample(input_tokens=7))
     captured = state.capture_run_context()
     assert captured.messages == (message,)
@@ -1647,7 +1730,10 @@ def test_preparation_failure_survives_same_context_operations(operation: str) ->
         state.mirror_history(state.messages)
     elif operation == "compact":
         state.apply_compaction(
-            state.messages, summary_suffix="summary", dropped_group_count=1
+            state.messages[1:],
+            summary_suffix="summary",
+            dropped_group_count=1,
+            dropped_message_count=1,
         )
     elif operation == "refresh":
         state.publish_reload_refresh(state.prepare_reload_refresh(state.provider))

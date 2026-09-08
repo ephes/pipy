@@ -703,6 +703,7 @@ class ProviderMutationEffects:
                     summary_suffix=ProductContent("\n\n" + summary),
                     durable_summary=ProductContent(summary),
                     dropped_group_count=work.cut.dropped_group_count,
+                    dropped_message_count=work.cut.dropped_message_count,
                     measure_before=work.cut.bytes_before,
                     first_kept_entry_id=work.first_kept_entry_id,
                 )

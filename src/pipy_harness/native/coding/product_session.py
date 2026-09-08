@@ -35,6 +35,7 @@ class CodingProductSessionCompaction:
     summary_suffix: ProductContent
     durable_summary: ProductContent
     dropped_group_count: int
+    dropped_message_count: int
     measure_before: int
     first_kept_entry_id: str | None = None
 
@@ -199,6 +200,7 @@ class CodingProductSessionCoordinator:
             action.retained_messages,
             summary_suffix=action.summary_suffix.value,
             dropped_group_count=action.dropped_group_count,
+            dropped_message_count=action.dropped_message_count,
         )
 
     def persist_compaction(self, action: CodingProductSessionCompaction) -> None:
@@ -237,8 +239,9 @@ def _require_compaction(action: object) -> None:
     _require_non_empty_product_content(action.summary_suffix, "summary_suffix")
     _require_non_empty_product_content(action.durable_summary, "durable_summary")
     _require_non_negative_int(action.dropped_group_count, "dropped_group_count")
-    if action.dropped_group_count == 0:
-        raise ValueError("dropped_group_count must be positive")
+    _require_non_negative_int(action.dropped_message_count, "dropped_message_count")
+    if action.dropped_message_count == 0:
+        raise ValueError("dropped_message_count must be positive")
     _require_non_negative_int(action.measure_before, "measure_before")
     if action.first_kept_entry_id is not None:
         _require_entry_id(action.first_kept_entry_id)

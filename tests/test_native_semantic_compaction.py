@@ -320,7 +320,10 @@ def _mutate(effects: ProviderMutationEffects, name: str) -> None:
         state.rebuild_history(state.messages, summary_suffix=state.compaction_suffix)
     elif name == "compaction":
         state.apply_compaction(
-            state.messages, summary_suffix="Concurrent summary", dropped_group_count=1
+            state.messages[1:],
+            summary_suffix="Concurrent summary",
+            dropped_group_count=1,
+            dropped_message_count=1,
         )
     else:
         _mutate_binding(effects, name)

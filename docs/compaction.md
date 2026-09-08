@@ -206,7 +206,9 @@ group boundaries, with no budgeting, within-run cuts, retries, custom `/compact`
 instructions, or RPC controls.
 
 The coding/product composition owns one auxiliary no-tool summary operation.
-Keep `native.agent.history` mechanical and its positive dropped-group invariant.
+Keep `native.agent.history` mechanical. Live D1 selection still removes whole user
+groups; D3b2 generalizes the mechanical and state invariant to positive actual
+message removal, permitting zero removed groups for the inactive cycle selector.
 Use the existing branch-summary request capability as the starting seam, but run
 D1's completion through `ProviderTurnExecutor` with canonical cancellation, a
 private no-op event sink and `ProviderTurnDeltaPolicy(text=False, reasoning=False)`.

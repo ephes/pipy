@@ -1187,12 +1187,14 @@ which is *not* the product session source:
   `session.started` and emits `native.session.resumed`. Branch labels pass
   `validate_branch_label` (single-line, non-path, non-secret-shaped, bounded).
 - **Compaction** delegates its pure canonical-message reduction to
-  `native.agent.history`. The tool-loop cut is constrained to canonical
-  `AgentUserMessage` group boundaries so the
-  retained provider history is always protocol-valid (no orphaned tool result,
-  no reordered tool-call/observation pair, no exposed raw tool payload). The
-  summary folded back into the provider system prompt is counts only; the
-  dropped raw context is discarded from the live in-memory request. Triggers
+  `native.agent.history`. The live tool-loop selector remains constrained to
+  canonical `AgentUserMessage` group boundaries. The canonical layer also
+  exposes a pure, inactive selector for removing older complete tool cycles
+  after an exact latest user while retaining that user and the newest cycle.
+  Both preserve protocol validity without repairing or synthesizing history.
+  Semantic compaction summarizes the prior summary and exact removed content;
+  the replacement summary is full product-session content and does not enter
+  the summary-safe workflow archive. Triggers
   are an explicit `/compact` command and an automatic threshold. In the product runtime,
   `/compact` additionally appends a durable
   `compaction` entry (with `firstKeptEntryId`) to the native product session
@@ -1980,8 +1982,8 @@ allow at most one semantic attempt per provider iteration. A known limit replace
 the legacy message/byte trigger: below estimated pressure, history length alone
 does not trigger auto-compaction. Unknown limits retain the old trigger. Its cut preserves the
 latest complete user group and may drop older complete groups, so the accepted
-user anchor and every retained tool exchange survive. This uses the existing
-positive dropped-group invariant. A single oversized current group, system/tools
+user anchor and every retained tool exchange survive. This live policy still
+requires an older whole group to remove. A single oversized current group, system/tools
 or attachment set can still refuse; within-run cuts remain D3b. Manual compaction
 and unknown-limit legacy retention stay unchanged. `keepRecentTokens` remains
 reported but inactive for D3a; do not claim token-target retention is implemented.
@@ -2047,8 +2049,9 @@ D1 cancellation/staleness and durable reopen regressions remain mandatory.
 
 ### Within-Run Compaction Contract (D3b)
 
-The canonical run-result prerequisite is implemented. The sole
-[backlog](backlog.md) gates the remaining cut, persistence, and activation
+The canonical run-result prerequisite and D3b2's pure mechanical cycle selector
+and guarded actual-removal proof are implemented. The sole
+[backlog](backlog.md) gates the remaining durable-selection and live-activation
 slices.
 Current whole-group compaction cannot reduce one long accepted tool run. Retaining
 its user while removing older tool cycles requires both a noncontiguous retained
@@ -2079,9 +2082,9 @@ owner. Current-run payloads remain in memory until settlement; context reduction
 does not promise bounded total run-output memory.
 The superseded `AgentActiveInput.result_messages` helper is removed; its
 still-relevant anchor and result assertions live with the canonical loop tests.
-Request-overlay and prompt-transformation helpers remain unchanged. Mechanical
-within-run cuts, durable selection, and live activation remain planned in
-D3b2–D3b4.
+Request-overlay and prompt-transformation helpers remain unchanged. Pure
+mechanical within-run cycle selection is implemented but inactive. Durable
+selection and live activation remain planned in D3b3–D3b4.
 
 **A safe cut is an explicit value.** Extend the immutable mechanical cut to carry
 the exact retained and removed message tuples in original order, plus an optional
@@ -2193,13 +2196,26 @@ then.
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical
 provider-visible history. `compact_agent_history` receives a sequence of
 `AgentMessage` values and a caller-selected retained-group count; it returns an
-immutable `AgentHistoryCompaction` containing the retained tuple and exact
+immutable `AgentHistoryCompaction` containing exact retained and removed tuples and exact
 dropped group/message/user/assistant/tool-call/tool-result counts, retained
-group/message counts, and before/after byte counts.
+group/message counts, before/after byte counts, and optional exact retained-user
+and suffix-boundary identities.
 `should_compact_agent_history` applies caller-supplied message, byte, and
-retained-group limits. Both operations cut only at `AgentUserMessage`
-boundaries, so a retained tool result keeps the assistant tool call that
-introduced its provider correlation id.
+retained-group limits. Those existing operations cut only at `AgentUserMessage`
+boundaries. `compact_agent_history_tool_cycles` is a separate pure selector: it
+requires an exact unique latest user followed entirely by at least two complete
+assistant tool-call batches and their contiguous, ordered results. It matches
+correlation ID and tool name, rejects duplicate IDs and malformed exchange
+grammar, and removes only the older settled cycles. It refuses candidates with
+duplicate retained message identities or an identity shared by the removed and
+retained selections. Malformed arguments paired with an error result remain a
+settled exchange. The live compaction policy does not call this selector yet.
+
+D3b2 also makes guarded product acceptance prove real removal: actions carry an
+exact positive dropped-message count, retained objects must be a duplicate-free
+ordered identity subsequence of current guarded history, and the length delta
+must match. A valid intra-group cut may drop zero whole user groups while still
+incrementing the compaction count once.
 
 This module is mechanical rather than a product policy or persistence layer. It
 does not choose threshold defaults, enable compaction, generate a semantic
