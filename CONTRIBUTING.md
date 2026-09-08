@@ -62,6 +62,21 @@ Add focused characterization when an ownership, precedence, failure-order, or
 privacy invariant is not already executable. Do not weaken an architecture,
 trust, path, privacy, lint, or type gate merely to make a change pass.
 
+Tests isolate `HOME` to avoid reading or changing developer resources. The legacy
+score test runs its real probes with the already installed test interpreter:
+
+```sh
+PIPY_PARITY_PYTHON="$PWD/.venv/bin/python" bash scripts/parity_score.sh
+```
+
+This explicit mode never invokes `uv`, resolves an environment, or installs
+Python. It checks the selected virtual-environment interpreter, Pytest, and both
+installed console scripts before scoring any row; invalid configuration fails
+immediately. The test also traps accidental `uv` calls and verifies interpreter
+links and `pyvenv.cfg` stay unchanged. Keep home isolation in place rather than
+restoring the real `HOME` to run nested checks. Ordinary `just parity-score`
+without this variable retains its existing `uv run` dispatch.
+
 Before treating any contribution as complete, run the repository-wide gate and
 build the documentation:
 

@@ -285,6 +285,22 @@ Run this script to recompute the legacy score:
 just parity-score
 ```
 
+By default the script uses `uv run` for its Python, Pytest and CLI checks. Callers
+that already own an installed virtual environment, including tests with an
+isolated `HOME`, can use an absolute interpreter path instead:
+
+```sh
+PIPY_PARITY_PYTHON="$PWD/.venv/bin/python" bash scripts/parity_score.sh
+```
+
+Explicit mode runs that interpreter directly, Pytest through `-m pytest`, and
+the installed `pipy` and `pipy-session` console scripts beside the interpreter.
+Before any score row it checks Python, `pytest --version`, and both console
+scripts' `--help` commands. A missing or invalid target is a configuration error
+with a nonzero exit, regardless of the score threshold. It never falls back to
+`uv` or performs environment setup; an empty or relative interpreter path also
+fails. Both modes retain all 49 checks and the same scoring rules.
+
 The `just parity-score` recipe re-runs the per-row `Verify` commands and
 counts how many succeed. The historical pass bar is **40 ✅ out of 49** with
 the constraint that **at least 5 of the implementations must be "big" features**

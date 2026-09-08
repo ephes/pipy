@@ -3,11 +3,54 @@
 # Counts features that pass their per-row Verify command.
 #
 # Exit code 0 if score ≥ 40/49 AND ≥ 5 "big" features pass.
-# Otherwise exit code 1.
+# Otherwise exit code 1; invalid explicit-interpreter configuration exits 2
+# before any score row runs.
 
 set -u
 
 cd "$(dirname "$0")/.."
+
+# Test callers already own an installed environment. Never ask uv to resolve or
+# synchronize that shared environment under their temporary HOME.
+parity_run() {
+    local target="$1"
+    shift
+    if [ "${PIPY_PARITY_PYTHON+x}" != x ]; then
+        uv run "$target" "$@"
+        return $?
+    fi
+    case "$target" in
+        python) "$PIPY_PARITY_PYTHON" "$@" ;;
+        pytest) "$PIPY_PARITY_PYTHON" -m pytest "$@" ;;
+        pipy|pipy-session)
+            "$PIPY_PARITY_PYTHON" "${PIPY_PARITY_PYTHON%/*}/$target" "$@" ;;
+        *) return 2 ;;
+    esac
+}
+export -f parity_run
+
+configuration_error() {
+    printf 'parity-score configuration error: %s\n' "$1" >&2
+    exit 2
+}
+
+if [ "${PIPY_PARITY_PYTHON+x}" = x ]; then
+    case "$PIPY_PARITY_PYTHON" in
+        /*) ;;
+        *) configuration_error 'PIPY_PARITY_PYTHON must be an absolute interpreter path' ;;
+    esac
+    [ -x "$PIPY_PARITY_PYTHON" ] || configuration_error 'selected Python is not executable'
+    parity_run python -c 'import sys; raise SystemExit(sys.prefix == sys.base_prefix)' \
+        >/dev/null 2>&1 || configuration_error 'selected Python must run in an installed virtual environment'
+    parity_run pytest --version >/dev/null 2>&1 \
+        || configuration_error 'selected Python cannot run pytest'
+    for target in pipy pipy-session; do
+        [ -f "${PIPY_PARITY_PYTHON%/*}/$target" ] \
+            || configuration_error "installed $target console script is missing"
+        parity_run "$target" --help >/dev/null 2>&1 \
+            || configuration_error "installed $target console script cannot run"
+    done
+fi
 
 PASS=0
 FAIL=0
@@ -56,24 +99,24 @@ check B6  "edit"        small  "test -f src/pipy_harness/native/tools/edit.py"
 # a safe command runs, `.git` access through a direct path is refused (no
 # shell metacharacters, so containment happens at resolution time), and
 # command substitution is refused. A dormant unregistered helper cannot pass.
-check B7  "bash"        big    "uv run python scripts/parity_checks/bash_behavior.py"
+check B7  "bash"        big    "parity_run python scripts/parity_checks/bash_behavior.py"
 # Preserve the historical 49-row denominator while turning the former
 # edit-diff row into the durable parity criterion: the production registry,
 # provider schema names, prompt inventory, and extension reservations must all
 # expose exactly Pi's seven tools in provider-visible order.
-check B8  "7-tool manifest" small  "uv run pytest -q tests/test_native_coding_session.py::test_production_tool_inventories_match_exact_pi_manifest"
+check B8  "7-tool manifest" small  "parity_run pytest -q tests/test_native_coding_session.py::test_production_tool_inventories_match_exact_pi_manifest"
 # Pi keeps output truncation internal rather than advertising another agent
 # tool. Exercise pipy's independent read, bash, and provider-visible result
 # bounds instead of checking for a model-facing helper module.
-check B9  "output bounds" small  "uv run pytest -q tests/test_native_tools_read.py::test_read_tool_truncates_to_byte_limit tests/test_bash_tool.py::test_bounds_large_output tests/test_native_tools_base.py::test_tool_execution_result_rejects_oversized_output"
+check B9  "output bounds" small  "parity_run pytest -q tests/test_native_tools_read.py::test_read_tool_truncates_to_byte_limit tests/test_bash_tool.py::test_bounds_large_output tests/test_native_tools_base.py::test_tool_execution_result_rejects_oversized_output"
 
 echo
 echo "── Core subsystems (C1–C15) ────────────────────────"
-check C1  "CLI entry"                small  "uv run pipy --help 2>&1 | grep -q 'pipy'"
-check C2  "run mode"                 small  "uv run pipy run --help 2>&1 | grep -q goal"
-check C3  "REPL mode"                small  "uv run pipy repl --help 2>&1 | grep -q repl"
-check C4  "Session persistence"      small  "uv run pipy-session list --help 2>&1 | grep -q list"
-check C5  "Session catalog"          small  "uv run pipy-session search --help 2>&1 | grep -q search"
+check C1  "CLI entry"                small  "parity_run pipy --help 2>&1 | grep -q 'pipy'"
+check C2  "run mode"                 small  "parity_run pipy run --help 2>&1 | grep -q goal"
+check C3  "REPL mode"                small  "parity_run pipy repl --help 2>&1 | grep -q repl"
+check C4  "Session persistence"      small  "parity_run pipy-session list --help 2>&1 | grep -q list"
+check C5  "Session catalog"          small  "parity_run pipy-session search --help 2>&1 | grep -q search"
 check C6  "Provider port"            small  "test -f src/pipy_harness/native/provider.py"
 check C7  "Tool port + registry"     small  "grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q production_tool_registry src/pipy_harness/native/coding/session.py"
 check C8  "Workspace context"        small  "test -f src/pipy_harness/native/workspace_context.py"
@@ -83,7 +126,7 @@ check C11 ".git default-deny"        small  "grep -q _resolved_relative_label sr
 # C12 (transcript sidecar) was retired with the no-tool REPL: the native
 # session tree IS the full transcript, so the opt-in `transcripts.py` sidecar
 # no longer exists. The row is intentionally dropped from the rubric.
-check C13 "JSON output mode"         small  "uv run pipy repl --help 2>&1 | grep -q -- '--mode'"
+check C13 "JSON output mode"         small  "parity_run pipy repl --help 2>&1 | grep -q -- '--mode'"
 check C14 "Streaming output"         big    "grep -q StreamChunkSink src/pipy_harness/native/provider.py && grep -q -- '--stream' src/pipy_harness/cli.py"
 check C15 "Retry/backoff"            big    "test -f src/pipy_harness/native/retry.py"
 
@@ -97,23 +140,23 @@ check D3 "PIPY_CONFIG_HOME"          small  "grep -q PIPY_CONFIG_HOME src/pipy_h
 # resolves a seeded workspace resource to a bounded provider turn. Recreating a
 # dormant helper module cannot satisfy them. (The no-tool REPL was retired; the
 # product coding session now reaches the dispatcher through repl/collaborators.py.)
-check D4 "Skills loading"            small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_SKILL_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'skills'; p.mkdir(parents=True); _=(p/'demo.md').write_text(chr(10).join(['---','name: demo','---','SKILLBODY',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/skill demo',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'SKILLBODY' in x.provider_text else 1)\""
-check D5 "Prompt templates"          small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_TEMPLATE_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'templates'; p.mkdir(parents=True); _=(p/'rev.md').write_text(chr(10).join(['---','name: rev','---','review ARGS='+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/rev hello',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'ARGS=hello' in x.provider_text else 1)\""
-check D6 "Custom slash commands"     small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_COMMAND_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'commands'; p.mkdir(parents=True); _=(p/'dep.md').write_text(chr(10).join(['---','name: dep','---','deploy '+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/dep prod',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'deploy prod' in x.provider_text else 1)\""
+check D4 "Skills loading"            small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && parity_run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_SKILL_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'skills'; p.mkdir(parents=True); _=(p/'demo.md').write_text(chr(10).join(['---','name: demo','---','SKILLBODY',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/skill demo',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'SKILLBODY' in x.provider_text else 1)\""
+check D5 "Prompt templates"          small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && parity_run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_TEMPLATE_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'templates'; p.mkdir(parents=True); _=(p/'rev.md').write_text(chr(10).join(['---','name: rev','---','review ARGS='+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/rev hello',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'ARGS=hello' in x.provider_text else 1)\""
+check D6 "Custom slash commands"     small  "grep -q dispatch_resource_command src/pipy_harness/native/repl/collaborators.py && parity_run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_COMMAND_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'commands'; p.mkdir(parents=True); _=(p/'dep.md').write_text(chr(10).join(['---','name: dep','---','deploy '+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d,include_workspace_defaults=True); x=dispatch_resource_command('/dep prod',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'deploy prod' in x.provider_text else 1)\""
 # D7 is a behavior check, not a file-existence rubber-stamp: it applies a theme
 # via select_theme (the function the /settings theme picker calls) and proves the
 # selected theme changes the rendered chrome styling (default pi separator, ocean
 # separator after switching), while NO_COLOR / non-TTY always force plain output
 # regardless of the selected theme. Theme selection lives in the /settings dialog
 # (the open_theme_selector picker); the pipy-only /theme command was removed.
-check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q 'def open_theme_selector' src/pipy_harness/native/repl/settings_actions.py && uv run python scripts/parity_checks/theme_behavior.py"
+check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q 'def open_theme_selector' src/pipy_harness/native/repl/settings_actions.py && parity_run python scripts/parity_checks/theme_behavior.py"
 # D8 is a behavior check, not a grep rubber-stamp: it seeds a workspace PNG,
 # drives the product tool-loop REPL with a real @image: prompt, and proves
 # the image reaches the provider as a bounded, type-validated attachment that a
 # multimodal adapter renders as a native image block, that a non-image binary
 # fails closed, and that the metadata-first result records only safe counters —
 # never the raw base64 image data.
-check D8 "Image attachments"         small  "grep -q 'def resolve_image_attachments' src/pipy_harness/native/image_attachment.py && grep -q 'attachments=' src/pipy_harness/native/repl/loop_step.py && uv run python scripts/parity_checks/attachment_behavior.py"
+check D8 "Image attachments"         small  "grep -q 'def resolve_image_attachments' src/pipy_harness/native/image_attachment.py && grep -q 'attachments=' src/pipy_harness/native/repl/loop_step.py && parity_run python scripts/parity_checks/attachment_behavior.py"
 
 echo
 echo "── Advanced session features (E1–E7) ───────────────"
@@ -125,9 +168,9 @@ check E1 "Session resume"            big    "test -f src/pipy_harness/native/ses
 # provider message-protocol validity (no orphaned tool result). E3 proves a
 # branch child records safe parent/branch/fork metadata, emits
 # native.session.resumed, and leaves the parent record byte-for-byte immutable.
-check E2 "Session compaction"        big    "grep -q compact_agent_history src/pipy_harness/native/repl/loop_step.py && uv run python scripts/parity_checks/compaction_behavior.py"
-check E3 "Session branching"         small  "grep -q build_session_lineage src/pipy_harness/native/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py"
-check E4 "Session export"            small  "test -f src/pipy_session/export.py || uv run pipy-session export --help 2>&1 | grep -q export"
+check E2 "Session compaction"        big    "grep -q compact_agent_history src/pipy_harness/native/repl/loop_step.py && parity_run python scripts/parity_checks/compaction_behavior.py"
+check E3 "Session branching"         small  "grep -q build_session_lineage src/pipy_harness/native/session_resume.py && parity_run python scripts/parity_checks/branching_behavior.py"
+check E4 "Session export"            small  "test -f src/pipy_session/export.py || parity_run pipy-session export --help 2>&1 | grep -q export"
 # E5 is a behavior check, not a file/grep rubber-stamp: it drives the product
 # tool-loop REPL through the shared NativeReplProviderState boundary and proves
 # a mid-session /model switch rebinds the live provider/model in subsequent
@@ -135,7 +178,7 @@ check E4 "Session export"            small  "test -f src/pipy_session/export.py 
 # selection preserved), that the path clears the provider-visible conversation
 # on a successful switch and preserves it on a refused one, and that /model
 # itself creates no provider/tool/archive side effects.
-check E5 "Dynamic provider swap"     big    "uv run python scripts/parity_checks/dynamic_provider_behavior.py"
+check E5 "Dynamic provider swap"     big    "parity_run python scripts/parity_checks/dynamic_provider_behavior.py"
 check E6 "Settings panel"            small  "grep -q '/settings' src/pipy_harness/native/repl/wiring.py"
 check E7 "RPC / SDK"                 small  "test -f src/pipy_harness/rpc.py || test -f src/pipy_harness/sdk.py"
 

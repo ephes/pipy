@@ -246,6 +246,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- The legacy score test now uses its installed interpreter directly under its
+  isolated home, avoiding nested `uv run` calls that could change the shared
+  development environment. Explicit `PIPY_PARITY_PYTHON` mode preflights Python,
+  Pytest and both installed console scripts before running the real score checks.
+
 - Compaction now generates a semantic summary of older whole-user groups and the
   prior summary using the current provider. Retained tool exchanges remain
   verbatim. Failed, cancelled or stale generation cannot publish a summary;
