@@ -8,13 +8,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Manual and automatic semantic compaction now use the canonical bounded retry
+  mechanism for prepared providers. One captured policy and frozen private
+  summary request span all logical attempts; retry admission and final acceptance
+  validate the original compaction witness, and cancellation or exhaustion
+  publishes no summary. Branch summaries keep their existing provider-owned
+  behavior.
+
 - Ordinary native product requests now capture retry settings once per request
   and use bounded caller-managed retries for the prepared OpenAI Codex
   capability. Retries reuse the prepared body and headers, preserve prior tool
   effects, stop on provider progress or reported usage, and revalidate the
   original coding context before reissue. Cancellation covers both backoff and
   provider phases; exhausted failures still leave the next prompt usable.
-  Other providers, auxiliary summaries, the compatibility SDK runtime, and the
+  Other providers, branch summaries, the compatibility SDK runtime, and the
   currently inert RPC retry controls retain their existing behavior.
 
 - Native compaction entries can now durably retain one exact user message plus a

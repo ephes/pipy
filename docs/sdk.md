@@ -106,7 +106,10 @@ completed tools and accepted input are not replayed. Settings changes apply to
 the next provider request. Cancellation covers retry backoff and provider phases,
 and stale context blocks reissue through the existing fatal cleanup. Injected
 providers without the prepared capability remain single-call. Auxiliary summaries
-retain their provider-owned/default behavior until D4b, and the RPC
+used by semantic compaction capture the same policy and prepared capability while
+keeping retry events, deltas, and usage private; their original cut and context
+witness gate every reissue and final acceptance. Branch summaries retain their
+provider-owned behavior. The RPC
 `set_auto_retry`/`abort_retry` controls remain deferred.
 
 A terminal driver failure, such as three consecutive malformed tool calls,

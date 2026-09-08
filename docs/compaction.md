@@ -15,7 +15,9 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
    with any previous summary, preserving goals, constraints, decisions, files,
    verified results and unfinished work. The request has no tools or attachments
    and excludes request-only overlays. Its text is private and does not stream
-   into the transcript.
+   into the transcript. A prepared provider may retry an explicitly transient,
+   no-progress failure using the retry policy captured for this summary operation;
+   the cut, request, headers, and budget preflight are not repeated.
 4. After checking that the captured context is still current, it replaces the
    older groups with the combined summary in the system prompt.
 5. It appends a `compaction` entry to the native session JSONL file using the
@@ -50,6 +52,14 @@ add a custom message, change a label, or rename the session: those tree changes
 invalidate the captured summary even if provider history is unchanged. The
 extension write remains accepted; the session closes without publishing the
 summary. A refused reload publication window has the same effect.
+
+Managed summary retries use the same bounded logical-attempt and delay settings as
+ordinary prepared requests. Settings changes during an attempt apply to a later
+summary or ordinary request. Retry lifecycle events, partial summary content, and
+usage remain private. Each reissue validates the original full compaction witness;
+exhaustion, cancellation, or stale context publishes no compaction. Progress,
+payload, or usage on a failed attempt prevents its retry and leaves context
+unchanged. Branch-summary generation retains its separate provider-owned behavior.
 
 Manual `/compact` has no later agent-run settlement. When the command completes,
 queued steering and follow-up messages become deliverable through the ordinary

@@ -276,9 +276,11 @@ reissue only a provider that supplies a request-local prepared completion; the
 initial implementation enables OpenAI Codex. It reuses the frozen request and
 prepared body/headers, while a product callback validates the original context
 immediately before reissue. The executor owns delay, cancellation, and retry
-events without holding coding state across I/O. Auxiliary summaries retain
-their provider-owned/default behavior until D4b; standalone and compatibility
-provider calls keep their existing defaults.
+events without holding coding state across I/O. Semantic-compaction summaries
+capture the same immutable policy and reuse their frozen private request, while
+the original full compaction witness guards reissue and final acceptance. Their
+retry lifecycle and deltas remain private. Branch summaries retain provider-owned
+behavior; standalone and compatibility provider calls keep their existing defaults.
 
 ## Extensions
 

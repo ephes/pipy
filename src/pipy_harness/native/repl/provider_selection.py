@@ -34,6 +34,7 @@ from pipy_harness.native.agent.history import (
     compact_agent_history,
     compact_agent_history_tool_cycles,
 )
+from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnDeltaPolicy,
     ProviderTurnExecutor,
@@ -69,6 +70,7 @@ from pipy_harness.native.coding.state import (
 )
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_types import ExtensionModelRuntimeControl
+from pipy_harness.native.provider import PreparedProviderPort
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.turn_leaves import (
@@ -87,7 +89,7 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.session_generation import SessionGenerationSnapshot
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.settings import SettingsManager, retry_policy_from_settings
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tui import TerminalUi
 
@@ -129,6 +131,11 @@ class _CompactionWork:
     pointer_epoch: int
     generation: SessionGenerationSnapshot
     publication_epoch: int
+    retry_policy: ProviderManagedRetryPolicy | None
+
+
+class _StaleCompactionRetry(RuntimeError):
+    """Private control signal selecting the trigger-specific stale outcome."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -625,7 +632,7 @@ class ProviderMutationEffects:
                 pending.promote_pending_to_drain()
         return outcome.notice
 
-    def compact_context(
+    def compact_context(  # noqa: C901 - ordered failure/stale settlement matrix
         self,
         trigger: str,
         budget: RequestBudget | None = None,
@@ -670,6 +677,13 @@ class ProviderMutationEffects:
             provider, waiter = provider_turn_inputs(
                 work.context.binding.provider, self.terminal_ui, self.abort_event
             )
+
+            def _before_reissue() -> None:
+                with self.mutation_io_lock:
+                    with self.ctl.generation_ref.lock:
+                        if not self._compaction_matches_locked(work):
+                            raise _StaleCompactionRetry
+
             completion = self.provider_turn_executor.complete(
                 provider,
                 request,
@@ -677,7 +691,13 @@ class ProviderMutationEffects:
                 turn_index=0,
                 delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
                 waiter=waiter,
+                retry_policy=work.retry_policy,
+                before_reissue=(
+                    _before_reissue if work.retry_policy is not None else None
+                ),
             )
+        except _StaleCompactionRetry:
+            return self._stale_compaction(trigger)
         except CodingContextChangedError:
             raise
         except Exception:  # noqa: BLE001 - auxiliary failures have content-free notices
@@ -756,6 +776,7 @@ class ProviderMutationEffects:
             )
         invalid_policy = None
         settings = None
+        retry_policy = None
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
                 work = self._capture_compaction_locked(
@@ -766,8 +787,20 @@ class ProviderMutationEffects:
                         settings = self.settings.capture_compaction_budget_settings()
                     except ValueError as exc:
                         invalid_policy = str(exc)
+                if isinstance(work, _CompactionWork) and isinstance(
+                    work.context.binding.provider, PreparedProviderPort
+                ):
+                    configured = retry_policy_from_settings(self.settings)
+                    retry_policy = ProviderManagedRetryPolicy(
+                        max_attempts=configured.max_attempts,
+                        initial_delay_seconds=configured.initial_delay_seconds,
+                        max_delay_seconds=configured.max_delay_seconds,
+                        multiplier=configured.multiplier,
+                        jitter_seconds=configured.jitter_seconds,
+                    )
         if isinstance(work, CodingCompactionOutcome):
             return work
+        work = replace(work, retry_policy=retry_policy)
         if invalid_policy is not None:
             return self._refuse_compaction_budget(work, trigger, invalid_policy)
         if budget is None:
@@ -882,6 +915,7 @@ class ProviderMutationEffects:
             self.ctl.tree_pointer_epoch,
             self.ctl.generation_ref.snapshot(),
             self.ctl.generation_ref.publication_epoch,
+            None,
         )
 
     @staticmethod

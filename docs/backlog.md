@@ -9,31 +9,37 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D4b1 semantic-compaction retry, after this D4b0 scope/contract
-and scheduled grooming chunk is reviewed and committed from `cf8f194`. Full
-checks passed 5,947 tests (two skipped), static checks, unchanged interpreter
-snapshots and docs/diff checks. One complete Opus 5 Medium planning round closed
-advisory, not CLEAN: accounting, manual stale unwind, capture lock order and the
-no-abort synchronous path are clarified. No material finding remains; executable
-acceptance belongs to D4b1, without another prose-only review round.
-D4a1 `d52778e`, D4a2 `ffb4e25`, and D4a3 `cf8f194` are complete. Ordinary
-prepared Codex requests now capture one policy/context and retry within their
-accepted iteration; unsupported providers retain existing completion/cancellation.
-D4a3 passed full `just check` (5,947 tests, two skipped), unchanged interpreter
-snapshots, 411 root focused tests, final 14 product tests, eight PTY smoke tests,
-and docs/static/diff checks. One complete Opus 5 Medium round closed advisory:
-explicit new-test staging resolved the commit reminder; the lock concern was
-rejected against shared-mutex wiring and memory-only settings reads. No material
-finding remained. D4a2 closed CLEAN after three code rounds; D4a1 after two.
+**Next task:** D4b2 branch-summary ownership contract, after this D4b1 semantic
+retry implementation is reviewed and committed from `6262965`. Semantic compaction
+now captures a managed policy with its original work, revalidates that full
+witness before reissue, and preserves manual refusal, automatic fatal cleanup,
+private output and state-first persistence. Full `just check` passed 5,957 tests
+(two skipped), static checks and unchanged interpreter snapshots. Focused semantic
+checks passed 84 tests and the implementer's regression set 249; PTY smoke passed
+eight tests and docs/diff checks passed. Root independently passed 448 focused
+semantic/budget/product/RPC/compatibility/architecture tests. Independent code
+review closed advisory after one complete Opus 5 Medium round. One accepted
+suggestion adds callback-abort/start-gated prepared-summary coverage; root's final
+175 focused tests and repository-wide static checks passed after that test-only
+addition. The runtime is unchanged from the full gate. Shared policy extraction
+was declined as optional; existing semantic tests already pin ordinary providers.
+No material finding remains; no second review round is warranted.
 
-This scheduled grooming follows three implementation commits since D4a0
+D4a1 `d52778e`, D4a2 `ffb4e25`, D4a3 `cf8f194` and D4b0 `6262965` are committed.
+D4a3 closed with one adjudicated advisory Opus round; D4a2 closed CLEAN after three
+code rounds, D4a1 after two. D4b0's single advisory planning review clarified
+accounting, manual stale unwind, capture lock order and synchronous no-abort waits;
+D4b1 tests now exercise those selected behavior boundaries.
+
+D4b0 scheduled grooming followed three implementation commits since D4a0
 `e0f2f84`. Summary-safe search/list and the four D4a Markdown summaries were
 inspected; no raw transcripts were read. Retry ownership and phase-settlement
 repairs are now pinned in tests and independently reviewed. Read-only source
 inspection separates semantic compaction's existing conditional publication from
 branch summaries' direct completion and later tree mutation. Split D4b accordingly;
 keep recovery before queue/RPC migration. The next scheduled grooming is after
-three more implementation commits or an earlier material ownership decision.
+three implementation commits from D4b0 or an earlier material ownership decision.
+D4b1 is the first; D4b2 is the already selected branch ownership decision.
 
 D0/D1 baseline and semantic continuity, D2's persistent product-session API,
 and D3's request budgeting and within-run compaction are committed. Live-provider
@@ -484,8 +490,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D4a1 | Complete at `d52778e`; full checks and CLEAN focused Opus follow-up; D4a0 | Optional prepared provider-attempt capability; `native/provider.py`, `openai_codex_provider.py`, existing start-gated forwarding in `agent/provider_turn.py`, focused provider/executor tests | One body/header preparation; no inner retry/backoff; explicit logical/physical accounting; prepared Retry-After hint without standalone-policy cap, ordinary path caps unchanged; existing WS fallback and direct/compatibility behavior preserved; no canonical retry activation |
 | D4a2 | Complete at `ffb4e25`; full checks and CLEAN third Opus round; D4a1 | Opt-in canonical request retry mechanism, pure policy and injected caller-thread `before_reissue` admission port in existing agent/provider-turn boundary, narrow value helper if needed, coupled tests/docs | One accepted execution lifetime, conservative no-progress eligibility, bounded cancellable waits, owner-thread retry events, no late reissue or callback after retirement; default executor remains one-call |
 | D4a3 | Complete at `cf8f194`; full checks and one adjudicated advisory Opus round; D4a2 | Ordinary product policy capture, guarded admission closure and activation; current `repl/loop_step.py`, scope/wiring and settings owners, canonical/product/automation acceptance tests and docs | Retry unchanged failed request within its accepted iteration; earlier tools/history/usage once; guarded stale admission, true settlement and usable next prompt; non-capable providers stay single-call despite enabled policy; compatibility unchanged |
-| D4b0 | Complete in this chunk; full checks and one adjudicated advisory Opus plan round; D4a3 | Scheduled grooming and semantic-summary retry contract; backlog and harness spec | Separate the two summary paths; fix the next implementation boundary without prematurely specifying branch publication |
-| D4b1 | D4b0, D1b, D4a3 | Semantic-compaction retry in existing `ProviderMutationEffects`, optional shared policy conversion, focused compaction tests/docs | One captured policy/request/cut; original full compaction witness before reissue and acceptance; private retry events; cancellation and stale work publish nothing; accepted state persists once without rollback |
+| D4b0 | Complete at `6262965`; full checks and one adjudicated advisory Opus plan round; D4a3 | Scheduled grooming and semantic-summary retry contract; backlog and harness spec | Separate the two summary paths; fix the next implementation boundary without prematurely specifying branch publication |
+| D4b1 | Complete in this chunk; full runtime checks and one adjudicated advisory Opus round; D4b0, D1b, D4a3 | Semantic-compaction retry in existing `ProviderMutationEffects`, optional shared policy conversion, focused compaction tests/docs | One captured policy/request/cut; original full compaction witness before reissue and acceptance; private retry events; cancellation and stale work publish nothing; accepted state persists once without rollback |
 | D4b2 | D4b1 | Branch-summary capture/conditional-acceptance ownership contract in existing session/tree owners; planning only | Resolve the return-to-append gap, tree/context rebuild and durable append ordering before branch retry code; inventory guarded readers/writers and preserve state-first persistence semantics |
 | D4b3 | D4b2 | Branch-summary canonical execution and retry under the reviewed ownership contract; refresh exact write set at dispatch | Failed/cancelled/stale summaries do not append or switch leaf; accepted summary persists once; canonical cancellation/settlement and private content boundaries |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |

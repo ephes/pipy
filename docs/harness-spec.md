@@ -1723,15 +1723,16 @@ D4a2 pins these rules with thread-identity and event/cancellation traces. Failur
 details remain private product content; workflow capture may keep only existing
 safe counts and bounded classifications.
 
-D4b opts auxiliary summaries into the same mechanism separately, preserving their
-suppressed output channels, original generation/history/tree witness and state-first
-publication. D4a does not add RPC retry controls, queue migration, public session
-control methods, a new provider family, or compatibility SDK behavior changes.
+D4b1 opts semantic-compaction summaries into the same mechanism separately,
+preserving their suppressed output channels, original generation/history/tree
+witness and state-first publication. Branch summaries remain outside that opt-in.
+D4a does not add RPC retry controls, queue migration, public session control
+methods, a new provider family, or compatibility SDK behavior changes.
 
 ### Semantic Compaction Retry Contract (D4b1)
 
-This is the selected next contract; semantic summaries do not yet opt into
-canonical retries. `ProviderMutationEffects.compact_context` retains ownership
+This is the implemented contract; semantic summaries opt into canonical retries.
+`ProviderMutationEffects.compact_context` retains ownership
 of manual and automatic generation, its existing `_CompactionWork` witness,
 conditional acceptance, and state-first persistence. Branch-summary generation
 and acceptance remain a separate D4b2/D4b3 boundary.
