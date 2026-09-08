@@ -686,13 +686,14 @@ path for invalid budget policy or estimated final overflow. It uses the real cod
 settings, including optional `compaction.contextWindow`; RPC's reported auto flags
 remain reporting-only and public `compact` controls remain unimplemented. The
 existing [compaction](compaction.md) durable-origin and recovery boundaries apply.
-There is no new RPC event envelope, queue owner or automatic retry.
+There is no new RPC event envelope, queue owner or RPC-enabled automatic retry.
 
 The selected [D4a retry contract](harness-spec.md#bounded-request-retry-contract-d4a)
-will emit existing retry lifecycle envelopes within the same accepted provider
-iteration, without intermediate `turn_end`/`agent_end` or repeating earlier tools.
-This is pending implementation, not evidence that RPC retry flags or `abort_retry`
-control execution. Those controls remain D5d after shared queue ownership.
+now provides an internal canonical opt-in that emits the existing retry lifecycle
+envelopes within the same accepted provider iteration, without intermediate
+`turn_end`/`agent_end` or repeating earlier tools. Product policy does not select
+it yet. `set_auto_retry` still only records a flag and `abort_retry` remains inert;
+those controls remain D5d after shared queue ownership.
 
 ## (e) Python SDK Relationship
 

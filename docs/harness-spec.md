@@ -1599,11 +1599,12 @@ classification.
 
 ### Bounded Request Retry Contract (D4a)
 
-This is the selected implementation contract; D4a1 is implemented and D4a2–D4a3
-in the [backlog](backlog.md) activate it in dependency order. Current canonical
-execution still returns one settled provider result. Existing Codex transport
-retry remains unchanged until product activation; event vocabulary alone does
-not implement recovery.
+This is the selected implementation contract; D4a1–D4a2 are implemented and D4a3
+in the [backlog](backlog.md) activates the product policy in dependency order.
+Canonical execution now has an internal explicit opt-in for managed attempts;
+ordinary callers still return one settled provider result. Existing Codex
+transport retry remains unchanged until product activation; event vocabulary
+alone does not enable recovery.
 
 The coding session owns enabled/limit/delay policy. Capture one immutable policy
 for each accepted ordinary provider request, using the existing settings resolver:
@@ -1673,9 +1674,14 @@ execution remain interruptible by the accepted operation's abort signal and TTY
 waiter. A cancellation accepted before reissue prevents that request; final
 completion/cancellation precedence retains the executor's ordered contract. Late
 workers cannot start another attempt or publish new retry events after retirement.
-D4a2 introduces an injected `before_reissue` callable at the canonical executor
-boundary and invokes it on the calling control thread after backoff and immediately
-before starting the reissued provider phase. D4a3 supplies the product
+The phase's published done marker establishes settlement: a worker thread may
+still finish its epilogue afterward, while a premature settled wait without that
+marker remains unsettled and receives bounded cancellation and join.
+D4a2 introduces an injected `before_reissue` callable and immutable validated
+managed retry policy at the canonical executor boundary. It invokes admission on
+the calling control thread after interruptible backoff and immediately before
+starting the reissued provider phase. Providers that decline preparation keep
+their ordinary single-call behavior. D4a3 supplies the product
 closure over the originally captured `CodingRunContext`: revalidate its witness
 under the existing state mutex, then release it before I/O. The canonical executor
 must not import product state or resolve that witness itself. A mutation after

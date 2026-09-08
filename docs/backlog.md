@@ -9,17 +9,23 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D4a2 opt-in canonical retry, after committing this completed
-D4a1 provider-seam chunk from `e0f2f84`. Prepared Codex attempts reuse one request
-configuration and expose bounded attempt/progress/server-delay evidence;
-ordinary provider/executor behavior stays unchanged. Full `just check` passed
-5,874 tests (two skipped), lint/format/Mypy with unchanged interpreter snapshots.
-The exhaustive lock-release inventory gained its exact new entry. Subsequent
-test/docs-only review repairs passed 404 root focused tests, static checks and
-docs; runtime was unchanged from the full gate. Two Opus 5 High code rounds
-closed with a CLEAN focused follow-up; all changed logic was covered, with only
-an unchanged fake credential literal redacted. Cosmetic unused-state cleanup was
-declined; no material finding remains.
+**Next task:** D4a3 ordinary product retry activation, after committing this completed
+D4a2 canonical opt-in chunk from `d52778e`.
+The executor now reuses one prepared handle inside the accepted iteration,
+with bounded backoff, caller-thread retry events/admission and cancellation
+across phases. Default callers and unsupported providers remain single-call.
+Final `just check` passed 5,934 tests (two skipped), lint/format/Mypy with
+unchanged interpreter snapshots; PTY smoke passed eight tests. Root passed
+549 focused provider/agent/compatibility/architecture tests. Docs and diff checks
+passed. Three complete Opus 5 code rounds closed CLEAN (two High rounds and
+one focused Medium follow-up). Wait/start failures close retry traces; phase
+settlement is distinguished from worker-thread exit without losing cancellation
+of unfinished work. Both ordering reproducers passed independently. No material
+review finding remains.
+
+D4a1 `d52778e` established the provider seam; its full runtime gate passed
+5,874 tests (two skipped), subsequent test/docs repairs passed 404 root tests,
+and two Opus rounds closed with a CLEAN focused follow-up.
 
 D0/D1 baseline and semantic continuity, D2's persistent product-session API,
 and D3's request budgeting and within-run compaction are committed. D3b4
@@ -477,8 +483,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D3b3 | Complete at `2b5217d`; full checks and two adjudicated Opus rounds; D3b2 | Optional retained-user durable reference and effective reconstruction; `session_tree.py`, `coding/product_session.py`, current persistence callback; update `session-tree.md` planned-field paragraph and matching docs | Strict new-field errors, origin validation, both-reference fork remap; repeated anchor then whole-group cuts never resurrect removed cycles; no automatic activation |
 | D3b4 | Complete at `68dddcf`; full checks and two adjudicated Opus rounds; D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, typed `repl/loop_scope.py` port, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
 | D4a0 | Complete at `e0f2f84`; full checks and two adjudicated Opus plan rounds; D0/D1/D2/D3 complete | Reviewed retry ownership/attempt contract and scheduled grooming; backlog and harness/RPC specs only | Review and commit before new retry contracts are implemented |
-| D4a1 | Complete in this chunk; full checks and CLEAN focused Opus follow-up; D4a0 | Optional prepared provider-attempt capability; `native/provider.py`, `openai_codex_provider.py`, existing start-gated forwarding in `agent/provider_turn.py`, focused provider/executor tests | One body/header preparation; no inner retry/backoff; explicit logical/physical accounting; prepared Retry-After hint without standalone-policy cap, ordinary path caps unchanged; existing WS fallback and direct/compatibility behavior preserved; no canonical retry activation |
-| D4a2 | D4a1 | Opt-in canonical request retry mechanism, pure policy and injected caller-thread `before_reissue` admission port in existing agent/provider-turn boundary, narrow value helper if needed, coupled tests/docs | One accepted execution lifetime, conservative no-progress eligibility, bounded cancellable waits, owner-thread retry events, no late reissue or callback after retirement; default executor remains one-call |
+| D4a1 | Complete at `d52778e`; full checks and CLEAN focused Opus follow-up; D4a0 | Optional prepared provider-attempt capability; `native/provider.py`, `openai_codex_provider.py`, existing start-gated forwarding in `agent/provider_turn.py`, focused provider/executor tests | One body/header preparation; no inner retry/backoff; explicit logical/physical accounting; prepared Retry-After hint without standalone-policy cap, ordinary path caps unchanged; existing WS fallback and direct/compatibility behavior preserved; no canonical retry activation |
+| D4a2 | Complete in this chunk; full checks and CLEAN third Opus round; D4a1 | Opt-in canonical request retry mechanism, pure policy and injected caller-thread `before_reissue` admission port in existing agent/provider-turn boundary, narrow value helper if needed, coupled tests/docs | One accepted execution lifetime, conservative no-progress eligibility, bounded cancellable waits, owner-thread retry events, no late reissue or callback after retirement; default executor remains one-call |
 | D4a3 | D4a2 | Ordinary product policy capture, guarded admission closure and activation; current `repl/loop_step.py`, scope/wiring and settings owners, canonical/product/automation acceptance tests and docs | Retry unchanged failed request within its accepted iteration; earlier tools/history/usage once; guarded stale admission, true settlement and usable next prompt; non-capable providers stay single-call despite enabled policy; compatibility unchanged |
 | D4b | D1b, D4a3 | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |

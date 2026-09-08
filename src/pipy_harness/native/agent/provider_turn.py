@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import random
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -11,17 +13,28 @@ from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import require_non_negative_int
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.events import AssistantReasoningDelta, AssistantTextDelta
+from pipy_harness.native.agent.events import (
+    AssistantReasoningDelta,
+    AssistantTextDelta,
+    RetryCompleted,
+    RetryScheduled,
+)
 from pipy_harness.native.agent.ports import AgentEventSink
-from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.provider_retry import (
+    ProviderManagedRetryPolicy,
+    is_managed_retry_eligible,
+)
+from pipy_harness.native.agent.results import AgentCancellationReason, AgentFailure
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import (
     PreparedProviderCompletion,
     PreparedProviderPort,
+    ProviderAttemptAllowance,
     ProviderPort,
     StreamChunkSink,
 )
+from pipy_harness.status import HarnessStatus
 
 
 class ProviderTurnInterruption(StrEnum):
@@ -135,6 +148,15 @@ class _StartGatedProvider:
             reasoning_sink=reasoning_sink,
             cancel_token=cancel_token,
         )
+
+    def rearm_start_gate(self) -> None:
+        """Require the caller's abort admission again for the next phase."""
+
+        self._start_event.clear()
+
+    def wait_for_start(self, cancel_token: CancelToken) -> None:
+        self._start_event.wait()
+        cancel_token.raise_if_cancelled()
 
     def prepare_completion(
         self,
@@ -269,12 +291,19 @@ class _DeltaAdmissionGate:
         self._order = order
         self._lock = threading.Lock()
         self._active = True
+        self._observed = False
 
     def emit(self, sink: StreamChunkSink, chunk: str) -> None:
         with self._lock:
             if not self._active or self._order.cancellation_started():
                 return
+            self._observed = True
         sink(chunk)
+
+    @property
+    def observed(self) -> bool:
+        with self._lock:
+            return self._observed
 
     def close(self) -> None:
         with self._lock:
@@ -284,7 +313,14 @@ class _DeltaAdmissionGate:
 class ProviderTurnExecutor:
     """Execute one provider completion with canonical delta publication."""
 
-    def __init__(self, *, cancel_join_timeout_seconds: float = 2.0) -> None:
+    def __init__(
+        self,
+        *,
+        cancel_join_timeout_seconds: float = 2.0,
+        retry_jitter: Callable[[], float] = random.random,
+        retry_sleep: Callable[[float], None] = time.sleep,
+        provider_thread_factory: Callable[..., threading.Thread] = threading.Thread,
+    ) -> None:
         if isinstance(cancel_join_timeout_seconds, bool) or not isinstance(
             cancel_join_timeout_seconds, (int, float)
         ):
@@ -294,6 +330,15 @@ class ProviderTurnExecutor:
                 "cancel_join_timeout_seconds must be a finite nonnegative number"
             )
         self._cancel_join_timeout_seconds = float(cancel_join_timeout_seconds)
+        if not callable(retry_jitter):
+            raise TypeError("retry_jitter must be callable")
+        if not callable(retry_sleep):
+            raise TypeError("retry_sleep must be callable")
+        if not callable(provider_thread_factory):
+            raise TypeError("provider_thread_factory must be callable")
+        self._retry_jitter = retry_jitter
+        self._retry_sleep = retry_sleep
+        self._provider_thread_factory = provider_thread_factory
 
     def complete(
         self,
@@ -304,6 +349,8 @@ class ProviderTurnExecutor:
         turn_index: int,
         waiter: ProviderTurnWaiter | None = None,
         delta_policy: ProviderTurnDeltaPolicy = _DEFAULT_PROVIDER_TURN_DELTA_POLICY,
+        retry_policy: ProviderManagedRetryPolicy | None = None,
+        before_reissue: Callable[[], None] | None = None,
     ) -> ProviderTurnOutcome:
         """Complete one turn synchronously or through the supplied wait policy."""
 
@@ -318,12 +365,36 @@ class ProviderTurnExecutor:
             raise TypeError("waiter must be callable or None")
         if type(delta_policy) is not ProviderTurnDeltaPolicy:
             raise TypeError("delta_policy must be an exact ProviderTurnDeltaPolicy")
+        if (
+            retry_policy is not None
+            and type(retry_policy) is not ProviderManagedRetryPolicy
+        ):
+            raise TypeError(
+                "retry_policy must be an exact ProviderManagedRetryPolicy or None"
+            )
+        if before_reissue is not None and not callable(before_reissue):
+            raise TypeError("before_reissue must be callable or None")
+        if retry_policy is not None and before_reissue is None:
+            raise ValueError("before_reissue is required with retry_policy")
         if waiter is None:
             return self._complete_synchronously(
-                provider, request, event_sink, turn_index, delta_policy
+                provider,
+                request,
+                event_sink,
+                turn_index,
+                delta_policy,
+                retry_policy,
+                before_reissue,
             )
         return self._complete_interruptibly(
-            provider, request, event_sink, turn_index, waiter, delta_policy
+            provider,
+            request,
+            event_sink,
+            turn_index,
+            waiter,
+            delta_policy,
+            retry_policy,
+            before_reissue,
         )
 
     @staticmethod
@@ -357,17 +428,31 @@ class ProviderTurnExecutor:
         event_sink: AgentEventSink,
         turn_index: int,
         delta_policy: ProviderTurnDeltaPolicy,
+        retry_policy: ProviderManagedRetryPolicy | None,
+        before_reissue: Callable[[], None] | None,
     ) -> ProviderTurnOutcome:
         gate = _DeltaAdmissionGate(_ExecutionOrder())
         text_sink, reasoning_sink = self._delta_sinks(
             event_sink, turn_index, delta_policy, gate
         )
         try:
-            result = provider.complete(
-                request,
-                stream_sink=text_sink,
-                reasoning_sink=reasoning_sink,
-            )
+            prepared = None
+            if retry_policy is not None and isinstance(provider, PreparedProviderPort):
+                prepared = provider.prepare_completion(
+                    request, stream_sink=text_sink, reasoning_sink=reasoning_sink
+                )
+            if prepared is None:
+                result = provider.complete(
+                    request, stream_sink=text_sink, reasoning_sink=reasoning_sink
+                )
+            else:
+                assert retry_policy is not None
+                result = prepared.complete_attempt(
+                    ProviderAttemptAllowance(1, retry_policy.max_attempts)
+                )
+                result = self._retry_synchronously(
+                    prepared, result, retry_policy, before_reissue, event_sink, gate
+                )
         except ProviderCancelledError:
             return ProviderTurnOutcome(
                 cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
@@ -375,6 +460,52 @@ class ProviderTurnExecutor:
         finally:
             gate.close()
         return ProviderTurnOutcome(result=result)
+
+    def _retry_synchronously(
+        self,
+        prepared: PreparedProviderCompletion,
+        result: ProviderResult,
+        policy: ProviderManagedRetryPolicy,
+        before_reissue: Callable[[], None] | None,
+        event_sink: AgentEventSink,
+        gate: _DeltaAdmissionGate,
+    ) -> ProviderResult:
+        for attempt in range(2, policy.max_attempts + 1):
+            if not is_managed_retry_eligible(result, observed_delta=gate.observed):
+                break
+            ordinal = attempt - 1
+            failure = _retry_failure(result)
+            delay = policy.delay_seconds(ordinal, result, self._retry_jitter())
+            event_sink.emit(
+                RetryScheduled(
+                    ordinal, policy.max_attempts - 1, round(delay * 1000), failure
+                )
+            )
+            try:
+                self._retry_sleep(delay)
+            except BaseException as exc:
+                event_sink.emit(
+                    RetryCompleted(ordinal, False, _failure_for_exception(exc))
+                )
+                raise
+            try:
+                assert before_reissue is not None
+                before_reissue()
+            except BaseException:
+                event_sink.emit(RetryCompleted(ordinal, False, _admission_failure()))
+                raise
+            try:
+                result = prepared.complete_attempt(
+                    ProviderAttemptAllowance(attempt, policy.max_attempts)
+                )
+            except ProviderCancelledError:
+                event_sink.emit(RetryCompleted(ordinal, False, _cancellation_failure()))
+                raise
+            except BaseException as exc:
+                event_sink.emit(RetryCompleted(ordinal, False, _exception_failure(exc)))
+                raise
+            event_sink.emit(_retry_completed(ordinal, result, gate.observed))
+        return result
 
     def _complete_interruptibly(
         self,
@@ -384,11 +515,46 @@ class ProviderTurnExecutor:
         turn_index: int,
         waiter: ProviderTurnWaiter,
         delta_policy: ProviderTurnDeltaPolicy,
+        retry_policy: ProviderManagedRetryPolicy | None,
+        before_reissue: Callable[[], None] | None,
     ) -> ProviderTurnOutcome:
         order = _ExecutionOrder()
         cancel_token = CancelToken()
         cancel_event = _OrderedCancellationEvent(order, cancel_token)
         gate = _DeltaAdmissionGate(order)
+        try:
+            return self._complete_interruptibly_phases(
+                provider,
+                request,
+                event_sink,
+                turn_index,
+                waiter,
+                delta_policy,
+                retry_policy,
+                before_reissue,
+                order,
+                cancel_token,
+                cancel_event,
+                gate,
+            )
+        finally:
+            gate.close()
+
+    def _complete_interruptibly_phases(  # noqa: C901 - explicit phase matrix
+        self,
+        provider: ProviderPort,
+        request: ProviderRequest,
+        event_sink: AgentEventSink,
+        turn_index: int,
+        waiter: ProviderTurnWaiter,
+        delta_policy: ProviderTurnDeltaPolicy,
+        retry_policy: ProviderManagedRetryPolicy | None,
+        before_reissue: Callable[[], None] | None,
+        order: _ExecutionOrder,
+        cancel_token: CancelToken,
+        cancel_event: _OrderedCancellationEvent,
+        gate: _DeltaAdmissionGate,
+    ) -> ProviderTurnOutcome:
         done_event = threading.Event()
         results: list[ProviderResult] = []
         errors: list[BaseException] = []
@@ -397,29 +563,90 @@ class ProviderTurnExecutor:
             event_sink, turn_index, delta_policy, gate
         )
 
+        def _emit_retry_event(event: RetryScheduled | RetryCompleted) -> None:
+            try:
+                event_sink.emit(event)
+            except BaseException:
+                gate.close()
+                cancel_event.set()
+                raise
+
+        prepared: list[PreparedProviderCompletion] = []
+        attempt = 1
+
         def _worker() -> None:
             try:
-                results.append(
-                    provider.complete(
-                        request,
-                        stream_sink=text_sink,
-                        reasoning_sink=reasoning_sink,
-                        cancel_token=cancel_token,
+                if attempt > 1 and isinstance(provider, _StartGatedProvider):
+                    provider.wait_for_start(cancel_token)
+                if attempt == 1:
+                    handle = None
+                    if retry_policy is not None and isinstance(
+                        provider, PreparedProviderPort
+                    ):
+                        handle = provider.prepare_completion(
+                            request,
+                            stream_sink=text_sink,
+                            reasoning_sink=reasoning_sink,
+                            cancel_token=cancel_token,
+                        )
+                    if handle is None:
+                        results.append(
+                            provider.complete(
+                                request,
+                                stream_sink=text_sink,
+                                reasoning_sink=reasoning_sink,
+                                cancel_token=cancel_token,
+                            )
+                        )
+                    else:
+                        assert retry_policy is not None
+                        prepared.append(handle)
+                        results.append(
+                            handle.complete_attempt(
+                                ProviderAttemptAllowance(1, retry_policy.max_attempts)
+                            )
+                        )
+                else:
+                    assert retry_policy is not None
+                    results.append(
+                        prepared[0].complete_attempt(
+                            ProviderAttemptAllowance(attempt, retry_policy.max_attempts)
+                        )
                     )
-                )
             except ProviderCancelledError:
                 provider_cancelled.set()
             # re-raised by the caller
-            except BaseException as exc:  # pragma: no cover  # noqa: BLE001
+            except BaseException as exc:  # noqa: BLE001 - re-raised by caller
                 errors.append(exc)
             finally:
-                order.record_completion()
+                terminal = bool(errors) or provider_cancelled.is_set()
+                if results:
+                    terminal = (
+                        retry_policy is None
+                        or not prepared
+                        or attempt >= retry_policy.max_attempts
+                        or not is_managed_retry_eligible(
+                            results[0], observed_delta=gate.observed
+                        )
+                    )
+                if terminal:
+                    order.record_completion()
                 done_event.set()
 
-        worker = threading.Thread(
-            target=_worker, name="pipy-provider-turn", daemon=True
-        )
-        worker.start()
+        def _start_worker() -> threading.Thread:
+            done_event.clear()
+            results.clear()
+            errors.clear()
+            provider_cancelled.clear()
+            if isinstance(provider, _StartGatedProvider):
+                provider.rearm_start_gate()
+            phase_worker = self._provider_thread_factory(
+                target=_worker, name="pipy-provider-turn", daemon=True
+            )
+            phase_worker.start()
+            return phase_worker
+
+        worker = _start_worker()
         try:
             interruption = waiter(done_event, cancel_event)
             if not isinstance(interruption, ProviderTurnInterruption):
@@ -441,10 +668,168 @@ class ProviderTurnExecutor:
             )
 
         worker.join(timeout=self._cancel_join_timeout_seconds)
-        if worker.is_alive():
+        if not done_event.is_set() and worker.is_alive():
             gate.close()
             cancel_event.set()
             worker.join(timeout=self._cancel_join_timeout_seconds)
+        if order.cancellation_precedes_completion():
+            gate.close()
+            return ProviderTurnOutcome(
+                cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+            )
+        if (
+            retry_policy is not None
+            and prepared
+            and results
+            and is_managed_retry_eligible(results[0], observed_delta=gate.observed)
+        ):
+            result = results[0]
+            for attempt in range(2, retry_policy.max_attempts + 1):
+                if not is_managed_retry_eligible(result, observed_delta=gate.observed):
+                    break
+                ordinal = attempt - 1
+                failure = _retry_failure(result)
+                delay = retry_policy.delay_seconds(
+                    ordinal, result, self._retry_jitter()
+                )
+                _emit_retry_event(
+                    RetryScheduled(
+                        ordinal,
+                        retry_policy.max_attempts - 1,
+                        round(delay * 1000),
+                        failure,
+                    )
+                )
+                delay_done = threading.Event()
+                timer = threading.Timer(delay, delay_done.set)
+                timer.daemon = True
+                try:
+                    timer.start()
+                    delay_interruption = waiter(delay_done, cancel_event)
+                    _validate_waiter_result(delay_interruption)
+                except BaseException as exc:
+                    timer.cancel()
+                    gate.close()
+                    cancel_event.set()
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _failure_for_exception(exc))
+                    )
+                    raise
+                timer.cancel()
+                if delay_interruption is not ProviderTurnInterruption.SETTLED:
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _cancellation_failure())
+                    )
+                    gate.close()
+                    cancel_event.set()
+                    return ProviderTurnOutcome(
+                        cancellation_reason=_cancellation_reason(delay_interruption)
+                    )
+                if cancel_event.is_set():
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _cancellation_failure())
+                    )
+                    gate.close()
+                    return ProviderTurnOutcome(
+                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                    )
+                try:
+                    assert before_reissue is not None
+                    before_reissue()
+                except BaseException:
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _admission_failure())
+                    )
+                    gate.close()
+                    raise
+                if cancel_event.is_set():
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _cancellation_failure())
+                    )
+                    gate.close()
+                    return ProviderTurnOutcome(
+                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                    )
+                try:
+                    worker = _start_worker()
+                except BaseException as exc:
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _failure_for_exception(exc))
+                    )
+                    raise
+                try:
+                    phase_interruption = waiter(done_event, cancel_event)
+                    _validate_waiter_result(phase_interruption)
+                except BaseException as exc:
+                    gate.close()
+                    cancel_event.set()
+                    worker.join(timeout=self._cancel_join_timeout_seconds)
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _failure_for_exception(exc))
+                    )
+                    raise
+                if phase_interruption is not ProviderTurnInterruption.SETTLED:
+                    cancel_event.set()
+                    worker.join(timeout=self._cancel_join_timeout_seconds)
+                    if order.completion_precedes_cancellation():
+                        gate.close()
+                        try:
+                            outcome = _completed_outcome(
+                                results, errors, provider_cancelled
+                            )
+                        except BaseException as exc:
+                            gate.close()
+                            _emit_retry_event(
+                                RetryCompleted(ordinal, False, _exception_failure(exc))
+                            )
+                            raise
+                        if outcome.result is not None:
+                            _emit_retry_event(
+                                _retry_completed(ordinal, outcome.result, gate.observed)
+                            )
+                        else:
+                            _emit_retry_event(
+                                RetryCompleted(ordinal, False, _cancellation_failure())
+                            )
+                        return outcome
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _cancellation_failure())
+                    )
+                    gate.close()
+                    return ProviderTurnOutcome(
+                        cancellation_reason=_cancellation_reason(phase_interruption)
+                    )
+                worker.join(timeout=self._cancel_join_timeout_seconds)
+                if not done_event.is_set() and worker.is_alive():
+                    gate.close()
+                    cancel_event.set()
+                    worker.join(timeout=self._cancel_join_timeout_seconds)
+                if order.cancellation_precedes_completion():
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _cancellation_failure())
+                    )
+                    gate.close()
+                    return ProviderTurnOutcome(
+                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                    )
+                try:
+                    outcome = _completed_outcome(results, errors, provider_cancelled)
+                except BaseException as exc:
+                    gate.close()
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _exception_failure(exc))
+                    )
+                    raise
+                if outcome.result is None:
+                    _emit_retry_event(
+                        RetryCompleted(ordinal, False, _cancellation_failure())
+                    )
+                    gate.close()
+                    return outcome
+                result = outcome.result
+                _emit_retry_event(_retry_completed(ordinal, result, gate.observed))
+            gate.close()
+            return ProviderTurnOutcome(result=result)
         gate.close()
         if order.cancellation_precedes_completion():
             return ProviderTurnOutcome(
@@ -479,3 +864,51 @@ def _completed_outcome(
             cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
         )
     return ProviderTurnOutcome(result=results[0])
+
+
+def _retry_failure(result: ProviderResult, *, retryable: bool = True) -> AgentFailure:
+    return AgentFailure(
+        result.error_type or "provider_error",
+        ProductContent(result.error_message or "Provider request failed."),
+        retryable=retryable,
+    )
+
+
+def _retry_completed(
+    attempt: int, result: ProviderResult, observed_delta: bool
+) -> RetryCompleted:
+    if result.status is HarnessStatus.SUCCEEDED:
+        return RetryCompleted(attempt, True)
+    return RetryCompleted(
+        attempt,
+        False,
+        _retry_failure(
+            result,
+            retryable=is_managed_retry_eligible(result, observed_delta=observed_delta),
+        ),
+    )
+
+
+def _cancellation_failure() -> AgentFailure:
+    return AgentFailure("retry_cancelled", ProductContent("Retry was cancelled."))
+
+
+def _admission_failure() -> AgentFailure:
+    return AgentFailure(
+        "retry_admission_rejected", ProductContent("Retry admission was rejected.")
+    )
+
+
+def _exception_failure(exc: BaseException) -> AgentFailure:
+    return AgentFailure(type(exc).__name__, ProductContent(str(exc) or "Retry failed."))
+
+
+def _failure_for_exception(exc: BaseException) -> AgentFailure:
+    if isinstance(exc, (KeyboardInterrupt, ProviderCancelledError)):
+        return _cancellation_failure()
+    return _exception_failure(exc)
+
+
+def _validate_waiter_result(interruption: object) -> None:
+    if not isinstance(interruption, ProviderTurnInterruption):
+        raise TypeError("provider turn waiter returned an invalid outcome")
