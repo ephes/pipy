@@ -1599,12 +1599,12 @@ classification.
 
 ### Bounded Request Retry Contract (D4a)
 
-This is the selected implementation contract; D4a1–D4a2 are implemented and D4a3
-in the [backlog](backlog.md) activates the product policy in dependency order.
-Canonical execution now has an internal explicit opt-in for managed attempts;
-ordinary callers still return one settled provider result. Existing Codex
-transport retry remains unchanged until product activation; event vocabulary
-alone does not enable recovery.
+This is the implemented request-retry contract. D4a1–D4a2 provide the prepared
+provider and canonical executor seams, and D4a3 activates them for ordinary
+product requests. Each ordinary request still returns one settled provider
+result to the agent loop; eligible intermediate Codex failures are contained
+inside that completion. Auxiliary summaries and compatibility calls do not opt
+in merely because the event vocabulary exists.
 
 The coding session owns enabled/limit/delay policy. Capture one immutable policy
 for each accepted ordinary provider request, using the existing settings resolver:
@@ -1638,7 +1638,7 @@ metadata alone does not opt an injected provider into canonical reissue. Standal
 provider calls and compatibility `run_native` retain their existing defaults.
 D4a initially enables the capability only for Codex; `openai`, `openrouter` and
 non-capable injected providers still get one ordinary call when retry is enabled.
-D4a3 must test and document that support boundary.
+Product tests pin that initial support boundary.
 Start-gated forwarding waits for abort registration and checks cancellation
 before preparation. A wrapper around a provider without the capability returns
 no prepared handle and keeps the ordinary single-call path. No mutable provider
@@ -1651,7 +1651,8 @@ sequential use, rejects a changed fixed attempt limit, and reports logical
 attempt, exhaustion, progress and actual transport starts on every prepared
 outcome. Its prepared path performs no provider-level backoff or logical retry;
 ordinary `complete` and the compatibility runtime retain their established
-behavior. The default provider-turn executor does not select this capability yet.
+behavior. The executor selects this capability only when explicitly supplied a managed
+retry policy; default calls remain ordinary.
 Attempt ordinals must advance by exactly one; skipped or repeated ordinals raise
 `ValueError` without consuming the next valid attempt. Overlapping or reentrant
 calls on the same request-local handle raise `RuntimeError` without starting
@@ -1706,7 +1707,7 @@ cancellation, before scheduling another. The ordinal is 1-based and `maxAttempts
 is the configured maximum reissues (`max_attempts - 1`); both exclude the initial
 logical attempt and transport fallback. Provider metadata instead counts total
 logical attempts including the initial call; its `attempt`/`max_attempts` values
-are not the retry-event ordinal/limit. D4a3 documents both meanings.
+are not the retry-event ordinal/limit. Product documentation records both meanings.
 On cancellation, end is unsuccessful with
 a fixed cancellation failure, then normal canonical cancellation settles the run.
 If reissue admission raises after start was emitted, the caller emits one failed

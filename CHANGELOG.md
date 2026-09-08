@@ -8,6 +8,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Ordinary native product requests now capture retry settings once per request
+  and use bounded caller-managed retries for the prepared OpenAI Codex
+  capability. Retries reuse the prepared body and headers, preserve prior tool
+  effects, stop on provider progress or reported usage, and revalidate the
+  original coding context before reissue. Cancellation covers both backoff and
+  provider phases; exhausted failures still leave the next prompt usable.
+  Other providers, auxiliary summaries, the compatibility SDK runtime, and the
+  currently inert RPC retry controls retain their existing behavior.
+
 - Native compaction entries can now durably retain one exact user message plus a
   later tool-cycle suffix. Reopen and fork apply anchored and subsequent cuts in
   effective chronological order, reject invalid or synthetic anchors, strictly

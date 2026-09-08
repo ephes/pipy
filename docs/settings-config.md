@@ -570,8 +570,11 @@ is forward-compatible and Pi-written files do not lose data.
 - Retry: `retry.enabled` (true), `maxRetries` (3), `baseDelayMs` (2000,
   exponential backoff 2s/4s/8s), and `retry.provider.{timeoutMs, maxRetries,
   maxRetryDelayMs(60000)}`. These feed pipy's retry policy
-  (`pipy_harness.native.retry`); OpenAI-Codex applies it across each complete
-  request-plus-stream attempt and retries only before the first provider event.
+  (`pipy_harness.native.retry`). Each ordinary product request captures the
+  resolved policy once. Prepared OpenAI-Codex execution uses it for bounded
+  logical attempts and retries only when the failed attempt reports no progress,
+  payload, or usage. Settings changes during backoff affect the next request,
+  not the active retry sequence.
   Migrated legacy `retry.maxDelayMs` →
   `retry.provider.maxRetryDelayMs` (Pi `migrateSettings`).
 - Branch summary: `branchSummary.reserveTokens` (16384), `skipPrompt` (false).
@@ -588,14 +591,20 @@ runtime has no matching surface yet) is:
     OpenAI-Codex header/body idle policy (300000 ms default, `0` disabled).
   - `retry.{enabled,maxRetries,baseDelayMs}` and
     `retry.provider.{maxRetries,maxRetryDelayMs}` — mapped onto the provider
-    `RetryPolicy` via `settings.retry_policy_from_settings` and applied to the
-    retry-aware native provider(s) (openai-codex) at REPL startup. Provider
+    `RetryPolicy` via `settings.retry_policy_from_settings` and captured for each
+    ordinary product request. CLI startup also installs the resolved policy on
+    the standalone OpenAI-Codex provider; summary paths retain that existing
+    provider-owned/default behavior until D4b. Provider
     `maxRetries` wins when it is a valid integer and otherwise inherits the
     global value; n → `max_attempts = n + 1`; ms→s; `enabled=false` → a single
-    attempt; values are clamped to the `RetryPolicy` bounds. OpenAI-Codex owns
-    the complete request-plus-stream attempt and retries transient failures
-    only before its first accepted provider event. Bounded `retry-after-ms` and
-    `Retry-After` can raise (never bypass) the configured delay cap.
+    attempt; values are clamped to 1–10 attempts and the `RetryPolicy` delay
+    bounds. The prepared OpenAI-Codex capability reuses one body/header
+    preparation across logical attempts. Bounded `retry-after-ms` and
+    `Retry-After` can raise (never bypass) the captured delay cap. Retry lifecycle
+    event `attempt` and `maxAttempts` count reissues and exclude the initial
+    attempt; provider metadata counts total logical attempts including it.
+    `openai`, `openrouter`, and injected providers without the prepared
+    capability remain single-call even when retry is enabled.
   - `compaction.enabled` — gates automatic semantic generation; `/compact` remains
     available regardless, and known oversized ordinary requests still refuse.
   - `compaction.reserveTokens` and pipy-only `compaction.contextWindow` — estimate

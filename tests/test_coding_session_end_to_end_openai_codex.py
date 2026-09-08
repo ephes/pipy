@@ -23,12 +23,21 @@ from typing import Any
 from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
+from pipy_harness.native.agent.events import (
+    AgentEvent,
+    AgentRunCompleted,
+    RetryCompleted,
+    RetryScheduled,
+    TurnCompleted,
+    UsageUpdated,
+)
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     OpenAICodexCredentials,
     OpenAICodexResponsesProvider,
     SseResponse,
 )
+from pipy_harness.native.settings import SettingsManager
 
 
 class _ScriptedSseHTTPClient:
@@ -54,6 +63,14 @@ class _ScriptedSseHTTPClient:
 class _NullEventSink:
     def emit(self, event_type, *, summary, payload=None):
         return None
+
+
+class _CollectingAgentSink:
+    def __init__(self) -> None:
+        self.events: list[AgentEvent] = []
+
+    def emit(self, event: AgentEvent) -> None:
+        self.events.append(event)
 
 
 class _InMemoryCredentialStore:
@@ -155,7 +172,10 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
                 },
                 {
                     "type": "response.completed",
-                    "response": {"status": "completed"},
+                    "response": {
+                        "status": "completed",
+                        "usage": {"input_tokens": 7, "output_tokens": 4},
+                    },
                 },
             ]
         ),
@@ -183,11 +203,21 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
     )
     output_stream = io.StringIO()
     error_stream = io.StringIO()
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        '{"retry": {"maxRetries": 1, "baseDelayMs": 1, '
+        '"provider": {"maxRetryDelayMs": 1}}}',
+        encoding="utf-8",
+    )
+    settings = SettingsManager(global_path=settings_path)
+    agent_sink = _CollectingAgentSink()
     adapter = CodingSessionAdapter(
         provider=provider,
         input_stream=io.StringIO("please read notes.txt\n"),
         output_stream=output_stream,
         error_stream=error_stream,
+        settings_manager=settings,
+        agent_event_sink=agent_sink,
     )
     prepared = adapter.prepare(
         RunRequest(
@@ -240,3 +270,31 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
     )
     assert function_call_output_item["call_id"] == "call_one"
     assert function_call_output_item["output"] == "hello from notes\n"
+
+    retry_events = [
+        event
+        for event in agent_sink.events
+        if isinstance(event, RetryScheduled | RetryCompleted)
+    ]
+    assert [type(event) for event in retry_events] == [
+        RetryScheduled,
+        RetryCompleted,
+        RetryScheduled,
+        RetryCompleted,
+    ]
+    assert all(event.attempt == 1 for event in retry_events)
+    assert [
+        event.max_attempts
+        for event in retry_events
+        if isinstance(event, RetryScheduled)
+    ] == [1, 1]
+    assert all(
+        event.succeeded for event in retry_events if isinstance(event, RetryCompleted)
+    )
+    usage_events = [
+        event for event in agent_sink.events if isinstance(event, UsageUpdated)
+    ]
+    assert len(usage_events) == 2
+    assert usage_events[-1].last_turn_total_tokens == 11
+    assert sum(isinstance(event, TurnCompleted) for event in agent_sink.events) == 2
+    assert sum(isinstance(event, AgentRunCompleted) for event in agent_sink.events) == 1

@@ -95,8 +95,19 @@ that user has a durable origin; it refuses that summary attempt and may refuse t
 ordinary request, then persists the accepted user once during normal settlement.
 See [Compaction](compaction.md) for this boundary. Public compact/model/context
 controls remain unavailable. Correct injected settings for a later submission, or
-close and create a new session when explicit context replacement is needed; no
-hidden retry or compatibility `run_native` change is introduced.
+close and create a new session when explicit context replacement is needed.
+Request-preparation refusals do not trigger provider retry, and compatibility
+`run_native` keeps its existing behavior.
+
+Each ordinary product provider request captures the current retry settings once.
+The prepared OpenAI-Codex capability may retry an explicitly transient,
+no-progress failure within that request while reusing its body and headers;
+completed tools and accepted input are not replayed. Settings changes apply to
+the next provider request. Cancellation covers retry backoff and provider phases,
+and stale context blocks reissue through the existing fatal cleanup. Injected
+providers without the prepared capability remain single-call. Auxiliary summaries
+retain their provider-owned/default behavior until D4b, and the RPC
+`set_auto_retry`/`abort_retry` controls remain deferred.
 
 A terminal driver failure, such as three consecutive malformed tool calls,
 retires the lifetime and raises `RuntimeError` containing

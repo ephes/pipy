@@ -26,6 +26,7 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import should_compact_agent_history
 from pipy_harness.native.agent.loop import AgentLoopRequestPreparation
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
+from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnOutcome,
     ProviderTurnWaiter,
@@ -87,7 +88,7 @@ from pipy_harness.native.image_attachment import (
     resolve_image_attachments,
 )
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.provider import PreparedProviderPort, ProviderPort
 from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.repl.loop_scope import (
     AgentTurnStatusPresentationAdapter,
@@ -117,6 +118,7 @@ from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
     SessionGenerationRef,
 )
+from pipy_harness.native.settings import retry_policy_from_settings
 from pipy_harness.native.tools import ToolDefinition
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
@@ -380,7 +382,28 @@ class _ProviderTurnCompletion:
     ) -> ProviderTurnOutcome:
         scope = self.turn.scope
         provider_request = materialize_provider_request(snapshot)
-        provider_for_turn = scope.coding_state.capture_run_context().binding.provider
+        # Startup binds settings and coding state to this same reentrant guard;
+        # settings resolution is memory-only, so hold it across both reads to
+        # capture one coherent request context and retry policy.
+        with scope.coding_state.state_lock:
+            context = scope.coding_state.capture_run_context()
+            configured_policy = retry_policy_from_settings(scope.settings)
+        provider_for_turn = context.binding.provider
+        retry_policy = None
+        before_reissue = None
+
+        def _before_reissue() -> None:
+            scope.coding_state.validate_run_context(context)
+
+        if isinstance(provider_for_turn, PreparedProviderPort):
+            retry_policy = ProviderManagedRetryPolicy(
+                max_attempts=configured_policy.max_attempts,
+                initial_delay_seconds=configured_policy.initial_delay_seconds,
+                max_delay_seconds=configured_policy.max_delay_seconds,
+                multiplier=configured_policy.multiplier,
+                jitter_seconds=configured_policy.jitter_seconds,
+            )
+            before_reissue = _before_reissue
         waiter: ProviderTurnWaiter | None = None
         if scope.terminal_ui is not None:
             waiter = partial(wait_for_provider_interrupt, scope.terminal_ui)
@@ -392,6 +415,8 @@ class _ProviderTurnCompletion:
             event_sink,
             turn_index=turn_index,
             waiter=waiter,
+            retry_policy=retry_policy,
+            before_reissue=before_reissue,
         )
 
     def _external_abort_turn(
