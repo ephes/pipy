@@ -9,61 +9,26 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next gate:** focused grooming and D3b's required safe-cut spec, before dependent
-code. D3a3 completes in this chunk from baseline `4d7be4d` with advisory review
-acceptance. Live request-budget admission and one whole-group semantic
-attempt are implemented. Root passed 5,788 tests (two skipped), static checks,
-601 focused tests, eight PTY tests, all 18 settings-conformance checks, docs and
-diff checks. The first exact Opus 5 invocation failed from oversized context and
-provided no verdict. A fresh, smaller supporting bundle retained all changed
-files; its valid review returned three Suggestions, with no Warning/Critical,
-skips or truncation. Only an unchanged private test canary was redacted. Recovery
-wording and the strict accessor's error documentation are clarified; an unmeasured
-redundant-freeze optimization is not selected. Stop at diminishing returns:
-advisory acceptance, not CLEAN. The next eligible work after commit is
-focused grooming and D3b's required safe-cut spec, before dependent code.
+**Next gate:** D0h isolates unsafe editor-test mocks before further product
+implementation checks. D3b1 then preserves canonical terminal run results before
+within-run history can be removed; the bounded split is recorded below.
+D3b0 completes in this chunk from baseline `9f750e7`. Full checks, docs and links
+passed. Two exact Opus 5 plan rounds fixed the raw-path settings invariant and
+clarified handoff/doc owners; the final two Suggestions were applied with no
+Warning/Critical. Advisory acceptance at diminishing returns, not CLEAN.
 
-D3a2 committed at `4d7be4d`:
-canonical recoverable preparation refusal, guarded
-snapshot state, normal queue handoff and safe result classification. Root checks
-passed 5,746 tests (two skipped), static checks, 277 focused tests, eight PTY tests,
-docs and diff checks. Exact Opus 5 code review had complete unredacted coverage
-and two Suggestions, with no Warning/Critical. Prose wrapping was applied;
-fixed classification literals remain consistent with the contract. Advisory
-acceptance, not CLEAN; another round would add little defect-prevention value.
+D3a is complete: pure estimates/provenance `d4b5c50`, recoverable preparation
+refusal `4d7be4d`, and live admission `9f750e7`. D3a3 passed 5,788 tests (two
+skipped), static checks, 601 focused tests, eight PTY tests, all 18 settings
+conformance checks and docs. One oversized Opus input failed without a verdict;
+the valid retry returned three Suggestions and no Warning/Critical, with no
+changed code omitted. Recovery wording and an accessor docstring were clarified
+and passed 147 focused tests. Advisory acceptance at diminishing returns, not
+CLEAN; no extra review round was needed.
 
-D3a1 committed at `d4b5c50`: pure request estimates and catalog provenance, with
-no live admission or compaction-policy changes. Final validation passed 5,691 tests (two skipped),
-static checks, focused tests, docs and diff checks. Exact Opus 5 code follow-up
-was CLEAN; only an unchanged auth-test fixture value was redacted, with no changed
-code omitted. The first round's dependency/provenance safeguards were added;
-load-time override behavior remains unchanged and invalid limits fail budget
-resolution. D3a3 follows D3a2 as a separate commit.
-
-D2b committed at `faffcd0`: persistent product SDK and canonical cancellation, 5,640 tests
-(two skipped), static checks, 264 focused tests, eight PTY smoke tests and docs.
-Its second exact Opus 5 code round was CLEAN with complete unredacted coverage.
-The initial continuity → session API sequence is complete. Live-provider usability and summary quality remain
-unverified. D3a0 received two exact Opus 5 plan rounds with Suggestions only;
-image dependencies, settings ownership, failed-turn projection and trigger
-semantics are clarified. Conservative estimate bias and recovery are explicit,
-with remaining estimate uncertainty documented. Advisory acceptance, not CLEAN;
-no further prose-only review is warranted.
-
-D2a committed at `4b5baa9`: one persistent controller lifetime, explicit idle,
-per-run witness release and measured 399-line facade bounds. Final validation
-passed 5,585 tests (two skipped), static checks, eight PTY smoke tests and docs/diff
-checks. Two exact Opus 5 code rounds had complete coverage; the final Suggestions
-were applied with no Warning/Critical. Advisory acceptance, not CLEAN.
-
-Completed implementation: D0 `f1fa668`, D1a `17089f3`, D1b0 `8ad7d66`, and semantic
-D1b `527b846`. D1b passed 5,568 tests (two skipped), static checks, eight PTY smoke
-tests and docs build. After three exact Opus 5 code rounds, the final findings
-were adjudicated Suggestions with no Warning/Critical: advisory acceptance
-rather than CLEAN.
-The initial A/B/C contracts landed at `ba08e9b`; typed preparation cancellation
-at `297b055` and guarded-run ownership at `4c5986d`. Live-provider dogfooding and
-semantic-summary quality remain unverified.
+D0/D1 baseline and semantic continuity, and D2's persistent product-session API,
+are committed; the queue retains their commit and review evidence. Live-provider
+dogfooding, budget accuracy and semantic-summary quality remain unverified.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -388,51 +353,72 @@ outer product facade/SDK; existing automation entrypoint adapter composition is
 unchanged. D5 owns queue admission migration; D6 owns lifecycle expansion and
 explicit compatibility retirement; D7 owns direct RPC bash cancellation.
 
-### D3a0 — Budget contract and phase-boundary grooming
+### D3a — Completed request-budget boundary
 
-The read-only D3a investigation inspected `365e0ae`; root refreshed it against
-D2b `faffcd0`. Catalog limits can be placeholders or inherited from a different
-model, output reserves are not adapter-enforced caps, and images lack tokenizer
-metadata. Current auto-compaction runs before request hooks and only counts
-history messages/bytes. A preparation exception closes the product lifetime;
-budget overflow therefore needs a typed recoverable outcome.
+D3a0 `5819b25` fixed the [budget contract](harness-spec.md#model-aware-request-budget-contract).
+D3a1 `d4b5c50` supplies estimates and declaration provenance; D3a2 `4d7be4d`
+supplies recoverable preparation refusal; D3a3 `9f750e7` composes live policy.
+Known limits combine declared metadata and an optional explicit ceiling, include
+an estimated output reserve, and replace the legacy trigger. Unknown limits
+retain legacy policy; `keepRecentTokens` is inactive. Current contracts and user
+recovery are in [Compaction](compaction.md), not pending implementation cards.
 
-The selected [budget contract](harness-spec.md#model-aware-request-budget-contract)
-splits D3a into three bounded implementation commits: measurement and declared
-limit provenance (D3a1), canonical recoverable preparation refusal (D3a2), then
-product request admission and one whole-group semantic attempt (D3a3). No new
-provider transports, exact tokenizer service, output-cap rewrite or within-run
-cuts are selected. D3b retains the latter boundary and its separate safe-cut spec.
+The durable first-iteration origin boundary remains explicit: the accepted user
+is persisted after preparation, so a latest-group cut to it can refuse before
+summary generation. Normal turn settlement records it once. This is evidence
+for the next contract, not permission to move publication or fabricate provenance.
 
-Use existing `compaction.reserveTokens` as an estimated output allowance, with
-an optional explicit `compaction.contextWindow` ceiling for deployments/injected
-providers whose limits are unknown or smaller than the catalog declaration. This
-is a deliberate pipy-only key, added/reported/documented by D3a3; D3a1 owns only
-pure ceiling resolution.
-Preserve existing settings/trust ownership and facade size bounds; this adds no
-product-factory parameter or new configuration owner. Unknown limits without a
-ceiling retain the legacy compaction trigger and make no model-fit claim.
-`keepRecentTokens` remains reported but inactive in D3a; under known-limit
-pressure the one attempt keeps the latest whole user group, while manual and
-unknown-limit legacy cuts retain their existing policy. Known limits replace the
-legacy trigger rather than also compacting merely on message/byte count.
+### D3b0 — Safe-cut contract and scheduled grooming
 
-D3a3's real durable-session test exposes an existing publication boundary: the
-accepted first-iteration user is not persisted until turn-start settlement after
-preparation. A latest-group cut to that user therefore refuses its unresolved
-origin; it neither invents an entry nor changes publication ownership. Final
-hooks can still narrow the request, or recoverable refusal persists the user once
-for subsequent operations. Later-iteration summary and reopen are covered. Carry
-this evidence into D3b's representation contract; do not claim first-iteration
-automatic compaction or live-provider fit from synthetic tests.
+This is the required grooming after the three D3a implementation commits.
+Summary-safe `pipy-session search` found current budget evidence and nine
+compaction-related records; the catalog was inspected through `list`. D1 records
+reinforce state-first persistence, guarded origin and cancellation rules. Current
+source/tests at `9f750e7` supply the cut evidence. Stale D3a dispatch pointers and
+long completed status prose are removed; priority remains unchanged.
 
-This is the required grooming pass after three implementation commits and the
-D2 phase boundary. Summary-safe searches for context budgeting and preparation
-refusal had no matching records; current source/tests and committed ownership
-contracts supply the evidence. Completed D2 dispatch prose is retired, task
-status is reconciled, and D3a1 was selected immediately after D3a0. The completed
-foundation and refusal infrastructure now release D3a3; no dependency changed. Priority
-remains unchanged; no competing queue or speculative parity work is introduced.
+The [selected D3b contract](harness-spec.md#within-run-compaction-contract-d3b)
+resolves the read-only canonical, durable and admission reports:
+
+- Preserve terminal results with a private appended-message list owned by the
+  existing synchronous canonical run. Provider history can shrink independently;
+  request rewrites and empty failure artifacts are not appended output.
+- Require actual nonempty removal and ordered identity-preserving retention.
+  Whole-group counts stay truthful, including zero for an intra-group cut.
+- Retain the exact accepted user and newest complete tool cycle. Initially refuse
+  intra-group selection for incomplete or ambiguous current groups; manual and
+  unknown-limit policy stay unchanged.
+- Represent the retained user separately from the suffix. Once such a cut occurs,
+  later cuts use the effective projection so ordinary compaction cannot resurrect
+  removed cycles. Strict new-field parsing and both-reference fork remapping are
+  part of the durable prerequisite; legacy-only records keep current behavior.
+  Model/thinking settings still reconstruct from the full ancestor path.
+- Choose any compound whole-group/older-cycle removal before one summary request.
+  Summarize explicit removed messages with separately labelled retained task
+  orientation; preserve exact preflight, final admission and state-first failure.
+
+The optional format field requires an anchor-aware reader; no general version
+compatibility gate, manual fallback, terminal event rewrite or new session owner
+is selected. The first-iteration unresolved origin remains a refusal. The current
+run retains appended payloads until settlement, so context compaction does not
+promise bounded total output memory. Live-provider quality remains unverified.
+
+Repeated full checks also left a broken virtual-environment interpreter link,
+which `uv` repaired before the next command. Read-only investigation has not
+attributed that damage. It did establish shared `subprocess`, `tempfile` and `os`
+callable patches in `test_native_extension_external_editor.py`, including a
+`subprocess.run` fake that blindly deletes or writes its last argument. D0h
+confines those mocks and their file effects to test-owned
+resources before further implementation checks. This is a bounded validation
+repair, not a runtime fix or a claim of proven root cause. Preserve all existing
+editor failure and cleanup assertions; verify interpreter links after validation.
+
+Split before coding: D3b1 terminal results, D3b2 mechanical cuts/removal proof,
+D3b3 durable projection, then D3b4 live activation. Each is separately validated,
+reviewed and committed. D0h is the sole next code slice after D3b0's plan gate,
+then D3b1 resumes the product sequence;
+refresh later handoffs against actual predecessor commits. Do not enable cuts
+before all consumers can preserve their meaning.
 
 ## Implementation queue
 
@@ -460,8 +446,13 @@ every listed module. Add a file only when the selected behavior needs it.
 | D3a0 | Complete at `5819b25`; full checks and advisory Opus plan review; D1b/D2b | Reviewed budget, provenance, refusal and cut contract; backlog grooming | Docs-only independent review and commit before new contracts are implemented |
 | D3a1 | Complete at `d4b5c50`; full checks and focused Opus follow-up CLEAN; D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
 | D3a2 | Complete at `4d7be4d`; full checks and advisory Opus code review; D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
-| D3a3 | Complete in this chunk; full checks and advisory Opus review; D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
-| D3b | D3a3; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
+| D3a3 | Complete at `9f750e7`; full checks and advisory Opus review; D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
+| D3b0 | Complete in this chunk; full checks and advisory Opus plan review; D3a3 | Safe-cut, run-result and durable-origin contract; scheduled grooming | Independent spec review and commit before new contracts are implemented |
+| D0h | D3b0; observed validation hygiene prerequisite | Isolate external-editor test mocks and temporary file effects; `tests/test_native_extension_external_editor.py` and backlog only | Global stdlib callables stay untouched; mocks validate editor argv and test-owned paths before effects; existing editor behavior/cleanup assertions, full checks and interpreter-link verification |
+| D3b1 | D3b0, D0h | Preserve appended current-run terminal results in existing `agent/loop.py`; remove obsolete `agent/active_input.py::result_messages`; focused canonical/automation/extension tests and docs | Reduced prepared history cannot cause terminal results to omit earlier appends in the same run; exact anchor/overlay checks, terminal/callback semantics, counters and fresh queued runs preserved |
+| D3b2 | D3b1 | Explicit pure cut/cycle analysis and actual-removal acceptance proof; `agent/history.py`, `coding/product_session.py`, `coding/state.py`, current action construction; update harness Canonical Agent-History Compaction and Native Session Workflow Decision contracts | Safe newest-cycle retention, identity partition/counts, truthful zero groups, guarded no-op/replacement refusal; existing live whole-group behavior only |
+| D3b3 | D3b2 | Optional retained-user durable reference and effective reconstruction; `session_tree.py`, `coding/product_session.py`, current persistence callback; update `session-tree.md` planned-field paragraph and matching docs | Strict new-field errors, origin validation, both-reference fork remap; repeated anchor then whole-group cuts never resurrect removed cycles; no automatic activation |
+| D3b4 | D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
 | D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
 | D4b | D1b, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |

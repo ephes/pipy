@@ -2045,6 +2045,146 @@ unknown/explicit limits, hooks once, blocked summary admission, first/later
 iteration refusal, retained effects, queue settlement and successful next input.
 D1 cancellation/staleness and durable reopen regressions remain mandatory.
 
+### Within-Run Compaction Contract (D3b)
+
+This is the selected next contract, not implemented behavior at `9f750e7`.
+The sole [backlog](backlog.md) gates the prerequisite and activation slices.
+Current whole-group compaction cannot reduce one long accepted tool run. Retaining
+its user while removing older tool cycles requires both a noncontiguous retained
+context and a terminal-result projection independent of that context.
+
+**Canonical run results.** Before enabling such cuts, existing synchronous
+`agent.loop._RunState` owns one private list of the current run's appended messages.
+The existing `_append_message` is its sole writer and adds the same immutable
+object to that list and provider history, preserving existing callback/append
+ordering. Initialization excludes prior history; prepared-history replacement
+does not append to the list. Final results freeze that list, while
+`AgentLoopOutcome.final_history` remains the reduced context mirrored by the
+coding coordinator. Keep explicit exact-once accepted-anchor validation against
+retained history at preparation and final result construction.
+
+This preserves terminal enumeration of canonical appends, not every
+message-shaped event. Include the accepted user, assembled assistants, validated
+post-hook tool results, policy-error results and interrupted/skipped tool results
+that the loop actually appends. Exclude request overlays, prompt rewrites,
+preparation-injected context, auxiliary summaries, stream deltas and empty
+failure/cancellation artifacts. All success, failure, refusal, cancellation and
+malformed-fatal outcomes use the same projection; callback exceptions retain
+their existing propagation without fabricated terminal events. Each queued run
+starts a fresh list. `agent_end.messages` and extension completion consumers keep
+their envelope and full current-run enumeration; snapshots expose retained
+context. This adds no observer, event stream, product history, session or queue
+owner. Current-run payloads remain in memory until settlement; context reduction
+does not promise bounded total run-output memory.
+Remove the superseded `AgentActiveInput.result_messages` helper in D3b1, moving
+its still-relevant anchor and result assertions to the canonical loop tests;
+request-overlay and prompt-transformation helpers remain unchanged.
+
+**A safe cut is an explicit value.** Extend the immutable mechanical cut to carry
+the exact retained and removed message tuples in original order, plus an optional
+retained user anchor and suffix boundary. Use object identity, never matching
+text. A changed cut proves nonempty removal; its counts agree with the actual
+selection. Removing cycles inside a user group drops zero whole groups. Product
+actions carry a positive dropped-message count to state acceptance. Under the
+existing state guard, before mutation, verify the history length reduction and
+that retained messages are an ordered identity-preserving subsequence of current
+history, with no replacement or duplication. Canonical selection additionally
+proves exchange safety and anchor survival. Do not replace the positive-group
+guard with an unchecked positive scalar, invent a user group, or admit no-op cuts.
+Compaction count advances once; dropped-group counters may advance by zero.
+
+For the initial intra-group selector, require the exact accepted user once and
+as the latest user in effective history. Everything after it must parse as complete
+tool cycles: an assistant with one or more calls followed by its complete
+contiguous ordered results. Match both correlation ID and tool name, require
+unique IDs within each batch, and reject missing, extra or orphan results.
+Malformed arguments with corresponding error results are settled exchanges.
+Retain the newest complete cycle unchanged; remove only a nonempty prefix of
+older complete cycles after the retained user. An incomplete cycle, intervening
+user, plain assistant-only segment or ambiguous ordering permits no intra-group
+cut. Do not repair stored history or synthesize missing results. Existing
+whole-group selection remains available under its current contract.
+
+**Durable selection.** Add optional `retainedUserEntryId` to a compaction entry,
+alongside `firstKeptEntryId` as the retained suffix start. Omit the new field for
+ordinary whole-group cuts. When present, both fields must be exact nonempty
+strings; explicit null is invalid. Resolve them before generation and acceptance
+against the captured active effective projection. The anchor must be an actual
+user `MessageEntry`, preceding a distinct suffix boundary; projected custom or
+branch-summary users are not accepted anchors. Both references must lie on the
+compaction's ancestor path and still be retained there. Validate the canonical
+cycle cut as well as the references. Unresolved first-iteration user origin keeps
+D3a3's refusal; no earlier publication or invented user entry is authorized.
+
+Branches containing the new field reconstruct cuts chronologically against the
+effective retained entry sequence. Each anchored cut selects its original user
+once plus the retained suffix; later ordinary cuts select from that effective
+sequence too. Selecting only the latest raw-path suffix would resurrect removed
+cycles when a later whole-group cut retains the pinned user. Both ordinary and
+coding reconstruction share the effective selector, retaining their existing
+synthetic-versus-separate summary projections and only the latest summary.
+Repeated cuts cannot reference previously removed content. Legacy-only paths
+retain their existing reconstruction and malformed legacy-field behavior.
+After an anchored cut, an invalid subsequent boundary fails reconstruction
+rather than restoring removed content or silently discarding retained context.
+Runtime settings remain independent of message retention: reconstruct model and
+thinking level from the full ancestor path, including setting entries inside
+removed spans. Only message/entry retention uses the effective cut sequence.
+The durable slice must test setting changes between removed cycles and in older
+removed groups across reopen and fork.
+
+New-field validation also applies on load/reconstruction. Its bounded errors
+must escape the generic legacy parser path that skips malformed entries: never
+silently skip the anchored compaction or downgrade it to a whole-group record.
+Forks must remap both anchored references successfully; no source-tree ID fallback
+is allowed for these entries. Full historical records remain private in the tree
+even when excluded from effective context. Shared export/extension serialization
+must carry the optional field. Existing files remain readable; files with this
+field require an anchor-aware reader. Do not claim older-reader compatibility or
+introduce a general version gate: the current version header is not such a gate.
+
+**One known-limit automatic attempt.** Keep D3a3's coherent attempt policy,
+callback-free pressure estimate, extension veto and final admission. First form
+the latest-one-group candidate and estimate its retained baseline with the
+currently accepted suffix. If it still exceeds the budget, select the safe
+anchor plus newest cycle when an older complete cycle prefix can be removed.
+The same cut may remove older whole groups and those older current-run cycles;
+choose it before the single auxiliary request. Never summarize whole groups and
+then start a second summary in that iteration. The retained-baseline estimate is
+only a selection heuristic: replacement summary size is not yet known, and even
+the smallest safe suffix can remain too large.
+
+Build the auxiliary request from the prior summary and exact removed tuple,
+replacing prefix-by-count inference. Supply the retained user separately as
+clearly labelled task orientation for anchored cuts; it remains retained and is
+not counted as removed or appended as another group. Exclude request overlays.
+Exact auxiliary preflight, canonical execution/cancellation and final post-hook
+admission remain unchanged. Replace prior continuity once; do not concatenate
+summaries, replay tools, reset usage/invocation counters or truncate protected
+messages, tools or attachments to force admission.
+
+All existing run, history, binding, tree, pointer and generation witnesses remain
+authoritative. Preserve outer mutation ordering and state-first acceptance, with
+persistence outside the generation-failure catch and no rollback. A failed append
+can leave live coding state and the in-memory tree advanced while disk remains
+behind; require reopen equivalence only after successful persistence. Refusal,
+cancelled/stale generation and invalid origins accept nothing. Known-budget final
+refusal remains recoverable and queued settlement remains unchanged.
+
+Initial activation changes only known-limit automatic cuts. Manual two-group
+retention and unknown-limit legacy triggering remain unchanged; no new controls,
+retry policy, provider transport, lifecycle owner or compatibility SDK semantics
+are selected. Live summary quality remains unverified. Tests must cover exact
+anchor/overlay identity, multi-call and error cycles, no-op/ambiguous refusal,
+truthful zero-group removal, compound and repeated cuts followed by ordinary
+compaction, fork/reopen, malformed new references, persistence failure, unchanged
+terminal results and effects/usage, cancellation/staleness, one auxiliary call,
+auxiliary overflow and an oversized protected suffix.
+D3b2/D3b4 must update the existing Canonical Agent-History Compaction and Native
+Session Workflow Decision sections' whole-user-boundary claims as their new cut
+behavior lands; those sections describe the currently implemented policy until
+then.
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical

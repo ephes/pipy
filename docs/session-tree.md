@@ -323,6 +323,13 @@ pending summaries. Failed, cancelled or stale generation appends no compaction
 entry. The accepted summary remains full-content private product data; native
 JSONL and other tree projections retain their existing format.
 
+The selected [D3b contract](harness-spec.md#within-run-compaction-contract-d3b)
+plans an optional retained-user reference for within-run cuts; it is not yet
+implemented. Its durable prerequisite requires effective-context reconstruction,
+strict validation of the new references and both-reference fork remapping before
+activation. Current whole-group entries and legacy-only reconstruction remain
+unchanged. Files containing the planned field will require an anchor-aware reader.
+
 Canonical tool results require both the provider correlation id and tool name.
 The stable JSON format does not add a `tool_name` field: reload resolves it from
 the matching assistant tool call on that result's own parent chain. A historical
