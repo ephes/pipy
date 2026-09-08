@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 # The six-value thinking vocabulary used by the CLI surface (Pi's args.ts),
@@ -42,6 +43,17 @@ class NativeModelCost:
     output: float = 0.0
     cache_read: float = 0.0
     cache_write: float = 0.0
+
+
+class ContextWindowSource(StrEnum):
+    """Provenance of a catalog number, never a live capacity measurement."""
+
+    BUILTIN = "builtin"
+    CONFIGURED = "configured"
+    DEFAULT = "default"
+    EXTENSION_PLACEHOLDER = "extension_placeholder"
+    FALLBACK = "fallback"
+    UNSPECIFIED = "unspecified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +84,22 @@ class NativeModelSpec:
     # ``compat`` carries provider-compat + routing knobs; typed in M4. Kept as a
     # generic mapping here so M1 stays focused on the data model.
     compat: Any | None = None
+    context_window_source: ContextWindowSource = ContextWindowSource.UNSPECIFIED
+
+    def __post_init__(self) -> None:
+        if type(self.context_window_source) is not ContextWindowSource:
+            raise TypeError("context_window_source must be ContextWindowSource")
+
+    @property
+    def declared_context_window(self) -> int | None:
+        """Return declared metadata only; consumers still validate the number."""
+
+        if self.context_window_source in (
+            ContextWindowSource.BUILTIN,
+            ContextWindowSource.CONFIGURED,
+        ):
+            return self.context_window
+        return None
 
     @property
     def reference(self) -> str:

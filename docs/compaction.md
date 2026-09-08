@@ -94,6 +94,15 @@ the Pi-shaped settings surface and are displayed in `/settings`; the current
 stdlib compactor primarily uses message/byte thresholds plus a fixed recent-turn
 retention policy.
 
+Internal request-estimation primitives and declared context-window provenance
+are implemented, but are not yet connected to compaction or provider admission.
+They account for request text, tools, images, framing, safety and an explicit
+output reserve using deterministic heuristics, not provider-exact token counts.
+The current token settings remain inactive policy fields; model-aware refusal
+and triggering are pending D3a2/D3a3. See the
+[budget contract](harness-spec.md#model-aware-request-budget-contract) for the
+fixed arithmetic and declared-versus-unknown limit rules.
+
 ## Durable session behavior
 
 When compaction changes history, pipy appends a `compaction` tree entry with the

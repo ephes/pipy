@@ -244,3 +244,23 @@ def test_resolve_cli_model_slash_id_falls_back_to_full_string_match():
     assert result.error is None
     assert result.model is not None
     assert result.model.model_id == "openai/gpt-4o:extended"
+
+
+def test_fallback_keeps_construction_numbers_without_claiming_declared_capacity():
+    from pipy_harness.native.catalog import ContextWindowSource, build_builtin_catalog
+    from pipy_harness.native.model_resolver import build_fallback_model
+
+    rows = build_builtin_catalog().get_all()
+    fallback = build_fallback_model("openai", "unknown-future-model", rows)
+    assert fallback is not None
+    base = next(
+        row
+        for row in rows
+        if row.provider_name == "openai" and row.model_id == "gpt-5.5"
+    )
+    assert fallback.context_window == base.context_window
+    assert fallback.max_tokens == base.max_tokens
+    assert fallback.base_url == base.base_url and fallback.api == base.api
+    assert fallback.context_window_source is ContextWindowSource.FALLBACK
+    assert fallback.declared_context_window is None
+    assert base.declared_context_window == base.context_window

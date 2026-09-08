@@ -1841,9 +1841,10 @@ semantics; the one-shot compatibility SDK remains separate.
 
 ### Model-Aware Request Budget Contract
 
-This is the selected D3a contract, pending implementation in the sole
-[backlog](backlog.md). D1 semantic continuity and D2 persistent lifetime remain
-the foundation. Budgeting is an estimate of the native request, not a guarantee
+D3a1 implements the pure measurement and catalog-provenance foundation below.
+Recoverable refusal and live request admission remain pending as D3a2/D3a3 in
+the sole [backlog](backlog.md). D1 semantic continuity and D2 persistent lifetime
+remain the foundation. Budgeting is an estimate of the native request, not a guarantee
 of provider acceptance or an exact tokenizer/wire-size calculation.
 
 **Measurement and limits.** A pure bounded helper in
@@ -1853,24 +1854,51 @@ images, framing and output reserve. It reads supplied values only: no callbacks,
 filesystem/provider access, retained private request bodies or workflow capture.
 When canonical messages exist, do not count `user_prompt` again as a second
 message. Request-only overlays are counted where provider-visible but remain
-absent from canonical history and semantic-summary input. D3a1 pins and documents
-the deterministic text/schema/framing and image heuristics with Unicode and
-boundary tests. Include every known assembled-request component and bias the
-heuristics toward overestimation, with explicit framing/safety allowance beyond
-the output reserve. Document residual uncertainty; unknown wire framing and
-image tokenization prevent an absolute no-underestimation guarantee. Image compressed bytes/base64 length are not visual token counts;
-the current attachment shape has no image dimensions or provider-token metadata.
-The helper accepts already-extracted image accounting primitives (count and any
-needed media/byte metadata), not a runtime import of `ProviderImageAttachment`: its
-module imports a concrete read tool outside the coding package dependency gate.
+absent from canonical history and semantic-summary input.
 
-Catalog/configuration owners retain context-window provenance alongside their
-existing immutable model metadata. Distinguish explicitly declared limits from
-omitted defaults, extension placeholders and fallback rows cloned for another
-model ID; none of those assumptions may silently become a declared model limit.
-The static built-in table is a declaration, not a live-provider measurement.
-Do not expand providers or refresh the entire catalog to implement this contract.
-An exact current catalog lookup is insufficient unless provenance is known.
+The implemented `estimate_request` consumes a frozen `ProviderRequest` plus an
+explicit extracted image count and output reserve. Text fields each use
+`ceil(UTF-8 bytes / 3)`. Tool schemas use compact JSON with literal Unicode before
+that calculation. Tool-call names, correlation IDs and argument JSON are counted;
+result content, names, IDs, error flags and added tool names are counted separately
+from ordinary message content. Framing adds 32 per request plus 8 per message
+(at least one), advertised tool, tool call and image. Each image adds 4,096,
+independent of compressed bytes. Safety adds `ceil(input subtotal / 4)` across
+those components, followed by the separate output reserve. Empty text costs zero;
+empty requests still carry framing and safety. All arithmetic uses integers.
+`RequestEstimate` retains only immutable numeric components and totals, never
+private request bodies.
+
+These deliberately cautious heuristics include every known assembled-request
+component; unknown wire framing and image tokenization still prevent an absolute
+no-underestimation guarantee. Image compressed bytes/base64 length are not visual
+token counts. The helper neither loads nor inspects attachments and never invokes
+header callbacks. The caller supplies an extracted image count; the helper does
+not import `ProviderImageAttachment`, whose module imports a concrete read tool
+outside the coding package dependency gate. Frozen tool-schema validation reuses the
+canonical request boundary.
+
+`NativeModelSpec.context_window_source` records `builtin`, `configured`,
+`default`, `extension_placeholder`, `fallback` or `unspecified` provenance.
+`declared_context_window` returns the existing numeric limit only for built-in
+static declarations or explicitly configured custom/override limits. An omitted
+custom limit retains its historical numeric default but is unknown for budgeting;
+output-only overrides preserve the existing provenance. Extension placeholders,
+raw rows with unspecified provenance and fallback rows cloned for another model
+ID remain unknown, even when their retained number came from a declared base row.
+Reloads preserve provenance alongside immutable model metadata. The static table
+is a declaration, not a live-provider measurement; providers and catalog values
+are unchanged. Existing override-loader numeric behavior is retained: invalid
+declared values are rejected by budget resolution, not recast as unknown limits.
+
+The pure `resolve_request_budget` takes a positive declared context window and/or
+positive explicit ceiling and resolves their minimum, either supplied value, or
+unknown when neither exists. `RequestBudget` accepts a nonnegative output reserve;
+a reserve at or above a known limit raises a bounded `ValueError` instead of
+clamping. Invalid numeric types (including booleans) are rejected. Its `allows`
+comparison includes equality, requires the same reserve as the estimate, and
+returns no verdict for an unknown limit. These primitives do not read settings,
+select models, trigger compaction or admit/refuse live requests.
 
 Resolve limits for the captured provider binding through the existing catalog
 composition owner, outside the session mutex, then revalidate the run/context

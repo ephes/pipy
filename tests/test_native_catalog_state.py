@@ -392,3 +392,21 @@ def test_format_list_models_load_error_warning(tmp_path):
     )
     assert "Warning: errors loading models.json" in output
     assert "boom" in output
+
+
+def test_extension_placeholder_is_not_declared_context_capacity(tmp_path):
+    from pipy_harness.native.catalog import ContextWindowSource
+
+    state = _state(tmp_path)
+    calls = []
+    registration = RegisteredProvider(
+        ExtensionProvider("ext", "m", ("m",), lambda _context: calls.append("factory")),
+        "ext.py",
+    )
+    state.set_extension_provider_contributions((registration,), ())
+    row = state.find("ext", "m")
+    assert row is not None
+    assert (row.context_window, row.max_tokens) == (128_000, 16_384)
+    assert row.context_window_source is ContextWindowSource.EXTENSION_PLACEHOLDER
+    assert row.declared_context_window is None
+    assert calls == []

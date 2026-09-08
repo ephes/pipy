@@ -149,3 +149,30 @@ def test_get_all_returns_every_row_sorted_stable():
     assert len(all_rows) == len(set(r.reference for r in all_rows))
     # get_all is deterministic across calls.
     assert [r.reference for r in catalog.get_all()] == [r.reference for r in all_rows]
+
+
+def test_builtin_context_limits_are_declared_but_raw_model_rows_are_unknown():
+    from pipy_harness.native.catalog import ContextWindowSource
+
+    for row in build_builtin_catalog().rows:
+        assert row.context_window_source is ContextWindowSource.BUILTIN
+        assert row.declared_context_window == row.context_window > 0
+    injected = NativeModelSpec(
+        "injected", "unknown", "unknown", "custom", context_window=4096
+    )
+    assert injected.context_window == 4096
+    assert injected.context_window_source is ContextWindowSource.UNSPECIFIED
+    assert injected.declared_context_window is None
+
+
+def test_context_provenance_rejects_a_string_equal_to_a_declared_source():
+    import pytest
+
+    with pytest.raises(TypeError, match="context_window_source"):
+        NativeModelSpec(
+            "injected",
+            "m",
+            "m",
+            "custom",
+            context_window_source="builtin",  # type: ignore[arg-type]
+        )

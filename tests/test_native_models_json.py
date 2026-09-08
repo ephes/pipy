@@ -651,7 +651,7 @@ def test_model_cost_and_refresh_fields_are_complete_and_immutable(tmp_path):
         (ProviderConfig, "name base_url api_key api headers auth_header compat models model_overrides"),
         (ProviderRequestConfig, "api_key headers auth_header"),
         (ModelsConfig, "providers"),
-        (NativeModelSpec, "provider_name model_id display_name api base_url reasoning thinking_level_map input cost context_window max_tokens headers compat"),
+        (NativeModelSpec, "provider_name model_id display_name api base_url reasoning thinking_level_map input cost context_window max_tokens headers compat context_window_source"),
         (prepared.__class__, "expected_owner_token replacement_owner_token rows error provider_request_configs config replacement_rows replacement_provider_request_configs replacement_config"),
     )
     # fmt: on
@@ -670,3 +670,90 @@ def test_model_cost_and_refresh_fields_are_complete_and_immutable(tmp_path):
     catalog.publish_catalog_reload(prepared)
     assert tuple(getattr(catalog, name) for name in names) == live
     assert "private" not in repr(prepared)
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_custom_context_limit_tracks_declaration_and_survives_reload(
+    tmp_path, explicit
+):
+    from pipy_harness.native.catalog import ContextWindowSource
+
+    path = tmp_path / "models.json"
+    model = {"id": "custom"}
+    if explicit:
+        model["contextWindow"] = 4096
+    _write(
+        path,
+        {
+            "providers": {
+                "custom": {
+                    "api": "openai-completions",
+                    "baseUrl": "https://unused",
+                    "apiKey": "local",
+                    "models": [model],
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    row = catalog.find("custom", "custom")
+    assert row is not None
+    assert row.context_window == (4096 if explicit else 128_000)
+    assert row.max_tokens == 16_384
+    assert row.context_window_source is (
+        ContextWindowSource.CONFIGURED if explicit else ContextWindowSource.DEFAULT
+    )
+    assert row.declared_context_window == (4096 if explicit else None)
+    catalog.publish_catalog_reload(catalog.prepare_catalog_reload())
+    assert catalog.find("custom", "custom") == row
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_model_override_preserves_or_replaces_context_declaration(tmp_path, explicit):
+    from pipy_harness.native.catalog import ContextWindowSource, build_builtin_catalog
+
+    path = tmp_path / "models.json"
+    override = {"contextWindow": 8192} if explicit else {"maxTokens": 2048}
+    _write(
+        path,
+        {"providers": {"anthropic": {"modelOverrides": {"claude-opus-4-7": override}}}},
+    )
+    row = ModelCatalog(models_json_path=path).find("anthropic", "claude-opus-4-7")
+    builtin = build_builtin_catalog().find("anthropic", "claude-opus-4-7")
+    assert row is not None and builtin is not None
+    assert row.declared_context_window == (8192 if explicit else builtin.context_window)
+    assert row.context_window_source is (
+        ContextWindowSource.CONFIGURED if explicit else ContextWindowSource.BUILTIN
+    )
+
+
+@pytest.mark.parametrize("invalid_limit", [0, -1])
+def test_invalid_override_remains_declared_and_budget_resolution_rejects_it(
+    tmp_path, invalid_limit
+):
+    from pipy_harness.native.coding.request_budget import resolve_request_budget
+
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "modelOverrides": {
+                        "claude-opus-4-7": {"contextWindow": invalid_limit}
+                    }
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is None  # Existing override loading is unchanged.
+    row = catalog.find("anthropic", "claude-opus-4-7")
+    assert row is not None
+    assert row.context_window == row.declared_context_window == invalid_limit
+    with pytest.raises(ValueError):
+        resolve_request_budget(
+            declared_context_window=row.declared_context_window,
+            explicit_ceiling=4096,
+            output_reserve=1,
+        )

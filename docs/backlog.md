@@ -9,12 +9,19 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next implementation:** D3a1 after this D3a0 planning chunk commits. D2b committed
-at `faffcd0`: persistent product SDK and canonical cancellation, 5,640 tests
+**Next eligible:** D3a2, canonical recoverable preparation refusal. D3a1 is
+complete: pure request estimates and catalog provenance, with no live admission
+or compaction-policy changes. Final validation passed 5,691 tests (two skipped),
+static checks, focused tests, docs and diff checks. Exact Opus 5 code follow-up
+was CLEAN; only an unchanged auth-test fixture value was redacted, with no changed
+code omitted. The first round's dependency/provenance safeguards were added;
+load-time override behavior remains unchanged and invalid limits fail budget
+resolution. D3a3 follows D3a2 as a separate commit.
+
+D2b committed at `faffcd0`: persistent product SDK and canonical cancellation, 5,640 tests
 (two skipped), static checks, 264 focused tests, eight PTY smoke tests and docs.
 Its second exact Opus 5 code round was CLEAN with complete unredacted coverage.
-The initial continuity → session API sequence is complete. D3a2 and D3a3
-follow D3a1 as separate commits. Live-provider usability and summary quality remain
+The initial continuity → session API sequence is complete. Live-provider usability and summary quality remain
 unverified. D3a0 received two exact Opus 5 plan rounds with Suggestions only;
 image dependencies, settings ownership, failed-turn projection and trigger
 semantics are clarified. Conservative estimate bias and recovery are explicit,
@@ -392,7 +399,8 @@ This is the required grooming pass after three implementation commits and the
 D2 phase boundary. Summary-safe searches for context budgeting and preparation
 refusal had no matching records; current source/tests and committed ownership
 contracts supply the evidence. Completed D2 dispatch prose is retired, task
-status is reconciled, and D3a1 is the sole next implementation after D3a0. Priority
+status is reconciled, and D3a1 was selected immediately after D3a0. The completed
+foundation now releases D3a2; no dependency or priority changed. Priority
 remains unchanged; no competing queue or speculative parity work is introduced.
 
 ## Implementation queue
@@ -418,8 +426,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D2b0 | Complete at `e0f82b6`; full checks and advisory Opus plan review | Docs-only provider, preparation and cancellation ownership contract; bounded D2p split | Independent plan review and commit before dependent code |
 | D2p | Complete at `365e0ae`; full checks and advisory Opus code review; D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
 | D2b | Complete at `faffcd0`; full checks and Opus follow-up CLEAN; D2p/D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
-| D3a0 | Complete in this chunk; full checks and advisory Opus plan review; D1b/D2b | Reviewed budget, provenance, refusal and cut contract; backlog grooming | Docs-only independent review and commit before new contracts are implemented |
-| D3a1 | D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
+| D3a0 | Complete at `5819b25`; full checks and advisory Opus plan review; D1b/D2b | Reviewed budget, provenance, refusal and cut contract; backlog grooming | Docs-only independent review and commit before new contracts are implemented |
+| D3a1 | Complete; full checks and focused Opus follow-up CLEAN; D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
 | D3a2 | D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
 | D3a3 | D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
 | D3b | D3a3; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |

@@ -34,6 +34,7 @@ from typing import TypedDict, TypeVar, cast
 
 from pipy_harness.native._resource_files import resolve_global_resource_root
 from pipy_harness.native.catalog import (
+    ContextWindowSource,
     NativeCatalog,
     NativeModelCost,
     NativeModelSpec,
@@ -630,6 +631,11 @@ def _apply_model_override(
             if override.context_window is not None
             else row.context_window
         ),
+        context_window_source=(
+            ContextWindowSource.CONFIGURED
+            if override.context_window is not None
+            else row.context_window_source
+        ),
         max_tokens=(
             override.max_tokens if override.max_tokens is not None else row.max_tokens
         ),
@@ -693,6 +699,11 @@ def _custom_model_row(
         if model_def.context_window is not None
         else 128_000,
         max_tokens=model_def.max_tokens if model_def.max_tokens is not None else 16_384,
+        context_window_source=(
+            ContextWindowSource.CONFIGURED
+            if model_def.context_window is not None
+            else ContextWindowSource.DEFAULT
+        ),
         headers=dict(model_def.headers) if model_def.headers else None,
         compat=compat,
     )

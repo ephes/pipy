@@ -18,7 +18,11 @@ built-in row. ``fake`` is the deterministic bootstrap.
 
 from __future__ import annotations
 
-from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
+from pipy_harness.native.catalog import (
+    ContextWindowSource,
+    NativeModelCost,
+    NativeModelSpec,
+)
 
 # Default per-provider base URLs. Pi's catalog rows always carry a baseUrl, and
 # the models.json custom-model parser skips a row whose baseUrl cannot be
@@ -71,6 +75,7 @@ def _m(
             input=cost[0], output=cost[1], cache_read=cost[2], cache_write=cost[3]
         ),
         context_window=context_window,
+        context_window_source=ContextWindowSource.BUILTIN,
         max_tokens=max_tokens,
         compat=dict(compat) if compat is not None else None,
     )

@@ -95,6 +95,8 @@ canonical package does not import them back.
   counters, compaction state, and provider-failure state;
 - `accepted_input.py` prepares one accepted prompt and request-only context;
 - `agent_run.py` assembles and invokes the canonical loop;
+- `request_budget.py` supplies pure numeric request estimates and declared/explicit
+  limit resolution, without live admission policy or catalog/settings ownership;
 - `status_effects.py` owns the run-entry, input-accepted, result, cancellation,
   tool-policy, provider-settlement, no-tool, and malformed-fatal status family
   behind narrow state and presentation ports;
@@ -108,7 +110,14 @@ canonical package does not import them back.
 
 This package is headless: terminal rendering, extension implementation,
 provider construction, concrete tools, filesystem persistence, automation, and
-the metadata archive are injected or remain outside it.
+the metadata archive are injected or remain outside it. Request accounting uses
+canonical immutable messages/tool schemas and an extracted image count; it does
+not import the attachment loader or concrete read tool. Catalog/configuration
+owners carry context-window provenance, including unknown defaults and fallback
+rows. An exact direct-import allowlist and fresh-process dependency check pin
+the helper's separation from settings, catalog selection and image loading.
+See the [budget contract](harness-spec.md#model-aware-request-budget-contract)
+for the implemented heuristic and the pending live integration.
 
 ## Product composition and one-shot runtime
 

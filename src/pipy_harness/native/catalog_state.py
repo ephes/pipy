@@ -28,7 +28,7 @@ from pipy_harness.native.auth_store import (
 from pipy_harness.native.auth_store import (
     provider_available as _auth_provider_available,
 )
-from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.catalog import ContextWindowSource, NativeModelSpec
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.models_json import (
     ModelCatalog,
@@ -395,6 +395,7 @@ class ProviderCatalogState:
                         reasoning=False,
                         input=("text",),
                         context_window=128_000,
+                        context_window_source=ContextWindowSource.EXTENSION_PLACEHOLDER,
                         max_tokens=16_384,
                     )
                 )

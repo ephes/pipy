@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 
 from pipy_harness.native.catalog import (
     THINKING_LEVELS,
+    ContextWindowSource,
     NativeModelSpec,
     default_model_per_provider,
 )
@@ -321,7 +322,12 @@ def build_fallback_model(
         base = next((r for r in provider_rows if r.model_id == default_id), None)
     if base is None:
         base = provider_rows[0]
-    return replace(base, model_id=model_id, display_name=model_id)
+    return replace(
+        base,
+        model_id=model_id,
+        display_name=model_id,
+        context_window_source=ContextWindowSource.FALLBACK,
+    )
 
 
 # Backwards-compatible private alias (kept for existing internal callers).

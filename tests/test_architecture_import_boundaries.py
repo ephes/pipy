@@ -2748,6 +2748,83 @@ from pipy_harness.native.image_attachment import ImageAttachmentResolution
     assert _evaluate_rule(source_root, rule) == []
 
 
+def test_request_budget_direct_imports_remain_pure() -> None:
+    budget_path = SOURCE_ROOT / "pipy_harness/native/coding/request_budget.py"
+    allowed = frozenset(
+        {
+            "__future__",
+            "__future__.annotations",
+            "json",
+            "dataclasses",
+            "dataclasses.dataclass",
+            "dataclasses.fields",
+            "dataclasses.replace",
+            "pipy_harness.native.agent.messages",
+            "pipy_harness.native.agent.messages.AgentAssistantMessage",
+            "pipy_harness.native.agent.messages.AgentToolResultMessage",
+            "pipy_harness.native.agent.request",
+            "pipy_harness.native.agent.request.validate_frozen_provider_request",
+            "pipy_harness.native.models",
+            "pipy_harness.native.models.ProviderRequest",
+            "pipy_harness.native.tools.base",
+            "pipy_harness.native.tools.base.materialize_tool_input_schema",
+        }
+    )
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT, budget_path, allowed_imports=allowed
+    ), "request estimation gained a dependency outside its pure contracts"
+    assert {r.module for r in _import_references(SOURCE_ROOT, budget_path)} == allowed
+
+
+def test_request_budget_import_does_not_load_effectful_dependencies() -> None:
+    # A fresh graph also catches a permitted intermediate gaining a runtime
+    # dependency on image loading, settings, catalog selection or other owners.
+    script = f"""\
+import importlib
+import sys
+import types
+
+for name, path in (
+    ("pipy_harness", {str(SOURCE_ROOT / "pipy_harness")!r}),
+    ("pipy_harness.native", {str(SOURCE_ROOT / "pipy_harness/native")!r}),
+):
+    package = types.ModuleType(name)
+    package.__package__ = name
+    package.__path__ = [path]
+    sys.modules[name] = package
+
+module = importlib.import_module("pipy_harness.native.coding.request_budget")
+assert hasattr(module, "estimate_request")
+forbidden = (
+    "pipy_harness.native.image_attachment",
+    "pipy_harness.native.read_only_tool",
+    "pipy_harness.native.settings",
+    "pipy_harness.native.catalog",
+    "pipy_harness.native.catalog_state",
+    "pipy_harness.native.models_json",
+    "pipy_harness.native.model_resolver",
+    "pipy_harness.native.repl_state",
+    "pipy_harness.native.providers",
+    "pipy_harness.native.ui",
+    "pipy_harness.native.coding.state",
+    "pipy_harness.capture",
+    "pipy_session",
+)
+loaded = sorted(name for name in sys.modules if any(
+    name == prefix or name.startswith(prefix + ".") for prefix in forbidden
+))
+assert loaded == [], loaded
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_coding_result_direct_imports_match_explicit_allowlist() -> None:
     result_path = SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "result.py"
     references = _import_references(SOURCE_ROOT, result_path)
