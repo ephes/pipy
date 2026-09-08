@@ -991,17 +991,20 @@ notification, and its direct bash boundary.
 `product_api.py` composes one prepared `CodingSessionAdapter` and enters the
 existing native persistent lifetime. `sdk.py` exports that full-content API
 alongside the unchanged one-shot compatibility surface. The facade owns only
-construction-thread identity/reentry and a dedicated lock protecting the active
-operation's fresh cancellation latch. Every slot reader/writer takes that lock;
-callbacks run after capture and unlock. Retirement detaches the exact latch so
-an old cancellation cannot affect another submission. The native state,
-controller, queue, generation and effect owners remain authoritative. Snapshots
-use the existing frozen state projection and require idle construction-thread
-entry, including after disposal. Injected mutable settings/resources cannot be
-shared across active lifetimes; settings lock binding remains composition-time.
-Native modules never import the outer product facade or SDK. Existing native
-automation entrypoints retain their adapter composition; coding and agent cores
-do not acquire an adapter dependency.
+construction-thread identity and its reentry guard. `CodingInputQueue` owns each
+ordinary submit's atomic reservation/claim, fresh cancellation latch and exact
+settlement across the complete submit-to-idle drive, including settled-hook
+continuations. A stable native signal view is bound once after successful startup
+to that exact queue. Its lock protects only queue-reference publication/capture;
+the queue guard is released before latch observation, callback registration or
+signaling. Retirement of one exact token therefore cannot detach or cancel a
+later operation. The native state, controller, queue, generation and effect
+owners remain authoritative. Snapshots use the existing frozen state projection
+and require idle construction-thread entry, including after disposal. Injected
+mutable settings/resources cannot be shared across active lifetimes; settings
+lock binding remains composition-time. Native modules never import the outer
+product facade or SDK. Existing native automation entrypoints retain their
+adapter composition; coding and agent cores do not acquire an adapter dependency.
 
 The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;

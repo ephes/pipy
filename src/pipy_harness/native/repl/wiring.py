@@ -71,6 +71,7 @@ from pipy_harness.native.chrome import (
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCallbacks,
     CodingProductSessionCompaction,
@@ -263,6 +264,24 @@ class _PreparedCodingSession:
         if self.lifetime is None:
             raise RuntimeError("coding session startup failed")
         self.lifetime.enqueue_seed(content)
+
+    def bind_external_abort_signal(self, signal: _ExternalAbortSignalView) -> None:
+        if self.lifetime is None:
+            raise RuntimeError("coding session startup failed")
+        self.lifetime.bind_external_abort_signal(signal)
+
+    def drive_external_operation(
+        self, content: ProductContent
+    ) -> CodingSessionResult | None:
+        if self.lifetime is None:
+            if self._startup_closed:
+                raise RuntimeError("coding session lifetime is closed")
+            return self.wiring.startup_failure
+        delegation = self.wiring.delegation
+        assert delegation is not None
+        return self.lifetime.drive_external_operation(
+            content, delegation.step_until_idle
+        )
 
     def drive(self) -> CodingSessionResult | None:
         if self.lifetime is None:

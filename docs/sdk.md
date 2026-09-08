@@ -249,19 +249,21 @@ persistence coordinator. Reuse `CodingSessionState.result_snapshot()` and its
 frozen projection; do not reconstruct history or counters from events. Started
 lifetime closed/result state stays with the D2a controller owner.
 
-The facade's new concurrency state is limited to entry confinement and an active
-operation cancellation slot. Its required reader/writer inventory is:
+The facade's mutable concurrency state is limited to entry confinement. Managed
+operation admission, settlement and cancellation are native queue-owned. The
+required reader/writer inventory is:
 
 | State | Readers and writers | Boundary |
 | --- | --- | --- |
 | Construction-thread identity and entry-in-progress guard | Construction, submit, snapshot, close/context entry/exit, including calls made by observers or diagnostics | Identity is immutable; check thread before reading owner-thread state. Install the entry guard before callbacks and retain it through cleanup; synchronous reentry refuses. |
-| Active operation cancellation latch | Submit admission and final settlement/retirement write the slot; cancel and the existing abort-signal bridge read it | One dedicated lock covers every slot access. Each operation uses a fresh latch; retirement detaches that exact latch. Capture under the lock, invoke cancellation callbacks outside it. A delayed cancellation of an old latch cannot signal the next operation. |
+| Managed operation reservation and cancellation latch | `CodingInputQueue` atomically admits/claims and settles the exact token under its existing guard; cancel captures the queue-owned latch and signals it after unlock | Each operation uses a fresh latch. A stable native signal view is bound once to the exact queue after successful startup; its binding lock protects only queue-reference publication/capture. Latch observation and callback registration happen after both guards are released, so delayed work on an old latch cannot affect the next operation. |
 | Conversation, queue, generation and lifecycle state | Existing coding/queue/controller/effect owners | Preserve their current guards and per-run witnesses; the facade adds no second mutable owner. |
 
 The accepted-abort callback primitive lives in `native/cancellation.py`; it was
 moved unchanged from RPC. RPC imports it without
 changing queue admission, reservations, settlement or abort clearing. The facade
-does not import RPC. D2 does not reuse or clear a retired operation's latch.
+does not import RPC. `ProductSession` does not reuse or clear a retired
+operation's latch.
 
 Headless provider and semantic-summary cancellation already use canonical
 execution. Model-tool cancellation connects the existing external-abort
@@ -372,47 +374,49 @@ Aborting a reservation does not discard its accepted content or release the slot
 its claimant observes cancellation and must eventually settle it. No callbacks
 are registered or invoked while holding the queue guard.
 
-D5a1 is intentionally unadopted: existing selection methods, external ports,
-active-loop delivery, extension clearing and all frontend behavior remain as
-implemented. Tests call the new internal mechanism directly. They must pin
+D5a1's classified managed lanes remain unavailable as SDK controls. D5a2b adopts
+the same owner only for ordinary `ProductSession` operations through its atomic
+idle-only entry; existing selection methods, external ports, active-loop delivery
+and extension clearing remain as implemented. Direct queue tests pin
 content/kind identity, concurrent admission versus settlement without false idle,
 claim/settle rejection without mutation, pending counts, abort versus promotion,
 callback execution outside the guard, fresh-next-reservation cancellation and
 extension-lane isolation, steering-first FIFO promotion and harmless idle abort.
-Use deterministic barriers/events rather than timing polls. Later activation owns preflight rejection, failed claim cleanup, readiness,
-EOF/sealing/close and event projection; do not add speculative lifecycle methods
-in D5a1. Full-content values stay private product data and never enter workflow
+The adoption does not add readiness, EOF/sealing/close or event projection
+semantics. Full-content values stay private product data and never enter workflow
 archive summaries. Compatibility `run_native` semantics remain unchanged.
 
-### Planned D5a2b product operation adoption
+### D5a2b product operation adoption
 
-D5a2b will activate D5a1 for ordinary `ProductSession.submit()` and `cancel()`.
+Status: implemented by D5a2b.
+
+D5a2b activates D5a1 for ordinary `ProductSession.submit()` and `cancel()`.
 The public thread/reentry, literal-content, diagnostics, result and close
 contracts above remain. One accepted operation spans the entire submit-to-idle
 drive, including canonical runs and extension settled-hook continuations. It is
 not retired at `AgentRunCompleted`, provider completion or an intermediate empty
 poll. Cancellation stays accepted across those continuations, as in D2b.
 
-The queue owns one atomic idle-only admit-and-claim entry: validate content and
-refuse an existing managed reservation/pending lane without mutation, then reserve and
-claim one fresh operation under its existing RLock. Do not implement this as an
-unlocked idle snapshot followed by ordinary admission. The existing prepared
+The queue owns one atomic idle-only admit-and-claim entry. It validates content,
+refuses an existing managed reservation/pending lane without mutation, then
+reserves and claims one fresh operation under its existing RLock. The existing prepared
 handle/controller lifetime uses that claim's exact content as a literal seed and
 drives the existing step-to-idle loop. Existing selectors and external ports do
-not expose managed lanes. No public concurrent admissions are added in this slice.
+not expose managed lanes. This adoption adds no public concurrent admissions.
 
-Replace the facade's active-latch slot with a stable native signal view, created
-before composition and bound once to this lifetime's exact queue after successful
-startup, before the factory returns. Unbound observation/cancel is inert; rebinding
-refuses. Its only binding state is the queue reference, guarded during publication
-and capture. Release that binding guard before entering any queue method. The view
-never creates, clears or replaces an operation latch. For `is_set` and callback
-registration, the queue captures its exact claimed latch under the queue guard;
-read/register on that captured latch only after unlock. Cancellation delegates to
-the existing guarded abort-capture/after-unlock signaling. No callback, registration
-or cancellation signal runs under either guard. Late unregister/cancel uses the
-captured old latch and cannot detach or signal the next operation. Current provider,
-summary and model-tool waiters remain the canonical execution/cancellation path.
+The former facade active-latch slot is removed. A stable native signal view is
+created before composition and bound once to this lifetime's exact queue after
+successful startup, before the factory returns. Unbound observation/cancel is
+inert and rebinding refuses. Its only binding state is the queue reference,
+guarded during publication and capture; the binding guard is released before any
+queue method. The view never creates, clears or replaces an operation latch. For
+`is_set` and callback registration, the queue captures its exact claimed latch
+under the queue guard, then reads or registers on that captured latch after
+unlock. Cancellation delegates to the existing guarded abort-capture/after-unlock
+signaling. No callback, registration or cancellation signal runs under either
+guard. Late unregister/cancel uses the captured old latch and cannot detach or
+signal the next operation. Current provider, summary and model-tool waiters remain
+the canonical execution/cancellation path.
 
 Successful startup is required before admission. After claim, every exit—seed
 failure, drive exception, terminal result or true idle—settles that exact token
@@ -425,7 +429,7 @@ fails, adding only a bounded diagnostic note; otherwise raise the cleanup failur
 Do not add a second close flag, roll back accepted product history, or invent a
 new EOF/sealing/pending-drain policy. Public close remains owner-thread idle-only.
 
-Tests must prove one token/latch through a settled-hook continuation, no
+Focused tests prove one token/latch through a settled-hook continuation, no
 `agent_end` retirement, exact literal slash/shell content, atomic busy refusal,
 cancellation through provider/summary/model-tool paths and across continuations,
 idle and delayed-old cancellation followed by a fresh usable submission, and
@@ -433,9 +437,8 @@ exact retirement after enqueue/driver/terminal failure. Pin once-only startup/
 shutdown, binding refusal, guard-free signal registration/callbacks, and existing
 headless import boundaries. Private bridge-only tests may be replaced by equivalent
 queue/view ownership tests; do not delete the late-cancel guarantees they pinned.
-Update the current API ownership inventory and architecture text on activation,
-removing the superseded facade latch owner. Compatibility `run_native`, RPC's
-current queue/latch/event behavior and private workflow-archive boundaries remain.
+Compatibility `run_native`, RPC's current queue/latch/event behavior and private
+workflow-archive boundaries remain.
 D5a3 owns concurrent control exposure and its distinct per-run RPC settlement
 contract; this operation seam does not authorize public event emission.
 

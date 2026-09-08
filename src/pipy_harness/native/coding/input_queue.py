@@ -113,6 +113,53 @@ class _ExternalActiveSlot:
     claimed: bool = False
 
 
+class _ExternalAbortSignalView:
+    """Stable event-like view over one queue's currently claimed operation."""
+
+    __slots__ = ("_binding_lock", "_queue")
+
+    def __init__(self) -> None:
+        self._binding_lock = threading.Lock()
+        self._queue: CodingInputQueue | None = None
+
+    def bind(self, queue: CodingInputQueue) -> None:
+        if not isinstance(queue, CodingInputQueue):
+            raise TypeError("queue must be a CodingInputQueue")
+        with self._binding_lock:
+            if self._queue is not None:
+                raise RuntimeError("external abort signal is already bound")
+            self._queue = queue
+
+    def _capture_queue(self) -> CodingInputQueue | None:
+        with self._binding_lock:
+            return self._queue
+
+    def _capture_latch(self) -> _AcceptedAbortSignal | None:
+        queue = self._capture_queue()
+        return None if queue is None else queue._capture_external_claimed_latch()
+
+    def cancel(self) -> None:
+        queue = self._capture_queue()
+        if queue is not None:
+            queue._abort_external()
+
+    def is_set(self) -> bool:
+        latch = self._capture_latch()
+        return latch is not None and latch.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        latch = self._capture_latch()
+        return False if latch is None else latch.wait(timeout)
+
+    def register_cancel_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        latch = self._capture_latch()
+        if latch is None:
+            return lambda: None
+        return latch.register_cancel_callback(callback)
+
+
 _LOCAL_DISPATCH_SOURCES = frozenset(
     {
         CodingInputSource.LOCAL_COMMAND,
@@ -260,6 +307,25 @@ class CodingInputQueue:
         return self._external_snapshot()
 
     @_guarded_queue_api
+    def _begin_external_operation(
+        self, content: ProductContent
+    ) -> _ExternalClaim | None:
+        """Atomically reserve and claim one ordinary operation only while idle."""
+
+        _require_content(content, "content")
+        if (
+            self._external_active_slot is not None
+            or self._external_steering
+            or self._external_follow_ups
+        ):
+            return None
+        self._reserve_external(content, None)
+        slot = self._external_active_slot
+        assert slot is not None
+        slot.claimed = True
+        return _ExternalClaim(slot.token, slot.content, slot.kind, slot.abort_signal)
+
+    @_guarded_queue_api
     def _claim_external(
         self, token: _ExternalReservationToken
     ) -> _ExternalClaim | None:
@@ -294,6 +360,11 @@ class CodingInputQueue:
     @_guarded_queue_api
     def _external_admission_snapshot(self) -> _ExternalAdmissionSnapshot:
         return self._external_snapshot()
+
+    @_guarded_queue_api
+    def _capture_external_claimed_latch(self) -> _AcceptedAbortSignal | None:
+        slot = self._external_active_slot
+        return None if slot is None or not slot.claimed else slot.abort_signal
 
     def _abort_external(self) -> _ExternalAdmissionSnapshot:
         """Discard pending steering, then signal the captured latch after unlock.

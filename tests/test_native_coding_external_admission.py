@@ -98,6 +98,29 @@ def test_claim_and_settle_require_exact_current_token_once() -> None:
     assert first._claim_external(reservation.token) is None
 
 
+def test_atomic_begin_refuses_busy_slot_or_pending_lanes_without_mutation() -> None:
+    queue = CodingInputQueue()
+    active = queue._begin_external_operation(ProductContent("active"))
+    assert active is not None
+    before_active = queue._external_admission_snapshot()
+
+    assert queue._begin_external_operation(ProductContent("refused")) is None
+    assert queue._external_admission_snapshot() == before_active
+
+    assert queue._settle_external(active.token) is not None
+    queue._admit_external(ProductContent("reserved"))
+    queue._admit_external(ProductContent("pending"))
+    reserved = queue._external_admission_snapshot().reservation
+    assert reserved is not None
+    assert queue._claim_external(reserved.token) is not None
+    assert queue._settle_external(reserved.token) is not None
+    before_pending = queue._external_admission_snapshot()
+    assert before_pending.reservation is not None
+
+    assert queue._begin_external_operation(ProductContent("also refused")) is None
+    assert queue._external_admission_snapshot() == before_pending
+
+
 def test_simultaneous_claim_of_same_token_succeeds_exactly_once() -> None:
     queue = CodingInputQueue()
     reservation = _reservation(queue, "active")

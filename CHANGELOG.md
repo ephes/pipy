@@ -8,11 +8,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Ordinary persistent Python product-session submits now use the native coding
+  queue's atomic managed-operation claim for the complete submit-to-idle drive,
+  including extension settled-hook continuations. The native lifetime settles
+  the exact token on every exit, and a once-bound queue signal view replaces the
+  facade-owned cancellation slot. Public submit, cancellation, result and close
+  semantics are unchanged; no concurrent SDK controls or RPC serialization
+  changes are introduced.
+
 - The coding input owner now contains an internal, guarded external-admission
-  mechanism for later frontend activation. It reserves and claims one exact
-  operation, queues steering before follow-ups, atomically promotes settlement,
-  and signals a fresh accepted-abort latch outside the queue guard. Existing
-  SDK, RPC, selector, extension, and agent-loop behavior is unchanged.
+  mechanism. It reserves and claims one exact operation, queues steering before
+  follow-ups, atomically promotes settlement, and signals a fresh accepted-abort
+  latch outside the queue guard. Ordinary product-session submits now adopt its
+  idle-only operation entry; RPC, selectors, extensions, and agent-loop delivery
+  remain unchanged.
 
 - Branch-summary tree selection now runs through canonical private provider
   execution with one frozen request and captured bounded retry policy. Retry

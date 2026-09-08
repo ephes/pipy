@@ -1,7 +1,8 @@
 """Synchronous, full-content product embedding over the native coding lifetime.
 
 Use ``create_product_session`` to construct a session. Conversation and lifecycle
-remain native-owned; this facade confines entry and bridges active cancellation.
+remain native-owned; this facade confines entry and delegates cancellation to the
+native managed-operation owner.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Never, TextIO, cast
 from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentEventSink, ProductContent
-from pipy_harness.native.cancellation import _AcceptedAbortSignal
+from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.wiring import _PreparedCodingSession
@@ -29,48 +30,6 @@ from pipy_harness.native.workspace_context import (
     default_workspace_instruction_loader,
     empty_workspace_instruction_loader,
 )
-
-
-class _OperationAbortBridge:
-    """One lock protects every access to the current operation's fresh latch."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._active: _AcceptedAbortSignal | None = None
-
-    def begin(self) -> _AcceptedAbortSignal:
-        latch = _AcceptedAbortSignal()
-        with self._lock:
-            if self._active is not None:
-                raise RuntimeError("product session operation already active")
-            self._active = latch
-        return latch
-
-    def retire(self, latch: _AcceptedAbortSignal) -> None:
-        with self._lock:
-            if self._active is latch:
-                self._active = None
-
-    def _capture(self) -> _AcceptedAbortSignal | None:
-        with self._lock:
-            return self._active
-
-    def cancel(self) -> None:
-        latch = self._capture()
-        if latch is not None:
-            latch.set()
-
-    def is_set(self) -> bool:
-        latch = self._capture()
-        return latch is not None and latch.is_set()
-
-    def register_cancel_callback(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
-        latch = self._capture()
-        if latch is None:
-            return lambda: None
-        return latch.register_cancel_callback(callback)
 
 
 class _HeadlessStream(io.TextIOBase):
@@ -100,7 +59,7 @@ class ProductSession:
         self,
         adapter: CodingSessionAdapter,
         workspace: Path,
-        abort: _OperationAbortBridge,
+        abort: _ExternalAbortSignalView,
         diagnostic_sink: Callable[[str], None] | None,
     ) -> None:
         self._thread = threading.current_thread()
@@ -124,6 +83,7 @@ class ProductSession:
                 raise RuntimeError(
                     failure.error_message or "product session startup failed"
                 )
+            self._prepared.bind_external_abort_signal(abort)
         except BaseException as error:
             self._exit_scope(type(error), error, error.__traceback__)
             raise
@@ -154,10 +114,10 @@ class ProductSession:
                 raise TypeError("content must be a str")
             if not content.strip():
                 raise ValueError("content must be nonempty")
-            latch = self._abort.begin()
             try:
-                self._prepared.enqueue_seed(ProductContent(content))
-                result = self._prepared.drive()
+                result = self._prepared.drive_external_operation(
+                    ProductContent(content)
+                )
                 if result is not None:
                     self._exit_scope()
                     if result.status is HarnessStatus.FAILED:
@@ -169,8 +129,6 @@ class ProductSession:
             except BaseException as error:
                 self._exit_scope(type(error), error, error.__traceback__)
                 raise
-            finally:
-                self._abort.retire(latch)
 
     def cancel(self) -> None:
         """Signal the accepted operation from any thread; idle cancellation is inert."""
@@ -244,7 +202,7 @@ def create_product_session(
         raise TypeError("load_context_files must be a bool")
     if diagnostic_sink is not None and not callable(diagnostic_sink):
         raise TypeError("diagnostic_sink must be callable")
-    abort = _OperationAbortBridge()
+    abort = _ExternalAbortSignalView()
     adapter = CodingSessionAdapter(
         provider=provider,
         tool_registry=tools,

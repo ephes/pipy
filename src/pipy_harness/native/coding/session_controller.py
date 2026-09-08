@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
+import pipy_harness.native.coding.input_queue as _input_queue
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
@@ -642,6 +643,53 @@ class _CodingSessionLifetime:
             raise RuntimeError("coding session lifetime is closed")
         self.input_queue.enqueue_seed(content)
 
+    def bind_external_abort_signal(
+        self, signal: _input_queue._ExternalAbortSignalView
+    ) -> None:
+        """Bind the stable signal view once after successful startup."""
+
+        signal.bind(self.input_queue)
+
+    def drive_external_operation(
+        self,
+        content: ProductContent,
+        step_once: Callable[[], LoopStepSignal],
+    ) -> CodingSessionResult | None:
+        """Drive one atomically claimed ordinary operation through true idle."""
+
+        if self.closed:
+            raise RuntimeError("coding session lifetime is closed")
+        claim = self.input_queue._begin_external_operation(content)
+        if claim is None:
+            raise RuntimeError("product session operation already active")
+        try:
+            self.enqueue_seed(claim.content)
+            result = self.drive(step_once)
+        except BaseException as primary:
+            try:
+                self._settle_external_claim(claim)
+            except BaseException:  # noqa: BLE001 - preserve primary
+                primary.add_note("managed operation settlement also failed")
+                try:
+                    self._retire_lifetime()
+                except BaseException:  # noqa: BLE001 - preserve primary
+                    primary.add_note("managed lifetime retirement also failed")
+            raise
+        try:
+            self._settle_external_claim(claim)
+        except BaseException as cleanup:
+            try:
+                self._retire_lifetime()
+            except BaseException:  # noqa: BLE001 - preserve cleanup
+                cleanup.add_note("managed lifetime retirement also failed")
+            raise
+        return result
+
+    def _settle_external_claim(self, claim: _input_queue._ExternalClaim) -> None:
+        settled = self.input_queue._settle_external(claim.token)
+        if settled is None:
+            raise RuntimeError("managed operation settlement invariant failed")
+
     def drive(
         self, step_once: Callable[[], LoopStepSignal]
     ) -> CodingSessionResult | None:
@@ -662,8 +710,11 @@ class _CodingSessionLifetime:
                     return self.result
                 if signal.kind is LoopStepSignalKind.BREAK:
                     return self.close()
-        except BaseException:
-            self._retire_lifetime()
+        except BaseException as primary:
+            try:
+                self._retire_lifetime()
+            except BaseException:  # noqa: BLE001 - preserve drive failure
+                primary.add_note("coding lifetime retirement also failed")
             raise
 
     def close(self) -> CodingSessionResult | None:

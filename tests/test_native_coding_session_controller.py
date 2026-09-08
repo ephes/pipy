@@ -35,7 +35,11 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchKind,
     ResourceDispatchResolution,
 )
-from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.input_queue import (
+    CodingInputQueue,
+    _ExternalClaim,
+    _ExternalReservationToken,
+)
 from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.session_controller import (
     CodingLoopStep,
@@ -43,6 +47,7 @@ from pipy_harness.native.coding.session_controller import (
     CodingSessionController,
     LoopStepSignal,
     LoopStepSignalKind,
+    _CodingSessionLifetime,
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
@@ -1355,6 +1360,192 @@ def test_idle_driver_drains_settled_observer_continuation_before_yield() -> None
         assert lifetime.drive(step_once) is None
         assert emitter.settled_calls == 2
     assert lifecycle == ["start", "shutdown", "close", "clear"]
+
+
+class _UnprintableCleanupError(Exception):
+    def __str__(self) -> str:  # pragma: no cover - must never be called
+        raise AssertionError("cleanup exceptions must not be stringified")
+
+
+@pytest.mark.parametrize("exit_kind", ["enqueue", "drive", "terminal"])
+def test_external_operation_settles_exact_claim_once_on_each_exit(
+    exit_kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue = CodingInputQueue()
+    claims: list[_ExternalClaim] = []
+    settlements: list[_ExternalReservationToken] = []
+    lifecycle: list[str] = []
+    begin = CodingInputQueue._begin_external_operation
+    settle = CodingInputQueue._settle_external
+
+    def record_begin(
+        self: CodingInputQueue, content: ProductContent
+    ) -> _ExternalClaim | None:
+        claim = begin(self, content)
+        if claim is not None:
+            claims.append(claim)
+        return claim
+
+    def record_settle(
+        self: CodingInputQueue, token: _ExternalReservationToken
+    ) -> object:
+        settlements.append(token)
+        return settle(self, token)
+
+    monkeypatch.setattr(CodingInputQueue, "_begin_external_operation", record_begin)
+    monkeypatch.setattr(CodingInputQueue, "_settle_external", record_settle)
+    if exit_kind == "enqueue":
+        monkeypatch.setattr(
+            CodingInputQueue,
+            "enqueue_seed",
+            lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
+        )
+    lifetime = _CodingSessionLifetime(
+        input_queue=queue,
+        emitter=_RecordingEmitter(),
+        finalize=_repl_result,
+        fire_session_shutdown=lambda: lifecycle.append("shutdown"),
+        consume_settle_pending=lambda: False,
+        close_extension_session=lambda: lifecycle.append("close"),
+        clear_extension_chrome=lambda: lifecycle.append("clear"),
+    )
+
+    if exit_kind == "enqueue":
+        with pytest.raises(LookupError, match="enqueue failed"):
+            lifetime.drive_external_operation(
+                ProductContent("literal"), LoopStepSignal.idle
+            )
+    elif exit_kind == "drive":
+        with pytest.raises(LookupError, match="drive failed"):
+            lifetime.drive_external_operation(
+                ProductContent("literal"),
+                lambda: (_ for _ in ()).throw(LookupError("drive failed")),
+            )
+    else:
+        terminal = _repl_result(HarnessStatus.FAILED)
+        assert (
+            lifetime.drive_external_operation(
+                ProductContent("literal"),
+                lambda: LoopStepSignal.return_result(terminal),
+            )
+            is terminal
+        )
+
+    assert len(claims) == 1
+    assert settlements == [claims[0].token]
+    assert queue._external_admission_snapshot().reservation is None
+    lifetime.close()
+    assert lifecycle == ["shutdown", "close", "clear"]
+
+
+def test_missing_operation_settlement_retires_and_never_returns_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = CodingInputQueue()
+    lifecycle: list[str] = []
+    monkeypatch.setattr(CodingInputQueue, "_settle_external", lambda self, token: None)
+    lifetime = _CodingSessionLifetime(
+        input_queue=queue,
+        emitter=_RecordingEmitter(),
+        finalize=_repl_result,
+        fire_session_shutdown=lambda: lifecycle.append("shutdown"),
+        consume_settle_pending=lambda: False,
+        close_extension_session=lambda: lifecycle.append("close"),
+        clear_extension_chrome=lambda: lifecycle.append("clear"),
+    )
+
+    with pytest.raises(RuntimeError, match="settlement invariant failed"):
+        lifetime.drive_external_operation(
+            ProductContent("literal"), LoopStepSignal.idle
+        )
+
+    assert lifetime.closed
+    assert lifecycle == ["shutdown", "close", "clear"]
+    with pytest.raises(RuntimeError, match="closed"):
+        lifetime.drive_external_operation(ProductContent("later"), LoopStepSignal.idle)
+
+
+@pytest.mark.parametrize("primary_stage", ["enqueue", "drive"])
+def test_operation_primary_survives_settlement_and_retirement_failures(
+    primary_stage: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue = CodingInputQueue()
+    settlements: list[object] = []
+    settlement_error = _UnprintableCleanupError("settlement failed")
+    retirement_error = _UnprintableCleanupError("shutdown failed")
+
+    def fail_settlement(self: CodingInputQueue, token: object) -> None:
+        settlements.append(token)
+        raise settlement_error
+
+    def fail_shutdown() -> None:
+        raise retirement_error
+
+    monkeypatch.setattr(CodingInputQueue, "_settle_external", fail_settlement)
+    if primary_stage == "enqueue":
+        monkeypatch.setattr(
+            CodingInputQueue,
+            "enqueue_seed",
+            lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
+        )
+    lifetime = _CodingSessionLifetime(
+        input_queue=queue,
+        emitter=_RecordingEmitter(),
+        finalize=_repl_result,
+        fire_session_shutdown=fail_shutdown,
+        consume_settle_pending=lambda: False,
+        close_extension_session=lambda: None,
+        clear_extension_chrome=lambda: None,
+    )
+
+    def fail_drive() -> LoopStepSignal:
+        raise LookupError("drive failed")
+
+    with pytest.raises(LookupError) as raised:
+        lifetime.drive_external_operation(
+            ProductContent("literal"),
+            fail_drive if primary_stage == "drive" else LoopStepSignal.idle,
+        )
+
+    assert raised.value.args == (f"{primary_stage} failed",)
+    assert len(settlements) == 1
+    assert lifetime.closed
+    notes = getattr(raised.value, "__notes__", [])
+    assert "managed operation settlement also failed" in notes
+    assert any("retirement also failed" in note for note in notes)
+
+
+def test_operation_settlement_failure_survives_retirement_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = CodingInputQueue()
+    settlement_error = _UnprintableCleanupError("settlement failed")
+    retirement_error = _UnprintableCleanupError("shutdown failed")
+
+    def fail_settlement(self: CodingInputQueue, token: object) -> None:
+        raise settlement_error
+
+    monkeypatch.setattr(CodingInputQueue, "_settle_external", fail_settlement)
+    lifetime = _CodingSessionLifetime(
+        input_queue=queue,
+        emitter=_RecordingEmitter(),
+        finalize=_repl_result,
+        fire_session_shutdown=lambda: (_ for _ in ()).throw(retirement_error),
+        consume_settle_pending=lambda: False,
+        close_extension_session=lambda: None,
+        clear_extension_chrome=lambda: None,
+    )
+
+    with pytest.raises(_UnprintableCleanupError) as raised:
+        lifetime.drive_external_operation(
+            ProductContent("literal"), LoopStepSignal.idle
+        )
+
+    assert raised.value is settlement_error
+    assert lifetime.closed
+    assert getattr(raised.value, "__notes__", []) == [
+        "managed lifetime retirement also failed"
+    ]
 
 
 @pytest.mark.parametrize("ending", ["close", "eof", "fatal", "exception"])

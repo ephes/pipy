@@ -26,6 +26,12 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.agent.events import AssistantTextDelta, RunCancelled
 from pipy_harness.native.cancellation import CancelToken, _AcceptedAbortSignal
+from pipy_harness.native.coding.input_queue import (
+    CodingInputQueue,
+    _ExternalAbortSignalView,
+    _ExternalClaim,
+    _ExternalReservationToken,
+)
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.repl import loop_step
@@ -41,7 +47,6 @@ from pipy_harness.native.tools import (
 from pipy_harness.product_api import (
     ProductSession,
     _HeadlessStream,
-    _OperationAbortBridge,
 )
 from pipy_harness.runner import HarnessRunner
 
@@ -121,6 +126,8 @@ def test_two_turn_real_tools_history_and_lifecycle_without_archive(
         diagnostic_sink=diagnostics.append,
     ) as session:
         empty = session.snapshot()
+        assert session._prepared.lifetime is not None
+        assert session._abort._capture_queue() is session._prepared.lifetime.input_queue
         first = session.submit("write sample")
         assert (tmp_path / "sample.txt").read_text() == "bounded content\n"
         assert empty.messages == () and first.user_turn_count == 1
@@ -360,14 +367,21 @@ def test_old_cancel_captured_before_retirement_cannot_signal_next_submit(
 
     monkeypatch.setattr(_AcceptedAbortSignal, "set", pause)
     worker: threading.Thread | None = None
+    worker_failures: list[BaseException] = []
     seen = 0
     session: ProductSession
+
+    def cancel() -> None:
+        try:
+            session.cancel()
+        except BaseException as error:  # noqa: BLE001 - asserted after bounded join
+            worker_failures.append(error)
 
     def observer(event: AgentEvent) -> None:
         nonlocal worker, seen
         if isinstance(event, AgentRunCompleted) and seen == 0:
             seen = 1
-            worker = threading.Thread(target=session.cancel)
+            worker = threading.Thread(target=cancel)
             worker.start()
             assert captured.wait(5)
         elif isinstance(event, AgentRunStarted) and seen == 1:
@@ -387,32 +401,76 @@ def test_old_cancel_captured_before_retirement_cannot_signal_next_submit(
             release.set()
             if worker is not None:
                 _join(worker)
+    assert worker_failures == []
 
 
-def test_abort_bridge_replays_outside_lock_and_detaches_exact_latch() -> None:
-    bridge = _OperationAbortBridge()
-    first = bridge.begin()
-    bridge.cancel()
+def test_native_abort_view_replays_outside_lock_and_detaches_exact_latch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _ExternalAbortSignalView()
+    assert not view.is_set()
+    view.cancel()
+    queue = CodingInputQueue()
+    view.bind(queue)
+    with pytest.raises(RuntimeError, match="already bound"):
+        view.bind(CodingInputQueue())
+    first = queue._begin_external_operation(ProductContent("first"))
+    assert first is not None
+    view.cancel()
     seen: list[bool] = []
+    registration_checked: list[bool] = []
+    thread_failures: list[BaseException] = []
+    register = _AcceptedAbortSignal.register_cancel_callback
+
+    def assert_queue_unlocked() -> None:
+        try:
+            queue._external_admission_snapshot()
+        except BaseException as error:  # noqa: BLE001 - asserted after bounded join
+            thread_failures.append(error)
+
+    def checked_register(
+        signal: _AcceptedAbortSignal, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        assert view._binding_lock.acquire(blocking=False)
+        view._binding_lock.release()
+        reader = threading.Thread(target=assert_queue_unlocked)
+        reader.start()
+        _join(reader)
+        registration_checked.append(True)
+        return register(signal, callback)
+
+    monkeypatch.setattr(
+        _AcceptedAbortSignal, "register_cancel_callback", checked_register
+    )
 
     def callback() -> None:
-        assert bridge._lock.acquire(blocking=False)
-        bridge._lock.release()
-        seen.append(bridge.is_set())
+        assert view._binding_lock.acquire(blocking=False)
+        view._binding_lock.release()
+        reader = threading.Thread(target=assert_queue_unlocked)
+        reader.start()
+        _join(reader)
+        seen.append(view.is_set())
 
-    unregister = bridge.register_cancel_callback(callback)
+    unregister = view.register_cancel_callback(callback)
+    assert registration_checked == [True]
+    assert thread_failures == []
     assert seen == [True]
-    bridge.retire(first)
-    second = bridge.begin()
-    bridge.retire(first)
+    assert queue._settle_external(first.token) is not None
+    second = queue._begin_external_operation(ProductContent("second"))
+    assert second is not None
     unregister()
-    first.set()
-    assert not bridge.is_set()
-    bridge.cancel()
-    assert second.is_set()
-    bridge.retire(second)
-    bridge.cancel()
-    assert not bridge.is_set()
+    first.abort_signal.set()
+    assert not view.is_set()
+    second_unregister = view.register_cancel_callback(callback)
+    assert registration_checked == [True, True]
+    assert seen == [True]
+    view.cancel()
+    assert second.abort_signal.is_set()
+    assert seen == [True, True]
+    second_unregister()
+    assert queue._settle_external(second.token) is not None
+    view.cancel()
+    assert not view.is_set()
 
 
 def test_semantic_summary_cancel_settles_before_next_success(
@@ -537,7 +595,7 @@ def test_observer_failure_retires_lifetime_and_snapshot_remains_available(
 
 
 def test_settled_extension_continuation_runs_before_submit_returns(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     extension = tmp_path / "continuation.py"
     proof = tmp_path / "lifecycle.txt"
@@ -562,18 +620,136 @@ def activate(api):
 """)
     provider = _RecordingToolProvider()
     resources = RuntimeResourceOptions(extension_paths=(extension,))
+    claims: list[_ExternalClaim] = []
+    settlements: list[_ExternalReservationToken] = []
+    claimed_queues: list[CodingInputQueue] = []
+    observed_boundaries: list[str] = []
+    begin = CodingInputQueue._begin_external_operation
+    settle = CodingInputQueue._settle_external
+
+    def record_begin(
+        queue: CodingInputQueue, content: ProductContent
+    ) -> _ExternalClaim | None:
+        claim = begin(queue, content)
+        if claim is not None:
+            claims.append(claim)
+            claimed_queues.append(queue)
+        return claim
+
+    def record_settle(
+        queue: CodingInputQueue, token: _ExternalReservationToken
+    ) -> object:
+        settlements.append(token)
+        return settle(queue, token)
+
+    monkeypatch.setattr(CodingInputQueue, "_begin_external_operation", record_begin)
+    monkeypatch.setattr(CodingInputQueue, "_settle_external", record_settle)
+    session: ProductSession
+    run_starts = 0
+
+    def observe(event: AgentEvent) -> None:
+        nonlocal run_starts
+        if isinstance(event, AgentRunStarted):
+            run_starts += 1
+            if run_starts != 2:
+                return
+            boundary = "continuation_start"
+        elif isinstance(event, AgentRunCompleted) and not observed_boundaries:
+            boundary = "first_agent_end"
+        else:
+            return
+        assert len(claims) == 1 and len(claimed_queues) == 1
+        assert settlements == []
+        reservation = claimed_queues[0]._external_admission_snapshot().reservation
+        assert reservation is not None
+        assert reservation.token is claims[0].token and reservation.claimed
+        assert session._abort._capture_latch() is claims[0].abort_signal
+        observed_boundaries.append(boundary)
+
     with sdk.create_product_session(
-        workspace=tmp_path, provider=provider, resources=resources
+        workspace=tmp_path,
+        provider=provider,
+        resources=resources,
+        observer=Sink(observe),
     ) as session:
         first = session.submit("seed")
         assert first.user_turn_count == 2
         assert [
             m.content.value for m in first.messages if isinstance(m, AgentUserMessage)
         ] == ["seed", "extension continuation"]
+        assert observed_boundaries == ["first_agent_end", "continuation_start"]
+        assert len(claims) == 1
+        assert settlements == [claims[0].token]
+        assert not claims[0].abort_signal.is_set()
         assert proof.read_text() == "start\n"
         assert session.submit("next").user_turn_count == 3
         assert proof.read_text() == "start\n"
     assert proof.read_text() == "start\nstop\n"
+
+
+def test_cancel_remains_bound_through_settled_hook_continuation(
+    tmp_path: Path,
+) -> None:
+    extension = tmp_path / "cancel-continuation.py"
+    extension.write_text("""
+def activate(api):
+    pending = True
+    @api.on("agent_settled")
+    def settled(event, ctx):
+        nonlocal pending
+        if pending:
+            pending = False
+            api.send_user_message("extension continuation")
+""")
+
+    class ContinuationBlockingProvider(_RecordingToolProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.ordinary_calls = 0
+            self.continuation_started = threading.Event()
+
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
+            if not request.system_prompt.startswith("Summarize conversation context"):
+                self.ordinary_calls += 1
+                if self.ordinary_calls == 2:
+                    token = cast(CancelToken, kwargs["cancel_token"])
+                    self.continuation_started.set()
+                    assert token.event.wait(5)
+                    token.raise_if_cancelled()
+            return super().complete(request, **kwargs)
+
+    provider = ContinuationBlockingProvider()
+    sink = Sink()
+    resources = RuntimeResourceOptions(extension_paths=(extension,))
+    with sdk.create_product_session(
+        workspace=tmp_path,
+        provider=provider,
+        resources=resources,
+        observer=sink,
+    ) as session:
+        worker_failures: list[BaseException] = []
+
+        def cancel() -> None:
+            try:
+                assert provider.continuation_started.wait(5)
+                session.cancel()
+            except BaseException as error:  # noqa: BLE001 - checked after join
+                worker_failures.append(error)
+
+        worker = threading.Thread(target=cancel)
+        worker.start()
+        try:
+            state = session.submit("seed")
+        finally:
+            _join(worker)
+
+        assert worker_failures == []
+        assert state.user_turn_count == 2
+        assert any(isinstance(event, RunCancelled) for event in sink.events)
+        assert not session._abort.is_set()
+        assert session.submit("next").user_turn_count == 3
 
 
 def test_observer_can_cancel_from_provider_delta_thread(tmp_path: Path) -> None:
