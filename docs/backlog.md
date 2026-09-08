@@ -9,42 +9,35 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D4a contract refresh and scheduled grooming, after committing this completed D3b4
-live-activation chunk from `2b5217d`. Known-limit
-automatic pressure now chooses one whole-group or compound older-cycle cut
-before one private summary. Manual and unknown-limit policy remain unchanged.
-Root independently passed 559 focused/architecture/RPC tests after repairs. Final
-standard `just check`: 5,864 passed, two skipped, lint/format/Mypy green. Immediate full-gate
-interpreter snapshots matched. First Opus 5 High review had complete coverage;
-two Warnings and three Suggestions were accepted and repaired. Focused round two
-confirmed the material repairs with complete coverage and two Suggestions. Request-order
-prose was aligned locally; optional diagnostic wording was declined. Stop at
-diminishing returns after two rounds: advisory acceptance, not CLEAN. An implementer
-trial wrapped `uv` in temporary HOME and recreated the environment; it was
-restored, then root verified the normal gate without overrides. Future handoffs
-rely on test fixtures for HOME isolation: do not wrap project `uv`/`just check` in
-a temporary HOME; isolate standalone product experiments separately.
+**Next task:** D4a1 prepared provider attempts, after committing this completed
+D4a0 contract/grooming chunk from `68dddcf`. Retry
+must reissue only the failed request inside its accepted iteration and share a
+finite logical-attempt allowance with provider recovery; existing transport
+fallback has an explicit separate bound.
 
-D3b3 committed at `2b5217d`: durable anchors, effective reconstruction and strict
-new-field/fork validation. Final full checks passed 5,856 tests (two skipped),
-root focused354 and docs. Two Opus 5 High rounds had complete coverage; both
-Warnings were repaired and confirmed, remaining Suggestions adjudicated at
-diminishing returns. Advisory acceptance, not CLEAN.
+D0/D1 baseline and semantic continuity, D2's persistent product-session API,
+and D3's request budgeting and within-run compaction are committed. D3b4
+`68dddcf` passed 5,864 tests (two skipped), lint/format/Mypy, 559 root focused
+tests and docs. Two complete Opus 5 High reviews closed with material repairs
+confirmed and advisory acceptance, not CLEAN. Live-provider dogfooding,
+budget accuracy and semantic-summary quality remain unverified.
 
-D3b1 `cc902a8` preserves canonical terminal appends; D3b2 `0a3d7ef` proves safe
-mechanical cuts and actual removal. Their full checks passed 5,811 and 5,834 tests
-respectively (two skipped each), with matching docs and advisory Opus reviews.
-D3b4 completes the third implementation chunk since the D3b1 grooming. Retry
-requires a refreshed bounded contract before code; do not multiply existing
-provider retry/fallback budgets or repeat accepted tool effects.
+D3b4 is the third implementation commit since the D3b1 grooming. This D4a0
+refresh inspects summary-safe session search/list and the recent D3b summaries,
+reconciles completed cuts and refreshes retry dependencies. Priorities and
+existing state/lifecycle owners stay unchanged. Full checks again passed
+5,864 tests (two skipped), static checks and docs, with unchanged interpreter
+snapshots and valid new links. Both Opus 5 High rounds had complete coverage.
+R1's admission-seam Warning was repaired; R2's after-delay admission and failure-
+end ordering Warning was repaired locally at the two-plan-round cap. Accepted
+Suggestions clarify provider support, server-delay ownership and counter meanings.
+Stop with advisory acceptance, not CLEAN; D4a2's tests and code review must confirm
+the final ordering repair. No runtime behavior changed in this planning chunk.
 
-D3a is complete at `d4b5c50`, `4d7be4d` and `9f750e7`. D3b's contract is
-reviewed at `1a712f3`. Validation prerequisites D0h/D0i0/D0i are committed at
-`1a81e71`, `bff2e32` and `fc786bf`; their evidence is summarized below.
-
-D0/D1 baseline and semantic continuity, and D2's persistent product-session API,
-are committed; the queue retains their commit and review evidence. Live-provider
-dogfooding, budget accuracy and semantic-summary quality remain unverified.
+Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
+`just check` in a temporary HOME; isolate standalone product experiments
+separately. Capture interpreter links and configuration immediately before and
+after full validation, before another `uv` command can repair a mutation.
 
 **Completed:** the architecture migration, quality, transactional reload,
 comparative remediation (including T1/C1), and god-file decomposition programs.
@@ -109,9 +102,9 @@ design is correct. No raw transcripts were inspected.
   and PTY coverage. Preserve semantic boundaries; do not add exact file-size or
   method-count gates for the proposed work.
 
-## Findings that change the priority order
+## Initial findings that set the priority order
 
-| Finding | Current evidence | Consequence |
+| Initial finding | Evidence at comparison baseline | Consequence |
 | --- | --- | --- |
 | Compaction loses old task facts from model context | pipy `native/agent/history.py::_agent_history_summary` emits counts and explicitly says details are unavailable; `native/repl/provider_selection.py::apply_compaction` persists that text | Semantic compaction is the first product improvement. The original private transcript remains stored; this is model-context loss, not deletion of the archive. |
 | Context pressure is handled mechanically | pipy `native/repl/loop_step.py::_compact_if_needed` uses message/byte thresholds; `native/agent/history.py` cuts user groups | Long sessions and a large single run need model-aware context budgeting and safe request-boundary recovery. |
@@ -381,8 +374,7 @@ recovery are in [Compaction](compaction.md), not pending implementation cards.
 
 The durable first-iteration origin boundary remains explicit: the accepted user
 is persisted after preparation, so a latest-group cut to it can refuse before
-summary generation. Normal turn settlement records it once. This is evidence
-for the next contract, not permission to move publication or fabricate provenance.
+summary generation. Normal turn settlement records it once. D3b preserves this boundary; do not move publication or fabricate provenance.
 
 ### D3b0 — Safe-cut contract and scheduled grooming
 
@@ -439,20 +431,14 @@ two plan rounds: its final preflight finding was repaired locally at the cap and
 then verified by D0i's executable tests and independent code review. These are
 adjudicated advisory outcomes, not CLEAN verdicts.
 
-The D3b1 integration grooming inspected summary-safe search/list and the recent
-D0h/D0i0/D0i/D3b0 summaries. It removes completed investigation instructions and
-stale dispatch prose without changing priorities or ownership. D3b1 is the third
-implementation chunk since the D3b0 grooming. Its immutable terminal projection
-retains older appended tool cycles while the existing coordinator mirrors only
-retained history; completion consumers keep their existing envelopes. Live-provider
-quality is still unverified.
-
-D3b1–D3b3 are committed; D3b4 live activation is complete in this chunk. Each is separately validated, reviewed and committed;
-refresh later handoffs against actual predecessor commits. Do not enable cuts
-before all consumers can preserve their meaning. D3b4 includes the existing
-`repl/loop_scope.py` callable signature because request preparation must carry
-its accepted input and coherent budget baseline to the existing compaction owner;
-this changes a port, not ownership.
+D3b1 `cc902a8` preserves canonical terminal appends, D3b2 `0a3d7ef` proves
+safe cuts and actual removal, D3b3 `2b5217d` persists retained-user anchors,
+and D3b4 `68dddcf` activates known-limit cuts through the existing typed
+compaction port. Full checks passed 5,811 / 5,834 / 5,856 / 5,864 tests
+respectively (two skipped each), with matching docs and adjudicated advisory
+Opus reviews. Manual and unknown-limit cuts retain their previous policy.
+All four slices are complete; the contract above and matching runtime specs
+remain the basis for later work.
 
 ## Implementation queue
 
@@ -488,13 +474,16 @@ every listed module. Add a file only when the selected behavior needs it.
 | D3b1 | Complete at `cc902a8`; full checks and advisory Opus review; D3b0, D0h, D0i | Preserve appended current-run terminal results in existing `agent/loop.py`; remove obsolete `agent/active_input.py::result_messages`; focused canonical/automation/extension tests and docs | Reduced prepared history cannot cause terminal results to omit earlier appends in the same run; exact anchor/overlay checks, terminal/callback semantics, counters and fresh queued runs preserved |
 | D3b2 | Complete at `0a3d7ef`; full checks and two advisory Opus rounds; D3b1 | Explicit pure cut/cycle analysis and actual-removal acceptance proof; `agent/history.py`, `coding/product_session.py`, `coding/state.py`, current action construction; update harness Canonical Agent-History Compaction and Native Session Workflow Decision contracts | Safe newest-cycle retention, identity partition/counts, truthful zero groups, guarded no-op/replacement refusal; existing live whole-group behavior only |
 | D3b3 | Complete at `2b5217d`; full checks and two adjudicated Opus rounds; D3b2 | Optional retained-user durable reference and effective reconstruction; `session_tree.py`, `coding/product_session.py`, current persistence callback; update `session-tree.md` planned-field paragraph and matching docs | Strict new-field errors, origin validation, both-reference fork remap; repeated anchor then whole-group cuts never resurrect removed cycles; no automatic activation |
-| D3b4 | Complete in this chunk; full checks and two adjudicated Opus rounds; D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, typed `repl/loop_scope.py` port, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
-| D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
-| D4b | D1b, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
+| D3b4 | Complete at `68dddcf`; full checks and two adjudicated Opus rounds; D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, typed `repl/loop_scope.py` port, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
+| D4a0 | Complete in this chunk; full checks and two adjudicated Opus plan rounds; D0/D1/D2/D3 complete | Reviewed retry ownership/attempt contract and scheduled grooming; backlog and harness/RPC specs only | Review and commit before new retry contracts are implemented |
+| D4a1 | D4a0 | Optional prepared provider-attempt capability; `native/provider.py`, `openai_codex_provider.py`, existing start-gated forwarding in `agent/provider_turn.py`, focused provider/executor tests | One body/header preparation; no inner retry/backoff; explicit logical/physical accounting; prepared Retry-After hint without standalone-policy cap, ordinary path caps unchanged; existing WS fallback and direct/compatibility behavior preserved; no canonical retry activation |
+| D4a2 | D4a1 | Opt-in canonical request retry mechanism, pure policy and injected caller-thread `before_reissue` admission port in existing agent/provider-turn boundary, narrow value helper if needed, coupled tests/docs | One accepted execution lifetime, conservative no-progress eligibility, bounded cancellable waits, owner-thread retry events, no late reissue or callback after retirement; default executor remains one-call |
+| D4a3 | D4a2 | Ordinary product policy capture, guarded admission closure and activation; current `repl/loop_step.py`, scope/wiring and settings owners, canonical/product/automation acceptance tests and docs | Retry unchanged failed request within its accepted iteration; earlier tools/history/usage once; guarded stale admission, true settlement and usable next prompt; non-capable providers stay single-call despite enabled policy; compatibility unchanged |
+| D4b | D1b, D4a3 | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
-| D5d | D5a, D4a | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
+| D5d | D5a, D4a3 | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
 | D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement, one entry point per chunk | Same session owner across SDK/modes; executable embedding example; update docs and remove replaced surfaces without aliases |
@@ -504,18 +493,32 @@ every listed module. Add a file only when the selected behavior needs it.
 
 D1a/D1b deliver the first product improvement. D2a/D2b are the main
 extensibility investment.
-D3 and D4 can be reordered after measured failures justify it; D7 can move earlier
+D4 recovery remains next; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the
 D5/D7 families share
 `rpc.py`. Read-only investigation of later tasks can proceed during any of them.
 
-For retry ownership, the coding session owns limits and enable/abort policy;
-the canonical agent/provider-turn boundary owns request reissue before final
-failed-turn settlement. The no-progress guard applies to the retried request
-attempt. Never repeat an accepted run or previously executed tools. The selected
-D4a spec owns event details and replacement of the zero-retry invariant.
+### D4a — Refreshed retry execution basis
+
+Read-only Sol reports inspected `68dddcf`. Codex prepares body/auth/extension
+headers once, then `_OpenAICodexAttemptRunner` retries logical attempts; one
+attempt can make up to three WS/SSE requests. `tests/test_openai_codex_retry.py`
+pins header-callback-once and pre-event retry, while
+`tests/test_native_openai_codex_provider.py` pins bounded fallback. Repeated
+ordinary `complete()` calls would repeat preparation and nest allowances.
+The [selected retry contract](harness-spec.md#bounded-request-retry-contract-d4a)
+therefore uses an optional prepared capability with one logical-attempt budget,
+retaining the existing bounded transport negotiation. No global provider policy
+mutation, request-field rewrite or provider-name capability inference is allowed.
+
+The executor owns only request reissue, cancellation and retry events. Existing
+agent result/usage/tool settlement and product state/lifecycle remain authoritative.
+D4a1 is independently useful as the safe provider boundary; D4a2 proves the
+opt-in mechanism before D4a3 enables ordinary product requests. Summary adoption
+is D4b, queue/RPC policy migration D5. Each successor gets a handoff refreshed
+against its committed prerequisite, not all listed files by default.
 
 ### Implementation handoff requirements
 

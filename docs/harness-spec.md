@@ -1597,6 +1597,118 @@ package does not eagerly re-export the executor. This extraction changes no
 JSON/RPC/SDK/session/extension format, queue ordering, retry policy, or privacy
 classification.
 
+### Bounded Request Retry Contract (D4a)
+
+This is the selected implementation contract; D4a1–D4a3 in the
+[backlog](backlog.md) activate it in dependency order. Current canonical
+execution still returns one settled provider result. Existing Codex transport
+retry remains unchanged until product activation; event vocabulary alone does
+not implement recovery.
+
+The coding session owns enabled/limit/delay policy. Capture one immutable policy
+for each accepted ordinary provider request, using the existing settings resolver:
+provider retry-count override inherits the global count when absent, retry count
+plus one is clamped to 1–10, and disabled means one attempt. Managed execution
+uses that single logical-attempt allowance instead of nesting
+the provider's standalone retry loop. Existing Codex WebSocket negotiation and
+SSE fallback remain bounded to at most three physical requests per logical
+attempt, hence at most `3 * max_attempts` overall. Do not spend another independent
+retry allowance inside an attempt. Authentication setup remains non-retryable
+by the canonical mechanism. Settings changes affect later requests.
+
+D4a1 exposes a parsed finite nonnegative `retry_after_seconds` value in prepared
+failure metadata, retaining the existing parser safety ceiling but without capping
+it against the provider object's standalone retry policy. D4a2 owns exponential
+backoff/jitter and the final cap: use the greater of that delay and a valid server
+request, capped by the session-captured policy's maximum delay. Ignore malformed
+server hints. `RetryScheduled.delay_ms` describes this chosen bounded delay.
+The ordinary provider-owned path keeps its current delay and metadata caps.
+
+A narrow optional provider capability supplies request-local prepared execution.
+The provider prepares encoded input, generated tool identifiers and extension
+headers once, after cancellation admission, and keeps them private for that
+completion. It owns transport selection, protocol parsing and affirmative progress
+reporting. The canonical owner supplies the logical attempt ordinal and fixed limit.
+Each prepared attempt reports its actual bounded transport count and explicit
+progress; it performs no same-level retry or exponential sleep. Fallback shares
+the attempt's progress marker and stops after any accepted provider event.
+Providers without that capability receive one existing `complete` call; diagnostic
+metadata alone does not opt an injected provider into canonical reissue. Standalone
+provider calls and compatibility `run_native` retain their existing defaults.
+D4a initially enables the capability only for Codex; `openai`, `openrouter` and
+non-capable injected providers still get one ordinary call when retry is enabled.
+D4a3 must test and document that support boundary.
+Start-gated forwarding waits for abort registration and checks cancellation
+before preparation. A wrapper around a provider without the capability returns
+no prepared handle and keeps the ordinary single-call path. No mutable provider
+policy, concrete-provider imports in the executor, or mandatory request field is
+introduced.
+
+The canonical provider-turn boundary owns reissue before returning the final
+outcome to `AgentLoop`. Reuse the same frozen request, provider binding, accepted
+iteration and tool authorization. Do not rerun request preparation, compaction,
+request-policy hooks, renderer setup, accepted-input publication, or previous tool
+effects. A retry is eligible only for an explicitly transient failed attempt with
+affirmative no-progress evidence, no assistant/tool payload, and absent usage
+(`None`). Unknown progress, any parsed provider event, partial payload or any
+reported usage ends recovery. Absence of visible deltas is insufficient: private
+summaries deliberately disable both delta channels. Intermediate eligible failures
+publish no assistant placeholder, usage sample, history append, final provider
+status or queue settlement. Only the final outcome enters existing loop settlement.
+
+Cancellation and stale-context handling use existing owners. Backoff and in-flight
+execution remain interruptible by the accepted operation's abort signal and TTY
+waiter. A cancellation accepted before reissue prevents that request; final
+completion/cancellation precedence retains the executor's ordered contract. Late
+workers cannot start another attempt or publish new retry events after retirement.
+D4a2 introduces an injected `before_reissue` callable at the canonical executor
+boundary and invokes it on the calling control thread after backoff and immediately
+before starting the reissued provider phase. D4a3 supplies the product
+closure over the originally captured `CodingRunContext`: revalidate its witness
+under the existing state mutex, then release it before I/O. The canonical executor
+must not import product state or resolve that witness itself. A mutation after
+that admission is rejected
+at the existing guarded publication boundary; do not hold a session/generation
+lock over backoff, provider execution or callbacks. Stale-context exceptions
+retain existing fatal lifecycle cleanup rather than becoming transient failures.
+
+Retry lifecycle events are emitted only by the calling canonical control thread.
+One executor operation owns cancellation across provider-attempt and delay phases;
+workers emit only the existing gated deltas. Settle a worker phase before choosing
+or scheduling another. An intermediate failed phase is not final completion and
+cannot make a later accepted abort lose to an earlier failure. Re-arm callback-based
+abort admission before each provider phase; the existing one-shot start gate is
+not sufficient for reissue. No retry event callback may outlive operation retirement.
+The executor may use private phase synchronization; no product event queue, new
+session lifecycle owner or callbacks under shared locks are introduced.
+
+Reuse `RetryScheduled`/`RetryCompleted` and `auto_retry_start`/`auto_retry_end`.
+For each reissue, emit start before its delay, then end after its result or
+cancellation, before scheduling another. The ordinal is 1-based and `maxAttempts`
+is the configured maximum reissues (`max_attempts - 1`); both exclude the initial
+logical attempt and transport fallback. Provider metadata instead counts total
+logical attempts including the initial call; its `attempt`/`max_attempts` values
+are not the retry-event ordinal/limit. D4a3 documents both meanings.
+On cancellation, end is unsuccessful with
+a fixed cancellation failure, then normal canonical cancellation settles the run.
+If reissue admission raises after start was emitted, the caller emits one failed
+end with a fixed admission-rejected failure before propagating the admission
+exception through fatal lifecycle cleanup. This does not convert the exception
+into a provider result or permit another attempt. If that end callback itself
+raises, normal callback-exception propagation applies; delivery cannot be promised
+to a failing sink.
+Emit no intermediate `ProviderFailed`, `turn_end` or `agent_end`: normal provider
+failure publication remains terminal-only. Callback exceptions propagate through
+existing cleanup; no next provider phase starts after a retry callback throws.
+D4a2 pins these rules with thread-identity and event/cancellation traces. Failure
+details remain private product content; workflow capture may keep only existing
+safe counts and bounded classifications.
+
+D4b opts auxiliary summaries into the same mechanism separately, preserving their
+suppressed output channels, original generation/history/tree witness and state-first
+publication. D4a does not add RPC retry controls, queue migration, public session
+control methods, a new provider family, or compatibility SDK behavior changes.
+
 ### Canonical Agent Usage Accounting
 
 `pipy_harness.native.agent.usage.AgentUsageAccumulator` is the reusable owner
