@@ -1187,17 +1187,18 @@ which is *not* the product session source:
   `session.started` and emits `native.session.resumed`. Branch labels pass
   `validate_branch_label` (single-line, non-path, non-secret-shaped, bounded).
 - **Compaction** delegates its pure canonical-message reduction to
-  `native.agent.history`. The live tool-loop selector remains constrained to
-  canonical `AgentUserMessage` group boundaries. The canonical layer also
-  exposes a pure, inactive selector for removing older complete tool cycles
-  after an exact latest user while retaining that user and the newest cycle.
+  `native.agent.history`. Known-limit automatic selection first tries a canonical
+  `AgentUserMessage` group boundary, then may remove older complete tool cycles
+  after the exact latest user while retaining that user and the newest cycle.
+  Manual and unknown-limit selection remain at whole-group boundaries.
   Both preserve protocol validity without repairing or synthesizing history.
   Semantic compaction summarizes the prior summary and exact removed content;
   the replacement summary is full product-session content and does not enter
   the summary-safe workflow archive. Triggers
-  are an explicit `/compact` command and an automatic threshold. In the product runtime,
-  `/compact` additionally appends a durable
-  `compaction` entry (with `firstKeptEntryId`) to the native product session
+  are an explicit `/compact` command and an automatic threshold. Accepted product
+  compaction appends a durable
+  `compaction` entry (with `firstKeptEntryId` and, for anchored cycle cuts,
+  `retainedUserEntryId`) to the native product session
   tree so reload and `/tree` navigation rebuild an equivalent reduced context;
   see [`session-tree.md`](/session-tree/).
 - **Archive metadata** stays counts/labels only. After a product adapter run
@@ -1845,8 +1846,9 @@ semantics; the one-shot compatibility SDK remains separate.
 
 D3a1 implements the pure measurement and catalog-provenance foundation below;
 D3a2 implements recoverable preparation refusal and its result projections.
-D3a3 implements live ordinary/auxiliary admission and one whole-group attempt;
-task state remains in the sole [backlog](backlog.md).
+D3a3 implements live ordinary/auxiliary admission and the initial whole-group
+attempt; D3b4 extends known-limit automatic selection to safe within-run cuts.
+Task state remains in the sole [backlog](backlog.md).
 D1 semantic continuity and D2 persistent lifetime remain the foundation. Budgeting
 is an estimate of the native request, not a guarantee of provider acceptance or an
 exact tokenizer/wire-size calculation.
@@ -1980,11 +1982,12 @@ already accepted system/context additions, current tools, request overlays and
 first-iteration images. Under known-limit pressure and enabled auto-compaction,
 allow at most one semantic attempt per provider iteration. A known limit replaces
 the legacy message/byte trigger: below estimated pressure, history length alone
-does not trigger auto-compaction. Unknown limits retain the old trigger. Its cut preserves the
-latest complete user group and may drop older complete groups, so the accepted
-user anchor and every retained tool exchange survive. This live policy still
-requires an older whole group to remove. A single oversized current group, system/tools
-or attachment set can still refuse; within-run cuts remain D3b. Manual compaction
+does not trigger auto-compaction. Unknown limits retain the old trigger. The first
+candidate preserves the latest complete user group and may drop older complete
+groups. If that retained baseline still exceeds a known limit, D3b4 may also
+remove older complete cycles after the accepted user while retaining the newest
+cycle. A protected newest cycle, system/tools or attachment set can still refuse.
+Manual compaction
 and unknown-limit legacy retention stay unchanged. `keepRecentTokens` remains
 reported but inactive for D3a; do not claim token-target retention is implemented.
 
@@ -1997,8 +2000,9 @@ recoverable refusal settles and persists that user once. Later iterations can us
 the real origin. Manual recovery and this observed boundary are documented in
 [Compaction](compaction.md); within-run representation changes remain D3b.
 
-Preflight the exact auxiliary semantic request (prior summary, dropped prefix,
-final instruction and output reserve) before canonical provider execution.
+Preflight the exact auxiliary semantic request (prior summary, optional labelled
+retained task orientation, exact removed messages, final instruction and
+output reserve) before canonical provider execution.
 Oversized summary input refuses that attempt without publication or multi-pass
 summarization. Keep D1 cancellation, generation/context freshness, canonical
 execution and state-first accepted persistence. Summary failure is distinct from
@@ -2049,13 +2053,12 @@ D1 cancellation/staleness and durable reopen regressions remain mandatory.
 
 ### Within-Run Compaction Contract (D3b)
 
-The canonical run-result prerequisite and D3b2's pure mechanical cycle selector
-and guarded actual-removal proof are implemented. The sole
-[backlog](backlog.md) gates the remaining durable-selection and live-activation
-slices.
-Current whole-group compaction cannot reduce one long accepted tool run. Retaining
-its user while removing older tool cycles requires both a noncontiguous retained
-context and a terminal-result projection independent of that context.
+The canonical run-result prerequisite, pure mechanical cycle selector, guarded
+actual-removal proof, durable anchored representation, and known-limit automatic
+activation are implemented. The sole [backlog](backlog.md) tracks later expansion.
+Automatic compaction can reduce one long accepted tool run by retaining its user
+and newest complete cycle while keeping terminal run results independent of the
+reduced provider context.
 
 **Canonical run results (implemented in D3b1).** Before enabling such cuts, the synchronous
 `agent.loop._RunState` owns one private list of the current run's appended messages.
@@ -2083,8 +2086,8 @@ does not promise bounded total run-output memory.
 The superseded `AgentActiveInput.result_messages` helper is removed; its
 still-relevant anchor and result assertions live with the canonical loop tests.
 Request-overlay and prompt-transformation helpers remain unchanged. Pure
-mechanical within-run cycle selection is implemented but inactive. Durable
-selection is implemented; live activation remains planned in D3b4.
+mechanical within-run cycle selection, durable selection, and known-limit live
+activation are implemented. Manual and unknown-limit selection remain unchanged.
 
 **A safe cut is an explicit value.** Extend the immutable mechanical cut to carry
 the exact retained and removed message tuples in original order, plus an optional
@@ -2187,10 +2190,6 @@ truthful zero-group removal, compound and repeated cuts followed by ordinary
 compaction, fork/reopen, malformed new references, persistence failure, unchanged
 terminal results and effects/usage, cancellation/staleness, one auxiliary call,
 auxiliary overflow and an oversized protected suffix.
-D3b2/D3b4 must update the existing Canonical Agent-History Compaction and Native
-Session Workflow Decision sections' whole-user-boundary claims as their new cut
-behavior lands; those sections describe the currently implemented policy until
-then.
 
 ### Canonical Agent-History Compaction
 
@@ -2210,7 +2209,9 @@ correlation ID and tool name, rejects duplicate IDs and malformed exchange
 grammar, and removes only the older settled cycles. It refuses candidates with
 duplicate retained message identities or an identity shared by the removed and
 retained selections. Malformed arguments paired with an error result remain a
-settled exchange. The live compaction policy does not call this selector yet.
+settled exchange. Known-limit automatic policy calls this selector only when its
+latest-group candidate remains oversized and begins at the exact accepted user;
+manual and unknown-limit selection retain their whole-group behavior.
 
 D3b2 also makes guarded product acceptance prove real removal: actions carry an
 exact positive dropped-message count, retained objects must be a duplicate-free

@@ -43,7 +43,10 @@ from pipy_harness.native.agent_runtime import (
     NativeAgentUsagePublisher,
 )
 from pipy_harness.native.coding import CodingInputQueue
-from pipy_harness.native.coding.compaction import CodingCompactionOutcome
+from pipy_harness.native.coding.compaction import (
+    AutomaticCompactionContext,
+    CodingCompactionOutcome,
+)
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.request_budget import RequestBudget
 from pipy_harness.native.coding.session_controller import (
@@ -282,7 +285,10 @@ class ReplLoopScope:
     diag: Callable[[str], None]
     coding_footer_text: Callable[[], str]
     refresh_legacy_footer_with_usage: Callable[[], None]
-    apply_compaction: Callable[[str, RequestBudget, int], CodingCompactionOutcome]
+    apply_compaction: Callable[
+        [str, RequestBudget, int, AutomaticCompactionContext | None],
+        CodingCompactionOutcome,
+    ]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
     cycle_thinking_level: Callable[[], str | None]
     append_agent_message: Callable[[AgentMessage], None]

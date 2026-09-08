@@ -334,7 +334,7 @@ the branch summary while preserving current-run counters; a new run restores
 summary context with fresh counters.
 
 Before that acceptance, semantic compaction summarizes the previous summary and
-exact dropped prefix through the run's canonical provider executor. Tree
+exact removed messages through the run's canonical provider executor. Tree
 mutation/navigation and active-pointer epochs join the guarded state/generation
 snapshot: equal writes, restored leaves and refused publication windows invalidate
 pending summaries. Failed, cancelled or stale generation appends no compaction
@@ -345,8 +345,9 @@ The selected [D3b contract](harness-spec.md#within-run-compaction-contract-d3b)
 now has its durable retained-user format and reconstruction prerequisite. Forks
 require an explicit map and strictly remap both anchored references, while
 shared JSON/export/extension views
-carry the optional field. Current live manual and automatic selection remains
-whole-group until the separate activation slice. Files containing the new field
+carry the optional field. Known-limit automatic selection can now create this
+anchored cut after a retained whole-group candidate remains oversized; manual
+and unknown-limit selection remain whole-group. Files containing the new field
 require an anchor-aware reader.
 
 Canonical tool results require both the provider correlation id and tool name.

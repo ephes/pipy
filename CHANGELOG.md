@@ -12,24 +12,26 @@ entries oldest-first, and a version bump shows the new entries at startup.
   later tool-cycle suffix. Reopen and fork apply anchored and subsequent cuts in
   effective chronological order, reject invalid or synthetic anchors, strictly
   remap both references, and restore model/thinking settings from full ancestry.
-  Live compaction selection remains whole-group pending the activation slice.
+  Known-limit automatic pressure now uses this form when the newest user group
+  still does not fit after older whole groups are removed.
 
 - Canonical history compaction now records exact retained and removed message
   objects and can purely select older settled tool cycles after the latest exact
   user while preserving the newest cycle. Guarded acceptance verifies a real,
   identity-preserving removal and permits a truthful zero whole-group count.
-  Live manual and automatic compaction still use their existing whole-group
-  selector; activation remains later work.
+  Live known-limit automatic compaction can now activate the cycle selector;
+  manual and unknown-limit compaction keep their existing whole-group behavior.
 
 - Terminal native agent results now enumerate the canonical messages appended
   during the accepted run independently of retained provider context. This
   preserves earlier tool cycles for automation and completion consumers when
-  later within-run context cuts ship; those cuts are not enabled yet.
+  within-run context cuts remove them from retained provider context.
 
 - Native requests now use estimated declared/explicit context budgets, including
   system/messages/tools/images, safety and an output reserve. Optional pipy-only
   `compaction.contextWindow` limits the selected model. Known pressure permits one
-  whole-group summary attempt; ordinary hooks run once before final admission.
+  safe summary attempt, including older complete tool cycles when needed;
+  ordinary hooks run once before final admission.
   Manual and automatic summaries preflight their own input. Invalid budgets and
   final overflow refuse recoverably; `keepRecentTokens` remains inactive and
   estimates do not guarantee provider fit. A persistent first-iteration cut to the

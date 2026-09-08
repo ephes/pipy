@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import TextIO
@@ -32,6 +32,7 @@ from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.agent.history import (
     AgentHistoryCompaction,
     compact_agent_history,
+    compact_agent_history_tool_cycles,
 )
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnDeltaPolicy,
@@ -42,9 +43,11 @@ from pipy_harness.native.agent.request import freeze_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.compaction import (
+    AutomaticCompactionContext,
     CodingCompactionOutcome,
     PrivateSummaryEvents,
     compaction_request,
+    compound_compaction_cuts,
     summary_text,
 )
 from pipy_harness.native.coding.product_session import (
@@ -627,10 +630,13 @@ class ProviderMutationEffects:
         trigger: str,
         budget: RequestBudget | None = None,
         keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
+        automatic_context: AutomaticCompactionContext | None = None,
     ) -> CodingCompactionOutcome:
         """Generate privately, then conditionally accept and persist one summary."""
 
-        prepared = self._prepare_compaction_budget(trigger, budget, keep_recent_groups)
+        prepared = self._prepare_compaction_budget(
+            trigger, budget, keep_recent_groups, automatic_context
+        )
         if isinstance(prepared, CodingCompactionOutcome):
             return prepared
         work, budget = prepared
@@ -646,10 +652,9 @@ class ProviderMutationEffects:
             request = compaction_request(
                 binding=work.context.binding,
                 cwd=self.cwd,
-                dropped_messages=work.context.messages[
-                    : work.cut.dropped_message_count
-                ],
+                dropped_messages=work.cut.removed_messages,
                 prior_summary=work.context.summary_suffix.strip(),
+                retained_user=work.cut.retained_user_anchor,
                 header_callback=header,
             )
             request = freeze_provider_request(request)
@@ -713,13 +718,34 @@ class ProviderMutationEffects:
             # Accepted state intentionally survives a persistence exception.
             # Keep this callback outside the generation-failure handler above.
             self.product_session.persist_compaction(action)
-        return CodingCompactionOutcome(
-            f"pipy: compacted conversation context ({trigger}; dropped "
-            f"{work.cut.dropped_group_count} earlier exchange(s), kept {work.cut.retained_group_count})."
-        )
+        return CodingCompactionOutcome(self._compaction_notice(trigger, work.cut))
+
+    @staticmethod
+    def _compaction_notice(trigger: str, cut: AgentHistoryCompaction) -> str:
+        if cut.retained_user_anchor is not None:
+            detail = (
+                f"dropped {cut.dropped_message_count} message(s), including earlier "
+                f"tool cycle(s) and {cut.dropped_group_count} whole exchange(s); "
+                "kept the newest cycle"
+            )
+        elif cut.dropped_group_count:
+            detail = (
+                f"dropped {cut.dropped_group_count} earlier exchange(s), "
+                f"kept {cut.retained_group_count}"
+            )
+        else:
+            detail = (
+                f"dropped {cut.dropped_message_count} message(s) from earlier "
+                "tool cycle(s), kept the newest cycle"
+            )
+        return f"pipy: compacted conversation context ({trigger}; {detail})."
 
     def _prepare_compaction_budget(
-        self, trigger: str, budget: RequestBudget | None, keep_recent_groups: int
+        self,
+        trigger: str,
+        budget: RequestBudget | None,
+        keep_recent_groups: int,
+        automatic_context: AutomaticCompactionContext | None,
     ) -> tuple[_CompactionWork, RequestBudget] | CodingCompactionOutcome:
         decision = self.extension_operations.session_allows(
             "compact", operation="compact", trigger=trigger
@@ -732,7 +758,9 @@ class ProviderMutationEffects:
         settings = None
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
-                work = self._capture_compaction_locked(trigger, keep_recent_groups)
+                work = self._capture_compaction_locked(
+                    trigger, keep_recent_groups, budget, automatic_context
+                )
                 if budget is None:
                     try:
                         settings = self.settings.capture_compaction_budget_settings()
@@ -782,7 +810,11 @@ class ProviderMutationEffects:
         return CodingCompactionOutcome(f"pipy: compact refused: {notice}.")
 
     def _capture_compaction_locked(
-        self, trigger: str, keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS
+        self,
+        trigger: str,
+        keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
+        budget: RequestBudget | None = None,
+        automatic_context: AutomaticCompactionContext | None = None,
     ) -> _CompactionWork | CodingCompactionOutcome:
         if (
             self.ctl.coding_effects.terminal
@@ -790,9 +822,19 @@ class ProviderMutationEffects:
         ):
             return self._stale_compaction(trigger)
         context = self.coding_state.compaction_snapshot()
+        if automatic_context is not None and not self._automatic_context_is_current(
+            context, automatic_context
+        ):
+            return self._stale_compaction(trigger)
         cut = compact_agent_history(
             context.messages, keep_recent_groups=keep_recent_groups
         )
+        selected = self._maybe_select_automatic_cut(
+            trigger, context, cut, budget, automatic_context
+        )
+        if isinstance(selected, CodingCompactionOutcome):
+            return selected
+        cut = selected
         if not cut.changed:
             return CodingCompactionOutcome("pipy: nothing to compact yet.")
         tree = self.ctl.session_tree
@@ -841,6 +883,89 @@ class ProviderMutationEffects:
             self.ctl.generation_ref.snapshot(),
             self.ctl.generation_ref.publication_epoch,
         )
+
+    @staticmethod
+    def _automatic_context_matches(
+        context: CodingCompactionSnapshot,
+        automatic: AutomaticCompactionContext,
+    ) -> bool:
+        expected = automatic.run_context
+        return (
+            context.summary_suffix == expected.summary_suffix
+            and len(context.messages) == len(expected.messages)
+            and all(
+                current is captured
+                for current, captured in zip(
+                    context.messages, expected.messages, strict=True
+                )
+            )
+        )
+
+    def _automatic_context_is_current(
+        self,
+        context: CodingCompactionSnapshot,
+        automatic: AutomaticCompactionContext,
+    ) -> bool:
+        try:
+            self.coding_state.validate_run_context(automatic.run_context)
+        except CodingContextChangedError:
+            return False
+        return self._automatic_context_matches(context, automatic)
+
+    def _select_automatic_cut(
+        self,
+        trigger: str,
+        context: CodingCompactionSnapshot,
+        cut: AgentHistoryCompaction,
+        budget: RequestBudget | None,
+        automatic: AutomaticCompactionContext,
+    ) -> AgentHistoryCompaction | CodingCompactionOutcome:
+        if (
+            trigger != "auto"
+            or budget is None
+            or (
+                automatic.baseline.provider_name != context.binding.provider_name
+                or automatic.baseline.model_id != context.binding.model_id
+            )
+        ):
+            return self._stale_compaction(trigger)
+        try:
+            retained_request = freeze_provider_request(
+                replace(
+                    automatic.baseline,
+                    messages=automatic.active_input.request_messages(cut.messages),
+                )
+            )
+        except ValueError:
+            return self._stale_compaction(trigger)
+        retained_estimate = estimate_request(
+            retained_request,
+            image_count=len(retained_request.attachments),
+            output_reserve=budget.output_reserve,
+        )
+        if budget.allows(retained_estimate) is not False:
+            return cut
+        if (
+            not cut.messages
+            or cut.messages[0] is not automatic.active_input.accepted_message
+        ):
+            return cut
+        cycle_cut = compact_agent_history_tool_cycles(
+            cut.messages, accepted_user=automatic.active_input.accepted_message
+        )
+        return compound_compaction_cuts(cut, cycle_cut) if cycle_cut.changed else cut
+
+    def _maybe_select_automatic_cut(
+        self,
+        trigger: str,
+        context: CodingCompactionSnapshot,
+        cut: AgentHistoryCompaction,
+        budget: RequestBudget | None,
+        automatic: AutomaticCompactionContext | None,
+    ) -> AgentHistoryCompaction | CodingCompactionOutcome:
+        if automatic is None:
+            return cut
+        return self._select_automatic_cut(trigger, context, cut, budget, automatic)
 
     def _compaction_matches_locked(self, work: _CompactionWork) -> bool:
         if (

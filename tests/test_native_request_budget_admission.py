@@ -19,6 +19,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.agent.events import (
+    AgentRunCompleted,
     MessageStarted,
     ProviderFailed,
     RunCancelled,
@@ -30,6 +31,7 @@ from pipy_harness.native.agent.request import (
 )
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent_loop_policy import NativeAgentProviderRequestPolicy
+from pipy_harness.native.cancellation import ProviderCancelledError
 from pipy_harness.native.coding.compaction import compaction_request
 from pipy_harness.native.coding.request_budget import estimate_request
 from pipy_harness.native.coding.state import CodingContextChangedError
@@ -211,6 +213,51 @@ def test_first_iteration_durable_anchor_refusal_settles_user_and_can_recover(tmp
     assert len(provider.requests) == 1
 
 
+@pytest.mark.parametrize("known", [True, False])
+def test_extension_veto_history_mutation_respects_budget_mode(
+    tmp_path, monkeypatch, known
+):
+    from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
+
+    provider = _RecordingToolProvider()
+    tree = _tree(tmp_path, groups=24, text="large context " * 200)
+    session_ref = []
+    original = SessionExtensionOperations.session_allows
+    mutated = []
+
+    def mutate(self, event, **payload):
+        if mutated:
+            return original(self, event, **payload)
+        mutated.append(True)
+        session = session_ref[0]
+        state = session._session._coding_state
+        messages = state.messages
+        state.apply_compaction(
+            messages[2:],
+            summary_suffix="\n\nintervening supported compaction",
+            dropped_group_count=1,
+            dropped_message_count=2,
+        )
+        return original(self, event, **payload)
+
+    monkeypatch.setattr(SessionExtensionOperations, "session_allows", mutate)
+    with create_product_session(
+        workspace=tmp_path,
+        provider=provider,
+        tools={},
+        settings=_settings(tmp_path, **({"contextWindow": 1} if known else {})),
+        tree=tree,
+        load_context_files=False,
+    ) as session:
+        session_ref.append(session)
+        if known:
+            with pytest.raises(CodingContextChangedError):
+                session.submit("continue")
+        else:
+            assert session.submit("continue").preparation_failure is None
+    assert (provider.requests == []) is known
+
+
 @pytest.mark.parametrize("overflow", [False, True])
 def test_later_iteration_latest_group_summary_retains_tools_and_reopens(
     tmp_path, monkeypatch, overflow
@@ -296,6 +343,231 @@ def test_later_iteration_latest_group_summary_retains_tools_and_reopens(
     reopened = NativeSessionTree.open(tree.path).build_coding_context()
     assert reopened.messages == result.messages
     assert reopened.prior_summary == "Combined goals and verified results."
+
+
+@pytest.mark.parametrize(
+    "older_groups,headroom,refused", [(0, 500, False), (1, 500, False), (0, 1, True)]
+)
+def test_known_limit_compacts_older_cycle_and_keeps_canonical_run_results(
+    tmp_path, older_groups, headroom, refused
+):
+    from pipy_harness.native.models import ProviderToolCall
+
+    (tmp_path / "notes.txt").write_text("cycle evidence " * 600)
+    call = (ProviderToolCall("read-notes", "read", '{"path":"notes.txt"}'),)
+    script = (call, call)
+    calibration = _RecordingToolProvider(call_script=script)
+    with create_product_session(
+        workspace=tmp_path,
+        provider=calibration,
+        settings=_settings(tmp_path),
+        tree=_tree(tmp_path, groups=older_groups),
+        load_context_files=False,
+    ) as session:
+        session.submit("inspect twice")
+    ceiling = _size(calibration.requests[-2]) + headroom
+
+    provider = _RecordingToolProvider(call_script=script)
+    original = provider.complete
+
+    def complete(request, **kwargs):
+        result = original(request, **kwargs)
+        if request.system_prompt.startswith("Summarize conversation context"):
+            if not request.messages or not isinstance(
+                request.messages[0], AgentUserMessage
+            ):
+                raise ValueError("summary provider requires leading user framing")
+            return replace(
+                result, final_text="Both reads completed; continue the task."
+            )
+        return replace(result, usage={"input_tokens": 7, "output_tokens": 3})
+
+    provider.complete = complete
+    sink = Sink()
+    tree = _tree(tmp_path, groups=older_groups)
+    with create_product_session(
+        workspace=tmp_path,
+        provider=provider,
+        settings=_settings(tmp_path, contextWindow=ceiling),
+        tree=tree,
+        observer=sink,
+        load_context_files=False,
+    ) as session:
+        snapshot = session.submit("inspect twice")
+    assert (snapshot.preparation_failure is not None) is refused
+
+    summaries = [
+        request
+        for request in provider.requests
+        if request.system_prompt.startswith("Summarize conversation context")
+    ]
+    assert len(summaries) == 1
+    summary = summaries[0]
+    completed = [e.result for e in sink.events if isinstance(e, ToolCallCompleted)]
+    assert len(completed) == 2
+    assert [m for m in summary.messages if isinstance(m, AgentToolResultMessage)] == [
+        completed[0]
+    ]
+    assert (
+        sum(
+            isinstance(m, AgentUserMessage)
+            and m.content.value.startswith("Retained task orientation")
+            for m in summary.messages
+        )
+        == 1
+    )
+    if refused:
+        assert provider.requests[-1] is summary
+        assert [
+            m for m in snapshot.messages if isinstance(m, AgentToolResultMessage)
+        ] == [completed[1]]
+    else:
+        final_request = provider.requests[-1]
+        assert [
+            m for m in final_request.messages if isinstance(m, AgentToolResultMessage)
+        ] == [completed[1]]
+    terminal = [e for e in sink.events if isinstance(e, AgentRunCompleted)]
+    assert len(terminal) == 1
+    assert [
+        m for m in terminal[0].result.messages if isinstance(m, AgentToolResultMessage)
+    ] == completed
+    assert snapshot.tool_invocation_count == 2
+    assert snapshot.user_turn_count == 1
+    assert snapshot.usage.input_tokens == (14 if refused else 21)
+    assert snapshot.usage.output_tokens == (6 if refused else 9)
+    assert snapshot.compaction_dropped_group_count == older_groups
+    reopened = NativeSessionTree.open(tree.path).build_coding_context()
+    assert reopened.messages == snapshot.messages
+    forked = NativeSessionTree.fork_from(
+        tree.path, tmp_path, session_dir=tmp_path / "forks"
+    ).build_coding_context()
+    assert forked.messages == snapshot.messages
+    assert forked.prior_summary == reopened.prior_summary
+
+
+@pytest.mark.parametrize("failure", ["cancel", "persist"])
+def test_anchored_failure_does_not_replay_tools(tmp_path, monkeypatch, failure):
+    from pipy_harness.native.models import ProviderToolCall
+
+    (tmp_path / "notes.txt").write_text("cycle evidence " * 600)
+    call = (ProviderToolCall("read-notes", "read", '{"path":"notes.txt"}'),)
+    script = (call, call)
+    calibration = _RecordingToolProvider(call_script=script)
+    with create_product_session(
+        workspace=tmp_path,
+        provider=calibration,
+        settings=_settings(tmp_path),
+        tree=_tree(tmp_path, groups=0),
+        load_context_files=False,
+    ) as session:
+        session.submit("inspect twice")
+    ceiling = _size(calibration.requests[-2]) + 500
+
+    provider = _RecordingToolProvider(call_script=script)
+    original_complete = provider.complete
+
+    def complete(request, **kwargs):
+        result = original_complete(request, **kwargs)
+        if request.system_prompt.startswith("Summarize conversation context"):
+            if not request.messages or not isinstance(
+                request.messages[0], AgentUserMessage
+            ):
+                raise ValueError("summary provider requires leading user framing")
+            if failure == "cancel":
+                raise ProviderCancelledError()
+            return replace(result, final_text="Both reads completed.")
+        return replace(result, usage={"input_tokens": 7, "output_tokens": 3})
+
+    provider.complete = complete
+    tree = _tree(tmp_path, groups=0)
+    disk_before_failure = []
+    original_write = NativeSessionTree._write_entry
+
+    def write_entry(self, entry):
+        if self is tree and isinstance(entry, CompactionEntry):
+            disk_before_failure.append(tree.path.read_bytes())
+            raise OSError("anchored persistence failure")
+        return original_write(self, entry)
+
+    if failure == "persist":
+        monkeypatch.setattr(NativeSessionTree, "_write_entry", write_entry)
+
+    with create_product_session(
+        workspace=tmp_path,
+        provider=provider,
+        settings=_settings(tmp_path, contextWindow=ceiling),
+        tree=tree,
+        load_context_files=False,
+    ) as session:
+        if failure == "persist":
+            with pytest.raises(OSError, match="anchored persistence failure"):
+                session.submit("inspect twice")
+            snapshot = session._session._coding_state.result_snapshot()
+        else:
+            snapshot = session.submit("inspect twice")
+
+    assert len(provider.requests) == 3
+    assert snapshot.tool_invocation_count == 2
+    assert snapshot.user_turn_count == 1
+    assert snapshot.usage.input_tokens == 14
+    assert snapshot.usage.output_tokens == 6
+    entries = [e for e in tree.get_entries() if isinstance(e, CompactionEntry)]
+    if failure == "cancel":
+        assert entries == [] and snapshot.compaction_count == 0
+    else:
+        assert len(entries) == 1 and entries[0].retained_user_entry_id is not None
+        assert snapshot.compaction_count == 1
+        assert tree.path.read_bytes() == disk_before_failure[0]
+
+
+def test_leading_assistant_prevents_mismatched_anchored_cut(tmp_path):
+    from pipy_harness.native.models import ProviderToolCall
+
+    (tmp_path / "notes.txt").write_text("cycle evidence " * 600)
+    call = (ProviderToolCall("read-notes", "read", '{"path":"notes.txt"}'),)
+    script = (call, call)
+
+    def leading_tree() -> NativeSessionTree:
+        tree = _tree(tmp_path, groups=0)
+        tree.append_message(AgentAssistantMessage(ProductContent("leading context")))
+        return tree
+
+    calibration = _RecordingToolProvider(call_script=script)
+    with create_product_session(
+        workspace=tmp_path,
+        provider=calibration,
+        settings=_settings(tmp_path),
+        tree=leading_tree(),
+        load_context_files=False,
+    ) as session:
+        session.submit("inspect twice")
+    ceiling = _size(calibration.requests[-2]) + 500
+
+    provider = _RecordingToolProvider(call_script=script)
+    tree = leading_tree()
+    with create_product_session(
+        workspace=tmp_path,
+        provider=provider,
+        settings=_settings(tmp_path, contextWindow=ceiling),
+        tree=tree,
+        load_context_files=False,
+    ) as session:
+        snapshot = session.submit("inspect twice")
+
+    assert snapshot.preparation_failure is not None
+    assert not any(
+        request.system_prompt.startswith("Summarize conversation context")
+        for request in provider.requests
+    )
+    assert len(provider.requests) == 2
+    assert (
+        len([m for m in snapshot.messages if isinstance(m, AgentToolResultMessage)])
+        == 2
+    )
+    assert snapshot.messages[0] == AgentAssistantMessage(
+        ProductContent("leading context")
+    )
+    assert not any(isinstance(entry, CompactionEntry) for entry in tree.get_entries())
 
 
 @pytest.mark.parametrize("trigger", ["manual", "auto"])

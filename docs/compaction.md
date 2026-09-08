@@ -5,13 +5,13 @@ the native session tree durable and navigable.
 
 ## What compaction does
 
-Pipy combines a deterministic whole-group cut with a provider-generated summary:
+Pipy combines a deterministic safe cut with a provider-generated summary:
 
-1. It cuts history only at user-turn boundaries, so tool results are not orphaned
-   from the assistant tool calls that produced them.
-2. It keeps the most recent user-turn groups verbatim for the next provider
-   request.
-3. It asks the current provider to summarize the exact older groups together
+1. It cuts history at user-turn boundaries or between complete tool cycles, so
+   tool results are not orphaned from the assistant calls that produced them.
+2. It keeps recent user-turn groups, or the accepted user and newest complete
+   tool cycle under known-limit pressure, verbatim for the next provider request.
+3. It asks the current provider to summarize the exact removed messages together
    with any previous summary, preserving goals, constraints, decisions, files,
    verified results and unfinished work. The request has no tools or attachments
    and excludes request-only overlays. Its text is private and does not stream
@@ -69,7 +69,8 @@ pipy's built-in semantic-summary instructions.
 Automatic compaction is enabled by default. With a declared model window or
 explicit `compaction.contextWindow` ceiling, the session estimates the assembled
 request before ordinary hooks and may attempt one semantic summary under pressure,
-retaining the latest whole user group. Known limits replace message/byte triggering:
+first retaining the latest whole user group and then, if needed, only its accepted
+user and newest complete tool cycle. Known limits replace message/byte triggering:
 long history below estimated pressure does not compact. Unknown limits without a
 ceiling retain the legacy 40-message/48-KiB trigger and two recent groups.
 Extension `deliverAs=nextTurn` context is a detached, identity-anchored
@@ -101,7 +102,8 @@ used. Defaults/placeholders/fallback copies do not establish model capacity.
 `keepRecentTokens` remains reported but inactive.
 
 Both manual and automatic summaries preflight the exact auxiliary request: prior
-summary, dropped prefix, final instruction and reserve. An oversized auxiliary
+summary, optional labelled retained task orientation, exact removed messages,
+final instruction and reserve. An oversized auxiliary
 request publishes nothing. Ordinary hooks still run once and can narrow the final
 request enough to fit; summary refusal alone is not a failed agent run. The exact
 frozen ordinary request is checked after those hooks and before renderer/provider
@@ -148,10 +150,14 @@ Compaction counters describe the current run, independently of a restored branch
 summary. Startup can restore a summary with zero compactions in the new run;
 navigation replaces the summary while preserving cumulative run counters.
 
-The durable anchored representation is available as a prerequisite, but live
-manual and automatic compaction still select only whole user groups. Model and
-thinking settings restore from the full raw ancestry independently of retained
-messages.
+Under known model limits, automatic compaction first keeps the newest user group.
+If that candidate remains oversized after prior summary context is included, pipy
+can retain the accepted user and newest complete tool cycle while summarizing
+older settled cycles together with older groups in one request. The protected
+newest cycle may still be too large, in which case final admission refuses the
+request. Manual and unknown-limit compaction keep their existing whole-group
+behavior. Model and thinking settings restore from the full raw ancestry
+independently of retained messages.
 
 Persistence remains state-first: live history, summary, and counters advance
 before the synchronous tree append. A write failure propagates before the success
@@ -226,9 +232,11 @@ second agent loop. The shared branch helper captures one provider binding for
 request labels and execution, including across header-callback acquisition.
 Broader branch-navigation changes are outside this slice.
 
-The summary input contains the previous summary and exact dropped conversation
-prefix, derived from the captured immutable history using the canonical result's
-`dropped_message_count`. Do not recompute user-group boundaries in the coding layer. Instructions preserve goals, decisions, constraints, relevant files,
+For the historical D1 whole-group slice, the summary input contained the previous
+summary and exact dropped conversation prefix. Current selection supplies the
+cut's exact immutable removed tuple, including noncontiguous anchored cuts, plus
+the retained user separately as labelled task orientation. Do not recompute
+user-group boundaries in the coding layer. Instructions preserve goals, decisions, constraints, relevant files,
 verified results, and unfinished work, distinguishing facts from unresolved
 questions. Conversation content is data to summarize. Retained groups remain
 verbatim, with complete tool exchanges and correlation identity. Accept only a
@@ -333,8 +341,8 @@ ends `/compact` without publication and leaves queued input deliverable.
 
 Reuse the branch-summary request/result capability through a small shared helper,
 while preserving branch-navigation behavior. For compaction, include prior summary
-as labeled content only in the auxiliary summary request, the exact dropped
-prefix, and a final explicit
+as labeled content only in the auxiliary summary request, optional labelled
+retained task orientation, the exact removed messages, and a final explicit
 summary instruction in `messages`: provider adapters can ignore `user_prompt`
 when messages are present. Execute with the captured provider binding and the
 existing run-owned canonical executor, not a newly resolved provider or a second

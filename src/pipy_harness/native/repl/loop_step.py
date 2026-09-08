@@ -52,7 +52,10 @@ from pipy_harness.native.coding.commands import (
     CommandDispatchResolution,
     CommandDispatchResolutionKind,
 )
-from pipy_harness.native.coding.compaction import CodingCompactionOutcome
+from pipy_harness.native.coding.compaction import (
+    AutomaticCompactionContext,
+    CodingCompactionOutcome,
+)
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.request_budget import (
     RequestBudget,
@@ -230,7 +233,7 @@ class _RequestPreparationEffects:
             self._request_values(active_input, turn_index, available_tools, context)
         )
         compaction = self._compact_if_needed(
-            context, budget, settings.enabled, baseline
+            context, budget, settings.enabled, baseline, active_input
         )
         context = scope.coding_state.capture_run_context()
         if compaction is not None and compaction.cancellation_reason is not None:
@@ -287,6 +290,7 @@ class _RequestPreparationEffects:
         budget: RequestBudget,
         enabled: bool,
         baseline: ProviderRequest,
+        active_input: AgentActiveInput,
     ) -> CodingCompactionOutcome | None:
         scope = self.accepted.turn_input.turn.scope
         if not enabled:
@@ -313,7 +317,14 @@ class _RequestPreparationEffects:
             keep_recent_groups = 1
         if not pressure:
             return None
-        outcome = scope.apply_compaction("auto", budget, keep_recent_groups)
+        outcome = scope.apply_compaction(
+            "auto",
+            budget,
+            keep_recent_groups,
+            AutomaticCompactionContext(baseline, active_input, context)
+            if budget.context_window is not None
+            else None,
+        )
         emit_diagnostic(
             scope.terminal_ui.components.transcript
             if scope.terminal_ui is not None
