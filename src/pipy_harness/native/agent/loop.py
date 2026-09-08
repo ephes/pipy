@@ -287,6 +287,7 @@ class _RunState:
     history: tuple[AgentMessage, ...]
     tool_state: AgentToolPolicyState
     usage: AgentUsageAccumulator
+    appended_messages: list[AgentMessage]
     failure: AgentFailure | None = None
     cancellation: AgentCancellationReason | None = None
     provider_status: AgentProviderStatusDecision | None = None
@@ -348,6 +349,7 @@ class AgentLoop:
             run_input.history,
             run_input.tool_policy_state,
             AgentUsageAccumulator(run_input.pricing),
+            [],
         )
         self._events.emit(AgentRunStarted())
         self._emit_consumed_input(run_input)
@@ -731,6 +733,7 @@ class AgentLoop:
             self._append_message(state, skipped)
 
     def _append_message(self, state: _RunState, message: AgentMessage) -> None:
+        state.appended_messages.append(message)
         state.history = (*state.history, message)
 
     @staticmethod
@@ -738,7 +741,10 @@ class AgentLoop:
         state: _RunState,
         active_input: AgentActiveInput,
     ) -> AgentRunResult:
-        messages = active_input.result_messages(state.history)
+        _validate_history(state.history)
+        _validate_accepted_message_anchor(state.history, active_input.accepted_message)
+        _validate_overlay_absent(state.history, active_input)
+        messages = tuple(state.appended_messages)
         usage = state.usage.agent_usage()
         if state.failure is not None:
             return AgentRunResult(

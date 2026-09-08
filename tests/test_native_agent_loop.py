@@ -593,6 +593,357 @@ def test_tool_cycle_runs_sequentially_and_carries_results_to_next_request() -> N
     assert status.tool_states[0].tool_invocation_count == 1
 
 
+def test_run_result_preserves_canonical_appends_after_prepared_history_cut() -> None:
+    order: list[str] = []
+    injected = AgentAssistantMessage(ProductContent("prepared context"))
+
+    class CuttingSource(_RequestSource):
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            turn_index: int,
+            available_tools: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            if turn_index == 0:
+                history = (injected, *history)
+            elif turn_index == 2:
+                history = (active_input.accepted_message, *history[-2:])
+            return super().prepare(history, active_input, turn_index, available_tools)
+
+    source = CuttingSource(order)
+    first_call = _provider_call("provider-1")
+    second_call = _provider_call("provider-2")
+    tools = _Tools(order)
+    loop, provider, events, usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling",
+                    calls=(first_call,),
+                    usage={"input_tokens": 3},
+                )
+            ),
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling again",
+                    calls=(second_call,),
+                    usage={"input_tokens": 4},
+                )
+            ),
+            ProviderTurnOutcome(
+                result=_provider_result("finished", usage={"output_tokens": 2})
+            ),
+        ],
+        request_source=source,
+        tools=tools,
+    )
+    prior = AgentAssistantMessage(ProductContent("prior history"))
+    overlay = AgentUserMessage(ProductContent("request overlay"))
+    base_input = _run_input()
+    run_input = replace(
+        base_input,
+        history=(prior,),
+        active_input=AgentActiveInput(
+            base_input.active_input.accepted_message, (overlay,)
+        ),
+    )
+
+    outcome = loop.run(run_input)
+
+    accepted = run_input.active_input.accepted_message
+    assert [message.content.value for message in outcome.result.messages] == [
+        "hello",
+        "calling",
+        "tool result",
+        "calling again",
+        "tool result",
+        "finished",
+    ]
+    assert outcome.result.messages[0] is accepted
+    assert outcome.result.messages[1] is source.histories[1][-2]
+    assert outcome.result.messages[2] is source.histories[1][-1]
+    assert outcome.result.messages[3] is source.histories[2][-2]
+    assert outcome.result.messages[4] is source.histories[2][-1]
+    assert outcome.result.messages[1] not in outcome.final_history
+    assert outcome.result.messages[2] not in outcome.final_history
+    assert [message.content.value for message in outcome.final_history] == [
+        "hello",
+        "calling again",
+        "tool result",
+        "finished",
+    ]
+    assert outcome.final_history[0] is accepted
+    assert injected not in outcome.result.messages
+    assert prior not in outcome.result.messages
+    assert overlay not in outcome.result.messages
+    assert provider.calls == 3
+    assert len(tools.executed) == 2
+    assert len(usage.publications) == 3
+    completed = [e for e in events.events if isinstance(e, AgentRunCompleted)]
+    assert len(completed) == 1
+    assert completed[0].result is outcome.result
+
+
+@pytest.mark.parametrize(
+    ("terminal", "expected"),
+    [
+        ("failure", AgentRunOutcome.FAILED),
+        ("cancel", AgentRunOutcome.CANCELLED),
+        ("refusal", AgentRunOutcome.FAILED),
+    ],
+)
+def test_prepared_history_cut_preserves_prior_appends_for_terminal_outcomes(
+    terminal: str,
+    expected: AgentRunOutcome,
+) -> None:
+    order: list[str] = []
+    refusal = AgentFailure("RequestPreparation", ProductContent("refused"))
+
+    class CuttingSource(_RequestSource):
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            turn_index: int,
+            available_tools: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            if turn_index == 2:
+                history = (active_input.accepted_message, *history[-2:])
+                if terminal == "refusal":
+                    return AgentLoopRequestPreparation(
+                        history, preparation_failure=refusal
+                    )
+            return super().prepare(history, active_input, turn_index, available_tools)
+
+    terminal_outcome = (
+        ProviderTurnOutcome(cancellation_reason=AgentCancellationReason.OPERATOR_ABORT)
+        if terminal == "cancel"
+        else ProviderTurnOutcome(
+            result=_provider_result(
+                "terminal",
+                status=(
+                    HarnessStatus.FAILED
+                    if terminal == "failure"
+                    else HarnessStatus.SUCCEEDED
+                ),
+            )
+        )
+    )
+    loop, provider, events, usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(_provider_call("p1"),))
+            ),
+            ProviderTurnOutcome(
+                result=_provider_result("calling again", calls=(_provider_call("p2"),))
+            ),
+            terminal_outcome,
+        ],
+        request_source=CuttingSource(order),
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.result.outcome is expected
+    assert [message.content.value for message in outcome.result.messages] == [
+        "hello",
+        "calling",
+        "tool result",
+        "calling again",
+        "tool result",
+    ]
+    assert [message.content.value for message in outcome.final_history] == [
+        "hello",
+        "calling again",
+        "tool result",
+    ]
+    assert provider.calls == (2 if terminal == "refusal" else 3)
+    assert len(usage.publications) == (2 if terminal in {"cancel", "refusal"} else 3)
+    assert sum(isinstance(event, AgentRunCompleted) for event in events.events) == 1
+
+
+def test_each_run_has_a_fresh_canonical_result_projection() -> None:
+    order: list[str] = []
+    loop, provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(result=_provider_result("first answer")),
+            ProviderTurnOutcome(result=_provider_result("second answer")),
+        ],
+    )
+    first_input = _run_input()
+    second_input = replace(
+        _run_input(),
+        active_input=AgentActiveInput(AgentUserMessage(ProductContent("second"))),
+    )
+
+    first = loop.run(first_input)
+    second = loop.run(second_input)
+
+    assert [message.content.value for message in first.result.messages] == [
+        "hello",
+        "first answer",
+    ]
+    assert [message.content.value for message in second.result.messages] == [
+        "second",
+        "second answer",
+    ]
+    assert first.result.messages[0] is first_input.active_input.accepted_message
+    assert second.result.messages[0] is second_input.active_input.accepted_message
+    completed = [e for e in events.events if isinstance(e, AgentRunCompleted)]
+    assert [event.result for event in completed] == [first.result, second.result]
+    assert provider.calls == 2
+
+
+def test_prepared_history_cut_preserves_prior_appends_for_malformed_fatal() -> None:
+    order: list[str] = []
+
+    class CuttingSource(_RequestSource):
+        def prepare(
+            self,
+            history: tuple[AgentMessage, ...],
+            active_input: AgentActiveInput,
+            turn_index: int,
+            available_tools: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            if turn_index == 2:
+                history = (active_input.accepted_message, *history[-2:])
+            return super().prepare(history, active_input, turn_index, available_tools)
+
+    first_call = _provider_call("p1")
+    second_call = _provider_call("p2")
+    fatal_calls = tuple(_provider_call(f"fatal-{index}") for index in range(3))
+    malformed = [
+        ToolExecutionOutcome(
+            _tool_result(
+                AgentToolCall(
+                    call.provider_correlation_id,
+                    call.tool_name,
+                    ProductContent(call.arguments_json),
+                ),
+                "invalid arguments",
+                is_error=True,
+            ),
+            malformed_arguments=True,
+        )
+        for call in fatal_calls
+    ]
+    tools = _Tools(
+        order,
+        [
+            ToolExecutionOutcome(
+                _tool_result(
+                    AgentToolCall(
+                        first_call.provider_correlation_id,
+                        first_call.tool_name,
+                        ProductContent(first_call.arguments_json),
+                    )
+                )
+            ),
+            ToolExecutionOutcome(
+                _tool_result(
+                    AgentToolCall(
+                        second_call.provider_correlation_id,
+                        second_call.tool_name,
+                        ProductContent(second_call.arguments_json),
+                    )
+                )
+            ),
+            *malformed,
+        ],
+    )
+    loop, provider, events, usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(first_call,))
+            ),
+            ProviderTurnOutcome(
+                result=_provider_result("calling again", calls=(second_call,))
+            ),
+            ProviderTurnOutcome(
+                result=_provider_result("fatal calls", calls=fatal_calls)
+            ),
+        ],
+        request_source=CuttingSource(order),
+        tools=tools,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.result.outcome is AgentRunOutcome.FAILED
+    assert outcome.terminate_session is True
+    assert [message.content.value for message in outcome.result.messages] == [
+        "hello",
+        "calling",
+        "tool result",
+        "calling again",
+        "tool result",
+        "fatal calls",
+        "invalid arguments",
+        "invalid arguments",
+        "invalid arguments",
+    ]
+    assert [message.content.value for message in outcome.final_history] == [
+        "hello",
+        "calling again",
+        "tool result",
+        "fatal calls",
+        "invalid arguments",
+        "invalid arguments",
+        "invalid arguments",
+    ]
+    assert provider.calls == 3
+    assert len(tools.executed) == 5
+    assert len(usage.publications) == 3
+    assert sum(isinstance(event, AgentRunCompleted) for event in events.events) == 1
+
+
+@pytest.mark.parametrize("history_shape", ["invalid", "missing", "duplicate"])
+def test_final_retained_history_is_validated_before_terminal_completion(
+    history_shape: str,
+) -> None:
+    class CorruptingLoop(AgentLoop):
+        def _append_message(self, state, message) -> None:  # type: ignore[no-untyped-def]
+            super()._append_message(state, message)
+            if not isinstance(message, AgentAssistantMessage):
+                return
+            accepted = run_input.active_input.accepted_message
+            if history_shape == "invalid":
+                state.history = (*state.history, cast(AgentMessage, object()))
+            elif history_shape == "missing":
+                state.history = tuple(
+                    item for item in state.history if item is not accepted
+                )
+            else:
+                state.history = (*state.history, accepted)
+
+    order: list[str] = []
+    run_input = _run_input()
+    provider = _ProviderTurn(
+        order, [ProviderTurnOutcome(result=_provider_result("finished"))]
+    )
+    events = _EventSink(order)
+    loop = CorruptingLoop(
+        request_source=_RequestSource(order),
+        provider_turn=provider,
+        tool_capabilities=_Tools(order),
+        tool_policy=_ToolPolicy(order),
+        event_sink=events,
+        usage_publisher=_UsagePublisher(order),
+        queued_input_port=_QueuedInputs(),
+        status_policy=_StatusPolicy(order),
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        loop.run(run_input)
+
+    assert not any(isinstance(event, AgentRunCompleted) for event in events.events)
+
+
 @pytest.mark.parametrize(
     ("authorized", "blocked", "expected_text", "expected_policy_calls"),
     [

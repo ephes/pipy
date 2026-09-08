@@ -2047,13 +2047,14 @@ D1 cancellation/staleness and durable reopen regressions remain mandatory.
 
 ### Within-Run Compaction Contract (D3b)
 
-This is the selected next contract, not implemented behavior at `9f750e7`.
-The sole [backlog](backlog.md) gates the prerequisite and activation slices.
+The canonical run-result prerequisite is implemented. The sole
+[backlog](backlog.md) gates the remaining cut, persistence, and activation
+slices.
 Current whole-group compaction cannot reduce one long accepted tool run. Retaining
 its user while removing older tool cycles requires both a noncontiguous retained
 context and a terminal-result projection independent of that context.
 
-**Canonical run results.** Before enabling such cuts, existing synchronous
+**Canonical run results (implemented in D3b1).** Before enabling such cuts, the synchronous
 `agent.loop._RunState` owns one private list of the current run's appended messages.
 The existing `_append_message` is its sole writer and adds the same immutable
 object to that list and provider history, preserving existing callback/append
@@ -2076,9 +2077,11 @@ their envelope and full current-run enumeration; snapshots expose retained
 context. This adds no observer, event stream, product history, session or queue
 owner. Current-run payloads remain in memory until settlement; context reduction
 does not promise bounded total run-output memory.
-Remove the superseded `AgentActiveInput.result_messages` helper in D3b1, moving
-its still-relevant anchor and result assertions to the canonical loop tests;
-request-overlay and prompt-transformation helpers remain unchanged.
+The superseded `AgentActiveInput.result_messages` helper is removed; its
+still-relevant anchor and result assertions live with the canonical loop tests.
+Request-overlay and prompt-transformation helpers remain unchanged. Mechanical
+within-run cuts, durable selection, and live activation remain planned in
+D3b2–D3b4.
 
 **A safe cut is an explicit value.** Extend the immutable mechanical cut to carry
 the exact retained and removed message tuples in original order, plus an optional
@@ -2223,8 +2226,9 @@ canonical `AgentActiveInput`. Its detached `deliverAs=nextTurn` overlay is
 inserted after the exact accepted-message identity on every provider iteration
 and omitted from base history and canonical run results. Automatic compaction
 therefore runs normally on durable history during that run, and the same
-identity anchor still selects the run-result suffix after retained-history
-indexes shift. Request-hook prompt transforms also replace only that identity,
+identity anchor still locates the accepted input after retained-history indexes
+shift. D3b1 now derives terminal results from the canonical run-owned append list,
+independently of retained context. Request-hook prompt transforms replace only that identity,
 not an equal-text older or transient message. Manual compaction, summaries,
 thresholds, the existing bounded full-content `CustomMessageEntry`, public
 JSON/RPC/SDK/extension shapes, and archive privacy remain unchanged.

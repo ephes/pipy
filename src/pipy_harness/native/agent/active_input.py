@@ -1,4 +1,4 @@
-"""Identity-safe request and result views for one active agent input."""
+"""Identity-safe request views for one active agent input."""
 
 from __future__ import annotations
 
@@ -17,8 +17,7 @@ class AgentActiveInput:
     """Bind one accepted user message to its transient request overlay.
 
     The accepted message is located by object identity, so history compaction
-    may shift its index without changing either the request overlay position or
-    the messages reported for the active run.
+    may shift its index without changing the request overlay position.
     """
 
     accepted_message: AgentUserMessage
@@ -49,14 +48,6 @@ class AgentActiveInput:
             + self.request_overlay
             + messages[insertion_index:]
         )
-
-    def result_messages(
-        self, history: Sequence[AgentMessage]
-    ) -> tuple[AgentMessage, ...]:
-        """Return durable messages added by this run, excluding the overlay."""
-
-        messages, accepted_index = self._anchored_history(history)
-        return messages[accepted_index:]
 
     def transformed_request_messages(
         self,

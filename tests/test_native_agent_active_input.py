@@ -62,12 +62,9 @@ def test_overlay_anchors_by_identity_after_equal_content_history_is_compacted() 
     )
     assert request_messages[0] is older_equal
     assert request_messages[2] is accepted
-    assert active_input.result_messages(compacted.messages) == (accepted,)
 
 
-def test_overlay_is_stable_across_later_tool_loop_messages_but_result_is_durable() -> (
-    None
-):
+def test_overlay_is_stable_across_later_tool_loop_messages() -> None:
     accepted = _user("active")
     transient = _user("TRANSIENT")
     assistant = _assistant("calling")
@@ -86,12 +83,6 @@ def test_overlay_is_stable_across_later_tool_loop_messages_but_result_is_durable
     assert active_input.request_messages(later_history) == (
         *history,
         transient,
-        assistant,
-        result,
-        settled,
-    )
-    assert active_input.result_messages(later_history) == (
-        accepted,
         assistant,
         result,
         settled,
@@ -160,8 +151,6 @@ def test_overlay_fails_closed_when_identity_anchor_is_absent(history) -> None:
 
     with pytest.raises(ValueError, match="exactly once"):
         active_input.request_messages(history)
-    with pytest.raises(ValueError, match="exactly once"):
-        active_input.result_messages(history)
     with pytest.raises(ValueError, match="exactly once"):
         active_input.transformed_request_messages(history, "transformed")
 

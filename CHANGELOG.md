@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Terminal native agent results now enumerate the canonical messages appended
+  during the accepted run independently of retained provider context. This
+  preserves earlier tool cycles for automation and completion consumers when
+  later within-run context cuts ship; those cuts are not enabled yet.
+
 - Native requests now use estimated declared/explicit context budgets, including
   system/messages/tools/images, safety and an output reserve. Optional pipy-only
   `compaction.contextWindow` limits the selected model. Known pressure permits one

@@ -149,7 +149,7 @@ Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
 | `type` | Payload fields | Meaning |
 | --- | --- | --- |
 | `agent_start` | (none) | One accepted user prompt begins its agent run. |
-| `agent_end` | `messages: Message[]`, `willRetry: boolean` | Run settled. pipy's session form adds `willRetry` (Pi's `AgentSessionEvent` overrides `agent_end` to add it). |
+| `agent_end` | `messages: Message[]`, `willRetry: boolean` | Run settled. `messages` enumerates the canonical messages appended during this accepted run even when retained provider context was reduced. pipy's session form adds `willRetry` (Pi's `AgentSessionEvent` overrides `agent_end` to add it). |
 | `turn_start` | (none) | One model/tool-loop turn starts. |
 | `turn_end` | `message: Message`, `toolResults: ToolResultMessage[]` | One turn ends (assistant message + any tool results). |
 | `message_start` | `message: Message` | A user/assistant/tool-result message begins. |
