@@ -71,6 +71,12 @@ from pipy_harness.native.coding.input_queue import (
 from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.state import CodingSessionState
 
+_NativeControlAbortView = _input_queue._NativeControlAbortView
+_NativeControlReservation = _input_queue._NativeControlReservation
+_NativeControlSnapshot = _input_queue._NativeControlSnapshot
+_NativeRunClaim = _input_queue._NativeRunClaim
+_NativeSessionControl = _input_queue._NativeSessionControl
+
 _NOT_HANDLED_COMMAND_NOTICE = (
     "supported local commands are /hotkeys, /reload, "
     "/changelog, /model, /scoped-models, /settings, /trust, "
@@ -89,6 +95,200 @@ class SettledEventEmitter(Protocol):
     """Narrow emitter port for the once-only true-idle notification."""
 
     def agent_settled(self) -> None: ...
+
+
+class _ControllerReadinessPort:
+    """Private callback port for the post-settlement, re-polled idle point."""
+
+    __slots__ = ("_callback", "_control", "_lock")
+
+    def __init__(self, control: _NativeSessionControl) -> None:
+        if type(control) is not _NativeSessionControl:
+            raise TypeError("control must be a _NativeSessionControl")
+        self._lock = _input_queue._new_native_control_lock()
+        self._control = control
+        self._callback: Callable[[], None] | None = None
+
+    @property
+    def control(self) -> _NativeSessionControl:
+        return self._control
+
+    def bind(self, callback: Callable[[], None]) -> None:
+        if not callable(callback):
+            raise TypeError("readiness callback must be callable")
+        with self._lock:
+            if self._callback is not None:
+                raise RuntimeError("controller readiness port is already bound")
+            self._callback = callback
+
+    def publish(self) -> None:
+        """Invoke a bound publication callback after queue polling has completed."""
+
+        with self._lock:
+            callback = self._callback
+        if callback is not None:
+            callback()
+
+
+@dataclass(frozen=True, slots=True)
+class _NativeControlReady:
+    control: _NativeSessionControl
+    abort_view: _NativeControlAbortView
+    readiness_port: _ControllerReadinessPort
+
+
+@dataclass(frozen=True, slots=True)
+class _NativeControlFailed:
+    error: BaseException
+
+
+class _NativeSessionControlBridge:
+    """One-shot startup and exact-run handoff for a future transport worker.
+
+    The bridge is deliberately private and dormant until a transport provides it
+    through the existing abort/input composition path.  Its only mutable run
+    field is the currently attached immutable queue claim.
+    """
+
+    __slots__ = (
+        "_claim",
+        "_event",
+        "_fatal",
+        "_outcome",
+        "_outcome_lock",
+        "_worker",
+    )
+
+    def __init__(self) -> None:
+        self._event = _input_queue._new_native_control_event()
+        self._outcome_lock = _input_queue._new_native_control_lock()
+        self._outcome: _NativeControlReady | _NativeControlFailed | None = None
+        self._worker: object | None = None
+        self._claim: _NativeRunClaim | None = None
+        self._fatal = False
+
+    def publish_ready(
+        self,
+        control: _NativeSessionControl,
+        abort_view: _NativeControlAbortView,
+        readiness_port: _ControllerReadinessPort,
+    ) -> None:
+        if type(control) is not _NativeSessionControl:
+            raise TypeError("control must be a _NativeSessionControl")
+        if type(abort_view) is not _NativeControlAbortView:
+            raise TypeError("abort_view must be a _NativeControlAbortView")
+        if type(readiness_port) is not _ControllerReadinessPort:
+            raise TypeError("readiness_port must be a _ControllerReadinessPort")
+        if abort_view is not control.abort_view:
+            raise ValueError("abort_view must belong to the published control")
+        if readiness_port.control is not control:
+            raise ValueError("readiness_port must belong to the published control")
+        self._publish(_NativeControlReady(control, abort_view, readiness_port))
+
+    def publish_failure(self, error: BaseException) -> None:
+        if not isinstance(error, BaseException):
+            raise TypeError("error must be a BaseException")
+        self._publish(_NativeControlFailed(error))
+
+    def _publish(self, outcome: _NativeControlReady | _NativeControlFailed) -> None:
+        with self._outcome_lock:
+            if self._outcome is not None:
+                raise RuntimeError("native control bridge outcome is already published")
+            self._outcome = outcome
+            self._event.set()
+
+    def wait_ready(
+        self, timeout: float | None = None
+    ) -> _NativeControlReady | _NativeControlFailed | None:
+        if not self._event.wait(timeout):
+            return None
+        with self._outcome_lock:
+            outcome = self._outcome
+        if outcome is None:
+            raise RuntimeError("signalled native control bridge has no outcome")
+        return outcome
+
+    def admit_prompt(
+        self, content: ProductContent, *, steer_active: bool = False
+    ) -> _NativeControlSnapshot:
+        ready = self._ready()
+        return ready.control._bridge_admit_prompt(
+            content,
+            steer_active=steer_active,
+            verify_authorized=self._require_authorized,
+        )
+
+    def attach_selected_claim(
+        self, reservation: _NativeControlReservation
+    ) -> _NativeRunClaim | None:
+        ready = self._ready()
+        worker = _input_queue._native_control_current_thread()
+
+        def attach(claim: _NativeRunClaim) -> None:
+            if self._worker is None:
+                self._worker = worker
+            self._claim = claim
+
+        def verify_attachable() -> None:
+            self._require_authorized()
+            if self._claim is not None:
+                raise RuntimeError("native worker already has an attached run claim")
+            if self._worker is not None and self._worker is not worker:
+                self._fail("native worker changed while attaching a claim")
+
+        return ready.control._claim_and_attach(reservation, verify_attachable, attach)
+
+    def consume_agent_end(self, claim: _NativeRunClaim) -> _NativeControlSnapshot:
+        ready = self._ready()
+        return ready.control._consume_and_settle(claim, lambda: self._consume(claim))
+
+    def cleanup_failed_run(
+        self,
+        claim: _NativeRunClaim,
+        primary: BaseException,
+        retire_lifetime: Callable[[], None],
+    ) -> None:
+        """Settle the exact attached claim, then retire after a pre-end failure."""
+
+        if not isinstance(primary, BaseException):
+            raise TypeError("primary must be a BaseException")
+        if not callable(retire_lifetime):
+            raise TypeError("retire_lifetime must be callable")
+        try:
+            self.consume_agent_end(claim)
+        except BaseException:  # noqa: BLE001 - preserve the original run failure
+            primary.add_note("native control cleanup settlement also failed")
+        try:
+            retire_lifetime()
+        except BaseException:  # noqa: BLE001 - preserve the original run failure
+            primary.add_note("native control cleanup lifetime retirement also failed")
+
+    def _ready(self) -> _NativeControlReady:
+        with self._outcome_lock:
+            outcome = self._outcome
+        if type(outcome) is not _NativeControlReady:
+            raise RuntimeError("native control bridge is not ready")
+        return outcome
+
+    def _require_authorized(self) -> None:
+        """Check bridge-fatal state while the matching control gate is held."""
+
+        if self._fatal:
+            raise RuntimeError("native control bridge has failed an invariant")
+
+    def _consume(self, claim: _NativeRunClaim) -> None:
+        self._require_authorized()
+        if self._worker is not _input_queue._native_control_current_thread():
+            self._fail("native claim consumption is on a foreign worker thread")
+        if self._claim is None:
+            self._fail("native worker has no attached run claim")
+        if self._claim is not claim or self._claim.token is not claim.token:
+            self._fail("native worker claim does not match the selected run")
+        self._claim = None
+
+    def _fail(self, message: str) -> None:
+        self._fatal = True
+        raise RuntimeError(message)
 
 
 @runtime_checkable
@@ -318,7 +518,13 @@ class CodingSessionController:
     building remain in the composition root.
     """
 
-    __slots__ = ("_coding_state", "_emitter", "_input_queue")
+    __slots__ = (
+        "_coding_state",
+        "_control",
+        "_emitter",
+        "_input_queue",
+        "_readiness_port",
+    )
 
     def __init__(
         self,
@@ -326,6 +532,7 @@ class CodingSessionController:
         input_queue: CodingInputQueue,
         coding_state: CodingSessionState,
         emitter: SettledEventEmitter,
+        control: _NativeSessionControl | None = None,
     ) -> None:
         if not isinstance(input_queue, CodingInputQueue):
             raise TypeError("input_queue must be a CodingInputQueue")
@@ -334,6 +541,24 @@ class CodingSessionController:
         self._input_queue = input_queue
         self._coding_state = coding_state
         self._emitter = emitter
+        if control is not None and type(control) is not _NativeSessionControl:
+            raise TypeError("control must be a _NativeSessionControl or None")
+        if control is not None and control._queue is not input_queue:
+            raise ValueError("control must own the controller input queue")
+        self._control = control or _NativeSessionControl(input_queue)
+        self._readiness_port = _ControllerReadinessPort(self._control)
+
+    @property
+    def control(self) -> _NativeSessionControl:
+        """Return the private native control composed for this lifetime."""
+
+        return self._control
+
+    @property
+    def readiness_port(self) -> _ControllerReadinessPort:
+        """Return the unbound post-settlement true-idle publication port."""
+
+        return self._readiness_port
 
     def run_loop(
         self,
@@ -487,6 +712,10 @@ class CodingSessionController:
             )
             if step is not None:
                 return step
+            # The later transport adoption publishes its protocol-idle record
+            # through this private port.  Selection has re-drained and re-polled;
+            # no queue guard is held while a bound callback runs.
+            self._readiness_port.publish()
 
         if read_fresh_line is None:
             return CodingLoopStep.idle(settle_pending=settle_pending)

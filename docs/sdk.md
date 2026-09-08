@@ -454,6 +454,11 @@ the existing coding-effects RLock. Immutable control snapshots report whether a
 reservation is active plus exact steering/follow-up tuples and their pending
 count; the active/reserved item is excluded from pending.
 
+The D5a3a seam is now composed privately with each native controller. Its
+optional one-shot bridge rides the existing private abort/input carrier, so it
+does not create an adapter or SDK option. Current ProductSession and RPC callers
+do not supply or consume it: D5a3b remains the sole adoption point.
+
 Prompt admission, explicit steering/follow-up admission, state observation,
 claim, exact settlement and abort enter the same outer gate before the queue
 guard. Ordinary idle prompt admission creates the reservation; an ordinary

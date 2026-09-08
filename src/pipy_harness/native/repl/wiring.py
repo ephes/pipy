@@ -85,6 +85,7 @@ from pipy_harness.native.coding.session_controller import (
     LoopStepSignal,
     _CallableCodingCommandEffects,
     _CodingSessionLifetime,
+    _NativeSessionControlBridge,
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic
@@ -211,7 +212,9 @@ class SessionWiringInput:
     build_terminal_ui: Callable[..., TerminalUi | None]
     build_repl_input: Callable[..., NativeReplInput]
     coding_state: CodingSessionState
-    abort_event: threading.Event | _AbortCallbackSignal | None
+    abort_event: (
+        threading.Event | _AbortCallbackSignal | _NativeSessionControlBridge | None
+    )
     agent_event_sink: AgentEventSink | None
     automation_observer: AutomationEventSink | None
     clipboard_copy: Callable[..., ClipboardResult]
@@ -250,6 +253,37 @@ class _LoopDelegation:
 class SessionWiring:
     startup_failure: CodingSessionResult | None
     delegation: _LoopDelegation | None
+    control_bridge: _NativeSessionControlBridge | None = None
+
+
+def _control_bridge(inputs: SessionWiringInput) -> _NativeSessionControlBridge | None:
+    """Recognize the private bridge on the established abort/input carrier."""
+
+    return (
+        inputs.abort_event
+        if isinstance(inputs.abort_event, _NativeSessionControlBridge)
+        else None
+    )
+
+
+def _runtime_abort_event(
+    inputs: SessionWiringInput,
+) -> threading.Event | _AbortCallbackSignal | None:
+    """Keep the unadopted bridge out of current provider/extension paths."""
+
+    return (
+        None
+        if isinstance(inputs.abort_event, _NativeSessionControlBridge)
+        else inputs.abort_event
+    )
+
+
+def _publish_bridge_failure(inputs: SessionWiringInput, error: BaseException) -> None:
+    """Unblock a private startup waiter without changing the primary failure."""
+
+    bridge = _control_bridge(inputs)
+    if bridge is not None:
+        bridge.publish_failure(error)
 
 
 @dataclass
@@ -326,15 +360,29 @@ def open_session_lifetime(
             finally:
                 failed.close()
             return
-        with delegation.loop_controller.open_lifetime(
-            finalize=delegation.finalize,
-            fire_session_start=delegation.fire_session_start,
-            fire_session_shutdown=delegation.fire_session_shutdown,
-            consume_settle_pending=delegation.consume_settle_pending,
-            close_extension_session=delegation.close_extension_session,
-            clear_extension_chrome=delegation.clear_extension_chrome,
-        ) as lifetime:
-            yield _PreparedCodingSession(wiring, lifetime)
+        try:
+            with delegation.loop_controller.open_lifetime(
+                finalize=delegation.finalize,
+                fire_session_start=delegation.fire_session_start,
+                fire_session_shutdown=delegation.fire_session_shutdown,
+                consume_settle_pending=delegation.consume_settle_pending,
+                close_extension_session=delegation.close_extension_session,
+                clear_extension_chrome=delegation.clear_extension_chrome,
+            ) as lifetime:
+                if wiring.control_bridge is not None:
+                    wiring.control_bridge.publish_ready(
+                        delegation.loop_controller.control,
+                        delegation.loop_controller.control.abort_view,
+                        delegation.loop_controller.readiness_port,
+                    )
+                yield _PreparedCodingSession(wiring, lifetime)
+        except BaseException as error:
+            if (
+                wiring.control_bridge is not None
+                and wiring.control_bridge.wait_ready(0) is None
+            ):
+                wiring.control_bridge.publish_failure(error)
+            raise
 
 
 @dataclass(frozen=True, slots=True)
@@ -1262,7 +1310,7 @@ def _compose_collaborators(
         extension_notify=_extension_notify,
         mutation_io_lock=coding_effects.lock,
         provider_turn_executor=extension.provider_turn_executor,
-        abort_event=inputs.abort_event,
+        abort_event=_runtime_abort_event(inputs),
     )
 
     # The residual run-loop collaborators (diagnostics, session-name setters,
@@ -1273,7 +1321,7 @@ def _compose_collaborators(
     # `custom_renderer` exist; it reads the run's mutable control state through
     # the shared `ctl` holder so a `/reload` rebind is reflected on next dispatch.
     collaborators = SessionCollaborators(
-        abort_event=inputs.abort_event,
+        abort_event=_runtime_abort_event(inputs),
         clipboard_copy=inputs.clipboard_copy,
         implicit_trust=inputs.implicit_trust,
         provider_state=inputs.provider_state,
@@ -1450,7 +1498,7 @@ def _assemble_session_wiring(
         base_system_prompt=base_system_prompt,
         image_reference_roots=image_reference_roots,
         file_reference_roots=inputs.reference_roots,
-        abort_event=inputs.abort_event,
+        abort_event=_runtime_abort_event(inputs),
         provider_state=inputs.provider_state,
         tool_budget=inputs.tool_budget,
         prompt_history_store=prompt_history_store,
@@ -1505,19 +1553,45 @@ def _assemble_session_wiring(
             else lambda: None
         ),
     )
-    return SessionWiring(startup_failure=None, delegation=delegation)
+    return SessionWiring(
+        startup_failure=None,
+        delegation=delegation,
+        control_bridge=_control_bridge(inputs),
+    )
 
 
 def wire_session(inputs: SessionWiringInput) -> SessionWiring:
     """Compose one session in ordered immutable phases."""
 
     provider_binding = _ProviderMutationBinding()
-    startup = _prepare_startup(inputs)
+    try:
+        startup = _prepare_startup(inputs)
+    except BaseException as error:
+        _publish_bridge_failure(inputs, error)
+        raise
     if isinstance(startup, CodingSessionResult):
-        return SessionWiring(startup_failure=startup, delegation=None)
-    extension = _compose_extension_phase(inputs, startup, provider_binding)
+        _publish_bridge_failure(
+            inputs, RuntimeError("native session composition failed")
+        )
+        return SessionWiring(
+            startup_failure=startup,
+            delegation=None,
+            control_bridge=_control_bridge(inputs),
+        )
+    try:
+        extension = _compose_extension_phase(inputs, startup, provider_binding)
+    except BaseException as error:
+        _publish_bridge_failure(inputs, error)
+        raise
     if isinstance(extension, CodingSessionResult):
-        return SessionWiring(startup_failure=extension, delegation=None)
+        _publish_bridge_failure(
+            inputs, RuntimeError("native session composition failed")
+        )
+        return SessionWiring(
+            startup_failure=extension,
+            delegation=None,
+            control_bridge=_control_bridge(inputs),
+        )
     try:
         product = _compose_product_session(inputs, startup, extension, provider_binding)
         runtime = _compose_runtime_adapters(inputs, startup, extension, product)
@@ -1539,5 +1613,6 @@ def wire_session(inputs: SessionWiringInput) -> SessionWiring:
             commands,
         )
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
+        _publish_bridge_failure(inputs, error)
         raise_first((error, _abort_startup_attachment_nonraising(extension.attachment)))
         raise AssertionError("startup failure did not propagate")

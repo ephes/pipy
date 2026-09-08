@@ -12,8 +12,11 @@ injected ports so the controller's contract is exercised without the monolith.
 from __future__ import annotations
 
 import io
+import threading
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,6 +42,7 @@ from pipy_harness.native.coding.input_queue import (
     CodingInputQueue,
     _ExternalClaim,
     _ExternalReservationToken,
+    _NativeSessionControl,
 )
 from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.session_controller import (
@@ -48,10 +52,15 @@ from pipy_harness.native.coding.session_controller import (
     LoopStepSignal,
     LoopStepSignalKind,
     _CodingSessionLifetime,
+    _ControllerReadinessPort,
+    _NativeControlFailed,
+    _NativeControlReady,
+    _NativeSessionControlBridge,
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.repl import wiring as _wiring
 from pipy_harness.native.tui import TerminalUi
 
 
@@ -1615,3 +1624,213 @@ def test_idle_step_rejects_terminal_payload() -> None:
         CodingLoopStep(CodingLoopStepKind.IDLE, "not empty", False)
     with pytest.raises(ValueError, match="idle step has no keyboard interrupt"):
         CodingLoopStep(CodingLoopStepKind.IDLE, "", False, keyboard_interrupt=True)
+
+
+def test_controller_readiness_port_runs_only_after_settlement_drain_and_repoll() -> (
+    None
+):
+    queue = CodingInputQueue()
+    emitter = _RecordingEmitter()
+    controller, _ = _controller(queue, emitter)
+    order: list[str] = []
+    controller.readiness_port.bind(lambda: order.append("ready"))
+
+    def drain() -> None:
+        order.append("drain")
+
+    step = controller.select_next_step(
+        settle_pending=True,
+        drain_outbox=drain,
+        read_fresh_line=None,
+        input_queued_input_port=None,
+    )
+
+    assert step.kind is CodingLoopStepKind.IDLE
+    assert emitter.settled_calls == 1
+    assert order == ["drain", "drain", "ready"]
+
+
+def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
+    bridge = _NativeSessionControlBridge()
+    with pytest.raises(RuntimeError, match="not ready"):
+        bridge.admit_prompt(ProductContent("too early"))
+    control = _NativeSessionControl(CodingInputQueue())
+    readiness = _ControllerReadinessPort(control)
+    bridge.publish_ready(control, control.abort_view, readiness)
+    outcome = bridge.wait_ready(0)
+    assert type(outcome) is _NativeControlReady
+    assert outcome.control is control
+    with pytest.raises(RuntimeError, match="already published"):
+        bridge.publish_failure(RuntimeError("late"))
+
+    failed = _NativeSessionControlBridge()
+    failed.publish_failure(ValueError("startup"))
+    assert type(failed.wait_ready(0)) is _NativeControlFailed
+    with pytest.raises(RuntimeError, match="already published"):
+        failed.publish_failure(ValueError("duplicate"))
+
+
+def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    admitted = bridge.admit_prompt(ProductContent("run"))
+    assert admitted.reservation is not None
+    claim = bridge.attach_selected_claim(admitted.reservation)
+    assert claim is not None
+    with pytest.raises(RuntimeError, match="already has an attached"):
+        bridge.attach_selected_claim(admitted.reservation)
+    settled = bridge.consume_agent_end(claim)
+    assert settled.reservation is None
+    with pytest.raises(RuntimeError, match="no attached"):
+        bridge.consume_agent_end(claim)
+
+
+def test_control_bridge_foreign_or_mismatched_claim_fails_closed() -> None:
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    admitted = bridge.admit_prompt(ProductContent("run"))
+    assert admitted.reservation is not None
+    claim = bridge.attach_selected_claim(admitted.reservation)
+    assert claim is not None
+    errors: list[BaseException] = []
+
+    def consume_on_foreign_thread() -> None:
+        try:
+            bridge.consume_agent_end(claim)
+        except BaseException as error:  # noqa: BLE001 - asserted below
+            errors.append(error)
+
+    thread = threading.Thread(target=consume_on_foreign_thread)
+    thread.start()
+    thread.join(2)
+    assert not thread.is_alive()
+    assert len(errors) == 1
+    assert "foreign worker" in str(errors[0])
+    # The failed attempt never settles a current-or-successor reservation.
+    assert control.snapshot().reservation is not None
+    with pytest.raises(RuntimeError, match="failed an invariant"):
+        bridge.consume_agent_end(claim)
+
+
+def test_control_bridge_token_mismatch_never_settles_the_attached_claim() -> None:
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    admitted = bridge.admit_prompt(ProductContent("run"))
+    assert admitted.reservation is not None
+    claim = bridge.attach_selected_claim(admitted.reservation)
+    assert claim is not None
+
+    with pytest.raises(RuntimeError, match="does not match"):
+        bridge.consume_agent_end(replace(claim))
+
+    snapshot = control.snapshot()
+    assert snapshot.reservation is not None
+    assert snapshot.reservation.claimed
+
+
+def test_control_bridge_rejects_mismatched_ready_components() -> None:
+    bridge = _NativeSessionControlBridge()
+    first = _NativeSessionControl(CodingInputQueue())
+    second = _NativeSessionControl(CodingInputQueue())
+
+    with pytest.raises(ValueError, match="abort_view"):
+        bridge.publish_ready(first, second.abort_view, _ControllerReadinessPort(first))
+    assert bridge.wait_ready(0) is None
+    with pytest.raises(ValueError, match="readiness_port"):
+        bridge.publish_ready(first, first.abort_view, _ControllerReadinessPort(second))
+    assert bridge.wait_ready(0) is None
+
+
+def test_bridge_admission_racing_fatal_consumption_serializes_before_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    active = bridge.admit_prompt(ProductContent("active"))
+    assert active.reservation is not None
+    claim = bridge.attach_selected_claim(active.reservation)
+    assert claim is not None
+    entered = threading.Event()
+    release = threading.Event()
+    original = CodingInputQueue._admit_external
+
+    def paused_admit(queue, content, kind=None, *, steer_active=False):
+        entered.set()
+        assert release.wait(2)
+        return original(queue, content, kind, steer_active=steer_active)
+
+    monkeypatch.setattr(CodingInputQueue, "_admit_external", paused_admit)
+    admission_errors: list[BaseException] = []
+    fatal_errors: list[BaseException] = []
+
+    def admit() -> None:
+        try:
+            bridge.admit_prompt(ProductContent("queued"))
+        except BaseException as error:  # noqa: BLE001 - asserted below
+            admission_errors.append(error)
+
+    def consume_foreign() -> None:
+        try:
+            bridge.consume_agent_end(claim)
+        except BaseException as error:  # noqa: BLE001 - asserted below
+            fatal_errors.append(error)
+
+    admission = threading.Thread(target=admit)
+    admission.start()
+    assert entered.wait(2)
+    consumer = threading.Thread(target=consume_foreign)
+    consumer.start()
+    release.set()
+    admission.join(2)
+    consumer.join(2)
+    assert not admission.is_alive() and not consumer.is_alive()
+    assert admission_errors == []
+    assert len(fatal_errors) == 1
+    snapshot = control.snapshot()
+    assert snapshot.follow_ups == (ProductContent("queued"),)
+    with pytest.raises(RuntimeError, match="failed an invariant"):
+        bridge.admit_prompt(ProductContent("after fatal"))
+
+
+def test_extension_phase_failure_publishes_bridge_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _NativeSessionControlBridge()
+    failure = LookupError("extension composition failed")
+    monkeypatch.setattr(_wiring, "_prepare_startup", lambda _: object())
+
+    def fail_extension(*_: object) -> object:
+        raise failure
+
+    monkeypatch.setattr(_wiring, "_compose_extension_phase", fail_extension)
+
+    with pytest.raises(LookupError, match="extension composition failed"):
+        _wiring.wire_session(SimpleNamespace(abort_event=bridge))  # type: ignore[arg-type]
+    outcome = bridge.wait_ready(0)
+    assert type(outcome) is _NativeControlFailed
+    assert outcome.error is failure
+
+
+def test_control_bridge_pre_end_failure_settles_exact_claim_and_retires() -> None:
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    admitted = bridge.admit_prompt(ProductContent("run"))
+    assert admitted.reservation is not None
+    claim = bridge.attach_selected_claim(admitted.reservation)
+    assert claim is not None
+    control.admit_prompt(ProductContent("successor"))
+    primary = LookupError("provider failed")
+    retired: list[str] = []
+
+    bridge.cleanup_failed_run(claim, primary, lambda: retired.append("retired"))
+
+    assert retired == ["retired"]
+    snapshot = control.snapshot()
+    assert snapshot.reservation is not None
+    assert snapshot.reservation.content.value == "successor"
+    assert getattr(primary, "__notes__", []) == []

@@ -1024,11 +1024,14 @@ before output, worker wake, callbacks or cancellation signaling. Exact claim
 handles cross the worker boundary as immutable per-run capabilities, not as a
 second queue. Existing `ProductSession` and compatibility SDK behaviors remain
 unchanged, and this control is not public until a later SDK adoption task.
-A private one-shot bridge on the existing abort/input composition side publishes
-ready or failed once, and carries one immutable exact claim from worker selection
-to synchronous run-end settlement. It never substitutes an unnamed current
-reservation; missing, repeated or mismatched use fails closed, while pre-end run
-failure settles the same claim during lifetime retirement.
+A private one-shot bridge on the existing abort/input composition side is
+composed but unadopted: it publishes ready or failed once, and carries one
+immutable exact claim from worker selection to synchronous run-end settlement.
+It never substitutes an unnamed current reservation; missing, repeated or
+mismatched use fails closed, while pre-end run failure settles the same claim
+during lifetime retirement. The controller also exposes its private post-
+extension-settlement/outbox-drain/re-poll readiness port. Neither private port
+changes current selectors or RPC until D5a3b adopts them atomically.
 
 D5a3b binds that control during RPC worker startup before command intake, then
 removes the RPC active flag, payload lanes, abort latch and reservation helpers

@@ -17,6 +17,7 @@ from pipy_harness.native.coding.input_queue import (
     _ExternalAdmissionSnapshot,
     _ExternalReservation,
     _ExternalReservationToken,
+    _NativeSessionControl,
 )
 
 
@@ -438,3 +439,84 @@ def test_invalid_admission_is_rejected_before_mutation() -> None:
             ProductContent("text"), AgentQueuedInputKind.STEERING, steer_active=True
         )
     assert queue._external_admission_snapshot() == before
+
+
+def test_native_control_preserves_literals_and_promotes_exact_claims() -> None:
+    control = _NativeSessionControl(CodingInputQueue())
+    first = ProductContent("/literal\n!shell\n\n")
+    follow = ProductContent("  follow exactly  ")
+    steer = ProductContent("steer\nnext")
+
+    admitted = control.admit_prompt(first)
+    assert admitted.reservation is not None
+    assert admitted.reservation.content is first
+    control.admit_prompt(follow)
+    queued = control.admit_prompt(steer, steer_active=True)
+    assert queued.steering == (steer,)
+    assert queued.follow_ups == (follow,)
+    assert queued.pending_count == 2
+
+    claim = control.claim(admitted.reservation)
+    assert claim is not None and claim.content is first
+    promoted = control.settle(claim)
+    assert promoted.reservation is not None
+    assert promoted.reservation.content is steer
+    assert promoted.pending_count == 1
+
+
+def test_native_control_rejects_stale_exact_claim_without_retiring_successor() -> None:
+    control = _NativeSessionControl(CodingInputQueue())
+    first = control.admit_prompt(ProductContent("first"))
+    assert first.reservation is not None
+    claim = control.claim(first.reservation)
+    assert claim is not None
+    control.admit_prompt(ProductContent("next"))
+    successor = control.settle(claim)
+    assert successor.reservation is not None
+    with pytest.raises(RuntimeError, match="exact settlement"):
+        control.settle(claim)
+    assert control.snapshot().reservation == successor.reservation
+
+
+def test_native_control_abort_signals_after_releasing_queue_guard() -> None:
+    queue = CodingInputQueue(mutation_lock=threading.RLock())
+    control = _NativeSessionControl(queue)
+    admitted = control.admit_prompt(ProductContent("active"))
+    assert admitted.reservation is not None
+    claim = control.claim(admitted.reservation)
+    assert claim is not None
+    control.admit_prompt(ProductContent("steer"), steer_active=True)
+    follow = ProductContent("follow")
+    control.admit_prompt(follow)
+    callback_done = threading.Event()
+
+    def callback() -> None:
+        queue._external_admission_snapshot()
+        callback_done.set()
+
+    unregister = claim._claim.abort_signal.register_cancel_callback(callback)
+    try:
+        snapshot = control.request_abort()
+    finally:
+        unregister()
+    assert snapshot.steering == ()
+    assert snapshot.follow_ups == (follow,)
+    assert callback_done.is_set()
+
+
+def test_claim_attachment_failure_settles_its_exact_token_before_propagating() -> None:
+    control = _NativeSessionControl(CodingInputQueue())
+    admitted = control.admit_prompt(ProductContent("active"))
+    assert admitted.reservation is not None
+    control.admit_prompt(ProductContent("successor"))
+
+    def fail_attach(_: object) -> None:
+        raise LookupError("attachment failed")
+
+    with pytest.raises(LookupError, match="attachment failed"):
+        control._claim_and_attach(admitted.reservation, lambda: None, fail_attach)
+
+    snapshot = control.snapshot()
+    assert snapshot.reservation is not None
+    assert snapshot.reservation.content.value == "successor"
+    assert not snapshot.reservation.claimed

@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** commit the reviewed D5a3a0 shared-control/RPC contract, then
-implement the bounded D5a3a native control seam. RPC code remains gated on the
-later atomic D5a3b migration.
+**Next task:** commit the reviewed D5a3a native control seam, then perform the
+scheduled three-implementation-commit grooming pass before dispatching D5a3b.
+RPC code remains gated on that later atomic migration.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -64,6 +64,23 @@ built without issues. One fresh read-only Terra High implementation review
 returned CLEAN with no findings. This is an independent context and model variant,
 not different-family evidence. D5a2b is the second implementation after D5a0
 grooming.
+
+D5a3a is implemented and reviewed in the worktree. Each native controller now
+composes one transport-neutral control over the queue owner, detached immutable
+snapshots and transitions, a coherent one-shot startup bridge, an exact worker
+claim capability, guard-free abort signaling and a post-extension true-idle
+readiness port. The seam remains private and dormant; RPC, current selectors,
+ProductSession and the compatibility SDK are unchanged. Root validation passed
+131 focused tests and the full 6,019-test gate (two skipped), with lint,
+formatting, Mypy, unchanged interpreter snapshots, docs-build and diff hygiene
+green. Fresh Terra High review R1 found three Critical defects in attachment
+rollback, extension-phase failure publication and bridge-state synchronization,
+plus one Warning for a potentially mixed-owner ready tuple. The bounded repair
+added exact-token cleanup, complete failure publication, one control-gate regime
+and owner validation. Focused R2 returned CLEAN. These are independent contexts
+within the selected Terra model family, not different-family evidence. D5a3a is
+the third implementation after D5a0, so the scheduled grooming pass is due before
+D5a3b.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -525,8 +542,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5a2b | Complete `4c62378`; full checks and first Terra code review CLEAN; D5a2a | Route ordinary `ProductSession.submit/cancel` through existing queue and native lifetime, removing the facade's independent active-latch writer | One token/latch through true idle and extension re-poll, atomic idle-only begin, exact cleanup on every exit, native signal view, unchanged public semantics and import boundaries |
 | D5a2 | Complete at `4c62378`; D5a2b complete | Native/facade adoption milestone, not a separate implementation dispatch | Real product submits use managed ownership; no new public concurrent admission or premature RPC settlement hook |
 | D5a3a0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a2 | Reviewed internal control/readiness and atomic RPC migration contract in SDK/RPC/architecture docs | Independent review and commit before D5a3a; no runtime change or public SDK promise |
-| D5a3a | D5a3a0 committed | Add the transport-neutral native managed-control seam and immutable transitions without RPC activation | One queue owner, exact claims, admission/publication gate, detached truthful snapshots, guard-free signaling/callbacks; existing ProductSession behavior unchanged |
-| D5a3b | D5a3a committed; refresh exact handoff | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | Startup readiness, wake-only transport, exact per-run settlement, post-extension true-idle event, framing/correlation, typed delivery and EOF drain preserved |
+| D5a3a | Complete in this chunk; D5a3a0 committed | Transport-neutral native managed-control seam and immutable transitions without RPC activation | Full checks; Terra R1 3 Critical/1 Warning repaired; focused R2 CLEAN; one queue owner, exact claims, coherent readiness, guard-free signaling; existing ProductSession behavior unchanged |
+| D5a3b | D5a3a committed; scheduled grooming refreshes exact handoff | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | Startup readiness, wake-only transport, exact per-run settlement, post-extension true-idle event, framing/correlation, typed delivery and EOF drain preserved |
 | D5a3 | D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
 | D5a | D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |

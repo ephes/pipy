@@ -160,6 +160,233 @@ class _ExternalAbortSignalView:
         return latch.register_cancel_callback(callback)
 
 
+@dataclass(frozen=True, slots=True)
+class _NativeControlReservation:
+    """Detached reservation projection returned by the native control."""
+
+    token: _ExternalReservationToken
+    content: ProductContent
+    kind: AgentQueuedInputKind | None
+    claimed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _NativeControlSnapshot:
+    """Immutable transport-neutral projection of managed queue state."""
+
+    reservation: _NativeControlReservation | None
+    steering: tuple[ProductContent, ...]
+    follow_ups: tuple[ProductContent, ...]
+
+    @property
+    def pending_count(self) -> int:
+        return len(self.steering) + len(self.follow_ups)
+
+
+@dataclass(frozen=True, slots=True)
+class _NativeRunClaim:
+    """Opaque exact capability carried by one selected native worker run."""
+
+    _claim: _ExternalClaim
+
+    @property
+    def token(self) -> _ExternalReservationToken:
+        return self._claim.token
+
+    @property
+    def content(self) -> ProductContent:
+        return self._claim.content
+
+    @property
+    def kind(self) -> AgentQueuedInputKind | None:
+        return self._claim.kind
+
+
+class _NativeControlAbortView:
+    """Stable, guard-free abort view over a native control's claimed latch."""
+
+    __slots__ = ("_control",)
+
+    def __init__(self, control: "_NativeSessionControl") -> None:
+        self._control = control
+
+    def cancel(self) -> None:
+        self._control.request_abort()
+
+    def is_set(self) -> bool:
+        latch = self._control._capture_claimed_latch()
+        return latch is not None and latch.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        latch = self._control._capture_claimed_latch()
+        return False if latch is None else latch.wait(timeout)
+
+    def register_cancel_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        latch = self._control._capture_claimed_latch()
+        if latch is None:
+            return lambda: None
+        return latch.register_cancel_callback(callback)
+
+
+class _NativeSessionControl:
+    """Private admission/publication gate over one queue-owned managed state.
+
+    This object deliberately contains no product payload, active flag, token, or
+    latch.  It only establishes the outer lock order required by a future
+    transport adoption; :class:`CodingInputQueue` remains the mutable owner.
+    """
+
+    __slots__ = ("_abort_view", "_gate", "_queue")
+
+    def __init__(self, queue: "CodingInputQueue") -> None:
+        if not isinstance(queue, CodingInputQueue):
+            raise TypeError("queue must be a CodingInputQueue")
+        self._gate = threading.RLock()
+        self._queue = queue
+        self._abort_view = _NativeControlAbortView(self)
+
+    @property
+    def abort_view(self) -> _NativeControlAbortView:
+        return self._abort_view
+
+    def admit_prompt(
+        self, content: ProductContent, *, steer_active: bool = False
+    ) -> _NativeControlSnapshot:
+        with self._gate:
+            return _native_control_snapshot(
+                self._queue._admit_external(content, steer_active=steer_active)
+            )
+
+    def admit_queued(
+        self, content: ProductContent, kind: AgentQueuedInputKind
+    ) -> _NativeControlSnapshot:
+        with self._gate:
+            return _native_control_snapshot(self._queue._admit_external(content, kind))
+
+    def snapshot(self) -> _NativeControlSnapshot:
+        with self._gate:
+            return _native_control_snapshot(self._queue._external_admission_snapshot())
+
+    def claim(self, reservation: _NativeControlReservation) -> _NativeRunClaim | None:
+        if type(reservation) is not _NativeControlReservation:
+            raise TypeError("reservation must be a _NativeControlReservation")
+        with self._gate:
+            claim = self._queue._claim_external(reservation.token)
+            return None if claim is None else _NativeRunClaim(claim)
+
+    def _claim_and_attach(
+        self,
+        reservation: _NativeControlReservation,
+        verify_attachable: Callable[[], None],
+        attach: Callable[[_NativeRunClaim], None],
+    ) -> _NativeRunClaim | None:
+        """Claim and attach one worker capability under the publication gate."""
+
+        if type(reservation) is not _NativeControlReservation:
+            raise TypeError("reservation must be a _NativeControlReservation")
+        if not callable(verify_attachable):
+            raise TypeError("verify_attachable must be callable")
+        if not callable(attach):
+            raise TypeError("attach must be callable")
+        with self._gate:
+            verify_attachable()
+            claim = self._queue._claim_external(reservation.token)
+            if claim is None:
+                return None
+            result = _NativeRunClaim(claim)
+            try:
+                attach(result)
+            except BaseException as primary:
+                try:
+                    self._settle_claim_locked(result)
+                except BaseException:  # noqa: BLE001 - preserve attachment failure
+                    primary.add_note("native claim attachment cleanup also failed")
+                raise
+            return result
+
+    def _bridge_admit_prompt(
+        self,
+        content: ProductContent,
+        *,
+        steer_active: bool,
+        verify_authorized: Callable[[], None],
+    ) -> _NativeControlSnapshot:
+        """Admit through a bridge after its fatal-state check under this gate."""
+
+        if not callable(verify_authorized):
+            raise TypeError("verify_authorized must be callable")
+        with self._gate:
+            verify_authorized()
+            return _native_control_snapshot(
+                self._queue._admit_external(content, steer_active=steer_active)
+            )
+
+    def settle(self, claim: _NativeRunClaim) -> _NativeControlSnapshot:
+        if type(claim) is not _NativeRunClaim:
+            raise TypeError("claim must be a _NativeRunClaim")
+        with self._gate:
+            return self._settle_claim_locked(claim)
+
+    def _consume_and_settle(
+        self,
+        claim: _NativeRunClaim,
+        consume: Callable[[], None],
+    ) -> _NativeControlSnapshot:
+        """Clear a bridge-held capability and settle it in one publication turn."""
+
+        if type(claim) is not _NativeRunClaim:
+            raise TypeError("claim must be a _NativeRunClaim")
+        if not callable(consume):
+            raise TypeError("consume must be callable")
+        with self._gate:
+            consume()
+            return self._settle_claim_locked(claim)
+
+    def _settle_claim_locked(self, claim: _NativeRunClaim) -> _NativeControlSnapshot:
+        """Settle exactly one claim while the caller owns the outer gate."""
+
+        settled = self._queue._settle_external(claim.token)
+        if settled is None:
+            raise RuntimeError("native control exact settlement invariant failed")
+        return _native_control_snapshot(settled)
+
+    def _capture_claimed_latch(self) -> _AcceptedAbortSignal | None:
+        with self._gate:
+            return self._queue._capture_external_claimed_latch()
+
+    def request_abort(self) -> _NativeControlSnapshot:
+        """Clear steering under both guards and signal its captured latch after."""
+
+        with self._gate:
+            snapshot, latch = self._queue._prepare_external_abort()
+            result = _native_control_snapshot(snapshot)
+        if latch is not None:
+            latch.set()
+        return result
+
+
+def _native_control_snapshot(
+    snapshot: _ExternalAdmissionSnapshot,
+) -> _NativeControlSnapshot:
+    reservation = snapshot.reservation
+    return _NativeControlSnapshot(
+        reservation=(
+            None
+            if reservation is None
+            else _NativeControlReservation(
+                reservation.token,
+                reservation.content,
+                reservation.kind,
+                reservation.claimed,
+            )
+        ),
+        steering=tuple(snapshot.steering),
+        follow_ups=tuple(snapshot.follow_ups),
+    )
+
+
 _LOCAL_DISPATCH_SOURCES = frozenset(
     {
         CodingInputSource.LOCAL_COMMAND,
@@ -181,6 +408,24 @@ _TYPED_QUEUE_SOURCES = frozenset(
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 _RLOCK_TYPE = type(threading.RLock())
+
+
+def _new_native_control_lock() -> threading.Lock:
+    """Construct a private bridge publication lock without widening imports."""
+
+    return threading.Lock()
+
+
+def _new_native_control_event() -> threading.Event:
+    """Construct a private bridge readiness event without widening imports."""
+
+    return threading.Event()
+
+
+def _native_control_current_thread() -> threading.Thread:
+    """Return worker identity for the private exact-claim bridge."""
+
+    return threading.current_thread()
 
 
 def _guarded_queue_api(
@@ -372,14 +617,21 @@ class CodingInputQueue:
         Callers must enter without already holding the queue mutation guard.
         """
 
-        with self._mutation_lock:
-            self._external_steering.clear()
-            slot = self._external_active_slot
-            latch = None if slot is None else slot.abort_signal
-            snapshot = self._external_snapshot()
+        snapshot, latch = self._prepare_external_abort()
         if latch is not None:
             latch.set()
         return snapshot
+
+    @_guarded_queue_api
+    def _prepare_external_abort(
+        self,
+    ) -> tuple[_ExternalAdmissionSnapshot, _AcceptedAbortSignal | None]:
+        """Clear steering and capture a latch without observing or signaling it."""
+
+        self._external_steering.clear()
+        slot = self._external_active_slot
+        latch = None if slot is None else slot.abort_signal
+        return self._external_snapshot(), latch
 
     @property
     @_guarded_queue_api
