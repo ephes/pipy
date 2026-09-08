@@ -9,35 +9,35 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** scheduled recovery-to-RPC grooming, then the reviewed D5a
-queue/session ownership contract before implementation. D4b3b completes the third
-implementation since D4b0 `6262965`; reconcile summary-safe history, current
-queue/RPC ownership, and a bounded D5a handoff at this phase boundary.
+**Next task:** D5a1 guarded external admission mechanism, after this D5a0
+planning chunk is committed. D5a2 owns the subsequent native/facade activation
+contract; RPC migration cannot start before that contract is accepted.
 
-D4b3b activates canonical private branch execution on D4b3a's committed acceptance
-seam. One frozen request and captured retry policy span attempts; private events,
-deltas and usage stay outside ordinary product projections. Original-work checks
-gate reissue and acceptance, and provider/backoff cancellation uses existing manual
-pending-input settlement. The full runtime gate passed 5,980 tests (two skipped),
-static checks and unchanged interpreter snapshots. PTY smoke passed eight and docs
-built. A later test-only change replaces timed backoff polling with deterministic
-callback registration; its focused test and all static checks passed. Root independently passed 270 focused tests. One complete Opus 5 Medium code
-round closed advisory with three suggestions, no warnings or critical findings.
-The test watchdog was scoped to the branch worker and persistence-exception
-settlement was documented; the optional shared policy converter was declined.
-Local focused/static checks verified those test/docstring-only repairs; runtime
-behavior stayed unchanged. No material finding remains; stop at diminishing returns.
+Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
+guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
+activated canonical private branch retry/cancellation. Their complete Opus 5
+reviews closed advisory, not CLEAN, with no unresolved material findings.
+D4b3b's full runtime check passed 5,980 tests (two skipped), static checks and
+unchanged interpreter snapshots; PTY smoke passed eight and docs built.
+Subsequent test/docstring-only repairs passed focused and static checks.
 
-D4b3a `30d6d33` completed guarded tree/coding acceptance and state-first persistence;
-one complete Opus 5 High round closed advisory with two optional suggestions and
-no warnings or critical findings. D4b2 `836b413` selected the ownership contract;
-D4b1 `9ccb22e` completed semantic-compaction retry. Their advisory outcomes were
-not CLEAN, and no material findings remain.
-
-D4b0 `6262965` was the last scheduled grooming. D4b1, D4b3a and D4b3b complete the
-three-implementation interval. A read-only D5a inspection gathered current source
-and test evidence for the upcoming grooming; it authorized no parallel code or
-new planning file. Earlier D0/D1, D2 and D3 outcomes remain complete. Live-provider
+D5a0 completes the scheduled grooming after those three implementation commits.
+Its full checks passed 5,980 tests (two skipped), static checks, unchanged
+interpreter snapshots and docs-build. One complete Opus 5 High plan round closed
+advisory with five Suggestions and no Warnings/Critical findings. Test/wording
+clarifications and activation lock witnesses were added; a runtime lock-ownership
+assertion was declined for this unadopted internal seam. The explicit guard-free
+abort precondition and activation inventory remain mandatory. No material finding
+remains; stop at diminishing returns.
+Summary-safe D4b search/list and five finalized recovery summaries confirm the
+commit sequence; D2b summaries confirm its public API and cancellation boundary.
+Read-only Sol inspections of `30d6d33`, reconciled against `8c34a9c`, found that
+RPC still owns active/reserved state and queues. Its immediate agent-end/settled
+pair is earlier than controller idle and extension settlement. Moving that pair
+without preserving command serialization would create a false-idle race.
+Therefore D5a is split below: first prove queue transitions in the existing owner,
+then review frontend activation against executable evidence. No new planning file
+or concurrent runtime writer is authorized. D0–D4 remain complete. Live-provider
 dogfooding, budget accuracy and semantic summary quality remain unverified.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
@@ -489,8 +489,12 @@ every listed module. Add a file only when the selected behavior needs it.
 | D4b1 | Complete at `9ccb22e`; full runtime checks and one adjudicated advisory Opus round; D4b0, D1b, D4a3 | Semantic-compaction retry in existing `ProviderMutationEffects`, optional shared policy conversion, focused compaction tests/docs | One captured policy/request/cut; original full compaction witness before reissue and acceptance; private retry events; cancellation and stale work publish nothing; accepted state persists once without rollback |
 | D4b2 | Complete `836b413`; full checks and one adjudicated advisory Opus plan round; D4b1 | Branch-summary capture/conditional-acceptance ownership contract in existing session/tree owners; planning only | Resolve the return-to-append gap, tree/context rebuild and durable append ordering before branch retry code; inventory guarded readers/writers and preserve state-first persistence semantics |
 | D4b3a | Complete `30d6d33`; full checks and one adjudicated advisory Opus code round; D4b2 | Guarded branch-summary capture/acceptance and narrow tree/product acceptance-persistence seam; existing ordinary provider behavior | Reject stale generated text without tree/history/editor mutation; tree/leaf and coding projection accept coherently, branch-bound inputs clear, durable append follows under existing outer ordering; append failure retains accepted state |
-| D4b3b | Complete in this chunk; full checks and one adjudicated advisory Opus code round; D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
-| D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
+| D4b3b | Complete `8c34a9c`; full checks and one adjudicated advisory Opus code round; D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
+| D5a0 | Complete in this chunk; full checks and one advisory Opus plan round; D4b3b, D2b | Scheduled grooming and bounded queue mechanism contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D5a1; later activation decisions explicitly owned |
+| D5a1 | D5a0 committed | Guarded external admission/reservation/abort mechanism in existing `coding/input_queue.py`, focused queue tests and matching docs/release note | Dedicated lanes, exact token claim/settle, one-per-boundary promotion, coherent snapshots, fresh abort latches and callback-outside-guard race tests; no production adoption yet |
+| D5a2 | D5a1 | Review native/session-facade activation contract, then split its implementation here before dispatch | Resolve operation versus run cancellation, literal/command input, rejection/retirement, control readiness and atomic event projection using the inventory below; no broad speculative migration |
+| D5a3 | D5a2 activation committed and RPC contract reviewed | Migrate RPC prompt/queue/abort/state through the shared session controls; remove each old writer with its readers | Preserve protocol framing/correlation, end/settled serialization, one-per-boundary delivery, truthful state, accepted-abort and EOF drain; API/RPC equivalence |
+| D5a | D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
 | D5d | D5a, D4a3 | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
@@ -502,13 +506,59 @@ every listed module. Add a file only when the selected behavior needs it.
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
-session API. D4 recovery is complete in this chunk. D5 queue/RPC adoption follows
-the scheduled grooming and reviewed ownership contract; D7 can move earlier
+session API. D4 recovery is complete at `8c34a9c`. D5 queue/RPC adoption follows
+the D5a0–D5a3 dependency chain; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the
 D5/D7 families share
 `rpc.py`. Read-only investigation of later tasks can proceed during any of them.
+
+### D5a — Refreshed queue ownership basis
+
+D5a0 selects only the planned internal mechanism contract in
+[the SDK specification](sdk.md#planned-d5a1-external-admission-mechanism).
+D5a1 may write `src/pipy_harness/native/coding/input_queue.py`, its focused
+queue test modules, that SDK section and `CHANGELOG.md`; the orchestrator updates
+this index. It must not change `product_api.py`, wiring, controller, RPC or
+canonical execution. Exact immutable value/helper names are implementation choices.
+
+D5a2 must refresh these source/test witnesses before selecting activation:
+
+- `product_api.py::_OperationAbortBridge` captures an exact latch under its lock
+  and signals outside it. `ProductSession.submit` owns one submit-to-idle latch;
+  only cancel is cross-thread. Preserve existing public entry and failure rules.
+- `CodingInputQueue` uses the existing coding-effects RLock for selection and
+  all lanes. Extension clearing affects only extension inputs. Existing external
+  ports may be polled by the active agent loop; new pending external admissions
+  must not become in-turn injection accidentally.
+- `NativeRpcServer` guards active/reserved state, both pending queues, admission,
+  abort clearing, reservation, state snapshots and EOF/drain with its state
+  lock. Reservation pops one item and marks active atomically; reserved content
+  is excluded from pending counts. Abort discards steering but preserves follow-up.
+- RPC `emit` settles/reserves and writes `agent_end` plus optional `agent_settled`
+  under that RPC state lock (other writes use the JSONL writer). Command admission cannot interleave the pair.
+  `AgentRunCompleted` projects synchronously before coding-run witness release
+  and before extension `agent_end` hooks. Controller idle later emits extension
+  settlement and re-polls. These are distinct boundaries; a detached idle
+  snapshot cannot authorize a later public settled line after new admission.
+- Preserve typed slash/shell/newline queue content, current idle prompt parsing,
+  pending/state reporting, callback failure and preflight refusal cleanup,
+  accepted-abort replay and fresh-next-run behavior. Preserve existing bounded
+  EOF drain and once-only close; D6 owns broader lifecycle changes.
+
+Activation must specify readers and writers together, exact lock order, readiness
+publication, wake-only versus payload transport, and retirement of every accepted
+operation. Audit all holders of the shared coding-effects lock for admission/abort
+latency, including existing ordered tree persistence; do not assume the guard is
+held only by queue methods or silently remove durable ordering. Prove each new
+abort entry is called without that guard held, including reentrant callback paths.
+No transport-owned state writer or duplicate queue may survive adoption of its
+shared counterpart. One temporary unadopted mechanism is an explicit dependency,
+not completion of D5a or a second public API. D5b–d and D6 remain blocked on the
+D5a milestone. D7 stays in its existing priority position; no evidence warrants
+reordering it. The next scheduled grooming is after three further implementation
+commits, or earlier if activation evidence changes ownership.
 
 ### D4a — Refreshed retry execution basis
 

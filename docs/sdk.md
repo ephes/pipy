@@ -331,6 +331,59 @@ counts and `isStreaming`, no false-idle admission window, and one true-idle even
 Remove old transport writers as each family migrates; leave framing/correlation
 in RPC. Model/thinking and compaction/retry controls stay D5b–d.
 
+### Planned D5a1 external admission mechanism
+
+This is the reviewed-before-code boundary for D5a1, not an available SDK control
+surface. The existing `CodingInputQueue` will own dedicated external steering
+and follow-up FIFO lanes plus one reserved/active operation under its existing
+coding-effects RLock. It will not reuse extension lanes or add another mutable
+queue owner. All reads, snapshots, admission, claim, settlement and abort capture
+of these fields use that same guard. Immutable results may leave the guard;
+provider execution, cancellation callbacks, frontend output and lifecycle hooks
+must not run inside it.
+
+Admission validates exact immutable content and the closed delivery kind before
+mutation, preserving content including whitespace, slash/shell prefixes and
+newlines. An ordinary idle prompt reserves the active slot; an ordinary prompt
+while active joins its steering lane when requested, otherwise its follow-up
+lane. Explicit steering/follow-up admissions retain that classification even when idle. The reserved request keeps
+an ordinary idle prompt distinguishable from a classified queued prompt; this
+mechanism performs no local command parsing. An idle classified admission
+reserves that admission immediately. Pending counts and lane snapshots exclude
+the reserved item. Each reservation receives an opaque identity tied to this
+queue and a fresh accepted-abort latch. Reservation is already active for state
+reporting; claiming its content once does not create an idle interval.
+
+Only the exact current reservation may be claimed, once. Only its valid claimed
+operation may settle. A stale, foreign, duplicate or unclaimed settlement must
+leave every field unchanged. Successful settlement retires that operation and,
+in the same guarded transition, reserves at most one pending message, steering
+first and FIFO within each lane. Its immutable result reports the next reservation
+or idle from that transition. This result is not authority to emit a later public
+`agent_settled`: D5a2 must specify serialization with concurrent admission first.
+
+Abort atomically discards pending steering, preserves pending follow-up and
+captures the exact current latch, including a not-yet-claimed reservation. It
+signals that latch only after releasing the queue guard; the operation must be
+entered without a caller-held queue guard. The latch is never cleared and reused.
+If settlement promotes another reservation before delayed signaling, only the
+captured old latch is affected. Idle abort does not poison a later admission.
+Aborting a reservation does not discard its accepted content or release the slot;
+its claimant observes cancellation and must eventually settle it. No callbacks
+are registered or invoked while holding the queue guard.
+
+D5a1 is intentionally unadopted: existing selection methods, external ports,
+active-loop delivery, extension clearing and all frontend behavior remain as
+implemented. Tests call the new internal mechanism directly. They must pin
+content/kind identity, concurrent admission versus settlement without false idle,
+claim/settle rejection without mutation, pending counts, abort versus promotion,
+callback execution outside the guard, fresh-next-reservation cancellation and
+extension-lane isolation, steering-first FIFO promotion and harmless idle abort.
+Use deterministic barriers/events rather than timing polls. Later activation owns preflight rejection, failed claim cleanup, readiness,
+EOF/sealing/close and event projection; do not add speculative lifecycle methods
+in D5a1. Full-content values stay private product data and never enter workflow
+archive summaries. Compatibility `run_native` semantics remain unchanged.
+
 D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
 at a time, then removes replaced compatibility surfaces and their dedicated
 implementation/tests when callers are gone. D2 leaves `run_native`,
