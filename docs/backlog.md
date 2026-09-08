@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** implement D5a3b as the atomic RPC adoption of the committed
-native control seam. The exact handoff below includes the stream-driven startup
-and run-boundary connections; do not split the RPC reader/writer migration.
+**Next task:** refresh and implement D5b's bounded RPC model/thinking-control
+handoff against the committed D5a shared-control boundary. Keep model selection
+and provider refresh/trust policy in their existing owner.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -95,6 +95,22 @@ fallback. Focused architecture/doc checks passed 216 tests; the full gate passed
 docs-build. One focused Terra High plan review returned CLEAN with no findings.
 This is same-model-family independent review evidence. No material product-policy
 decision remains open.
+
+D5a3b atomically adopts the native control in RPC. The transport now retains
+framing, correlation, protocol projection, wake/EOF delivery and direct-bash
+state while the native queue/control owns prompt, steering, follow-up, abort,
+reservation, exact claims, settlement, state snapshots and true-idle admission.
+Literal product content no longer crosses line framing, startup publishes ready
+only after `session_start`, and every startup or pre-end failure unblocks and
+settles through the matching native capability. Root validation passed 276
+focused tests and the full 6,022-test gate (two skipped), with lint, formatting,
+Mypy, unchanged interpreter snapshots, docs-build and diff hygiene green. Fresh
+Terra High review R1 found one Critical preparation-failure hang and one Warning
+for stale ownership text. The bounded repair moved preparation inside atomic
+failure publication, added deterministic no-intake coverage and corrected the
+contract; focused R2 returned CLEAN. These are independent contexts within the
+selected Terra model family, not different-family evidence. D5a3 and the D5a
+shared-control milestone are complete; D5b is now eligible.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -557,10 +573,10 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5a2 | Complete at `4c62378`; D5a2b complete | Native/facade adoption milestone, not a separate implementation dispatch | Real product submits use managed ownership; no new public concurrent admission or premature RPC settlement hook |
 | D5a3a0 | Complete `448f2a0`; full checks and focused Terra follow-up CLEAN; D5a2 | Reviewed internal control/readiness and atomic RPC migration contract in SDK/RPC/architecture docs | Independent review and commit before D5a3a; no runtime change or public SDK promise |
 | D5a3a | Complete `65c2015`; full checks and focused Terra follow-up CLEAN; D5a3a0 | Transport-neutral native managed-control seam and immutable transitions without RPC activation | Terra R1 3 Critical/1 Warning repaired; one queue owner, exact claims, coherent readiness, guard-free signaling; existing ProductSession behavior unchanged |
-| D5a3b | Eligible after this reviewed grooming chunk; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | Stream-driven startup readiness, wake/EOF-only transport, exact per-run settlement and failure cleanup, post-extension true-idle event, framing/correlation, typed delivery and EOF drain preserved |
-| D5a3 | D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
-| D5a | D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
-| D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
+| D5a3b | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | 276 focused and 6,022 full tests; stream-driven startup/failure readiness, wake/EOF-only transport, exact settlement, post-extension true idle, framing/correlation, typed delivery and EOF drain preserved |
+| D5a3 | Complete in this chunk; D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
+| D5a | Complete in this chunk; D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
+| D5b | Eligible; D5a complete | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
 | D5d | D5a, D4a3 | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
 | D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
@@ -571,8 +587,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
-session API. D4 recovery is complete at `8c34a9c`. D5 queue/RPC adoption follows
-the D5a0–D5a3 dependency chain; D7 can move earlier
+session API. D4 recovery is complete at `8c34a9c`, and D5a queue/RPC shared-control
+adoption is complete in the current chunk. D5b is the next eligible slice; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the
@@ -588,7 +604,8 @@ queue test modules, that SDK section and `CHANGELOG.md`; the orchestrator update
 this index. It must not change `product_api.py`, wiring, controller, RPC or
 canonical execution. Exact immutable value/helper names are implementation choices.
 
-D5a2 refreshed these source/test witnesses before selecting activation:
+D5a2 refreshed these source/test witnesses before selecting activation. The RPC
+bullets below describe that historical pre-D5a3 baseline:
 
 - `product_api.py::ProductSession` preserves construction-thread entry and
   failure rules while delegating one submit-to-idle claim and cross-thread cancel
@@ -612,18 +629,13 @@ D5a2 refreshed these source/test witnesses before selecting activation:
   accepted-abort replay and fresh-next-run behavior. Preserve existing bounded
   EOF drain and once-only close; D6 owns broader lifecycle changes.
 
-Activation must specify readers and writers together, exact lock order, readiness
-publication, wake-only versus payload transport, and retirement of every accepted
-operation. Audit all holders of the shared coding-effects lock for admission/abort
-latency, including existing ordered tree persistence; do not assume the guard is
-held only by queue methods or silently remove durable ordering. Prove each new
-abort entry is called without that guard held, including reentrant callback paths.
-No transport-owned state writer or duplicate queue may survive adoption of its
-shared counterpart. One temporary unadopted mechanism is an explicit dependency,
-not completion of D5a or a second public API. D5b–d and D6 remain blocked on the
-D5a milestone. D7 stays in its existing priority position; no evidence warrants
-reordering it. The next scheduled grooming is after three further implementation
-commits, or earlier if activation evidence changes ownership.
+D5a3 completed that activation with one reader/writer migration, the reviewed
+outer-gate ordering, wake-only transport and exact retirement of every accepted
+operation. No transport-owned state writer or duplicate queue remains. D5b–d and
+D6 are now unblocked by the D5a milestone. D7 stays in its existing priority
+position; no evidence warrants reordering it. The next scheduled grooming is
+after three further implementation commits, or earlier if implementation evidence
+changes ownership.
 
 ### D5a2 — Ordinary product operation adoption
 

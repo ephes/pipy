@@ -149,8 +149,9 @@ synthetic acceptance tests.
 [JSON Mode](json.md) and [RPC Mode](rpc.md) are the out-of-process headless
 surfaces for process isolation, JSONL framing and mid-turn controls. Product
 embedding, JSON/RPC and `--print` reuse the canonical coding session and agent
-loop. RPC still owns its transport admission, reservations and settlement.
-See [Automation & RPC](automation-rpc.md) for that contract.
+loop. RPC owns transport framing, correlation and projection; native
+queue/control owns RPC admission, reservations, abort and settlement. See
+[Automation & RPC](automation-rpc.md) for that contract.
 
 ## Privacy and storage
 

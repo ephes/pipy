@@ -156,6 +156,8 @@ class _NativeSessionControlBridge:
         "_fatal",
         "_outcome",
         "_outcome_lock",
+        "_pending_selected",
+        "_wake_reader",
         "_worker",
     )
 
@@ -165,7 +167,61 @@ class _NativeSessionControlBridge:
         self._outcome: _NativeControlReady | _NativeControlFailed | None = None
         self._worker: object | None = None
         self._claim: _NativeRunClaim | None = None
+        self._pending_selected: (
+            tuple[ProductContent, AgentQueuedInput | None] | None
+        ) = None
+        self._wake_reader: Callable[[], str] | None = None
         self._fatal = False
+
+    def bind_wake_reader(self, reader: Callable[[], str]) -> None:
+        """Bind the transport's wake/EOF reader before worker startup."""
+
+        if not callable(reader):
+            raise TypeError("wake reader must be callable")
+        with self._outcome_lock:
+            if self._wake_reader is not None:
+                raise RuntimeError("native control bridge wake reader is already bound")
+            self._wake_reader = reader
+
+    def readline(self, *_args: object) -> str:
+        """Wait for a wake, then select one exact native reservation."""
+
+        reader = self._wake_reader
+        if reader is None:
+            raise RuntimeError("native control bridge wake reader is not bound")
+        wake = reader()
+        if wake:
+            raise RuntimeError("native control wake reader returned payload content")
+        ready = self._ready()
+        reservation = ready.control.snapshot().reservation
+        if reservation is None:
+            return ""
+        claim = self.attach_selected_claim(reservation)
+        if claim is None:
+            return ""
+        queued = (
+            None if claim.kind is None else AgentQueuedInput(claim.content, claim.kind)
+        )
+        self._pending_selected = (claim.content, queued)
+        return ""
+
+    def take_next(self) -> AgentQueuedInput | None:
+        """Active-loop polling cannot consume a transport-owned reservation."""
+
+        return None
+
+    def take_selected(
+        self,
+    ) -> tuple[ProductContent, AgentQueuedInput | None] | None:
+        selected = self._pending_selected
+        self._pending_selected = None
+        return selected
+
+    def snapshot(self) -> _NativeControlSnapshot:
+        return self._ready().control.snapshot()
+
+    def publish_if_true_idle(self, publish: Callable[[], None]) -> bool:
+        return self._ready().control.publish_if_true_idle(publish)
 
     def publish_ready(
         self,
@@ -189,6 +245,18 @@ class _NativeSessionControlBridge:
         if not isinstance(error, BaseException):
             raise TypeError("error must be a BaseException")
         self._publish(_NativeControlFailed(error))
+
+    def publish_failure_if_unpublished(self, error: BaseException) -> bool:
+        """Publish a startup failure unless composition already published an outcome."""
+
+        if not isinstance(error, BaseException):
+            raise TypeError("error must be a BaseException")
+        with self._outcome_lock:
+            if self._outcome is not None:
+                return False
+            self._outcome = _NativeControlFailed(error)
+            self._event.set()
+            return True
 
     def _publish(self, outcome: _NativeControlReady | _NativeControlFailed) -> None:
         with self._outcome_lock:
@@ -218,6 +286,19 @@ class _NativeSessionControlBridge:
             verify_authorized=self._require_authorized,
         )
 
+    def request_abort(self) -> _NativeControlSnapshot:
+        return self._ready().control.request_abort()
+
+    def admit_steering(self, content: ProductContent) -> _NativeControlSnapshot:
+        return self._ready().control._bridge_admit_steering(
+            content, self._require_authorized
+        )
+
+    def admit_follow_up(self, content: ProductContent) -> _NativeControlSnapshot:
+        return self._ready().control._bridge_admit_follow_up(
+            content, self._require_authorized
+        )
+
     def attach_selected_claim(
         self, reservation: _NativeControlReservation
     ) -> _NativeRunClaim | None:
@@ -241,6 +322,37 @@ class _NativeSessionControlBridge:
     def consume_agent_end(self, claim: _NativeRunClaim) -> _NativeControlSnapshot:
         ready = self._ready()
         return ready.control._consume_and_settle(claim, lambda: self._consume(claim))
+
+    def consume_attached_agent_end(self) -> _NativeControlSnapshot:
+        claim = self._claim
+        if claim is None:
+            raise RuntimeError("native worker has no claim for agent_end")
+        return self.consume_agent_end(claim)
+
+    def consume_attached_agent_end_and_publish(
+        self, publish: Callable[[_NativeControlSnapshot], None]
+    ) -> _NativeControlSnapshot:
+        if not callable(publish):
+            raise TypeError("publish must be callable")
+        claim = self._claim
+        if claim is None:
+            raise RuntimeError("native worker has no claim for agent_end")
+        ready = self._ready()
+        return ready.control._consume_settle_and_publish(
+            claim, lambda: self._consume(claim), publish
+        )
+
+    def cleanup_attached_failed_run(self, primary: BaseException) -> None:
+        """Settle a pre-end claim while preserving the worker's primary failure."""
+
+        if not isinstance(primary, BaseException):
+            raise TypeError("primary must be a BaseException")
+        if self._claim is None:
+            return
+        try:
+            self.consume_attached_agent_end()
+        except BaseException:  # noqa: BLE001 - preserve the original failure
+            primary.add_note("native control cleanup settlement also failed")
 
     def cleanup_failed_run(
         self,
@@ -519,11 +631,13 @@ class CodingSessionController:
     """
 
     __slots__ = (
+        "_cleanup_failed_run",
         "_coding_state",
         "_control",
         "_emitter",
         "_input_queue",
         "_readiness_port",
+        "_publish_ready",
     )
 
     def __init__(
@@ -547,6 +661,8 @@ class CodingSessionController:
             raise ValueError("control must own the controller input queue")
         self._control = control or _NativeSessionControl(input_queue)
         self._readiness_port = _ControllerReadinessPort(self._control)
+        self._publish_ready: Callable[[], None] | None = None
+        self._cleanup_failed_run: Callable[[BaseException], None] | None = None
 
     @property
     def control(self) -> _NativeSessionControl:
@@ -559,6 +675,22 @@ class CodingSessionController:
         """Return the unbound post-settlement true-idle publication port."""
 
         return self._readiness_port
+
+    def bind_native_control_bridge(self, bridge: _NativeSessionControlBridge) -> None:
+        """Bind the private transport bridge before the stream loop starts."""
+
+        if type(bridge) is not _NativeSessionControlBridge:
+            raise TypeError("bridge must be a _NativeSessionControlBridge")
+        if self._publish_ready is not None or self._cleanup_failed_run is not None:
+            raise RuntimeError("native control bridge is already bound")
+
+        def publish_ready() -> None:
+            bridge.publish_ready(
+                self._control, self._control.abort_view, self._readiness_port
+            )
+
+        self._publish_ready = publish_ready
+        self._cleanup_failed_run = bridge.cleanup_attached_failed_run
 
     def run_loop(
         self,
@@ -617,6 +749,8 @@ class CodingSessionController:
             consume_settle_pending=consume_settle_pending,
             close_extension_session=close_extension_session,
             clear_extension_chrome=clear_extension_chrome,
+            publish_ready=self._publish_ready,
+            cleanup_failed_run=self._cleanup_failed_run,
         ) as lifetime:
             result = lifetime.drive(step_once)
             if result is None:
@@ -633,6 +767,8 @@ class CodingSessionController:
         consume_settle_pending: Callable[[], bool],
         close_extension_session: Callable[[], None],
         clear_extension_chrome: Callable[[], None],
+        publish_ready: Callable[[], None] | None = None,
+        cleanup_failed_run: Callable[[BaseException], None] | None = None,
     ) -> Iterator[_CodingSessionLifetime]:
         """Keep one controller lifetime open across explicit idle yields.
 
@@ -658,8 +794,11 @@ class CodingSessionController:
             consume_settle_pending=consume_settle_pending,
             close_extension_session=close_extension_session,
             clear_extension_chrome=clear_extension_chrome,
+            cleanup_failed_run=cleanup_failed_run,
         )
         fire_session_start()
+        if publish_ready is not None:
+            publish_ready()
         try:
             yield lifetime
         except BaseException:
@@ -864,6 +1003,7 @@ class _CodingSessionLifetime:
     consume_settle_pending: Callable[[], bool]
     close_extension_session: Callable[[], None]
     clear_extension_chrome: Callable[[], None]
+    cleanup_failed_run: Callable[[BaseException], None] | None = None
     closed: bool = False
     result: CodingSessionResult | None = None
 
@@ -940,6 +1080,8 @@ class _CodingSessionLifetime:
                 if signal.kind is LoopStepSignalKind.BREAK:
                     return self.close()
         except BaseException as primary:
+            if self.cleanup_failed_run is not None:
+                self.cleanup_failed_run(primary)
             try:
                 self._retire_lifetime()
             except BaseException:  # noqa: BLE001 - preserve drive failure

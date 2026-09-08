@@ -1847,9 +1847,8 @@ fallback, cumulative totals, and footer/context behavior.
 
 These ports do not move product policy. Terminal and extension queues retain
 their storage and priority; positional seeds retain precedence over extension
-continuations. RPC currently retains its queue reservation, idle transition,
-abort clear, `agent_end`, and `agent_settled` serialization until the atomic
-D5a3b shared-control migration. The agent-facing queue contract
+continuations. Native queue/control owns RPC reservation, idle transition,
+abort, `agent_end` settlement, and `agent_settled` admission. The agent-facing queue contract
 has no enqueue, peek, count, mode, clear, reserve, settle, or lifecycle method.
 It can ask for one already eligible controller-selected item after a run
 settles, and `None` hands control back to the product input lifecycle. Durable
@@ -2558,13 +2557,14 @@ exactly once. Request-only `deliverAs=nextTurn` values are consumed once when
 any provider run is accepted, including fresh input and resource-expanded
 commands.
 
-Terminal and RPC mechanisms remain injected adapters. RPC currently owns
-reservation, active/idle transitions, abort clearing, `queue_update`, and
-protocol `agent_settled` until D5a3b atomically migrates those readers and writers
-to the native queue/control owner; extension activation, lifecycle, rendering, provider
-construction, commands, and product-session writes remain in their existing
-owners. The coding package imports none of those implementation layers and is
-covered by static, recursive, and fresh-process dependency gates.
+Terminal and RPC mechanisms remain injected adapters. The native queue/control
+owns reservation, active/idle transitions, abort clearing, and queue snapshots;
+RPC projects those transitions as `queue_update` and `agent_settled` protocol
+events while retaining framing, correlation, response/event writing, transport
+wake/EOF, and direct-bash ownership. Extension activation, lifecycle, rendering,
+provider construction, commands, and product-session writes remain in their
+existing owners. The coding package imports none of those implementation layers
+and is covered by static, recursive, and fresh-process dependency gates.
 
 ### Headless Coding-Session State
 

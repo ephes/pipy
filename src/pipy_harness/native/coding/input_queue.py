@@ -28,6 +28,7 @@ class CodingInputSource(StrEnum):
     RETAINED_FRESH_INPUT = "retained_fresh_input"
     RETAINED_AGENT_INPUT = "retained_agent_input"
     EXTERNAL_QUEUE = "external_queue"
+    EXTERNAL_PROMPT = "external_prompt"
     POSITIONAL_SEED = "positional_seed"
     EXTENSION_STEERING = "extension_steering"
     EXTENSION_FOLLOW_UP = "extension_follow_up"
@@ -265,6 +266,20 @@ class _NativeSessionControl:
         with self._gate:
             return _native_control_snapshot(self._queue._admit_external(content, kind))
 
+    def _bridge_admit_steering(
+        self, content: ProductContent, verify_authorized: Callable[[], None]
+    ) -> _NativeControlSnapshot:
+        return self._bridge_admit_queued(
+            content, AgentQueuedInputKind.STEERING, verify_authorized
+        )
+
+    def _bridge_admit_follow_up(
+        self, content: ProductContent, verify_authorized: Callable[[], None]
+    ) -> _NativeControlSnapshot:
+        return self._bridge_admit_queued(
+            content, AgentQueuedInputKind.FOLLOW_UP, verify_authorized
+        )
+
     def snapshot(self) -> _NativeControlSnapshot:
         with self._gate:
             return _native_control_snapshot(self._queue._external_admission_snapshot())
@@ -323,6 +338,18 @@ class _NativeSessionControl:
                 self._queue._admit_external(content, steer_active=steer_active)
             )
 
+    def _bridge_admit_queued(
+        self,
+        content: ProductContent,
+        kind: AgentQueuedInputKind,
+        verify_authorized: Callable[[], None],
+    ) -> _NativeControlSnapshot:
+        if not callable(verify_authorized):
+            raise TypeError("verify_authorized must be callable")
+        with self._gate:
+            verify_authorized()
+            return _native_control_snapshot(self._queue._admit_external(content, kind))
+
     def settle(self, claim: _NativeRunClaim) -> _NativeControlSnapshot:
         if type(claim) is not _NativeRunClaim:
             raise TypeError("claim must be a _NativeRunClaim")
@@ -343,6 +370,24 @@ class _NativeSessionControl:
         with self._gate:
             consume()
             return self._settle_claim_locked(claim)
+
+    def _consume_settle_and_publish(
+        self,
+        claim: _NativeRunClaim,
+        consume: Callable[[], None],
+        publish: Callable[[_NativeControlSnapshot], None],
+    ) -> _NativeControlSnapshot:
+        """Settle and project one run boundary under the outer control gate."""
+
+        if type(claim) is not _NativeRunClaim:
+            raise TypeError("claim must be a _NativeRunClaim")
+        if not callable(consume) or not callable(publish):
+            raise TypeError("consume and publish must be callable")
+        with self._gate:
+            consume()
+            snapshot = self._settle_claim_locked(claim)
+            publish(snapshot)
+            return snapshot
 
     def _settle_claim_locked(self, claim: _NativeRunClaim) -> _NativeControlSnapshot:
         """Settle exactly one claim while the caller owns the outer gate."""
@@ -365,6 +410,20 @@ class _NativeSessionControl:
         if latch is not None:
             latch.set()
         return result
+
+    def publish_if_true_idle(self, publish: Callable[[], None]) -> bool:
+        """Publish a transport idle record under the admission gate if still idle."""
+
+        if not callable(publish):
+            raise TypeError("publish must be callable")
+        with self._gate:
+            snapshot = _native_control_snapshot(
+                self._queue._external_admission_snapshot()
+            )
+            if snapshot.reservation is not None or snapshot.pending_count:
+                return False
+            publish()
+            return True
 
 
 def _native_control_snapshot(
@@ -782,6 +841,9 @@ class CodingInputQueue:
         if type(line) is not str:
             raise TypeError("line must be an exact str")
         self._require_no_retained_wake_input()
+        native_selected = self._take_native_control_selected(source, line)
+        if native_selected is not None:
+            return native_selected
         queued_input = source.take_next()
         if queued_input is not None:
             _require_queued_input(queued_input, "external wake queued input")
@@ -862,6 +924,37 @@ class CodingInputQueue:
         if self._retained_external_input is not None:
             raise RuntimeError("an external wake input is already retained")
         self._retained_external_input = (source, queued_input)
+
+    def _take_native_control_selected(
+        self, source: AgentQueuedInputPort, line: str
+    ) -> CodingInputSelection | None:
+        """Take a bridge-held exact selection without line-content framing."""
+
+        take_selected = getattr(source, "take_selected", None)
+        if not callable(take_selected):
+            return None
+        selected = take_selected()
+        if selected is None:
+            return None
+        content, queued_input = selected
+        _require_content(content, "external selected content")
+        if queued_input is not None:
+            _require_queued_input(queued_input, "external selected input")
+            if queued_input.content is not content:
+                raise ValueError(
+                    "external selected input must retain its exact content"
+                )
+        if line:
+            raise RuntimeError("native external wake must not carry line content")
+        return CodingInputSelection(
+            content,
+            (
+                CodingInputSource.EXTERNAL_QUEUE
+                if queued_input is not None
+                else CodingInputSource.EXTERNAL_PROMPT
+            ),
+            queued_input,
+        )
 
     @_guarded_queue_api
     def _retain_fresh_line(self, line: str) -> None:

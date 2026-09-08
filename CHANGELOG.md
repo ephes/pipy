@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- RPC now adopts the native coding-session control atomically. Native queue
+  state owns prompt/steer/follow-up admission, abort, exact claims and
+  settlement; RPC retains LF JSONL framing, correlation, output projection and
+  direct bash. The wake channel carries wake/EOF only, literal product content
+  remains intact, and promoted runs publish `agent_end`, `queue_update`, then
+  the next `agent_start`; protocol idle follows the later true-idle re-poll.
+
 - Ordinary persistent Python product-session submits now use the native coding
   queue's atomic managed-operation claim for the complete submit-to-idle drive,
   including extension settled-hook continuations. The native lifetime settles

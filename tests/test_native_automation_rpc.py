@@ -18,6 +18,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Never
 
 import pytest
 
@@ -34,13 +35,13 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
-    AgentQueuedInputKind,
 )
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.automation.jsonl import JsonlLineBuffer
-from pipy_harness.native.automation.rpc import NativeRpcServer, _PromptChannel
+from pipy_harness.native.automation.rpc import NativeRpcServer, _WakeChannel
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.coding.session_controller import _NativeControlFailed
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
@@ -51,37 +52,6 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tools import ToolPort
-
-
-class _PromptExitBarrierLock:
-    """Pause a prompt after its first state-lock hold is released.
-
-    With the old split-lock prompt path, that first hold only read
-    ``_turn_active``; pausing here let ``agent_end`` settle before the prompt
-    reacquired the lock to enqueue, deterministically stranding it. The fixed
-    path classifies and mutates state during that first hold, so settlement must
-    reserve the prompt instead.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.prompt_first_hold_released = threading.Event()
-        self.allow_prompt_to_continue = threading.Event()
-        self._prompt_paused = False
-
-    def __enter__(self) -> None:
-        self._lock.acquire()
-
-    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
-        self._lock.release()
-        if (
-            threading.current_thread().name == "racing-prompt"
-            and not self._prompt_paused
-        ):
-            self._prompt_paused = True
-            self.prompt_first_hold_released.set()
-            if not self.allow_prompt_to_continue.wait(timeout=5.0):
-                raise AssertionError("prompt barrier was not released")
 
 
 class _CanonicalCollectingSink:
@@ -376,92 +346,112 @@ def test_agent_settled_emitted_after_idle(client) -> None:
     # `agent_settled` is the idle boundary: it is the final line and comes
     # strictly after the run's `agent_end`, with nothing between them.
     assert types[-1] == "agent_settled"
-    assert types[-2] == "agent_end"
+    assert types[-2:] == ["agent_end", "agent_settled"]
     # Pi's `agent_settled` carries no payload fields.
     assert records[-1] == {"type": "agent_settled"}
 
 
-def test_prompt_racing_agent_end_is_reserved_not_stranded(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+def test_post_end_queue_update_precedes_promoted_agent_start(client) -> None:
+    client.send({"id": "p", "type": "prompt", "message": "ROOT"})
+    client.send({"id": "f", "type": "follow_up", "message": "NEXT"})
+    records = client.collect_until(lambda record: record.get("type") == "agent_settled")
+    types = [record["type"] for record in records]
+    first_end = types.index("agent_end")
+    next_start = types.index("agent_start", first_end + 1)
+    assert types[first_end + 1 : next_start] == ["queue_update"]
+
+
+def test_wake_channel_carries_only_wake_and_eof() -> None:
+    channel = _WakeChannel()
+    channel.wake()
+    assert channel.readline() == ""
+    channel.signal_eof()
+    assert channel.readline() == ""
+
+
+def test_startup_failure_rejects_all_provisional_control_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The reader never handles input until a native control publishes ready."""
+
     stdout = io.BytesIO()
     adapter = CodingSessionAdapter(provider=AutomationFakeProvider())
-    tree = NativeSessionTree.create(tmp_path, persist=False)
     server = NativeRpcServer(
         adapter=adapter,
         cwd=tmp_path,
-        native_session=tree,
-        stdin=io.StringIO(),
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=io.StringIO(
+            "\n".join(
+                json.dumps(command)
+                for command in (
+                    {"id": "p", "type": "prompt", "message": "ROOT"},
+                    {"id": "s", "type": "steer", "message": "STEER"},
+                    {"id": "f", "type": "follow_up", "message": "FOLLOW"},
+                    {"id": "a", "type": "abort"},
+                )
+            )
+            + "\n"
+        ),
         stdout_buffer=stdout,
         error_stream=io.StringIO(),
     )
-    server._turn_active = True
-    barrier = _PromptExitBarrierLock()
-    monkeypatch.setattr(server, "_lock", barrier)
+    failure = LookupError("startup failed before ready")
 
-    failures: "queue.Queue[BaseException]" = queue.Queue()
+    def fail_run(*_args: object, **_kwargs: object) -> None:
+        server._bridge.publish_failure(failure)
+        raise failure
 
-    def submit_prompt() -> None:
-        try:
-            server._cmd_prompt("p", {"type": "prompt", "message": "NEXT"})
-        # asserted below
-        except BaseException as exc:  # pragma: no cover  # noqa: BLE001
-            failures.put(exc)
+    monkeypatch.setattr(adapter, "run", fail_run)
 
-    prompt_thread = threading.Thread(
-        target=submit_prompt,
-        name="racing-prompt",
-        daemon=True,
+    assert server.run() == 1
+    assert stdout.getvalue() == b""
+    outcome = server._bridge.wait_ready(0)
+    assert outcome is not None and type(outcome).__name__ == "_NativeControlFailed"
+    with pytest.raises(RuntimeError, match="not ready"):
+        server._bridge.admit_prompt(ProductContent("must not admit"))
+
+
+def test_prepare_failure_publishes_startup_failure_before_command_intake(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A preparation error unblocks startup without reading a provisional prompt."""
+
+    class UnreadableInput(io.StringIO):
+        reads = 0
+
+        def readline(self, size: int | None = -1) -> Never:
+            del size
+            self.reads += 1
+            raise AssertionError("RPC command intake must wait for native readiness")
+
+    stdin = UnreadableInput()
+    stdout = io.BytesIO()
+    adapter = CodingSessionAdapter(provider=AutomationFakeProvider())
+    server = NativeRpcServer(
+        adapter=adapter,
+        cwd=tmp_path,
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=stdin,
+        stdout_buffer=stdout,
+        error_stream=io.StringIO(),
     )
-    prompt_thread.start()
-    assert barrier.prompt_first_hold_released.wait(timeout=5.0)
+    failure = LookupError("prepare failed before ready")
 
-    # The prompt has completed its first state-lock hold. Settlement now runs
-    # before that prompt thread can continue. A split read/append would settle
-    # idle and then strand NEXT; the atomic path has already queued NEXT, so this
-    # boundary reserves it and suppresses agent_settled.
-    settle_thread = threading.Thread(
-        target=lambda: server.emit({"type": "agent_end", "willRetry": False}),
-        daemon=True,
-    )
-    settle_thread.start()
-    settle_thread.join(timeout=5.0)
-    assert not settle_thread.is_alive(), "agent_end settlement deadlocked"
+    def fail_prepare(_request: object) -> object:
+        raise failure
 
-    barrier.allow_prompt_to_continue.set()
-    prompt_thread.join(timeout=5.0)
-    assert not prompt_thread.is_alive(), "prompt remained blocked after settlement"
-    if not failures.empty():
-        raise failures.get()
+    monkeypatch.setattr(adapter, "prepare", fail_prepare)
 
-    records = [json.loads(line) for line in stdout.getvalue().splitlines()]
-    assert [record["type"] for record in records].count("agent_settled") == 0
-    assert records[0]["type"] == "agent_end"
-    with server._lock:
-        assert server._turn_active is True
-        assert server._steering == []
-        assert server._follow_up == []
-    queued = server._channel._q.get_nowait()
-    assert queued is not None
-    assert queued.line == "NEXT\n"
-    assert queued.content == "NEXT"
-    assert queued.kind == "follow_up"
-
-
-def test_prompt_channel_classifies_only_the_just_delivered_line() -> None:
-    channel = _PromptChannel()
-    channel.push("ordinary prompt")
-
-    assert channel.readline() == "ordinary prompt\n"
-    classified = AgentQueuedInput(
-        ProductContent("classified\n\n"),
-        AgentQueuedInputKind.FOLLOW_UP,
-    )
-    channel.push(classified.content.value, kind=classified.kind)
-
-    assert channel.take_next() is None
-    assert channel.take_next() == classified
+    started = time.monotonic()
+    assert server.run() == 1
+    assert time.monotonic() - started < 2.0
+    assert stdin.reads == 0
+    assert stdout.getvalue() == b""
+    outcome = server._bridge.wait_ready(0)
+    assert isinstance(outcome, _NativeControlFailed)
+    assert outcome.error is failure
+    with pytest.raises(RuntimeError, match="not ready"):
+        server._bridge.admit_prompt(ProductContent("must not admit"))
 
 
 def test_prompt_emits_correlated_success_then_event_sequence(client) -> None:
@@ -729,12 +719,11 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     ]
     assert user_messages == ["ROOT", queued_slash, "!rpc-queued-shell"]
     assert shell_calls == []
-    assert taken == [
-        AgentQueuedInput(ProductContent(queued_slash), AgentQueuedInputKind.STEERING),
-        AgentQueuedInput(
-            ProductContent("!rpc-queued-shell"), AgentQueuedInputKind.FOLLOW_UP
-        ),
-    ]
+    assert [
+        event.content.value
+        for event in c.canonical.events
+        if isinstance(event, (SteeringConsumed, FollowUpConsumed))
+    ] == [queued_slash, "!rpc-queued-shell"]
 
     classified_events = [
         event

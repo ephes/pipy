@@ -985,10 +985,9 @@ Two stores serve different purposes and must not be conflated:
 full-content product transports, not workflow-archive channels.
 `native/automation/` owns Pi-shaped event dictionaries, deterministic JSONL,
 one-shot JSON/print drivers, and the long-lived RPC server. RPC additionally
-owns command correlation and its direct bash boundary. Until D5a3b lands it also
-retains the legacy queued-input reservation/settlement and protocol-idle writers;
-the reviewed migration below removes those together rather than creating mixed
-authority.
+owns command correlation and its direct bash boundary. Native queue/control owns
+queued-input reservation/settlement and protocol-idle admission, leaving RPC no
+parallel product-state authority.
 
 `product_api.py` composes one prepared `CodingSessionAdapter` and enters the
 existing native persistent lifetime. `sdk.py` exports that full-content API
@@ -1012,9 +1011,8 @@ The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;
 headless model tools now select the external-abort waiter only when a signal is
 installed. Their canonical worker/completion ordering and bounded cleanup stay
-unchanged, including completed tool effects. RPC currently retains its own latch
-clearing, queue reservations and settlement until the atomic D5a3b adoption; its
-direct bash ownership remains separate.
+unchanged, including completed tool effects. RPC uses the bound native abort
+view and exact queue claims; its direct bash ownership remains separate.
 
 D5a3a adds an internal transport-neutral control over `CodingInputQueue`. The
 control owns only an outer admission/publication gate and stable queue binding;
@@ -1025,13 +1023,13 @@ handles cross the worker boundary as immutable per-run capabilities, not as a
 second queue. Existing `ProductSession` and compatibility SDK behaviors remain
 unchanged, and this control is not public until a later SDK adoption task.
 A private one-shot bridge on the existing abort/input composition side is
-composed but unadopted: it publishes ready or failed once, and carries one
+composed and adopted by RPC: it publishes ready or failed once, and carries one
 immutable exact claim from worker selection to synchronous run-end settlement.
 It never substitutes an unnamed current reservation; missing, repeated or
 mismatched use fails closed, while pre-end run failure settles the same claim
 during lifetime retirement. The controller also exposes its private post-
-extension-settlement/outbox-drain/re-poll readiness port. Neither private port
-changes current selectors or RPC until D5a3b adopts them atomically.
+extension-settlement/outbox-drain/re-poll readiness port. These private ports do
+not change other current selectors.
 
 D5a3b binds that control during RPC worker startup before command intake, then
 removes the RPC active flag, payload lanes, abort latch and reservation helpers

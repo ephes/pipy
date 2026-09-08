@@ -1660,12 +1660,14 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
     outcome = bridge.wait_ready(0)
     assert type(outcome) is _NativeControlReady
     assert outcome.control is control
+    assert bridge.publish_failure_if_unpublished(RuntimeError("late")) is False
     with pytest.raises(RuntimeError, match="already published"):
         bridge.publish_failure(RuntimeError("late"))
 
     failed = _NativeSessionControlBridge()
     failed.publish_failure(ValueError("startup"))
     assert type(failed.wait_ready(0)) is _NativeControlFailed
+    assert failed.publish_failure_if_unpublished(ValueError("duplicate")) is False
     with pytest.raises(RuntimeError, match="already published"):
         failed.publish_failure(ValueError("duplicate"))
 
@@ -1834,3 +1836,42 @@ def test_control_bridge_pre_end_failure_settles_exact_claim_and_retires() -> Non
     assert snapshot.reservation is not None
     assert snapshot.reservation.content.value == "successor"
     assert getattr(primary, "__notes__", []) == []
+
+
+def test_run_loop_pre_end_failure_settles_claim_before_lifetime_retirement() -> None:
+    """A raised worker failure cannot leave its claim for lifetime teardown."""
+
+    queue = CodingInputQueue()
+    controller, emitter = _controller(queue)
+    bridge = _NativeSessionControlBridge()
+    controller.bind_native_control_bridge(bridge)
+    primary = LookupError("provider failed before AgentRunCompleted")
+    retired: list[str] = []
+
+    def step_once() -> LoopStepSignal:
+        admitted = bridge.admit_prompt(ProductContent("claimed run"))
+        assert admitted.reservation is not None
+        assert bridge.attach_selected_claim(admitted.reservation) is not None
+        raise primary
+
+    def fire_shutdown() -> None:
+        snapshot = bridge.snapshot()
+        assert snapshot.reservation is None
+        assert snapshot.pending_count == 0
+        retired.append("shutdown")
+
+    with pytest.raises(LookupError, match="before AgentRunCompleted") as raised:
+        controller.run_loop(
+            step_once=step_once,
+            finalize=_repl_result,
+            fire_session_start=lambda: None,
+            fire_session_shutdown=fire_shutdown,
+            consume_settle_pending=lambda: False,
+            close_extension_session=lambda: retired.append("close"),
+            clear_extension_chrome=lambda: retired.append("chrome"),
+        )
+
+    assert raised.value is primary
+    assert getattr(primary, "__notes__", []) == []
+    assert retired == ["shutdown", "close", "chrome"]
+    assert emitter.settled_calls == 0

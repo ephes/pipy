@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 import pipy_harness.native.repl.loop_step as _repl_loop_step
 import pipy_harness.native.tool_renderers as _tool_renderers
@@ -268,14 +268,15 @@ def _control_bridge(inputs: SessionWiringInput) -> _NativeSessionControlBridge |
 
 def _runtime_abort_event(
     inputs: SessionWiringInput,
+    control: CodingSessionController | None = None,
 ) -> threading.Event | _AbortCallbackSignal | None:
-    """Keep the unadopted bridge out of current provider/extension paths."""
+    """Return the bound native abort view when the private bridge is active."""
 
-    return (
-        None
-        if isinstance(inputs.abort_event, _NativeSessionControlBridge)
-        else inputs.abort_event
-    )
+    if isinstance(inputs.abort_event, _NativeSessionControlBridge):
+        if control is None:
+            return None
+        return cast(threading.Event | _AbortCallbackSignal, control.control.abort_view)
+    return inputs.abort_event
 
 
 def _publish_bridge_failure(inputs: SessionWiringInput, error: BaseException) -> None:
@@ -369,12 +370,6 @@ def open_session_lifetime(
                 close_extension_session=delegation.close_extension_session,
                 clear_extension_chrome=delegation.clear_extension_chrome,
             ) as lifetime:
-                if wiring.control_bridge is not None:
-                    wiring.control_bridge.publish_ready(
-                        delegation.loop_controller.control,
-                        delegation.loop_controller.control.abort_view,
-                        delegation.loop_controller.readiness_port,
-                    )
                 yield _PreparedCodingSession(wiring, lifetime)
         except BaseException as error:
             if (
@@ -435,7 +430,7 @@ class _ProductPhase:
 class _RuntimePhase:
     emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
     usage_publisher: NativeAgentUsagePublisher
-    input_queued_input_port: NativeAgentQueuedInputPort | None
+    input_queued_input_port: AgentQueuedInputPort | None
     coding_input_queue: CodingInputQueue
     loop_controller: CodingSessionController
     custom_renderer: CustomEntryRenderer
@@ -1057,16 +1052,20 @@ def _compose_runtime_adapters(
 
     usage_publisher = NativeAgentUsagePublisher(absorb_session_usage, emitter)
 
-    input_queued_input_source = (
-        input_stream.take_next
-        if isinstance(input_stream, AgentQueuedInputPort)
-        else None
-    )
-    input_queued_input_port = (
-        NativeAgentQueuedInputPort(input_queued_input_source)
-        if input_queued_input_source is not None
-        else None
-    )
+    bridge = _control_bridge(inputs)
+    if bridge is not None:
+        input_queued_input_port: AgentQueuedInputPort | None = bridge
+    else:
+        input_queued_input_source = (
+            input_stream.take_next
+            if isinstance(input_stream, AgentQueuedInputPort)
+            else None
+        )
+        input_queued_input_port = (
+            NativeAgentQueuedInputPort(input_queued_input_source)
+            if input_queued_input_source is not None
+            else None
+        )
 
     def take_terminal_queued_input() -> AgentQueuedInput | None:
         if terminal_ui is not None:
@@ -1112,6 +1111,9 @@ def _compose_runtime_adapters(
         coding_state=coding_state,
         emitter=emitter,
     )
+    bridge = _control_bridge(inputs)
+    if bridge is not None:
+        loop_controller.bind_native_control_bridge(bridge)
 
     # Custom-entry / custom-message rendering and the extension outbox drain
     # live in the component-owned `CustomEntryRenderer` handler (symmetric
@@ -1144,7 +1146,9 @@ def _compose_runtime_adapters(
     return _RuntimePhase(
         emitter=emitter,
         usage_publisher=usage_publisher,
-        input_queued_input_port=input_queued_input_port,
+        input_queued_input_port=cast(
+            NativeAgentQueuedInputPort | None, input_queued_input_port
+        ),
         coding_input_queue=coding_input_queue,
         loop_controller=loop_controller,
         custom_renderer=custom_renderer,
@@ -1310,7 +1314,7 @@ def _compose_collaborators(
         extension_notify=_extension_notify,
         mutation_io_lock=coding_effects.lock,
         provider_turn_executor=extension.provider_turn_executor,
-        abort_event=_runtime_abort_event(inputs),
+        abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
     )
 
     # The residual run-loop collaborators (diagnostics, session-name setters,
@@ -1321,7 +1325,7 @@ def _compose_collaborators(
     # `custom_renderer` exist; it reads the run's mutable control state through
     # the shared `ctl` holder so a `/reload` rebind is reflected on next dispatch.
     collaborators = SessionCollaborators(
-        abort_event=_runtime_abort_event(inputs),
+        abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
         clipboard_copy=inputs.clipboard_copy,
         implicit_trust=inputs.implicit_trust,
         provider_state=inputs.provider_state,
@@ -1498,7 +1502,7 @@ def _assemble_session_wiring(
         base_system_prompt=base_system_prompt,
         image_reference_roots=image_reference_roots,
         file_reference_roots=inputs.reference_roots,
-        abort_event=_runtime_abort_event(inputs),
+        abort_event=_runtime_abort_event(inputs, loop_controller),
         provider_state=inputs.provider_state,
         tool_budget=inputs.tool_budget,
         prompt_history_store=prompt_history_store,
@@ -1506,7 +1510,9 @@ def _assemble_session_wiring(
         agent_tool_policy=agent_tool_policy,
         coding_input_queue=coding_input_queue,
         command_effects=command_effects,
-        input_queued_input_port=input_queued_input_port,
+        input_queued_input_port=cast(
+            NativeAgentQueuedInputPort | None, input_queued_input_port
+        ),
         provider_request_policy=provider_request_policy,
         provider_turn_executor=provider_turn_executor,
         usage_publisher=usage_publisher,

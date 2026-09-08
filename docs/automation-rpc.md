@@ -504,8 +504,8 @@ callback-capable abort latch synchronously signals the active
 `ProviderTurnExecutor` when the RPC boundary accepts the command; callback
 registration completes before that RPC provider turn may start, so an accepted
 abort cannot lose to later provider completion merely because a polling waiter
-woke late. The same serialized RPC boundary still owns active/idle state,
-queue reservation, `agent_settled`, and clearing the latch for the next run. A
+woke late. The native control owns active/idle state, queue reservation,
+`agent_settled` admission, and the fresh latch for the next run. A
 `prompt` sent while a run is active is likewise routed to the observable queue by
 its `streamingBehavior` (`steer` -> steering queue, otherwise the follow-up
 queue) rather than being silently deferred, so it appears in `queue_update`/
@@ -519,14 +519,14 @@ whole value; there is no separate last-kind side channel. Consequently text
 beginning with `/` or `!` is still a provider-visible queued prompt when
 delivered; it never re-enters local slash-command or shell-shortcut dispatch.
 
-### Planned D5a3 shared-control migration
+### D5a3 shared-control adoption
 
-D5a3 replaces the current transport-owned active flag, queues, abort latch and
+D5a3 replaces the former transport-owned active flag, queues, abort latch and
 reservation helpers with the internal native session control specified in
 [`docs/sdk.md`](sdk.md#d5a3-shared-native-control-and-rpc-adoption-contract).
 This is split into a native seam (D5a3a) and one atomic RPC reader/writer
-migration (D5a3b). The current behavior above remains authoritative until D5a3b
-lands; a partial migration must not expose mixed state.
+migration (D5a3b). D5a3b is the atomic adoption point: no RPC payload queue,
+reservation or cancellation latch remains after that migration.
 
 RPC keeps command parsing and correlation, JSONL output, protocol projection,
 the wake/EOF channel and its direct-bash state. The native queue becomes the only

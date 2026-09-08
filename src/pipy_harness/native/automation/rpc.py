@@ -25,25 +25,24 @@ import json
 import queue
 import threading
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.runtime_ports import (
-    AgentQueuedInput,
-    AgentQueuedInputKind,
-)
 from pipy_harness.native.automation.jsonl import (
     JsonlLineBuffer,
     JsonlWriter,
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
-from pipy_harness.native.cancellation import _AcceptedAbortSignal
 from pipy_harness.native.catalog import THINKING_LEVELS
+from pipy_harness.native.coding.session_controller import (
+    _NativeControlReady,
+    _NativeControlSnapshot,
+    _NativeSessionControlBridge,
+)
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
     CommandStatus,
@@ -163,118 +162,27 @@ _KNOWN_COMMANDS = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _QueuedPrompt:
-    """Controller reservation passed from queue policy into channel delivery."""
+class _WakeChannel:
+    """Blocking wake/EOF transport for the native control bridge.
 
-    text: str
-    kind: AgentQueuedInputKind | None
-
-
-@dataclass(frozen=True, slots=True)
-class _PromptChannelItem:
-    """One raw prompt paired with its text-stream line framing."""
-
-    content: str
-    line: str
-    kind: AgentQueuedInputKind | None
-
-
-class _PromptChannel:
-    """Blocking LF line stream feeding prompts to the worker ``run`` loop.
-
-    ``readline`` blocks until a prompt is pushed or EOF is signalled (returns
-    ``""`` so the loop terminates). It quacks like a text stream so the non-TTY
-    REPL input reads it via ``readline``.
+    This channel owns no prompt content or queue classification.  A wake is an
+    empty line; the bridge resolves the matching native reservation separately.
     """
 
     def __init__(self) -> None:
-        self._q: "queue.Queue[_PromptChannelItem | None]" = queue.Queue()
+        self._q: "queue.Queue[bool]" = queue.Queue()
         self._eof = False
-        self._delivery_pending = False
-        self._delivered_queued_input: AgentQueuedInput | None = None
-        self._prefetched_prompt: _PromptChannelItem | None = None
 
-    def push(
-        self,
-        text: str,
-        *,
-        kind: AgentQueuedInputKind | None = None,
-    ) -> None:
-        line = text if text.endswith("\n") else text + "\n"
-        self._q.put(_PromptChannelItem(text, line, kind))
+    def wake(self) -> None:
+        self._q.put(False)
 
     def signal_eof(self) -> None:
         if not self._eof:
             self._eof = True
-            self._q.put(None)
+            self._q.put(True)
 
     def readline(self, *_args: Any) -> str:
-        item = self._prefetched_prompt
-        if item is None:
-            item = self._q.get()
-        else:
-            self._prefetched_prompt = None
-        if item is None:
-            self._delivery_pending = False
-            self._delivered_queued_input = None
-            self._q.put(None)  # re-arm EOF for any later readline
-            return ""
-        self._delivery_pending = True
-        self._delivered_queued_input = (
-            AgentQueuedInput(ProductContent(item.content), item.kind)
-            if item.kind is not None
-            else None
-        )
-        return item.line
-
-    def take_next(self) -> AgentQueuedInput | None:
-        if self._delivery_pending:
-            self._delivery_pending = False
-            queued_input = self._delivered_queued_input
-            self._delivered_queued_input = None
-            return queued_input
-        if self._prefetched_prompt is not None:
-            return None
-        try:
-            item = self._q.get_nowait()
-        except queue.Empty:
-            return None
-        if item is None:
-            self._q.put(None)
-            return None
-        if item.kind is None:
-            self._prefetched_prompt = item
-            return None
-        return AgentQueuedInput(
-            ProductContent(item.content),
-            item.kind,
-        )
-
-    def read(self, *_args: Any) -> str:
-        return self.readline()
-
-    def isatty(self) -> bool:
-        return False
-
-    def readable(self) -> bool:
-        return True
-
-    def writable(self) -> bool:
-        return False
-
-    def seekable(self) -> bool:
-        return False
-
-    def close(self) -> None:
-        return None
-
-    @property
-    def closed(self) -> bool:
-        return False
-
-    def fileno(self) -> int:
-        raise OSError("prompt channel has no fileno")
+        return "" if self._q.get() else ""
 
 
 class _NullEventSink:
@@ -304,14 +212,12 @@ class NativeRpcServer:
         self._writer = JsonlWriter(stdout_buffer)
         self._error = error_stream
 
-        self._channel = _PromptChannel()
-        self._abort = _AcceptedAbortSignal()
+        self._channel = _WakeChannel()
+        self._bridge = _NativeSessionControlBridge()
+        self._bridge.bind_wake_reader(self._channel.readline)
         self._lock = threading.Lock()
-        self._turn_active = False
         self._steering_mode = "all"
         self._follow_up_mode = "all"
-        self._steering: list[str] = []
-        self._follow_up: list[str] = []
         self._last_assistant_text: str | None = None
         self._auto_compaction = True
         self._auto_retry = True
@@ -325,10 +231,7 @@ class NativeRpcServer:
     # -- event tap (called from the worker thread) -----------------------
     def emit(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
-        if event_type == "agent_start":
-            with self._lock:
-                self._turn_active = True
-        elif event_type == "message_end":
+        if event_type == "message_end":
             message = event.get("message") or {}
             if message.get("role") == "assistant":
                 text = "".join(
@@ -342,101 +245,22 @@ class NativeRpcServer:
             # Async session events are fire-and-forget through the single writer.
             self._writer.write_line(event)
             return
-        # On the run boundary, settle state and reserve the next queued message
-        # BEFORE the agent_end line hits the wire, so a client that observes
-        # agent_end and immediately calls get_state sees the settled boundary
-        # (isStreaming false when idle, or true when the next queued run is
-        # already reserved) — never a stale in-flight state. The actual delivery
-        # (queue_update + channel push) happens AFTER agent_end so agent_end stays
-        # the clean boundary that precedes the next run's events.
-        #
-        # Pi emits a single `agent_settled` in `_runAgentPrompt`'s finally, after
-        # the run's final `agent_end`, once the agent is idle (all queued
-        # steer/follow-up drained in-turn). pipy delivers one queued message per
-        # run boundary as a *separate* run, so the faithful boundary is: emit
-        # `agent_settled` after `agent_end` only when this boundary settled to
-        # true idle — `reserved is None`, i.e. nothing was promoted to run next.
-        # When a queued message is reserved a new run continues, so — like Pi —
-        # no `agent_settled` is emitted between the two runs.
-        #
-        # The settle transition, the `agent_end` write, and the `agent_settled`
-        # write all happen under `self._lock` so a concurrent `prompt`/`steer`/
-        # `follow_up` — which take the same lock to accept a run and write their
-        # response — cannot slip a new run's acceptance between `agent_end` and
-        # `agent_settled`. That would strand a stale `agent_settled` after the new
-        # run's events and mislead `waitForIdle` clients. Pi emits the pair
-        # atomically for the same reason. Delivery of any reserved message
-        # (`_deliver`, which re-takes the lock) stays outside the hold.
-        with self._lock:
-            self._abort.clear()
-            reserved = self._reserve_next_message_locked(settled=True)
+
+        def publish(snapshot: _NativeControlSnapshot) -> None:
             self._writer.write_line(event)
-            if reserved is None:
-                self._writer.write_line({"type": "agent_settled"})
-        if reserved is not None:
-            self._deliver(reserved)
+            if snapshot.reservation is not None:
+                self._emit_queue_update(snapshot)
 
-    def _reserve_next_message(self, *, settled: bool) -> _QueuedPrompt | None:
-        """Atomically settle the run (if any) and reserve the next queued message.
-
-        pipy promotes a queued ``steer``/``follow_up`` message to run after the
-        current run settles, **one message per turn boundary, steering first**
-        (follow-up only once steering is empty). Settling (``_turn_active`` ->
-        False on ``settled=True``) and reserving the next message (pop one +
-        ``_turn_active`` -> True) happen under a single lock, so there is never a
-        window where the run is marked idle while messages are still queued — a
-        `prompt` racing the boundary either sees the active/reserved run (and is
-        routed to the queue) or the post-reservation state, never jumps ahead of
-        queued steering. The queues stay the single truthful source for
-        ``pendingMessageCount``/``queue_update``; nothing is bulk-pushed behind
-        the queue's back, and ``abort`` can still discard steering that has not
-        been started yet. ``steeringMode``/``followUpMode`` are accepted and
-        reported in state, but delivery is uniformly one-per-boundary (a
-        documented simplification of Pi's in-turn injection).
-
-        Returns the reserved message (caller then calls ``_deliver``) or ``None``.
-        ``settled=True`` is the just-ended run's ``agent_end`` boundary;
-        ``settled=False`` is an enqueue while no run is in flight.
-        """
-
-        with self._lock:
-            return self._reserve_next_message_locked(settled=settled)
-
-    def _reserve_next_message_locked(self, *, settled: bool) -> _QueuedPrompt | None:
-        """``_reserve_next_message`` core; caller must hold ``self._lock``.
-
-        Split out so the ``agent_end`` boundary can settle/reserve and write the
-        ``agent_end``/``agent_settled`` lifecycle pair under a single lock hold
-        (see ``emit``), keeping the whole idle transition atomic.
-        """
-
-        if settled:
-            self._turn_active = False
-        if self._turn_active:
-            return None
-        if self._steering:
-            message = self._steering.pop(0)
-            kind = AgentQueuedInputKind.STEERING
-        elif self._follow_up:
-            message = self._follow_up.pop(0)
-            kind = AgentQueuedInputKind.FOLLOW_UP
-        else:
-            return None
-        # The reserved run is active from this moment (accept time), not only
-        # once the worker later emits agent_start.
-        self._turn_active = True
-        return _QueuedPrompt(message, kind)
-
-    def _deliver(self, message: _QueuedPrompt) -> None:
-        self._emit_queue_update()
-        self._channel.push(message.text, kind=message.kind)
+        snapshot = self._bridge.consume_attached_agent_end_and_publish(publish)
+        if snapshot.reservation is not None:
+            self._channel.wake()
 
     # -- lifecycle -------------------------------------------------------
     def run(self) -> int:
         self._adapter.native_session = self._tree
         self._adapter.automation_observer = self
-        self._adapter.abort_event = self._abort
-        self._adapter.input_stream = self._channel
+        self._adapter.abort_event = self._bridge
+        self._adapter.input_stream = self._bridge
         import io as _io
 
         self._adapter.output_stream = _io.StringIO()
@@ -444,7 +268,19 @@ class NativeRpcServer:
 
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._worker.start()
+        ready = False
         try:
+            outcome = self._bridge.wait_ready(120.0)
+            if outcome is None:
+                raise RuntimeError("native RPC startup timed out")
+            if not isinstance(outcome, _NativeControlReady):
+                print(
+                    f"pipy: rpc startup failed: {type(outcome.error).__name__}",
+                    file=self._error,
+                )
+                return 1
+            outcome.readiness_port.bind(self._publish_true_idle)
+            ready = True
             self._read_loop()
         finally:
             # Drain the active turn and any queued steer/follow-up BEFORE
@@ -453,7 +289,8 @@ class NativeRpcServer:
             # EOF sentinel ahead of a reserved queued message and drop it. Batch
             # clients (submit commands, then close stdin) therefore still get
             # their queued steering/follow-up runs delivered.
-            self._await_drain(timeout=120.0)
+            if ready:
+                self._await_drain(timeout=120.0)
             self._channel.signal_eof()
             if self._worker is not None:
                 self._worker.join(timeout=10.0)
@@ -479,9 +316,8 @@ class NativeRpcServer:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
-                idle = (
-                    not self._turn_active and not self._steering and not self._follow_up
-                )
+                snapshot = self._bridge.snapshot()
+                idle = snapshot.reservation is None and snapshot.pending_count == 0
             if idle:
                 return
             time.sleep(0.02)
@@ -494,13 +330,14 @@ class NativeRpcServer:
             cwd=self._cwd,
             capture_policy=CapturePolicy(),
         )
-        prepared = self._adapter.prepare(request)
         try:
+            prepared = self._adapter.prepare(request)
             self._adapter.run(
                 prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy()
             )
         # never crash stdout
-        except Exception as exc:  # pragma: no cover  # noqa: BLE001
+        except BaseException as exc:  # noqa: BLE001 - retain the startup primary
+            self._bridge.publish_failure_if_unpublished(exc)
             print(f"pipy: rpc worker ended: {type(exc).__name__}", file=self._error)
 
     def _read_loop(self) -> None:
@@ -577,12 +414,22 @@ class NativeRpcServer:
             record = {"id": cid, **record}
         self._writer.write_line(record)
 
-    def _emit_queue_update(self) -> None:
-        with self._lock:
-            steering = list(self._steering)
-            follow_up = list(self._follow_up)
+    def _emit_queue_update(
+        self, snapshot: _NativeControlSnapshot | None = None
+    ) -> None:
+        if snapshot is None:
+            snapshot = self._bridge.snapshot()
         self._writer.write_line(
-            {"type": "queue_update", "steering": steering, "followUp": follow_up}
+            {
+                "type": "queue_update",
+                "steering": [content.value for content in snapshot.steering],
+                "followUp": [content.value for content in snapshot.follow_ups],
+            }
+        )
+
+    def _publish_true_idle(self) -> None:
+        self._bridge.publish_if_true_idle(
+            lambda: self._writer.write_line({"type": "agent_settled"})
         )
 
     # -- prompting / run control ----------------------------------------
@@ -591,57 +438,26 @@ class NativeRpcServer:
         if not isinstance(message, str) or not message:
             self._respond_error(cid, "prompt", "prompt requires a non-empty message")
             return
-        behavior = command.get("streamingBehavior")
-        with self._lock:
-            if self._turn_active:
-                # Classify and enqueue under the same lock hold as the active
-                # check. Otherwise agent_end could settle between the read and
-                # append, leaving this prompt stranded behind a false
-                # agent_settled with no run left to drain it.
-                if behavior == "steer":
-                    self._steering.append(message)
-                else:
-                    self._follow_up.append(message)
-                queued = True
-            else:
-                # Idle: mark the run active synchronously (accept time) so an
-                # immediately following abort/steer/follow_up/get_state sees the
-                # in-flight run rather than racing the worker's later
-                # agent_start.
-                self._turn_active = True
-                queued = False
-
-        # Responses, queue snapshots, and channel delivery stay outside the
-        # state lock. The classification and mutation above are authoritative;
-        # agent_end can now either reserve the queued prompt or finish settling
-        # before a newly active prompt is delivered, but it cannot strand one.
+        snapshot = self._bridge.admit_prompt(
+            ProductContent(message),
+            steer_active=command.get("streamingBehavior") == "steer",
+        )
         self._respond(cid, "prompt")
-        if queued:
-            # A prompt sent during an active run is routed through the observable
-            # queue (Pi's streamingBehavior: steer -> steering, otherwise
-            # follow-up) rather than silently deferred: it shows up in
-            # queue_update / pendingMessageCount and drains after the current run
-            # settles. Without this, a mid-run prompt would be an invisible
-            # queued turn.
-            self._emit_queue_update()
-            return
-        self._channel.push(message)
+        if snapshot.pending_count:
+            self._emit_queue_update(snapshot)
+        if snapshot.reservation is not None and not snapshot.reservation.claimed:
+            self._channel.wake()
 
     def _cmd_steer(self, cid: str | None, command: dict[str, Any]) -> None:
         message = command.get("message")
         if not isinstance(message, str) or not message:
             self._respond_error(cid, "steer", "steer requires a non-empty message")
             return
-        with self._lock:
-            self._steering.append(message)
-            active = self._turn_active
+        snapshot = self._bridge.admit_steering(ProductContent(message))
         self._respond(cid, "steer")
-        self._emit_queue_update()
-        if not active:
-            # No run in flight: deliver immediately rather than leaving it queued.
-            reserved = self._reserve_next_message(settled=False)
-            if reserved is not None:
-                self._deliver(reserved)
+        self._emit_queue_update(snapshot)
+        if snapshot.reservation is not None and not snapshot.reservation.claimed:
+            self._channel.wake()
 
     def _cmd_follow_up(self, cid: str | None, command: dict[str, Any]) -> None:
         message = command.get("message")
@@ -650,32 +466,18 @@ class NativeRpcServer:
                 cid, "follow_up", "follow_up requires a non-empty message"
             )
             return
-        with self._lock:
-            self._follow_up.append(message)
-            active = self._turn_active
+        snapshot = self._bridge.admit_follow_up(ProductContent(message))
         self._respond(cid, "follow_up")
-        self._emit_queue_update()
-        if not active:
-            reserved = self._reserve_next_message(settled=False)
-            if reserved is not None:
-                self._deliver(reserved)
+        self._emit_queue_update(snapshot)
+        if snapshot.reservation is not None and not snapshot.reservation.claimed:
+            self._channel.wake()
 
     def _cmd_abort(self, cid: str | None, command: dict[str, Any]) -> None:
-        # Only signal an abort when a turn is actually in flight. The abort event
-        # is cleared on agent_end, so setting it while idle would poison the next
-        # prompt (its turn would cancel immediately). Idle abort is a no-op.
-        # Queued steering targeted the run being aborted, so it is discarded
-        # (follow-ups, which are meant to run after, are kept); the change is
-        # observable via queue_update.
-        with self._lock:
-            active = self._turn_active
-            had_steering = bool(self._steering)
-            self._steering = []
-            if active:
-                self._abort.set()
+        before = self._bridge.snapshot()
+        snapshot = self._bridge.request_abort()
         self._respond(cid, "abort")
-        if had_steering:
-            self._emit_queue_update()
+        if snapshot.steering != before.steering:
+            self._emit_queue_update(snapshot)
 
     def _cmd_abort_bash(self, cid: str | None, command: dict[str, Any]) -> None:
         # RPC `bash` runs on a worker thread through the bounded, secret-scrubbing
@@ -795,11 +597,11 @@ class NativeRpcServer:
     def _cmd_get_state(self, cid: str | None, command: dict[str, Any]) -> None:
         provider, model_id = self._selection()
         messages = self._messages()
-        with self._lock:
-            streaming = self._turn_active
-            pending = len(self._steering) + len(self._follow_up)
-            steering_mode = self._steering_mode
-            follow_up_mode = self._follow_up_mode
+        snapshot = self._bridge.snapshot()
+        streaming = snapshot.reservation is not None
+        pending = snapshot.pending_count
+        steering_mode = self._steering_mode
+        follow_up_mode = self._follow_up_mode
         tree_path = getattr(self._tree, "path", None)
         self._respond(
             cid,
