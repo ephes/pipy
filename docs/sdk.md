@@ -333,7 +333,7 @@ counts and `isStreaming`, no false-idle admission window, and one true-idle even
 Remove old transport writers as each family migrates; leave framing/correlation
 in RPC. Model/thinking and compaction/retry controls stay D5b–d.
 
-### Planned D5a1 external admission mechanism
+### D5a1 external admission mechanism
 
 This internal D5a1 mechanism is implemented but remains unavailable as an SDK
 control surface. The existing `CodingInputQueue` owns dedicated external steering
@@ -441,6 +441,108 @@ Compatibility `run_native`, RPC's current queue/latch/event behavior and private
 workflow-archive boundaries remain.
 D5a3 owns concurrent control exposure and its distinct per-run RPC settlement
 contract; this operation seam does not authorize public event emission.
+
+### D5a3 shared native control and RPC adoption contract
+
+D5a3 is split so the native control seam can be proved before RPC adopts it.
+D5a3a adds one internal, transport-neutral control over the existing
+`CodingInputQueue`; it does not add a supported concurrent method to
+`ProductSession` or change the compatibility SDK. The control owns an outer
+admission/publication gate and a stable queue reference, but no parallel active
+flag, payload list, token slot or cancellation latch. Queue state remains under
+the existing coding-effects RLock. Immutable control snapshots report whether a
+reservation is active plus exact steering/follow-up tuples and their pending
+count; the active/reserved item is excluded from pending.
+
+Prompt admission, explicit steering/follow-up admission, state observation,
+claim, exact settlement and abort enter the same outer gate before the queue
+guard. Ordinary idle prompt admission creates the reservation; an ordinary
+prompt during an active operation uses steering only for an explicit steer
+behavior and otherwise follows up. Explicit steering/follow-up retain their kind
+when idle. Values preserve exact `ProductContent`, including leading/trailing
+whitespace, slash/shell prefixes and newlines. The control returns detached
+snapshots or transitions; transport callers never receive a mutable lane or
+latch.
+
+The worker bridge claims the exact reservation before provider execution and
+retains that claim as the per-run settlement capability. Settlement retires
+only that token and promotes at most one successor atomically, steering first
+and FIFO. The bridge may temporarily carry the immutable claim and selected
+content; it must not create another payload queue or reconstruct content from
+line framing.
+
+D5a3a defines one private, one-shot startup/run bridge carried through the
+existing pre-composition abort-input side rather than adding a public adapter
+option. After successful native composition and session start, wiring publishes
+the exact `(control, stable abort view, readiness port)` once and unblocks the
+waiting frontend. Startup failure publishes one failure outcome and also
+unblocks it; success-after-failure, failure-after-success and repeated publish
+refuse. No prompt may be admitted before that outcome.
+
+On the worker thread, the bridge claims one exact reservation at wake selection,
+attaches that immutable claim to the selected run, and refuses another claim
+until the run closes. The synchronous `agent_end` observer consumes and clears
+that same claim exactly once under the publication gate before settlement.
+Missing, duplicate, foreign-thread or token-mismatched consumption is a fatal
+invariant failure, never permission to settle whichever reservation is current.
+If a claimed run exits before `AgentRunCompleted`, worker/lifetime cleanup
+consumes and settles the same claim once, preserves the primary exception with a
+bounded cleanup note, and retires the lifetime. The bridge holds no independent
+active flag or cancellation latch; its claim slot is only the run-scoped
+capability for the queue-owned reservation.
+
+D5a3a also defines the controller readiness port for the point after extension
+settlement, outbox drain and re-poll, but does not activate RPC or expose managed
+lanes to current selectors. D5a3b wires that port into the existing loop step.
+
+Lock order is the control admission/publication gate, then the existing
+coding-effects RLock. No code may acquire the outer gate while retaining that
+inner lock. Release the queue lock before JSONL output, worker wake, provider or
+filesystem work, extension callbacks, latch observation/signaling, or callback
+registration/invocation. Abort clears pending steering and captures the exact
+current latch under the queue guard, then releases both guards before signaling.
+Follow-ups remain. A delayed old signal therefore cannot affect a promoted or
+later reservation. The coding-effects lock also orders session-tree writes, so
+implementation must audit all new entry paths rather than assume only queue
+methods take it.
+
+D5a3b migrates RPC admission, state, abort and run-boundary settlement as one
+reader/writer change. Before accepting control commands, the RPC worker must
+successfully compose its native lifetime and publish the bound control, abort
+view and true-idle readiness port through a one-shot readiness handshake. A
+startup failure produces the existing bounded failure/teardown outcome; no
+provisional transport queue or latch may accept content first.
+
+At canonical `AgentRunCompleted`, the exact worker claim is settled and the
+`agent_end` record is written while holding the outer publication gate, after
+the queue guard has been released. If settlement promotes a successor, do not
+emit protocol `agent_settled`; write `agent_end`, project one `queue_update` from
+the post-promotion snapshot, release the gate and then wake the worker. The next
+`agent_start` follows that wake. Public `agent_settled` comes only from the later controller
+readiness callback after extension settlement and re-poll found no work. That
+callback re-enters the publication gate and rechecks the queue: admission first
+suppresses the stale idle record, while idle publication first serializes before
+the next command is accepted. This transport event remains distinct from the
+extension hook.
+
+RPC deletes its `_turn_active`, `_steering`, `_follow_up`, `_abort` and
+reservation helpers together with every reader. `get_state` and `queue_update`
+project detached native snapshots. Its input channel becomes wake/EOF-only;
+framing, correlation, the JSONL writer and direct-bash state stay transport-owned.
+EOF stops intake, waits for native active/pending work using the existing bounded
+drain, signals channel EOF once, and preserves current worker/bash joins. This
+slice introduces no public close/seal policy.
+
+Tests must pin startup-ready admission, both admission/run-end interleavings,
+claim before provider work, exact per-run settlement, one-per-boundary
+steering-first FIFO delivery, literal typed content, abort before claim/during
+provider or model-tool work/after old settlement, truthful snapshots, and
+readiness racing admission. An extension settled-hook continuation must not
+produce an intervening protocol idle line. Preserve existing LF-only framing,
+response correlation, prompt-success-before-run-events, queue-update visibility,
+EOF drain and cleanup tests. D5b model/thinking, D5c compaction, D5d retry, D6
+session replacement/public lifecycle, D7 bash cancellation and true in-turn
+message injection remain separate tasks.
 
 D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
 at a time, then removes replaced compatibility surfaces and their dedicated

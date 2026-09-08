@@ -985,8 +985,10 @@ Two stores serve different purposes and must not be conflated:
 full-content product transports, not workflow-archive channels.
 `native/automation/` owns Pi-shaped event dictionaries, deterministic JSONL,
 one-shot JSON/print drivers, and the long-lived RPC server. RPC additionally
-owns command correlation, queued-input reservation/settlement, true-idle
-notification, and its direct bash boundary.
+owns command correlation and its direct bash boundary. Until D5a3b lands it also
+retains the legacy queued-input reservation/settlement and protocol-idle writers;
+the reviewed migration below removes those together rather than creating mixed
+authority.
 
 `product_api.py` composes one prepared `CodingSessionAdapter` and enters the
 existing native persistent lifetime. `sdk.py` exports that full-content API
@@ -1010,8 +1012,33 @@ The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;
 headless model tools now select the external-abort waiter only when a signal is
 installed. Their canonical worker/completion ordering and bounded cleanup stay
-unchanged, including completed tool effects. RPC retains its own latch clearing,
-queue reservations, settlement and direct bash ownership.
+unchanged, including completed tool effects. RPC currently retains its own latch
+clearing, queue reservations and settlement until the atomic D5a3b adoption; its
+direct bash ownership remains separate.
+
+D5a3a adds an internal transport-neutral control over `CodingInputQueue`. The
+control owns only an outer admission/publication gate and stable queue binding;
+the queue remains the sole product-data owner under the existing coding-effects
+RLock. Lock order is outer gate then coding-effects lock. Queue access completes
+before output, worker wake, callbacks or cancellation signaling. Exact claim
+handles cross the worker boundary as immutable per-run capabilities, not as a
+second queue. Existing `ProductSession` and compatibility SDK behaviors remain
+unchanged, and this control is not public until a later SDK adoption task.
+A private one-shot bridge on the existing abort/input composition side publishes
+ready or failed once, and carries one immutable exact claim from worker selection
+to synchronous run-end settlement. It never substitutes an unnamed current
+reservation; missing, repeated or mismatched use fails closed, while pre-end run
+failure settles the same claim during lifetime retirement.
+
+D5a3b binds that control during RPC worker startup before command intake, then
+removes the RPC active flag, payload lanes, abort latch and reservation helpers
+with every reader. RPC keeps framing, correlation, JSONL serialization, wake/EOF
+coordination and direct-bash state. Canonical `agent_end` settlement and output
+are serialized by the outer gate; the public `agent_settled` line is authorized
+only by the later controller readiness callback after extension settlement and
+re-poll. The callback rechecks the native queue under the same gate, preventing a
+new admission from racing a stale idle record. EOF retains its current bounded
+drain and teardown policy.
 
 Project trust is fail-closed. Final-workspace project settings, packages,
 resources, and executable extensions are unavailable until saved or run-local

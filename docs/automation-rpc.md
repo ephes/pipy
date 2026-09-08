@@ -519,6 +519,63 @@ whole value; there is no separate last-kind side channel. Consequently text
 beginning with `/` or `!` is still a provider-visible queued prompt when
 delivered; it never re-enters local slash-command or shell-shortcut dispatch.
 
+### Planned D5a3 shared-control migration
+
+D5a3 replaces the current transport-owned active flag, queues, abort latch and
+reservation helpers with the internal native session control specified in
+[`docs/sdk.md`](sdk.md#d5a3-shared-native-control-and-rpc-adoption-contract).
+This is split into a native seam (D5a3a) and one atomic RPC reader/writer
+migration (D5a3b). The current behavior above remains authoritative until D5a3b
+lands; a partial migration must not expose mixed state.
+
+RPC keeps command parsing and correlation, JSONL output, protocol projection,
+the wake/EOF channel and its direct-bash state. The native queue becomes the only
+authority for active/reserved state, steering/follow-up payloads, pending counts,
+exact claims, promotion and accepted cancellation. The channel then carries
+only wake/EOF coordination; it may carry one immutable claimed-run capability
+through worker delivery, but it cannot retain another payload queue or rebuild
+content/kind from line framing.
+
+One outer admission/publication gate serializes RPC control commands with the
+run-end and true-idle protocol boundaries. The fixed lock order is that gate,
+then the existing coding-effects RLock. Queue access returns an immutable
+transition before any response/event write, channel wake, callback or latch
+signal. No code may enter the outer gate while it still holds the coding-effects
+lock. The JSONL writer remains the sole line-serialization owner.
+
+An RPC worker must finish native composition and publish the bound control,
+abort view and true-idle readiness callback before the reader accepts run-control
+commands. A private one-shot bridge carried by the existing abort/input-side
+composition path publishes success or failure exactly once and always unblocks
+the reader. Repeated or contradictory publication fails closed. A failed startup
+accepts no provisional prompt.
+
+The same bridge attaches one exact queue claim to the worker's selected run.
+The synchronous `agent_end` observer must consume that capability once; it may
+not settle an unnamed “current” reservation. Missing, duplicate, cross-worker or
+token-mismatched consumption closes the worker/session. If a claimed run fails
+before `agent_end`, cleanup settles that same claim once while preserving the
+primary failure. At canonical
+`agent_end`, the exact run claim settles and any successor reserves atomically;
+the end record is written under the outer gate, followed by one `queue_update`
+from the promoted snapshot. The gate is then released and the successor is
+woken, so the observable order is `agent_end → queue_update → next agent_start`.
+This boundary never emits protocol `agent_settled`.
+
+The protocol idle line moves to the controller's later readiness callback, after
+the extension settled hook, outbox drain and re-poll find no next work. Under the
+same outer gate it rechecks native active/pending state before writing. If a
+command was admitted first, no stale idle line is emitted; if the idle line was
+written first, the later command is ordered after a real idle boundary. This
+preserves the public one-idle-event contract without confusing one canonical run
+with the full product idle cycle.
+
+EOF remains transport-owned: stop intake, wait up to the existing drain bound
+for native active/pending work, signal channel EOF once, then keep the existing
+worker and bash joins. D5a3 changes no JSONL shape, command id, queue mode
+simplification, full-content privacy rule, direct-bash policy, model/thinking,
+compaction, retry, session replacement or public SDK lifecycle behavior.
+
 ### Session switching, fork, clone
 
 Current build: `switch_session`, `fork`, `clone`, and `new_session` are

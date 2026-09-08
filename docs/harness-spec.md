@@ -1847,8 +1847,9 @@ fallback, cumulative totals, and footer/context behavior.
 
 These ports do not move product policy. Terminal and extension queues retain
 their storage and priority; positional seeds retain precedence over extension
-continuations; RPC retains its queue reservation, idle transition, abort clear,
-`agent_end`, and `agent_settled` serialization. The agent-facing queue contract
+continuations. RPC currently retains its queue reservation, idle transition,
+abort clear, `agent_end`, and `agent_settled` serialization until the atomic
+D5a3b shared-control migration. The agent-facing queue contract
 has no enqueue, peek, count, mode, clear, reserve, settle, or lifecycle method.
 It can ask for one already eligible controller-selected item after a run
 settles, and `None` hands control back to the product input lifecycle. Durable
@@ -2020,17 +2021,19 @@ Fixed canonical observation is full-content. Immutable native snapshots,
 submission and disposal are construction-thread operations with callback reentry
 refusal; only cancellation is cross-thread.
 
-A dedicated lock protects all accesses to a fresh accepted-abort latch per
-submission. The bridge captures under that lock and invokes callbacks outside
-it; exact-latch retirement prevents stale cancellation from affecting the next
+`CodingInputQueue` owns each submission's atomic claim, fresh accepted-abort
+latch and exact settlement through true idle. A stable native signal view binds
+once after successful startup, captures the queue-owned claimed latch under the
+queue guard, then observes, registers or signals only after guards are released.
+Exact-token retirement prevents stale cancellation from affecting the next
 submission. Provider and semantic preparation use canonical cancellation;
 headless model tools select the same external signal through the existing tool
 waiter/executor. Completed tool effects are not undone. RPC receives that model-
-tool capability while retaining transport reservations, settlement and its
-separate direct bash boundary. Headless runs with no abort signal keep direct
-tool execution. Native lifecycle cleanup and snapshot/state ownership are
-unchanged. See [SDK](sdk.md) for construction, diagnostics, privacy and failure
-semantics; the one-shot compatibility SDK remains separate.
+tool capability while retaining its legacy transport reservations/settlement
+until D5a3b and its separate direct bash boundary. Headless runs with no abort
+signal keep direct tool execution. Native lifecycle cleanup and snapshot/state
+ownership are unchanged. See [SDK](sdk.md) for construction, diagnostics,
+privacy and failure semantics; the one-shot compatibility SDK remains separate.
 
 ### Model-Aware Request Budget Contract
 
@@ -2555,9 +2558,10 @@ exactly once. Request-only `deliverAs=nextTurn` values are consumed once when
 any provider run is accepted, including fresh input and resource-expanded
 commands.
 
-Terminal and RPC mechanisms remain injected adapters. RPC still owns
+Terminal and RPC mechanisms remain injected adapters. RPC currently owns
 reservation, active/idle transitions, abort clearing, `queue_update`, and
-protocol `agent_settled`; extension activation, lifecycle, rendering, provider
+protocol `agent_settled` until D5a3b atomically migrates those readers and writers
+to the native queue/control owner; extension activation, lifecycle, rendering, provider
 construction, commands, and product-session writes remain in their existing
 owners. The coding package imports none of those implementation layers and is
 covered by static, recursive, and fresh-process dependency gates.
