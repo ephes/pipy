@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D5a2 native/facade activation contract. Select its smallest
-production adoption from the current queue and lifecycle evidence, review and
-commit that contract before implementation. RPC migration remains gated on it.
+**Next task:** D5a2b ordinary ProductSession adoption, after this reviewed
+D5a2a contract is committed. RPC migration and public concurrent queue controls
+remain gated on their later activation contract.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -40,7 +40,7 @@ then review frontend activation against executable evidence. No new planning fil
 or concurrent runtime writer is authorized. D0–D4 remain complete. Live-provider
 dogfooding, budget accuracy and semantic summary quality remain unverified.
 
-D5a1 implements the internal managed external queue seam without frontend
+D5a1 `bb98e61` implements the internal managed external queue seam without frontend
 activation. Exact reservation tokens, claimed-only settlement, steering-first
 FIFO promotion and fresh-latch abort behavior have executable race coverage.
 Full checks passed 5,997 tests (two skipped), unchanged interpreter snapshots,
@@ -508,9 +508,11 @@ every listed module. Add a file only when the selected behavior needs it.
 | D4b3a | Complete `30d6d33`; full checks and one adjudicated advisory Opus code round; D4b2 | Guarded branch-summary capture/acceptance and narrow tree/product acceptance-persistence seam; existing ordinary provider behavior | Reject stale generated text without tree/history/editor mutation; tree/leaf and coding projection accept coherently, branch-bound inputs clear, durable append follows under existing outer ordering; append failure retains accepted state |
 | D4b3b | Complete `8c34a9c`; full checks and one adjudicated advisory Opus code round; D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
 | D5a0 | Complete `c08aa72`; full checks and one advisory Opus plan round; D4b3b, D2b | Scheduled grooming and bounded queue mechanism contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D5a1; later activation decisions explicitly owned |
-| D5a1 | Complete in this chunk; full checks and focused Sol follow-up CLEAN; D5a0 | Guarded external admission/reservation/abort mechanism in existing `coding/input_queue.py`, focused queue tests and matching docs/release note | Dedicated lanes, exact token claim/settle, one-per-boundary promotion, coherent snapshots, fresh abort latches and callback-outside-guard race tests; no production adoption yet |
-| D5a2 | D5a1 | Review native/session-facade activation contract, then split its implementation here before dispatch | Resolve operation versus run cancellation, literal/command input, rejection/retirement, control readiness and atomic event projection using the inventory below; no broad speculative migration |
-| D5a3 | D5a2 activation committed and RPC contract reviewed | Migrate RPC prompt/queue/abort/state through the shared session controls; remove each old writer with its readers | Preserve protocol framing/correlation, end/settled serialization, one-per-boundary delivery, truthful state, accepted-abort and EOF drain; API/RPC equivalence |
+| D5a1 | Complete `bb98e61`; full checks and focused Sol follow-up CLEAN; D5a0 | Guarded external admission/reservation/abort mechanism in existing `coding/input_queue.py`, focused queue tests and matching docs/release note | Dedicated lanes, exact token claim/settle, one-per-boundary promotion, coherent snapshots, fresh abort latches and callback-outside-guard race tests; no production adoption yet |
+| D5a2a | Complete in this chunk; full checks and first Sol plan review CLEAN; D5a1 | Bounded submit-to-idle queue/cancellation ownership contract in SDK docs | Independent review and commit before D5a2b; public admission/RPC event timing explicitly deferred |
+| D5a2b | D5a2a committed | Route ordinary `ProductSession.submit/cancel` through existing queue and native lifetime, removing the facade's independent active-latch writer | One token/latch through true idle and extension re-poll, atomic idle-only begin, exact cleanup on every exit, native signal view, unchanged public semantics and import boundaries |
+| D5a2 | D5a2b complete | Native/facade adoption milestone, not a separate implementation dispatch | Real product submits use managed ownership; no new public concurrent admission or premature RPC settlement hook |
+| D5a3 | D5a2 committed; refresh/review concurrent controls and RPC contract, split code before dispatch | Expose the needed shared session controls, then migrate RPC prompt/queue/abort/state; remove each old writer with its readers | Preserve protocol framing/correlation, end/settled serialization, one-per-boundary delivery, truthful state, accepted-abort and EOF drain; API/RPC equivalence |
 | D5a | D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
@@ -576,6 +578,50 @@ not completion of D5a or a second public API. D5b–d and D6 remain blocked on t
 D5a milestone. D7 stays in its existing priority position; no evidence warrants
 reordering it. The next scheduled grooming is after three further implementation
 commits, or earlier if activation evidence changes ownership.
+
+### D5a2 — Ordinary product operation adoption
+
+D5a2a passed full checks (5,997 tests, two skipped), unchanged interpreter
+snapshots, static checks and docs-build. One fresh read-only Sol High plan review
+returned CLEAN with no findings over the complete two-document diff and supplied
+source/test/contract witnesses. Raw repository files outside that frozen bundle
+were not reviewed; implementation review must verify complete callback-registration
+and failure-retirement call contexts. No second plan round is warranted.
+
+Read-only Sol evidence from D5a1's frozen delta, now `bb98e61`, selects the
+[planned SDK adoption contract](sdk.md#planned-d5a2b-product-operation-adoption).
+`ProductSession.submit` already promises literal input through controller true
+idle, including extension settled-hook re-poll. It is not one canonical provider
+run. `AgentRunCompleted` occurs before canonical queue polling, coding history
+mirror and witness release, so using it to retire this facade operation would
+shorten current cancellation semantics. D5a2b must preserve those semantics.
+
+The smallest useful activation replaces the facade's separate latch writer with
+the queue's claimed reservation and fresh latch. The existing prepared/controller
+lifetime drives the literal seed and settles that exact operation on every exit.
+A stable native signal view binds to the queue once; it observes the claimed
+latch rather than maintaining another current-latch slot. Bind after successful
+startup and before exposing the facade. New public queue controls, pending-lane
+execution, RPC readiness/EOF and end/settled event projection stay D5a3 decisions.
+D5a3 must not reuse submit-to-idle retirement as if it were RPC's per-run boundary.
+
+Expected D5a2b writes: `native/coding/input_queue.py` (idle-only atomic begin and
+native observation view), `native/coding/session_controller.py` (existing lifetime
+operation), `native/repl/wiring.py` (prepared delegation/binding), `product_api.py`
+(facade adoption), their focused queue/lifetime/product tests, SDK/architecture
+ownership text and `CHANGELOG.md`. All source paths are under `src/pipy_harness/`.
+No changes to canonical execution, RPC, adapter construction options, selection
+priority, extension clearing or a new lifecycle owner are authorized. Preserve
+headless command-discovery imports: D5a1's cancellation import is deliberately
+lazy, as pinned by both fresh-process coding-command import tests.
+
+Root inspected the signal reads in budget refusal and compaction refusal: they
+sample outside coding guards with context checks on either side. Provider and
+model-tool cancellation share the existing external waiter. Activation must keep
+that call placement and audit signal callback registration as well as reads;
+never acquire the outer queue guard while retaining an inner session guard.
+Existing ordered persistence is not redesigned. This is contract refinement at
+a named ownership boundary, not a scheduled full grooming or a priority change.
 
 ### D4a — Refreshed retry execution basis
 

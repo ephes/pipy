@@ -384,6 +384,61 @@ EOF/sealing/close and event projection; do not add speculative lifecycle methods
 in D5a1. Full-content values stay private product data and never enter workflow
 archive summaries. Compatibility `run_native` semantics remain unchanged.
 
+### Planned D5a2b product operation adoption
+
+D5a2b will activate D5a1 for ordinary `ProductSession.submit()` and `cancel()`.
+The public thread/reentry, literal-content, diagnostics, result and close
+contracts above remain. One accepted operation spans the entire submit-to-idle
+drive, including canonical runs and extension settled-hook continuations. It is
+not retired at `AgentRunCompleted`, provider completion or an intermediate empty
+poll. Cancellation stays accepted across those continuations, as in D2b.
+
+The queue owns one atomic idle-only admit-and-claim entry: validate content and
+refuse an existing managed reservation/pending lane without mutation, then reserve and
+claim one fresh operation under its existing RLock. Do not implement this as an
+unlocked idle snapshot followed by ordinary admission. The existing prepared
+handle/controller lifetime uses that claim's exact content as a literal seed and
+drives the existing step-to-idle loop. Existing selectors and external ports do
+not expose managed lanes. No public concurrent admissions are added in this slice.
+
+Replace the facade's active-latch slot with a stable native signal view, created
+before composition and bound once to this lifetime's exact queue after successful
+startup, before the factory returns. Unbound observation/cancel is inert; rebinding
+refuses. Its only binding state is the queue reference, guarded during publication
+and capture. Release that binding guard before entering any queue method. The view
+never creates, clears or replaces an operation latch. For `is_set` and callback
+registration, the queue captures its exact claimed latch under the queue guard;
+read/register on that captured latch only after unlock. Cancellation delegates to
+the existing guarded abort-capture/after-unlock signaling. No callback, registration
+or cancellation signal runs under either guard. Late unregister/cancel uses the
+captured old latch and cannot detach or signal the next operation. Current provider,
+summary and model-tool waiters remain the canonical execution/cancellation path.
+
+Successful startup is required before admission. After claim, every exit—seed
+failure, drive exception, terminal result or true idle—settles that exact token
+once through the queue. Queue settlement finishes before normal facade scope
+closure/terminal-result handling; existing driver failure retirement remains in
+its controller owner. A missing/stale settlement result is an internal invariant
+failure, never a successful idle return: retire/refuse further driving through
+the existing lifetime. Preserve any primary exception if this new cleanup also
+fails, adding only a bounded diagnostic note; otherwise raise the cleanup failure.
+Do not add a second close flag, roll back accepted product history, or invent a
+new EOF/sealing/pending-drain policy. Public close remains owner-thread idle-only.
+
+Tests must prove one token/latch through a settled-hook continuation, no
+`agent_end` retirement, exact literal slash/shell content, atomic busy refusal,
+cancellation through provider/summary/model-tool paths and across continuations,
+idle and delayed-old cancellation followed by a fresh usable submission, and
+exact retirement after enqueue/driver/terminal failure. Pin once-only startup/
+shutdown, binding refusal, guard-free signal registration/callbacks, and existing
+headless import boundaries. Private bridge-only tests may be replaced by equivalent
+queue/view ownership tests; do not delete the late-cancel guarantees they pinned.
+Update the current API ownership inventory and architecture text on activation,
+removing the superseded facade latch owner. Compatibility `run_native`, RPC's
+current queue/latch/event behavior and private workflow-archive boundaries remain.
+D5a3 owns concurrent control exposure and its distinct per-run RPC settlement
+contract; this operation seam does not authorize public event emission.
+
 D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
 at a time, then removes replaced compatibility surfaces and their dedicated
 implementation/tests when callers are gone. D2 leaves `run_native`,
