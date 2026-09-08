@@ -74,6 +74,15 @@ class TreeSelectionResult:
     is_noop: bool
 
 
+@dataclass(frozen=True, slots=True)
+class BranchSummarySelectionResult:
+    """Owner result for one conditionally published branch summary."""
+
+    accepted: bool
+    stale: bool = False
+    handled: bool = True
+
+
 def _is_user_message_entry(entry: SessionEntry) -> bool:
     return isinstance(entry, MessageEntry) and isinstance(
         entry.message, AgentUserMessage
@@ -187,7 +196,10 @@ def handle_tree_command(
     filter_mode: str,
     rebuild_messages: Callable[[], None],
     diagnostic: Callable[[str], None],
-    summarizer: Callable[[list[AgentMessage], str | None], str | None] | None = None,
+    branch_summary_selection: Callable[
+        [SessionEntry, str], BranchSummarySelectionResult
+    ]
+    | None = None,
     interactive_selector: Callable[[], TreeCommandOutcome] | None = None,
 ) -> TreeCommandOutcome:
     """Handle ``/tree`` independently of the REPL loop and terminal UI.
@@ -211,7 +223,7 @@ def handle_tree_command(
             filter_mode=filter_mode,
             rebuild_messages=rebuild_messages,
             diagnostic=diagnostic,
-            summarizer=summarizer,
+            branch_summary_selection=branch_summary_selection,
         )
     if sub == "label":
         return _handle_tree_label(
@@ -248,7 +260,10 @@ def _handle_tree_select(
     filter_mode: str,
     rebuild_messages: Callable[[], None],
     diagnostic: Callable[[str], None],
-    summarizer: Callable[[list[AgentMessage], str | None], str | None] | None,
+    branch_summary_selection: Callable[
+        [SessionEntry, str], BranchSummarySelectionResult
+    ]
+    | None,
 ) -> TreeCommandOutcome:
     select_tokens = argument.split()
     ref = select_tokens[0] if select_tokens else ""
@@ -258,13 +273,11 @@ def _handle_tree_select(
         return TreeCommandOutcome()
 
     directive = _summarize_directive(select_tokens[1:])
-    if directive is not None and summarizer is not None:
+    if directive is not None and branch_summary_selection is not None:
         outcome = _select_with_branch_summary(
-            session_tree=session_tree,
             entry=entry,
             directive=directive,
-            summarizer=summarizer,
-            rebuild_messages=rebuild_messages,
+            branch_summary_selection=branch_summary_selection,
             diagnostic=diagnostic,
         )
         if outcome is not None:
@@ -284,28 +297,24 @@ def _summarize_directive(tokens: list[str]) -> str | None:
 
 def _select_with_branch_summary(
     *,
-    session_tree: NativeSessionTree,
     entry: SessionEntry,
     directive: str,
-    summarizer: Callable[[list[AgentMessage], str | None], str | None],
-    rebuild_messages: Callable[[], None],
+    branch_summary_selection: Callable[
+        [SessionEntry, str], BranchSummarySelectionResult
+    ],
     diagnostic: Callable[[str], None],
 ) -> TreeCommandOutcome | None:
-    """Summarize an abandoned branch while switching to ``entry``."""
+    """Ask the session owner to conditionally summarize and switch branches."""
 
-    attach_parent = branch_summary_attach_parent(session_tree, entry.id)
-    abandoned = abandoned_branch_messages(
-        session_tree, session_tree.get_leaf_id(), attach_parent
-    )
-    if not abandoned:
+    result = branch_summary_selection(entry, directive)
+    if not result.handled:
         return None
-    focus = directive.split(":", 1)[1] if ":" in directive else None
-    summary_text = summarizer(list(abandoned), focus)
-    if not summary_text:
+    if not result.accepted:
+        if result.stale:
+            diagnostic("pipy: branch summary refused; context changed.")
+            return TreeCommandOutcome()
         diagnostic("pipy: branch summary cancelled; tree and leaf unchanged.")
         return TreeCommandOutcome()
-    session_tree.branch_with_summary(attach_parent, summary_text)
-    rebuild_messages()
     editor_text = _selected_user_message_text(entry)
     diagnostic("pipy: recorded branch summary and switched branches.")
     return TreeCommandOutcome(prefill=editor_text)

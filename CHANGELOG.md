@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Branch-summary tree selection now rejects generated text when its original
+  tree, leaf, coding history, provider binding, extension generation, or
+  publication window changed. Successful selection publishes the tree and coding
+  projection coherently, clears branch-bound extension inputs, and durably appends
+  the exact accepted entry in order. Append failure preserves accepted live state;
+  canonical branch-summary retry and cancellation remain deferred.
+
 - Manual and automatic semantic compaction now use the canonical bounded retry
   mechanism for prepared providers. One captured policy and frozen private
   summary request span all logical attempts; retry admission and final acceptance

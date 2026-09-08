@@ -12,12 +12,16 @@ from pathlib import Path
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentMessage,
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
+from pipy_harness.native.session_tree import (
+    MessageEntry,
+    NativeSessionTree,
+    SessionEntry,
+)
 from pipy_harness.native.session_tree_commands import (
+    BranchSummarySelectionResult,
     TreeCommandOutcome,
     apply_tree_selection,
     format_session_status,
@@ -271,26 +275,24 @@ def test_tree_command_adapter_label_filter_and_unknown_dispatch(
 def test_tree_command_adapter_summary_focus_and_prefill(tmp_path: Path) -> None:
     tree = _seed(tmp_path)
     root = _user_entry(tree, "ROOT")
-    summary_calls: list[tuple[list[str], str | None]] = []
-    rebuilds: list[None] = []
+    summary_calls: list[tuple[str, str]] = []
     diagnostics: list[str] = []
 
-    def summarize(messages: list[AgentMessage], focus: str | None) -> str:
-        summary_calls.append(([message.content.value for message in messages], focus))
-        return "abandoned summary"
+    def select(entry: SessionEntry, directive: str) -> BranchSummarySelectionResult:
+        summary_calls.append((entry.id, directive))
+        return BranchSummarySelectionResult(True)
 
     outcome = handle_tree_command(
         f"select {root.id} summarize:first summarize:last",
         session_tree=tree,
         filter_mode="default",
-        rebuild_messages=lambda: rebuilds.append(None),
+        rebuild_messages=lambda: None,
         diagnostic=diagnostics.append,
-        summarizer=summarize,
+        branch_summary_selection=select,
     )
 
     assert outcome == TreeCommandOutcome(prefill="ROOT")
-    assert summary_calls and summary_calls[0][1] == "last"
-    assert rebuilds == [None]
+    assert summary_calls == [(root.id, "summarize:last")]
     assert diagnostics == ["pipy: recorded branch summary and switched branches."]
 
 
@@ -312,7 +314,9 @@ def test_tree_command_adapter_summary_cancellation_leaves_tree_unchanged(
         filter_mode="default",
         rebuild_messages=unexpected_rebuild,
         diagnostic=diagnostics.append,
-        summarizer=lambda _messages, _focus: None,
+        branch_summary_selection=lambda _entry, _directive: (
+            BranchSummarySelectionResult(False)
+        ),
     )
 
     assert outcome == TreeCommandOutcome()

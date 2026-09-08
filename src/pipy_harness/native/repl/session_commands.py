@@ -19,7 +19,7 @@ from functools import partial
 from pathlib import Path
 from typing import TextIO
 
-from pipy_harness.native.agent import AgentMessage, ProductContent
+from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandOutcome,
@@ -29,10 +29,12 @@ from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.session_tree import (
     NativeSessionTree,
+    SessionEntry,
     default_native_session_dir,
 )
 from pipy_harness.native.session_tree_commands import (
     FILTER_MODES,
+    BranchSummarySelectionResult,
     TreeCommandOutcome,
     apply_tree_selection,
     delete_native_session,
@@ -175,7 +177,10 @@ def run_tree_command(
     repl_input: object,
     filter_mode: str,
     rebuild_messages: Callable[[], None],
-    summarizer: Callable[[list[AgentMessage], str | None], str | None] | None = None,
+    branch_summary_selection: Callable[
+        [SessionEntry, str], BranchSummarySelectionResult
+    ]
+    | None = None,
 ) -> TreeCommandOutcome:
     """Adapt the owner command handler to optional terminal interaction."""
 
@@ -200,7 +205,7 @@ def run_tree_command(
             error_stream,
             message,
         ),
-        summarizer=summarizer,
+        branch_summary_selection=branch_summary_selection,
         interactive_selector=interactive_selector,
     )
 
@@ -227,7 +232,7 @@ class SessionCommandEffects:
     redraw_custom_entries_for_active_branch: Callable[[], None]
     current_session_dir: Callable[[], Path]
     resolve_session_file: Callable[[str], Path | None]
-    summarize_branch: Callable[[list[AgentMessage], str | None], str | None]
+    summarize_branch: Callable[[SessionEntry, str], BranchSummarySelectionResult]
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Execute one outcome from the closed session-command family."""
@@ -313,7 +318,7 @@ class SessionCommandEffects:
                 repl_input=self.repl_input,
                 filter_mode=self.ctl.tree_filter_mode,
                 rebuild_messages=self.rebuild_messages_from_tree,
-                summarizer=self.summarize_branch,
+                branch_summary_selection=self.summarize_branch,
             )
             if tree_outcome.filter_mode is not None:
                 self.ctl.tree_filter_mode = tree_outcome.filter_mode

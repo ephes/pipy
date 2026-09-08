@@ -899,6 +899,16 @@ that list. R4a is user-visible because a live racing append can no longer be
 erased. It does not make retired handles deliverable or invent ids,
 retry cursors, deduplication, or queue-capacity semantics.
 
+Branch-summary selection retains an operation-local tree, coding-history,
+generation, and publication witness across its ordinary direct provider call.
+After generation it prepares the exact entry and prospective coding projection
+outside the session mutex, conditionally accepts tree and coding history together,
+then clears branch-bound inputs and appends that exact entry while retaining the
+outer mutation/I/O lock. A stale result publishes nothing. Durable append failure
+leaves the accepted in-memory tree, coding provenance, and cleared branch inputs
+in place. Canonical retry and cancellation for this private summary remain
+deferred.
+
 Reload uses two separate `generation_ref.publishing()` sections rather than one
 gate around the whole operation. Configuration/package/resource recomposition,
 candidate activation and flag parsing, candidate-route installation, and

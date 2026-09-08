@@ -818,64 +818,6 @@ def test_second_semantic_cut_combines_previous_summary_after_one_new_group(
     assert reopened.prior_summary == final_summary
 
 
-def test_branch_summary_keeps_captured_provider_and_labels_across_header_rebind(
-    tmp_path: Path,
-) -> None:
-    from types import SimpleNamespace
-
-    from pipy_harness.native.repl.collaborators import SessionCollaborators
-
-    effects, captured_provider = _fixture(tmp_path)
-    binding = effects.coding_state.provider_binding
-    replacement = _SummaryProvider()
-    replacement.effects = effects
-    messages: list[AgentMessage] = [
-        AgentUserMessage(ProductContent("abandoned branch fact"))
-    ]
-    headers = []
-
-    def acquire_header() -> None:
-        effects.coding_state.rebind_provider(
-            replacement,
-            provider_name="replacement",
-            model_id="new-model",
-            usage_accumulator=AgentUsageAccumulator(),
-        )
-        headers.append("acquired")
-        return None
-
-    collaborators = cast(
-        SessionCollaborators,
-        SimpleNamespace(
-            coding_state=effects.coding_state,
-            cwd=tmp_path,
-            active_provider_header_callback=acquire_header,
-        ),
-    )
-    assert (
-        SessionCollaborators.summarize_branch(
-            collaborators, messages, "unfinished work"
-        )
-        == "Keep goal: repair parser; verified test passed; next: docs."
-    )
-    assert headers == ["acquired"]
-    assert effects.coding_state.provider_binding.provider is replacement
-    assert replacement.requests == []
-    assert len(captured_provider.requests) == 1
-    request = captured_provider.requests[0]
-    assert (request.provider_name, request.model_id) == (
-        binding.provider_name,
-        binding.model_id,
-    )
-    assert request.messages == tuple(messages)
-    assert request.system_prompt == (
-        "Summarize the following abandoned conversation branch "
-        "concisely so it can be referenced later. Focus on: unfinished work."
-    )
-    assert request.user_prompt == "Provide the branch summary now."
-    assert request.available_tools == ()
-
-
 @pytest.mark.parametrize(
     "completion",
     [

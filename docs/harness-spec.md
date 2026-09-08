@@ -1735,9 +1735,9 @@ This is the implemented contract; semantic summaries opt into canonical retries.
 `ProviderMutationEffects.compact_context` retains ownership
 of manual and automatic generation, its existing `_CompactionWork` witness,
 conditional acceptance, and state-first persistence. Branch-summary generation
-and acceptance will adopt the separately selected [D4b2 ownership contract](session-tree.md#branch-summary-ownership-contract-d4b2)
-when D4b3a implements it, before D4b3b enables canonical branch retry. That branch
-boundary is not yet implemented.
+and acceptance use the separately selected and D4b3a-implemented
+[D4b2 ownership contract](session-tree.md#branch-summary-ownership-contract-d4b2).
+D4b3b still owns canonical branch retry and cancellation.
 
 Capture one settings-derived immutable managed policy for the selected summary
 request before provider work, under the existing mutation-I/O then shared

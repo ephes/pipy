@@ -501,8 +501,8 @@ to rebuild provider context.
 
 ### Branch Summary Ownership Contract (D4b2)
 
-This is the selected contract for D4b3a/D4b3b, not a claim that current branch
-summaries already implement guarded publication or canonical cancellation.
+This contract is implemented through D4b3a for guarded publication. Canonical
+branch-summary retry and cancellation remain D4b3b.
 Selection, attachment position, `fromId`, and editor-prefill semantics above stay
 unchanged. The generic tree command helper must not append generated text after
 a summarizer callback returns without a retained conditional-acceptance witness.

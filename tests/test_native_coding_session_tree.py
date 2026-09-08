@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,9 +29,13 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
-from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.coding.product_session import (
+    CodingProductSessionContext,
+    CodingProductSessionCoordinator,
+)
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import NoticeSink, emit_diagnostic
 from pipy_harness.native.extension_types import (
@@ -41,17 +46,24 @@ from pipy_harness.native.extension_types import (
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
 )
+from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.session_commands import (
     run_interactive_session_picker,
 )
 from pipy_harness.native.session_tree import (
+    BranchSummaryEntry,
     CompactionEntry,
     MessageEntry,
     NativeSessionTree,
+    PreparedBranchSummary,
+    SessionEntry,
     SessionHeader,
     SessionInfoEntry,
 )
-from pipy_harness.native.session_tree_commands import TreeCommandOutcome
+from pipy_harness.native.session_tree_commands import (
+    BranchSummarySelectionResult,
+    TreeCommandOutcome,
+)
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
@@ -493,11 +505,10 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
         repl_input: object,
         filter_mode: str,
         rebuild_messages: Callable[[], None],
-        summarizer: Callable[[list[AgentMessage], str | None], str | None]
-        | None = None,
+        branch_summary_selection: Callable[[object, str], object] | None = None,
     ) -> TreeCommandOutcome:
         del session_tree, terminal_ui, error_stream, repl_input
-        del rebuild_messages, summarizer
+        del rebuild_messages, branch_summary_selection
         trace.append(f"handler:{argument}:{filter_mode}")
         if argument == "filter default":
             return TreeCommandOutcome(prefill="RESTORED", filter_mode="all")
@@ -1041,7 +1052,9 @@ def test_tree_select_with_summary_records_branch_summary(tmp_path: Path) -> None
     _run(
         session,
         cwd,
-        "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "ALT", "/exit", ""]),
+        "\n".join(
+            ["ROOT", "MAIN", "/tree select 1 summarize:unfinished", "ALT", "/exit", ""]
+        ),
     )
 
     assert tree.path is not None
@@ -1056,6 +1069,363 @@ def test_tree_select_with_summary_records_branch_summary(tmp_path: Path) -> None
         if isinstance(m, AgentUserMessage)
     )
     assert "abandoned" in rebuilt.lower()
+    summary_request = next(
+        request
+        for request in provider.requests
+        if request.system_prompt.startswith("Summarize the following abandoned")
+    )
+    assert (summary_request.provider_name, summary_request.model_id) == (
+        provider.name,
+        provider.model_id,
+    )
+    assert "Focus on: unfinished." in summary_request.system_prompt
+    assert summary_request.user_prompt == "Provide the branch summary now."
+    assert summary_request.available_tools == ()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["tree", "pointer", "generation", "history", "binding", "publishing"],
+)
+def test_tree_summary_rejects_provider_callback_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+
+    class MutatingSummaryProvider(_SeenProvider):
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
+            if request.system_prompt.startswith("Summarize the following abandoned"):
+                if mutation == "tree":
+                    tree.append_custom("concurrent", {"accepted": True})
+                elif mutation == "pointer":
+                    assert collaborators[0] is not None
+                    collaborators[0].ctl.session_tree = tree
+                elif mutation == "generation":
+                    assert collaborators[0] is not None
+                    generation = collaborators[0].ctl.generation_ref.current
+                    collaborators[0].ctl.generation_ref.publish(generation)
+                elif mutation == "history":
+                    assert collaborators[0] is not None
+                    collaborators[0].coding_state.mirror_history(
+                        collaborators[0].coding_state.messages
+                    )
+                elif mutation == "binding":
+                    assert collaborators[0] is not None
+                    collaborators[0].coding_state.rebind_provider(
+                        _SeenProvider(),
+                        provider_name="replacement",
+                        model_id="replacement-model",
+                        usage_accumulator=AgentUsageAccumulator(),
+                    )
+                else:
+                    assert collaborators[0] is not None
+                    with collaborators[0].ctl.generation_ref.publishing():
+                        pass
+            return super().complete(request, **kwargs)
+
+    collaborators: list[SessionCollaborators | None] = [None]
+    original_header = SessionCollaborators.active_provider_header_callback
+
+    def capture(owner: SessionCollaborators) -> object:
+        collaborators[0] = owner
+        return original_header(owner)
+
+    monkeypatch.setattr(
+        SessionCollaborators, "active_provider_header_callback", capture
+    )
+    _out, err = _run(
+        CodingSession(provider=MutatingSummaryProvider(), native_session=tree),
+        cwd,
+        "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "/exit", ""]),
+    )
+
+    assert not any(
+        isinstance(entry, BranchSummaryEntry) for entry in tree.get_entries()
+    )
+    assert "branch summary refused; context changed" in err
+
+
+@pytest.mark.parametrize(
+    "mutation", ["tree", "pointer", "generation", "history", "binding"]
+)
+def test_tree_summary_rejects_header_callback_staleness_before_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    provider = _SeenProvider()
+    original_header = SessionCollaborators.active_provider_header_callback
+    original_select = SessionCollaborators.select_with_branch_summary
+    in_branch_summary = False
+    mutation_count = 0
+
+    def select(
+        collaborators: SessionCollaborators, target: SessionEntry, directive: str
+    ) -> BranchSummarySelectionResult:
+        nonlocal in_branch_summary
+        in_branch_summary = True
+        try:
+            return original_select(collaborators, target, directive)
+        finally:
+            in_branch_summary = False
+
+    def mutate(collaborators: SessionCollaborators) -> object:
+        nonlocal mutation_count
+        if not in_branch_summary:
+            return original_header(collaborators)
+        mutation_count += 1
+        if mutation == "tree":
+            tree.set_leaf(tree.get_leaf_id())
+        elif mutation == "pointer":
+            collaborators.ctl.session_tree = tree
+        elif mutation == "generation":
+            generation = collaborators.ctl.generation_ref.current
+            collaborators.ctl.generation_ref.publish(generation)
+        elif mutation == "history":
+            collaborators.coding_state.mirror_history(
+                collaborators.coding_state.messages
+            )
+        else:
+            collaborators.coding_state.refresh_provider(_SeenProvider())
+        return original_header(collaborators)
+
+    monkeypatch.setattr(SessionCollaborators, "select_with_branch_summary", select)
+    monkeypatch.setattr(SessionCollaborators, "active_provider_header_callback", mutate)
+    _out, err = _run(
+        CodingSession(provider=provider, native_session=tree),
+        cwd,
+        "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "/exit", ""]),
+    )
+
+    assert not any(
+        request.system_prompt.startswith("Summarize the following abandoned")
+        for request in provider.requests
+    )
+    assert not any(
+        isinstance(entry, BranchSummaryEntry) for entry in tree.get_entries()
+    )
+    assert mutation_count == 1
+    assert "branch summary refused; context changed" in err
+
+
+def test_tree_summary_candidate_failure_precedes_memory_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    accepted: list[object] = []
+
+    original_prepare = NativeSessionTree.prepare_branch_summary
+
+    def invalid_prepare(
+        active_tree: NativeSessionTree, parent: str | None, summary: str
+    ) -> PreparedBranchSummary:
+        prepared = original_prepare(active_tree, parent, summary)
+        return replace(
+            prepared,
+            context=replace(prepared.context, entry_ids=()),
+        )
+
+    def unexpected_accept(*args: object, **kwargs: object) -> None:
+        accepted.append((args, kwargs))
+
+    monkeypatch.setattr(NativeSessionTree, "prepare_branch_summary", invalid_prepare)
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "accept_active_history", unexpected_accept
+    )
+
+    with pytest.raises(ValueError, match="entry_ids must correspond"):
+        _run(
+            CodingSession(provider=_SeenProvider(), native_session=tree),
+            cwd,
+            "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", ""]),
+        )
+
+    assert accepted == []
+    assert not any(
+        isinstance(entry, BranchSummaryEntry) for entry in tree.get_entries()
+    )
+
+
+def test_tree_summary_guard_phases_and_post_unlock_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    owner: list[SessionCollaborators] = []
+    trace: list[str] = []
+    original_header = SessionCollaborators.active_provider_header_callback
+    original_prepare = NativeSessionTree.prepare_branch_summary
+    original_tree_accept = NativeSessionTree.accept_prepared_branch_summary
+    original_product_accept = CodingProductSessionCoordinator.accept_active_history
+    original_clear = CodingInputQueue.clear_extension_inputs
+    original_persist = NativeSessionTree.persist_prepared_branch_summary
+    original_diag = emit_diagnostic
+
+    def owned(lock: object) -> bool:
+        return bool(getattr(lock, "_is_owned")())
+
+    def capture(collaborators: SessionCollaborators) -> object:
+        owner.append(collaborators)
+        return original_header(collaborators)
+
+    def prepare(
+        active_tree: NativeSessionTree, parent: str | None, summary: str
+    ) -> object:
+        assert owned(active_tree.mutation_lock)
+        assert not owned(owner[-1].coding_state.state_lock)
+        trace.append("prepare")
+        return original_prepare(active_tree, parent, summary)
+
+    def tree_accept(
+        active_tree: NativeSessionTree, prepared: PreparedBranchSummary
+    ) -> object:
+        assert owned(active_tree.mutation_lock)
+        assert owned(owner[-1].coding_state.state_lock)
+        trace.append("tree-accept")
+        return original_tree_accept(active_tree, prepared)
+
+    def product_accept(
+        product: CodingProductSessionCoordinator,
+        context: CodingProductSessionContext,
+    ) -> None:
+        assert owned(tree.mutation_lock)
+        assert owned(owner[-1].coding_state.state_lock)
+        trace.append("product-accept")
+        original_product_accept(product, context)
+
+    def clear(queue: CodingInputQueue) -> None:
+        assert owned(tree.mutation_lock)
+        assert not owned(owner[-1].coding_state.state_lock)
+        trace.append("clear")
+        original_clear(queue)
+
+    def persist(active_tree: NativeSessionTree, entry: BranchSummaryEntry) -> None:
+        assert owned(active_tree.mutation_lock)
+        assert not owned(owner[-1].coding_state.state_lock)
+        assert active_tree.get_entry(entry.id) is entry
+        trace.append("persist")
+        original_persist(active_tree, entry)
+
+    def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
+        if "recorded branch summary" in message:
+            assert not owned(tree.mutation_lock)
+            assert not owned(owner[-1].coding_state.state_lock)
+            trace.append("diagnostic")
+        original_diag(ui, stream, message)
+
+    monkeypatch.setattr(
+        SessionCollaborators, "active_provider_header_callback", capture
+    )
+    monkeypatch.setattr(NativeSessionTree, "prepare_branch_summary", prepare)
+    monkeypatch.setattr(
+        NativeSessionTree, "accept_prepared_branch_summary", tree_accept
+    )
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "accept_active_history", product_accept
+    )
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(NativeSessionTree, "persist_prepared_branch_summary", persist)
+    monkeypatch.setattr(
+        "pipy_harness.native.repl.session_commands.emit_diagnostic", diagnostic
+    )
+
+    _run(
+        CodingSession(provider=_SeenProvider(), native_session=tree),
+        cwd,
+        "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "/exit", ""]),
+    )
+
+    assert trace == [
+        "prepare",
+        "tree-accept",
+        "product-accept",
+        "clear",
+        "persist",
+        "diagnostic",
+    ]
+
+
+def test_tree_summary_append_failure_keeps_accepted_state_and_clears_inputs_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    trace: list[str] = []
+    original_clear = CodingInputQueue.clear_extension_inputs
+    original_accept = CodingProductSessionCoordinator.accept_active_history
+    accepted: list[
+        tuple[CodingProductSessionCoordinator, CodingProductSessionContext]
+    ] = []
+    collaborators: list[SessionCollaborators] = []
+    original_header = SessionCollaborators.active_provider_header_callback
+
+    def capture(owner: SessionCollaborators) -> object:
+        collaborators.append(owner)
+        return original_header(owner)
+
+    def clear(queue: CodingInputQueue) -> None:
+        trace.append("clear")
+        original_clear(queue)
+
+    def fail_persist(active_tree: NativeSessionTree, entry: BranchSummaryEntry) -> None:
+        assert active_tree is tree
+        assert active_tree.get_entry(entry.id) is entry
+        owner, context = accepted[-1]
+        assert collaborators[-1].coding_state.messages == context.messages
+        fresh = active_tree.build_coding_context()
+        fresh_context = CodingProductSessionContext(
+            messages=fresh.messages,
+            prior_summary=(
+                ProductContent(fresh.prior_summary)
+                if fresh.prior_summary is not None
+                else None
+            ),
+            entry_ids=fresh.entry_ids,
+        )
+        assert (
+            owner.resolve_entry_id(
+                collaborators[-1].coding_state.messages[-1], fresh_context
+            )
+            == entry.id
+        )
+        trace.append("persist")
+        raise OSError("branch append failed")
+
+    def accept(
+        owner: CodingProductSessionCoordinator, context: CodingProductSessionContext
+    ) -> None:
+        original_accept(owner, context)
+        accepted.append((owner, context))
+
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(
+        SessionCollaborators, "active_provider_header_callback", capture
+    )
+    monkeypatch.setattr(
+        NativeSessionTree, "persist_prepared_branch_summary", fail_persist
+    )
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "accept_active_history", accept
+    )
+
+    with pytest.raises(OSError, match="branch append failed"):
+        _run(
+            CodingSession(provider=_SeenProvider(), native_session=tree),
+            cwd,
+            "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", ""]),
+        )
+
+    summaries = [
+        entry for entry in tree.get_entries() if isinstance(entry, BranchSummaryEntry)
+    ]
+    assert len(summaries) == 1
+    assert len(accepted) == 1
+    assert tree.get_leaf_id() == summaries[0].id
+    assert trace == ["clear", "persist"]
 
 
 def test_resume_rename_and_delete_with_confirmation(tmp_path: Path) -> None:

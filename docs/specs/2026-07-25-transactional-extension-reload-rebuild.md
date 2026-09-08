@@ -621,7 +621,8 @@ not permitted after the owning slice.
 
 D1b extends only the auxiliary-summary freshness inventory: `NativeSessionTree`'s
 `mutation_epoch` reader and `_load_entries`, `_append_entry`, `branch`,
-`reset_leaf`, `set_leaf`, and `branch_with_summary` writers share its tree guard;
+`reset_leaf`, `set_leaf`, `branch_with_summary`, and prepared branch-summary
+prepare/accept/persist operations share its tree guard;
 the epoch advances before fallible work. `RunControlState.tree_pointer_epoch`
 and every `session_tree` assignment share the outer coding-effect/tree guard.
 `SessionGenerationRef.publication_epoch` and both entry and exit of `publishing()`
@@ -630,8 +631,8 @@ captures and compares these identities under outer tree/effect lock then session
 mutex together with exact generation identity/id, binding/history epoch and
 terminal admission. None of these additions changes a reload/model publisher.
 
-D4b2 selects a further branch-summary acceptance boundary for D4b3a; it is not yet
-implemented. The operation-local witness and prepared entry/context are immutable,
+D4b2 selects the branch-summary acceptance boundary now implemented by D4b3a.
+The operation-local witness and prepared entry/context are immutable,
 not new shared fields. Existing tree entry/index/leaf/epoch writers and product
 history/loaded-context writers remain authoritative. Their new branch acceptance
 family must validate freshness and publish coherent memory under outer tree/input

@@ -609,6 +609,14 @@ class CodingSessionTreeContext:
     prior_summary: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedBranchSummary:
+    """One validated branch entry and its prospective coding projection."""
+
+    entry: BranchSummaryEntry
+    context: CodingSessionTreeContext
+
+
 def _compaction_summary_message(summary: str) -> AgentUserMessage:
     return AgentUserMessage(
         content=ProductContent(
@@ -650,6 +658,29 @@ def build_context(
         messages=tuple(_project_context_messages(path, compaction)),
         thinking_level=thinking_level,
         model=model,
+    )
+
+
+def build_coding_context(
+    entries: list[SessionEntry],
+    leaf_id: str | None,
+    by_id: dict[str, SessionEntry] | None = None,
+) -> CodingSessionTreeContext:
+    """Project coding history from an immutable/caller-guarded tree view."""
+
+    if by_id is None:
+        by_id = {entry.id: entry for entry in entries}
+    path = _active_branch_path(leaf_id, by_id)
+    _, _, compaction = _reconstruct_context_settings(path)
+    projected = [
+        (entry.id, message)
+        for entry in _retained_context_entries(path, compaction)
+        if (message := _project_context_entry(entry)) is not None
+    ]
+    return CodingSessionTreeContext(
+        messages=tuple(message for _, message in projected),
+        entry_ids=tuple(entry_id for entry_id, _ in projected),
+        prior_summary=compaction.summary if compaction and compaction.summary else None,
     )
 
 
@@ -1436,6 +1467,61 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
+    def prepare_branch_summary(
+        self, branch_from_id: str | None, summary: str
+    ) -> PreparedBranchSummary:
+        """Prepare an exact branch entry and projection without mutating state."""
+
+        if branch_from_id is not None and branch_from_id not in self.by_id:
+            raise KeyError(f"entry {branch_from_id} not found")
+        if type(summary) is not str or not summary.strip():
+            raise ValueError("branch summary must be nonempty")
+        entry = BranchSummaryEntry(
+            id=self._next_id(),
+            parent_id=branch_from_id,
+            timestamp=_now_iso(),
+            from_id=branch_from_id or "root",
+            summary=summary,
+        )
+        prospective_entries = [*self.entries, entry]
+        prospective_by_id = {**self.by_id, entry.id: entry}
+        return PreparedBranchSummary(
+            entry=entry,
+            context=build_coding_context(
+                prospective_entries, entry.id, prospective_by_id
+            ),
+        )
+
+    @_guarded_tree_api
+    def accept_prepared_branch_summary(
+        self, prepared: PreparedBranchSummary
+    ) -> BranchSummaryEntry:
+        """Publish a prepared entry in memory; persistence is a later phase."""
+
+        if type(prepared) is not PreparedBranchSummary:
+            raise TypeError("prepared must be an exact PreparedBranchSummary")
+        entry = prepared.entry
+        if entry.id in self.by_id:
+            raise ValueError(f"entry {entry.id} already exists")
+        if entry.parent_id is not None and entry.parent_id not in self.by_id:
+            raise KeyError(f"entry {entry.parent_id} not found")
+        self._mutation_epoch += 2
+        self.entries.append(entry)
+        self.by_id[entry.id] = entry
+        self.leaf_id = entry.id
+        return entry
+
+    @_guarded_tree_api
+    def persist_prepared_branch_summary(self, entry: BranchSummaryEntry) -> None:
+        """Persist the exact already-accepted branch entry once."""
+
+        if type(entry) is not BranchSummaryEntry:
+            raise TypeError("entry must be an exact BranchSummaryEntry")
+        if self.by_id.get(entry.id) is not entry:
+            raise ValueError("branch summary entry is not accepted by this tree")
+        self._write_entry(entry)
+
     # -- queries ------------------------------------------------------------
 
     @_guarded_tree_api
@@ -1498,20 +1584,7 @@ class NativeSessionTree:
     def build_coding_context(self) -> CodingSessionTreeContext:
         """Project real coding groups without a synthetic compaction user group."""
 
-        path = _active_branch_path(self.leaf_id, self.by_id)
-        _, _, compaction = _reconstruct_context_settings(path)
-        projected = [
-            (entry.id, message)
-            for entry in _retained_context_entries(path, compaction)
-            if (message := _project_context_entry(entry)) is not None
-        ]
-        return CodingSessionTreeContext(
-            messages=tuple(message for _, message in projected),
-            entry_ids=tuple(entry_id for entry_id, _ in projected),
-            prior_summary=compaction.summary
-            if compaction and compaction.summary
-            else None,
-        )
+        return build_coding_context(self.entries, self.leaf_id, self.by_id)
 
     @_guarded_tree_api
     def get_tree(self) -> list[SessionTreeNode]:

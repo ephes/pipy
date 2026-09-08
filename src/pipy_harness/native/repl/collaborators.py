@@ -38,8 +38,14 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.coding.compaction import build_summary_request, summary_text
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
-from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
-from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.product_session import (
+    CodingProductSessionContext,
+    CodingProductSessionCoordinator,
+)
+from pipy_harness.native.coding.state import (
+    CodingCompactionSnapshot,
+    CodingSessionState,
+)
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import dispatch_tool_call_hooks
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
@@ -68,8 +74,18 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.resources import DISPATCH_LIST, dispatch_resource_command
-from pipy_harness.native.session_tree import default_native_session_dir
-from pipy_harness.native.session_tree_commands import resolve_session_target
+from pipy_harness.native.session_generation import SessionGenerationSnapshot
+from pipy_harness.native.session_tree import (
+    NativeSessionTree,
+    SessionEntry,
+    default_native_session_dir,
+)
+from pipy_harness.native.session_tree_commands import (
+    BranchSummarySelectionResult,
+    abandoned_branch_messages,
+    branch_summary_attach_parent,
+    resolve_session_target,
+)
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tool_renderers import _parse_tool_input, _ToolLoopRenderer
@@ -86,6 +102,21 @@ from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRend
 _EXTENSION_COMPLETE_MAX_CHARS = 100 * 1024
 
 
+@dataclass(frozen=True, slots=True)
+class _BranchSummaryWork:
+    tree: NativeSessionTree
+    tree_epoch: int
+    pointer_epoch: int
+    old_leaf_id: str | None
+    target: SessionEntry
+    target_parent_id: str | None
+    attach_parent_id: str | None
+    messages: tuple[AgentMessage, ...]
+    coding: CodingCompactionSnapshot
+    generation: SessionGenerationSnapshot
+    publication_epoch: int
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SessionCollaborators:
     """Composition-root handler owning the residual run-loop collaborators.
@@ -93,13 +124,13 @@ class SessionCollaborators:
     Symmetric with :class:`ProviderMutationEffects`/:class:`CustomEntryRenderer`/
     :class:`_ReplLoopStep`/:class:`_BuiltinCommandInterpreter`, these bodies
     formerly lived as the ``diag``/``extension_session_allows``/
-    ``rebuild_messages_from_tree``/``summarize_branch``/``current_session_dir``/
+    ``rebuild_messages_from_tree``/branch-summary selection/``current_session_dir``/
     ``resolve_session_file``/session-name-setter/``_extension_complete``/
     ``_extension_custom_driver``/provider-request/tool-policy-hook/
     ``_dispatch_resource_effect``/``_dispatch_extension_effect`` closures nested in
     ``CodingSession.run()``. They reach one another densely (extension
     dispatch calls the completion, custom driver, and session-name setters;
-    ``extension_session_allows``/``summarize_branch`` call ``diag``/
+    ``extension_session_allows``/branch-summary selection call ``diag``/
     ``active_provider_header_callback``), so the handler is a frozen, slotted,
     keyword-only dataclass holding the run's mutable control-state holder ``ctl``
     (its ``session_tree`` and canonical extension generation are read fresh on
@@ -207,7 +238,7 @@ class SessionCollaborators:
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
             current_session_dir=self.current_session_dir,
             resolve_session_file=self.resolve_session_file,
-            summarize_branch=self.summarize_branch,
+            summarize_branch=self.select_with_branch_summary,
         )
 
     def provider_configuration_command_effects(
@@ -360,38 +391,113 @@ class SessionCollaborators:
             return None
         return self.terminal_ui.components.modals.run_custom_component(factory, options)
 
-    def summarize_branch(
-        self, branch_messages: list[AgentMessage], focus: str | None
-    ) -> str | None:
-        """Summarize an abandoned branch through the active provider.
+    def select_with_branch_summary(
+        self, target: SessionEntry, directive: str
+    ) -> BranchSummarySelectionResult:
+        """Generate then conditionally publish one abandoned-branch summary."""
 
-        Runs one bounded provider turn (no tools) and returns the summary
-        text, or ``None`` when the provider fails so the caller can leave
-        the tree and leaf unchanged.
-        """
-
-        if not branch_messages:
-            return None
+        with self.coding_effects.lock:
+            with self.ctl.generation_ref.lock:
+                work = self._capture_branch_summary_locked(target)
+        if work is None:
+            return BranchSummarySelectionResult(False, stale=True)
+        if not work.messages:
+            return BranchSummarySelectionResult(False, handled=False)
+        focus = directive.split(":", 1)[1] if ":" in directive else None
         instruction = (
             "Summarize the following abandoned conversation branch "
             "concisely so it can be referenced later."
         )
         if focus:
             instruction += f" Focus on: {focus}."
-        binding = self.coding_state.provider_binding
+        binding = work.coding.binding
         request = build_summary_request(
             instruction=instruction,
             user_prompt="Provide the branch summary now.",
             binding=binding,
             cwd=self.cwd,
-            messages=tuple(branch_messages),
+            messages=work.messages,
             header_callback=self.active_provider_header_callback(),
         )
+        with self.coding_effects.lock:
+            with self.ctl.generation_ref.lock:
+                if not self._branch_summary_matches_locked(work):
+                    return BranchSummarySelectionResult(False, stale=True)
         try:
             result = binding.provider.complete(request)
-        except Exception:  # noqa: BLE001 - never crash the REPL
+        except Exception:  # noqa: BLE001 - auxiliary generation is recoverable
+            return BranchSummarySelectionResult(False)
+        text = None if result.tool_calls else summary_text(result)
+        if text is None:
+            return BranchSummarySelectionResult(False)
+
+        with self.coding_effects.lock:
+            with self.ctl.generation_ref.lock:
+                if not self._branch_summary_matches_locked(work):
+                    return BranchSummarySelectionResult(False, stale=True)
+            prepared = work.tree.prepare_branch_summary(work.attach_parent_id, text)
+            context = CodingProductSessionContext(
+                messages=prepared.context.messages,
+                prior_summary=(
+                    ProductContent(prepared.context.prior_summary)
+                    if prepared.context.prior_summary is not None
+                    else None
+                ),
+                entry_ids=prepared.context.entry_ids,
+            )
+            with self.ctl.generation_ref.lock:
+                if not self._branch_summary_matches_locked(work):
+                    return BranchSummarySelectionResult(False, stale=True)
+                work.tree.accept_prepared_branch_summary(prepared)
+                self.product_session.accept_active_history(context)
+            self.coding_input_queue.clear_extension_inputs()
+            work.tree.persist_prepared_branch_summary(prepared.entry)
+        return BranchSummarySelectionResult(True)
+
+    def _capture_branch_summary_locked(
+        self, target: SessionEntry
+    ) -> _BranchSummaryWork | None:
+        if self.coding_effects.terminal or self.ctl.generation_ref.publication_pending:
             return None
-        return summary_text(result)
+        tree = self.ctl.session_tree
+        current = tree.get_entry(target.id)
+        if current is not target:
+            return None
+        attach_parent = branch_summary_attach_parent(tree, target.id)
+        old_leaf = tree.get_leaf_id()
+        return _BranchSummaryWork(
+            tree=tree,
+            tree_epoch=tree.mutation_epoch,
+            pointer_epoch=self.ctl.tree_pointer_epoch,
+            old_leaf_id=old_leaf,
+            target=target,
+            target_parent_id=target.parent_id,
+            attach_parent_id=attach_parent,
+            messages=tuple(abandoned_branch_messages(tree, old_leaf, attach_parent)),
+            coding=self.coding_state.compaction_snapshot(),
+            generation=self.ctl.generation_ref.snapshot(),
+            publication_epoch=self.ctl.generation_ref.publication_epoch,
+        )
+
+    def _branch_summary_matches_locked(self, work: _BranchSummaryWork) -> bool:
+        if self.coding_effects.terminal or self.ctl.generation_ref.publication_pending:
+            return False
+        generation = self.ctl.generation_ref.snapshot()
+        current = work.tree.get_entry(work.target.id)
+        return (
+            self.ctl.session_tree is work.tree
+            and self.ctl.tree_pointer_epoch == work.pointer_epoch
+            and work.tree.mutation_epoch == work.tree_epoch
+            and work.tree.get_leaf_id() == work.old_leaf_id
+            and current is work.target
+            and current.parent_id == work.target_parent_id
+            and branch_summary_attach_parent(work.tree, current.id)
+            == work.attach_parent_id
+            and self.coding_state.compaction_matches(work.coding)
+            and generation.generation is work.generation.generation
+            and generation.generation_id == work.generation.generation_id
+            and self.ctl.generation_ref.publication_epoch == work.publication_epoch
+        )
 
     def active_provider_header_callback(
         self,

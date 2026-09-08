@@ -147,6 +147,21 @@ class CodingProductSessionCoordinator:
             )
             self._loaded_context = context
 
+    def accept_active_history(self, context: CodingProductSessionContext) -> None:
+        """Accept an already prepared tree projection under the session guard."""
+
+        _require_context(context)
+        with self._state.state_lock:
+            self._state.rebuild_history(
+                context.messages,
+                summary_suffix=(
+                    f"\n\n{context.prior_summary.value}"
+                    if context.prior_summary is not None
+                    else ""
+                ),
+            )
+            self._loaded_context = context
+
     def resolve_entry_id(
         self, message: AgentMessage, active: CodingProductSessionContext
     ) -> str | None:
