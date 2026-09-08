@@ -630,6 +630,18 @@ captures and compares these identities under outer tree/effect lock then session
 mutex together with exact generation identity/id, binding/history epoch and
 terminal admission. None of these additions changes a reload/model publisher.
 
+D4b2 selects a further branch-summary acceptance boundary for D4b3a; it is not yet
+implemented. The operation-local witness and prepared entry/context are immutable,
+not new shared fields. Existing tree entry/index/leaf/epoch writers and product
+history/loaded-context writers remain authoritative. Their new branch acceptance
+family must validate freshness and publish coherent memory under outer tree/input
+lock then inner session mutex, without callbacks or durable I/O under the inner
+mutex. Release the inner mutex before clearing branch-bound input and writing the
+accepted entry, retaining R5a's outer memory/disk ordering. The implementation must
+extend guarded method inventories/tests for the new owner methods. No generic
+transaction registry, second tree lock or provider-worker-spanning effect lease is
+introduced; see the [selected branch contract](../session-tree.md#branch-summary-ownership-contract-d4b2).
+
 For R3c2, this inventory is exhaustive. The owner/list references carried by
 host, batch, runtime, projection, generation, and the defined renderer snapshot-
 provider seam are immutable after construction. `ExtensionQueueProjection`

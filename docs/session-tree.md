@@ -499,6 +499,95 @@ The metadata archive may record only summary-safe counters and labels for this
 operation. The native session tree stores the summary text because it is needed
 to rebuild provider context.
 
+### Branch Summary Ownership Contract (D4b2)
+
+This is the selected contract for D4b3a/D4b3b, not a claim that current branch
+summaries already implement guarded publication or canonical cancellation.
+Selection, attachment position, `fromId`, and editor-prefill semantics above stay
+unchanged. The generic tree command helper must not append generated text after
+a summarizer callback returns without a retained conditional-acceptance witness.
+
+Existing session command/collaborator composition owns the branch operation;
+`NativeSessionTree` owns entry/leaf mutation and durable append, and
+`CodingProductSessionCoordinator` owns loaded-context provenance and coding
+history. Add only narrow prepare/accept/persist operations to those owners.
+Operation-local immutable values carry work across generation; they are not a
+new session owner or shared mutable registry. Ordinary tree API readers/writers
+retain their existing guards and behavior.
+
+Capture and validate the selected target against the current tree under the
+outer coding-effect/tree mutation lock, then the inner generation/session mutex.
+The retained work names the exact tree and pointer/mutation epochs, old leaf,
+selected target and attachment parent, abandoned messages, coding binding/history
+witness, generation identity/id, publication epoch and terminal/pending-publication
+state. Loaded-context provenance currently publishes alongside a history-epoch
+advance under the same inner mutex. New acceptance must preserve that coupling;
+do not add a provenance-only writer that could escape the captured history witness.
+Changes remain stale even after an ABA restoration. Header capture and
+provider work run unlocked; check the original work after callback-bearing
+preparation and again at final acceptance. A fresh snapshot cannot authorize an
+old summary. A refused or stale operation does not undo another accepted writer.
+
+After generation, acquire the outer tree lock and retain it through preparation,
+acceptance and persistence. First check the original work under the inner mutex
+and return a bounded stale refusal if it no longer matches; release the inner
+mutex again. Allocate the proposed entry id/timestamp and build its coding-context
+projection under the retained outer lock, outside the inner mutex and before mutation.
+Validate the candidate, including exact entry origins, against that guarded tree;
+reuse existing branch/compaction projection rules rather than inventing another
+transcript representation. Do not recompute the candidate after acceptance; a
+failed final witness check discards it. Under outer then inner guards,
+revalidate the original work and accept the branch entry/leaf and corresponding
+coding history/loaded provenance together. The product acceptance operation must
+not call an arbitrary history-load/rebuild callback while holding the inner mutex.
+It accepts an already prepared context through the existing product owner.
+
+Release the inner mutex before clearing the existing branch-bound extension
+input families and persisting the accepted entry. Keep the outer tree/input lock
+through these ordered phases: R5a intentionally holds it through tree memory and
+durable append, and this contract does not remove that ordering. Preserve unrelated
+seed/local-command/RPC reservations. Persistence receives the exact accepted entry
+once. Append failure leaves the accepted tree, leaf and coding context in place,
+with branch-bound inputs cleared; it is distinct from generation failure and
+must not be disguised as a cancelled summary or rolled back. Propagate the
+persistence exception through existing command failure/cleanup after unlocking;
+do not catch it in the summary-generation failure handler. Emit no success notice
+or editor prefill for that failure. Diagnostics and editor/UI callbacks run after
+unlocking.
+
+D4b3a implements that conditional-publication seam while preserving ordinary
+provider completion. Failed, empty, tool-bearing or stale generation accepts
+nothing, leaves editor prefill untouched, and emits only content-free diagnostics.
+Do not add retry or a new worker in this seam slice.
+
+D4b3b then uses the existing canonical executor, one frozen tool-free request,
+settings-derived immutable retry policy, private summary event sink and disabled
+delta channels. Check capability on the original provider before abort wrapping;
+reissue admission revalidates the same original branch work. Use D4a/D4b1 retry,
+progress, accounting and cancellation rules. Failure, cancellation or staleness
+before acceptance cannot append or switch the leaf, even if a late worker succeeds.
+The successful operation accepts/persists once. Public retry events and ordinary
+product usage must not include this private summary.
+
+Reuse the caller's session-thread lifetime and canonical settlement. Do not hold
+an exclusive thread-owned coding-effect lease across a provider worker: a retained
+extension control invoked there may need that same lease. No new lifecycle or queue
+owner is introduced. Manual cancellation/steering/local-command outcomes use the
+existing pending-input settlement operations, as manual compaction does; editor
+prefill is applied only after successful branch acceptance and persistence.
+Thread-confined close/reentry rules remain unchanged, and callback-based abort
+must work through the existing start gate. With no terminal or external signal,
+provider execution remains synchronous and retry delay only bounded.
+
+D4b3a tests pin stale tree/pointer/generation/history and refused-publication
+windows, callback mutation, coherent acceptance and reopen, append-failure state
+and error propagation, unchanged standalone tree behavior, and projection/persistence
+outside the inner mutex. D4b3b adds private event/accounting and actual provider,
+backoff and callback-abort cancellation tests, including retained controls invoked
+from a provider worker without a new lease deadlock. Exact helper names and event
+choreography belong in those implementing tests; this contract fixes ownership,
+freshness, ordering and observable outcomes.
+
 ## Settings
 
 Add native settings, backed by the same non-secret local settings store used for

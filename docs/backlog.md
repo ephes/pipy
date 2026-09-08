@@ -9,41 +9,30 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D4b2 branch-summary ownership contract, after this D4b1 semantic
-retry implementation is reviewed and committed from `6262965`. Semantic compaction
-now captures a managed policy with its original work, revalidates that full
-witness before reissue, and preserves manual refusal, automatic fatal cleanup,
-private output and state-first persistence. Full `just check` passed 5,957 tests
-(two skipped), static checks and unchanged interpreter snapshots. Focused semantic
-checks passed 84 tests and the implementer's regression set 249; PTY smoke passed
-eight tests and docs/diff checks passed. Root independently passed 448 focused
-semantic/budget/product/RPC/compatibility/architecture tests. Independent code
-review closed advisory after one complete Opus 5 Medium round. One accepted
-suggestion adds callback-abort/start-gated prepared-summary coverage; root's final
-175 focused tests and repository-wide static checks passed after that test-only
-addition. The runtime is unchanged from the full gate. Shared policy extraction
-was declined as optional; existing semantic tests already pin ordinary providers.
-No material finding remains; no second review round is warranted.
+**Next task:** D4b3a guarded branch-summary publication, after this D4b2
+ownership contract is reviewed and committed from `9ccb22e`. Full `just check`
+passed 5,958 tests (two skipped), static checks, unchanged interpreter snapshots
+and docs/diff checks. One complete Opus 5 High plan round closed advisory, not
+CLEAN. Slice-specific acceptance, outer-guard preparation, append-error propagation
+and future-tense status are clarified. No material finding remains; implementation
+tests and code review verify this boundary without another prose-only round. D4b3b then adopts
+canonical branch execution/retry on that committed acceptance boundary; do not
+combine new publication ownership and retry activation in one uncommitted diff.
 
-D4a1 `d52778e`, D4a2 `ffb4e25`, D4a3 `cf8f194` and D4b0 `6262965` are committed.
-D4a3 closed with one adjudicated advisory Opus round; D4a2 closed CLEAN after three
-code rounds, D4a1 after two. D4b0's single advisory planning review clarified
-accounting, manual stale unwind, capture lock order and synchronous no-abort waits;
-D4b1 tests now exercise those selected behavior boundaries.
+D4b1 `9ccb22e` completed semantic-compaction retry. Its full runtime gate passed
+5,957 tests (two skipped), static checks and unchanged interpreter snapshots;
+root passed 448 focused tests, PTY smoke passed eight and docs/diff checks passed.
+One complete Opus 5 Medium code round closed advisory with no warnings. A
+callback-abort test was added afterward and locally verified by 175 root tests
+and all static checks; runtime stayed unchanged. No material finding remains.
 
-D4b0 scheduled grooming followed three implementation commits since D4a0
-`e0f2f84`. Summary-safe search/list and the four D4a Markdown summaries were
-inspected; no raw transcripts were read. Retry ownership and phase-settlement
-repairs are now pinned in tests and independently reviewed. Read-only source
-inspection separates semantic compaction's existing conditional publication from
-branch summaries' direct completion and later tree mutation. Split D4b accordingly;
-keep recovery before queue/RPC migration. The next scheduled grooming is after
-three implementation commits from D4b0 or an earlier material ownership decision.
-D4b1 is the first; D4b2 is the already selected branch ownership decision.
-
-D0/D1 baseline and semantic continuity, D2's persistent product-session API,
-and D3's request budgeting and within-run compaction are committed. Live-provider
-dogfooding, budget accuracy and semantic-summary quality remain unverified.
+D4b0 `6262965` was the scheduled grooming after D4a1–D4a3. D4b1 is the first
+implementation since that point. This already planned ownership refresh inspected
+summary-safe D4b search results and Markdown summaries plus current source;
+no raw transcripts were read. D4b3a and D4b3b will complete the next three-commit
+interval, then groom at the recovery-to-RPC phase boundary. Earlier D0/D1, D2 and
+D3 outcomes remain complete. Live-provider dogfooding, budget accuracy and semantic
+summary quality remain unverified.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -491,9 +480,10 @@ every listed module. Add a file only when the selected behavior needs it.
 | D4a2 | Complete at `ffb4e25`; full checks and CLEAN third Opus round; D4a1 | Opt-in canonical request retry mechanism, pure policy and injected caller-thread `before_reissue` admission port in existing agent/provider-turn boundary, narrow value helper if needed, coupled tests/docs | One accepted execution lifetime, conservative no-progress eligibility, bounded cancellable waits, owner-thread retry events, no late reissue or callback after retirement; default executor remains one-call |
 | D4a3 | Complete at `cf8f194`; full checks and one adjudicated advisory Opus round; D4a2 | Ordinary product policy capture, guarded admission closure and activation; current `repl/loop_step.py`, scope/wiring and settings owners, canonical/product/automation acceptance tests and docs | Retry unchanged failed request within its accepted iteration; earlier tools/history/usage once; guarded stale admission, true settlement and usable next prompt; non-capable providers stay single-call despite enabled policy; compatibility unchanged |
 | D4b0 | Complete at `6262965`; full checks and one adjudicated advisory Opus plan round; D4a3 | Scheduled grooming and semantic-summary retry contract; backlog and harness spec | Separate the two summary paths; fix the next implementation boundary without prematurely specifying branch publication |
-| D4b1 | Complete in this chunk; full runtime checks and one adjudicated advisory Opus round; D4b0, D1b, D4a3 | Semantic-compaction retry in existing `ProviderMutationEffects`, optional shared policy conversion, focused compaction tests/docs | One captured policy/request/cut; original full compaction witness before reissue and acceptance; private retry events; cancellation and stale work publish nothing; accepted state persists once without rollback |
-| D4b2 | D4b1 | Branch-summary capture/conditional-acceptance ownership contract in existing session/tree owners; planning only | Resolve the return-to-append gap, tree/context rebuild and durable append ordering before branch retry code; inventory guarded readers/writers and preserve state-first persistence semantics |
-| D4b3 | D4b2 | Branch-summary canonical execution and retry under the reviewed ownership contract; refresh exact write set at dispatch | Failed/cancelled/stale summaries do not append or switch leaf; accepted summary persists once; canonical cancellation/settlement and private content boundaries |
+| D4b1 | Complete at `9ccb22e`; full runtime checks and one adjudicated advisory Opus round; D4b0, D1b, D4a3 | Semantic-compaction retry in existing `ProviderMutationEffects`, optional shared policy conversion, focused compaction tests/docs | One captured policy/request/cut; original full compaction witness before reissue and acceptance; private retry events; cancellation and stale work publish nothing; accepted state persists once without rollback |
+| D4b2 | Complete in this chunk; full checks and one adjudicated advisory Opus plan round; D4b1 | Branch-summary capture/conditional-acceptance ownership contract in existing session/tree owners; planning only | Resolve the return-to-append gap, tree/context rebuild and durable append ordering before branch retry code; inventory guarded readers/writers and preserve state-first persistence semantics |
+| D4b3a | D4b2 | Guarded branch-summary capture/acceptance and narrow tree/product acceptance-persistence seam; existing ordinary provider behavior | Reject stale generated text without tree/history/editor mutation; tree/leaf and coding projection accept coherently, branch-bound inputs clear, durable append follows under existing outer ordering; append failure retains accepted state |
+| D4b3b | D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
@@ -565,8 +555,20 @@ mutations, but do not carry a conditional witness across generation and acceptan
 returning a validated string alone cannot close the later mutation gap. D4b2 must
 settle capture/acceptance and rebuild ownership using existing session/tree owners,
 without holding the session mutex over provider I/O or arbitrary callbacks, before
-D4b3 adds canonical branch execution. The exact acceptance/persist seam and
-lock-order inventory remain D4b2 decisions, not implicit D4b1 scope.
+D4b3b adds canonical branch execution. The [selected branch ownership contract](session-tree.md#branch-summary-ownership-contract-d4b2)
+uses an operation-local witness and prepared branch/context acceptance through
+existing owners. D4b3a preserves ordinary provider execution while closing the
+publication gap; D4b3b enables canonical execution only after that seam commits.
+
+D4b3a's bounded runtime write set is the existing `session_tree.py`,
+`coding/product_session.py`, `repl/collaborators.py`, `repl/session_commands.py`,
+`session_tree_commands.py` and coupled wiring/typed values only where needed.
+No new public SDK port or generic transaction framework. Update the guarded
+reader/writer inventory and focused tree/semantic/product tests, session-tree and
+harness contracts, user docs and release notes in the implementation chunk.
+D4b3b reuses those owners plus existing provider-turn wiring/private summary helpers;
+refresh its exact handoff against D4b3a rather than automatically editing this whole
+set. D4b3b acceptance must cover real callback-based abort as well as plain signals.
 
 ### Implementation handoff requirements
 
