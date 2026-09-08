@@ -1816,6 +1816,29 @@ before idle. Stale context still closes the lifetime through the existing bounde
 exception path. This seam adds no cross-thread control, alternate queue, public
 SDK, or changed persistence guarantee; see [the D2 SDK contract](sdk.md#d2-implementation-contract).
 
+### Public Product Session Embedding
+
+`pipy_harness.sdk.create_product_session` exposes the persistent lifetime through
+`product_api.py`. It requires an explicit tool-capable provider and validates the
+workspace before reusing one adapter's shared preparation. Public submissions
+are literal multiline provider content and drive the existing queue through
+continuations to idle; they do not restart the session or create archive runs.
+Fixed canonical observation is full-content. Immutable native snapshots,
+submission and disposal are construction-thread operations with callback reentry
+refusal; only cancellation is cross-thread.
+
+A dedicated lock protects all accesses to a fresh accepted-abort latch per
+submission. The bridge captures under that lock and invokes callbacks outside
+it; exact-latch retirement prevents stale cancellation from affecting the next
+submission. Provider and semantic preparation use canonical cancellation;
+headless model tools select the same external signal through the existing tool
+waiter/executor. Completed tool effects are not undone. RPC receives that model-
+tool capability while retaining transport reservations, settlement and its
+separate direct bash boundary. Headless runs with no abort signal keep direct
+tool execution. Native lifecycle cleanup and snapshot/state ownership are
+unchanged. See [SDK](sdk.md) for construction, diagnostics, privacy and failure
+semantics; the one-shot compatibility SDK remains separate.
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical

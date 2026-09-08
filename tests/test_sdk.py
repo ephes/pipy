@@ -20,6 +20,11 @@ from pipy_session.recorder import SessionRecord
 
 def test_sdk_exports_expected_surface() -> None:
     expected = {
+        "AgentEvent",
+        "AgentEventSink",
+        "CodingSessionResultSnapshot",
+        "ProductSession",
+        "create_product_session",
         "CapturePolicy",
         "DEFAULT_NATIVE_AGENT",
         "DEFAULT_NATIVE_SLUG",

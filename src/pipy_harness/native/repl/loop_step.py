@@ -90,6 +90,7 @@ from pipy_harness.native.repl.turn_leaves import (
     pricing_for,
     provider_turn_inputs,
     raise_first,
+    wait_for_external_tool_interrupt,
     wait_for_provider_interrupt,
     wait_for_tool_interrupt,
 )
@@ -528,11 +529,11 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
             refresh_legacy_footer_with_usage=(scope.refresh_legacy_footer_with_usage),
         ),
     )
-    tool_waiter = (
-        None
-        if scope.terminal_ui is None
-        else partial(wait_for_tool_interrupt, scope.terminal_ui)
-    )
+    tool_waiter = None
+    if scope.terminal_ui is not None:
+        tool_waiter = partial(wait_for_tool_interrupt, scope.terminal_ui)
+    elif scope.abort_event is not None:
+        tool_waiter = partial(wait_for_external_tool_interrupt, scope.abort_event)
     return CodingAgentRunCoordinator(
         request_source=AgentLoopRequestSourceAdapter(request_effects.prepare),
         provider_turn=AgentLoopProviderTurnAdapter(provider_effects.complete),

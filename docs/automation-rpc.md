@@ -462,6 +462,14 @@ its extension commands (`docs/extension-api.md`), prompt templates, and skills
 
 ### Mid-turn steering, follow-up, and abort
 
+Active-run `abort` now reaches canonical model-tool execution as well as provider
+and semantic-summary requests. Headless model tools receive the existing
+cancellation event, ordered completion/cancellation and bounded worker cleanup.
+A completed tool result/effect is retained when completion wins; late success is
+discarded when cancellation wins. Arbitrary extension tools remain cooperative.
+This does not change reservation, settlement, queued steering/follow-up or abort
+clearing, and does not make the separate RPC `bash` command cancellable.
+
 While a `prompt` run is in flight:
 
 - `steer` injects a message into the running run subject to `steeringMode`
@@ -524,6 +532,7 @@ extension-UI context. Each may be cancelled by an extension hook
 (`docs/extension-api.md` `session_before_switch` / `session_before_fork`),
 surfaced as `{ cancelled: true }` with no rebind. These commands read/write the
 native session tree (`docs/session-tree.md`).
+
 
 ### Bash, model, and thinking controls
 
@@ -659,13 +668,15 @@ into the metadata-only archive.
 
 ## (e) Python SDK Relationship
 
-`src/pipy_harness/sdk.py` (`run_native`, `make_native_run_request`,
-`StreamChunkSink`) is the **in-process Python** embedding surface — Pi's
+`src/pipy_harness/sdk.py` (`create_product_session` and the separate
+`run_native` compatibility surface) is the **in-process Python** embedding surface — Pi's
 TypeScript SDK equivalent. `--mode rpc` is the **out-of-process** embedding
 surface — Pi's `RpcClient` equivalent. They are complementary:
 
 - The SDK is for Python callers that link pipy directly (tests, smoke checks,
-  library integrations). It returns a `RunResult` and finalizes a record.
+  library integrations). Product sessions return immutable native snapshots
+  across repeated submissions with no implicit workflow record. The one-shot
+  compatibility `run_native` still returns `RunResult` and finalizes a record.
 - `--mode rpc` is for non-Python or process-isolated callers that want Pi's
   exact JSONL protocol, asynchronous events, and mid-turn control.
 - Both reuse the **same** native runtime (`PipyNativeAdapter`,

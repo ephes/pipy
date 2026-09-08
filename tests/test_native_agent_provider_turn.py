@@ -26,8 +26,11 @@ from pipy_harness.native.agent.provider_turn import (
     _wait_for_external_abort,
 )
 from pipy_harness.native.agent.results import AgentCancellationReason
-from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.cancellation import (
+    CancelToken,
+    ProviderCancelledError,
+    _AcceptedAbortSignal,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink
 

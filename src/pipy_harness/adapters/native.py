@@ -12,6 +12,7 @@ from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.agent import AgentEventSink
+from pipy_harness.native.agent.provider_turn import _AbortCallbackSignal
 from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extensions.contracts import (
@@ -194,7 +195,7 @@ class CodingSessionAdapter:
         append_system_prompt_sources: list[str] | None = None,
         automation_observer: "AutomationEventSink | None" = None,
         agent_event_sink: "AgentEventSink | None" = None,
-        abort_event: "threading.Event | None" = None,
+        abort_event: "threading.Event | _AbortCallbackSignal | None" = None,
         resource_options: RuntimeResourceOptions | None = None,
         initial_messages: tuple[str, ...] = (),
         tool_filter_options: ToolFilterOptions | None = None,

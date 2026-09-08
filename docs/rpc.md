@@ -91,8 +91,9 @@ page intentionally avoids duplicating the full RPC type table.
 - Use [JSON Mode](json.md) for one prompt with a complete event stream.
 - Use `--print`/`-p` for one prompt when only final assistant text is needed.
 - Use RPC mode for a long-lived out-of-process controller.
-- Use the [Python SDK](sdk.md) for one-shot in-process compatibility runs without
-  JSONL subprocess framing. It does not yet expose the multi-turn product session.
+- Use the [Python SDK](sdk.md) for persistent product sessions or one-shot
+  compatibility runs without
+  JSONL subprocess framing.
 
 ## Content and privacy
 
@@ -100,3 +101,14 @@ RPC mode is a full-content automation transport. Protocol events and responses
 can include user prompts, assistant text, tool-call arguments, tool results, and
 bash output. Treat stdout as transcript data. This is separate from the
 summary-safe `pipy-session` metadata/catalog utility.
+
+## Active-run cancellation
+
+`abort` reaches the active provider, semantic-summary or model-tool worker.
+Model-driven tools use canonical cancellation and bounded cleanup; a completed
+tool result and its effects remain recorded if completion wins the race.
+Cancellation discards late success and suppresses new output after retirement,
+but cannot undo effects or synchronously stop an uncooperative extension tool.
+Idle abort remains harmless and the next accepted prompt can run normally.
+The separate RPC `bash` / `abort_bash` command behavior is unchanged: direct bash
+still uses the command sandbox and is not externally cancellable.

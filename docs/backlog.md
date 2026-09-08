@@ -9,14 +9,17 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next eligible task:** D2b, after the D2p commit below. D2p is complete at this
-chunk: reusable preparation and construction preserve stream context-event and
-failure ordering. Root validation passed 5,602 tests (two skipped), static checks,
-eight PTY smoke tests and docs/diff checks. One exact Opus 5 code review covered
-all changes with two Suggestions and no Warning/Critical: retained the validated
-workspace precondition for D2b, and clarified one adapter per lifetime. Advisory
-acceptance, not CLEAN; no further prose-only round is warranted. The cancellation
-refresh found no new ownership blocker.
+**Next eligible task:** D3a contract refresh, before budgeting code. D2b is
+complete in this chunk: persistent product SDK, fixed observation, immutable
+snapshots, confined entry, canonical provider/summary/model-tool cancellation
+and explicit fatal-driver errors. Final validation passed 5,640 tests (two
+skipped), static checks, 264 focused tests, eight PTY smoke tests and docs/diff
+checks. Exact Opus 5 round one found two Warnings and four Suggestions; repairs
+passed focused round two CLEAN with complete, unredacted coverage. D2p committed
+at `365e0ae` with full validation and advisory Opus acceptance. D3a's read-only
+investigation identifies limit provenance, estimated reserve and recoverable
+refusal as contract decisions; no budgeting implementation is yet authorized by
+an implementation handoff.
 
 D2a committed at `4b5baa9`: one persistent controller lifetime, explicit idle,
 per-run witness release and measured 399-line facade bounds. Final validation
@@ -209,7 +212,7 @@ daily usability remain unverified.
 | Provider failure | `test_coding_session_provider_failure.py::test_exhausted_transport_failure_leaves_repl_usable_for_next_prompt` proves recovery on a new prompt, without retry. | D4a pins retry after earlier tool effects |
 | Repeated compaction | `test_native_coding_session_resume_compact.py` pins count-only whole-group reduction; `test_native_coding_session_tree.py::test_durable_compaction_entry_survives_reload` pins one durable reduction. | D1 semantic and repeated-reopen coverage |
 | Extension lifecycle | `test_native_extension_conformance.py::test_golden_conformance_extension` exercises the existing example; `test_native_coding_session.py::test_successful_reload_publishes_one_coherent_generation_across_real_consumers` pins reload coherence. | D8 reuses these; do not duplicate examples |
-| Headless workflow | RPC tests pin event/correlation/history behavior; `test_architecture_mode_contracts.py::test_json_mode_preserves_real_loop_order_with_mode_boundaries` pins canonical order. Public multi-turn embedding is absent. | D2b; RPC controls remain D5 |
+| Headless workflow | RPC tests pin event/correlation/history behavior; `test_architecture_mode_contracts.py::test_json_mode_preserves_real_loop_order_with_mode_boundaries` pins canonical order. D2b adds two-turn product embedding and cancellation coverage. | D2b complete; RPC controls remain D5 |
 
 D0 implements exactly one deterministic scenario in
 `tests/test_native_daily_use_baseline.py`: a scripted recording provider drives
@@ -420,7 +423,7 @@ runtime ownership needs another decision before implementation expands.
 This is the focused grooming pass after the D2a phase boundary. Summary-safe
 product-session and cancellation history was inspected; the decision rests on
 current source evidence and preserves the initial continuity → session API
-sequence. D2b0 committed at `e0f82b6` after two plan rounds; D2p is complete in this chunk. D2p and D2b
+sequence. D2b0 committed at `e0f82b6` after two plan rounds; D2p committed at `365e0ae`. D2p and D2b
 each require their own full validation, code review and commit. Live-provider
 usability remains unverified; no competing roadmap or broad provider program is
 introduced.
@@ -445,8 +448,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D2a0 | Complete at `936b96d`; full checks and advisory Opus plan review | Docs-only scoped facade placement and size-gate contract | Independent plan review and commit before dependent test/code changes |
 | D2a | Complete at `4b5baa9`; full checks and advisory Opus code review; D2a0 accepted | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b0 | Complete at `e0f82b6`; full checks and advisory Opus plan review | Docs-only provider, preparation and cancellation ownership contract; bounded D2p split | Independent plan review and commit before dependent code |
-| D2p | Complete in this chunk; full checks and advisory Opus code review; D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
-| D2b | D2p; D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
+| D2p | Complete at `365e0ae`; full checks and advisory Opus code review; D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
+| D2b | Complete in this chunk; full checks and Opus follow-up CLEAN; D2p/D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a | D1b | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
 | D3b | D3a; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
 | D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |

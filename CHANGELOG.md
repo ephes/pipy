@@ -8,10 +8,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python embeddings can now use `create_product_session` with an explicit
+  tool-capable provider for persistent native coding: repeated literal prompts,
+  real tools, fixed full-content events, immutable idle snapshots, cross-thread
+  cancellation and once-only disposal. Workspace preparation retains existing
+  instruction loading and fail-closed project trust. Sessions are ephemeral by
+  default and create no workflow archive; `run_native` keeps its one-shot
+  compatibility semantics. Optional diagnostic callbacks receive write fragments.
+- RPC active-run `abort` now interrupts model-driven tools through the canonical
+  cancellation worker, as well as provider and semantic-summary execution.
+  Completed tool effects remain recorded and uncooperative tools retain bounded
+  cleanup. The separate direct RPC bash cancellation boundary is unchanged.
+
 - Native coding composition now has an internal persistent lifetime that yields
   at idle and continues with the same conversation and resources. The stream
-  entrypoint shares its loop and once-only cleanup; the supported multi-turn
-  Python SDK remains a separate follow-up.
+  entrypoint shares its loop and once-only cleanup.
 
 - Python extension tools can now activate additional registered tools during
   execution with `ctx.set_active_tools(...)`. Purely additive changes persist a

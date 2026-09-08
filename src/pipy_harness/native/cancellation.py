@@ -14,6 +14,7 @@ mutate provider, tool, or context state.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 
@@ -112,3 +113,47 @@ def _safe_close(closeable: Closeable) -> None:
         closeable.close()
     except Exception:  # noqa: BLE001 - best-effort interrupt of a blocked read
         pass
+
+
+class _AcceptedAbortSignal:
+    """Event-like abort latch with one synchronous active-turn callback."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._cancel_callback: Callable[[], None] | None = None
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        return self._event.wait(timeout)
+
+    def set(self) -> None:
+        with self._lock:
+            self._event.set()
+            callback = self._cancel_callback
+        if callback is not None:
+            callback()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._event.clear()
+
+    def register_cancel_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register the live executor signal and replay an accepted abort."""
+
+        with self._lock:
+            self._cancel_callback = callback
+            accepted = self._event.is_set()
+        if accepted:
+            callback()
+
+        def _unregister() -> None:
+            with self._lock:
+                if self._cancel_callback is callback:
+                    self._cancel_callback = None
+
+        return _unregister

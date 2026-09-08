@@ -103,6 +103,11 @@ def test_sdk_surface_is_synchronous_streaming_and_returns_a_finalized_result(
     tmp_path: Path,
 ) -> None:
     expected_exports = {
+        "AgentEvent",
+        "AgentEventSink",
+        "CodingSessionResultSnapshot",
+        "ProductSession",
+        "create_product_session",
         "CapturePolicy",
         "DEFAULT_NATIVE_AGENT",
         "DEFAULT_NATIVE_SLUG",

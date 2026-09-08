@@ -50,6 +50,7 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.tools import ToolPort
 
 
 class _PromptExitBarrierLock:
@@ -134,7 +135,13 @@ class _BlockingFirstAutomationProvider:
 
 
 class _RpcClient:
-    def __init__(self, tmp_path: Path, *, provider: ProviderPort | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        provider: ProviderPort | None = None,
+        tools: dict[str, ToolPort] | None = None,
+    ) -> None:
         self._cwd = tmp_path
         stdin_r, self._stdin_w = os.pipe()
         self._stdout_r, stdout_w = os.pipe()
@@ -146,6 +153,7 @@ class _RpcClient:
 
         self.canonical = _CanonicalCollectingSink()
         adapter = CodingSessionAdapter(
+            tool_registry=tools,
             provider=(
                 provider
                 if provider is not None
@@ -1048,3 +1056,62 @@ def test_encode_session_tree_is_byte_identical_to_json_dumps(tmp_path: Path) -> 
         allow_nan=False,
     )
     assert _encode_session_tree(roots) == reference
+
+
+def test_rpc_abort_cancels_model_tool_then_next_prompt_succeeds(tmp_path: Path) -> None:
+    from test_native_coding_session_resume_compact import _RecordingToolProvider
+
+    from pipy_harness.native.agent.events import RunCancelled
+    from pipy_harness.native.models import ProviderToolCall
+    from pipy_harness.native.tools import (
+        ToolContext,
+        ToolDefinition,
+        ToolExecutionResult,
+        ToolRequest,
+    )
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    class BlockingTool:
+        definition = ToolDefinition(
+            "wait", "cooperative fixture", {"type": "object", "properties": {}}
+        )
+
+        def invoke(
+            self, request: ToolRequest, context: ToolContext
+        ) -> ToolExecutionResult:
+            assert context.cancel_event is not None
+            started.set()
+            try:
+                assert context.cancel_event.wait(5)
+                return ToolExecutionResult(request.tool_request_id, "late result")
+            finally:
+                finished.set()
+
+    provider = _RecordingToolProvider(
+        call_script=((ProviderToolCall("wait-1", "wait", "{}"),),)
+    )
+    client = _RpcClient(tmp_path, provider=provider, tools={"wait": BlockingTool()})
+    try:
+        client.send({"id": "one", "type": "prompt", "message": "use model tool"})
+        assert started.wait(5)
+        client.send({"id": "abort", "type": "abort"})
+        client.wait_for(
+            lambda r: r.get("type") == "response" and r.get("id") == "abort"
+        )
+        client.wait_for(lambda r: r.get("type") == "agent_settled")
+        assert finished.is_set()
+        assert (
+            len([e for e in client.canonical.events if isinstance(e, RunCancelled)])
+            == 1
+        )
+        client.send({"id": "two", "type": "prompt", "message": "next succeeds"})
+        client.wait_for(lambda r: r.get("type") == "agent_settled")
+        assert provider.requests[-1].messages[-1].content.value == "next succeeds"
+        assert (
+            len([e for e in client.canonical.events if isinstance(e, RunCancelled)])
+            == 1
+        )
+    finally:
+        client.close()

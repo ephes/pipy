@@ -94,6 +94,23 @@ def wait_for_tool_interrupt(
     raise RuntimeError(f"unexpected tool interrupt outcome: {outcome!r}")
 
 
+def wait_for_external_tool_interrupt(
+    abort_event: threading.Event | _AbortCallbackSignal,
+    done_event: threading.Event,
+    cancel_event: threading.Event,
+) -> ToolExecutionInterruption:
+    """Bridge headless abort into the existing tool worker's ordered signal.
+
+    The worker may already have completed; the executor retains its existing
+    completion-versus-cancellation policy, including accepted tool effects.
+    """
+
+    outcome = _wait_for_external_abort(abort_event, None, done_event, cancel_event)
+    if outcome is ProviderTurnInterruption.OPERATOR_ABORT:
+        return ToolExecutionInterruption.OPERATOR_ABORT
+    return ToolExecutionInterruption.SETTLED
+
+
 def wait_for_provider_interrupt(
     terminal_ui: TerminalUi,
     done_event: threading.Event,

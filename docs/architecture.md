@@ -128,7 +128,8 @@ scope alive across repeated queue submissions through the prepared adapter and
 `open_session_lifetime` composition function in `repl/wiring.py`. The facade
 retains its single explicit wiring-input mapping. Stream `run` and persistent
 driving share the controller-owned loop and cleanup. The internal handle is
-not a public SDK; supported construction and thread-entry controls remain D2b.
+not a public SDK; `product_api.py` supplies supported construction and thread-entry
+controls over it.
 
 The composition root constructs settings and trust state, catalog-backed providers, tools,
 extensions, the private session tree, event projections, automation or terminal
@@ -937,6 +938,28 @@ full-content product transports, not workflow-archive channels.
 one-shot JSON/print drivers, and the long-lived RPC server. RPC additionally
 owns command correlation, queued-input reservation/settlement, true-idle
 notification, and its direct bash boundary.
+
+`product_api.py` composes one prepared `CodingSessionAdapter` and enters the
+existing native persistent lifetime. `sdk.py` exports that full-content API
+alongside the unchanged one-shot compatibility surface. The facade owns only
+construction-thread identity/reentry and a dedicated lock protecting the active
+operation's fresh cancellation latch. Every slot reader/writer takes that lock;
+callbacks run after capture and unlock. Retirement detaches the exact latch so
+an old cancellation cannot affect another submission. The native state,
+controller, queue, generation and effect owners remain authoritative. Snapshots
+use the existing frozen state projection and require idle construction-thread
+entry, including after disposal. Injected mutable settings/resources cannot be
+shared across active lifetimes; settings lock binding remains composition-time.
+Native modules never import the outer product facade or SDK. Existing native
+automation entrypoints retain their adapter composition; coding and agent cores
+do not acquire an adapter dependency.
+
+The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
+Provider and summary execution use their existing start-gated callback bridge;
+headless model tools now select the external-abort waiter only when a signal is
+installed. Their canonical worker/completion ordering and bounded cleanup stay
+unchanged, including completed tool effects. RPC retains its own latch clearing,
+queue reservations, settlement and direct bash ownership.
 
 Project trust is fail-closed. Final-workspace project settings, packages,
 resources, and executable extensions are unavailable until saved or run-local

@@ -25,7 +25,6 @@ import json
 import queue
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
@@ -43,6 +42,7 @@ from pipy_harness.native.automation.jsonl import (
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
+from pipy_harness.native.cancellation import _AcceptedAbortSignal
 from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
@@ -178,50 +178,6 @@ class _PromptChannelItem:
     content: str
     line: str
     kind: AgentQueuedInputKind | None
-
-
-class _AcceptedAbortSignal:
-    """Event-like abort latch with one synchronous active-turn callback."""
-
-    def __init__(self) -> None:
-        self._event = threading.Event()
-        self._lock = threading.Lock()
-        self._cancel_callback: Callable[[], None] | None = None
-
-    def is_set(self) -> bool:
-        return self._event.is_set()
-
-    def wait(self, timeout: float | None = None) -> bool:
-        return self._event.wait(timeout)
-
-    def set(self) -> None:
-        with self._lock:
-            self._event.set()
-            callback = self._cancel_callback
-        if callback is not None:
-            callback()
-
-    def clear(self) -> None:
-        with self._lock:
-            self._event.clear()
-
-    def register_cancel_callback(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
-        """Register the live executor signal and replay an accepted abort."""
-
-        with self._lock:
-            self._cancel_callback = callback
-            accepted = self._event.is_set()
-        if accepted:
-            callback()
-
-        def _unregister() -> None:
-            with self._lock:
-                if self._cancel_callback is callback:
-                    self._cancel_callback = None
-
-        return _unregister
 
 
 class _PromptChannel:

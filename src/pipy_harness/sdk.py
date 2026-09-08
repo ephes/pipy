@@ -1,34 +1,13 @@
-"""Programmatic SDK surface for embedding the pipy harness.
+"""Public synchronous product embedding and one-shot harness compatibility.
 
-This module is the named SDK entry point for callers that want to
-drive `pipy-native` runs from Python without going through the
-`pipy` CLI. Pi exposes the equivalent surface as a TypeScript SDK
-in `pi-mono/packages/coding-agent/src/core/sdk.ts`; pipy slopforks
-the useful subset — `RunRequest` in, `RunResult` out — through
-pipy-owned Python boundaries.
+``create_product_session`` constructs the full-content native coding lifetime
+with an explicitly supplied tool-capable provider. Its construction-thread API
+supports repeated submissions, canonical observation, idle immutable snapshots,
+cross-thread cancellation and explicit disposal without a workflow archive.
 
-The SDK is intentionally narrow today:
-
-- `run_native(request)` runs one `pipy-native` turn through
-  `PipyNativeAdapter` with the deterministic fake provider, returns
-  a `RunResult`, and finalizes the session record like the CLI
-  would. It is meant for tests, smoke checks, and library
-  integrations; production callers may inject a real `ProviderPort`
-  or compose `HarnessRunner` + a configured native adapter directly.
-- `make_native_run_request(...)` is a small factory that fills
-  pipy-native defaults so callers don't have to reach into
-  `RunRequest` internals.
-- The module re-exports the value objects callers need
-  (`RunRequest`, `RunResult`, `HarnessStatus`, `CapturePolicy`,
-  `HarnessRunner`, `ProviderPort`, `StreamChunkSink`).
-
-The SDK is the in-process, metadata-first harness compatibility surface. It
-reuses the canonical provider-turn executor but is intentionally not a public
-multi-turn façade over the product ``AgentLoop``. It does not introduce a new
-runtime dependency, does not spawn HTTP servers, and does not perform any I/O
-at import time. Out-of-process JSON/RPC automation is specified separately in
-`docs/automation-rpc.md`; see `docs/sdk.md` for the embedding overview and
-current limits.
+``run_native`` and ``make_native_run_request`` retain their separate one-shot,
+metadata-first compatibility semantics, including a default fake provider and
+finalized archive record. See ``docs/sdk.md`` for both surfaces and ownership.
 """
 
 from __future__ import annotations
@@ -39,14 +18,22 @@ from typing import Final
 from pipy_harness.adapters import PipyNativeAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest, RunResult
+from pipy_harness.native.agent import AgentEvent, AgentEventSink
+from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.workspace_context import (
     default_workspace_instruction_loader,
 )
+from pipy_harness.product_api import ProductSession, create_product_session
 from pipy_harness.runner import HarnessRunner
 
 __all__ = [
+    "AgentEvent",
+    "AgentEventSink",
+    "CodingSessionResultSnapshot",
+    "ProductSession",
+    "create_product_session",
     "CapturePolicy",
     "DEFAULT_NATIVE_AGENT",
     "DEFAULT_NATIVE_SLUG",

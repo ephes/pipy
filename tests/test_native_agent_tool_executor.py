@@ -723,3 +723,76 @@ def test_successive_execute_calls_remain_strictly_sequential(tmp_path: Path) -> 
     assert invocation_order == ["first", "second"]
     assert first.interruption is ToolExecutionInterruption.SETTLED
     assert second.interruption is ToolExecutionInterruption.SETTLED
+
+
+def test_external_abort_waiter_retains_completed_tool_effect(tmp_path: Path) -> None:
+    from pipy_harness.native.cancellation import _AcceptedAbortSignal
+    from pipy_harness.native.repl.turn_leaves import wait_for_external_tool_interrupt
+
+    abort = _AcceptedAbortSignal()
+
+    def waiter(
+        done: threading.Event, cancel: threading.Event
+    ) -> ToolExecutionInterruption:
+        assert done.wait(5)
+        abort.set()
+        return wait_for_external_tool_interrupt(abort, done, cancel)
+
+    outcome = ToolExecutor({"echo": _FixtureTool(_echo_result)}).execute(
+        _call(), _context(tmp_path), wait_for_interrupt=waiter
+    )
+    assert outcome.interruption is ToolExecutionInterruption.OPERATOR_ABORT
+    assert not outcome.result.is_error
+    assert outcome.result.content.value == "hello"
+
+
+def test_external_abort_rejects_late_success_and_output_after_retirement(
+    tmp_path: Path,
+) -> None:
+    from functools import partial
+
+    from pipy_harness.native.cancellation import _AcceptedAbortSignal
+    from pipy_harness.native.repl.turn_leaves import wait_for_external_tool_interrupt
+
+    abort = _AcceptedAbortSignal()
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    output: list[str] = []
+
+    def uncooperative(
+        request: ToolRequest, context: ToolContext
+    ) -> ToolExecutionResult:
+        started.set()
+        assert release.wait(5)
+        try:
+            assert context.output_sink is not None
+            context.output_sink("late output")
+            return ToolExecutionResult(request.tool_request_id, "late success")
+        finally:
+            finished.set()
+
+    def cancel() -> None:
+        assert started.wait(5)
+        abort.set()
+
+    worker = threading.Thread(target=cancel)
+    worker.start()
+    try:
+        outcome = ToolExecutor(
+            {"echo": _FixtureTool(uncooperative)}, cancel_join_timeout_seconds=0
+        ).execute(
+            _call(),
+            ToolContext(workspace_root=tmp_path, output_sink=output.append),
+            wait_for_interrupt=partial(wait_for_external_tool_interrupt, abort),
+        )
+        assert outcome.interruption is ToolExecutionInterruption.OPERATOR_ABORT
+        assert outcome.result.is_error
+        release.set()
+        assert finished.wait(5)
+        assert output == []
+    finally:
+        release.set()
+        assert finished.wait(5)
+        worker.join(5)
+        assert not worker.is_alive()

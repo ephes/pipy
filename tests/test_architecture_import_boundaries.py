@@ -729,6 +729,11 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
 
 ARCHITECTURE_RULES = (
     BoundaryRule(
+        source_package="pipy_harness.native",
+        forbidden_imports=("pipy_harness.product_api", "pipy_harness.sdk"),
+        reason="native runtime must not import its outer product embedding facade",
+    ),
+    BoundaryRule(
         source_package="pipy_harness.status",
         forbidden_imports=("pipy_harness", "pipy_session"),
         reason=(

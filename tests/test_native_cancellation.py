@@ -125,3 +125,37 @@ def test_cancel_closes_a_closeable_blocking_a_worker_thread() -> None:
 
     assert not worker.is_alive()
     assert observed == ["cancelled"]
+
+
+def test_accepted_abort_replays_and_unregister_is_identity_checked() -> None:
+    from pipy_harness.native.cancellation import _AcceptedAbortSignal
+
+    signal = _AcceptedAbortSignal()
+    events: list[str] = []
+    signal.set()
+    remove_first = signal.register_cancel_callback(lambda: events.append("first"))
+    assert events == ["first"]
+    signal.clear()
+    remove_second = signal.register_cancel_callback(lambda: events.append("second"))
+    remove_first()
+    signal.set()
+    assert events == ["first", "second"]
+    remove_second()
+    signal.clear()
+    signal.set()
+    assert signal.wait(0) and events == ["first", "second"]
+
+
+def test_accepted_abort_callback_runs_outside_signal_guard() -> None:
+    from pipy_harness.native.cancellation import _AcceptedAbortSignal
+
+    signal = _AcceptedAbortSignal()
+
+    def callback() -> None:
+        assert signal._lock.acquire(blocking=False)
+        signal._lock.release()
+        signal.clear()
+
+    signal.register_cancel_callback(callback)
+    signal.set()
+    assert not signal.is_set()
