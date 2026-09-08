@@ -1599,8 +1599,8 @@ classification.
 
 ### Bounded Request Retry Contract (D4a)
 
-This is the selected implementation contract; D4a1–D4a3 in the
-[backlog](backlog.md) activate it in dependency order. Current canonical
+This is the selected implementation contract; D4a1 is implemented and D4a2–D4a3
+in the [backlog](backlog.md) activate it in dependency order. Current canonical
 execution still returns one settled provider result. Existing Codex transport
 retry remains unchanged until product activation; event vocabulary alone does
 not implement recovery.
@@ -1643,6 +1643,18 @@ before preparation. A wrapper around a provider without the capability returns
 no prepared handle and keeps the ordinary single-call path. No mutable provider
 policy, concrete-provider imports in the executor, or mandatory request field is
 introduced.
+
+D4a1 implements that provider seam and the start-gated capability forwarding.
+The Codex handle keeps prepared authorization, body and extension headers for
+sequential use, rejects a changed fixed attempt limit, and reports logical
+attempt, exhaustion, progress and actual transport starts on every prepared
+outcome. Its prepared path performs no provider-level backoff or logical retry;
+ordinary `complete` and the compatibility runtime retain their established
+behavior. The default provider-turn executor does not select this capability yet.
+Attempt ordinals must advance by exactly one; skipped or repeated ordinals raise
+`ValueError` without consuming the next valid attempt. Overlapping or reentrant
+calls on the same request-local handle raise `RuntimeError` without starting
+another transport.
 
 The canonical provider-turn boundary owns reissue before returning the final
 outcome to `AgentLoop`. Reuse the same frozen request, provider binding, accepted

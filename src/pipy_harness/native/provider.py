@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.cancellation import CancelToken
@@ -19,6 +20,53 @@ for forwarding the delta string. See `docs/pi-parity.md`
 (`Streaming Output Parity Track`) for the parity bar and the
 opt-in/opt-out semantics.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderAttemptAllowance:
+    """The caller-owned ordinal and fixed bound for one logical attempt."""
+
+    attempt: int
+    max_attempts: int
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("attempt", self.attempt),
+            ("max_attempts", self.max_attempts),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"ProviderAttemptAllowance.{name} must be an int")
+            if not 1 <= value <= 10:
+                raise ValueError(
+                    f"ProviderAttemptAllowance.{name} must be between 1 and 10"
+                )
+        if self.attempt > self.max_attempts:
+            raise ValueError(
+                "ProviderAttemptAllowance.attempt must not exceed max_attempts"
+            )
+
+
+@runtime_checkable
+class PreparedProviderCompletion(Protocol):
+    """Request-local handle that executes one logical provider attempt."""
+
+    def complete_attempt(self, allowance: ProviderAttemptAllowance) -> ProviderResult:
+        """Execute exactly one logical attempt under ``allowance``."""
+
+
+@runtime_checkable
+class PreparedProviderPort(Protocol):
+    """Optional capability for preparation shared by caller-managed attempts."""
+
+    def prepare_completion(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> PreparedProviderCompletion | None:
+        """Prepare one request-local completion, or decline the capability."""
 
 
 def apply_provider_headers(

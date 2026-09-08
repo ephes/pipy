@@ -16,7 +16,12 @@ from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.provider import (
+    PreparedProviderCompletion,
+    PreparedProviderPort,
+    ProviderPort,
+    StreamChunkSink,
+)
 
 
 class ProviderTurnInterruption(StrEnum):
@@ -125,6 +130,26 @@ class _StartGatedProvider:
     ) -> ProviderResult:
         self._start_event.wait()
         return self._provider.complete(
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
+
+    def prepare_completion(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> PreparedProviderCompletion | None:
+        self._start_event.wait()
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        if not isinstance(self._provider, PreparedProviderPort):
+            return None
+        return self._provider.prepare_completion(
             request,
             stream_sink=stream_sink,
             reasoning_sink=reasoning_sink,

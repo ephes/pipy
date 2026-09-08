@@ -23,6 +23,7 @@ from pipy_harness.native.agent.provider_turn import (
     ProviderTurnInterruption,
     ProviderTurnOutcome,
     ProviderTurnWaiter,
+    _StartGatedProvider,
     _wait_for_external_abort,
 )
 from pipy_harness.native.agent.results import AgentCancellationReason
@@ -32,7 +33,11 @@ from pipy_harness.native.cancellation import (
     _AcceptedAbortSignal,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider import (
+    PreparedProviderCompletion,
+    ProviderAttemptAllowance,
+    StreamChunkSink,
+)
 
 
 @dataclass(slots=True)
@@ -113,6 +118,85 @@ def test_external_abort_post_done_recheck_preserves_accepted_abort() -> None:
     abort_signal.clear()
     abort_signal.set()
     assert not cancel_event.is_set()  # callback was unregistered on return
+
+
+@dataclass(slots=True)
+class _PreparedFixtureProvider:
+    supports_tool_calls: bool = True
+    name: str = "fixture"
+    model_id: str = "fixture-model"
+    prepared: int = 0
+    completed: int = 0
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        del request
+        self.completed += 1
+        return _result()
+
+    def prepare_completion(
+        self, request: ProviderRequest, **_kwargs: object
+    ) -> PreparedProviderCompletion:
+        del request
+        self.prepared += 1
+        provider = self
+
+        class _Handle:
+            def complete_attempt(
+                self, allowance: ProviderAttemptAllowance
+            ) -> ProviderResult:
+                del allowance
+                provider.completed += 1
+                return _result()
+
+        return _Handle()
+
+
+def test_start_gate_checks_cancellation_before_prepared_provider_effects(
+    tmp_path: Path,
+) -> None:
+    provider = _PreparedFixtureProvider()
+    start = threading.Event()
+    gated = _StartGatedProvider(provider, start)
+    cancel_token = CancelToken()
+    cancel_token.cancel()
+    start.set()
+
+    with pytest.raises(ProviderCancelledError):
+        gated.prepare_completion(_request(tmp_path), cancel_token=cancel_token)
+
+    assert provider.prepared == 0
+    assert provider.completed == 0
+
+
+def test_start_gate_declines_unsupported_capability_and_legacy_complete_remains(
+    tmp_path: Path,
+) -> None:
+    provider = _SynchronousProvider()
+    start = threading.Event()
+    start.set()
+    gated = _StartGatedProvider(provider, start)
+
+    assert gated.prepare_completion(_request(tmp_path)) is None
+    outcome = ProviderTurnExecutor().complete(
+        gated, _request(tmp_path), _CollectingSink(), turn_index=0
+    )
+
+    assert outcome.result is not None
+    assert provider.order == ["before-text", "after-text"]
+
+
+def test_default_executor_does_not_select_capability_on_capable_provider(
+    tmp_path: Path,
+) -> None:
+    provider = _PreparedFixtureProvider()
+
+    outcome = ProviderTurnExecutor().complete(
+        provider, _request(tmp_path), _CollectingSink(), turn_index=0
+    )
+
+    assert outcome.result is not None
+    assert provider.completed == 1
+    assert provider.prepared == 0
 
 
 def test_provider_turn_outcome_enforces_exactly_one_typed_value() -> None:

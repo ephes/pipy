@@ -12,13 +12,14 @@ import errno
 import http.client
 import io
 import json
+import threading
 import urllib.error
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from email.message import Message
 from email.utils import formatdate
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -40,6 +41,7 @@ from pipy_harness.native.openai_codex_provider import (
     SseResponse,
     UrllibSseHTTPClient,
 )
+from pipy_harness.native.provider import ProviderAttemptAllowance
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.tools.base import ToolDefinition
 
@@ -87,8 +89,10 @@ class _RetryHTTPClient:
         timeout_seconds: float | None,
         cancel_token: object = None,
     ) -> SseResponse:
-        del url, body, timeout_seconds
-        self.calls.append({"index": len(self.calls), "headers": dict(headers)})
+        del url, timeout_seconds
+        self.calls.append(
+            {"index": len(self.calls), "headers": dict(headers), "body": dict(body)}
+        )
         if len(self.calls) <= self.failures:
             return SseResponse(status_code=503, body="")
         return SseResponse(status_code=200, body=self.successful_body)
@@ -166,6 +170,242 @@ def test_codex_header_hook_runs_once_and_reuses_snapshot_across_retries() -> Non
     assert hook_calls == 1
     assert len(client.calls) == 3
     assert all(call["headers"]["X-Trace"] == "trace-once" for call in client.calls)
+
+
+def test_prepared_codex_reuses_preparation_and_runs_one_attempt_at_a_time() -> None:
+    client = _RetryHTTPClient(failures=1)
+    auth_calls = 0
+
+    class _CountingAuth:
+        def get_credentials(self) -> OpenAICodexCredentials:
+            nonlocal auth_calls
+            auth_calls += 1
+            return _credentials()
+
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=cast(OpenAICodexAuthManager, _CountingAuth()),
+        http_client=client,
+        retry_policy=RetryPolicy(
+            max_attempts=4, initial_delay_seconds=1.0, max_delay_seconds=1.0
+        ),
+        retry_sleep=lambda _delay: pytest.fail("prepared attempt slept"),
+    )
+    hook_calls = 0
+
+    def headers(values: MutableMapping[str, str | None]) -> None:
+        nonlocal hook_calls
+        hook_calls += 1
+        values["X-Prepared"] = "once"
+
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="hi",
+        provider_name="openai-codex",
+        model_id="gpt-test",
+        cwd=Path("."),
+        provider_header_callback=headers,
+    )
+    prepared = provider.prepare_completion(request)
+
+    first = prepared.complete_attempt(ProviderAttemptAllowance(1, 2))
+    second = prepared.complete_attempt(ProviderAttemptAllowance(2, 2))
+
+    assert first.status is HarnessStatus.FAILED
+    assert first.metadata == {
+        "attempt": 1,
+        "exhausted": False,
+        "http_status": 503,
+        "max_attempts": 2,
+        "progress": "none",
+        "retryable": True,
+        "transport_count": 1,
+    }
+    assert second.status is HarnessStatus.SUCCEEDED
+    assert second.metadata == {
+        "attempt": 2,
+        "exhausted": False,
+        "max_attempts": 2,
+        "progress": "event",
+        "provider_response_store_requested": False,
+        "response_status": "completed",
+        "retryable": False,
+        "transport_count": 1,
+    }
+    assert hook_calls == 1
+    assert auth_calls == 1
+    assert len(client.calls) == 2
+    assert all(call["headers"]["X-Prepared"] == "once" for call in client.calls)
+    assert client.calls[0]["body"] == client.calls[1]["body"]
+
+
+def test_prepared_codex_preserves_parser_retry_after_ceiling_not_policy_cap() -> None:
+    headers = Message()
+    headers["Retry-After"] = "90"
+    failure = urllib.error.HTTPError(
+        "https://example.invalid", 503, "unavailable", headers, io.BytesIO(b"{}")
+    )
+    client = _SequenceHTTPClient([failure])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=OpenAICodexAuthManager(
+            store=_InMemoryCredentialStore(_credentials())
+        ),
+        http_client=client,
+        retry_policy=RetryPolicy(max_attempts=2, max_delay_seconds=3.0),
+        retry_sleep=lambda _delay: pytest.fail("prepared attempt slept"),
+    )
+
+    result = provider.prepare_completion(_request()).complete_attempt(
+        ProviderAttemptAllowance(1, 2)
+    )
+
+    assert result.status is HarnessStatus.FAILED
+    assert result.metadata is not None
+    assert result.metadata["retry_after_seconds"] == 90.0
+    assert result.metadata["transport_count"] == 1
+
+
+def test_prepared_codex_requires_one_fixed_sequential_allowance() -> None:
+    client = _SequenceHTTPClient(
+        [_success_response("first"), _success_response("second")]
+    )
+    prepared = _provider(client).prepare_completion(_request())
+    prepared.complete_attempt(ProviderAttemptAllowance(1, 2))
+
+    with pytest.raises(ValueError, match="max_attempts must remain fixed"):
+        prepared.complete_attempt(ProviderAttemptAllowance(2, 3))
+
+    result = prepared.complete_attempt(ProviderAttemptAllowance(2, 2))
+
+    assert result.final_text == "second"
+    assert client.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("attempt", "max_attempts", "error"),
+    [
+        (True, 2, TypeError),
+        (1, False, TypeError),
+        (1.0, 2, TypeError),
+        (1, "2", TypeError),
+        (0, 2, ValueError),
+        (1, 0, ValueError),
+        (11, 11, ValueError),
+        (1, 11, ValueError),
+        (3, 2, ValueError),
+    ],
+)
+def test_provider_attempt_allowance_rejects_invalid_values(
+    attempt: object,
+    max_attempts: object,
+    error: type[Exception],
+) -> None:
+    with pytest.raises(error):
+        ProviderAttemptAllowance(cast(int, attempt), cast(int, max_attempts))
+
+
+def test_prepared_codex_rejected_allowance_and_ordinal_do_not_consume_attempt() -> None:
+    client = _SequenceHTTPClient([_success_response("accepted")])
+    prepared = _provider(client).prepare_completion(_request())
+
+    with pytest.raises(TypeError, match="allowance must be"):
+        prepared.complete_attempt(cast(ProviderAttemptAllowance, object()))
+    with pytest.raises(ValueError, match="attempts must be sequential"):
+        prepared.complete_attempt(ProviderAttemptAllowance(2, 2))
+
+    result = prepared.complete_attempt(ProviderAttemptAllowance(1, 2))
+
+    assert result.final_text == "accepted"
+    assert client.calls == 1
+
+
+def test_prepared_codex_overlapping_attempt_is_rejected_without_transport() -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    @dataclass
+    class _BlockingThenSuccessClient:
+        calls: int = 0
+
+        def post_sse(
+            self,
+            url: str,
+            *,
+            headers: Mapping[str, str],
+            body: Mapping[str, Any],
+            timeout_seconds: float | None,
+            cancel_token: object = None,
+        ) -> SseResponse:
+            del url, headers, body, timeout_seconds, cancel_token
+            self.calls += 1
+            if self.calls == 1:
+                entered.set()
+                assert release.wait(timeout=2)
+                return _success_response("first")
+            return _success_response("second")
+
+    client = _BlockingThenSuccessClient()
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=OpenAICodexAuthManager(
+            store=_InMemoryCredentialStore(_credentials())
+        ),
+        http_client=client,
+    )
+    prepared = provider.prepare_completion(_request())
+    results = []
+    errors: list[Exception] = []
+
+    def run_first() -> None:
+        try:
+            results.append(prepared.complete_attempt(ProviderAttemptAllowance(1, 2)))
+        except Exception as exc:  # pragma: no cover - asserted below  # noqa: BLE001
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_first)
+    worker.start()
+    assert entered.wait(timeout=2)
+    try:
+        with pytest.raises(RuntimeError, match="concurrent attempts"):
+            prepared.complete_attempt(ProviderAttemptAllowance(2, 2))
+        assert client.calls == 1
+    finally:
+        release.set()
+        worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert errors == []
+    assert [result.final_text for result in results] == ["first"]
+    second = prepared.complete_attempt(ProviderAttemptAllowance(2, 2))
+    assert second.final_text == "second"
+    assert client.calls == 2
+
+
+def test_prepared_codex_setup_failure_reports_zero_transport_work() -> None:
+    client = _SequenceHTTPClient([_success_response("must not run")])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=OpenAICodexAuthManager(
+            store=_InMemoryCredentialStore(cast(OpenAICodexCredentials, None))
+        ),
+        http_client=client,
+    )
+
+    result = provider.prepare_completion(_request()).complete_attempt(
+        ProviderAttemptAllowance(1, 2)
+    )
+
+    assert result.status is HarnessStatus.FAILED
+    assert result.metadata == {
+        "attempt": 1,
+        "exhausted": False,
+        "max_attempts": 2,
+        "progress": "none",
+        "retryable": False,
+        "transport_count": 0,
+    }
+    assert client.calls == 0
 
 
 def test_codex_stops_after_max_attempts(monkeypatch: pytest.MonkeyPatch):
@@ -433,7 +673,12 @@ def test_pre_event_transport_failures_retry_without_duplicate_output(
     assert chunks == ["ok"]
 
 
-def test_tool_search_body_and_derived_id_are_stable_across_retry() -> None:
+@pytest.mark.parametrize(
+    "prepared_attempts", [False, True], ids=["standalone", "prepared"]
+)
+def test_tool_search_body_and_derived_id_are_stable_across_attempts(
+    prepared_attempts: bool,
+) -> None:
     first = OpenAICodexTransportError(
         "OpenAI Codex transport failed while waiting for response headers.",
         metadata={"phase": "headers", "retryable": True, "transport": "sse"},
@@ -470,7 +715,14 @@ def test_tool_search_body_and_derived_id_are_stable_across_retry() -> None:
         available_tools=(late_tool,),
     )
 
-    result = _provider(client, supports_tool_search=True).complete(request)
+    provider = _provider(client, supports_tool_search=True)
+    if prepared_attempts:
+        prepared = provider.prepare_completion(request)
+        first_result = prepared.complete_attempt(ProviderAttemptAllowance(1, 2))
+        result = prepared.complete_attempt(ProviderAttemptAllowance(2, 2))
+        assert first_result.status == HarnessStatus.FAILED
+    else:
+        result = provider.complete(request)
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert client.bodies[0] == client.bodies[1]
@@ -545,6 +797,32 @@ def test_post_event_stream_failure_is_never_replayed(
     assert result.metadata["exhausted"] is False
     assert client.calls == 1
     assert "duplicate" not in chunks
+
+
+def test_prepared_post_event_failure_reports_progress_and_no_replay() -> None:
+    client = _SequenceHTTPClient(
+        [
+            SseResponse(
+                status_code=200,
+                body="",
+                event_stream=_events_then_error(
+                    [{"type": "response.created", "response": {"id": "safe"}}],
+                    _stream_failure(),
+                ),
+            ),
+            _success_response("duplicate"),
+        ]
+    )
+    prepared = _provider(client).prepare_completion(_request())
+
+    result = prepared.complete_attempt(ProviderAttemptAllowance(1, 2))
+
+    assert result.status is HarnessStatus.FAILED
+    assert result.metadata is not None
+    assert result.metadata["progress"] == "event"
+    assert result.metadata["exhausted"] is False
+    assert result.metadata["transport_count"] == 1
+    assert client.calls == 1
 
 
 def test_missing_terminal_after_text_is_not_replayed() -> None:

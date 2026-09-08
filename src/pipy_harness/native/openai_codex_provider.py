@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 import webbrowser
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -56,7 +56,12 @@ from pipy_harness.native.http import (
     transport_exception_retryable,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.provider import (
+    PreparedProviderCompletion,
+    ProviderAttemptAllowance,
+    StreamChunkSink,
+    apply_provider_headers,
+)
 from pipy_harness.native.retry import (
     DEFAULT_RETRIABLE_STATUSES,
     RetryPolicy,
@@ -866,6 +871,30 @@ class OpenAICodexResponsesProvider:
             return runner.failed_result(request, started_at, exc)
         return _successful_codex_result(self, started_at, result)
 
+    def prepare_completion(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> PreparedProviderCompletion:
+        """Prepare body, authorization and extension headers once for reissue."""
+
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        started_at = utc_now()
+        configuration = _prepare_codex_completion(self, request, started_at)
+        return _PreparedOpenAICodexCompletion(
+            provider=self,
+            request=request,
+            started_at=started_at,
+            configuration=configuration,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
+
 
 def _responses_input_messages(
     request: ProviderRequest,
@@ -1187,6 +1216,7 @@ class _OpenAICodexAttemptRunner:
     cancel_token: CancelToken | None
     attempt: int = field(init=False, default=0)
     progress: StreamProgress = field(init=False, default_factory=StreamProgress)
+    transport_count: int = field(init=False, default=0)
 
     def run(self) -> ParsedOpenAICodexResponse:
         return retry_with_backoff(
@@ -1201,6 +1231,7 @@ class _OpenAICodexAttemptRunner:
     def _attempt(self) -> ParsedOpenAICodexResponse:
         self.attempt += 1
         self.progress = StreamProgress()
+        self.transport_count = 0
         if self.cancel_token is not None:
             self.cancel_token.raise_if_cancelled()
         if not self._should_use_websocket():
@@ -1216,6 +1247,7 @@ class _OpenAICodexAttemptRunner:
         )
 
     def _sse_attempt(self) -> ParsedOpenAICodexResponse:
+        self.transport_count += 1
         try:
             response = self.configuration.http_client.post_sse(
                 self.provider.endpoint,
@@ -1252,6 +1284,7 @@ class _OpenAICodexAttemptRunner:
             "session-id": request_id,
             "x-client-request-id": request_id,
         }
+        self.transport_count += 1
         events = self.provider.websocket_client.post_events(
             self.provider.websocket_endpoint,
             headers=websocket_headers,
@@ -1361,6 +1394,58 @@ class _OpenAICodexAttemptRunner:
             metadata=metadata,
         )
 
+    def run_prepared_attempt(
+        self,
+        request: ProviderRequest,
+        started_at: datetime,
+        allowance: ProviderAttemptAllowance,
+    ) -> ProviderResult:
+        """Run one logical attempt without the standalone retry policy."""
+
+        self.attempt = allowance.attempt - 1
+        try:
+            result = self._attempt()
+        except ProviderCancelledError:
+            raise
+        except OpenAICodexProviderError as exc:
+            metadata = dict(exc.metadata)
+            intrinsically_retryable = _codex_failure_retryable(exc)
+            metadata.update(
+                {
+                    "attempt": allowance.attempt,
+                    "exhausted": (
+                        intrinsically_retryable
+                        and not self.progress.observed
+                        and allowance.attempt >= allowance.max_attempts
+                    ),
+                    "max_attempts": allowance.max_attempts,
+                    "progress": self.progress.value,
+                    "retryable": intrinsically_retryable,
+                    "transport_count": self.transport_count,
+                }
+            )
+            return failed_provider_result(
+                request,
+                provider_name=self.provider.name,
+                started_at=started_at,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                metadata=metadata,
+            )
+        succeeded = _successful_codex_result(self.provider, started_at, result)
+        return replace(
+            succeeded,
+            metadata={
+                **(succeeded.metadata or {}),
+                "attempt": allowance.attempt,
+                "exhausted": False,
+                "max_attempts": allowance.max_attempts,
+                "progress": self.progress.value,
+                "retryable": False,
+                "transport_count": self.transport_count,
+            },
+        )
+
     def _cap_retry_after_metadata(self, metadata: dict[str, Any]) -> None:
         retry_after = metadata.get("retry_after_seconds")
         if isinstance(retry_after, int | float) and not isinstance(retry_after, bool):
@@ -1368,6 +1453,61 @@ class _OpenAICodexAttemptRunner:
                 self.provider.retry_policy.max_delay_seconds,
                 max(0.0, float(retry_after)),
             )
+
+
+@dataclass(slots=True)
+class _PreparedOpenAICodexCompletion:
+    provider: OpenAICodexResponsesProvider
+    request: ProviderRequest
+    started_at: datetime
+    configuration: _OpenAICodexCompletionConfiguration | ProviderResult
+    stream_sink: StreamChunkSink | None
+    reasoning_sink: StreamChunkSink | None
+    cancel_token: CancelToken | None
+    _last_attempt: int = field(init=False, default=0)
+    _max_attempts: int | None = field(init=False, default=None)
+    _active: threading.Lock = field(init=False, default_factory=threading.Lock)
+
+    def complete_attempt(self, allowance: ProviderAttemptAllowance) -> ProviderResult:
+        if not isinstance(allowance, ProviderAttemptAllowance):
+            raise TypeError("allowance must be ProviderAttemptAllowance")
+        if not self._active.acquire(blocking=False):
+            raise RuntimeError(
+                "prepared completion does not support concurrent attempts"
+            )
+        try:
+            if allowance.attempt != self._last_attempt + 1:
+                raise ValueError("prepared completion attempts must be sequential")
+            if self._max_attempts is None:
+                self._max_attempts = allowance.max_attempts
+            elif allowance.max_attempts != self._max_attempts:
+                raise ValueError("prepared completion max_attempts must remain fixed")
+            self._last_attempt = allowance.attempt
+            if self.cancel_token is not None:
+                self.cancel_token.raise_if_cancelled()
+            if isinstance(self.configuration, ProviderResult):
+                metadata = dict(self.configuration.metadata or {})
+                metadata.update(
+                    {
+                        "attempt": allowance.attempt,
+                        "exhausted": False,
+                        "max_attempts": allowance.max_attempts,
+                        "progress": "none",
+                        "retryable": False,
+                        "transport_count": 0,
+                    }
+                )
+                return replace(self.configuration, metadata=metadata)
+            runner = _OpenAICodexAttemptRunner(
+                provider=self.provider,
+                configuration=self.configuration,
+                stream_sink=self.stream_sink,
+                reasoning_sink=self.reasoning_sink,
+                cancel_token=self.cancel_token,
+            )
+            return runner.run_prepared_attempt(self.request, utc_now(), allowance)
+        finally:
+            self._active.release()
 
 
 def _successful_codex_result(

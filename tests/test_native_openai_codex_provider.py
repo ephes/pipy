@@ -35,6 +35,7 @@ from pipy_harness.native.openai_codex_provider import (
     create_authorization_flow,
     parse_authorization_input,
 )
+from pipy_harness.native.provider import ProviderAttemptAllowance
 from pipy_harness.native.retry import RetryPolicy
 
 
@@ -1480,6 +1481,42 @@ def test_repeated_websocket_connection_limit_retries_once_then_falls_back(
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.final_text == "sse after limit"
+    assert len(ws.requests) == 2
+    assert len(sse.requests) == 1
+
+
+def test_prepared_attempt_reports_three_bounded_transport_starts(
+    tmp_path: Path,
+) -> None:
+    sse = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200, body=sse_payload(completed_events("sse after limit"))
+        )
+    )
+    ws = FakeWebSocketClient(
+        [
+            [{"type": "error", "code": "websocket_connection_limit_reached"}],
+            [{"type": "error", "code": "websocket_connection_limit_reached"}],
+        ]
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+    )
+
+    result = provider.prepare_completion(provider_request(tmp_path)).complete_attempt(
+        ProviderAttemptAllowance(1, 2)
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert result.metadata is not None
+    assert result.metadata["attempt"] == 1
+    assert result.metadata["max_attempts"] == 2
+    assert result.metadata["progress"] == "event"
+    assert result.metadata["transport_count"] == 3
     assert len(ws.requests) == 2
     assert len(sse.requests) == 1
 
