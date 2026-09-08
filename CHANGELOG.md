@@ -8,12 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
-- Branch-summary tree selection now rejects generated text when its original
+- Branch-summary tree selection now runs through canonical private provider
+  execution with one frozen request and captured bounded retry policy. Retry
+  events, deltas, and summary usage stay outside ordinary product projections;
+  provider and backoff cancellation settle manual pending input. Selection
+  rejects generated text when its original
   tree, leaf, coding history, provider binding, extension generation, or
   publication window changed. Successful selection publishes the tree and coding
   projection coherently, clears branch-bound extension inputs, and durably appends
   the exact accepted entry in order. Append failure preserves accepted live state;
-  canonical branch-summary retry and cancellation remain deferred.
+  retained controls invoked by a provider worker do not require a new effect lease.
 
 - Manual and automatic semantic compaction now use the canonical bounded retry
   mechanism for prepared providers. One captured policy and frozen private

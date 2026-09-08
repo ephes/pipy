@@ -571,8 +571,9 @@ is forward-compatible and Pi-written files do not lose data.
   exponential backoff 2s/4s/8s), and `retry.provider.{timeoutMs, maxRetries,
   maxRetryDelayMs(60000)}`. These feed pipy's retry policy
   (`pipy_harness.native.retry`). Each ordinary product request captures the
-  resolved policy once. Ordinary requests and semantic-compaction summaries using
-  prepared OpenAI-Codex execution use it for bounded logical attempts and retry
+  resolved policy once. Ordinary requests, semantic-compaction summaries, and
+  `/tree` branch summaries using prepared OpenAI-Codex execution use it for
+  bounded logical attempts and retry
   only when the failed attempt reports no progress, payload, or usage. Settings
   changes during backoff affect the next request, not the active retry sequence.
   Migrated legacy `retry.maxDelayMs` →
@@ -592,10 +593,10 @@ runtime has no matching surface yet) is:
   - `retry.{enabled,maxRetries,baseDelayMs}` and
     `retry.provider.{maxRetries,maxRetryDelayMs}` — mapped onto the provider
     `RetryPolicy` via `settings.retry_policy_from_settings` and captured for each
-    ordinary product request and semantic-compaction summary operation. CLI
-    startup also installs the resolved policy on the standalone OpenAI-Codex
-    provider; branch-summary generation retains its provider-owned behavior.
-    Provider
+    ordinary product request, semantic-compaction summary operation, and `/tree`
+    branch-summary operation. CLI startup also installs the resolved policy on
+    the standalone OpenAI-Codex provider for callers outside those product-owned
+    request paths. Provider
     `maxRetries` wins when it is a valid integer and otherwise inherits the
     global value; n → `max_attempts = n + 1`; ms→s; `enabled=false` → a single
     attempt; values are clamped to 1–10 attempts and the `RetryPolicy` delay

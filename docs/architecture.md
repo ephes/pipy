@@ -900,14 +900,19 @@ erased. It does not make retired handles deliverable or invent ids,
 retry cursors, deduplication, or queue-capacity semantics.
 
 Branch-summary selection retains an operation-local tree, coding-history,
-generation, and publication witness across its ordinary direct provider call.
+generation, and publication witness across its canonical private provider
+execution.
 After generation it prepares the exact entry and prospective coding projection
 outside the session mutex, conditionally accepts tree and coding history together,
 then clears branch-bound inputs and appends that exact entry while retaining the
 outer mutation/I/O lock. A stale result publishes nothing. Durable append failure
 leaves the accepted in-memory tree, coding provenance, and cleared branch inputs
-in place. Canonical retry and cancellation for this private summary remain
-deferred.
+in place. The canonical provider-turn executor now runs this private summary
+with one frozen request and captured managed retry policy. Its events, deltas,
+and usage remain outside ordinary product projections; the original branch
+witness gates every reissue and final acceptance, and existing provider/backoff
+cancellation settles manual pending input without introducing another worker or
+lifecycle owner.
 
 Reload uses two separate `generation_ref.publishing()` sections rather than one
 gate around the whole operation. Configuration/package/resource recomposition,

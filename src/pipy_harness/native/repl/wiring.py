@@ -1267,6 +1267,7 @@ def _compose_collaborators(
         product_session=product_session,
         coding_input_queue=coding_input_queue,
         coding_effects=coding_effects,
+        provider_turn_executor=extension.provider_turn_executor,
         terminal_ui=terminal_ui,
         settings=settings,
         cwd=cwd,

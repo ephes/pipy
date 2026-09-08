@@ -18,6 +18,7 @@ from typing import Any, TextIO
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
+    AgentCancellationReason,
     AgentMessage,
     AgentToolCall,
     AgentToolResultMessage,
@@ -27,8 +28,16 @@ from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolPolicyDecision,
 )
-from pipy_harness.native.agent.provider_turn import _AbortCallbackSignal
-from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
+from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
+from pipy_harness.native.agent.provider_turn import (
+    ProviderTurnDeltaPolicy,
+    ProviderTurnExecutor,
+    _AbortCallbackSignal,
+)
+from pipy_harness.native.agent.request import (
+    AgentProviderRequestSnapshot,
+    freeze_provider_request,
+)
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.commands import (
@@ -36,7 +45,11 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchKind,
     ResourceDispatchResolution,
 )
-from pipy_harness.native.coding.compaction import build_summary_request, summary_text
+from pipy_harness.native.coding.compaction import (
+    PrivateSummaryEvents,
+    build_summary_request,
+    summary_text,
+)
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionContext,
@@ -54,6 +67,7 @@ from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.provider import PreparedProviderPort
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections
 from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
@@ -67,6 +81,7 @@ from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import ImplicitTrustState, ReloadCommandEffects
 from pipy_harness.native.repl.session_commands import SessionCommandEffects
 from pipy_harness.native.repl.session_transfer import TransferCommandEffects
+from pipy_harness.native.repl.turn_leaves import provider_turn_inputs
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
@@ -86,7 +101,7 @@ from pipy_harness.native.session_tree_commands import (
     branch_summary_attach_parent,
     resolve_session_target,
 )
-from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.settings import SettingsManager, retry_policy_from_settings
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tool_renderers import _parse_tool_input, _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
@@ -115,6 +130,17 @@ class _BranchSummaryWork:
     coding: CodingCompactionSnapshot
     generation: SessionGenerationSnapshot
     publication_epoch: int
+    retry_policy: ProviderManagedRetryPolicy | None
+
+
+@dataclass(frozen=True, slots=True)
+class _BranchSummaryExecution:
+    result: BranchSummarySelectionResult
+    cancellation_reason: AgentCancellationReason | None = None
+
+
+class _StaleBranchSummaryRetry(RuntimeError):
+    """Private control signal for a stale branch-summary reissue."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -156,6 +182,7 @@ class SessionCollaborators:
     product_session: CodingProductSessionCoordinator
     coding_input_queue: CodingInputQueue
     coding_effects: CodingEffectCoordinator
+    provider_turn_executor: ProviderTurnExecutor
     terminal_ui: TerminalUi | None
     settings: SettingsManager
     cwd: Path
@@ -394,15 +421,36 @@ class SessionCollaborators:
     def select_with_branch_summary(
         self, target: SessionEntry, directive: str
     ) -> BranchSummarySelectionResult:
-        """Generate then conditionally publish one abandoned-branch summary."""
+        """Execute one branch summary and settle its manual pending input.
+
+        Persistence exceptions escape before manual input is restored or promoted.
+        """
+
+        execution = self._execute_branch_summary(target, directive)
+        if self.terminal_ui is not None:
+            pending = self.terminal_ui.components.pending_messages
+            if execution.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT:
+                pending.restore_pending_to_editor()
+            else:
+                pending.promote_pending_to_drain()
+        return execution.result
+
+    def _execute_branch_summary(  # noqa: C901 - ordered private outcome matrix
+        self, target: SessionEntry, directive: str
+    ) -> _BranchSummaryExecution:
+        """Generate privately, then conditionally publish one branch summary."""
 
         with self.coding_effects.lock:
             with self.ctl.generation_ref.lock:
                 work = self._capture_branch_summary_locked(target)
         if work is None:
-            return BranchSummarySelectionResult(False, stale=True)
+            return _BranchSummaryExecution(
+                BranchSummarySelectionResult(False, stale=True)
+            )
         if not work.messages:
-            return BranchSummarySelectionResult(False, handled=False)
+            return _BranchSummaryExecution(
+                BranchSummarySelectionResult(False, handled=False)
+            )
         focus = directive.split(":", 1)[1] if ":" in directive else None
         instruction = (
             "Summarize the following abandoned conversation branch "
@@ -411,30 +459,68 @@ class SessionCollaborators:
         if focus:
             instruction += f" Focus on: {focus}."
         binding = work.coding.binding
-        request = build_summary_request(
-            instruction=instruction,
-            user_prompt="Provide the branch summary now.",
-            binding=binding,
-            cwd=self.cwd,
-            messages=work.messages,
-            header_callback=self.active_provider_header_callback(),
+        request = freeze_provider_request(
+            build_summary_request(
+                instruction=instruction,
+                user_prompt="Provide the branch summary now.",
+                binding=binding,
+                cwd=self.cwd,
+                messages=work.messages,
+                header_callback=self.active_provider_header_callback(),
+            )
         )
         with self.coding_effects.lock:
             with self.ctl.generation_ref.lock:
                 if not self._branch_summary_matches_locked(work):
-                    return BranchSummarySelectionResult(False, stale=True)
+                    return _BranchSummaryExecution(
+                        BranchSummarySelectionResult(False, stale=True)
+                    )
+        provider, waiter = provider_turn_inputs(
+            binding.provider, self.terminal_ui, self.abort_event
+        )
+
+        def _before_reissue() -> None:
+            with self.coding_effects.lock:
+                with self.ctl.generation_ref.lock:
+                    if not self._branch_summary_matches_locked(work):
+                        raise _StaleBranchSummaryRetry
+
         try:
-            result = binding.provider.complete(request)
+            completion = self.provider_turn_executor.complete(
+                provider,
+                request,
+                PrivateSummaryEvents(),
+                turn_index=0,
+                delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
+                waiter=waiter,
+                retry_policy=work.retry_policy,
+                before_reissue=(
+                    _before_reissue if work.retry_policy is not None else None
+                ),
+            )
+        except _StaleBranchSummaryRetry:
+            return _BranchSummaryExecution(
+                BranchSummarySelectionResult(False, stale=True)
+            )
         except Exception:  # noqa: BLE001 - auxiliary generation is recoverable
-            return BranchSummarySelectionResult(False)
+            return _BranchSummaryExecution(BranchSummarySelectionResult(False))
+        if completion.cancellation_reason is not None:
+            return _BranchSummaryExecution(
+                BranchSummarySelectionResult(False), completion.cancellation_reason
+            )
+        result = completion.result
+        if result is None:
+            return _BranchSummaryExecution(BranchSummarySelectionResult(False))
         text = None if result.tool_calls else summary_text(result)
         if text is None:
-            return BranchSummarySelectionResult(False)
+            return _BranchSummaryExecution(BranchSummarySelectionResult(False))
 
         with self.coding_effects.lock:
             with self.ctl.generation_ref.lock:
                 if not self._branch_summary_matches_locked(work):
-                    return BranchSummarySelectionResult(False, stale=True)
+                    return _BranchSummaryExecution(
+                        BranchSummarySelectionResult(False, stale=True)
+                    )
             prepared = work.tree.prepare_branch_summary(work.attach_parent_id, text)
             context = CodingProductSessionContext(
                 messages=prepared.context.messages,
@@ -447,12 +533,14 @@ class SessionCollaborators:
             )
             with self.ctl.generation_ref.lock:
                 if not self._branch_summary_matches_locked(work):
-                    return BranchSummarySelectionResult(False, stale=True)
+                    return _BranchSummaryExecution(
+                        BranchSummarySelectionResult(False, stale=True)
+                    )
                 work.tree.accept_prepared_branch_summary(prepared)
                 self.product_session.accept_active_history(context)
             self.coding_input_queue.clear_extension_inputs()
             work.tree.persist_prepared_branch_summary(prepared.entry)
-        return BranchSummarySelectionResult(True)
+        return _BranchSummaryExecution(BranchSummarySelectionResult(True))
 
     def _capture_branch_summary_locked(
         self, target: SessionEntry
@@ -465,6 +553,17 @@ class SessionCollaborators:
             return None
         attach_parent = branch_summary_attach_parent(tree, target.id)
         old_leaf = tree.get_leaf_id()
+        retry_policy = None
+        coding = self.coding_state.compaction_snapshot()
+        if isinstance(coding.binding.provider, PreparedProviderPort):
+            configured = retry_policy_from_settings(self.settings)
+            retry_policy = ProviderManagedRetryPolicy(
+                max_attempts=configured.max_attempts,
+                initial_delay_seconds=configured.initial_delay_seconds,
+                max_delay_seconds=configured.max_delay_seconds,
+                multiplier=configured.multiplier,
+                jitter_seconds=configured.jitter_seconds,
+            )
         return _BranchSummaryWork(
             tree=tree,
             tree_epoch=tree.mutation_epoch,
@@ -474,9 +573,10 @@ class SessionCollaborators:
             target_parent_id=target.parent_id,
             attach_parent_id=attach_parent,
             messages=tuple(abandoned_branch_messages(tree, old_leaf, attach_parent)),
-            coding=self.coding_state.compaction_snapshot(),
+            coding=coding,
             generation=self.ctl.generation_ref.snapshot(),
             publication_epoch=self.ctl.generation_ref.publication_epoch,
+            retry_policy=retry_policy,
         )
 
     def _branch_summary_matches_locked(self, work: _BranchSummaryWork) -> bool:

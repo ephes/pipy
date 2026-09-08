@@ -502,7 +502,7 @@ to rebuild provider context.
 ### Branch Summary Ownership Contract (D4b2)
 
 This contract is implemented through D4b3a for guarded publication. Canonical
-branch-summary retry and cancellation remain D4b3b.
+branch-summary retry and cancellation are implemented through D4b3b.
 Selection, attachment position, `fromId`, and editor-prefill semantics above stay
 unchanged. The generic tree command helper must not append generated text after
 a summarizer callback returns without a retained conditional-acceptance witness.
@@ -555,12 +555,12 @@ do not catch it in the summary-generation failure handler. Emit no success notic
 or editor prefill for that failure. Diagnostics and editor/UI callbacks run after
 unlocking.
 
-D4b3a implements that conditional-publication seam while preserving ordinary
-provider completion. Failed, empty, tool-bearing or stale generation accepts
-nothing, leaves editor prefill untouched, and emits only content-free diagnostics.
-Do not add retry or a new worker in this seam slice.
+D4b3a established that conditional-publication seam while preserving the
+then-current direct provider completion path. Failed, empty, tool-bearing or
+stale generation accepts nothing, leaves editor prefill untouched, and emits
+only content-free diagnostics.
 
-D4b3b then uses the existing canonical executor, one frozen tool-free request,
+D4b3b uses the existing canonical executor, one frozen tool-free request,
 settings-derived immutable retry policy, private summary event sink and disabled
 delta channels. Check capability on the original provider before abort wrapping;
 reissue admission revalidates the same original branch work. Use D4a/D4b1 retry,

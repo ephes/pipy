@@ -1737,7 +1737,8 @@ of manual and automatic generation, its existing `_CompactionWork` witness,
 conditional acceptance, and state-first persistence. Branch-summary generation
 and acceptance use the separately selected and D4b3a-implemented
 [D4b2 ownership contract](session-tree.md#branch-summary-ownership-contract-d4b2).
-D4b3b still owns canonical branch retry and cancellation.
+D4b3b now supplies canonical private branch retry and cancellation while
+retaining that acceptance boundary.
 
 Capture one settings-derived immutable managed policy for the selected summary
 request before provider work, under the existing mutation-I/O then shared

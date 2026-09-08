@@ -9,36 +9,36 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D4b3b canonical private branch execution, retry and cancellation,
-after D4b3a guarded publication is reviewed and committed from `836b413`.
-Reuse that acceptance boundary and the D4a/D4b1 executor contract; no new session,
-queue or lifecycle owner. Refresh the implementation handoff against the committed
-seam before dispatch.
+**Next task:** scheduled recovery-to-RPC grooming, then the reviewed D5a
+queue/session ownership contract before implementation. D4b3b completes the third
+implementation since D4b0 `6262965`; reconcile summary-safe history, current
+queue/RPC ownership, and a bounded D5a handoff at this phase boundary.
 
-D4b3a implements original-work freshness checks and coherent tree/coding acceptance
-through existing owners, followed by branch-bound input clearing and exact-entry
-persistence under the outer mutation lock. Append failure preserves accepted live
-state and propagates without success notice or prefill. The full runtime gate
-passed 5,971 tests (two skipped), static checks and unchanged interpreter snapshots.
-A later test-only correction isolates header mutation to the branch operation;
-the affected integration module passed 65 tests and full typing passed. PTY smoke
-passed eight; docs/diff checks passed. Root independently passed 246 focused tests and all static checks. One complete
-Opus 5 High code round closed advisory, not CLEAN: no warnings or critical findings.
-Two optional suggestions (an extra projection list copy and callback field naming)
-were left unchanged; existing call sites and ownership remain correct. No material
-finding remains; stop at diminishing returns without another review round.
+D4b3b activates canonical private branch execution on D4b3a's committed acceptance
+seam. One frozen request and captured retry policy span attempts; private events,
+deltas and usage stay outside ordinary product projections. Original-work checks
+gate reissue and acceptance, and provider/backoff cancellation uses existing manual
+pending-input settlement. The full runtime gate passed 5,980 tests (two skipped),
+static checks and unchanged interpreter snapshots. PTY smoke passed eight and docs
+built. A later test-only change replaces timed backoff polling with deterministic
+callback registration; its focused test and all static checks passed. Root independently passed 270 focused tests. One complete Opus 5 Medium code
+round closed advisory with three suggestions, no warnings or critical findings.
+The test watchdog was scoped to the branch worker and persistence-exception
+settlement was documented; the optional shared policy converter was declined.
+Local focused/static checks verified those test/docstring-only repairs; runtime
+behavior stayed unchanged. No material finding remains; stop at diminishing returns.
 
-D4b2 `836b413` selected this ownership boundary in one adjudicated advisory Opus
-plan round. D4b1 `9ccb22e` completed semantic-compaction retry in one advisory code
-round with no material findings remaining. These were advisory outcomes, not CLEAN.
+D4b3a `30d6d33` completed guarded tree/coding acceptance and state-first persistence;
+one complete Opus 5 High round closed advisory with two optional suggestions and
+no warnings or critical findings. D4b2 `836b413` selected the ownership contract;
+D4b1 `9ccb22e` completed semantic-compaction retry. Their advisory outcomes were
+not CLEAN, and no material findings remain.
 
-D4b0 `6262965` was the scheduled grooming after D4a1–D4a3. D4b1 and D4b3a are the
-two implementation chunks since that point; D4b3b will complete the three-commit
-interval, then groom at the recovery-to-RPC phase boundary. The D4b2 ownership
-refresh inspected summary-safe D4b search results and Markdown summaries plus
-current source; no raw transcripts were read. Earlier D0/D1, D2 and D3 outcomes
-remain complete. Live-provider dogfooding, budget accuracy and semantic summary
-quality remain unverified.
+D4b0 `6262965` was the last scheduled grooming. D4b1, D4b3a and D4b3b complete the
+three-implementation interval. A read-only D5a inspection gathered current source
+and test evidence for the upcoming grooming; it authorized no parallel code or
+new planning file. Earlier D0/D1, D2 and D3 outcomes remain complete. Live-provider
+dogfooding, budget accuracy and semantic summary quality remain unverified.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -488,8 +488,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D4b0 | Complete at `6262965`; full checks and one adjudicated advisory Opus plan round; D4a3 | Scheduled grooming and semantic-summary retry contract; backlog and harness spec | Separate the two summary paths; fix the next implementation boundary without prematurely specifying branch publication |
 | D4b1 | Complete at `9ccb22e`; full runtime checks and one adjudicated advisory Opus round; D4b0, D1b, D4a3 | Semantic-compaction retry in existing `ProviderMutationEffects`, optional shared policy conversion, focused compaction tests/docs | One captured policy/request/cut; original full compaction witness before reissue and acceptance; private retry events; cancellation and stale work publish nothing; accepted state persists once without rollback |
 | D4b2 | Complete `836b413`; full checks and one adjudicated advisory Opus plan round; D4b1 | Branch-summary capture/conditional-acceptance ownership contract in existing session/tree owners; planning only | Resolve the return-to-append gap, tree/context rebuild and durable append ordering before branch retry code; inventory guarded readers/writers and preserve state-first persistence semantics |
-| D4b3a | Complete in this chunk; full checks and one adjudicated advisory Opus code round; D4b2 | Guarded branch-summary capture/acceptance and narrow tree/product acceptance-persistence seam; existing ordinary provider behavior | Reject stale generated text without tree/history/editor mutation; tree/leaf and coding projection accept coherently, branch-bound inputs clear, durable append follows under existing outer ordering; append failure retains accepted state |
-| D4b3b | D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
+| D4b3a | Complete `30d6d33`; full checks and one adjudicated advisory Opus code round; D4b2 | Guarded branch-summary capture/acceptance and narrow tree/product acceptance-persistence seam; existing ordinary provider behavior | Reject stale generated text without tree/history/editor mutation; tree/leaf and coding projection accept coherently, branch-bound inputs clear, durable append follows under existing outer ordering; append failure retains accepted state |
+| D4b3b | Complete in this chunk; full checks and one adjudicated advisory Opus code round; D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
@@ -501,9 +501,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D7b | D7a | Correlated incremental RPC bash output | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
-D1a/D1b deliver the first product improvement. D2a/D2b are the main
-extensibility investment.
-D4 recovery remains next; D7 can move earlier
+D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
+session API. D4 recovery is complete in this chunk. D5 queue/RPC adoption follows
+the scheduled grooming and reviewed ownership contract; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the
@@ -553,8 +553,8 @@ backoff/in-flight cancellation, stale original witness before reissue, private
 output/events, one persistence after acceptance, and persistence-failure behavior.
 Existing manual and automatic whole-group/within-run cut tests remain intact.
 
-D4b3a's `repl/collaborators.py::select_with_branch_summary` retains the original
-work across ordinary `provider.complete`, then prepares and conditionally accepts
+`repl/collaborators.py::select_with_branch_summary` retains the original
+work across canonical private provider execution, then prepares and conditionally accepts
 the exact tree entry and coding projection. The generic command helper receives
 only the owner outcome and emits diagnostics/prefill after persistence. The
 [selected branch ownership contract](session-tree.md#branch-summary-ownership-contract-d4b2)
@@ -566,9 +566,9 @@ The committed publication seam spans `session_tree.py`,
 `coding/product_session.py`, `repl/collaborators.py`, `repl/session_commands.py`
 and `session_tree_commands.py`, with matching guard and behavioral tests and docs.
 It adds no public SDK port or generic transaction framework.
-D4b3b reuses those owners plus existing provider-turn wiring/private summary helpers;
-refresh its exact handoff against D4b3a rather than automatically editing this whole
-set. D4b3b acceptance must cover real callback-based abort as well as plain signals.
+D4b3b adds only collaborator execution/settlement and the existing executor's wiring,
+with private retry, real callback-abort/provider/backoff and retained-worker-control
+coverage. D5a must preserve this boundary while moving queue/RPC ownership.
 
 ### Implementation handoff requirements
 
