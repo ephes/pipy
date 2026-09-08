@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** commit the reviewed D5a3a native control seam, then perform the
-scheduled three-implementation-commit grooming pass before dispatching D5a3b.
-RPC code remains gated on that later atomic migration.
+**Next task:** implement D5a3b as the atomic RPC adoption of the committed
+native control seam. The exact handoff below includes the stream-driven startup
+and run-boundary connections; do not split the RPC reader/writer migration.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -54,21 +54,20 @@ same-model-family reviews, not different-family evidence. D5a1 is the first
 implementation after D5a0 grooming; D5a2's ownership decision is the next gate.
 
 D5a2a `277b991` committed the reviewed submit-to-idle adoption contract after
-full checks and one fresh Sol High plan review returned CLEAN. D5a2b is now
-implemented in the worktree: ordinary product submits atomically claim the queue
-owner through true idle, the native lifetime settles the exact token on every
-exit, and the facade delegates cancellation through a once-bound native queue
-view. Independent focused checks passed 160 tests; the full gate passed 6,006
-tests (two skipped), static checks and unchanged interpreter snapshots, and docs
-built without issues. One fresh read-only Terra High implementation review
-returned CLEAN with no findings. This is an independent context and model variant,
-not different-family evidence. D5a2b is the second implementation after D5a0
-grooming.
+full checks and one fresh Sol High plan review returned CLEAN. D5a2b `4c62378`
+routes ordinary product submits through an atomic queue claim to true idle; the
+native lifetime settles the exact token on every exit, and the facade delegates
+cancellation through a once-bound native queue view. Independent focused checks
+passed 160 tests; the full gate passed 6,006 tests (two skipped), static checks
+and unchanged interpreter snapshots, and docs built without issues. One fresh
+read-only Terra High implementation review returned CLEAN with no findings. This
+is an independent context and model variant, not different-family evidence.
+D5a2b is the second implementation after D5a0 grooming.
 
-D5a3a is implemented and reviewed in the worktree. Each native controller now
-composes one transport-neutral control over the queue owner, detached immutable
-snapshots and transitions, a coherent one-shot startup bridge, an exact worker
-claim capability, guard-free abort signaling and a post-extension true-idle
+D5a3a `65c2015` composes one transport-neutral control over the queue owner,
+detached immutable snapshots and transitions, a coherent one-shot startup
+bridge, an exact worker claim capability, guard-free abort signaling and a
+post-extension true-idle
 readiness port. The seam remains private and dormant; RPC, current selectors,
 ProductSession and the compatibility SDK are unchanged. Root validation passed
 131 focused tests and the full 6,019-test gate (two skipped), with lint,
@@ -78,9 +77,24 @@ rollback, extension-phase failure publication and bridge-state synchronization,
 plus one Warning for a potentially mixed-owner ready tuple. The bounded repair
 added exact-token cleanup, complete failure publication, one control-gate regime
 and owner validation. Focused R2 returned CLEAN. These are independent contexts
-within the selected Terra model family, not different-family evidence. D5a3a is
-the third implementation after D5a0, so the scheduled grooming pass is due before
-D5a3b.
+within the selected Terra model family, not different-family evidence. D5a3a was
+the third implementation after D5a0.
+
+The scheduled post-D5a3a grooming inspected summary-safe D5a3 records and the
+actual `65c2015` RPC, controller, wiring and queue paths. It found no reason to
+reorder the program: D5a3b is the sole next eligible implementation. The
+committed seam is intentionally dormant, so D5a3b must connect all of its
+activation points together: stream-driven `CodingSession.run` readiness and
+pre-end failure cleanup, a claim-bearing worker selection at the existing
+external-input priority, provider/model-tool cancellation through the bound
+stable abort view, same-gate run-end output, and later true-idle publication.
+The current RPC prompt channel still owns content/kind and the current wiring
+strips the bridge from runtime abort paths; neither may survive as a partial
+fallback. Focused architecture/doc checks passed 216 tests; the full gate passed
+6,019 tests (two skipped), static checks, unchanged interpreter snapshots and
+docs-build. One focused Terra High plan review returned CLEAN with no findings.
+This is same-model-family independent review evidence. No material product-policy
+decision remains open.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -541,9 +555,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5a2a | Complete `277b991`; full checks and first Sol plan review CLEAN; D5a1 | Bounded submit-to-idle queue/cancellation ownership contract in SDK docs | Independent review and commit before D5a2b; public admission/RPC event timing explicitly deferred |
 | D5a2b | Complete `4c62378`; full checks and first Terra code review CLEAN; D5a2a | Route ordinary `ProductSession.submit/cancel` through existing queue and native lifetime, removing the facade's independent active-latch writer | One token/latch through true idle and extension re-poll, atomic idle-only begin, exact cleanup on every exit, native signal view, unchanged public semantics and import boundaries |
 | D5a2 | Complete at `4c62378`; D5a2b complete | Native/facade adoption milestone, not a separate implementation dispatch | Real product submits use managed ownership; no new public concurrent admission or premature RPC settlement hook |
-| D5a3a0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a2 | Reviewed internal control/readiness and atomic RPC migration contract in SDK/RPC/architecture docs | Independent review and commit before D5a3a; no runtime change or public SDK promise |
-| D5a3a | Complete in this chunk; D5a3a0 committed | Transport-neutral native managed-control seam and immutable transitions without RPC activation | Full checks; Terra R1 3 Critical/1 Warning repaired; focused R2 CLEAN; one queue owner, exact claims, coherent readiness, guard-free signaling; existing ProductSession behavior unchanged |
-| D5a3b | D5a3a committed; scheduled grooming refreshes exact handoff | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | Startup readiness, wake-only transport, exact per-run settlement, post-extension true-idle event, framing/correlation, typed delivery and EOF drain preserved |
+| D5a3a0 | Complete `448f2a0`; full checks and focused Terra follow-up CLEAN; D5a2 | Reviewed internal control/readiness and atomic RPC migration contract in SDK/RPC/architecture docs | Independent review and commit before D5a3a; no runtime change or public SDK promise |
+| D5a3a | Complete `65c2015`; full checks and focused Terra follow-up CLEAN; D5a3a0 | Transport-neutral native managed-control seam and immutable transitions without RPC activation | Terra R1 3 Critical/1 Warning repaired; one queue owner, exact claims, coherent readiness, guard-free signaling; existing ProductSession behavior unchanged |
+| D5a3b | Eligible after this reviewed grooming chunk; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | Stream-driven startup readiness, wake/EOF-only transport, exact per-run settlement and failure cleanup, post-extension true-idle event, framing/correlation, typed delivery and EOF drain preserved |
 | D5a3 | D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
 | D5a | D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
 | D5b | D5a | RPC model/thinking controls through existing session model-selection owner | Truthful snapshots, real next-request selection, existing refresh/trust rules, correlated responses |
@@ -720,13 +734,40 @@ either outcome. It holds at most one immutable worker claim capability. Selectio
 attaches that exact claim to the run; `agent_end` consumes it once, while an
 earlier run failure settles it through cleanup. Missing, duplicate,
 cross-worker or mismatched use fails closed rather than settling current state.
-D5a3b refreshes its exact write set after D5a3a, but the expected owners are
-`native/automation/rpc.py`, the accepted control/wiring seam, the narrow
-controller/loop readiness port required by evidence, RPC/control tests,
-`docs/automation-rpc.md`, `docs/rpc.md`, SDK/architecture/harness ownership text
-and `CHANGELOG.md`. If implementation cannot delete `_turn_active`, `_abort`,
-`_steering`, `_follow_up` and their reservation readers/writers together, stop
-and revise this contract instead of landing a temporary second authority.
+D5a3b's exact runtime write set is `native/automation/rpc.py`,
+`native/coding/input_queue.py`, `native/coding/session_controller.py`,
+`native/coding/session.py`, `native/repl/wiring.py`, `native/repl/loop_step.py`
+and, only if the claim-bearing value must cross the frozen loop record,
+`native/repl/loop_scope.py`. Queue edits are limited to a claim-bearing selection
+and the narrow same-gate publication operation; session/controller/wiring edits
+are limited to stream-driven ready/failure publication, exact pre-end cleanup,
+stable abort propagation and true-idle binding. Focused tests are
+`tests/test_native_automation_rpc.py`,
+`tests/test_native_coding_external_admission.py`,
+`tests/test_native_coding_session_controller.py`,
+`tests/test_native_coding_session.py` and the existing product API tests when a
+shared lifetime path changes. Matching docs are `docs/automation-rpc.md`,
+`docs/rpc.md`, `docs/sdk.md`, `docs/architecture.md`, `docs/harness-spec.md` and
+`CHANGELOG.md`; `docs/backlog.md` stays orchestrator-owned. If implementation
+cannot delete `_turn_active`, `_abort`, `_steering`, `_follow_up`,
+`_QueuedPrompt`, `_PromptChannelItem`, payload-bearing channel methods and every
+reservation reader/writer together, stop and revise this contract instead of
+landing a temporary second authority. RPC's `_lock` may remain only for its
+separately owned direct-bash worker inventory.
+
+The two required activation connections are fixed by evidence, not open design
+questions. First, RPC's stream-driven path must publish the matching control,
+abort view and readiness port after `session_start`, before the reader admits a
+command; all startup failures unblock the reader, and a claimed run that fails
+before canonical `AgentRunCompleted` settles its exact bridge claim before the
+existing lifetime retirement completes. Second, worker selection must claim the
+queue-owned reservation under the outer gate at the current external-input
+priority and carry only that immutable capability until synchronous `agent_end`.
+The control provides one narrow operation that settles that claim, invokes the
+`agent_end` and post-promotion `queue_update` writers while the outer gate remains
+held and the coding-effects lock is released, then returns the successor decision
+so waking happens after the gate is released. The wake channel carries only wake
+and EOF signals; it never stores or reconstructs product content.
 
 Acceptance must deterministically cover both command-admission versus run-end
 interleavings; claim-before-provider execution; steering-first FIFO promotion;
