@@ -1839,6 +1839,151 @@ tool execution. Native lifecycle cleanup and snapshot/state ownership are
 unchanged. See [SDK](sdk.md) for construction, diagnostics, privacy and failure
 semantics; the one-shot compatibility SDK remains separate.
 
+### Model-Aware Request Budget Contract
+
+This is the selected D3a contract, pending implementation in the sole
+[backlog](backlog.md). D1 semantic continuity and D2 persistent lifetime remain
+the foundation. Budgeting is an estimate of the native request, not a guarantee
+of provider acceptance or an exact tokenizer/wire-size calculation.
+
+**Measurement and limits.** A pure bounded helper in
+`native/coding/request_budget.py` returns immutable numeric components for system
+text, effective messages, tool names/descriptions/schemas, tool calls/results,
+images, framing and output reserve. It reads supplied values only: no callbacks,
+filesystem/provider access, retained private request bodies or workflow capture.
+When canonical messages exist, do not count `user_prompt` again as a second
+message. Request-only overlays are counted where provider-visible but remain
+absent from canonical history and semantic-summary input. D3a1 pins and documents
+the deterministic text/schema/framing and image heuristics with Unicode and
+boundary tests. Include every known assembled-request component and bias the
+heuristics toward overestimation, with explicit framing/safety allowance beyond
+the output reserve. Document residual uncertainty; unknown wire framing and
+image tokenization prevent an absolute no-underestimation guarantee. Image compressed bytes/base64 length are not visual token counts;
+the current attachment shape has no image dimensions or provider-token metadata.
+The helper accepts already-extracted image accounting primitives (count and any
+needed media/byte metadata), not a runtime import of `ProviderImageAttachment`: its
+module imports a concrete read tool outside the coding package dependency gate.
+
+Catalog/configuration owners retain context-window provenance alongside their
+existing immutable model metadata. Distinguish explicitly declared limits from
+omitted defaults, extension placeholders and fallback rows cloned for another
+model ID; none of those assumptions may silently become a declared model limit.
+The static built-in table is a declaration, not a live-provider measurement.
+Do not expand providers or refresh the entire catalog to implement this contract.
+An exact current catalog lookup is insufficient unless provenance is known.
+
+Resolve limits for the captured provider binding through the existing catalog
+composition owner, outside the session mutex, then revalidate the run/context
+witness before admission or publication. Do not put live catalog lookup or
+mutable limit state inside coding state. Static injected providers with no
+resolved declaration remain unknown unless an explicit deployment ceiling is set.
+Capture the related budget settings coherently under their existing bound state
+guard; release it before catalog lookup or other effects. That immutable policy
+applies to this request attempt; later settings changes apply to later attempts.
+Existing settings ownership may supply positive `compaction.contextWindow` as a
+ceiling: use the smaller of it and a declared model window, or that ceiling when
+no declaration exists. This setting applies to whichever model is selected; it
+is an operator policy, not discovered provider capability. It needs no new
+factory argument or session-facade growth. Layered trust and settings guards stay
+unchanged. Invalid numeric budgets produce a bounded actionable refusal rather
+than an unbounded request or lifetime exception.
+
+Use existing `compaction.reserveTokens` as the estimated output allowance. It
+is not an enforced provider output cap: current adapters have distinct output
+limit behavior, and `ProviderRequest` has no common output-cap field. A reserve
+that leaves no input allowance refuses with an actionable configuration reason;
+do not silently clamp it or claim guaranteed fit. Unknown limits without an
+explicit ceiling retain the existing message/byte trigger and fixed recent-group
+policy, with no model-aware fit verdict. `compaction.enabled` controls automatic
+summary generation, not permission to send a known oversized request.
+
+**Recoverable refusal.** Extend the canonical preparation result with an exact
+three-way alternative: frozen request, cancellation, or typed preparation
+failure. Preserve history/accepted-anchor/overlay validation for every branch.
+Refusal fails that accepted run while keeping the product lifetime usable; it
+is neither operator cancellation nor a synthetic provider response. No provider
+call, usage sample, tool repeat or `ProviderFailed` event is fabricated. A refusal
+retains turn-start and accepted-user publication, but starts or completes no
+assistant message: no provider response exists. Existing
+failed turn/run events carry the result, and the existing queue owner performs
+exactly one normal handoff. Earlier accepted input, completed tools and usage
+remain intact. Pending input becomes deliverable through ordinary settlement.
+Cancellation and stale-witness checks retain D1 precedence; refusal cannot hide
+an invalidated run or accept a stale summary.
+
+The existing coding state owns a separate immutable preparation-failure
+projection for SDK snapshots; do not relabel it as provider failure or build a
+second history owner. Its reader/writer inventory includes initialization,
+accepted-run reset, context replacement, refusal publication, idle snapshot and
+final result projection. All live reads/writes use the existing state guard;
+publication also validates the existing live run witness. No callbacks or I/O
+occur under that mutex. Clear the last preparation failure when a new input is
+accepted or context is replaced, preserving existing provider-failure semantics.
+The status adapter supplies truthful preparation diagnostics. D3a2 pins this
+branch through the existing `native/ui/state.py` reducer and JSON/RPC projections:
+no assistant message lifecycle events and no empty assistant block rendered by
+the reducer. `turn_end`/`agent_end` retain their existing failed-turn shape,
+including the required empty assistant value in `turn_end.message`; this is not
+permission to change the public automation format. Full-content
+canonical events and SDK snapshots may carry the typed failure; bounded
+compatibility/archive projections carry only summary-safe failure classification,
+never private preparation text. Update the existing result/event consumers and
+guard inventories together in D3a2; no new event bus or RPC queue owner.
+
+**Product admission and one summary attempt.** After guarded history mirroring,
+capture coherent binding/history/suffix. Measure a callback-free baseline with
+already accepted system/context additions, current tools, request overlays and
+first-iteration images. Under known-limit pressure and enabled auto-compaction,
+allow at most one semantic attempt per provider iteration. A known limit replaces
+the legacy message/byte trigger: below estimated pressure, history length alone
+does not trigger auto-compaction. Unknown limits retain the old trigger. Its cut preserves the
+latest complete user group and may drop older complete groups, so the accepted
+user anchor and every retained tool exchange survive. This uses the existing
+positive dropped-group invariant. A single oversized current group, system/tools
+or attachment set can still refuse; within-run cuts remain D3b. Manual compaction
+and unknown-limit legacy retention stay unchanged. `keepRecentTokens` remains
+reported but inactive for D3a; do not claim token-target retention is implemented.
+
+Preflight the exact auxiliary semantic request (prior summary, dropped prefix,
+final instruction and output reserve) before canonical provider execution.
+Oversized summary input refuses that attempt without publication or multi-pass
+summarization. Keep D1 cancellation, generation/context freshness, canonical
+execution and state-first accepted persistence. Summary failure is distinct from
+persistence failure after acceptance. A valid accepted summary can still leave
+the final request too large; refuse the ordinary request without rolling back
+that accepted compaction or retrying summary generation in the same iteration.
+
+After the optional attempt, capture coherent context, invoke ordinary request
+hooks exactly once, and freeze the final snapshot. Revalidate context and check
+that exact snapshot before renderer refresh and provider admission. A hook that
+creates overflow causes recoverable refusal, not another hook or compaction
+loop. Keep D1's cancelled-preparation early exit before ordinary hooks/rendering.
+The product wiring and mutation owners compose this policy; canonical agent
+code receives typed outcomes and does not import catalog/settings/compaction.
+
+D3a1 owns pure measurement and catalog/config provenance. D3a2 owns canonical
+refusal, existing coding status/state/result projection and coupled consumers.
+D3a3 owns composition in `repl/loop_step.py`, `loop_scope.py`, `wiring.py`,
+`provider_selection.py`, shared preparation where needed, and existing settings
+accessors. D3a1 implements pure min(declared limit, explicit ceiling) resolution;
+D3a3 adds the `compaction.contextWindow` accessor, validation/reporting and runtime
+use through `settings_report_lines`. This ceiling is an intentional pipy-only
+setting alongside the Pi-shaped compaction keys. In the same D3a3 change update
+`docs/settings.md`, `docs/settings-config.md`, `docs/compaction.md`,
+`scripts/parity_checks/settings_config_conformance.py` (including check 10),
+matching SDK/RPC/harness docs and release notes. Remove the inert classification
+for the now-used reserve, retain it for `keepRecentTokens`, and describe the
+changed known-limit trigger and manual `/compact` recovery if provider context
+rejection still occurs below the estimate. SDK callers retain explicit close/new
+session recovery until public compaction controls are implemented; no hidden
+retry or loss of history is introduced here. Preserve the 399-line session facade
+ratchet; use existing composition owners rather than adding configuration state
+there. Every slice requires focused behavioral tests, full checks, docs and
+independent code review. Small-context tests must cover each request component,
+unknown/explicit limits, hooks once, blocked summary admission, first/later
+iteration refusal, retained effects, queue settlement and successful next input.
+D1 cancellation/staleness and durable reopen regressions remain mandatory.
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical

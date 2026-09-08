@@ -9,17 +9,17 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next eligible task:** D3a contract refresh, before budgeting code. D2b is
-complete in this chunk: persistent product SDK, fixed observation, immutable
-snapshots, confined entry, canonical provider/summary/model-tool cancellation
-and explicit fatal-driver errors. Final validation passed 5,640 tests (two
-skipped), static checks, 264 focused tests, eight PTY smoke tests and docs/diff
-checks. Exact Opus 5 round one found two Warnings and four Suggestions; repairs
-passed focused round two CLEAN with complete, unredacted coverage. D2p committed
-at `365e0ae` with full validation and advisory Opus acceptance. D3a's read-only
-investigation identifies limit provenance, estimated reserve and recoverable
-refusal as contract decisions; no budgeting implementation is yet authorized by
-an implementation handoff.
+**Next implementation:** D3a1 after this D3a0 planning chunk commits. D2b committed
+at `faffcd0`: persistent product SDK and canonical cancellation, 5,640 tests
+(two skipped), static checks, 264 focused tests, eight PTY smoke tests and docs.
+Its second exact Opus 5 code round was CLEAN with complete unredacted coverage.
+The initial continuity → session API sequence is complete. D3a2 and D3a3
+follow D3a1 as separate commits. Live-provider usability and summary quality remain
+unverified. D3a0 received two exact Opus 5 plan rounds with Suggestions only;
+image dependencies, settings ownership, failed-turn projection and trigger
+semantics are clarified. Conservative estimate bias and recovery are explicit,
+with remaining estimate uncertainty documented. Advisory acceptance, not CLEAN;
+no further prose-only review is warranted.
 
 D2a committed at `4b5baa9`: one persistent controller lifetime, explicit idle,
 per-run witness release and measured 399-line facade bounds. Final validation
@@ -339,99 +339,67 @@ D1b0's bounded write set is `coding/state.py`, `coding/agent_run.py`,
 docs/release notes. Preserve
 canonical duplicate-message normalization and completed tool effects. Summary-
 safe history searches found no prior lost-update lesson to substitute for these
-source/test contracts. The previously saved partial D1b implementation resumes
-only after this prerequisite commits and its handoff is refreshed.
+source/test contracts. D1b committed at `527b846`: canonical semantic requests,
+guarded freshness and state-first persistence are implemented. Later slices must
+retain the live-run witness, guarded history/usage publication, complete
+binding/tree/pointer/generation freshness, and cancelled-preparation early exit.
+The durable [compaction contract](harness-spec.md#canonical-agent-history-compaction)
+and [user behavior](compaction.md) replace the completed dispatch instructions.
 
-D1b's refresh at `8ad7d66` found no new contract blocker. Reuse saved work only
-as individual hunks: retain the run witness, its guarded reads/writes and captured
-provider admission. Add a separate history epoch for equal-content writes and
-complete tree/pointer/generation freshness. The provider projection stays removed.
-Expected sources: `coding/compaction.py`, `coding/state.py`,
-`repl/provider_selection.py`, `repl/collaborators.py`, `repl/wiring.py`,
-`repl/loop_step.py`, `repl/turn_leaves.py`, `repl/loop_scope.py`, `session_tree.py`,
-`session_generation.py`, `agent/loop.py`, `agent/provider_turn.py` and
-`agent/history.py`. No new product-state or run-coordinator owner is needed.
-Preserve the real automatic/manual compaction-gate regression; shared branch
-helpers retain existing branch behavior. Retire the count-only helper after its
-last consumer moves. Focused semantic-compaction tests must cover every freshness
-writer, canonical cancellation, continuity and state-first persistence failure.
+### C — D2 completed ownership boundary
 
-### C — D2 contract decisions
+D2a `4b5baa9` provides the persistent controller lifetime; D2p `365e0ae` shares
+adapter-owned preparation; D2b `faffcd0` exposes the synchronous product SDK.
+The [SDK contract](sdk.md#d2-implementation-contract) owns entry, cancellation,
+privacy, diagnostics and cleanup. One state, queue, controller and generation
+remain authoritative; no per-submit archive run or replacement event history.
+The D2a0 facade decision `936b96d` remains a measured 399-line downward ratchet,
+with prepared composition in existing wiring. Native modules cannot import the
+outer product facade/SDK; existing automation entrypoint adapter composition is
+unchanged. D5 owns queue admission migration; D6 owns lifecycle expansion and
+explicit compatibility retirement; D7 owns direct RPC bash cancellation.
 
-The reviewed [product-session boundary](sdk.md#d2-implementation-contract) keeps
-one composition, state, queue, controller and lifecycle across submissions.
-`CodingSession.run` resets run state and wires a new lifetime; calling it for
-every submission would lose continuity. The startup-candidate decorator already
-hides private extension candidates and remains their owner.
+### D3a0 — Budget contract and phase-boundary grooming
 
-Use a synchronous construction-thread driver with an explicit controller idle
-yield. D2a first establishes the persistent controller/composition seam and
-preserves the stream-driven lifecycle. D2b exposes a distinct supported SDK
-factory with two-turn acceptance. Neither uses EOF as idle, starts a second
-queue/worker, or changes `run_native`. Cancel is the only cross-thread entry;
-full mutable result snapshots are not made thread-safe by assumption. D5a owns
-queue admission/settlement migration; D6 owns session replacement and explicit
-compatibility retirement. D2a is committed; the D2b0 refresh below supplies the
-concrete remaining preparation and cancellation boundaries.
+The read-only D3a investigation inspected `365e0ae`; root refreshed it against
+D2b `faffcd0`. Catalog limits can be placeholders or inherited from a different
+model, output reserves are not adapter-enforced caps, and images lack tokenizer
+metadata. Current auto-compaction runs before request hooks and only counts
+history messages/bytes. A preparation exception closes the product lifetime;
+budget overflow therefore needs a typed recoverable outcome.
 
-### D2a0 — Facade gate transition
+The selected [budget contract](harness-spec.md#model-aware-request-budget-contract)
+splits D3a into three bounded implementation commits: measurement and declared
+limit provenance (D3a1), canonical recoverable preparation refusal (D3a2), then
+product request admission and one whole-group semantic attempt (D3a3). No new
+provider transports, exact tokenizer service, output-cap rewrite or within-run
+cuts are selected. D3b retains the latter boundary and its separate safe-cut spec.
 
-Contract `936b96d` accepted the natural persistent-adapter placement and a
-one-time measured reset of the two facade size bounds. D2a `4b5baa9` implemented
-that placement at 399 lines without headroom; the downward ratchet continues.
-The prepared adapter and candidate-scoped composition live in existing wiring,
-while the facade retains explicit input conversion and the controller retains
-the loop/lifecycle. Other size limits, exact ownership/import inventories,
-complexity, privacy and concurrency checks remain enforced. See the durable
-[architecture gate contract](architecture.md#executable-architecture-gates).
-Both planning and implementation received full validation and advisory Opus
-review; neither disposition was relabeled CLEAN.
+Use existing `compaction.reserveTokens` as an estimated output allowance, with
+an optional explicit `compaction.contextWindow` ceiling for deployments/injected
+providers whose limits are unknown or smaller than the catalog declaration. This
+is a deliberate pipy-only key, added/reported/documented by D3a3; D3a1 owns only
+pure ceiling resolution.
+Preserve existing settings/trust ownership and facade size bounds; this adds no
+product-factory parameter or new configuration owner. Unknown limits without a
+ceiling retain the legacy compaction trigger and make no model-fit claim.
+`keepRecentTokens` remains reported but inactive in D3a; under known-limit
+pressure the one attempt keeps the latest whole user group, while manual and
+unknown-limit legacy cuts retain their existing policy. Known limits replace the
+legacy trigger rather than also compacting merely on message/byte count.
 
-### D2b0 — Embedding boundary refresh
-
-The D2a completion and read-only D2b investigation justify one bounded
-preparation prerequisite, D2p. Direct `CodingSession` wiring defaults to trusted
-project settings and an empty system prompt; the existing `CodingSessionAdapter`
-owns fail-closed embedding settings, prompt/instruction/skill preparation and
-reference roots. D2p extracts reusable methods within that existing adapter class without copying them into
-the public facade or changing stream/archive behavior.
-
-The [SDK contract](sdk.md#d2-implementation-contract) now requires an injected
-provider for the initial factory. Optional configured selection would also need
-CLI-owned settings conversion, extension/catalog contributions and unavailable
-selection policy; it is excluded from this first API, with no fake fallback.
-The same contract pins the small operation-cancellation slot and its reader/writer
-inventory. Canonical model-tool cancellation already exists but headless wiring
-currently supplies no waiter. D2b connects that waiter and shares RPC's unchanged
-accepted-abort primitive; RPC queue migration remains D5 and direct RPC bash
-cancellation remains D7.
-
-D2p's expected write set is `adapters/native.py`, focused adapter/trust/SDK
-contract tests and matching docs/release notes. D2b then owns the small outer
-product facade in `pipy_harness/product_api.py`, the public exports in
-`pipy_harness/sdk.py`, the existing cancellation primitive, a mechanical RPC import change, headless waiter composition
-in `repl/turn_leaves.py` and `repl/loop_step.py`, and corresponding
-API/cancellation/ownership tests. Allow the narrow `adapters/native.py` annotation
-and import change needed to pass the existing callback-capable abort protocol;
-its preparation implementation stays unchanged. The harness-level facade owns the adapter-to-native
-composition edge and calls `CodingSession._open_lifetime` as-is; no edit to that
-native seam is selected. Native modules do not import it or the outer adapter. D2b also
-updates `docs/automation-rpc.md`, `docs/rpc.md` and `CHANGELOG.md` for the newly
-connected RPC model-tool abort, alongside SDK/architecture/harness docs. Broader
-runtime ownership needs another decision before implementation expands.
-
-This is the focused grooming pass after the D2a phase boundary. Summary-safe
-product-session and cancellation history was inspected; the decision rests on
-current source evidence and preserves the initial continuity → session API
-sequence. D2b0 committed at `e0f82b6` after two plan rounds; D2p committed at `365e0ae`. D2p and D2b
-each require their own full validation, code review and commit. Live-provider
-usability remains unverified; no competing roadmap or broad provider program is
-introduced.
+This is the required grooming pass after three implementation commits and the
+D2 phase boundary. Summary-safe searches for context budgeting and preparation
+refusal had no matching records; current source/tests and committed ownership
+contracts supply the evidence. Completed D2 dispatch prose is retired, task
+status is reconciled, and D3a1 is the sole next implementation after D3a0. Priority
+remains unchanged; no competing queue or speculative parity work is introduced.
 
 ## Implementation queue
 
 D0 is committed at `f1fa668`, D1a at `17089f3`, and D1b0 at `8ad7d66`.
-D1b is committed at `527b846`; D2a0 at `936b96d`; D2a at `4b5baa9`.
+D1b is committed at `527b846`; D2a0 at `936b96d`; D2a at `4b5baa9`;
+D2p at `365e0ae`; D2b at `faffcd0`.
 Each successor needs a refreshed bounded handoff and reviewed contract when its prerequisites are accepted. If its concrete diff
 would contain multiple independently useful changes, split the task here before
 dispatch; the table is not permission for a large uncommitted batch. A thread implements
@@ -449,9 +417,12 @@ every listed module. Add a file only when the selected behavior needs it.
 | D2a | Complete at `4b5baa9`; full checks and advisory Opus code review; D2a0 accepted | Persistent controller/composition lifetime with explicit idle yield; existing stream driver delegates to it | Start/shutdown once, idle is not EOF, shared state/queue preserved; existing lifecycle/event/terminal checks green |
 | D2b0 | Complete at `e0f82b6`; full checks and advisory Opus plan review | Docs-only provider, preparation and cancellation ownership contract; bounded D2p split | Independent plan review and commit before dependent code |
 | D2p | Complete at `365e0ae`; full checks and advisory Opus code review; D2b0 | Shared preparation in existing `CodingSessionAdapter`; stream adapter delegates without changing archive or failure ordering | Same prompt, settings/trust identity, tools/resources/reference roots; preparation emits no archive events; no public API or cancellation changes |
-| D2b | Complete in this chunk; full checks and Opus follow-up CLEAN; D2p/D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
-| D3a | D1b | Model-aware budgeting at current safe request boundaries; model/request measurement and compaction trigger | Count system text, tools, attachments, history and output reserve; small-context tests; explicit recoverable refusal when no safe sufficient cut exists |
-| D3b | D3a; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
+| D2b | Complete at `faffcd0`; full checks and Opus follow-up CLEAN; D2p/D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
+| D3a0 | Complete in this chunk; full checks and advisory Opus plan review; D1b/D2b | Reviewed budget, provenance, refusal and cut contract; backlog grooming | Docs-only independent review and commit before new contracts are implemented |
+| D3a1 | D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
+| D3a2 | D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
+| D3a3 | D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
+| D3b | D3a3; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
 | D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
 | D4b | D1b, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |
