@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The coding input owner now contains an internal, guarded external-admission
+  mechanism for later frontend activation. It reserves and claims one exact
+  operation, queues steering before follow-ups, atomically promotes settlement,
+  and signals a fresh accepted-abort latch outside the queue guard. Existing
+  SDK, RPC, selector, extension, and agent-loop behavior is unchanged.
+
 - Branch-summary tree selection now runs through canonical private provider
   execution with one frozen request and captured bounded retry policy. Retry
   events, deltas, and summary usage stay outside ordinary product projections;

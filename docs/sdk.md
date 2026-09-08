@@ -333,10 +333,10 @@ in RPC. Model/thinking and compaction/retry controls stay D5b–d.
 
 ### Planned D5a1 external admission mechanism
 
-This is the reviewed-before-code boundary for D5a1, not an available SDK control
-surface. The existing `CodingInputQueue` will own dedicated external steering
+This internal D5a1 mechanism is implemented but remains unavailable as an SDK
+control surface. The existing `CodingInputQueue` owns dedicated external steering
 and follow-up FIFO lanes plus one reserved/active operation under its existing
-coding-effects RLock. It will not reuse extension lanes or add another mutable
+coding-effects RLock. It does not reuse extension lanes or add another mutable
 queue owner. All reads, snapshots, admission, claim, settlement and abort capture
 of these fields use that same guard. Immutable results may leave the guard;
 provider execution, cancellation callbacks, frontend output and lifecycle hooks

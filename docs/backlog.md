@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D5a1 guarded external admission mechanism, after this D5a0
-planning chunk is committed. D5a2 owns the subsequent native/facade activation
-contract; RPC migration cannot start before that contract is accepted.
+**Next task:** D5a2 native/facade activation contract. Select its smallest
+production adoption from the current queue and lifecycle evidence, review and
+commit that contract before implementation. RPC migration remains gated on it.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -21,7 +21,7 @@ D4b3b's full runtime check passed 5,980 tests (two skipped), static checks and
 unchanged interpreter snapshots; PTY smoke passed eight and docs built.
 Subsequent test/docstring-only repairs passed focused and static checks.
 
-D5a0 completes the scheduled grooming after those three implementation commits.
+D5a0 `c08aa72` completed the scheduled grooming after those three implementation commits.
 Its full checks passed 5,980 tests (two skipped), static checks, unchanged
 interpreter snapshots and docs-build. One complete Opus 5 High plan round closed
 advisory with five Suggestions and no Warnings/Critical findings. Test/wording
@@ -39,6 +39,19 @@ Therefore D5a is split below: first prove queue transitions in the existing owne
 then review frontend activation against executable evidence. No new planning file
 or concurrent runtime writer is authorized. D0–D4 remain complete. Live-provider
 dogfooding, budget accuracy and semantic summary quality remain unverified.
+
+D5a1 implements the internal managed external queue seam without frontend
+activation. Exact reservation tokens, claimed-only settlement, steering-first
+FIFO promotion and fresh-latch abort behavior have executable race coverage.
+Full checks passed 5,997 tests (two skipped), unchanged interpreter snapshots,
+static checks and docs-build. Root independently passed 130 focused tests.
+Post-full thread-test cleanup and the review repair passed focused/static checks;
+runtime stayed unchanged. Per the user's reviewer change below, two fresh Sol
+code rounds replaced Opus: R1 found one Warning in order-specific returned-snapshot
+assertions; the focused test repair passed 50 queue tests independently and R2
+returned CLEAN. Complete R1 coverage plus focused R2 closes the gate. These are
+same-model-family reviews, not different-family evidence. D5a1 is the first
+implementation after D5a0 grooming; D5a2's ownership decision is the next gate.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -180,10 +193,12 @@ For every implementation chunk:
 3. Validate the complete chunk with focused tests and `just check`; use relevant
    PTY checks and `just docs-build`. Run `prek run --all-files` if a
    `.pre-commit-config.yaml` is present. Do not widen tests without a reason.
-4. Freeze repository writes. Orchestrator invokes direct read-only Claude Code
-   `claude-opus-5` through `claude-review-loop` over **all changed code**, tests,
-   documentation and the caller-selected contract. Inspect bundle coverage;
-   omitted changed code is not an acceptable review of the chunk.
+4. Freeze repository writes. Per the user's 2026-09-08 credit-saving direction,
+   use a fresh read-only **GPT-5.6 Sol** reviewer separate from the implementer,
+   through the installed review-cycle workflow. Review all changed code, tests,
+   documentation and selected contracts; record inspected scope and omissions.
+   Reviewers work directly without delegation. This explicitly replaces the prior
+   Opus gate with a same-model-family review, not different-family evidence.
 5. Triage findings. Return repairs to the same writer. A follow-up review checks
    accepted findings and the repair delta; reopen broad scope only for a
    documented cross-cutting change. Default maximum: two plan/spec rounds,
@@ -203,6 +218,8 @@ review and commit. A normal implementation chunk must finish before unrelated
 changes accumulate. Pure deletion of completed historical documents can have a
 large line count without being bundled with runtime implementation. Do not add
 budget caps to subscription reviewer commands or substitute a model silently.
+The Sol reviewer selection above is explicitly user-authorized; earlier Opus
+verdicts remain historical evidence and do not review future changes.
 
 ## Accepted investigation basis
 
@@ -490,8 +507,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D4b2 | Complete `836b413`; full checks and one adjudicated advisory Opus plan round; D4b1 | Branch-summary capture/conditional-acceptance ownership contract in existing session/tree owners; planning only | Resolve the return-to-append gap, tree/context rebuild and durable append ordering before branch retry code; inventory guarded readers/writers and preserve state-first persistence semantics |
 | D4b3a | Complete `30d6d33`; full checks and one adjudicated advisory Opus code round; D4b2 | Guarded branch-summary capture/acceptance and narrow tree/product acceptance-persistence seam; existing ordinary provider behavior | Reject stale generated text without tree/history/editor mutation; tree/leaf and coding projection accept coherently, branch-bound inputs clear, durable append follows under existing outer ordering; append failure retains accepted state |
 | D4b3b | Complete `8c34a9c`; full checks and one adjudicated advisory Opus code round; D4b3a, D4b1 | Canonical private branch execution, retry and cancellation through the committed branch owner | Frozen request/policy/witness, prepared and non-capable provider paths, no private event/usage leak, cancellation in provider/backoff phases and correct manual input settlement; no repeat acceptance or persistence |
-| D5a0 | Complete in this chunk; full checks and one advisory Opus plan round; D4b3b, D2b | Scheduled grooming and bounded queue mechanism contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D5a1; later activation decisions explicitly owned |
-| D5a1 | D5a0 committed | Guarded external admission/reservation/abort mechanism in existing `coding/input_queue.py`, focused queue tests and matching docs/release note | Dedicated lanes, exact token claim/settle, one-per-boundary promotion, coherent snapshots, fresh abort latches and callback-outside-guard race tests; no production adoption yet |
+| D5a0 | Complete `c08aa72`; full checks and one advisory Opus plan round; D4b3b, D2b | Scheduled grooming and bounded queue mechanism contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D5a1; later activation decisions explicitly owned |
+| D5a1 | Complete in this chunk; full checks and focused Sol follow-up CLEAN; D5a0 | Guarded external admission/reservation/abort mechanism in existing `coding/input_queue.py`, focused queue tests and matching docs/release note | Dedicated lanes, exact token claim/settle, one-per-boundary promotion, coherent snapshots, fresh abort latches and callback-outside-guard race tests; no production adoption yet |
 | D5a2 | D5a1 | Review native/session-facade activation contract, then split its implementation here before dispatch | Resolve operation versus run cancellation, literal/command input, rejection/retirement, control readiness and atomic event projection using the inventory below; no broad speculative migration |
 | D5a3 | D5a2 activation committed and RPC contract reviewed | Migrate RPC prompt/queue/abort/state through the shared session controls; remove each old writer with its readers | Preserve protocol framing/correlation, end/settled serialization, one-per-boundary delivery, truthful state, accepted-abort and EOF drain; API/RPC equivalence |
 | D5a | D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |

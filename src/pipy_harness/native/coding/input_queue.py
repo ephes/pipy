@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import wraps
-from typing import Concatenate, ParamSpec, TypeVar, cast
+from typing import TYPE_CHECKING, Concatenate, ParamSpec, TypeVar, cast
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.runtime_ports import (
@@ -16,6 +16,9 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
     AgentQueuedInputPort,
 )
+
+if TYPE_CHECKING:
+    from pipy_harness.native.cancellation import _AcceptedAbortSignal
 
 
 class CodingInputSource(StrEnum):
@@ -61,6 +64,53 @@ class CodingInputSelection:
         """Whether the selection must be sent to the provider verbatim."""
 
         return self.source not in _LOCAL_DISPATCH_SOURCES
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _ExternalReservationToken:
+    """Opaque identity for one reservation owned by one input queue."""
+
+
+@dataclass(frozen=True, slots=True)
+class _ExternalReservation:
+    """Immutable externally admissible work reserved by this queue."""
+
+    token: _ExternalReservationToken
+    content: ProductContent
+    kind: AgentQueuedInputKind | None
+    claimed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _ExternalAdmissionSnapshot:
+    """One guarded snapshot of the managed external lanes and active slot."""
+
+    reservation: _ExternalReservation | None
+    steering: tuple[ProductContent, ...]
+    follow_ups: tuple[ProductContent, ...]
+
+    @property
+    def pending_count(self) -> int:
+        return len(self.steering) + len(self.follow_ups)
+
+
+@dataclass(frozen=True, slots=True)
+class _ExternalClaim:
+    """Claimed work and its fresh accepted-abort latch."""
+
+    token: _ExternalReservationToken
+    content: ProductContent
+    kind: AgentQueuedInputKind | None
+    abort_signal: _AcceptedAbortSignal
+
+
+@dataclass(slots=True)
+class _ExternalActiveSlot:
+    token: _ExternalReservationToken
+    content: ProductContent
+    kind: AgentQueuedInputKind | None
+    abort_signal: _AcceptedAbortSignal
+    claimed: bool = False
 
 
 _LOCAL_DISPATCH_SOURCES = frozenset(
@@ -119,6 +169,9 @@ class CodingInputQueue:
         "_extension_follow_ups",
         "_extension_prompts",
         "_extension_steering",
+        "_external_active_slot",
+        "_external_follow_ups",
+        "_external_steering",
         "_external_inputs",
         "_mutation_lock",
         "_next_turn_context",
@@ -155,6 +208,9 @@ class CodingInputQueue:
         self._extension_steering: deque[AgentQueuedInput] = deque()
         self._extension_follow_ups: deque[AgentQueuedInput] = deque()
         self._extension_prompts: deque[ProductContent] = deque()
+        self._external_active_slot: _ExternalActiveSlot | None = None
+        self._external_steering: deque[ProductContent] = deque()
+        self._external_follow_ups: deque[ProductContent] = deque()
         self._next_turn_context: deque[ProductContent] = deque()
         self._pending_local_command: ProductContent | None = None
         self._retained_agent_inputs: deque[AgentQueuedInput] = deque()
@@ -165,6 +221,94 @@ class CodingInputQueue:
         self._agent_loop_port = _AgentLoopQueuedInputPort(self)
         for seed in seeds:
             self.enqueue_seed(seed)
+
+    @_guarded_queue_api
+    def _admit_external(
+        self,
+        content: ProductContent,
+        kind: AgentQueuedInputKind | None = None,
+        *,
+        steer_active: bool = False,
+    ) -> _ExternalAdmissionSnapshot:
+        """Admit private external work without exposing it to existing selectors."""
+
+        _require_content(content, "content")
+        if kind is not None and type(kind) is not AgentQueuedInputKind:
+            raise TypeError("kind must be None or an exact AgentQueuedInputKind")
+        if type(steer_active) is not bool:
+            raise TypeError("steer_active must be an exact bool")
+        if kind is not None and steer_active:
+            raise ValueError("steer_active applies only to ordinary input")
+        if self._external_active_slot is None:
+            self._reserve_external(content, kind)
+        else:
+            pending_kind = (
+                kind
+                if kind is not None
+                else (
+                    AgentQueuedInputKind.STEERING
+                    if steer_active
+                    else AgentQueuedInputKind.FOLLOW_UP
+                )
+            )
+            lane = (
+                self._external_steering
+                if pending_kind is AgentQueuedInputKind.STEERING
+                else self._external_follow_ups
+            )
+            lane.append(content)
+        return self._external_snapshot()
+
+    @_guarded_queue_api
+    def _claim_external(
+        self, token: _ExternalReservationToken
+    ) -> _ExternalClaim | None:
+        """Claim the exact current managed reservation once."""
+
+        slot = self._matching_external_slot(token)
+        if slot is None or slot.claimed:
+            return None
+        slot.claimed = True
+        return _ExternalClaim(slot.token, slot.content, slot.kind, slot.abort_signal)
+
+    @_guarded_queue_api
+    def _settle_external(
+        self, token: _ExternalReservationToken
+    ) -> _ExternalAdmissionSnapshot | None:
+        """Settle one claimed reservation and atomically reserve its successor."""
+
+        slot = self._matching_external_slot(token)
+        if slot is None or not slot.claimed:
+            return None
+        self._external_active_slot = None
+        if self._external_steering:
+            self._reserve_external(
+                self._external_steering.popleft(), AgentQueuedInputKind.STEERING
+            )
+        elif self._external_follow_ups:
+            self._reserve_external(
+                self._external_follow_ups.popleft(), AgentQueuedInputKind.FOLLOW_UP
+            )
+        return self._external_snapshot()
+
+    @_guarded_queue_api
+    def _external_admission_snapshot(self) -> _ExternalAdmissionSnapshot:
+        return self._external_snapshot()
+
+    def _abort_external(self) -> _ExternalAdmissionSnapshot:
+        """Discard pending steering, then signal the captured latch after unlock.
+
+        Callers must enter without already holding the queue mutation guard.
+        """
+
+        with self._mutation_lock:
+            self._external_steering.clear()
+            slot = self._external_active_slot
+            latch = None if slot is None else slot.abort_signal
+            snapshot = self._external_snapshot()
+        if latch is not None:
+            latch.set()
+        return snapshot
 
     @property
     @_guarded_queue_api
@@ -408,6 +552,50 @@ class CodingInputQueue:
             raise RuntimeError("an external wake input is already retained")
         if self._retained_fresh_input is not None:
             raise RuntimeError("a fresh wake input is already retained")
+
+    def _reserve_external(
+        self, content: ProductContent, kind: AgentQueuedInputKind | None
+    ) -> None:
+        from pipy_harness.native.cancellation import _AcceptedAbortSignal
+
+        if self._external_active_slot is not None:
+            raise RuntimeError("managed external input is already reserved")
+        self._external_active_slot = _ExternalActiveSlot(
+            token=_ExternalReservationToken(),
+            content=content,
+            kind=kind,
+            abort_signal=_AcceptedAbortSignal(),
+        )
+
+    def _matching_external_slot(
+        self, token: _ExternalReservationToken
+    ) -> _ExternalActiveSlot | None:
+        if type(token) is not _ExternalReservationToken:
+            return None
+        slot = self._external_active_slot
+        if slot is None:
+            return None
+        if token is not slot.token:
+            return None
+        return slot
+
+    def _external_snapshot(self) -> _ExternalAdmissionSnapshot:
+        slot = self._external_active_slot
+        reservation = (
+            None
+            if slot is None
+            else _ExternalReservation(
+                slot.token,
+                slot.content,
+                slot.kind,
+                slot.claimed,
+            )
+        )
+        return _ExternalAdmissionSnapshot(
+            reservation,
+            tuple(self._external_steering),
+            tuple(self._external_follow_ups),
+        )
 
     def _queued_selection(
         self,
