@@ -1447,6 +1447,7 @@ def _assemble_session_wiring(
         coding_footer_text=footer.coding_footer_text,
         refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
         apply_compaction=provider_mutation.compact_context,
+        declared_context_window=provider_mutation.declared_context_window,
         cycle_thinking_level=provider_mutation.cycle_thinking_level,
         append_agent_message=append_agent_message,
         drain_extension_outboxes=custom_renderer.drain_extension_outboxes,

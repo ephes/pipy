@@ -96,7 +96,8 @@ canonical package does not import them back.
 - `accepted_input.py` prepares one accepted prompt and request-only context;
 - `agent_run.py` assembles and invokes the canonical loop;
 - `request_budget.py` supplies pure numeric request estimates and declared/explicit
-  limit resolution, without live admission policy or catalog/settings ownership;
+  limit resolution; existing REPL request/compaction owners compose live admission
+  while settings/catalog retain their own guards and metadata ownership;
 - `status_effects.py` owns the run-entry, input-accepted, result, cancellation,
   tool-policy, preparation-refusal, provider-settlement, no-tool, and
   malformed-fatal status family behind narrow state and presentation ports;
@@ -117,7 +118,7 @@ owners carry context-window provenance, including unknown defaults and fallback
 rows. An exact direct-import allowlist and fresh-process dependency check pin
 the helper's separation from settings, catalog selection and image loading.
 See the [budget contract](harness-spec.md#model-aware-request-budget-contract)
-for the implemented heuristic and the pending live integration.
+for the implemented heuristic, live integration and durable-origin boundary.
 
 Canonical request preparation now returns exactly one frozen request, cancellation
 or typed recoverable failure. Refusal stops only the accepted agent run, retaining

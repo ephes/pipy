@@ -13,7 +13,7 @@ always taken in that order -- `mutation_io_lock` first, never the reverse -- so 
 worker thread setting active tools and a `/reload` publishing a generation cannot
 deadlock against each other.
 
-`provider_state` arrives as a value. It is read seven times and assigned zero,
+`provider_state` arrives as a value. It is read eight times and assigned zero,
 here and everywhere else, so this owner reads what the composition root bound
 rather than reaching through the session for it.
 """
@@ -38,6 +38,7 @@ from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
     _AbortCallbackSignal,
 )
+from pipy_harness.native.agent.request import freeze_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.compaction import (
@@ -50,6 +51,11 @@ from pipy_harness.native.coding.product_session import (
     CodingProductSessionCompaction,
     CodingProductSessionContext,
     CodingProductSessionCoordinator,
+)
+from pipy_harness.native.coding.request_budget import (
+    RequestBudget,
+    estimate_request,
+    resolve_request_budget,
 )
 from pipy_harness.native.coding.state import (
     CodingCompactionSnapshot,
@@ -69,6 +75,7 @@ from pipy_harness.native.repl.turn_leaves import (
 )
 from pipy_harness.native.repl_state import (
     NativeModelMutationState,
+    NativeModelSelection,
     NativeReplProviderState,
     PreparedNativeModelMutation,
     StaticNativeReplProviderState,
@@ -585,6 +592,17 @@ class ProviderMutationEffects:
         )
         self.coding_state.mark_provider_unavailable(unavailable_provider)
 
+    def declared_context_window(self, binding: CodingProviderBinding) -> int | None:
+        """Resolve metadata for captured labels; injected/assumed rows stay unknown."""
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return None
+        spec = state.model_runtime.resolve_spec(
+            NativeModelSelection(binding.provider_name, binding.model_id)
+        )
+        return spec.declared_context_window if spec is not None else None
+
     def apply_compaction(self, trigger: str) -> str:
         """Settle manual input: this command has no later canonical settlement.
 
@@ -603,21 +621,18 @@ class ProviderMutationEffects:
                 pending.promote_pending_to_drain()
         return outcome.notice
 
-    def compact_context(self, trigger: str) -> CodingCompactionOutcome:
+    def compact_context(
+        self,
+        trigger: str,
+        budget: RequestBudget | None = None,
+        keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
+    ) -> CodingCompactionOutcome:
         """Generate privately, then conditionally accept and persist one summary."""
 
-        decision = self.extension_operations.session_allows(
-            "compact", operation="compact", trigger=trigger
-        )
-        if not decision.allow:
-            return CodingCompactionOutcome(
-                f"pipy: compact blocked by extension: {decision.reason or 'blocked by extension'}"
-            )
-        with self.mutation_io_lock:
-            with self.ctl.generation_ref.lock:
-                work = self._capture_compaction_locked(trigger)
-        if isinstance(work, CodingCompactionOutcome):
-            return work
+        prepared = self._prepare_compaction_budget(trigger, budget, keep_recent_groups)
+        if isinstance(prepared, CodingCompactionOutcome):
+            return prepared
+        work, budget = prepared
         completion = None
         try:
             # Capturing request headers can reach extension callbacks. It must
@@ -636,6 +651,16 @@ class ProviderMutationEffects:
                 prior_summary=work.context.summary_suffix.strip(),
                 header_callback=header,
             )
+            request = freeze_provider_request(request)
+            estimate = estimate_request(
+                request, image_count=0, output_reserve=budget.output_reserve
+            )
+            if budget.allows(estimate) is False:
+                return self._refuse_compaction_budget(
+                    work,
+                    trigger,
+                    "estimated summary request exceeds the context window; context unchanged",
+                )
             provider, waiter = provider_turn_inputs(
                 work.context.binding.provider, self.terminal_ui, self.abort_event
             )
@@ -690,8 +715,71 @@ class ProviderMutationEffects:
             f"{work.cut.dropped_group_count} earlier exchange(s), kept {work.cut.retained_group_count})."
         )
 
+    def _prepare_compaction_budget(
+        self, trigger: str, budget: RequestBudget | None, keep_recent_groups: int
+    ) -> tuple[_CompactionWork, RequestBudget] | CodingCompactionOutcome:
+        decision = self.extension_operations.session_allows(
+            "compact", operation="compact", trigger=trigger
+        )
+        if not decision.allow:
+            return CodingCompactionOutcome(
+                f"pipy: compact blocked by extension: {decision.reason or 'blocked by extension'}"
+            )
+        invalid_policy = None
+        settings = None
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                work = self._capture_compaction_locked(trigger, keep_recent_groups)
+                if budget is None:
+                    try:
+                        settings = self.settings.capture_compaction_budget_settings()
+                    except ValueError as exc:
+                        invalid_policy = str(exc)
+        if isinstance(work, CodingCompactionOutcome):
+            return work
+        if invalid_policy is not None:
+            return self._refuse_compaction_budget(work, trigger, invalid_policy)
+        if budget is None:
+            assert settings is not None
+            declared = self.declared_context_window(work.context.binding)
+            try:
+                budget = resolve_request_budget(
+                    declared_context_window=declared,
+                    explicit_ceiling=settings.context_window,
+                    output_reserve=settings.reserve_tokens,
+                )
+            except (TypeError, ValueError):
+                return self._refuse_compaction_budget(
+                    work,
+                    trigger,
+                    "invalid context budget: use positive context limits and an output reserve smaller than the context window",
+                )
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if not self._compaction_matches_locked(work):
+                    return self._stale_compaction(trigger)
+        return work, budget
+
+    def _refuse_compaction_budget(
+        self, work: _CompactionWork, trigger: str, notice: str
+    ) -> CodingCompactionOutcome:
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if not self._compaction_matches_locked(work):
+                    return self._stale_compaction(trigger)
+        cancelled = self.abort_event is not None and self.abort_event.is_set()
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if not self._compaction_matches_locked(work):
+                    return self._stale_compaction(trigger)
+        if cancelled:
+            return CodingCompactionOutcome(
+                "pipy: compaction cancelled.", AgentCancellationReason.OPERATOR_ABORT
+            )
+        return CodingCompactionOutcome(f"pipy: compact refused: {notice}.")
+
     def _capture_compaction_locked(
-        self, trigger: str
+        self, trigger: str, keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS
     ) -> _CompactionWork | CodingCompactionOutcome:
         if (
             self.ctl.coding_effects.terminal
@@ -700,7 +788,7 @@ class ProviderMutationEffects:
             return self._stale_compaction(trigger)
         context = self.coding_state.compaction_snapshot()
         cut = compact_agent_history(
-            context.messages, keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS
+            context.messages, keep_recent_groups=keep_recent_groups
         )
         if not cut.changed:
             return CodingCompactionOutcome("pipy: nothing to compact yet.")

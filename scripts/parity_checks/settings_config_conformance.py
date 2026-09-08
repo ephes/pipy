@@ -77,6 +77,7 @@ class _CapturingProvider:
 class _RecordingSink:
     def __init__(self) -> None:
         self.payloads: list[dict[str, object]] = []
+        self.metadata: dict[str, object] | None = None
 
     def emit(self, *_args: object, **kwargs: object) -> None:
         payload = kwargs.get("payload")
@@ -112,7 +113,8 @@ def _run_tool_adapter(
         )
     )
     sink = _RecordingSink()
-    adapter.run(prepared, event_sink=sink, capture_policy=CapturePolicy())
+    result = adapter.run(prepared, event_sink=sink, capture_policy=CapturePolicy())
+    sink.metadata = result.metadata
     return sink
 
 
@@ -322,6 +324,7 @@ def check_10_delivery_reported_and_honored(root: Path) -> tuple[bool, str]:
         root / "config" / "settings.json",
         {
             "transport": "sse",
+            "compaction": {"enabled": False, "reserveTokens": 0, "contextWindow": 1},
             "retry": {
                 "maxRetries": 5,
                 "baseDelayMs": 500,
@@ -336,9 +339,28 @@ def check_10_delivery_reported_and_honored(root: Path) -> tuple[bool, str]:
     )
     policy = retry_policy_from_settings(mgr)
     honored = policy.max_attempts == 6 and policy.initial_delay_seconds == 0.5
+    workspace = root / "budget-workspace"
+    workspace.mkdir()
+    provider = _CapturingProvider()
+    refused = _run_tool_adapter(
+        workspace, root, "hi\n/exit\n", provider=provider, settings_manager=mgr
+    )
+    budget_refused = (
+        not provider.requests
+        and refused.metadata is not None
+        and (
+            refused.metadata.get("preparation_failure_type")
+            == "request_preparation_refused"
+        )
+    )
+    mgr.set_value("compaction.contextWindow", 100000)
+    _run_tool_adapter(
+        workspace, root, "hi\n/exit\n", provider=provider, settings_manager=mgr
+    )
+    budget_recovered = len(provider.requests) == 1
     return (
-        reported and honored,
-        f"reported={reported} policy_attempts={policy.max_attempts}",
+        reported and honored and budget_refused and budget_recovered,
+        f"reported={reported} policy_attempts={policy.max_attempts} budget_refused={budget_refused} budget_recovered={budget_recovered}",
     )
 
 

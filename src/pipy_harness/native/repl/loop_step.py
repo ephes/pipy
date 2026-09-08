@@ -8,7 +8,7 @@ single shared ``scope.ctl`` instance; no phase snapshots or copies it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from typing import cast
@@ -17,6 +17,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentEventSink,
+    AgentFailure,
     AgentMessage,
     AgentUserMessage,
     ProductContent,
@@ -29,7 +30,11 @@ from pipy_harness.native.agent.provider_turn import (
     ProviderTurnOutcome,
     ProviderTurnWaiter,
 )
-from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
+from pipy_harness.native.agent.request import (
+    AgentProviderRequestSnapshot,
+    freeze_provider_request,
+)
+from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.runtime_ports import AgentQueuedInput
 from pipy_harness.native.agent_loop_policy import materialize_provider_request
 from pipy_harness.native.chrome import print_input_separator
@@ -49,6 +54,11 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.coding.request_budget import (
+    RequestBudget,
+    estimate_request,
+    resolve_request_budget,
+)
 from pipy_harness.native.coding.result import (
     CodingSessionResult,
     build_coding_session_result,
@@ -194,7 +204,34 @@ class _RequestPreparationEffects:
     ) -> AgentLoopRequestPreparation:
         scope = self.accepted.turn_input.turn.scope
         scope.coding_state.mirror_history(history)
-        compaction = self._compact_if_needed()
+        invalid_policy = None
+        with scope.coding_state.state_lock:
+            context = scope.coding_state.capture_run_context()
+            try:
+                settings = scope.settings.capture_compaction_budget_settings()
+            except ValueError as exc:
+                invalid_policy = str(exc)
+        if invalid_policy is not None:
+            return self._refuse(context, invalid_policy)
+        declared = scope.declared_context_window(context.binding)
+        scope.coding_state.validate_run_context(context)
+        try:
+            budget = resolve_request_budget(
+                declared_context_window=declared,
+                explicit_ceiling=settings.context_window,
+                output_reserve=settings.reserve_tokens,
+            )
+        except (TypeError, ValueError):
+            return self._refuse(
+                context,
+                "invalid context budget: use positive context limits and an output reserve smaller than the context window",
+            )
+        baseline = freeze_provider_request(
+            self._request_values(active_input, turn_index, available_tools, context)
+        )
+        compaction = self._compact_if_needed(
+            context, budget, settings.enabled, baseline
+        )
         context = scope.coding_state.capture_run_context()
         if compaction is not None and compaction.cancellation_reason is not None:
             return AgentLoopRequestPreparation(
@@ -208,24 +245,75 @@ class _RequestPreparationEffects:
                 active_input=active_input,
             )
         )
+        scope.coding_state.validate_run_context(context)
+        estimate = estimate_request(
+            snapshot.request,
+            image_count=len(snapshot.request.attachments),
+            output_reserve=budget.output_reserve,
+        )
+        if budget.allows(estimate) is False:
+            return self._refuse(
+                context,
+                "estimated request exceeds the context window; reduce input/tool context, compact, or correct the context limit/reserve",
+            )
         scope.renderer.refresh_tool_renderers(
             scope.execution_projections.tool_renderers(snapshot.advertised_tool_names)
         )
         scope.coding_state.validate_run_context(context)
         return AgentLoopRequestPreparation(context.messages, snapshot)
 
-    def _compact_if_needed(self) -> CodingCompactionOutcome | None:
+    def _refuse(
+        self, context: CodingRunContext, notice: str
+    ) -> AgentLoopRequestPreparation:
         scope = self.accepted.turn_input.turn.scope
-        if not scope.settings.get_compaction_enabled():
+        scope.coding_state.validate_run_context(context)
+        # Sample only the existing accepted external signal, outside the guard.
+        # Terminal input remains owned by the active-turn waiter/input loop.
+        cancelled = scope.abort_event is not None and scope.abort_event.is_set()
+        scope.coding_state.validate_run_context(context)
+        if cancelled:
+            return AgentLoopRequestPreparation(
+                context.messages,
+                cancellation_reason=AgentCancellationReason.OPERATOR_ABORT,
+            )
+        return AgentLoopRequestPreparation(
+            context.messages,
+            preparation_failure=AgentFailure("request_budget", ProductContent(notice)),
+        )
+
+    def _compact_if_needed(
+        self,
+        context: CodingRunContext,
+        budget: RequestBudget,
+        enabled: bool,
+        baseline: ProviderRequest,
+    ) -> CodingCompactionOutcome | None:
+        scope = self.accepted.turn_input.turn.scope
+        if not enabled:
             return None
-        if not should_compact_agent_history(
-            scope.coding_state.messages,
-            max_messages=AGENT_HISTORY_MAX_MESSAGES,
-            max_bytes=AGENT_HISTORY_MAX_BYTES,
-            keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
-        ):
+        keep_recent_groups = AGENT_HISTORY_KEEP_RECENT_GROUPS
+        if budget.context_window is None:
+            pressure = should_compact_agent_history(
+                context.messages,
+                max_messages=AGENT_HISTORY_MAX_MESSAGES,
+                max_bytes=AGENT_HISTORY_MAX_BYTES,
+                keep_recent_groups=keep_recent_groups,
+            )
+        else:
+            pressure = (
+                budget.allows(
+                    estimate_request(
+                        baseline,
+                        image_count=len(baseline.attachments),
+                        output_reserve=budget.output_reserve,
+                    )
+                )
+                is False
+            )
+            keep_recent_groups = 1
+        if not pressure:
             return None
-        outcome = scope.apply_compaction("auto")
+        outcome = scope.apply_compaction("auto", budget, keep_recent_groups)
         emit_diagnostic(
             scope.terminal_ui.components.transcript
             if scope.terminal_ui is not None
@@ -243,6 +331,19 @@ class _RequestPreparationEffects:
         context: CodingRunContext,
     ) -> ProviderRequest:
         scope = self.accepted.turn_input.turn.scope
+        return replace(
+            self._request_values(active_input, turn_index, available_tools, context),
+            provider_header_callback=scope.active_provider_header_callback(),
+        )
+
+    def _request_values(
+        self,
+        active_input: AgentActiveInput,
+        turn_index: int,
+        available_tools: tuple[ToolDefinition, ...],
+        context: CodingRunContext,
+    ) -> ProviderRequest:
+        scope = self.accepted.turn_input.turn.scope
         accepted_turn = self.accepted.accepted_turn
         return ProviderRequest(
             system_prompt=(accepted_turn.agent_system_prompt + context.summary_suffix),
@@ -253,7 +354,6 @@ class _RequestPreparationEffects:
             messages=active_input.request_messages(context.messages),
             available_tools=available_tools,
             attachments=(accepted_turn.turn_attachments if turn_index == 0 else ()),
-            provider_header_callback=scope.active_provider_header_callback(),
         )
 
 

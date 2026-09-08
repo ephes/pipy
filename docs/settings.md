@@ -105,11 +105,26 @@ The notes call out the most important limits.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `sessionDir` | string | Native product session root. CLI `--session-dir` wins. |
-| `compaction.enabled` | boolean | Enable durable compaction when enough context exists. |
-| `compaction.reserveTokens` | number | Tokens reserved for the response. |
-| `compaction.keepRecentTokens` | number | Recent tokens kept outside the summary. |
+| `compaction.enabled` | boolean | Enable automatic summaries. Known oversized requests still refuse when disabled. |
+| `compaction.reserveTokens` | nonnegative integer | Estimated output allowance, default `16384`; not an adapter-enforced output cap. |
+| `compaction.contextWindow` | positive integer | Optional pipy-only deployment ceiling for the selected model; the smaller of this and its declared window applies. |
+| `compaction.keepRecentTokens` | number | Reported and preserved, but inactive; retention uses whole user groups. |
 | `branchSummary.reserveTokens` | number | Token budget for abandoned-branch summaries. |
 | `branchSummary.skipPrompt` | boolean | Skip the `/tree` branch-summary prompt. |
+
+Known context limits govern an estimated request budget, including system text,
+messages, tools, images, framing, safety and the output reserve. Unknown model
+limits retain the legacy count/byte compaction trigger unless an explicit ceiling
+is configured. Catalog defaults and fallback copies are not declarations. These
+estimates do not guarantee provider fit. A reserve at or above a known window,
+or a configured boolean/null/string/fractional/invalid limit, refuses the request
+with a bounded configuration notice; absent keys retain their defaults. `/settings`
+still reports invalid configuration safely. Effective policy is captured once per
+provider iteration; later settings changes apply to the next attempt.
+
+See [Compaction](compaction.md) for the single summary attempt, durable first-turn
+boundary and recovery options. This optional ceiling uses the same trusted
+settings layers as other preferences and is not discovered provider capability.
 
 ### Retry, delivery, and transport
 

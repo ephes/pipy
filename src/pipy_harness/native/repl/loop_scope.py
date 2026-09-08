@@ -45,11 +45,12 @@ from pipy_harness.native.agent_runtime import (
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.coding.request_budget import RequestBudget
 from pipy_harness.native.coding.session_controller import (
     CodingCommandEffects,
     CodingSessionController,
 )
-from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.state import CodingProviderBinding, CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.package_runtime import PackageResourceRoots
@@ -281,7 +282,8 @@ class ReplLoopScope:
     diag: Callable[[str], None]
     coding_footer_text: Callable[[], str]
     refresh_legacy_footer_with_usage: Callable[[], None]
-    apply_compaction: Callable[[str], CodingCompactionOutcome]
+    apply_compaction: Callable[[str, RequestBudget, int], CodingCompactionOutcome]
+    declared_context_window: Callable[[CodingProviderBinding], int | None]
     cycle_thinking_level: Callable[[], str | None]
     append_agent_message: Callable[[AgentMessage], None]
     drain_extension_outboxes: Callable[[], None]

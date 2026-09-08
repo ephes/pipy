@@ -681,8 +681,12 @@ exit path instead of printing a stale answer from an earlier iteration. A curren
 refusal takes precedence over a retained older provider failure. JSON/RPC event
 shapes and aggregate lifetime exit semantics are unchanged. Full failure details
 remain private canonical product events/SDK state; bounded archive metadata
-contains only that fixed classification. This prepares the refusal path; live
-model-budget admission remains pending.
+contains only that fixed classification. Live model-aware admission now uses this
+path for invalid budget policy or estimated final overflow. It uses the real coding
+settings, including optional `compaction.contextWindow`; RPC's reported auto flags
+remain reporting-only and public `compact` controls remain unimplemented. The
+existing [compaction](compaction.md) durable-origin and recovery boundaries apply.
+There is no new RPC event envelope, queue owner or automatic retry.
 
 ## (e) Python SDK Relationship
 

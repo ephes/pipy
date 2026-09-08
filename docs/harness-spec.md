@@ -1843,7 +1843,8 @@ semantics; the one-shot compatibility SDK remains separate.
 
 D3a1 implements the pure measurement and catalog-provenance foundation below;
 D3a2 implements recoverable preparation refusal and its result projections.
-Live request admission remains pending as D3a3 in the sole [backlog](backlog.md).
+D3a3 implements live ordinary/auxiliary admission and one whole-group attempt;
+task state remains in the sole [backlog](backlog.md).
 D1 semantic continuity and D2 persistent lifetime remain the foundation. Budgeting
 is an estimate of the native request, not a guarantee of provider acceptance or an
 exact tokenizer/wire-size calculation.
@@ -1898,8 +1899,9 @@ unknown when neither exists. `RequestBudget` accepts a nonnegative output reserv
 a reserve at or above a known limit raises a bounded `ValueError` instead of
 clamping. Invalid numeric types (including booleans) are rejected. Its `allows`
 comparison includes equality, requires the same reserve as the estimate, and
-returns no verdict for an unknown limit. These primitives do not read settings,
-select models, trigger compaction or admit/refuse live requests.
+returns no verdict for an unknown limit. These primitives do not read settings or
+select models; the existing product
+request/compaction owners now compose them into live admission.
 
 Resolve limits for the captured provider binding through the existing catalog
 composition owner, outside the session mutex, then revalidate the run/context
@@ -1966,8 +1968,9 @@ and suppresses any earlier assistant answer when the final accepted run refuses.
 That current refusal takes precedence over a retained earlier provider failure;
 a terminal driver failure retains precedence over both. JSON/RPC envelopes and
 aggregate lifetime result semantics stay unchanged. No new event bus or RPC
-queue owner is introduced. This infrastructure does not yet refuse live requests
-based on estimated size; D3a3 wires that policy.
+queue owner is introduced. D3a3 uses this infrastructure for invalid budget policy
+and estimated final-request
+overflow. Auxiliary summary refusal alone does not publish preparation failure.
 
 **Product admission and one summary attempt.** After guarded history mirroring,
 capture coherent binding/history/suffix. Measure a callback-free baseline with
@@ -1983,6 +1986,15 @@ or attachment set can still refuse; within-run cuts remain D3b. Manual compactio
 and unknown-limit legacy retention stay unchanged. `keepRecentTokens` remains
 reported but inactive for D3a; do not claim token-target retention is implemented.
 
+D3a3 preserves D1's unresolved durable-origin refusal. On the first provider
+iteration of a persistent session, the newly accepted user is not yet a tree entry:
+canonical turn-start settlement follows preparation. A latest-one-group cut to
+that anchor therefore refuses before generation, without moving publication or
+inventing an entry. Final hooks may still make the ordinary request fit; otherwise
+recoverable refusal settles and persists that user once. Later iterations can use
+the real origin. Manual recovery and this observed boundary are documented in
+[Compaction](compaction.md); within-run representation changes remain D3b.
+
 Preflight the exact auxiliary semantic request (prior summary, dropped prefix,
 final instruction and output reserve) before canonical provider execution.
 Oversized summary input refuses that attempt without publication or multi-pass
@@ -1997,6 +2009,16 @@ hooks exactly once, and freeze the final snapshot. Revalidate context and check
 that exact snapshot before renderer refresh and provider admission. A hook that
 creates overflow causes recoverable refusal, not another hook or compaction
 loop. Keep D1's cancelled-preparation early exit before ordinary hooks/rendering.
+Invalid budget policy is sampled from `SettingsManager.capture_compaction_budget_settings`
+under the shared state guard alongside the run context. Catalog lookup runs outside
+it with captured binding labels; settings changes after capture apply next attempt.
+Immediately before a budget refusal, revalidate context/work, sample only the
+existing external accepted-abort signal outside the mutex, and revalidate after
+that effect. Observed external abort returns canonical operator cancellation;
+staleness wins. This is a refusal-boundary sample, not an atomic guarantee for later
+arrivals. Terminal input remains owned by the existing active-turn waiter and
+ordinary input loop; synchronous refusal does not invent a terminal polling latch.
+
 The product wiring and mutation owners compose this policy; canonical agent
 code receives typed outcomes and does not import catalog/settings/compaction.
 

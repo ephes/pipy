@@ -1307,10 +1307,11 @@ def test_retained_model_control_stops_stale_coding_run_publication(
 
     original_compact = _RequestPreparationEffects._compact_if_needed
 
-    def compact(preparation: Any) -> None:
-        original_compact(preparation)
+    def compact(preparation: Any, *args: Any, **kwargs: Any) -> Any:
+        result = original_compact(preparation, *args, **kwargs)
         if boundary == "after-mirror":
             mutate()
+        return result
 
     monkeypatch.setattr(_RequestPreparationEffects, "_compact_if_needed", compact)
     original_prepare = NativeAgentProviderRequestPolicy.prepare
@@ -1372,8 +1373,8 @@ def test_compaction_gate_model_replacement_stops_only_an_active_run(
 ) -> None:
     from pipy_harness.native.coding.session import CodingSession
     from pipy_harness.native.coding.state import CodingContextChangedError
-    from pipy_harness.native.repl import loop_step
     from pipy_harness.native.session_tree import MessageEntry
+    from pipy_harness.native.settings import SettingsManager
 
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
     _effects, provider_state, _tools, _ref, _coordinator, _tree, _footers = (
@@ -1401,10 +1402,12 @@ def test_compaction_gate_model_replacement_stops_only_an_active_run(
         "        record('shutdown')\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(
-        loop_step,
-        "should_compact_agent_history",
-        lambda *_args, **_kwargs: trigger == "auto",
+    settings = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        env={},
+        overrides={"compaction": {"contextWindow": 1, "reserveTokens": 0}}
+        if trigger == "auto"
+        else {},
     )
     provider = provider_state.current_provider()
     requests: list[object] = []
@@ -1431,7 +1434,10 @@ def test_compaction_gate_model_replacement_stops_only_an_active_run(
         entry for entry in tree.get_entries() if isinstance(entry, MessageEntry)
     )
     session = CodingSession(
-        provider=provider, provider_state=provider_state, native_session=tree
+        provider=provider,
+        provider_state=provider_state,
+        native_session=tree,
+        settings_manager=settings,
     )
     inputs = (
         "accepted input\n/exit\n"

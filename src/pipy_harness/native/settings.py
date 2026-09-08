@@ -363,6 +363,15 @@ class SettingsState:
         return cls(scopes={}, errors={})
 
 
+@dataclass(frozen=True, slots=True)
+class CompactionBudgetSettings:
+    """One effective attempt policy, captured under the bound settings guard."""
+
+    enabled: bool
+    reserve_tokens: int
+    context_window: int | None
+
+
 class SettingsManager:
     """Layered global+project settings with Pi-equivalent semantics.
 
@@ -904,6 +913,32 @@ class SettingsManager:
             return default
         return value
 
+    def capture_compaction_budget_settings(self) -> CompactionBudgetSettings:
+        """Read one effective policy without I/O or callbacks under the mutex."""
+
+        with self._state_lock:
+            effective = self.effective()
+            node = effective.get("compaction", {})
+            if not isinstance(node, dict):
+                raise ValueError("compaction must be an object")
+            enabled = node.get("enabled", True)
+            reserve = node.get("reserveTokens", 16384)
+            if type(reserve) is not int or reserve < 0:
+                raise ValueError(
+                    "compaction.reserveTokens must be a nonnegative integer"
+                )
+            ceiling = node.get("contextWindow")
+            if "contextWindow" in node and (type(ceiling) is not int or ceiling <= 0):
+                raise ValueError("compaction.contextWindow must be a positive integer")
+            return CompactionBudgetSettings(
+                enabled if isinstance(enabled, bool) else True, reserve, ceiling
+            )
+
+    def get_compaction_context_window(self) -> int | None:
+        """Return the ceiling; raise ValueError for any invalid budget field."""
+
+        return self.capture_compaction_budget_settings().context_window
+
     def get_compaction_enabled(self) -> bool:
         return self._nested_bool("compaction", "enabled", default=True)
 
@@ -1024,10 +1059,7 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         f"    steering: {manager.get_steering_mode()}",
         f"    followUp: {manager.get_follow_up_mode()}",
         f"    scopedModels: {models_text}",
-        "    compaction: "
-        f"enabled={manager.get_compaction_enabled()}, "
-        f"reserveTokens={manager.get_compaction_reserve_tokens()}, "
-        f"keepRecentTokens={manager.get_compaction_keep_recent_tokens()}",
+        _compaction_budget_display(manager),
         "    retry: "
         f"enabled={manager.get_retry_enabled()}, "
         f"maxRetries={manager.get_retry_max_retries()}, "
@@ -1050,6 +1082,24 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         f"    websocketConnectTimeoutMs: {_websocket_connect_timeout_display(manager)}",
         f"    sessionDir: {manager.get_session_dir() or '(default)'}",
     ]
+
+
+def _compaction_budget_display(manager: SettingsManager) -> str:
+    try:
+        policy = manager.capture_compaction_budget_settings()
+    except ValueError as exc:
+        return f"    compaction: (invalid: {exc})"
+    ceiling = (
+        "(declared model or unknown)"
+        if policy.context_window is None
+        else str(policy.context_window)
+    )
+    return (
+        f"    compaction: enabled={policy.enabled}, "
+        f"reserveTokens={policy.reserve_tokens} (estimated output allowance), "
+        f"contextWindow={ceiling}, "
+        f"keepRecentTokens={manager.get_compaction_keep_recent_tokens()} (inactive)"
+    )
 
 
 def _http_idle_timeout_display(manager: SettingsManager) -> str:

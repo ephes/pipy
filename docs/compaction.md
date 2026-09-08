@@ -66,9 +66,13 @@ pipy's built-in semantic-summary instructions.
 
 ## Automatic compaction
 
-Automatic compaction is enabled by default. The tool-loop session checks history
-between turns and normally compacts when message count or byte thresholds are
-exceeded. Extension `deliverAs=nextTurn` context is a detached, identity-anchored
+Automatic compaction is enabled by default. With a declared model window or
+explicit `compaction.contextWindow` ceiling, the session estimates the assembled
+request before ordinary hooks and may attempt one semantic summary under pressure,
+retaining the latest whole user group. Known limits replace message/byte triggering:
+long history below estimated pressure does not compact. Unknown limits without a
+ceiling retain the legacy 40-message/48-KiB trigger and two recent groups.
+Extension `deliverAs=nextTurn` context is a detached, identity-anchored
 request overlay: every provider iteration of exactly the next accepted run sees
 it immediately after that run's real user message. Automatic compaction continues
 to operate on the durable history during that run, while the overlay stays out of
@@ -89,19 +93,42 @@ Settings expose the current compaction controls:
 }
 ```
 
-`enabled` controls the automatic path. The token-related settings are part of
-the Pi-shaped settings surface and are displayed in `/settings`; the current
-stdlib compactor primarily uses message/byte thresholds plus a fixed recent-turn
-retention policy.
+`enabled` gates automatic summary generation, not known-limit admission. The
+nonnegative integer `reserveTokens` is an estimated output allowance, not a
+provider-enforced output cap. Optional positive integer `contextWindow` is a
+pipy-only deployment ceiling; the smaller of it and declared model metadata is
+used. Defaults/placeholders/fallback copies do not establish model capacity.
+`keepRecentTokens` remains reported but inactive.
 
-Internal request-estimation primitives and declared context-window provenance
-are implemented, but are not yet connected to compaction or provider admission.
-They account for request text, tools, images, framing, safety and an explicit
-output reserve using deterministic heuristics, not provider-exact token counts.
-The current token settings remain inactive policy fields; model-aware refusal
-and triggering are pending D3a2/D3a3. See the
-[budget contract](harness-spec.md#model-aware-request-budget-contract) for the
-fixed arithmetic and declared-versus-unknown limit rules.
+Both manual and automatic summaries preflight the exact auxiliary request: prior
+summary, dropped prefix, final instruction and reserve. An oversized auxiliary
+request publishes nothing. Ordinary hooks still run once and can narrow the final
+request enough to fit; summary refusal alone is not a failed agent run. The exact
+frozen ordinary request is checked after those hooks and before renderer/provider
+admission. A remaining overflow settles as a recoverable preparation refusal,
+without another summary attempt, provider call or empty assistant response.
+Accepted compaction survives a later ordinary refusal. Persistence failure after
+acceptance still escapes unchanged, without rollback or automatic recovery.
+
+A persistent session's first provider iteration has a specific boundary: its new
+accepted user anchor is not persisted until canonical turn-start settlement after
+preparation. A latest-group cut pointing at that anchor refuses its missing durable
+origin. The final request can still be admitted if hooks narrow it enough; otherwise
+it refuses, and ordinary refusal settlement persists the accepted user once. No
+entry is invented and retention does not silently grow to two groups. Later
+provider iterations can summarize to that same anchor once it has a real origin.
+
+After refusal, reduce input/tool context or correct the context limit/reserve. In
+the interactive session, bare `/compact` can summarize already persisted groups
+before the next prompt (it retains two recent groups and also preflights its own
+request). If a provider rejects context below the estimate, try manual compaction
+or start a new session. SDK callers can correct injected settings for the next
+submission; when explicit compaction/context replacement is needed they currently
+close and create a new session, since public compaction controls are not exposed.
+These heuristics are not exact tokenization or guaranteed fit; live-provider
+budget accuracy and summary quality remain unverified. See the
+[budget contract](harness-spec.md#model-aware-request-budget-contract) for arithmetic,
+policy capture and cancellation precedence.
 
 ## Durable session behavior
 

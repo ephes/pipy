@@ -8,12 +8,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Native requests now use estimated declared/explicit context budgets, including
+  system/messages/tools/images, safety and an output reserve. Optional pipy-only
+  `compaction.contextWindow` limits the selected model. Known pressure permits one
+  whole-group summary attempt; ordinary hooks run once before final admission.
+  Manual and automatic summaries preflight their own input. Invalid budgets and
+  final overflow refuse recoverably; `keepRecentTokens` remains inactive and
+  estimates do not guarantee provider fit. A persistent first-iteration cut to the
+  new user can refuse its not-yet-durable origin; normal settlement then records
+  that user once for subsequent operations. Manual `/compact` remains available.
+
 - Native request preparation can now settle a typed recoverable refusal without
   calling the provider or creating an empty assistant message. Product snapshots
   retain the separate failure, earlier tools and usage survive, and the next
   prompt can continue. Bounded archive results expose only a safe classification;
-  print mode suppresses stale earlier answers. Live model-budget admission remains
-  pending.
+  print mode suppresses stale earlier answers. Model-budget admission now uses this
+  same refusal path.
 - Python embeddings can now use `create_product_session` with an explicit
   tool-capable provider for persistent native coding: repeated literal prompts,
   real tools, fixed full-content events, immutable idle snapshots, cross-thread

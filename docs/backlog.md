@@ -9,8 +9,22 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next eligible:** D3a3, live request-budget admission and one whole-group semantic
-attempt. D3a2 is complete: canonical recoverable preparation refusal, guarded
+**Next gate:** focused grooming and D3b's required safe-cut spec, before dependent
+code. D3a3 completes in this chunk from baseline `4d7be4d` with advisory review
+acceptance. Live request-budget admission and one whole-group semantic
+attempt are implemented. Root passed 5,788 tests (two skipped), static checks,
+601 focused tests, eight PTY tests, all 18 settings-conformance checks, docs and
+diff checks. The first exact Opus 5 invocation failed from oversized context and
+provided no verdict. A fresh, smaller supporting bundle retained all changed
+files; its valid review returned three Suggestions, with no Warning/Critical,
+skips or truncation. Only an unchanged private test canary was redacted. Recovery
+wording and the strict accessor's error documentation are clarified; an unmeasured
+redundant-freeze optimization is not selected. Stop at diminishing returns:
+advisory acceptance, not CLEAN. The next eligible work after commit is
+focused grooming and D3b's required safe-cut spec, before dependent code.
+
+D3a2 committed at `4d7be4d`:
+canonical recoverable preparation refusal, guarded
 snapshot state, normal queue handoff and safe result classification. Root checks
 passed 5,746 tests (two skipped), static checks, 277 focused tests, eight PTY tests,
 docs and diff checks. Exact Opus 5 code review had complete unredacted coverage
@@ -403,6 +417,15 @@ pressure the one attempt keeps the latest whole user group, while manual and
 unknown-limit legacy cuts retain their existing policy. Known limits replace the
 legacy trigger rather than also compacting merely on message/byte count.
 
+D3a3's real durable-session test exposes an existing publication boundary: the
+accepted first-iteration user is not persisted until turn-start settlement after
+preparation. A latest-group cut to that user therefore refuses its unresolved
+origin; it neither invents an entry nor changes publication ownership. Final
+hooks can still narrow the request, or recoverable refusal persists the user once
+for subsequent operations. Later-iteration summary and reopen are covered. Carry
+this evidence into D3b's representation contract; do not claim first-iteration
+automatic compaction or live-provider fit from synthetic tests.
+
 This is the required grooming pass after three implementation commits and the
 D2 phase boundary. Summary-safe searches for context budgeting and preparation
 refusal had no matching records; current source/tests and committed ownership
@@ -436,8 +459,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D2b | Complete at `faffcd0`; full checks and Opus follow-up CLEAN; D2p/D2b0 | Distinct supported product-session SDK factory over that lifetime with explicit provider injection; canonical provider/summary/model-tool cancellation; API/RPC tests, SDK/RPC contracts and release notes | Two-turn tool workflow, events, cross-thread cancel and settlement race, owner-thread snapshot and disposal; no caller streams/private candidates or duplicate state |
 | D3a0 | Complete at `5819b25`; full checks and advisory Opus plan review; D1b/D2b | Reviewed budget, provenance, refusal and cut contract; backlog grooming | Docs-only independent review and commit before new contracts are implemented |
 | D3a1 | Complete at `d4b5c50`; full checks and focused Opus follow-up CLEAN; D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
-| D3a2 | Complete; full checks and advisory Opus code review; D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
-| D3a3 | D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
+| D3a2 | Complete at `4d7be4d`; full checks and advisory Opus code review; D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
+| D3a3 | Complete in this chunk; full checks and advisory Opus review; D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
 | D3b | D3a3; dedicated safe-cut spec | Long-single-run compaction; history representation plus all product/persistence/reconstruction consumers | Explicit replacement of positive dropped-group invariant; no orphan tools, duplicated entries or lost prior summary; cancellation and resume coverage |
 | D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
 | D4b | D1b, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |

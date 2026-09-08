@@ -83,8 +83,20 @@ failure appears in `preparation_failure` and the canonical failed run event;
 accepted input, completed tools and usage remain recorded. The preparation field
 clears before a new accepted input's callbacks or when context is replaced,
 including an extension continuation in the same submit. Provider-failure
-retention is independent. The refusal infrastructure is implemented; live
-model-budget admission is still pending.
+retention is independent. Model-aware admission now uses declared metadata or an
+explicit `compaction.contextWindow` ceiling, with an estimated output reserve.
+An injected provider without a resolved declaration stays unknown unless a ceiling
+is supplied. Invalid policy and final estimated overflow refuse recoverably; later
+settings changes apply to the next request preparation. Estimates are not
+guaranteed fit.
+
+A persistent tree cannot compact to a newly accepted first-iteration anchor before
+that user has a durable origin; it refuses that summary attempt and may refuse the
+ordinary request, then persists the accepted user once during normal settlement.
+See [Compaction](compaction.md) for this boundary. Public compact/model/context
+controls remain unavailable. Correct injected settings for a later submission, or
+close and create a new session when explicit context replacement is needed; no
+hidden retry or compatibility `run_native` change is introduced.
 
 A terminal driver failure, such as three consecutive malformed tool calls,
 retires the lifetime and raises `RuntimeError` containing

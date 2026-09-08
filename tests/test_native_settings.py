@@ -1093,3 +1093,64 @@ def test_set_value_does_not_import_unrelated_external_edits(
     assert manager.get_theme() == "ocean"
     assert manager.get_quiet_startup() is True
     assert manager.get_default_model() == "gpt-5.6-sol"
+
+
+@pytest.mark.parametrize("key", ["reserveTokens", "contextWindow"])
+@pytest.mark.parametrize("value", [None, True, False, "PRIVATE_INVALID", 1.5, -1])
+def test_compaction_budget_invalid_values_do_not_become_defaults(tmp_path, key, value):
+    from pipy_harness.native.settings import settings_report_lines
+
+    manager = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        env={},
+        overrides={"compaction": {key: value}},
+    )
+    with pytest.raises(ValueError, match=f"compaction.{key}"):
+        manager.capture_compaction_budget_settings()
+    report = "\n".join(settings_report_lines(manager))
+    assert "invalid" in report and f"compaction.{key}" in report
+    assert "PRIVATE_INVALID" not in report
+
+
+def test_compaction_budget_snapshot_defaults_zero_reserve_and_exact_guard(
+    tmp_path, monkeypatch
+):
+    import threading
+    from dataclasses import FrozenInstanceError
+
+    lock = threading.RLock()
+    manager = SettingsManager(
+        global_path=tmp_path / "settings.json", env={}, state_lock=lock
+    )
+    calls = []
+    original = manager.effective
+
+    def effective():
+        assert lock._is_owned()
+        calls.append(True)
+        return original()
+
+    monkeypatch.setattr(manager, "effective", effective)
+    default = manager.capture_compaction_budget_settings()
+    assert (default.enabled, default.reserve_tokens, default.context_window) == (
+        True,
+        16384,
+        None,
+    )
+    assert calls == [True]
+    with pytest.raises(FrozenInstanceError):
+        default.context_window = 1
+    manager.set_value(
+        "compaction", {"enabled": "default", "reserveTokens": 0, "contextWindow": 100}
+    )
+    current = manager.capture_compaction_budget_settings()
+    assert (current.enabled, current.reserve_tokens, current.context_window) == (
+        True,
+        0,
+        100,
+    )
+    assert default.context_window is None
+    assert manager.get_compaction_context_window() == 100
+    manager.set_value("compaction.contextWindow", 0)
+    with pytest.raises(ValueError, match="positive integer"):
+        manager.capture_compaction_budget_settings()

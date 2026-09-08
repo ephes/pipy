@@ -40,6 +40,7 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult, Provider
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.settings import SettingsManager
 
 
 def _result(
@@ -169,6 +170,9 @@ def _fixture(
     )
     effects = replace(
         original,
+        settings=SettingsManager(
+            global_path=tmp_path / "settings.json", state_lock=state.state_lock, env={}
+        ),
         product_session=product,
         extension_operations=extension,
         provider_turn_executor=ProviderTurnExecutor(cancel_join_timeout_seconds=0.01),

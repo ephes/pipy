@@ -271,7 +271,7 @@ Nested objects (top-level keys are shallow-merged one level; deeper objects such
 as `retry.provider` are replaced wholesale):
 
 - `compaction?: { enabled?: boolean=true; reserveTokens?: number=16384;
-  keepRecentTokens?: number=20000 }`
+  keepRecentTokens?: number=20000; contextWindow?: positive integer }`
 - `branchSummary?: { reserveTokens?: number=16384; skipPrompt?: boolean=false }`
 - `retry?: { enabled?: boolean=true; maxRetries?: number=3;
   baseDelayMs?: number=2000; provider?: { timeoutMs?; maxRetries?;
@@ -549,10 +549,24 @@ is forward-compatible and Pi-written files do not lose data.
 ## Compaction, Retry, and Branch-Summary Settings
 
 - Compaction: `compaction.enabled` (default true), `reserveTokens` (16384),
-  `keepRecentTokens` (20000). These feed pipy's `/compact` and the automatic
-  compaction threshold; `session-tree.md` already references
-  `branchSummary.reserveTokens`/`skipPrompt`, and this track makes the
-  compaction settings live too.
+  `keepRecentTokens` (20000), and optional pipy-only `contextWindow`. Enabled gates
+  automatic summaries; the nonnegative integer reserve is an estimated output
+  allowance, not an adapter output cap. A positive integer ceiling applies to the
+  selected model and combines with its declared window using the minimum. Unknown
+  limits without a ceiling keep legacy count/byte triggering. `keepRecentTokens`
+  remains inactive: known-pressure cuts retain the latest whole group, while
+  manual/unknown-limit cuts retain two groups. See [Compaction](compaction.md) for
+  durable-origin refusal, one-attempt preflight and recovery.
+
+  `capture_compaction_budget_settings()` reads one effective enabled/reserve/ceiling
+  snapshot under the existing settings guard, shared with the coding-state capture.
+  Catalog resolution runs after unlock using captured binding labels. Absent reserve
+  and ceiling use `16384` and unknown; configured nulls, booleans, strings, fractions,
+  negative reserve and nonpositive ceilings raise fixed key-specific errors. A
+  non-object compaction policy is invalid too. Invalid policy and a reserve leaving
+  no input allowance produce recoverable refusal; `/settings` remains usable with
+  a bounded invalid notice. No arbitrary values enter those notices. Existing
+  settings layers, trust, reload and broad accessors keep their ownership.
 - Retry: `retry.enabled` (true), `maxRetries` (3), `baseDelayMs` (2000,
   exponential backoff 2s/4s/8s), and `retry.provider.{timeoutMs, maxRetries,
   maxRetryDelayMs(60000)}`. These feed pipy's retry policy
@@ -582,8 +596,11 @@ runtime has no matching surface yet) is:
     the complete request-plus-stream attempt and retries transient failures
     only before its first accepted provider event. Bounded `retry-after-ms` and
     `Retry-After` can raise (never bypass) the configured delay cap.
-  - `compaction.enabled` — gates pipy's automatic tool-loop compaction
-    threshold (and `/compact` remains available regardless).
+  - `compaction.enabled` — gates automatic semantic generation; `/compact` remains
+    available regardless, and known oversized ordinary requests still refuse.
+  - `compaction.reserveTokens` and pipy-only `compaction.contextWindow` — estimate
+    the ordinary and auxiliary request allowance. Known limits replace the legacy
+    trigger; final frozen request admission runs after ordinary hooks exactly once.
   - `transport` and `websocketConnectTimeoutMs` — honored by OpenAI-Codex for
     `auto|sse|websocket`, including the 15000 ms default WebSocket open timeout,
     `0` disabled semantics, WS-first `auto`/`websocket`, and Pi-shaped pre-event
@@ -591,9 +608,8 @@ runtime has no matching surface yet) is:
     report these settings without using them.
 - **Accepted + round-tripped + reported, currently inert** (no matching pipy
   surface; preserved so Pi-written/forward config survives):
-  - `compaction.reserveTokens` / `keepRecentTokens` — pipy's compaction is
-    user-turn/exchange-count based, not token-budget based, so these token knobs
-    are not yet consumed.
+  - `compaction.keepRecentTokens` — whole-group retention remains fixed rather
+    than choosing a token-target suffix.
   - `branchSummary.reserveTokens` / `skipPrompt` — the `/tree` branch-summary
     attaches parent summaries by a different mechanism than a token reserve.
   - `steeringMode` / `followUpMode` (no in-turn steering/follow-up queue yet —
