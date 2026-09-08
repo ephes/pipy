@@ -133,8 +133,12 @@ policy capture and cancellation precedence.
 ## Durable session behavior
 
 When compaction changes history, pipy appends a `compaction` tree entry with the
-summary and the first retained entry ID. That boundary may precede the previous
-compaction entry: a second cut works even after only one new user group. On
+summary and the first retained entry ID. An optional retained-user entry ID
+represents a safe noncontiguous user-plus-tool-cycle suffix. Anchored records are
+validated against the effective historical branch, reconstructed chronologically,
+and remapped strictly on fork; later cuts cannot restore content already removed.
+That boundary may precede the previous compaction entry: a second cut works even
+after only one new user group. On
 resume, `/tree` navigation, fork, clone, and import, pipy rebuilds the active branch
 with that compaction boundary honored. Coding context restores the summary in
 the system suffix and keeps real messages separate, so a summary does not become
@@ -143,6 +147,11 @@ another user group. An uncompacted destination or `/new` clears the suffix.
 Compaction counters describe the current run, independently of a restored branch
 summary. Startup can restore a summary with zero compactions in the new run;
 navigation replaces the summary while preserving cumulative run counters.
+
+The durable anchored representation is available as a prerequisite, but live
+manual and automatic compaction still select only whole user groups. Model and
+thinking settings restore from the full raw ancestry independently of retained
+messages.
 
 Persistence remains state-first: live history, summary, and counters advance
 before the synchronous tree append. A write failure propagates before the success

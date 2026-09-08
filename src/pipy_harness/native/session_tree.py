@@ -47,6 +47,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
 
 CURRENT_SESSION_VERSION = 1
 
@@ -204,6 +205,7 @@ class CompactionEntry:
     summary: str
     first_kept_entry_id: str
     tokens_before: int
+    retained_user_entry_id: str | None = None
     type: str = "compaction"
 
 
@@ -420,9 +422,7 @@ def _entry_to_json(entry: SessionEntry) -> dict[str, Any]:
     elif isinstance(entry, ThinkingLevelChangeEntry):
         base["thinkingLevel"] = entry.thinking_level
     elif isinstance(entry, CompactionEntry):
-        base["summary"] = entry.summary
-        base["firstKeptEntryId"] = entry.first_kept_entry_id
-        base["tokensBefore"] = entry.tokens_before
+        base.update(_compaction_json_fields(entry))
     elif isinstance(entry, BranchSummaryEntry):
         base["fromId"] = entry.from_id
         base["summary"] = entry.summary
@@ -442,13 +442,36 @@ def _entry_to_json(entry: SessionEntry) -> dict[str, Any]:
     return base
 
 
+def _compaction_json_fields(entry: CompactionEntry) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "summary": entry.summary,
+        "firstKeptEntryId": entry.first_kept_entry_id,
+        "tokensBefore": entry.tokens_before,
+    }
+    if entry.retained_user_entry_id is not None:
+        fields["retainedUserEntryId"] = entry.retained_user_entry_id
+    return fields
+
+
 def _entry_from_json(
     body: dict[str, Any], by_id: dict[str, SessionEntry]
 ) -> SessionEntry | None:
+    anchored = body.get("type") == "compaction" and "retainedUserEntryId" in body
     identity = _entry_identity_from_json(body)
     if identity is None:
+        if anchored:
+            raise ValueError("anchored compaction has invalid entry identity")
         return None
     entry_id, parent_id, timestamp = identity
+    if anchored:
+        try:
+            retained_user_entry_id = body["retainedUserEntryId"]
+            first_kept_entry_id = body.get("firstKeptEntryId")
+            _require_exact_entry_id(retained_user_entry_id, "retainedUserEntryId")
+            _require_exact_entry_id(first_kept_entry_id, "firstKeptEntryId")
+            return _decode_entry_from_json(body, by_id, entry_id, parent_id, timestamp)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("malformed anchored compaction entry") from error
     try:
         return _decode_entry_from_json(body, by_id, entry_id, parent_id, timestamp)
     except (KeyError, ValueError, TypeError):
@@ -507,6 +530,7 @@ def _decode_entry_from_json(
             summary=str(body.get("summary", "")),
             first_kept_entry_id=str(body["firstKeptEntryId"]),
             tokens_before=int(body.get("tokensBefore", 0)),
+            retained_user_entry_id=body.get("retainedUserEntryId"),
         )
     if entry_type == "branch_summary":
         return BranchSummaryEntry(
@@ -552,6 +576,14 @@ def _decode_entry_from_json(
             details=body.get("details"),
         )
     return None
+
+
+def _require_exact_entry_id(value: object, field_name: str) -> str:
+    if type(value) is not str:
+        raise TypeError(f"{field_name} must be an exact string")
+    if not value:
+        raise ValueError(f"{field_name} must not be empty")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -687,6 +719,77 @@ def _retained_context_entries(
 
     if compaction is None:
         return path
+    first_anchored = next(
+        (
+            index
+            for index, entry in enumerate(path)
+            if isinstance(entry, CompactionEntry)
+            and entry.retained_user_entry_id is not None
+        ),
+        None,
+    )
+    if first_anchored is None:
+        return _legacy_retained_context_entries(path, compaction)
+
+    prefix = path[:first_anchored]
+    prior_compaction = next(
+        (entry for entry in reversed(prefix) if isinstance(entry, CompactionEntry)),
+        None,
+    )
+    effective = _legacy_retained_context_entries(prefix, prior_compaction)
+    for entry in path[first_anchored:]:
+        if not isinstance(entry, CompactionEntry):
+            effective.append(entry)
+            continue
+        boundary = next(
+            (
+                i
+                for i, candidate in enumerate(effective)
+                if candidate.id == entry.first_kept_entry_id
+            ),
+            None,
+        )
+        if entry.retained_user_entry_id is None:
+            if boundary is None:
+                raise ValueError(
+                    "compaction boundary unavailable after anchored compaction"
+                )
+            effective = effective[boundary:]
+            continue
+        anchor = next(
+            (
+                i
+                for i, candidate in enumerate(effective)
+                if candidate.id == entry.retained_user_entry_id
+            ),
+            None,
+        )
+        if anchor is None or boundary is None:
+            raise ValueError(
+                "anchored compaction references unavailable effective ancestor"
+            )
+        anchor_entry = effective[anchor]
+        if (
+            not isinstance(anchor_entry, MessageEntry)
+            or type(anchor_entry.message) is not AgentUserMessage
+        ):
+            raise ValueError(
+                "anchored compaction user must be an actual user message entry"
+            )
+        if anchor >= boundary:
+            raise ValueError(
+                "anchored compaction user must precede its distinct suffix"
+            )
+        _validate_anchored_cycle_cut(effective, anchor, boundary)
+        effective = [anchor_entry, *effective[boundary:]]
+    return effective
+
+
+def _legacy_retained_context_entries(
+    path: list[SessionEntry], compaction: CompactionEntry | None
+) -> list[SessionEntry]:
+    if compaction is None:
+        return path
     compaction_idx = next(
         (
             index
@@ -704,6 +807,25 @@ def _retained_context_entries(
             retained.append(entry)
     retained.extend(path[compaction_idx + 1 :])
     return retained
+
+
+def _validate_anchored_cycle_cut(
+    effective: list[SessionEntry], anchor_index: int, boundary_index: int
+) -> None:
+    projected = [
+        message
+        for candidate in effective
+        if (message := _project_context_entry(candidate)) is not None
+    ]
+    anchor = cast(AgentUserMessage, _project_context_entry(effective[anchor_index]))
+    boundary = _project_context_entry(effective[boundary_index])
+    if boundary is None:
+        raise ValueError("anchored compaction suffix must project to a message")
+    cut = compact_agent_history_tool_cycles(projected, accepted_user=anchor)
+    if not cut.changed or cut.retained_suffix_boundary is not boundary:
+        raise ValueError(
+            "anchored compaction references do not describe a canonical cycle cut"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -730,6 +852,23 @@ def _new_entry_id(existing: dict[str, SessionEntry]) -> str:
         if candidate not in existing:
             return candidate
     return uuid.uuid4().hex
+
+
+def _remap_compaction_references(
+    entry: CompactionEntry, id_map: dict[str, str] | None
+) -> tuple[str, str | None]:
+    first_kept = entry.first_kept_entry_id
+    retained_user = entry.retained_user_entry_id
+    if id_map is None:
+        if retained_user is not None:
+            raise ValueError("anchored compaction reference map is required")
+        return first_kept, retained_user
+    if retained_user is None:
+        return id_map.get(first_kept, first_kept), None
+    try:
+        return id_map[first_kept], id_map[retained_user]
+    except KeyError as error:
+        raise ValueError("anchored compaction reference was not cloned") from error
 
 
 def _new_session_id() -> str:
@@ -795,7 +934,20 @@ def _load_file_entries(path: Path) -> tuple[SessionHeader | None, list[SessionEn
         if entry is not None:
             entries.append(entry)
             by_id[entry.id] = entry
+    _validate_loaded_anchored_compactions(entries, by_id)
     return header, entries
+
+
+def _validate_loaded_anchored_compactions(
+    entries: list[SessionEntry], by_id: dict[str, SessionEntry]
+) -> None:
+    for entry in entries:
+        if not isinstance(entry, CompactionEntry):
+            continue
+        if entry.retained_user_entry_id is None:
+            continue
+        historical_path = _active_branch_path(entry.id, by_id)
+        _retained_context_entries(historical_path, entry)
 
 
 _P = ParamSpec("_P")
@@ -1086,8 +1238,16 @@ class NativeSessionTree:
 
     @_guarded_tree_api
     def append_compaction(
-        self, *, summary: str, first_kept_entry_id: str, tokens_before: int
+        self,
+        *,
+        summary: str,
+        first_kept_entry_id: str,
+        tokens_before: int,
+        retained_user_entry_id: str | None = None,
     ) -> CompactionEntry:
+        if retained_user_entry_id is not None:
+            _require_exact_entry_id(first_kept_entry_id, "first_kept_entry_id")
+            _require_exact_entry_id(retained_user_entry_id, "retained_user_entry_id")
         entry = CompactionEntry(
             id=self._next_id(),
             parent_id=self.leaf_id,
@@ -1095,8 +1255,36 @@ class NativeSessionTree:
             summary=summary,
             first_kept_entry_id=first_kept_entry_id,
             tokens_before=tokens_before,
+            retained_user_entry_id=retained_user_entry_id,
         )
+        branch = self.get_branch()
+        contains_anchor = any(
+            isinstance(ancestor, CompactionEntry)
+            and ancestor.retained_user_entry_id is not None
+            for ancestor in branch
+        )
+        if retained_user_entry_id is not None or contains_anchor:
+            _retained_context_entries([*branch, entry], entry)
         return self._append_entry(entry)
+
+    @_guarded_tree_api
+    def validate_anchored_compaction_references(
+        self, *, retained_user_entry_id: str, first_kept_entry_id: str
+    ) -> None:
+        """Validate a prospective anchored cut against the active effective path."""
+
+        _require_exact_entry_id(retained_user_entry_id, "retained_user_entry_id")
+        _require_exact_entry_id(first_kept_entry_id, "first_kept_entry_id")
+        prospective = CompactionEntry(
+            id="prospective-anchored-compaction",
+            parent_id=self.leaf_id,
+            timestamp="",
+            summary="",
+            first_kept_entry_id=first_kept_entry_id,
+            tokens_before=0,
+            retained_user_entry_id=retained_user_entry_id,
+        )
+        _retained_context_entries([*self.get_branch(), prospective], prospective)
 
     @_guarded_tree_api
     def append_custom(self, custom_type: str, data: Any = None) -> CustomEntry:
@@ -1181,13 +1369,12 @@ class NativeSessionTree:
         if isinstance(entry, ThinkingLevelChangeEntry):
             return self.append_thinking_level_change(entry.thinking_level)
         if isinstance(entry, CompactionEntry):
-            first_kept = entry.first_kept_entry_id
-            if id_map is not None:
-                first_kept = id_map.get(first_kept, first_kept)
+            first_kept, retained_user = _remap_compaction_references(entry, id_map)
             return self.append_compaction(
                 summary=entry.summary,
                 first_kept_entry_id=first_kept,
                 tokens_before=entry.tokens_before,
+                retained_user_entry_id=retained_user,
             )
         if isinstance(entry, BranchSummaryEntry):
             new_entry = BranchSummaryEntry(

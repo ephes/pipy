@@ -8,12 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Native compaction entries can now durably retain one exact user message plus a
+  later tool-cycle suffix. Reopen and fork apply anchored and subsequent cuts in
+  effective chronological order, reject invalid or synthetic anchors, strictly
+  remap both references, and restore model/thinking settings from full ancestry.
+  Live compaction selection remains whole-group pending the activation slice.
+
 - Canonical history compaction now records exact retained and removed message
   objects and can purely select older settled tool cycles after the latest exact
   user while preserving the newest cycle. Guarded acceptance verifies a real,
   identity-preserving removal and permits a truthful zero whole-group count.
   Live manual and automatic compaction still use their existing whole-group
-  selector; anchored durable persistence and activation remain later work.
+  selector; activation remains later work.
 
 - Terminal native agent results now enumerate the canonical messages appended
   during the accepted run independently of retained provider context. This

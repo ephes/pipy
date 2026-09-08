@@ -9,20 +9,31 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D3b3 durable projection, after this completed D3b2 chunk commits
-from `cc902a8`. Pure cycle selection and guarded actual-removal proof are
-implemented; live cuts remain whole-group only. Final validation passed 5,834
-tests (two skipped), lint/format/Mypy and docs; root independently passed 520
-focused/architecture tests initially and 307 focused tests after final repairs.
-Full-check interpreter snapshots remained unchanged.
+**Next task:** D3b4 live activation, after this D3b3 durable-projection chunk
+commits from `0a3d7ef`. Anchored records now retain
+an actual user plus a safe tool-cycle suffix across effective reconstruction,
+reopen and fork. Live selection remains whole-group only. Final runtime validation
+passed 5,856 tests (two skipped), lint/format/Mypy and docs; root independently
+passed 354 focused/architecture tests after repairs. Regressions pin invalid
+post-anchor write refusal, malformed-file reconstruction and listing, strict
+clone maps, and unchanged legacy-only behavior. Full-check
+interpreter snapshots remained unchanged. The first Opus 5 High review had complete
+coverage. The second focused round confirmed both Warning repairs and left only
+two Suggestions: broader load-time rejection was declined because reconstruction
+refusal is the selected contract; shared export/extension routing was independently
+confirmed through `_entry_to_json`. Three first-round Suggestions were accepted
+(strict clone maps, parser coverage, next-port rationale); speculative caching and
+keyword-style changes were declined. Stop at two rounds and diminishing returns:
+advisory acceptance, not CLEAN.
 
-Two Opus 5 High code rounds had complete coverage and Suggestions only. Ambiguous
-retained/removed identities now refuse unchanged, and cut-invariant tests and
-documentation were strengthened. The final conservative guard refinement was
-verified locally; no claim of independent Opus confirmation of that final delta.
-Stop at diminishing returns: advisory acceptance, not CLEAN. Summary-input
-activation remains D3b4; canonical selection owns truthful group counts while
-state acceptance proves actual message removal.
+D3b2 committed at `0a3d7ef`: 5,834 full tests (two skipped), static/docs checks,
+520 initial root focused/architecture tests and 307 after final repairs. Two
+Opus 5 High rounds had complete coverage and Suggestions only. Ambiguous
+retained/removed identities now refuse unchanged. The final conservative guard
+refinement was verified locally, without a third Opus round; advisory acceptance
+at diminishing returns, not CLEAN. Summary-input activation remains D3b4;
+canonical selection owns truthful group counts while state acceptance proves
+actual message removal.
 
 D3b1 committed at `cc902a8`: 5,811 full tests (two skipped), 293 root focused,
 static/docs/PTY checks and unchanged environment evidence. Its one Opus 5 High
@@ -438,10 +449,13 @@ retains older appended tool cycles while the existing coordinator mirrors only
 retained history; completion consumers keep their existing envelopes. Live-provider
 quality is still unverified.
 
-After D3b2 acceptance, the remaining sequence is D3b3 durable projection, then
-D3b4 live activation. Each is separately validated, reviewed and committed;
+D3b2 is committed; D3b3 durable projection is the current integration chunk,
+followed by D3b4 live activation. Each is separately validated, reviewed and committed;
 refresh later handoffs against actual predecessor commits. Do not enable cuts
-before all consumers can preserve their meaning.
+before all consumers can preserve their meaning. D3b4 includes the existing
+`repl/loop_scope.py` callable signature because request preparation must carry
+its accepted input and coherent budget baseline to the existing compaction owner;
+this changes a port, not ownership.
 
 ## Implementation queue
 
@@ -475,9 +489,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D0i0 | Complete at `bff2e32`; two Opus plan rounds, final repair locally adjudicated; D0h | Bounded existing-interpreter score-test contract above; backlog only | Independent review and commit before D0i code |
 | D0i | Complete at `fc786bf`; full checks and advisory Opus code review; D0i0 | Isolate legacy score-test interpreter execution; expected script/test owners above | All real score checks retained; no test-triggered uv environment mutation; unchanged interpreter links/configuration after focused/full validation |
 | D3b1 | Complete at `cc902a8`; full checks and advisory Opus review; D3b0, D0h, D0i | Preserve appended current-run terminal results in existing `agent/loop.py`; remove obsolete `agent/active_input.py::result_messages`; focused canonical/automation/extension tests and docs | Reduced prepared history cannot cause terminal results to omit earlier appends in the same run; exact anchor/overlay checks, terminal/callback semantics, counters and fresh queued runs preserved |
-| D3b2 | Complete in this chunk; full checks and two advisory Opus rounds; D3b1 | Explicit pure cut/cycle analysis and actual-removal acceptance proof; `agent/history.py`, `coding/product_session.py`, `coding/state.py`, current action construction; update harness Canonical Agent-History Compaction and Native Session Workflow Decision contracts | Safe newest-cycle retention, identity partition/counts, truthful zero groups, guarded no-op/replacement refusal; existing live whole-group behavior only |
-| D3b3 | D3b2 | Optional retained-user durable reference and effective reconstruction; `session_tree.py`, `coding/product_session.py`, current persistence callback; update `session-tree.md` planned-field paragraph and matching docs | Strict new-field errors, origin validation, both-reference fork remap; repeated anchor then whole-group cuts never resurrect removed cycles; no automatic activation |
-| D3b4 | D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
+| D3b2 | Complete at `0a3d7ef`; full checks and two advisory Opus rounds; D3b1 | Explicit pure cut/cycle analysis and actual-removal acceptance proof; `agent/history.py`, `coding/product_session.py`, `coding/state.py`, current action construction; update harness Canonical Agent-History Compaction and Native Session Workflow Decision contracts | Safe newest-cycle retention, identity partition/counts, truthful zero groups, guarded no-op/replacement refusal; existing live whole-group behavior only |
+| D3b3 | Complete in this chunk; full checks and two adjudicated Opus rounds; D3b2 | Optional retained-user durable reference and effective reconstruction; `session_tree.py`, `coding/product_session.py`, current persistence callback; update `session-tree.md` planned-field paragraph and matching docs | Strict new-field errors, origin validation, both-reference fork remap; repeated anchor then whole-group cuts never resurrect removed cycles; no automatic activation |
+| D3b4 | D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, typed `repl/loop_scope.py` port, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
 | D4a | D0; refresh against D1b/D2b | Bounded cancellable provider retry; canonical agent/provider-turn mechanism and coding policy/configuration | Retry the unchanged failed request within one accepted iteration, not the whole run; bound nested transport attempts; preserve prior tool effects; cancel/exhaustion/event-order tests |
 | D4b | D1b, D4a | Apply the same retry mechanism to summaries | Failed/cancelled summaries publish nothing; accepted retry persists once; true-idle waits for settlement |
 | D5a | D2b | Extend session facade with queue admission/settlement; migrate RPC prompt/queue/abort/state | Inventory guarded readers/writers; preserve reservation, agent-end/settled atomicity, isStreaming and abort/close boundaries; no old/new dual writers; API/RPC equivalence |

@@ -120,6 +120,7 @@ class _CompactionWork:
     context: CodingCompactionSnapshot
     cut: AgentHistoryCompaction
     first_kept_entry_id: str | None
+    retained_user_entry_id: str | None
     tree: NativeSessionTree
     tree_epoch: int
     pointer_epoch: int
@@ -706,6 +707,7 @@ class ProviderMutationEffects:
                     dropped_message_count=work.cut.dropped_message_count,
                     measure_before=work.cut.bytes_before,
                     first_kept_entry_id=work.first_kept_entry_id,
+                    retained_user_entry_id=work.retained_user_entry_id,
                 )
                 self.product_session.accept_compaction(action)
             # Accepted state intentionally survives a persistence exception.
@@ -795,8 +797,9 @@ class ProviderMutationEffects:
             return CodingCompactionOutcome("pipy: nothing to compact yet.")
         tree = self.ctl.session_tree
         projection = tree.build_coding_context()
+        durable_boundary = cut.retained_suffix_boundary or cut.messages[0]
         first_kept = self.product_session.resolve_entry_id(
-            cut.messages[0],
+            durable_boundary,
             CodingProductSessionContext(
                 messages=projection.messages, entry_ids=projection.entry_ids
             ),
@@ -805,10 +808,33 @@ class ProviderMutationEffects:
             return CodingCompactionOutcome(
                 "pipy: compact refused: retained history has no durable origin."
             )
+        retained_user = None
+        if cut.retained_user_anchor is not None:
+            retained_user = self.product_session.resolve_entry_id(
+                cut.retained_user_anchor,
+                CodingProductSessionContext(
+                    messages=projection.messages, entry_ids=projection.entry_ids
+                ),
+            )
+            if retained_user is None or first_kept is None:
+                return CodingCompactionOutcome(
+                    "pipy: compact refused: retained cut has no durable origins."
+                )
+        if retained_user is not None and first_kept is not None:
+            try:
+                tree.validate_anchored_compaction_references(
+                    retained_user_entry_id=retained_user,
+                    first_kept_entry_id=first_kept,
+                )
+            except (TypeError, ValueError):
+                return CodingCompactionOutcome(
+                    "pipy: compact refused: retained cut has invalid durable origins."
+                )
         return _CompactionWork(
             context,
             cut,
             first_kept,
+            retained_user,
             tree,
             tree.mutation_epoch,
             self.ctl.tree_pointer_epoch,
@@ -844,8 +870,12 @@ class ProviderMutationEffects:
 
         if action.first_kept_entry_id is None:
             return
+        fields: dict[str, str] = {}
+        if action.retained_user_entry_id is not None:
+            fields["retained_user_entry_id"] = action.retained_user_entry_id
         self.ctl.session_tree.append_compaction(
             summary=action.durable_summary.value.strip(),
             first_kept_entry_id=action.first_kept_entry_id,
             tokens_before=action.measure_before,
+            **fields,
         )

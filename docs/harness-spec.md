@@ -2084,7 +2084,7 @@ The superseded `AgentActiveInput.result_messages` helper is removed; its
 still-relevant anchor and result assertions live with the canonical loop tests.
 Request-overlay and prompt-transformation helpers remain unchanged. Pure
 mechanical within-run cycle selection is implemented but inactive. Durable
-selection and live activation remain planned in D3b3–D3b4.
+selection is implemented; live activation remains planned in D3b4.
 
 **A safe cut is an explicit value.** Extend the immutable mechanical cut to carry
 the exact retained and removed message tuples in original order, plus an optional
@@ -2111,7 +2111,8 @@ user, plain assistant-only segment or ambiguous ordering permits no intra-group
 cut. Do not repair stored history or synthesize missing results. Existing
 whole-group selection remains available under its current contract.
 
-**Durable selection.** Add optional `retainedUserEntryId` to a compaction entry,
+**Durable selection (implemented in D3b3).** Compaction entries accept optional
+`retainedUserEntryId`,
 alongside `firstKeptEntryId` as the retained suffix start. Omit the new field for
 ordinary whole-group cuts. When present, both fields must be exact nonempty
 strings; explicit null is invalid. Resolve them before generation and acceptance

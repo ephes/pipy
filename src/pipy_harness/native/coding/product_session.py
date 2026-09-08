@@ -38,6 +38,7 @@ class CodingProductSessionCompaction:
     dropped_message_count: int
     measure_before: int
     first_kept_entry_id: str | None = None
+    retained_user_entry_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_compaction(self)
@@ -245,6 +246,10 @@ def _require_compaction(action: object) -> None:
     _require_non_negative_int(action.measure_before, "measure_before")
     if action.first_kept_entry_id is not None:
         _require_entry_id(action.first_kept_entry_id)
+    if action.retained_user_entry_id is not None:
+        _require_entry_id(action.retained_user_entry_id)
+        if action.first_kept_entry_id is None:
+            raise ValueError("anchored compaction requires first_kept_entry_id")
 
 
 def _require_entry_id(entry_id: object) -> None:

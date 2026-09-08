@@ -252,8 +252,9 @@ Minimum entry types:
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.
-- `compaction`: in-place context compaction summary with `firstKeptEntryId` and
-  `tokensBefore`.
+- `compaction`: in-place context compaction summary with `firstKeptEntryId`,
+  `tokensBefore`, and optional `retainedUserEntryId` for a noncontiguous
+  retained user plus suffix.
 - `branch_summary`: summary created while leaving a branch through `/tree`.
 - `label`: user label for any entry, with undefined/empty label clearing it.
 - `session_info`: display name.
@@ -298,6 +299,21 @@ Rules to match Pi:
   `firstKeptEntryId` through the compaction boundary and all later active-branch
   messages.
 
+When `retainedUserEntryId` is present, reconstruction instead retains that exact
+actual user message once plus the suffix beginning at `firstKeptEntryId`.
+Compactions are then applied chronologically to the effective retained sequence,
+so a later ordinary cut cannot resurrect cycles removed by an anchored cut.
+Both references must still exist in that sequence at their historical cut and
+must describe the canonical safe tool-cycle selection. Invalid anchor-aware
+records fail load/reconstruction. Legacy-only branches retain their existing
+latest-boundary behavior. Model and thinking settings always reconstruct from
+the full raw ancestor path, including entries excluded from message context.
+Once a branch contains an anchored cut, later ordinary compaction boundaries
+are checked against the effective sequence before append; a rejected boundary
+does not advance the tree. Malformed anchor-aware JSON fails with `ValueError`
+so session-list readers can omit the invalid file without exposing decoder
+implementation errors.
+
 The coding product uses `NativeSessionTree.build_coding_context()` to project the
 same retained entries with parallel structural entry IDs and a separate optional
 compaction summary. Its summary becomes the coding system suffix, so resumed
@@ -307,9 +323,11 @@ Custom-message and branch-summary groups keep their existing projection semantic
 including duplicate text and hidden custom messages. Origin lookup uses message
 identity or the immutable last-loaded provenance, never a text search.
 
-A compaction action resolves `firstKeptEntryId` before live acceptance, including
-entries retained from before an earlier compaction. Failure to map a durable cut
-refuses without changing live context. Accepted transitions remain state-first:
+A compaction action resolves its suffix boundary and optional retained-user
+reference before live acceptance against the effective coding projection. The
+tree rejects synthetic custom/branch users and validates the canonical cycle
+cut. Failure to map a durable cut refuses without changing live context.
+Accepted transitions remain state-first:
 live history/summary/counters advance before synchronous persistence, and an
 append failure propagates without rollback. Every destination rebuild replaces
 the branch summary while preserving current-run counters; a new run restores
@@ -324,11 +342,12 @@ entry. The accepted summary remains full-content private product data; native
 JSONL and other tree projections retain their existing format.
 
 The selected [D3b contract](harness-spec.md#within-run-compaction-contract-d3b)
-plans an optional retained-user reference for within-run cuts; it is not yet
-implemented. Its durable prerequisite requires effective-context reconstruction,
-strict validation of the new references and both-reference fork remapping before
-activation. Current whole-group entries and legacy-only reconstruction remain
-unchanged. Files containing the planned field will require an anchor-aware reader.
+now has its durable retained-user format and reconstruction prerequisite. Forks
+require an explicit map and strictly remap both anchored references, while
+shared JSON/export/extension views
+carry the optional field. Current live manual and automatic selection remains
+whole-group until the separate activation slice. Files containing the new field
+require an anchor-aware reader.
 
 Canonical tool results require both the provider correlation id and tool name.
 The stable JSON format does not add a `tool_name` field: reload resolves it from

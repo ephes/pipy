@@ -21,6 +21,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
 from pipy_harness.native.agent.provider_turn import ProviderTurnExecutor
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
@@ -37,6 +38,7 @@ from pipy_harness.native.extension_types import (
     SessionDecision,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.repl import provider_selection
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -189,6 +191,89 @@ def _published(effects: ProviderMutationEffects) -> tuple[object, ...]:
         tree.get_entries(),
         tree.path.read_bytes(),
     )
+
+
+def _two_tool_cycles(user: AgentUserMessage) -> tuple[AgentMessage, ...]:
+    messages: list[AgentMessage] = [user]
+    for name in ("older", "newer"):
+        call = AgentToolCall(
+            provider_correlation_id=name,
+            tool_name="read",
+            arguments_json=ProductContent("{}"),
+        )
+        messages.extend(
+            (
+                AgentAssistantMessage(ProductContent(name), tool_calls=(call,)),
+                AgentToolResultMessage(
+                    tool_request_id=f"pipy-tool-{name}",
+                    provider_correlation_id=name,
+                    tool_name="read",
+                    content=ProductContent(name),
+                ),
+            )
+        )
+    return tuple(messages)
+
+
+def test_synthetic_anchor_validation_refuses_before_summary_or_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects, provider = _fixture(tmp_path)
+    tree = effects.ctl.session_tree
+    tree.append_custom_message("task", "synthetic accepted user")
+    for message in _two_tool_cycles(AgentUserMessage(ProductContent("unused")))[1:]:
+        tree.append_message(message)
+    effects.product_session.rebuild_active_history()
+    selected = []
+
+    def select(messages: tuple[AgentMessage, ...], **_kwargs: object):
+        anchor = next(
+            message
+            for message in messages
+            if type(message) is AgentUserMessage
+            and message.content.value == "synthetic accepted user"
+        )
+        assert type(anchor) is AgentUserMessage
+        cut = compact_agent_history_tool_cycles(messages, accepted_user=anchor)
+        assert cut.changed
+        selected.append(cut)
+        return cut
+
+    monkeypatch.setattr(provider_selection, "compact_agent_history", select)
+    before = _published(effects)
+
+    outcome = effects.compact_context("manual")
+
+    assert "invalid durable origins" in outcome.notice
+    assert selected
+    assert provider.requests == []
+    assert _published(effects) == before
+
+
+def test_nonpersistent_missing_anchored_origins_do_not_downgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects, provider = _fixture(tmp_path)
+    tree = effects.ctl.session_tree
+    tree.persist = False
+    messages = _two_tool_cycles(AgentUserMessage(ProductContent("state-only user")))
+    effects.coding_state.rebuild_history(messages)
+    anchor = messages[0]
+    assert type(anchor) is AgentUserMessage
+    cut = compact_agent_history_tool_cycles(messages, accepted_user=anchor)
+    assert cut.changed
+    monkeypatch.setattr(
+        provider_selection, "compact_agent_history", lambda *_a, **_k: cut
+    )
+    before_state = effects.coding_state.result_snapshot()
+    before_entries = tree.get_entries()
+
+    outcome = effects.compact_context("manual")
+
+    assert "no durable origins" in outcome.notice
+    assert provider.requests == []
+    assert effects.coding_state.result_snapshot() == before_state
+    assert tree.get_entries() == before_entries
 
 
 def test_summary_combines_prior_and_exact_dropped_prefix_then_reopens(

@@ -7,6 +7,7 @@ the REPL loop or any TTY.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pipy_harness.native.agent import (
@@ -21,11 +22,35 @@ from pipy_harness.native.session_tree_commands import (
     apply_tree_selection,
     format_session_status,
     handle_tree_command,
+    list_native_sessions,
     render_tree_lines,
     resolve_entry_ref,
     resolve_startup_session,
     visible_tree_entries,
 )
+
+
+def test_session_list_omits_malformed_anchored_file(tmp_path: Path) -> None:
+    tree = _seed(tmp_path)
+    assert tree.path is not None
+    with tree.path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "type": "compaction",
+                    "id": "bad-anchor",
+                    "parentId": tree.get_leaf_id(),
+                    "timestamp": "now",
+                    "summary": "safe",
+                    "retainedUserEntryId": "anchor",
+                    "firstKeptEntryId": "suffix",
+                    "tokensBefore": {},
+                }
+            )
+            + "\n"
+        )
+
+    assert list_native_sessions(tree.path.parent) == []
 
 
 def _user_entry(tree: NativeSessionTree, content: str) -> MessageEntry:
