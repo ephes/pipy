@@ -1728,6 +1728,61 @@ suppressed output channels, original generation/history/tree witness and state-f
 publication. D4a does not add RPC retry controls, queue migration, public session
 control methods, a new provider family, or compatibility SDK behavior changes.
 
+### Semantic Compaction Retry Contract (D4b1)
+
+This is the selected next contract; semantic summaries do not yet opt into
+canonical retries. `ProviderMutationEffects.compact_context` retains ownership
+of manual and automatic generation, its existing `_CompactionWork` witness,
+conditional acceptance, and state-first persistence. Branch-summary generation
+and acceptance remain a separate D4b2/D4b3 boundary.
+
+Capture one settings-derived immutable managed policy for the selected summary
+request before provider work, under the existing mutation-I/O then shared
+generation/settings/state guard order. Do not acquire mutation-I/O while holding
+only the inner guard. Use the prepared provider
+capability on the original binding before waiter wrapping, preserving ordinary
+completion and cancellation delegation for non-capable providers. Reuse the
+canonical executor's prepared handle, retry eligibility, bounded delay and
+cancellation rules. Capture the policy once; later settings changes affect later
+requests. Never rerun cut selection, request preflight, extension hooks, header
+capture or request freezing to retry an accepted summary request. The one summary operation
+can contain multiple logical provider attempts, each retaining D4a's bounded
+physical transport accounting in provider result metadata. Retry ordinals exclude
+the initial attempt; physical transport fallback is not another logical retry.
+No extra product usage sample or public event is introduced for a private summary;
+only its final executor result reaches existing summary validation. The frozen
+request's budget preflight runs once, before completion, not again per reissue.
+
+The caller-thread reissue admission closure checks the original full compaction
+witness using the existing mutation-I/O then generation/session lock order:
+coding snapshot, exact tree and mutation epoch, pointer epoch, generation identity
+and id, publication epoch, and absence of terminal/pending publication. Release
+those locks before delay, provider work or callbacks. Keep the final guarded
+acceptance check after generation; admission is not permission to publish after
+a later mutation. Manual stale work returns the existing bounded context-changed
+refusal; automatic stale work retains `CodingContextChangedError` and its fatal
+cleanup. Use a private stale signal to unwind reissue and select the outcome via
+`_stale_compaction(trigger)` outside the provider-failure handler. Do not reuse
+ordinary run-context admission's `CodingContextChangedError` for a manual
+summary: the current generic compaction handler rethrows that exception.
+
+Summary content remains private: both delta channels stay disabled, and
+`PrivateSummaryEvents` continues to suppress summary lifecycle/retry events from
+ordinary conversation and RPC sinks. Affirmative no-progress evidence is required
+even when no visible delta exists. Exhausted, failed, cancelled or stale generation
+publishes no compaction entry or accepted summary. Cancellation uses the existing
+operation's waiter/abort and settlement boundary, including between attempts.
+When neither a terminal waiter nor an external abort signal exists, synchronous
+delays are bounded but have no cancellation source. Manual pending-input and automatic run settlement remain with their current owners.
+
+Successful recovery conditionally accepts the original cut once and persists its
+summary once. Generation failure must remain distinct from append failure after
+acceptance: accepted in-memory state survives a persistence exception. No rollback,
+new transaction, queue owner, retry control, public API or compatibility `run_native`
+change is introduced. Tests pin manual/automatic outcomes, cancellation and stale
+ordering, private output/events, and acceptance/persistence counts with scripted
+providers; live semantic-summary quality remains unverified.
+
 ### Canonical Agent Usage Accounting
 
 `pipy_harness.native.agent.usage.AgentUsageAccumulator` is the reusable owner
