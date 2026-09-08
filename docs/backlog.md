@@ -9,10 +9,15 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next gate:** D0h isolates unsafe editor-test mocks before further product
-implementation checks. D3b1 then preserves canonical terminal run results before
-within-run history can be removed; the bounded split is recorded below.
-D3b0 completes in this chunk from baseline `9f750e7`. Full checks, docs and links
+**Next gate:** D0i concrete validation contract, then implementation. D0h completes
+in this chunk from `1a712f3` with one exact Opus 5 code review: four Suggestions,
+no Warning/Critical and complete coverage. Three documentation/comment refinements
+were applied; extra defensive-guard tests were declined as disproportionate.
+Advisory acceptance at diminishing returns, not CLEAN. Editor mocks are
+isolated, but full checks still repoint the shared interpreter into a temporary
+test home. Resolve the separately evidenced D0i validation prerequisite before
+D3b1 resumes terminal run-result preservation; the bounded split is below.
+D3b0 committed at `1a712f3` from baseline `9f750e7`. Full checks, docs and links
 passed. Two exact Opus 5 plan rounds fixed the raw-path settings invariant and
 clarified handoff/doc owners; the final two Suggestions were applied with no
 Warning/Critical. Advisory acceptance at diminishing returns, not CLEAN.
@@ -403,19 +408,35 @@ is selected. The first-iteration unresolved origin remains a refusal. The curren
 run retains appended payloads until settlement, so context compaction does not
 promise bounded total output memory. Live-provider quality remains unverified.
 
-Repeated full checks also left a broken virtual-environment interpreter link,
-which `uv` repaired before the next command. Read-only investigation has not
-attributed that damage. It did establish shared `subprocess`, `tempfile` and `os`
-callable patches in `test_native_extension_external_editor.py`, including a
-`subprocess.run` fake that blindly deletes or writes its last argument. D0h
-confines those mocks and their file effects to test-owned
-resources before further implementation checks. This is a bounded validation
-repair, not a runtime fix or a claim of proven root cause. Preserve all existing
-editor failure and cleanup assertions; verify interpreter links after validation.
+D0h isolates editor-module `subprocess`, `tempfile` and `os` references, validates
+exact editor argv and test-owned paths before mock file effects, and preserves
+existing failure/cleanup assertions. Independent validation passed 20 focused
+editor and extension-conformance tests, 5,790 full tests with two skipped, lint/format/Mypy and eight PTY checks. This test-only repair
+has no public runtime or release-note change.
+
+Full checks still repoint `.venv/bin/python` from its persistent installation into
+a removed per-test `isolated-home` directory. The before/after link metadata was
+captured before another `uv` command could repair it. The independent repeat
+also relinked into a temporary HOME, whose target still existed at inspection;
+subsequent `uv` recreated the environment. Thus D0h is insufficient to
+resolve environment damage. Read-only evidence identifies a hazardous path:
+`test_parity_probe_trust.py` runs `parity_score.sh` in the shared checkout under
+the isolated HOME; the script launches real `uv run` commands with suppressed
+output. That specific invocation has not yet been causally reproduced.
+
+D0i is the next bounded validation prerequisite. Review a concrete existing-
+interpreter execution contract for the legacy score test before changing its
+script: keep all 49 real checks and CLI-entry coverage, keep test HOME isolation,
+preserve ordinary standalone use, and prove the test cannot invoke environment-
+mutating uv work or alter interpreter links/configuration. Expected scope is
+`scripts/parity_score.sh` and `tests/test_parity_probe_trust.py`, with matching
+workflow documentation if needed. Do not restore the user's HOME, mock score
+success, or broaden this into a runtime change. Its contract/implementation remain
+pending; the editor fix does not claim the environment issue is solved.
 
 Split before coding: D3b1 terminal results, D3b2 mechanical cuts/removal proof,
 D3b3 durable projection, then D3b4 live activation. Each is separately validated,
-reviewed and committed. D0h is the sole next code slice after D3b0's plan gate,
+reviewed and committed. After D0h, D0i resolves the remaining validation hazard;
 then D3b1 resumes the product sequence;
 refresh later handoffs against actual predecessor commits. Do not enable cuts
 before all consumers can preserve their meaning.
@@ -447,9 +468,10 @@ every listed module. Add a file only when the selected behavior needs it.
 | D3a1 | Complete at `d4b5c50`; full checks and focused Opus follow-up CLEAN; D3a0 | Pure request estimates and declared context-limit provenance; `coding/request_budget.py`, catalog data/config/resolver owners, focused tests/docs | System/effective messages/tools/images/framing/reserve; explicit versus placeholder/unknown limits; no runtime admission or new provider calls |
 | D3a2 | Complete at `4d7be4d`; full checks and advisory Opus code review; D3a1 | Typed recoverable preparation refusal in canonical loop/status ports and existing coding-state/result projections | No provider invocation/usage or fake ProviderFailed event; accepted input/prior tools once; queue handoff once; next prompt succeeds; guarded failure publication |
 | D3a3 | Complete at `9f750e7`; full checks and advisory Opus review; D3a2 | Model-aware request admission and bounded semantic compaction through current product request/compaction owners | Pre-hook trigger and summary preflight; hooks once; final frozen request refusal; one whole-group attempt; cancellation/staleness/privacy/reopen tests |
-| D3b0 | Complete in this chunk; full checks and advisory Opus plan review; D3a3 | Safe-cut, run-result and durable-origin contract; scheduled grooming | Independent spec review and commit before new contracts are implemented |
-| D0h | D3b0; observed validation hygiene prerequisite | Isolate external-editor test mocks and temporary file effects; `tests/test_native_extension_external_editor.py` and backlog only | Global stdlib callables stay untouched; mocks validate editor argv and test-owned paths before effects; existing editor behavior/cleanup assertions, full checks and interpreter-link verification |
-| D3b1 | D3b0, D0h | Preserve appended current-run terminal results in existing `agent/loop.py`; remove obsolete `agent/active_input.py::result_messages`; focused canonical/automation/extension tests and docs | Reduced prepared history cannot cause terminal results to omit earlier appends in the same run; exact anchor/overlay checks, terminal/callback semantics, counters and fresh queued runs preserved |
+| D3b0 | Complete at `1a712f3`; full checks and advisory Opus plan review; D3a3 | Safe-cut, run-result and durable-origin contract; scheduled grooming | Independent spec review and commit before new contracts are implemented |
+| D0h | Complete in this chunk; full checks and advisory Opus review; D3b0 | Isolate external-editor test mocks and temporary file effects; `tests/test_native_extension_external_editor.py` and backlog only | Global stdlib callables stay untouched; mocks validate editor argv and test-owned paths before effects; existing editor behavior/cleanup assertions, full checks, interpreter-link inspection performed and unresolved outcome recorded |
+| D0i | D0h; concrete contract review pending | Isolate legacy score-test interpreter execution; expected script/test owners above | All real score checks retained; no test-triggered uv environment mutation; unchanged interpreter links/configuration after focused/full validation |
+| D3b1 | D3b0, D0h, D0i | Preserve appended current-run terminal results in existing `agent/loop.py`; remove obsolete `agent/active_input.py::result_messages`; focused canonical/automation/extension tests and docs | Reduced prepared history cannot cause terminal results to omit earlier appends in the same run; exact anchor/overlay checks, terminal/callback semantics, counters and fresh queued runs preserved |
 | D3b2 | D3b1 | Explicit pure cut/cycle analysis and actual-removal acceptance proof; `agent/history.py`, `coding/product_session.py`, `coding/state.py`, current action construction; update harness Canonical Agent-History Compaction and Native Session Workflow Decision contracts | Safe newest-cycle retention, identity partition/counts, truthful zero groups, guarded no-op/replacement refusal; existing live whole-group behavior only |
 | D3b3 | D3b2 | Optional retained-user durable reference and effective reconstruction; `session_tree.py`, `coding/product_session.py`, current persistence callback; update `session-tree.md` planned-field paragraph and matching docs | Strict new-field errors, origin validation, both-reference fork remap; repeated anchor then whole-group cuts never resurrect removed cycles; no automatic activation |
 | D3b4 | D3b3 | Known-limit automatic within-run activation; existing `repl/loop_step.py`, `provider_selection.py`, `coding/compaction.py` and coupled tests/docs | One chosen compound cut and summary; explicit removed input/task orientation; exact effects/usage/terminal results, preflight/cancel/stale/refusal/persistence/reopen coverage |
