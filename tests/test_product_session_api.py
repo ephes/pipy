@@ -982,6 +982,300 @@ def test_explicit_private_tree_persists_full_product_history(
     assert not archive.exists()
 
 
+def test_open_product_session_rebuilds_exact_tree_context_and_appends_once(
+    tmp_path: Path,
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    with sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    ) as first:
+        first.submit("first durable prompt")
+    assert tree.path is not None
+    before = tree.path.read_text(encoding="utf-8")
+    lifecycle = tmp_path / "reopened-lifecycle.txt"
+    extension = tmp_path / "reopened-lifecycle.py"
+    extension.write_text(f"""
+from pathlib import Path
+
+def activate(api):
+    @api.on("session_start")
+    def start(event, ctx):
+        with Path({str(lifecycle)!r}).open("a") as output:
+            output.write("start\\n")
+
+    @api.on("session_shutdown")
+    def shutdown(event, ctx):
+        with Path({str(lifecycle)!r}).open("a") as output:
+            output.write("shutdown\\n")
+""")
+
+    provider = _RecordingToolProvider()
+    sink = Sink()
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=tree.path,
+        provider=provider,
+        resources=RuntimeResourceOptions(extension_paths=(extension,)),
+        observer=sink,
+    ) as reopened:
+        reopened.submit("second durable prompt")
+    assert [message.content.value for message in provider.requests[0].messages] == [
+        "first durable prompt",
+        "answer",
+        "second durable prompt",
+    ]
+    after = tree.path.read_text(encoding="utf-8")
+    assert after.startswith(before)
+    assert after.count("second durable prompt") == 1
+    assert lifecycle.read_text() == "start\nshutdown\n"
+    assert sum(isinstance(event, AgentRunStarted) for event in sink.events) == 1
+
+
+def test_open_product_session_rebuilds_durable_compaction_context(
+    tmp_path: Path,
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    tree.append_message(AgentUserMessage(ProductContent("discarded user")))
+    tree.append_message(AgentAssistantMessage(ProductContent("discarded reply")))
+    retained_user = tree.append_message(
+        AgentUserMessage(ProductContent("retained user"))
+    )
+    tree.append_message(AgentAssistantMessage(ProductContent("retained reply")))
+    tree.append_compaction(
+        summary="durable compaction summary",
+        first_kept_entry_id=retained_user.id,
+        tokens_before=10,
+    )
+    assert tree.path is not None
+
+    provider = _RecordingToolProvider()
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=tree.path, provider=provider
+    ) as reopened:
+        reopened.submit("new user")
+
+    request = provider.requests[0]
+    assert [message.content.value for message in request.messages] == [
+        "retained user",
+        "retained reply",
+        "new user",
+    ]
+    assert request.system_prompt.endswith("\n\ndurable compaction summary")
+
+
+def test_open_product_session_refuses_invalid_or_foreign_tree_before_preparation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared: list[Path] = []
+    prepare = CodingSessionAdapter.prepare_session_context
+
+    def record(self: CodingSessionAdapter, cwd: Path) -> Any:
+        prepared.append(cwd)
+        return prepare(self, cwd)
+
+    monkeypatch.setattr(CodingSessionAdapter, "prepare_session_context", record)
+    missing = tmp_path / "missing.jsonl"
+    with pytest.raises(ValueError, match="does not exist"):
+        sdk.open_product_session(
+            workspace=tmp_path, session_path=missing, provider=_RecordingToolProvider()
+        )
+    assert prepared == []
+
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    tree = NativeSessionTree.create(foreign, session_dir=tmp_path / "private-tree")
+    assert tree.path is not None
+    with pytest.raises(ValueError, match="workspace does not match"):
+        sdk.open_product_session(
+            workspace=tmp_path,
+            session_path=tree.path,
+            provider=_RecordingToolProvider(),
+        )
+    assert prepared == []
+
+
+def test_public_persistent_path_lease_excludes_aliases_and_releases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    assert tree.path is not None
+    prepared: list[Path] = []
+    prepare = CodingSessionAdapter.prepare_session_context
+
+    def record(self: CodingSessionAdapter, cwd: Path) -> Any:
+        prepared.append(cwd)
+        return prepare(self, cwd)
+
+    monkeypatch.setattr(CodingSessionAdapter, "prepare_session_context", record)
+    first = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    )
+    alias = tmp_path / "session-alias.jsonl"
+    alias.symlink_to(tree.path)
+    with pytest.raises(RuntimeError, match="already active"):
+        sdk.open_product_session(
+            workspace=tmp_path, session_path=alias, provider=_RecordingToolProvider()
+        )
+    assert len(prepared) == 1
+    first.close()
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=alias, provider=_RecordingToolProvider()
+    ):
+        assert len(prepared) == 2
+
+
+def test_public_persistent_aliases_bind_the_claimed_canonical_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    assert tree.path is not None
+    target = tree.path.resolve()
+    alias = tmp_path / "session-alias.jsonl"
+    alias.symlink_to(target)
+    replacement = tmp_path / "replacement.jsonl"
+    replacement.write_bytes(target.read_bytes())
+    open_tree = NativeSessionTree.open
+
+    def retarget_after_claim(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
+        assert path == target
+        alias.unlink()
+        alias.symlink_to(replacement)
+        return open_tree(path, persist=persist, strict=strict)
+
+    monkeypatch.setattr(NativeSessionTree, "open", retarget_after_claim)
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=alias, provider=_RecordingToolProvider()
+    ) as reopened:
+        reopened.submit("open canonical target")
+    assert b"open canonical target" in target.read_bytes()
+    assert b"open canonical target" not in replacement.read_bytes()
+
+    create_alias = tmp_path / "create-session-alias.jsonl"
+    create_alias.symlink_to(target)
+    injected = open_tree(create_alias)
+    prepare = CodingSessionAdapter.prepare_session_context
+
+    def retarget_before_composition(self: CodingSessionAdapter, cwd: Path) -> Any:
+        assert injected.path == target
+        create_alias.unlink()
+        create_alias.symlink_to(replacement)
+        return prepare(self, cwd)
+
+    monkeypatch.setattr(
+        CodingSessionAdapter, "prepare_session_context", retarget_before_composition
+    )
+    with sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=injected
+    ) as created:
+        created.submit("create canonical target")
+    assert injected.path == target
+    assert b"create canonical target" in target.read_bytes()
+    assert b"create canonical target" not in replacement.read_bytes()
+
+
+def test_persistent_path_lease_claims_before_startup_without_holding_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    entered_preparation = threading.Event()
+    release_preparation = threading.Event()
+    second_finished = threading.Event()
+    prepared: list[Path] = []
+    outcomes: list[str] = []
+    prepare = CodingSessionAdapter.prepare_session_context
+
+    def block_first(self: CodingSessionAdapter, cwd: Path) -> Any:
+        prepared.append(cwd)
+        if len(prepared) == 1:
+            entered_preparation.set()
+            assert release_preparation.wait(5)
+        return prepare(self, cwd)
+
+    monkeypatch.setattr(CodingSessionAdapter, "prepare_session_context", block_first)
+
+    def first_lifetime() -> None:
+        with sdk.create_product_session(
+            workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+        ):
+            outcomes.append("first")
+
+    def conflicting_lifetime() -> None:
+        assert tree.path is not None
+        try:
+            sdk.open_product_session(
+                workspace=tmp_path,
+                session_path=tree.path,
+                provider=_RecordingToolProvider(),
+            )
+        except RuntimeError as error:
+            assert "already active" in str(error)
+            outcomes.append("conflict")
+        finally:
+            second_finished.set()
+
+    first = threading.Thread(target=first_lifetime)
+    first.start()
+    assert entered_preparation.wait(5)
+    second = threading.Thread(target=conflicting_lifetime)
+    second.start()
+    assert second_finished.wait(5)
+    assert prepared == [tmp_path.resolve()]
+    release_preparation.set()
+    _join(first)
+    _join(second)
+    assert outcomes == ["conflict", "first"]
+
+
+def test_persistent_path_lease_releases_after_startup_and_terminal_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    assert tree.path is not None
+    from pipy_harness.native.extensions.activation import _ExtensionCandidate
+
+    monkeypatch.setattr(_ExtensionCandidate, "publish", lambda candidate: False)
+    with pytest.raises(RuntimeError):
+        sdk.create_product_session(
+            workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+        )
+    monkeypatch.undo()
+
+    class Fail(_RecordingToolProvider):
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
+            raise LookupError("terminal provider failure")
+
+    session = sdk.open_product_session(
+        workspace=tmp_path, session_path=tree.path, provider=Fail()
+    )
+    with pytest.raises(LookupError, match="terminal provider failure"):
+        session.submit("fail")
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=tree.path, provider=_RecordingToolProvider()
+    ) as reopened:
+        reopened.submit("recovered")
+
+
+def test_retired_product_cancel_cannot_reach_reopened_lifetime(tmp_path: Path) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    assert tree.path is not None
+    first = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    )
+    stale_cancel = first.cancel
+    first.close()
+    provider = _RecordingToolProvider()
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=tree.path, provider=provider
+    ) as reopened:
+        stale_cancel()
+        assert reopened.submit("fresh").messages[-1].content.value == "answer"
+    assert len(provider.requests) == 1
+
+
 def test_terminal_driver_failure_raises_after_once_only_disposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -55,6 +55,11 @@ planned out-of-process JSON/RPC automation surfaces are specified in
   flags; see [session-tree.md](/session-tree/). The metadata-first
   `pipy-session` archive remains a separate summary-safe catalog and is not the
   product session source.)
+- Python embedding may reopen one exact durable native product-session tree with
+  an explicit workspace and provider. This uses strict durable-tree validation
+  and a process-local canonical-path lifetime lease; it does not alter CLI
+  recovery behavior, create a workflow-archive record, or provide a
+  cross-process lock.
 - Do not change the finalized session archive layout documented in
   `docs/session-storage.md`.
 - Do not publish documentation, add docs CI/deploy workflows, or turn the local

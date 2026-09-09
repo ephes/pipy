@@ -255,6 +255,225 @@ def test_open_skips_malformed_lines(tmp_path: Path) -> None:
     assert texts == ["ROOT"]
 
 
+def test_strict_open_refuses_recovery_cases_but_default_stays_permissive(
+    tmp_path: Path,
+) -> None:
+    tree = _new_tree(tmp_path)
+    root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    assert tree.path is not None
+    header, root_record = tree.path.read_text(encoding="utf-8").splitlines()
+    valid = json.dumps(
+        {
+            "type": "message",
+            "id": "later",
+            "parentId": root.id,
+            "timestamp": "2026-09-09T00:00:00+00:00",
+            "message": {"role": "user", "content": "later"},
+        }
+    )
+    cases = {
+        "malformed": "not json",
+        "non-object": json.dumps(["not", "an", "entry"]),
+        "unknown": json.dumps(
+            {
+                "type": "future_entry",
+                "id": "future",
+                "parentId": root.id,
+                "timestamp": "2026-09-09T00:00:00+00:00",
+            }
+        ),
+        "duplicate-header": header,
+        "duplicate-id": json.dumps(
+            {
+                "type": "message",
+                "id": root.id,
+                "parentId": root.id,
+                "timestamp": "2026-09-09T00:00:00+00:00",
+                "message": {"role": "user", "content": "duplicate"},
+            }
+        ),
+        "forward-parent": json.dumps(
+            {
+                "type": "message",
+                "id": "forward",
+                "parentId": "not-yet-seen",
+                "timestamp": "2026-09-09T00:00:00+00:00",
+                "message": {"role": "user", "content": "forward"},
+            }
+        ),
+    }
+    for label, invalid in cases.items():
+        path = tmp_path / f"{label}.jsonl"
+        path.write_text(
+            "\n".join((header, root_record, valid, invalid)) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            NativeSessionTree.open(path, strict=True)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"strict loader accepted {label}")
+
+    permissive = tmp_path / "permissive.jsonl"
+    permissive.write_text(
+        "\n".join((header, root_record, valid, "not json")) + "\n",
+        encoding="utf-8",
+    )
+    reopened = NativeSessionTree.open(permissive)
+    assert [message.content.value for message in reopened.build_context().messages] == [
+        "ROOT",
+        "later",
+    ]
+
+
+def test_strict_open_refuses_invalid_anchored_compaction_ancestry(
+    tmp_path: Path,
+) -> None:
+    tree = _new_tree(tmp_path)
+    assert tree.path is not None
+    header = tree.path.read_text(encoding="utf-8").splitlines()[0]
+    root = {
+        "type": "message",
+        "id": "root",
+        "parentId": None,
+        "timestamp": "2026-09-09T00:00:00+00:00",
+        "message": {"role": "user", "content": "ROOT"},
+    }
+    invalid_cut = {
+        "type": "compaction",
+        "id": "cut",
+        "parentId": "root",
+        "timestamp": "2026-09-09T00:01:00+00:00",
+        "summary": "summary",
+        "firstKeptEntryId": "root",
+        "retainedUserEntryId": "root",
+        "tokensBefore": 1,
+    }
+    path = tmp_path / "invalid-anchored.jsonl"
+    path.write_text(
+        "\n".join((header, json.dumps(root), json.dumps(invalid_cut))) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        NativeSessionTree.open(path, strict=True)
+    except ValueError as error:
+        assert "anchored compaction" in str(error)
+    else:
+        raise AssertionError("strict loader accepted invalid anchored compaction")
+
+
+def test_strict_open_refuses_invalid_legacy_compaction_and_header(
+    tmp_path: Path,
+) -> None:
+    tree = _new_tree(tmp_path)
+    assert tree.path is not None
+    header = json.loads(tree.path.read_text(encoding="utf-8").splitlines()[0])
+    invalid_legacy = {
+        "type": "compaction",
+        "id": "legacy-cut",
+        "parentId": None,
+        "timestamp": "2026-09-09T00:01:00+00:00",
+        "summary": "summary",
+        "firstKeptEntryId": "missing-ancestor",
+        "tokensBefore": 1,
+    }
+    cases = {
+        "legacy-cut": (header, invalid_legacy),
+        "unsafe-id": ({**header, "id": "../unsafe"},),
+        "missing-version": (
+            {key: value for key, value in header.items() if key != "version"},
+        ),
+        "unsupported-version": ({**header, "version": 2},),
+    }
+    for label, records in cases.items():
+        path = tmp_path / f"strict-{label}.jsonl"
+        path.write_text(
+            "\n".join(json.dumps(record) for record in records) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            NativeSessionTree.open(path, strict=True)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"strict loader accepted {label}")
+
+
+def test_strict_open_validates_auxiliary_entry_references(tmp_path: Path) -> None:
+    tree = _new_tree(tmp_path)
+    assert tree.path is not None
+    header = json.loads(tree.path.read_text(encoding="utf-8").splitlines()[0])
+    message = {
+        "type": "message",
+        "id": "node",
+        "parentId": None,
+        "timestamp": "2026-09-09T00:00:00+00:00",
+        "message": {"role": "user", "content": "ROOT"},
+    }
+    root_summary = {
+        "type": "branch_summary",
+        "id": "root-summary",
+        "parentId": None,
+        "timestamp": "2026-09-09T00:01:00+00:00",
+        "fromId": "root",
+        "summary": "root branch",
+    }
+    label = {
+        "type": "label",
+        "id": "label",
+        "parentId": "node",
+        "timestamp": "2026-09-09T00:02:00+00:00",
+        "targetId": "node",
+        "label": "valid",
+    }
+    branch_summary = {
+        "type": "branch_summary",
+        "id": "branch-summary",
+        "parentId": "node",
+        "timestamp": "2026-09-09T00:03:00+00:00",
+        "fromId": "node",
+        "summary": "node branch",
+    }
+    valid_path = tmp_path / "strict-aux-valid.jsonl"
+    valid_path.write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in (header, message, root_summary, label, branch_summary)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    valid = NativeSessionTree.open(valid_path, strict=True)
+    assert valid.get_label("node") == "valid"
+    assert {entry.id for entry in valid.get_entries()} == {
+        "node",
+        "root-summary",
+        "label",
+        "branch-summary",
+    }
+
+    invalid_label = {**label, "id": "invalid-label", "targetId": "missing"}
+    invalid_branch = {**branch_summary, "id": "invalid-branch", "fromId": "other"}
+    for name, invalid in (
+        ("invalid-label", invalid_label),
+        ("invalid-branch", invalid_branch),
+    ):
+        path = tmp_path / f"strict-{name}.jsonl"
+        path.write_text(
+            "\n".join(json.dumps(record) for record in (header, message, invalid))
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            NativeSessionTree.open(path, strict=True)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"strict loader accepted {name}")
+        assert NativeSessionTree.open(path).get_entries()
+
+
 # --------------------------------------------------------------------------
 # Tool result round-trip
 # --------------------------------------------------------------------------

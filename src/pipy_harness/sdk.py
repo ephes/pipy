@@ -1,9 +1,11 @@
 """Public synchronous product embedding and one-shot harness compatibility.
 
 ``create_product_session`` constructs the full-content native coding lifetime
-with an explicitly supplied tool-capable provider. Its construction-thread API
-supports repeated submissions, canonical observation, idle immutable snapshots,
-cross-thread cancellation and explicit disposal without a workflow archive.
+with an explicitly supplied tool-capable provider. ``open_product_session``
+reopens one exact durable native-session file under an explicit workspace. Their
+construction-thread APIs support repeated submissions, canonical observation,
+idle immutable snapshots, cross-thread cancellation and explicit disposal
+without a workflow archive.
 
 ``run_native`` and ``make_native_run_request`` retain their separate one-shot,
 metadata-first compatibility semantics, including a default fake provider and
@@ -25,7 +27,11 @@ from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.workspace_context import (
     default_workspace_instruction_loader,
 )
-from pipy_harness.product_api import ProductSession, create_product_session
+from pipy_harness.product_api import (
+    ProductSession,
+    create_product_session,
+    open_product_session,
+)
 from pipy_harness.runner import HarnessRunner
 
 __all__ = [
@@ -34,6 +40,7 @@ __all__ = [
     "CodingSessionResultSnapshot",
     "ProductSession",
     "create_product_session",
+    "open_product_session",
     "CapturePolicy",
     "DEFAULT_NATIVE_AGENT",
     "DEFAULT_NATIVE_SLUG",

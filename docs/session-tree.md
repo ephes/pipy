@@ -101,6 +101,16 @@ context reconstruction, `/tree`, `/fork`, `/clone`, `/resume`, `/new`, and
 durable compaction. `pipy-session` remains a separate metadata/archive surface
 and must not be used as the product-session substitute for these workflows.
 
+Python embeddings can reopen one exact durable tree through
+`pipy_harness.sdk.open_product_session(...)`. That public boundary strict-loads
+the JSONL file and verifies that its absolute header cwd resolves to the supplied
+workspace. It refuses malformed or unknown records, duplicate headers or entry
+IDs, and invalid parent or anchored-compaction ancestry; ordinary CLI and
+internal `NativeSessionTree.open(...)` callers retain their permissive recovery
+mode by default. Public embedded lifetimes also hold one process-local canonical
+file-path lease, so aliases cannot concurrently append through separate facades.
+This is not a cross-process lock.
+
 The full interactive workflow runs in the tool-loop product TUI — pipy's
 single Pi-like daily-driver shell. The non-TTY captured-stream fallback uses the
 same native product session store for ordinary user/assistant conversation

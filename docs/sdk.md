@@ -13,6 +13,12 @@ nonempty text, preserves multiline content (including leading `/` and `!`), and
 returns a `CodingSessionResultSnapshot` after all extension continuations settle.
 It retains the same conversation and resources for later submissions.
 
+`open_product_session(...)` starts a fresh lifetime over one exact existing
+native session-tree JSONL file. It requires the same explicit provider and a
+workspace that matches the stored, absolute header cwd after resolution. It is
+for deliberate reopen after the prior public lifetime has closed; it does not
+replace a live facade or select a recent/session-id target.
+
 ```python
 from pathlib import Path
 
@@ -45,12 +51,32 @@ All factory arguments are keyword-only:
 | `load_context_files: bool = True` | Discover workspace instructions normally; `False` matches `--no-context-files`. |
 
 `ProductSession`, `CodingSessionResultSnapshot`, `AgentEvent` and `AgentEventSink`
-are exported alongside the factory from `pipy_harness.sdk`. There is no workflow
+are exported alongside both product-session factories from `pipy_harness.sdk`. There is no workflow
 archive or caller-owned stream requirement. Mutable injected settings, private
 trees and other resources retain their native ownership requirements; do not
 share them across simultaneously active lifetimes. In particular,
 `SettingsManager.bind_state_lock` runs during composition, before workers can
 reach settings; it is not a live rebinding facility.
+
+To reopen a durable tree, pass its path explicitly. The loader is strict at this
+public boundary: malformed JSON, unrecognized or invalid entries, duplicate
+headers/entry IDs, and invalid parent or anchored-compaction ancestry refuse
+before provider work, extension activation, or append. Existing internal and
+CLI tree opens retain their permissive recovery behavior. Pipy holds one
+process-local lease for each canonical durable path across both
+`open_product_session(...)` and `create_product_session(..., tree=tree)`;
+relative and symlink aliases conflict while a public lifetime is active. The
+lease releases on startup failure and on normal, terminal, or explicit close.
+This is not a cross-process file lock.
+
+```python
+from pipy_harness.sdk import open_product_session
+
+with open_product_session(
+    workspace=Path.cwd(), session_path=session_file, provider=provider
+) as session:
+    session.submit("Continue from the durable conversation")
+```
 
 ### Operations and failures
 
@@ -771,7 +797,7 @@ no alias may silently assign their names to different product semantics.
 
 ### D6a public product-session reopen contract
 
-D6a adds one explicit `open_product_session(...)` factory for reopening a
+D6a ships one explicit `open_product_session(...)` factory for reopening a
 specific durable native product-session file. The factory is keyword-only and
 requires `workspace: Path`, `session_path: Path`, and an explicit tool-capable
 `ProviderPort`. It accepts the same optional tools, settings, resources,

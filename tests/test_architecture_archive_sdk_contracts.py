@@ -108,6 +108,7 @@ def test_sdk_surface_is_synchronous_streaming_and_returns_a_finalized_result(
         "CodingSessionResultSnapshot",
         "ProductSession",
         "create_product_session",
+        "open_product_session",
         "CapturePolicy",
         "DEFAULT_NATIVE_AGENT",
         "DEFAULT_NATIVE_SLUG",

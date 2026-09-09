@@ -744,7 +744,10 @@ def _project_context_messages(
 
 
 def _retained_context_entries(
-    path: list[SessionEntry], compaction: CompactionEntry | None
+    path: list[SessionEntry],
+    compaction: CompactionEntry | None,
+    *,
+    strict_compaction_ancestry: bool = False,
 ) -> list[SessionEntry]:
     """Select the shared active cut before either consumer projects messages."""
 
@@ -760,14 +763,20 @@ def _retained_context_entries(
         None,
     )
     if first_anchored is None:
-        return _legacy_retained_context_entries(path, compaction)
+        return _legacy_retained_context_entries(
+            path, compaction, strict_compaction_ancestry=strict_compaction_ancestry
+        )
 
     prefix = path[:first_anchored]
     prior_compaction = next(
         (entry for entry in reversed(prefix) if isinstance(entry, CompactionEntry)),
         None,
     )
-    effective = _legacy_retained_context_entries(prefix, prior_compaction)
+    effective = _legacy_retained_context_entries(
+        prefix,
+        prior_compaction,
+        strict_compaction_ancestry=strict_compaction_ancestry,
+    )
     for entry in path[first_anchored:]:
         if not isinstance(entry, CompactionEntry):
             effective.append(entry)
@@ -817,7 +826,10 @@ def _retained_context_entries(
 
 
 def _legacy_retained_context_entries(
-    path: list[SessionEntry], compaction: CompactionEntry | None
+    path: list[SessionEntry],
+    compaction: CompactionEntry | None,
+    *,
+    strict_compaction_ancestry: bool = False,
 ) -> list[SessionEntry]:
     if compaction is None:
         return path
@@ -836,6 +848,8 @@ def _legacy_retained_context_entries(
             found_first_kept = True
         if found_first_kept:
             retained.append(entry)
+    if strict_compaction_ancestry and not found_first_kept:
+        raise ValueError("compaction first kept entry is not available on its ancestry")
     retained.extend(path[compaction_idx + 1 :])
     return retained
 
@@ -969,6 +983,255 @@ def _load_file_entries(path: Path) -> tuple[SessionHeader | None, list[SessionEn
     return header, entries
 
 
+def _strict_header_from_json(body: dict[str, Any]) -> SessionHeader:
+    """Decode the one durable header accepted by the public reopen path."""
+
+    if body.get("type") != "session":
+        raise ValueError("native session header is invalid")
+    session_id = body.get("id")
+    timestamp = body.get("timestamp")
+    cwd = body.get("cwd")
+    version = body.get("version")
+    parent_session = body.get("parentSession")
+    if type(session_id) is not str or not session_id:
+        raise ValueError("native session header has an invalid id")
+    if type(timestamp) is not str or type(cwd) is not str:
+        raise ValueError("native session header is invalid")
+    if type(version) is not int or version != CURRENT_SESSION_VERSION:
+        raise ValueError("native session header has an invalid version")
+    if parent_session is not None and type(parent_session) is not str:
+        raise ValueError("native session header is invalid")
+    return SessionHeader(
+        id=validate_session_id(session_id),
+        timestamp=timestamp,
+        cwd=cwd,
+        version=version,
+        parent_session=parent_session,
+    )
+
+
+def _strict_user_message_from_json(message: dict[str, Any]) -> None:
+    if type(message.get("content")) is not str:
+        raise ValueError("native session user message is invalid")
+
+
+def _strict_assistant_message_from_json(message: dict[str, Any]) -> None:
+    calls = message.get("tool_calls", [])
+    if type(message.get("content")) is not str or not isinstance(calls, list):
+        raise ValueError("native session assistant message is invalid")
+    for call in calls:
+        if not isinstance(call, dict) or any(
+            type(call.get(field)) is not str
+            for field in (
+                "provider_correlation_id",
+                "tool_name",
+                "arguments_json",
+            )
+        ):
+            raise ValueError("native session assistant tool call is invalid")
+
+
+def _strict_tool_message_from_json(message: dict[str, Any]) -> None:
+    if (
+        type(message.get("tool_request_id")) is not str
+        or type(message.get("output_text", "")) is not str
+    ):
+        raise ValueError("native session tool result is invalid")
+    if "is_error" in message and type(message["is_error"]) is not bool:
+        raise ValueError("native session tool result is invalid")
+    correlation_id = message.get("provider_correlation_id")
+    added_names = message.get("added_tool_names")
+    if correlation_id is not None and type(correlation_id) is not str:
+        raise ValueError("native session tool result is invalid")
+    if added_names is not None and (
+        not isinstance(added_names, list)
+        or any(type(name) is not str for name in added_names)
+    ):
+        raise ValueError("native session tool result is invalid")
+
+
+_STRICT_MESSAGE_VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "user": _strict_user_message_from_json,
+    "assistant": _strict_assistant_message_from_json,
+    "tool": _strict_tool_message_from_json,
+}
+
+
+def _strict_message_from_json(body: dict[str, Any]) -> None:
+    message = body.get("message")
+    if not isinstance(message, dict):
+        raise ValueError("native session message entry is invalid")
+    role = message.get("role")
+    validator = _STRICT_MESSAGE_VALIDATORS.get(role) if type(role) is str else None
+    if validator is None:
+        raise ValueError("native session message role is invalid")
+    validator(message)
+
+
+def _strict_model_entry_from_json(body: dict[str, Any]) -> None:
+    if type(body.get("provider")) is not str or type(body.get("modelId")) is not str:
+        raise ValueError("native session model entry is invalid")
+
+
+def _strict_thinking_entry_from_json(body: dict[str, Any]) -> None:
+    if type(body.get("thinkingLevel")) is not str:
+        raise ValueError("native session thinking entry is invalid")
+
+
+def _strict_compaction_entry_from_json(body: dict[str, Any]) -> None:
+    if (
+        type(body.get("summary", "")) is not str
+        or type(body.get("firstKeptEntryId")) is not str
+        or type(body.get("tokensBefore", 0)) is not int
+    ):
+        raise ValueError("native session compaction entry is invalid")
+    retained_user = body.get("retainedUserEntryId")
+    if retained_user is not None and type(retained_user) is not str:
+        raise ValueError("native session compaction entry is invalid")
+
+
+def _strict_branch_summary_entry_from_json(body: dict[str, Any]) -> None:
+    if (
+        type(body.get("fromId", "root")) is not str
+        or type(body.get("summary", "")) is not str
+    ):
+        raise ValueError("native session branch summary is invalid")
+
+
+def _strict_label_entry_from_json(body: dict[str, Any]) -> None:
+    if type(body.get("targetId")) is not str or (
+        body.get("label") is not None and type(body.get("label")) is not str
+    ):
+        raise ValueError("native session label entry is invalid")
+
+
+def _strict_session_info_entry_from_json(body: dict[str, Any]) -> None:
+    if body.get("name") is not None and type(body.get("name")) is not str:
+        raise ValueError("native session info entry is invalid")
+
+
+def _strict_custom_entry_from_json(body: dict[str, Any]) -> None:
+    if type(body.get("customType", "")) is not str:
+        raise ValueError("native session custom entry is invalid")
+
+
+def _strict_custom_message_entry_from_json(body: dict[str, Any]) -> None:
+    if (
+        type(body.get("customType", "")) is not str
+        or type(body.get("content", "")) is not str
+        or ("display" in body and type(body["display"]) is not bool)
+    ):
+        raise ValueError("native session custom message is invalid")
+
+
+_STRICT_ENTRY_VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "message": _strict_message_from_json,
+    "model_change": _strict_model_entry_from_json,
+    "thinking_level_change": _strict_thinking_entry_from_json,
+    "compaction": _strict_compaction_entry_from_json,
+    "branch_summary": _strict_branch_summary_entry_from_json,
+    "label": _strict_label_entry_from_json,
+    "session_info": _strict_session_info_entry_from_json,
+    "custom": _strict_custom_entry_from_json,
+    "custom_message": _strict_custom_message_entry_from_json,
+}
+
+
+def _strict_entry_from_json(
+    body: dict[str, Any], by_id: dict[str, SessionEntry]
+) -> SessionEntry:
+    """Decode one current JSONL entry without permissive coercion or skipping."""
+
+    entry_type = body.get("type")
+    validator = (
+        _STRICT_ENTRY_VALIDATORS.get(entry_type) if type(entry_type) is str else None
+    )
+    if validator is None:
+        raise ValueError("native session contains an unknown entry type")
+    entry_id = body.get("id")
+    parent_id = body.get("parentId")
+    timestamp = body.get("timestamp")
+    if type(entry_id) is not str or not entry_id:
+        raise ValueError("native session entry has an invalid id")
+    if parent_id is not None and type(parent_id) is not str:
+        raise ValueError("native session entry has an invalid parent")
+    if type(timestamp) is not str:
+        raise ValueError("native session entry has an invalid timestamp")
+    validator(body)
+
+    entry = _entry_from_json(body, by_id)
+    if entry is None:
+        raise ValueError("native session entry is invalid")
+    return entry
+
+
+def _strict_json_object(line: str, line_number: int) -> dict[str, Any]:
+    try:
+        body = json.loads(line)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"native session contains malformed JSON at line {line_number}"
+        ) from error
+    if not isinstance(body, dict):
+        raise ValueError(
+            f"native session contains a non-object record at line {line_number}"
+        )
+    return body
+
+
+def _strict_accept_record(
+    body: dict[str, Any],
+    header: SessionHeader | None,
+    entries: list[SessionEntry],
+    by_id: dict[str, SessionEntry],
+) -> SessionHeader | None:
+    if body.get("type") == "session":
+        if header is not None:
+            raise ValueError("native session contains duplicate headers")
+        if entries:
+            raise ValueError("native session header must be the first record")
+        return _strict_header_from_json(body)
+    if header is None:
+        raise ValueError("native session header must be the first record")
+    entry = _strict_entry_from_json(body, by_id)
+    if entry.id in by_id:
+        raise ValueError("native session contains duplicate entry ids")
+    if entry.parent_id is not None and entry.parent_id not in by_id:
+        raise ValueError("native session entry has invalid parent ancestry")
+    if isinstance(entry, LabelEntry) and entry.target_id not in by_id:
+        raise ValueError("native session label references an unavailable entry")
+    if isinstance(entry, BranchSummaryEntry):
+        expected_from_id = entry.parent_id or "root"
+        if entry.from_id != expected_from_id:
+            raise ValueError("native session branch summary has an invalid attachment")
+    entries.append(entry)
+    by_id[entry.id] = entry
+    return header
+
+
+def _load_file_entries_strict(path: Path) -> tuple[SessionHeader, list[SessionEntry]]:
+    """Read a durable tree without accepting permissive-loader recovery cases."""
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise ValueError("native session file does not exist") from error
+    except OSError as error:
+        raise ValueError("native session file cannot be read") from error
+
+    header: SessionHeader | None = None
+    entries: list[SessionEntry] = []
+    by_id: dict[str, SessionEntry] = {}
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        header = _strict_accept_record(
+            _strict_json_object(line, line_number), header, entries, by_id
+        )
+    if header is None:
+        raise ValueError("not a valid native session file")
+    _validate_loaded_compactions_strict(entries, by_id)
+    return header, entries
+
+
 def _validate_loaded_anchored_compactions(
     entries: list[SessionEntry], by_id: dict[str, SessionEntry]
 ) -> None:
@@ -979,6 +1242,19 @@ def _validate_loaded_anchored_compactions(
             continue
         historical_path = _active_branch_path(entry.id, by_id)
         _retained_context_entries(historical_path, entry)
+
+
+def _validate_loaded_compactions_strict(
+    entries: list[SessionEntry], by_id: dict[str, SessionEntry]
+) -> None:
+    """Validate every durable compaction cut for strict public reopening."""
+
+    for entry in entries:
+        if isinstance(entry, CompactionEntry):
+            historical_path = _active_branch_path(entry.id, by_id)
+            _retained_context_entries(
+                historical_path, entry, strict_compaction_ancestry=True
+            )
 
 
 _P = ParamSpec("_P")
@@ -1072,11 +1348,25 @@ class NativeSessionTree:
         return tree
 
     @classmethod
-    def open(cls, path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open(
+        cls, path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
+        """Open one durable tree.
+
+        The default loader preserves the CLI's permissive historical recovery
+        behavior.  ``strict=True`` is reserved for the public embedding reopen
+        boundary, where accepting a partially understood durable transcript
+        would be unsafe.
+        """
+
         resolved = Path(path).expanduser()
-        header, entries = _load_file_entries(resolved)
-        if header is None:
-            raise ValueError(f"not a valid native session file: {resolved}")
+        if strict:
+            header, entries = _load_file_entries_strict(resolved)
+        else:
+            permissive_header, entries = _load_file_entries(resolved)
+            if permissive_header is None:
+                raise ValueError(f"not a valid native session file: {resolved}")
+            header = permissive_header
         tree = cls(header=header, path=resolved if persist else None, persist=persist)
         tree._load_entries(entries)
         return tree

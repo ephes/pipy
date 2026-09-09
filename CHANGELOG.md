@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python embeddings can now reopen one exact durable native product-session
+  JSONL file with `open_product_session(...)`. Reopen validates the workspace
+  header, strictly rejects malformed or structurally invalid durable records,
+  reconstructs the active native context with the explicitly supplied provider,
+  and prevents simultaneous same-process public facades for canonical-path and
+  symlink aliases. CLI recovery behavior and cross-process coordination are
+  unchanged.
+
 - RPC `compact` now runs the native semantic-compaction owner as one idle-only,
   cancellable worker operation, with correlated compaction lifecycle records and
   truthful state/result projection. `set_auto_compaction` now persists the real

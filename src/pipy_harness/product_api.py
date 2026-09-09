@@ -31,6 +31,54 @@ from pipy_harness.native.workspace_context import (
     empty_workspace_instruction_loader,
 )
 
+_PERSISTENT_PATH_LEASE_LOCK = threading.Lock()
+_PERSISTENT_PATH_LEASES: dict[Path, object] = {}
+
+
+class _PersistentPathLease:
+    """One process-local public-lifetime claim for a canonical durable file."""
+
+    __slots__ = ("_key", "_token")
+
+    def __init__(self, key: Path, token: object) -> None:
+        self._key = key
+        self._token: object | None = token
+
+    @property
+    def path(self) -> Path:
+        """Return the resolved target bound to this exact lifetime claim."""
+
+        return self._key
+
+    def finish(self) -> None:
+        """Release this exact claim once, after native lifetime retirement."""
+
+        token = self._token
+        if token is None:
+            return
+        self._token = None
+        with _PERSISTENT_PATH_LEASE_LOCK:
+            if _PERSISTENT_PATH_LEASES.get(self._key) is token:
+                del _PERSISTENT_PATH_LEASES[self._key]
+
+
+def _claim_persistent_path(path: Path) -> _PersistentPathLease:
+    """Atomically claim a path without holding the registry during any work."""
+
+    key = path.expanduser().resolve()
+    token = object()
+    with _PERSISTENT_PATH_LEASE_LOCK:
+        if key in _PERSISTENT_PATH_LEASES:
+            raise RuntimeError("persistent product session is already active")
+        _PERSISTENT_PATH_LEASES[key] = token
+    return _PersistentPathLease(key, token)
+
+
+def _persistent_tree_path(tree: NativeSessionTree | None) -> Path | None:
+    if tree is None or not tree.persist or tree.path is None:
+        return None
+    return tree.path
+
 
 class _HeadlessStream(io.TextIOBase):
     """Discard presentation or forward diagnostic write fragments, without storage."""
@@ -61,10 +109,14 @@ class ProductSession:
         workspace: Path,
         abort: _ExternalAbortSignalView,
         diagnostic_sink: Callable[[str], None] | None,
+        *,
+        lease: _PersistentPathLease | None = None,
     ) -> None:
         self._thread = threading.current_thread()
         self._entry_in_progress = True
         self._abort = abort
+        # Attach before startup can invoke extension/observer callbacks.
+        self._lease = lease
         self._scope: AbstractContextManager[_PreparedCodingSession] | None = None
         try:
             context = adapter.prepare_session_context(workspace)
@@ -155,8 +207,14 @@ class ProductSession:
     ) -> None:
         scope = self._scope
         self._scope = None
-        if scope is not None:
-            scope.__exit__(exc_type, exc, traceback)
+        try:
+            if scope is not None:
+                scope.__exit__(exc_type, exc, traceback)
+        finally:
+            lease = self._lease
+            self._lease = None
+            if lease is not None:
+                lease.finish()
 
     def __enter__(self) -> ProductSession:
         with self._entry():
@@ -172,6 +230,55 @@ class ProductSession:
     ) -> None:
         with self._entry():
             self._exit_scope(exc_type, exc, traceback)
+
+
+def _validate_product_session_inputs(
+    *,
+    workspace: Path,
+    load_context_files: bool,
+    diagnostic_sink: Callable[[str], None] | None,
+) -> Path:
+    if not isinstance(workspace, Path):
+        raise TypeError("workspace must be a Path")
+    resolved_workspace = workspace.expanduser().resolve()
+    if not resolved_workspace.is_dir():
+        raise ValueError(f"workspace is not a directory: {resolved_workspace}")
+    if not isinstance(load_context_files, bool):
+        raise TypeError("load_context_files must be a bool")
+    if diagnostic_sink is not None and not callable(diagnostic_sink):
+        raise TypeError("diagnostic_sink must be callable")
+    return resolved_workspace
+
+
+def _create_product_session(
+    *,
+    workspace: Path,
+    provider: ProviderPort,
+    tools: dict[str, ToolPort] | None,
+    settings: SettingsManager | None,
+    resources: RuntimeResourceOptions | None,
+    tree: NativeSessionTree | None,
+    observer: AgentEventSink | None,
+    diagnostic_sink: Callable[[str], None] | None,
+    load_context_files: bool,
+    lease: _PersistentPathLease | None,
+) -> ProductSession:
+    abort = _ExternalAbortSignalView()
+    adapter = CodingSessionAdapter(
+        provider=provider,
+        tool_registry=tools,
+        settings_manager=settings,
+        resource_options=resources,
+        native_session=tree,
+        agent_event_sink=observer,
+        abort_event=abort,
+        instruction_loader=(
+            default_workspace_instruction_loader
+            if load_context_files
+            else empty_workspace_instruction_loader
+        ),
+    )
+    return ProductSession(adapter, workspace, abort, diagnostic_sink, lease=lease)
 
 
 def create_product_session(
@@ -193,28 +300,83 @@ def create_product_session(
     Diagnostic sinks receive individual nonempty write fragments, synchronously.
     """
 
-    if not isinstance(workspace, Path):
-        raise TypeError("workspace must be a Path")
-    workspace = workspace.expanduser().resolve()
-    if not workspace.is_dir():
-        raise ValueError(f"workspace is not a directory: {workspace}")
-    if not isinstance(load_context_files, bool):
-        raise TypeError("load_context_files must be a bool")
-    if diagnostic_sink is not None and not callable(diagnostic_sink):
-        raise TypeError("diagnostic_sink must be callable")
-    abort = _ExternalAbortSignalView()
-    adapter = CodingSessionAdapter(
-        provider=provider,
-        tool_registry=tools,
-        settings_manager=settings,
-        resource_options=resources,
-        native_session=tree,
-        agent_event_sink=observer,
-        abort_event=abort,
-        instruction_loader=(
-            default_workspace_instruction_loader
-            if load_context_files
-            else empty_workspace_instruction_loader
-        ),
+    resolved_workspace = _validate_product_session_inputs(
+        workspace=workspace,
+        load_context_files=load_context_files,
+        diagnostic_sink=diagnostic_sink,
     )
-    return ProductSession(adapter, workspace, abort, diagnostic_sink)
+    persistent_path = _persistent_tree_path(tree)
+    lease = _claim_persistent_path(persistent_path) if persistent_path else None
+    try:
+        if tree is not None and lease is not None:
+            # The public lifetime must persist through the exact resolved target
+            # it claimed, never a later-retargeted caller alias.
+            tree.path = lease.path
+        return _create_product_session(
+            workspace=resolved_workspace,
+            provider=provider,
+            tools=tools,
+            settings=settings,
+            resources=resources,
+            tree=tree,
+            observer=observer,
+            diagnostic_sink=diagnostic_sink,
+            load_context_files=load_context_files,
+            lease=lease,
+        )
+    except BaseException:
+        if lease is not None:
+            lease.finish()
+        raise
+
+
+def open_product_session(
+    *,
+    workspace: Path,
+    session_path: Path,
+    provider: ProviderPort,
+    tools: dict[str, ToolPort] | None = None,
+    settings: SettingsManager | None = None,
+    resources: RuntimeResourceOptions | None = None,
+    observer: AgentEventSink | None = None,
+    diagnostic_sink: Callable[[str], None] | None = None,
+    load_context_files: bool = True,
+) -> ProductSession:
+    """Open one exact persistent native product session under ``workspace``.
+
+    This is deliberately a fresh facade/lifetime, not an in-place resume.  The
+    durable tree is strict-loaded only after its process-local public lease is
+    claimed, then handed to the ordinary creation composition unchanged.
+    """
+
+    resolved_workspace = _validate_product_session_inputs(
+        workspace=workspace,
+        load_context_files=load_context_files,
+        diagnostic_sink=diagnostic_sink,
+    )
+    if not isinstance(session_path, Path):
+        raise TypeError("session_path must be a Path")
+    lease = _claim_persistent_path(session_path)
+    try:
+        tree = NativeSessionTree.open(lease.path, strict=True)
+        header_cwd = Path(tree.header.cwd)
+        if (
+            not header_cwd.is_absolute()
+            or header_cwd.expanduser().resolve() != resolved_workspace
+        ):
+            raise ValueError("native session workspace does not match")
+        return _create_product_session(
+            workspace=resolved_workspace,
+            provider=provider,
+            tools=tools,
+            settings=settings,
+            resources=resources,
+            tree=tree,
+            observer=observer,
+            diagnostic_sink=diagnostic_sink,
+            load_context_files=load_context_files,
+            lease=lease,
+        )
+    except BaseException:
+        lease.finish()
+        raise
