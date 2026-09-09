@@ -2936,6 +2936,31 @@ empty clone, copied names/labels/compaction records, absent custom/ordinary TUI
 redraw, absent post-fork lifecycle hooks, write relocation, registry metadata,
 aliases, and async behavior remain deliberately unchanged.
 
+D6c6 selects terminal `/fork` and `/clone` for shared-owner adoption, and D6c7
+supersedes the direct composition path above. The command adapter keeps explicit
+reference resolution, command-specific diagnostics and footer presentation. A
+typed terminal operation validates the persistent source and matching lifetime
+slot, rejects a missing current leaf for bare fork or clone, runs the detailed
+fork gate once, snapshots the guarded active in-memory tree through
+`fork_from_snapshot`, claims the child, guarded-publishes it, hands off the slot,
+rebuilds history once and clears extension input once. Empty clone no longer
+creates a child, matching the public product contract and Pi.
+
+Ephemeral source, unknown entry, missing leaf, gate veto and child lease conflict
+are recoverable refusals that preserve the old usable state. The adapter keeps
+the existing persistent-session and unmatched-reference diagnostics, emits the
+operation-specific `pipy: nothing to fork yet.` or `pipy: nothing to clone
+yet.` for a missing leaf, relies on the hook's detailed veto diagnostic, and
+emits `pipy: new native session is already active.` for child lease conflict.
+Every refusal receives one footer. Conflict occurs after creation and may leave
+an artifact. Creation and unexpected pointer-
+publication failures remain fatal; the latter aborts the prepared child claim.
+Rebuild or clear failure after publication remains state-first and fatal, with
+the adopted child released by terminal teardown. Success emits the existing
+sanitized fork/clone diagnostic and one footer without custom redraw or a
+provider/tool call. Import, SDK/RPC, lifecycle, workspace/provider selection,
+capture and cross-process locking remain outside D6c7.
+
 Slice 3.1d.4a adds the exact payload-free `TRUST_PROJECT` action for `/trust` with the
 standard footer. The direct kernel recognizes only the already-edge-stripped
 exact command; composition retains outer trimming, the submitted user bubble,

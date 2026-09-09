@@ -1113,7 +1113,10 @@ composition a typed new-session operation: persistent sources reuse the D6b
 create/claim/state-first publish/handoff/rebuild owner; ephemeral terminal
 sources keep their existing in-memory semantics under the same guarded tree and
 history owners while the slot stays empty. Public/RPC ephemeral refusal remains
-unchanged. `/fork` and `/clone` remain a later adoption boundary.
+unchanged. D6c6 selects `/fork` and `/clone` as the next shared boundary: D6c7
+keeps terminal reference/presentation ownership but moves active-tree snapshot,
+child creation/claim, guarded publication, lease handoff and history/input
+rebuild into the same coordinator. Import remains a later, separate boundary.
 
 D6c2 fixed the first terminal adoption boundary without adding an owner. D6c3
 binds one canonical lease slot to the stream-driven terminal controller after

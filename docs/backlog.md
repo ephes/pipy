@@ -9,9 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D6c6 re-inventories terminal fork/clone, import replacement and
-compatibility retirement against the adopted terminal lease slot, then selects
-one bounded next slice.
+**Next task:** D6c7 adopts terminal `/fork` and `/clone` through the reviewed
+native transition owner and guarded active-tree snapshot.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -697,8 +696,10 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c3 | Complete `a25f67d`; 361 focused plus 251 repair-focused and 6,160 full tests; focused Terra R2 CLEAN; D6c2 `59f8c95` | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
 | D6c4 | Complete `09ec687`; D6c3 `a25f67d` | Re-inventory terminal `/new`, fork/clone, import replacement and compatibility callers; review the bounded `/new` adoption contract | `/new` selected first because direct replacement now diverges from the terminal lease slot; preserve ephemeral terminal behavior; no runtime change or combined entry point |
 | D6c5 | Complete in this implementation chunk; D6c4 `09ec687`; 415 focused and 6,164 full tests; focused Terra R3 CLEAN | Adopt terminal `/new` through the native transition owner | Persistent source uses exact create/claim/publish/handoff/rebuild order; ephemeral source remains in-memory with an empty slot; existing presentation/failure policy; no fork/clone, import or SDK change |
-| D6c6 | D6c5 | Re-inventory and select the next one of terminal fork/clone, import replacement or compatibility SDK retirement | Do not combine remaining entry points; remove SDK compatibility names only after docs/callers use the product replacement; keep `pipy run` archive/`RunResult` semantics unless separately reviewed |
-| D6c | D6c6 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
+| D6c6 | Complete in this planning chunk; D6c5 `6ea8802`; 198 focused and 6,164 full tests; focused Terra R2 CLEAN | Re-inventory terminal fork/clone, import replacement and compatibility callers; review the bounded fork/clone adoption contract | Fork/clone selected together because they share one transition and currently diverge from the lease slot and guarded active tree; import remains separate; no runtime change |
+| D6c7 | D6c6 | Adopt terminal `/fork` and `/clone` through the native transition owner | Resolve terminal refs before one detailed fork gate; guarded active-tree snapshot; child claim and state-first handoff; empty current leaf refuses; no import or SDK change |
+| D6c8 | D6c7 | Re-inventory and review terminal import replacement before compatibility SDK retirement | Preserve confirmation, missing-workspace fallback and truthful partial-artifact behavior; do not combine import with compatibility removal |
+| D6c | D6c8 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
 | D7a1 | Complete `d900ca5`; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
 | D7a | Complete `d900ca5`; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
@@ -860,6 +861,48 @@ publication remains state-first and fatal; controller teardown releases the
 adopted persistent candidate once. D6c5 changes no lifecycle hooks, workspace,
 provider/model selection, SDK/RPC semantics, workflow archive, fork/clone,
 import, picker/list/rename/delete or cross-process locking.
+
+D6c6 re-inventories terminal fork/clone, import replacement and compatibility
+callers at `6ea8802`; targeted summary-safe search found no prior decision that
+changes the queue. Both remaining terminal replacements bypass the D6c3/D6c5
+lease slot. Import additionally owns user confirmation, missing-workspace
+fallback and header rewrite, collision naming, permissive parsing and partial
+copy artifacts, so it needs its own contract. The Python compatibility names
+still have only documentation and test callers, while `pipy run --agent
+pipy-native` remains a production caller of the underlying adapter/runtime and
+their archive/`RunResult` behavior. Compatibility retirement remains lower
+priority and cannot remove that runtime mechanically.
+
+Terminal `/fork` and `/clone` are selected together for D6c7. They currently
+reopen the durable source through `NativeSessionTree.fork_from`, directly replace
+the guarded tree and leave the terminal slot holding the old source while the
+active child is unclaimed. They share one ownership path and differ only in
+reference resolution and success wording. D6c7 keeps explicit terminal
+reference resolution in `SessionCommandEffects`, then delegates the selected
+entry and operation to a terminal-specific coordinator call using the existing
+detailed `session_before_fork` presentation callback exactly once. The
+coordinator validates the persistent source and slot, rejects an absent current
+leaf for bare fork or clone, snapshots the guarded active in-memory tree through
+`fork_from_snapshot`, creates the child beside the source, claims it, guarded-
+publishes the child, publishes the slot and retires the source claim, rebuilds
+history once and clears extension input once. This aligns the empty-tree case
+with the public product contract and Pi rather than preserving the old terminal
+characterization that cloned an empty tree.
+
+Ephemeral source and unresolved explicit reference keep their existing exact
+diagnostics; absent current leaf emits operation-specific `nothing to fork yet`
+or `nothing to clone yet`; the extension hook retains its detailed veto; child
+lease conflict emits `new native session is already active`. These recoverable
+refusals each retain the old usable tree, lease, history and extension inputs and
+receive one footer. The gate precedes child creation. Lease conflict follows
+creation and may leave the new durable artifact.
+Creation or unexpected pointer-publication failure remains fatal, with a
+prepared child claim aborted before publication. Rebuild or clear failure after
+publication is state-first and fatal; teardown releases the adopted child once.
+Success retains the command-specific sanitized diagnostic, one footer, no
+custom-entry redraw and no provider/tool call. D6c7 changes no import/export,
+picker/tree management, startup selection, SDK/RPC, lifecycle, workspace,
+workflow archive or cross-process lock behavior.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

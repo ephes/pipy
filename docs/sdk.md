@@ -199,12 +199,13 @@ observes detached idle snapshots, closes through the context manager, and create
 no workflow archive. It changes no runtime package, provider selection,
 session-tree policy, SDK export or compatibility behavior.
 
-Terminal session replacement remains a separate adoption program. The current
-`/new`, `/resume`, `/fork` and `/clone` handlers still replace trees directly
-and the terminal lifetime does not yet own the D6b canonical lease slot. D6c2
-will review the smallest `/resume` selection contract before D6c3 changes code;
-listing, rename/delete, `/tree`, import/export, `/new` and fork/clone remain
-outside that first terminal slice.
+Terminal session replacement remains a separate adoption program. D6c3 and
+D6c5 give the terminal lifetime the D6b canonical lease slot and route resolved
+`/resume` and `/new` through it. `/fork`, `/clone`, and import still replace
+trees directly; D6c6 selects fork/clone as the next shared-owner adoption before
+the more complex import boundary.
+Listing, rename/delete, `/tree`, and import/export remain outside the adopted
+transition slices; fork/clone remain planned until D6c7 lands.
 
 ## D6b public session-transition contract
 

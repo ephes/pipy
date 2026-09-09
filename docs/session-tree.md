@@ -262,6 +262,54 @@ directly. Fork/clone, import, startup selection, SDK/RPC behavior, provider or
 workspace changes, lifecycle hooks, workflow capture and cross-process locking
 are non-goals.
 
+### D6c6/D6c7 terminal `/fork` and `/clone` adoption contract
+
+D6c6 fixes the shared terminal contract and D6c7 implements it. The command
+adapter retains `/fork` argument parsing, current-filter any-entry reference
+resolution, clone/bare-fork current-leaf selection, refusal and success
+diagnostics, and the standard footer. It receives one typed terminal fork
+operation from composition and no lease or mutable tree handoff. A resolved
+entry ID and `fork` or `clone` operation enter the coordinator with the existing
+detailed `session_before_fork` callback; the public/RPC silent gate does not run
+a second time.
+
+The coordinator requires a persistent active tree whose canonical path matches
+the terminal slot. An explicit unknown reference refuses before the gate. Bare
+fork and clone refuse an absent current leaf, aligning the terminal with the
+public product contract and Pi's empty-clone behavior. Once selected, success
+orders the fork gate, `NativeSessionTree.fork_from_snapshot` of the guarded
+active in-memory tree, child canonical claim, guarded tree publication, slot
+publication and source-claim release, one history rebuild, one extension-input
+clear, the existing command-specific sanitized diagnostic, and one footer.
+There is no custom-entry redraw or provider/tool call.
+
+Recoverable terminal presentation is explicit. An ephemeral source refuses
+before reference resolution with the existing `pipy: /fork requires a
+persistent native session.` or `/clone` equivalent. An unresolved explicit
+reference keeps `pipy: no tree entry matched {argument!r}.`; an absent current leaf
+emits `pipy: nothing to fork yet.` or `pipy: nothing to clone yet.`. The
+extension hook emits its existing detailed denial, without a second generic
+message. A child lease conflict emits `pipy: new native session is already
+active.`. Each recoverable outcome retains the old tree, slot, history and
+extension input and is followed by one standard footer. The gate runs before
+child creation; a lease conflict occurs after creation and may leave the child
+artifact. Creation or unexpected pointer-
+publication failure is fatal; publication failure aborts the prepared child
+claim and retains the source slot. Rebuild or clear failure after publication
+is state-first and fatal, emits no success diagnostic or footer, and controller
+teardown releases the adopted child once. No durable source reopen participates
+in the transition.
+
+Coverage pins exact resolution/gate/snapshot/claim/publication/handoff/rebuild/
+clear/diagnostic/footer order, source release before rebuild, child exclusivity
+during the remaining lifetime, adopted-child release on normal and fatal exits,
+old-session usability after recoverable refusal, and a later `/new` or `/resume`
+after fork/clone. Each explicit refusal mapping and one-footer behavior has a
+focused witness. Structural coverage proves the terminal handler no longer
+calls `fork_from` or assigns the tree directly. Import/export, picker/tree
+management, startup selection, SDK/RPC behavior, lifecycle hooks, workspace and
+provider selection, workflow capture and cross-process locking remain non-goals.
+
 `fork(entry_id=None)` requires a persistent active tree. Its default is the
 current leaf; an explicit `entry_id` is any exact known native entry, including
 model, compaction, label, branch-summary, custom, or message entries. It copies
