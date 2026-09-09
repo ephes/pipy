@@ -632,8 +632,14 @@ than a transport flag. `set_auto_compaction` writes the real effective
 `compaction.enabled` policy through the settings owner; `get_state` projects that
 policy and guarded compaction activity. Automatic preflight compaction emits
 `threshold` for legacy message/byte pressure and `overflow` for known-window
-estimated pressure. Retry controls remain deferred: `set_auto_retry` records a
-flag without enabling a retry loop, and `abort_retry` is currently a no-op.
+estimated pressure. `set_auto_retry` accepts an exact boolean and changes the
+effective `retry.enabled` setting through its precedence-aware owner; an
+already captured provider request keeps its immutable policy and the next
+request observes the change. `abort_retry` cancels only an active ordinary
+canonical retry phase (backoff, reissue admission, or reissued provider work).
+It is a successful no-op outside that exact phase. Canonical
+`auto_retry_start`/`auto_retry_end` ordering remains authoritative, and retry
+activity is intentionally not added to `get_state`.
 
 The selected D5c contract keeps all summary policy in the existing native owner.
 RPC admits `compact` only at true idle as a typed operation in the same native
@@ -805,11 +811,11 @@ shapes and aggregate lifetime exit semantics are unchanged. Full failure details
 remain private canonical product events/SDK state; bounded archive metadata
 contains only that fixed classification. Live model-aware admission now uses this
 path for invalid budget policy or estimated final overflow. It uses the real coding
-settings, including optional `compaction.contextWindow`; RPC's reported auto flags
-remain reporting-only and public `compact` controls remain unimplemented. The
+settings, including optional `compaction.contextWindow`; the RPC compaction and
+retry controls now route to those native settings and operation owners. The
 existing [compaction](compaction.md) durable-origin and recovery boundaries apply.
-There is no new RPC event envelope or queue owner. RPC retry controls remain
-inert; ordinary requests use the configured product policy described below.
+There is no new RPC event envelope or queue owner. RPC retry controls use the
+configured product policy described below.
 
 The selected [D4a retry contract](harness-spec.md#bounded-request-retry-contract-d4a)
 now applies configured retry policy to eligible ordinary prepared OpenAI-Codex
@@ -818,9 +824,9 @@ accepted provider iteration, without intermediate `turn_end`/`agent_end` or
 repeating earlier tools. The retry event counters describe reissues and exclude
 the initial attempt and transport fallback. The D5d implementation connects
 `set_auto_retry` to the effective product setting and `abort_retry` to the exact
-active ordinary retry phase. Until that slice lands, the current transport-local
-flag and inert abort handler remain implementation gaps; the selected contract
-above is authoritative for the change.
+active ordinary retry phase. The controls do not own a separate retry state or
+event stream; the selected contract above defines their ordering and privacy
+boundaries.
 
 ## (e) Python SDK Relationship
 

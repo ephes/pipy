@@ -504,6 +504,39 @@ def test_native_control_abort_signals_after_releasing_queue_guard() -> None:
     assert callback_done.is_set()
 
 
+def test_native_control_claimed_abort_preserves_queued_input() -> None:
+    queue = CodingInputQueue(mutation_lock=threading.RLock())
+    control = _NativeSessionControl(queue)
+    admitted = control.admit_prompt(ProductContent("active"))
+    assert admitted.reservation is not None
+    claim = control.claim(admitted.reservation)
+    assert claim is not None
+    steering = ProductContent("steer")
+    follow_up = ProductContent("follow")
+    control.admit_prompt(steering, steer_active=True)
+    control.admit_prompt(follow_up)
+    callback_done = threading.Event()
+
+    def callback() -> None:
+        control.snapshot()
+        callback_done.set()
+
+    unregister = claim._claim.abort_signal.register_cancel_callback(callback)
+    try:
+        control.abort_view.cancel_claimed()
+    finally:
+        unregister()
+
+    snapshot = control.snapshot()
+    assert claim.is_aborted
+    assert snapshot.steering == (steering,)
+    assert snapshot.follow_ups == (follow_up,)
+    assert callback_done.is_set()
+    promoted = control.settle(claim)
+    assert promoted.reservation is not None
+    assert promoted.reservation.content is steering
+
+
 def test_claim_attachment_failure_settles_its_exact_token_before_propagating() -> None:
     control = _NativeSessionControl(CodingInputQueue())
     admitted = control.admit_prompt(ProductContent("active"))

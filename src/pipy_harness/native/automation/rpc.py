@@ -220,9 +220,9 @@ class NativeRpcServer:
         self._steering_mode = "all"
         self._follow_up_mode = "all"
         self._last_assistant_text: str | None = None
-        self._auto_retry = True
         self._configuration: Any | None = None
         self._compaction: Any | None = None
+        self._retry: Any | None = None
         self._compact_ids: dict[object, str | None] = {}
         self._bash_in_flight = 0
         self._bash_threads: list[threading.Thread] = []
@@ -282,6 +282,7 @@ class NativeRpcServer:
             outcome.readiness_port.bind(self._publish_true_idle)
             self._configuration = outcome.configuration_port
             self._compaction = outcome.compaction_port
+            self._retry = outcome.retry_port
             self._bridge.bind_manual_compaction_handler(self._run_manual_compaction)
             ready = True
             self._read_loop()
@@ -508,8 +509,7 @@ class NativeRpcServer:
             self._respond(cid, "abort_bash")
 
     def _cmd_abort_retry(self, cid: str | None, command: dict[str, Any]) -> None:
-        # No auto-retry loop runs in this transport, so there is nothing to abort
-        # — a valid no-op success (Pi parity).
+        self._retry_port().abort_retry()
         self._respond(cid, "abort_retry")
 
     # -- queue modes -----------------------------------------------------
@@ -668,8 +668,32 @@ class NativeRpcServer:
         return publish
 
     def _cmd_set_auto_retry(self, cid: str | None, command: dict[str, Any]) -> None:
-        self._auto_retry = bool(command.get("enabled"))
+        enabled = command.get("enabled")
+        if type(enabled) is not bool:
+            self._respond_error(
+                cid,
+                "set_auto_retry",
+                "set_auto_retry requires an exact boolean enabled",
+            )
+            return
+        try:
+            if not self._retry_port().set_enabled(enabled):
+                self._respond_error(
+                    cid,
+                    "set_auto_retry",
+                    "retry.enabled is overridden and cannot be changed by RPC",
+                )
+                return
+        except Exception:  # noqa: BLE001 - settings details can contain paths
+            self._respond_error(cid, "set_auto_retry", "could not update retry policy")
+            return
         self._respond(cid, "set_auto_retry")
+
+    def _retry_port(self) -> Any:
+        port = self._retry
+        if port is None:
+            raise RuntimeError("native RPC retry port is not ready")
+        return port
 
     def _configuration_port(self) -> Any:
         port = self._configuration

@@ -114,6 +114,96 @@ class _AbortCallbackSignal(Protocol):
     ) -> Callable[[], None]: ...
 
 
+class _RpcRetryLease:
+    """One exact retry-phase capability held by the canonical executor."""
+
+    __slots__ = ("_control", "_token")
+
+    def __init__(self, control: "RpcRetryControl", token: object) -> None:
+        self._control = control
+        self._token = token
+
+    def finish_retry_phase(self) -> bool:
+        """Retire this phase and report whether an RPC abort won."""
+
+        return self._control._retire(self._token)
+
+
+class RpcRetryControl:
+    """Private, once-bound RPC view over an ordinary executor retry phase.
+
+    It deliberately owns neither a cancellation latch nor an activity projection.
+    The composition root supplies the accepted operation's existing cancellation
+    path; this object only makes that path available for one exact retry phase.
+    """
+
+    __slots__ = ("_abort", "_active", "_condition", "_set_enabled")
+
+    def __init__(
+        self, abort: Callable[[], None], set_enabled: Callable[[bool], bool]
+    ) -> None:
+        if not callable(abort) or not callable(set_enabled):
+            raise TypeError("retry control callbacks must be callable")
+        self._abort = abort
+        self._set_enabled = set_enabled
+        # token, abort accepted, abort delivered. Retirement waits for delivery
+        # after an accepted abort so the callback cannot escape into successor
+        # work after the executor has returned its cancelled outcome.
+        self._active: tuple[object, bool, bool] | None = None
+        self._condition = threading.Condition()
+
+    def activate(self) -> _RpcRetryLease:
+        with self._condition:
+            if self._active is not None:
+                raise RuntimeError("RPC retry capability is already active")
+            token = object()
+            self._active = (token, False, False)
+            return _RpcRetryLease(self, token)
+
+    def abort_retry(self) -> bool:
+        """Request cancellation only while an exact retry phase is active."""
+
+        with self._condition:
+            active = self._active
+            if active is None:
+                return False
+            token, aborted, _delivered = active
+            if aborted:
+                return True
+            self._active = (token, True, False)
+        try:
+            # The queue/control abort view signals outside this control guard.
+            # It is the accepted turn's cancellation owner; this port never
+            # keeps a cancellation latch.
+            self._abort()
+        finally:
+            with self._condition:
+                active = self._active
+                if active is None or active[0] is not token:
+                    raise RuntimeError("RPC retry abort retired before delivery")
+                self._active = (token, True, True)
+                self._condition.notify_all()
+        return True
+
+    def set_enabled(self, enabled: bool) -> bool:
+        if type(enabled) is not bool:
+            raise TypeError("enabled must be an exact bool")
+        return self._set_enabled(enabled)
+
+    def _retire(self, token: object) -> bool:
+        with self._condition:
+            active = self._active
+            if active is None or active[0] is not token:
+                raise RuntimeError("RPC retry capability retired out of order")
+            while active[1] and not active[2]:
+                self._condition.wait()
+                active = self._active
+                if active is None or active[0] is not token:
+                    raise RuntimeError("RPC retry capability retired out of order")
+            self._active = None
+            return active[1]
+
+
 class _StartGatedProvider:
     """Start a callback-capable RPC provider after abort registration."""
 
@@ -351,6 +441,7 @@ class ProviderTurnExecutor:
         delta_policy: ProviderTurnDeltaPolicy = _DEFAULT_PROVIDER_TURN_DELTA_POLICY,
         retry_policy: ProviderManagedRetryPolicy | None = None,
         before_reissue: Callable[[], None] | None = None,
+        rpc_retry_control: RpcRetryControl | None = None,
     ) -> ProviderTurnOutcome:
         """Complete one turn synchronously or through the supplied wait policy."""
 
@@ -376,6 +467,7 @@ class ProviderTurnExecutor:
             raise TypeError("before_reissue must be callable or None")
         if retry_policy is not None and before_reissue is None:
             raise ValueError("before_reissue is required with retry_policy")
+        self._validate_rpc_retry_control(rpc_retry_control)
         if waiter is None:
             return self._complete_synchronously(
                 provider,
@@ -385,6 +477,7 @@ class ProviderTurnExecutor:
                 delta_policy,
                 retry_policy,
                 before_reissue,
+                rpc_retry_control,
             )
         return self._complete_interruptibly(
             provider,
@@ -395,7 +488,15 @@ class ProviderTurnExecutor:
             delta_policy,
             retry_policy,
             before_reissue,
+            rpc_retry_control,
         )
+
+    @staticmethod
+    def _validate_rpc_retry_control(control: RpcRetryControl | None) -> None:
+        if control is not None and type(control) is not RpcRetryControl:
+            raise TypeError(
+                "rpc_retry_control must be an exact RpcRetryControl or None"
+            )
 
     @staticmethod
     def _delta_sinks(
@@ -430,6 +531,7 @@ class ProviderTurnExecutor:
         delta_policy: ProviderTurnDeltaPolicy,
         retry_policy: ProviderManagedRetryPolicy | None,
         before_reissue: Callable[[], None] | None,
+        rpc_retry_control: RpcRetryControl | None,
     ) -> ProviderTurnOutcome:
         gate = _DeltaAdmissionGate(_ExecutionOrder())
         text_sink, reasoning_sink = self._delta_sinks(
@@ -517,6 +619,7 @@ class ProviderTurnExecutor:
         delta_policy: ProviderTurnDeltaPolicy,
         retry_policy: ProviderManagedRetryPolicy | None,
         before_reissue: Callable[[], None] | None,
+        rpc_retry_control: RpcRetryControl | None,
     ) -> ProviderTurnOutcome:
         order = _ExecutionOrder()
         cancel_token = CancelToken()
@@ -532,6 +635,7 @@ class ProviderTurnExecutor:
                 delta_policy,
                 retry_policy,
                 before_reissue,
+                rpc_retry_control,
                 order,
                 cancel_token,
                 cancel_event,
@@ -550,6 +654,7 @@ class ProviderTurnExecutor:
         delta_policy: ProviderTurnDeltaPolicy,
         retry_policy: ProviderManagedRetryPolicy | None,
         before_reissue: Callable[[], None] | None,
+        rpc_retry_control: RpcRetryControl | None,
         order: _ExecutionOrder,
         cancel_token: CancelToken,
         cancel_event: _OrderedCancellationEvent,
@@ -563,13 +668,30 @@ class ProviderTurnExecutor:
             event_sink, turn_index, delta_policy, gate
         )
 
-        def _emit_retry_event(event: RetryScheduled | RetryCompleted) -> None:
+        active_retry_lease: _RpcRetryLease | None = None
+
+        def _emit_retry_event(event: RetryScheduled | RetryCompleted) -> bool:
+            """Publish a retry event, retiring the exact RPC phase before end."""
+
+            nonlocal active_retry_lease
+            abort_won = False
+            if isinstance(event, RetryCompleted) and active_retry_lease is not None:
+                abort_won = active_retry_lease.finish_retry_phase()
+                active_retry_lease = None
+                if abort_won:
+                    event = RetryCompleted(
+                        event.attempt, False, _cancellation_failure()
+                    )
             try:
                 event_sink.emit(event)
             except BaseException:
+                if active_retry_lease is not None:
+                    active_retry_lease.finish_retry_phase()
+                    active_retry_lease = None
                 gate.close()
                 cancel_event.set()
                 raise
+            return abort_won
 
         prepared: list[PreparedProviderCompletion] = []
         attempt = 1
@@ -692,6 +814,8 @@ class ProviderTurnExecutor:
                 delay = retry_policy.delay_seconds(
                     ordinal, result, self._retry_jitter()
                 )
+                if rpc_retry_control is not None:
+                    active_retry_lease = rpc_retry_control.activate()
                 _emit_retry_event(
                     RetryScheduled(
                         ordinal,
@@ -711,9 +835,13 @@ class ProviderTurnExecutor:
                     timer.cancel()
                     gate.close()
                     cancel_event.set()
-                    _emit_retry_event(
+                    abort_won = _emit_retry_event(
                         RetryCompleted(ordinal, False, _failure_for_exception(exc))
                     )
+                    if abort_won:
+                        return ProviderTurnOutcome(
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        )
                     raise
                 timer.cancel()
                 if delay_interruption is not ProviderTurnInterruption.SETTLED:
@@ -737,9 +865,14 @@ class ProviderTurnExecutor:
                     assert before_reissue is not None
                     before_reissue()
                 except BaseException:
-                    _emit_retry_event(
+                    abort_won = _emit_retry_event(
                         RetryCompleted(ordinal, False, _admission_failure())
                     )
+                    if abort_won:
+                        gate.close()
+                        return ProviderTurnOutcome(
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        )
                     gate.close()
                     raise
                 if cancel_event.is_set():
@@ -753,9 +886,13 @@ class ProviderTurnExecutor:
                 try:
                     worker = _start_worker()
                 except BaseException as exc:
-                    _emit_retry_event(
+                    abort_won = _emit_retry_event(
                         RetryCompleted(ordinal, False, _failure_for_exception(exc))
                     )
+                    if abort_won:
+                        return ProviderTurnOutcome(
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        )
                     raise
                 try:
                     phase_interruption = waiter(done_event, cancel_event)
@@ -764,9 +901,13 @@ class ProviderTurnExecutor:
                     gate.close()
                     cancel_event.set()
                     worker.join(timeout=self._cancel_join_timeout_seconds)
-                    _emit_retry_event(
+                    abort_won = _emit_retry_event(
                         RetryCompleted(ordinal, False, _failure_for_exception(exc))
                     )
+                    if abort_won:
+                        return ProviderTurnOutcome(
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        )
                     raise
                 if phase_interruption is not ProviderTurnInterruption.SETTLED:
                     cancel_event.set()
@@ -779,14 +920,23 @@ class ProviderTurnExecutor:
                             )
                         except BaseException as exc:
                             gate.close()
-                            _emit_retry_event(
+                            abort_won = _emit_retry_event(
                                 RetryCompleted(ordinal, False, _exception_failure(exc))
                             )
+                            if abort_won:
+                                return ProviderTurnOutcome(
+                                    cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                                )
                             raise
                         if outcome.result is not None:
-                            _emit_retry_event(
+                            abort_won = _emit_retry_event(
                                 _retry_completed(ordinal, outcome.result, gate.observed)
                             )
+                            if abort_won:
+                                gate.close()
+                                return ProviderTurnOutcome(
+                                    cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                                )
                         else:
                             _emit_retry_event(
                                 RetryCompleted(ordinal, False, _cancellation_failure())
@@ -816,9 +966,13 @@ class ProviderTurnExecutor:
                     outcome = _completed_outcome(results, errors, provider_cancelled)
                 except BaseException as exc:
                     gate.close()
-                    _emit_retry_event(
+                    abort_won = _emit_retry_event(
                         RetryCompleted(ordinal, False, _exception_failure(exc))
                     )
+                    if abort_won:
+                        return ProviderTurnOutcome(
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        )
                     raise
                 if outcome.result is None:
                     _emit_retry_event(
@@ -827,7 +981,14 @@ class ProviderTurnExecutor:
                     gate.close()
                     return outcome
                 result = outcome.result
-                _emit_retry_event(_retry_completed(ordinal, result, gate.observed))
+                abort_won = _emit_retry_event(
+                    _retry_completed(ordinal, result, gate.observed)
+                )
+                if abort_won:
+                    gate.close()
+                    return ProviderTurnOutcome(
+                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                    )
             gate.close()
             return ProviderTurnOutcome(result=result)
         gate.close()

@@ -41,10 +41,10 @@ Recognized command names do not imply implemented behavior:
 - `compact` is an idle-only worker operation over the native semantic-compaction
   owner. It emits a paired compaction lifecycle and then its correlated result;
   `abort` cancels its claimed summary work. `set_auto_compaction` changes the
-  actual effective compaction setting. In the current build `set_auto_retry`
-  remains transport-only and `abort_retry` is a no-op. The selected D5d change
-  makes the former update effective `retry.enabled` with settings precedence and
-  makes the latter cancel only an exact active ordinary retry phase; see the
+  actual effective compaction setting. `set_auto_retry` changes effective
+  `retry.enabled` through the settings owner; it accepts only a JSON boolean and
+  refuses a conflicting CLI or environment override. `abort_retry` cancels only
+  an exact active ordinary retry phase and otherwise succeeds as a no-op; see the
   [D5d adoption contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
 - `new_session`, `switch_session`, `fork`, `clone`, and `export_html` return
   correlated not-yet-implemented errors.
@@ -116,5 +116,11 @@ tool result and its effects remain recorded if completion wins the race.
 Cancellation discards late success and suppresses new output after retirement,
 but cannot undo effects or synchronously stop an uncooperative extension tool.
 Idle abort remains harmless and the next accepted prompt can run normally.
+`abort_retry` is narrower: it affects only an active ordinary provider retry
+phase, including its backoff, reissue admission, and reissued provider work.
+It settles that accepted run through the normal cancellation lifecycle while
+preserving queued input. It cannot cancel a later run or private semantic and
+branch-summary retries. Its response may arrive before or after the asynchronous
+retry lifecycle event.
 The separate RPC `bash` / `abort_bash` command behavior is unchanged: direct bash
 still uses the command sandbox and is not externally cancellable.

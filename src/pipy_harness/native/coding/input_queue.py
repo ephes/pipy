@@ -228,6 +228,13 @@ class _NativeControlAbortView:
     def cancel(self) -> None:
         self._control.request_abort()
 
+    def cancel_claimed(self) -> None:
+        """Signal only the exact claimed operation, preserving queued input."""
+
+        latch = self._control._capture_claimed_latch()
+        if latch is not None:
+            latch.set()
+
     def is_set(self) -> bool:
         latch = self._control._capture_claimed_latch()
         return latch is not None and latch.is_set()

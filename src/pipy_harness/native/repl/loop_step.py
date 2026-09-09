@@ -425,6 +425,7 @@ class _ProviderTurnCompletion:
             waiter=waiter,
             retry_policy=retry_policy,
             before_reissue=before_reissue,
+            rpc_retry_control=scope.rpc_retry_control,
         )
 
     def _external_abort_turn(

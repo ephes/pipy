@@ -671,6 +671,33 @@ class SettingsManager:
             self.set_value("compaction.enabled", enabled, scope=scope)
             return self.capture_compaction_budget_settings().enabled == enabled
 
+    def set_auto_retry_enabled(self, enabled: bool) -> bool:
+        """Persist the effective retry toggle without defeating precedence.
+
+        An already prepared request owns its captured policy.  This method only
+        changes the policy observed by a later request capture.
+        """
+
+        if type(enabled) is not bool:
+            raise TypeError("enabled must be an exact bool")
+        with self._io_lock:
+            if self.get_retry_enabled() == enabled:
+                return True
+            override = self._overrides.get("retry")
+            if isinstance(override, dict) and "enabled" in override:
+                return False
+            project = self.raw_scope(SCOPE_PROJECT).get("retry")
+            scope = (
+                SCOPE_PROJECT
+                if self.project_trusted
+                and self.project_path is not None
+                and isinstance(project, dict)
+                and "enabled" in project
+                else SCOPE_GLOBAL
+            )
+            self.set_value("retry.enabled", enabled, scope=scope)
+            return self.get_retry_enabled() == enabled
+
     # --- typed accessors ---------------------------------------------------
 
     def _get(self, key: str) -> Any:

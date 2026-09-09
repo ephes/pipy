@@ -137,6 +137,7 @@ class _NativeControlReady:
     readiness_port: _ControllerReadinessPort
     configuration_port: object
     compaction_port: object
+    retry_port: object
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +278,7 @@ class _NativeSessionControlBridge:
         readiness_port: _ControllerReadinessPort,
         configuration_port: object,
         compaction_port: object,
+        retry_port: object,
     ) -> None:
         if type(control) is not _NativeSessionControl:
             raise TypeError("control must be a _NativeSessionControl")
@@ -292,9 +294,16 @@ class _NativeSessionControlBridge:
             raise TypeError("configuration_port must not be None")
         if compaction_port is None:
             raise TypeError("compaction_port must not be None")
+        if retry_port is None:
+            raise TypeError("retry_port must not be None")
         self._publish(
             _NativeControlReady(
-                control, abort_view, readiness_port, configuration_port, compaction_port
+                control,
+                abort_view,
+                readiness_port,
+                configuration_port,
+                compaction_port,
+                retry_port,
             )
         )
 
@@ -702,6 +711,7 @@ class CodingSessionController:
         "_input_queue",
         "_readiness_port",
         "_publish_ready",
+        "_retry_port",
     )
 
     def __init__(
@@ -729,6 +739,7 @@ class CodingSessionController:
         self._cleanup_failed_run: Callable[[BaseException], None] | None = None
         self._configuration_port: object | None = None
         self._compaction_port: object | None = None
+        self._retry_port: object | None = None
 
     @property
     def control(self) -> _NativeSessionControl:
@@ -755,12 +766,15 @@ class CodingSessionController:
                 raise RuntimeError("native RPC configuration port is not bound")
             if self._compaction_port is None:
                 raise RuntimeError("native RPC compaction port is not bound")
+            if self._retry_port is None:
+                raise RuntimeError("native RPC retry port is not bound")
             bridge.publish_ready(
                 self._control,
                 self._control.abort_view,
                 self._readiness_port,
                 self._configuration_port,
                 self._compaction_port,
+                self._retry_port,
             )
 
         self._publish_ready = publish_ready
@@ -785,6 +799,13 @@ class CodingSessionController:
         if self._compaction_port is not None:
             raise RuntimeError("native RPC compaction port is already bound")
         self._compaction_port = port
+
+    def bind_rpc_retry_port(self, port: object) -> None:
+        if port is None:
+            raise TypeError("native RPC retry port must not be None")
+        if self._retry_port is not None:
+            raise RuntimeError("native RPC retry port is already bound")
+        self._retry_port = port
 
     def run_loop(
         self,

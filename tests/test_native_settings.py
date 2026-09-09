@@ -821,6 +821,42 @@ def test_retry_policy_disabled_is_single_attempt(tmp_path: Path) -> None:
     assert retry_policy_from_settings(_manager(tmp_path)).max_attempts == 1
 
 
+def test_set_auto_retry_enabled_uses_effective_writable_scope(tmp_path: Path) -> None:
+    global_path = tmp_path / "global.json"
+    project_path = tmp_path / "project.json"
+    _write_json(global_path, {"retry": {"enabled": True}})
+    _write_json(project_path, {"retry": {"enabled": True}})
+    manager = SettingsManager(
+        global_path=global_path,
+        project_path=project_path,
+        project_trusted=True,
+        env={},
+    )
+
+    assert manager.set_auto_retry_enabled(False) is True
+    assert manager.get_retry_enabled() is False
+    assert '"enabled": false' in project_path.read_text(encoding="utf-8")
+    assert '"enabled": true' in global_path.read_text(encoding="utf-8")
+    before = project_path.read_text(encoding="utf-8")
+    assert manager.set_auto_retry_enabled(False) is True
+    assert project_path.read_text(encoding="utf-8") == before
+
+
+def test_set_auto_retry_enabled_refuses_effective_override(tmp_path: Path) -> None:
+    path = tmp_path / "global.json"
+    _write_json(path, {"retry": {"enabled": True}})
+    manager = SettingsManager(
+        global_path=path,
+        env={},
+        overrides={"retry": {"enabled": True}},
+    )
+    before = path.read_text(encoding="utf-8")
+    assert manager.set_auto_retry_enabled(False) is False
+    assert path.read_text(encoding="utf-8") == before
+    with pytest.raises(TypeError, match="exact bool"):
+        manager.set_auto_retry_enabled(1)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("invalid", [None, True, 1.5, "2"])
 def test_retry_provider_max_retries_invalid_value_inherits_global(
     tmp_path: Path, invalid: object

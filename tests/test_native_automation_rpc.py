@@ -47,7 +47,12 @@ from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.coding.session_controller import _NativeControlFailed
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.provider import (
+    PreparedProviderCompletion,
+    ProviderAttemptAllowance,
+    ProviderPort,
+    StreamChunkSink,
+)
 from pipy_harness.native.repl.provider_selection import (
     RpcConfigurationResult,
     RpcConfigurationSnapshot,
@@ -162,6 +167,63 @@ class _BlockingCompactionAutomationProvider:
             reasoning_sink=reasoning_sink,
             cancel_token=cancel_token,
         )
+
+
+class _RetryingAutomationProvider:
+    """Expose one transient first request, then a successful successor."""
+
+    name = "fixture"
+    model_id = "fixture-model"
+    supports_tool_calls = True
+
+    def __init__(self) -> None:
+        self.prepared = 0
+        self.attempts: list[tuple[int, int]] = []
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        del request
+        raise AssertionError("managed RPC retry must use the prepared capability")
+
+    def prepare_completion(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> PreparedProviderCompletion:
+        del stream_sink, reasoning_sink, cancel_token
+        self.prepared += 1
+        request_index = self.prepared
+        provider = self
+
+        class _Handle:
+            def complete_attempt(
+                self, allowance: ProviderAttemptAllowance
+            ) -> ProviderResult:
+                provider.attempts.append((request_index, allowance.attempt))
+                now = datetime.now(UTC)
+                if request_index == 1 and allowance.attempt == 1:
+                    return ProviderResult(
+                        status=HarnessStatus.FAILED,
+                        provider_name=provider.name,
+                        model_id=provider.model_id,
+                        started_at=now,
+                        ended_at=now,
+                        error_type="TransientError",
+                        error_message="retry later",
+                        metadata={"retryable": True, "progress": "none"},
+                    )
+                return ProviderResult(
+                    status=HarnessStatus.SUCCEEDED,
+                    provider_name=provider.name,
+                    model_id=provider.model_id,
+                    started_at=now,
+                    ended_at=now,
+                    final_text=f"done:{request.user_prompt}",
+                )
+
+        return _Handle()
 
 
 class _RecordingConfiguredProvider:
@@ -372,6 +434,102 @@ def test_cycle_thinking_level_refreshes_live_provider_binding(
             getattr(client.adapter._current_provider(), "reasoning_effort", None)
             == "minimal"
         )
+    finally:
+        client.close()
+
+
+def test_retry_commands_validate_and_use_the_native_control_port(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path)
+    try:
+        client.send({"id": "missing", "type": "set_auto_retry"})
+        missing = client.wait_for(
+            lambda record: (
+                record.get("type") == "response" and record.get("id") == "missing"
+            )
+        )
+        assert missing["success"] is False
+
+        client.send({"id": "integer", "type": "set_auto_retry", "enabled": 1})
+        integer = client.wait_for(
+            lambda record: (
+                record.get("type") == "response" and record.get("id") == "integer"
+            )
+        )
+        assert integer["success"] is False
+
+        client.send({"id": "enabled", "type": "set_auto_retry", "enabled": False})
+        enabled = client.wait_for(
+            lambda record: (
+                record.get("type") == "response" and record.get("id") == "enabled"
+            )
+        )
+        assert enabled["success"] is True
+
+        client.send({"id": "idle", "type": "abort_retry"})
+        idle = client.wait_for(
+            lambda record: (
+                record.get("type") == "response" and record.get("id") == "idle"
+            )
+        )
+        assert idle["success"] is True
+
+        def fail_retry_write(_enabled: bool) -> bool:
+            raise OSError("private settings path")
+
+        client._server._retry = SimpleNamespace(
+            abort_retry=lambda: False,
+            set_enabled=fail_retry_write,
+        )
+        client.send({"id": "write-failed", "type": "set_auto_retry", "enabled": True})
+        write_failed = client.wait_for(
+            lambda record: (
+                record.get("type") == "response" and record.get("id") == "write-failed"
+            )
+        )
+        assert write_failed["success"] is False
+        assert write_failed["error"] == "could not update retry policy"
+        assert "private settings path" not in str(write_failed)
+    finally:
+        client.close()
+
+
+def test_abort_retry_cancels_exact_rpc_backoff_and_next_prompt_runs(
+    tmp_path: Path,
+) -> None:
+    provider = _RetryingAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        client.send({"id": "first", "type": "prompt", "message": "first"})
+        records = client.collect_until(
+            lambda record: record.get("type") == "auto_retry_start"
+        )
+        client.send({"id": "steer", "type": "steer", "message": "second"})
+        records.extend(client.collect_until(lambda record: record.get("id") == "steer"))
+        client.send({"id": "abort-retry", "type": "abort_retry"})
+        records.extend(
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        )
+
+        abort_response = next(
+            record for record in records if record.get("id") == "abort-retry"
+        )
+        retry_end = next(
+            record for record in records if record.get("type") == "auto_retry_end"
+        )
+        assert abort_response["success"] is True
+        assert retry_end["success"] is False
+        assert any(
+            record.get("type") == "message_end"
+            and record["message"]["content"]
+            == [{"type": "text", "text": "done:second"}]
+            for record in records
+        )
+        assert provider.attempts == [(1, 1), (2, 1)]
+
+        client.send({"id": "late", "type": "abort_retry"})
+        assert client.wait_for(lambda record: record.get("id") == "late")["success"]
     finally:
         client.close()
 

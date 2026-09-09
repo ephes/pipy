@@ -32,6 +32,7 @@ from pipy_harness.native.agent import AgentFailure, AgentMessage
 from pipy_harness.native.agent.loop_policy import AgentToolPolicyState
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
+    RpcRetryControl,
     _AbortCallbackSignal,
 )
 from pipy_harness.native.agent_loop_policy import (
@@ -281,6 +282,7 @@ class ReplLoopScope:
     input_queued_input_port: NativeAgentQueuedInputPort | None
     provider_request_policy: NativeAgentProviderRequestPolicy
     provider_turn_executor: ProviderTurnExecutor
+    rpc_retry_control: RpcRetryControl | None
     usage_publisher: NativeAgentUsagePublisher
     extension_operations: SessionExtensionOperations
     diag: Callable[[str], None]

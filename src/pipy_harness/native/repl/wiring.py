@@ -27,6 +27,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
+    RpcRetryControl,
     _AbortCallbackSignal,
 )
 from pipy_harness.native.agent.runtime_ports import (
@@ -450,6 +451,7 @@ class _CollaboratorPhase:
     collaborators: SessionCollaborators
     provider_request_policy: NativeAgentProviderRequestPolicy
     agent_tool_policy: NativeAgentToolPolicy
+    rpc_retry_control: RpcRetryControl | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1317,6 +1319,7 @@ def _compose_collaborators(
         provider_turn_executor=extension.provider_turn_executor,
         abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
     )
+    rpc_retry_control: RpcRetryControl | None = None
     if _control_bridge(inputs) is not None:
         runtime.loop_controller.bind_rpc_configuration_port(
             provider_mutation.rpc_configuration_port(
@@ -1326,6 +1329,11 @@ def _compose_collaborators(
         runtime.loop_controller.bind_rpc_compaction_port(
             provider_mutation.rpc_compaction_port()
         )
+        rpc_retry_control = RpcRetryControl(
+            runtime.loop_controller.control.abort_view.cancel_claimed,
+            settings.set_auto_retry_enabled,
+        )
+        runtime.loop_controller.bind_rpc_retry_port(rpc_retry_control)
 
     # The residual run-loop collaborators (diagnostics, session-name setters,
     # session-dir/resolution, tree rebuild, branch summarization, the extension
@@ -1390,6 +1398,7 @@ def _compose_collaborators(
         collaborators=collaborators,
         provider_request_policy=provider_request_policy,
         agent_tool_policy=agent_tool_policy,
+        rpc_retry_control=rpc_retry_control,
     )
 
 
@@ -1478,6 +1487,7 @@ def _assemble_session_wiring(
     collaborators = collaborators_phase.collaborators
     provider_request_policy = collaborators_phase.provider_request_policy
     agent_tool_policy = collaborators_phase.agent_tool_policy
+    rpc_retry_control = collaborators_phase.rpc_retry_control
     ctl = product.ctl
     renderer = product.renderer
     started_at = product.started_at
@@ -1564,6 +1574,7 @@ def _assemble_session_wiring(
         ),
         provider_request_policy=provider_request_policy,
         provider_turn_executor=provider_turn_executor,
+        rpc_retry_control=rpc_retry_control,
         usage_publisher=usage_publisher,
         extension_operations=extension_operations,
         diag=collaborators.diag,

@@ -130,7 +130,7 @@ settings layers as other preferences and is not discovered provider capability.
 
 | Setting | Type | Notes |
 | --- | --- | --- |
-| `retry.enabled` | boolean | Enable agent/provider retry policy. |
+| `retry.enabled` | boolean | Enable agent/provider retry policy. RPC `set_auto_retry` accepts only an exact boolean, writes this effective setting through the trusted settings owner, and refuses a conflicting CLI or environment override. |
 | `retry.maxRetries` | number | Global maximum retry count (default 3); bounded OpenAI-Codex retries occur only before the first provider event. |
 | `retry.baseDelayMs` | number | Initial exponential retry delay in milliseconds (default 2000). |
 | `retry.provider.timeoutMs` | number | OpenAI-Codex idle-timeout override in milliseconds; inherits `httpIdleTimeoutMs`; `0` disables. |

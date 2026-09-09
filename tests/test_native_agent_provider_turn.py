@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -16,13 +16,17 @@ from pipy_harness.native.agent.events import (
     AgentEvent,
     AssistantReasoningDelta,
     AssistantTextDelta,
+    RetryCompleted,
+    RetryScheduled,
 )
+from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnDeltaPolicy,
     ProviderTurnExecutor,
     ProviderTurnInterruption,
     ProviderTurnOutcome,
     ProviderTurnWaiter,
+    RpcRetryControl,
     _StartGatedProvider,
     _wait_for_external_abort,
 )
@@ -134,9 +138,14 @@ class _PreparedFixtureProvider:
         return _result()
 
     def prepare_completion(
-        self, request: ProviderRequest, **_kwargs: object
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> PreparedProviderCompletion:
-        del request
+        del request, stream_sink, reasoning_sink, cancel_token
         self.prepared += 1
         provider = self
 
@@ -820,3 +829,146 @@ def test_waiter_failures_cancel_and_reap_provider(tmp_path: Path, failure: str) 
 
     assert provider.cancelled.wait(timeout=2)
     assert provider.finished.wait(timeout=2)
+
+
+def test_rpc_retry_control_is_exact_and_late_abort_is_harmless() -> None:
+    calls: list[str] = []
+    control = RpcRetryControl(lambda: calls.append("abort"), lambda _enabled: True)
+
+    assert control.abort_retry() is False
+    lease = control.activate()
+    assert control.abort_retry() is True
+    assert calls == ["abort"]
+    assert lease.finish_retry_phase() is True
+    assert control.abort_retry() is False
+
+    fixed = control.activate()
+    assert fixed.finish_retry_phase() is False
+    assert control.abort_retry() is False
+    assert calls == ["abort"]
+
+
+def test_rpc_retry_control_delivers_abort_before_retirement() -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    retired = threading.Event()
+    order: list[str] = []
+
+    def abort() -> None:
+        entered.set()
+        assert release.wait(timeout=2)
+        order.append("abort-delivered")
+
+    control = RpcRetryControl(abort, lambda _enabled: True)
+    lease = control.activate()
+    abort_result: list[bool] = []
+    retire_result: list[bool] = []
+    abort_thread = threading.Thread(
+        target=lambda: abort_result.append(control.abort_retry())
+    )
+
+    def retire() -> None:
+        retire_result.append(lease.finish_retry_phase())
+        order.append("retired")
+        retired.set()
+
+    retire_thread = threading.Thread(target=retire)
+    abort_thread.start()
+    assert entered.wait(timeout=2)
+    retire_thread.start()
+    assert not retired.wait(timeout=0.05)
+    release.set()
+    abort_thread.join(timeout=2)
+    retire_thread.join(timeout=2)
+
+    assert not abort_thread.is_alive()
+    assert not retire_thread.is_alive()
+    assert abort_result == [True]
+    assert retire_result == [True]
+    assert order == ["abort-delivered", "retired"]
+    assert control.abort_retry() is False
+
+
+def test_rpc_retry_abort_wins_during_backoff_and_prevents_reissue(
+    tmp_path: Path,
+) -> None:
+    class RetryingPreparedProvider(_PreparedFixtureProvider):
+        def prepare_completion(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: StreamChunkSink | None = None,
+            reasoning_sink: StreamChunkSink | None = None,
+            cancel_token: CancelToken | None = None,
+        ) -> PreparedProviderCompletion:
+            del request, stream_sink, reasoning_sink, cancel_token
+            self.prepared += 1
+            provider = self
+
+            class _Handle:
+                def complete_attempt(
+                    self, allowance: ProviderAttemptAllowance
+                ) -> ProviderResult:
+                    provider.completed += 1
+                    if allowance.attempt == 1:
+                        return replace(
+                            _result(),
+                            status=HarnessStatus.FAILED,
+                            final_text=None,
+                            usage=None,
+                            error_type="TransientError",
+                            error_message="try later",
+                            metadata={"retryable": True, "progress": "none"},
+                        )
+                    return _result()
+
+            return _Handle()
+
+    cancellation: list[threading.Event] = []
+
+    def waiter(
+        done_event: threading.Event, cancel_event: threading.Event
+    ) -> ProviderTurnInterruption:
+        cancellation[:] = [cancel_event]
+        while True:
+            if cancel_event.wait(0.001):
+                return ProviderTurnInterruption.OPERATOR_ABORT
+            if done_event.is_set():
+                return ProviderTurnInterruption.SETTLED
+
+    control = RpcRetryControl(lambda: cancellation[0].set(), lambda _enabled: True)
+
+    class AbortOnScheduleSink(_CollectingSink):
+        def emit(self, event: AgentEvent) -> None:
+            super().emit(event)
+            if isinstance(event, RetryScheduled):
+                assert control.abort_retry() is True
+
+    provider = RetryingPreparedProvider()
+    sink = AbortOnScheduleSink()
+    outcome = ProviderTurnExecutor().complete(
+        provider,
+        _request(tmp_path),
+        sink,
+        turn_index=0,
+        waiter=waiter,
+        retry_policy=ProviderManagedRetryPolicy(
+            max_attempts=2,
+            initial_delay_seconds=1,
+            max_delay_seconds=1,
+        ),
+        before_reissue=lambda: None,
+        rpc_retry_control=control,
+    )
+
+    assert outcome.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
+    assert provider.prepared == 1
+    assert provider.completed == 1
+    retries = [
+        event
+        for event in sink.events
+        if isinstance(event, RetryScheduled | RetryCompleted)
+    ]
+    assert [type(event) for event in retries] == [RetryScheduled, RetryCompleted]
+    assert isinstance(retries[1], RetryCompleted) and not retries[1].succeeded
+    assert control.abort_retry() is False
