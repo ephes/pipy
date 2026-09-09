@@ -31,6 +31,7 @@ from typing import Any, BinaryIO, TextIO
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
 from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.automation.jsonl import (
     JsonlLineBuffer,
     JsonlWriter,
@@ -51,6 +52,7 @@ from pipy_harness.native.command_sandbox import (
 # Sentinel distinguishing "omit the response data field" from an explicit
 # ``data: null`` (Pi's `... | null` data contract, e.g. cycle_model).
 _OMIT: Any = object()
+_MISSING_COMPACTION_CORRELATION: Any = object()
 
 
 def _dumps(value: Any) -> str:
@@ -218,9 +220,10 @@ class NativeRpcServer:
         self._steering_mode = "all"
         self._follow_up_mode = "all"
         self._last_assistant_text: str | None = None
-        self._auto_compaction = True
         self._auto_retry = True
         self._configuration: Any | None = None
+        self._compaction: Any | None = None
+        self._compact_ids: dict[object, str | None] = {}
         self._bash_in_flight = 0
         self._bash_threads: list[threading.Thread] = []
         self._worker: threading.Thread | None = None
@@ -278,6 +281,8 @@ class NativeRpcServer:
                 return 1
             outcome.readiness_port.bind(self._publish_true_idle)
             self._configuration = outcome.configuration_port
+            self._compaction = outcome.compaction_port
+            self._bridge.bind_manual_compaction_handler(self._run_manual_compaction)
             ready = True
             self._read_loop()
         finally:
@@ -425,6 +430,11 @@ class NativeRpcServer:
             }
         )
 
+    @staticmethod
+    def _manual_compaction_active(snapshot: _NativeControlSnapshot) -> bool:
+        reservation = snapshot.reservation
+        return reservation is not None and reservation.manual_compaction is not None
+
     def _publish_true_idle(self) -> None:
         self._bridge.publish_if_true_idle(
             lambda: self._writer.write_line({"type": "agent_settled"})
@@ -441,7 +451,7 @@ class NativeRpcServer:
             steer_active=command.get("streamingBehavior") == "steer",
         )
         self._respond(cid, "prompt")
-        if snapshot.pending_count:
+        if snapshot.pending_count and not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
             self._channel.wake()
@@ -453,7 +463,8 @@ class NativeRpcServer:
             return
         snapshot = self._bridge.admit_steering(ProductContent(message))
         self._respond(cid, "steer")
-        self._emit_queue_update(snapshot)
+        if not self._manual_compaction_active(snapshot):
+            self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
             self._channel.wake()
 
@@ -466,7 +477,8 @@ class NativeRpcServer:
             return
         snapshot = self._bridge.admit_follow_up(ProductContent(message))
         self._respond(cid, "follow_up")
-        self._emit_queue_update(snapshot)
+        if not self._manual_compaction_active(snapshot):
+            self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
             self._channel.wake()
 
@@ -520,8 +532,140 @@ class NativeRpcServer:
     def _cmd_set_auto_compaction(
         self, cid: str | None, command: dict[str, Any]
     ) -> None:
-        self._auto_compaction = bool(command.get("enabled"))
+        enabled = command.get("enabled")
+        if type(enabled) is not bool:
+            self._respond_error(cid, "set_auto_compaction", "enabled must be a boolean")
+            return
+        try:
+            port = self._compaction_port()
+            if not port.set_auto_compaction_enabled(enabled):
+                self._respond_error(
+                    cid,
+                    "set_auto_compaction",
+                    "effective compaction policy is overridden",
+                )
+                return
+        except Exception:  # noqa: BLE001 - settings details can contain paths
+            self._respond_error(
+                cid, "set_auto_compaction", "could not update compaction policy"
+            )
+            return
         self._respond(cid, "set_auto_compaction")
+
+    def _compaction_port(self) -> Any:
+        if self._compaction is None:
+            raise RuntimeError("native RPC compaction port is not ready")
+        return self._compaction
+
+    @staticmethod
+    def _compaction_result(result: Any) -> dict[str, Any]:
+        return {
+            "summary": result.summary,
+            "firstKeptEntryId": result.first_kept_entry_id,
+            "tokensBefore": result.tokens_before,
+            "details": {
+                "droppedGroupCount": result.dropped_group_count,
+                "droppedMessageCount": result.dropped_message_count,
+            },
+        }
+
+    def _cmd_compact(self, cid: str | None, command: dict[str, Any]) -> None:
+        raw = command.get("customInstructions")
+        if raw is not None and type(raw) is not str:
+            self._respond_error(cid, "compact", "customInstructions must be a string")
+            return
+        custom = None if raw is None else ProductContent(raw)
+        snapshot = self._bridge.admit_manual_compaction(custom)
+        if snapshot is None or snapshot.reservation is None:
+            self._respond_error(cid, "compact", "session is not idle")
+            return
+        with self._lock:
+            self._compact_ids[snapshot.reservation.token] = cid
+        self._channel.wake()
+
+    def _run_manual_compaction(  # noqa: C901 - exact terminal projection matrix
+        self, claim: Any, custom: ProductContent | None
+    ) -> Any:
+        """Run on the native worker; return its under-gate publication callback."""
+
+        with self._lock:
+            cid = self._compact_ids.pop(claim.token, _MISSING_COMPACTION_CORRELATION)
+        if cid is _MISSING_COMPACTION_CORRELATION:
+            raise RuntimeError("native manual compaction correlation is missing")
+        self._writer.write_line({"type": "compaction_start", "reason": "manual"})
+        if claim.is_aborted:
+            # The latch belongs to this accepted reservation.  Do not enter
+            # semantic hooks or construct a private provider request when the
+            # operator won the race before the worker claimed it.
+            from pipy_harness.native.coding.compaction import CodingCompactionOutcome
+
+            outcome = CodingCompactionOutcome(
+                "pipy: compaction cancelled.", AgentCancellationReason.OPERATOR_ABORT
+            )
+        else:
+            try:
+                outcome = self._compaction_port().compact(custom)
+            except Exception:  # noqa: BLE001 - terminal command still propagates; RPC projects it
+                outcome = None
+
+        def publish(snapshot: Any) -> None:
+            if outcome is None:
+                self._writer.write_line(
+                    {
+                        "type": "compaction_end",
+                        "reason": "manual",
+                        "result": None,
+                        "aborted": False,
+                        "willRetry": False,
+                        "errorMessage": "Compaction failed",
+                    }
+                )
+                self._respond_error(cid, "compact", "compaction failed")
+            elif outcome.cancellation_reason is not None:
+                self._writer.write_line(
+                    {
+                        "type": "compaction_end",
+                        "reason": "manual",
+                        "result": None,
+                        "aborted": True,
+                        "willRetry": False,
+                    }
+                )
+                self._respond_error(cid, "compact", "compaction cancelled")
+            elif outcome.result is None:
+                self._writer.write_line(
+                    {
+                        "type": "compaction_end",
+                        "reason": "manual",
+                        "result": None,
+                        "aborted": False,
+                        "willRetry": False,
+                        "errorMessage": "Compaction refused",
+                    }
+                )
+                self._respond_error(cid, "compact", "compaction refused")
+            else:
+                result = self._compaction_result(outcome.result)
+                end: dict[str, Any] = {
+                    "type": "compaction_end",
+                    "reason": "manual",
+                    "result": result,
+                    "aborted": False,
+                    "willRetry": False,
+                }
+                if outcome.persistence_failed:
+                    end["errorMessage"] = (
+                        "Compaction accepted but durable persistence failed"
+                    )
+                self._writer.write_line(end)
+                if outcome.persistence_failed:
+                    self._respond_error(cid, "compact", "compaction persistence failed")
+                else:
+                    self._respond(cid, "compact", result)
+            if snapshot.reservation is not None:
+                self._emit_queue_update(snapshot)
+
+        return publish
 
     def _cmd_set_auto_retry(self, cid: str | None, command: dict[str, Any]) -> None:
         self._auto_retry = bool(command.get("enabled"))
@@ -645,7 +789,13 @@ class NativeRpcServer:
         configuration = self._configuration_port().snapshot()
         messages = self._messages()
         snapshot = self._bridge.snapshot()
-        streaming = snapshot.reservation is not None
+        # A private compaction owns the native active slot so that it has the
+        # same admission and cancellation semantics as a run, but it is not an
+        # agent stream.  Keep that distinction visible to RPC consumers.
+        streaming = (
+            snapshot.reservation is not None
+            and snapshot.reservation.manual_compaction is None
+        )
         pending = snapshot.pending_count
         steering_mode = self._steering_mode
         follow_up_mode = self._follow_up_mode
@@ -657,13 +807,17 @@ class NativeRpcServer:
                 "model": self._model(configuration.selection),
                 "thinkingLevel": configuration.thinking_level,
                 "isStreaming": streaming,
-                "isCompacting": False,
+                "isCompacting": self._compaction_port().is_compacting()
+                or bool(
+                    snapshot.reservation is not None
+                    and snapshot.reservation.manual_compaction is not None
+                ),
                 "steeringMode": steering_mode,
                 "followUpMode": follow_up_mode,
                 "sessionFile": str(tree_path) if tree_path else None,
                 "sessionId": self._tree.session_id,
                 "sessionName": self._tree.name,
-                "autoCompactionEnabled": self._auto_compaction,
+                "autoCompactionEnabled": self._compaction_port().auto_compaction_enabled(),
                 "messageCount": len(messages),
                 "pendingMessageCount": pending,
             },

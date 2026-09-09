@@ -19,7 +19,8 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Never
+from types import SimpleNamespace
+from typing import Any, Never, cast
 
 import pytest
 
@@ -111,6 +112,58 @@ class _BlockingFirstAutomationProvider:
         )
 
 
+class _BlockingCompactionAutomationProvider:
+    """Pause only the private no-tool summary request until abort reaches it."""
+
+    def __init__(self) -> None:
+        self._delegate = AutomationFakeProvider()
+        self._block_summaries = False
+        self._fail_summaries = False
+        self.summary_entered = threading.Event()
+        self.release_summary = threading.Event()
+
+    @property
+    def name(self) -> str:
+        return self._delegate.name
+
+    @property
+    def model_id(self) -> str:
+        return self._delegate.model_id
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return self._delegate.supports_tool_calls
+
+    def block_summaries(self) -> None:
+        self._block_summaries = True
+
+    def fail_summaries(self) -> None:
+        self._fail_summaries = True
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        if self._fail_summaries and not request.available_tools:
+            raise RuntimeError("private summary failed")
+        if self._block_summaries and not request.available_tools:
+            self.summary_entered.set()
+            assert cancel_token is not None
+            while not cancel_token.cancelled and not self.release_summary.wait(0.005):
+                time.sleep(0.005)
+            cancel_token.raise_if_cancelled()
+        return self._delegate.complete(
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
+
+
 class _RecordingConfiguredProvider:
     """Construction seam proving the live coding binding serves the next turn."""
 
@@ -160,6 +213,7 @@ class _RpcClient:
         provider: ProviderPort | None = None,
         provider_state: NativeReplProviderState | None = None,
         tools: dict[str, ToolPort] | None = None,
+        persist_tree: bool = False,
     ) -> None:
         self._cwd = tmp_path
         stdin_r, self._stdin_w = os.pipe()
@@ -186,7 +240,7 @@ class _RpcClient:
             agent_event_sink=self.canonical,
         )
         self.adapter = adapter
-        tree = NativeSessionTree.create(tmp_path, persist=False)
+        tree = NativeSessionTree.create(tmp_path, persist=persist_tree)
         self.tree = tree
         self._server = NativeRpcServer(
             adapter=adapter,
@@ -197,6 +251,7 @@ class _RpcClient:
             error_stream=self._error_stream,
         )
         self._records: "queue.Queue[dict]" = queue.Queue()
+        self._seen: list[dict] = []
         self._reader = threading.Thread(target=self._read_stdout, daemon=True)
         self._server_thread = threading.Thread(target=self._server.run, daemon=True)
         self._reader.start()
@@ -226,8 +281,6 @@ class _RpcClient:
             if predicate(record):
                 return record
         raise AssertionError(f"timed out; saw {self._seen}")
-
-    _seen: list = []
 
     def collect_until(self, predicate, timeout: float = 5.0) -> list[dict]:
         records: list[dict] = []
@@ -413,6 +466,22 @@ def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:
     assert not any(t == "agent_settled" for t in types[: agent_end_indices[1]])
 
 
+def test_eof_drains_an_admitted_manual_compaction(tmp_path: Path) -> None:
+    client = _RpcClient(tmp_path)
+    client._seen = []
+    for index in range(4):
+        client.send({"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"})
+        client.collect_until(lambda record: record.get("type") == "agent_settled")
+    client.send({"id": "compact", "type": "compact"})
+    assert client.close() == 0
+    records: list[dict] = []
+    while not client._records.empty():
+        records.append(client._records.get())
+    assert any(record.get("type") == "compaction_end" for record in records)
+    response = next(record for record in records if record.get("id") == "compact")
+    assert response["success"] is True
+
+
 def test_agent_settled_emitted_after_idle(client) -> None:
     client.send({"id": "r1", "type": "prompt", "message": "ROOT"})
     records = client.collect_until(lambda r: r.get("type") == "agent_settled")
@@ -587,6 +656,372 @@ def test_get_state_and_get_messages(client) -> None:
     msgs = client.wait_for(lambda r: r.get("id") == "m")
     roles = [m["role"] for m in msgs["data"]["messages"]]
     assert "user" in roles and "assistant" in roles
+
+
+def test_manual_compact_uses_native_worker_and_correlates_after_end(client) -> None:
+    for index in range(4):
+        client.send({"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"})
+        client.collect_until(lambda record: record.get("type") == "agent_settled")
+
+    client.send(
+        {"id": "compact", "type": "compact", "customInstructions": "keep the task"}
+    )
+    records = client.collect_until(lambda record: record.get("id") == "compact")
+    types = [record["type"] for record in records]
+    start = types.index("compaction_start")
+    end = types.index("compaction_end")
+    assert start < end < len(records) - 1
+    response = records[-1]
+    assert response["success"] is True
+    assert response["data"]["summary"]
+    assert response["data"]["firstKeptEntryId"] is None
+    assert not any(record.get("type") == "agent_start" for record in records[start:])
+
+
+def test_manual_compact_persists_exact_origin_and_reopens(tmp_path: Path) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        for index in range(4):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        client.send({"id": "compact", "type": "compact"})
+        response = client.collect_until(lambda record: record.get("id") == "compact")[
+            -1
+        ]
+        assert response["success"] is True
+        origin = response["data"]["firstKeptEntryId"]
+        assert isinstance(origin, str) and origin
+        tree_path = client.tree.path
+        assert tree_path is not None
+        reopened = NativeSessionTree.open(tree_path).build_coding_context()
+        assert reopened.prior_summary == response["data"]["summary"]
+        assert origin in reopened.entry_ids
+    finally:
+        client.close()
+
+
+def test_manual_compact_projects_accepted_persistence_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = NativeSessionTree.append_compaction
+
+    def fail_append(self: NativeSessionTree, **_kwargs: object) -> str:
+        raise OSError("durable append failed")
+
+    monkeypatch.setattr(NativeSessionTree, "append_compaction", fail_append)
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        for index in range(4):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        client.send({"id": "compact", "type": "compact"})
+        records = client.collect_until(lambda record: record.get("id") == "compact")
+        end = next(
+            record for record in records if record.get("type") == "compaction_end"
+        )
+        response = records[-1]
+        assert end["result"] is not None
+        assert (
+            end["errorMessage"] == "Compaction accepted but durable persistence failed"
+        )
+        assert response["success"] is False
+        assert response["error"] == "compaction persistence failed"
+        compaction_port = client._server._compaction
+        assert compaction_port is not None
+        assert cast(Any, compaction_port)._effects.coding_state.compaction_count == 1
+    finally:
+        monkeypatch.setattr(NativeSessionTree, "append_compaction", original)
+        client.close()
+
+
+def test_manual_compact_refuses_busy_without_lifecycle_events(tmp_path: Path) -> None:
+    provider = _BlockingFirstAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        client.send({"id": "prompt", "type": "prompt", "message": "ROOT"})
+        client.wait_for(lambda record: record.get("type") == "agent_start")
+        client.send({"id": "compact", "type": "compact"})
+        records = client.collect_until(lambda record: record.get("id") == "compact")
+        assert records[-1]["success"] is False
+        assert records[-1]["error"] == "session is not idle"
+        assert not any(
+            record.get("type") in {"compaction_start", "compaction_end"}
+            for record in records
+        )
+        provider.release()
+        client.collect_until(lambda record: record.get("type") == "agent_end")
+    finally:
+        client.close()
+
+
+def test_preclaimed_abort_skips_manual_compaction_owner(tmp_path: Path) -> None:
+    client = _RpcClient(tmp_path)
+    called = False
+    token = object()
+
+    def compact(_custom: ProductContent | None) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("aborted work must not enter semantic compaction")
+
+    try:
+        client._server._compaction = SimpleNamespace(compact=compact)
+        client._server._compact_ids[token] = "compact"
+        claim = SimpleNamespace(token=token, is_aborted=True)
+        publish = client._server._run_manual_compaction(claim, None)
+        publish(SimpleNamespace(reservation=None))
+        response = client.wait_for(lambda record: record.get("id") == "compact")
+        assert called is False
+        assert response["success"] is False
+        assert response["error"] == "compaction cancelled"
+    finally:
+        client.close()
+
+
+def test_rpc_auto_compaction_requires_exact_bool_and_projects_effective_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    client = _RpcClient(tmp_path)
+    try:
+        client.send({"id": "off", "type": "set_auto_compaction", "enabled": False})
+        assert client.wait_for(lambda record: record.get("id") == "off")["success"]
+        client.send({"id": "state", "type": "get_state"})
+        assert (
+            client.wait_for(lambda record: record.get("id") == "state")["data"][
+                "autoCompactionEnabled"
+            ]
+            is False
+        )
+        client.send({"id": "invalid", "type": "set_auto_compaction", "enabled": 1})
+        invalid = client.wait_for(lambda record: record.get("id") == "invalid")
+        assert invalid["success"] is False
+        assert invalid["error"] == "enabled must be a boolean"
+    finally:
+        client.close()
+
+
+def test_manual_compact_abort_cancels_private_summary_and_projects_state(
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingCompactionAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        for index in range(4):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        provider.block_summaries()
+        client.send({"id": "compact", "type": "compact"})
+        assert provider.summary_entered.wait(timeout=5)
+        client.send({"id": "state", "type": "get_state"})
+        state = client.wait_for(lambda record: record.get("id") == "state")
+        assert state["data"]["isCompacting"] is True
+        assert state["data"]["isStreaming"] is False
+
+        client.send({"id": "abort", "type": "abort"})
+        records = client.collect_until(lambda record: record.get("id") == "compact")
+        end = next(
+            record for record in records if record.get("type") == "compaction_end"
+        )
+        response = records[-1]
+        assert end["aborted"] is True
+        assert end["willRetry"] is False
+        assert response["success"] is False
+        assert response["error"] == "compaction cancelled"
+    finally:
+        client.close()
+
+
+def test_second_manual_compact_refuses_while_first_is_active(tmp_path: Path) -> None:
+    provider = _BlockingCompactionAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        for index in range(4):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        provider.block_summaries()
+        client.send({"id": "first", "type": "compact"})
+        assert provider.summary_entered.wait(timeout=5)
+        client.send({"id": "second", "type": "compact"})
+        second = client.wait_for(lambda record: record.get("id") == "second")
+        assert second["success"] is False
+        assert second["error"] == "session is not idle"
+        client.send({"id": "abort", "type": "abort"})
+        records = client.collect_until(lambda record: record.get("id") == "first")
+        all_records = [*client._seen, *records]
+        assert (
+            sum(record.get("type") == "compaction_start" for record in all_records) == 1
+        )
+        assert (
+            sum(record.get("type") == "compaction_end" for record in all_records) == 1
+        )
+    finally:
+        client.close()
+
+
+def test_manual_compact_settlement_projects_successor_before_direct_promotion(
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingCompactionAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        for index in range(4):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        provider.block_summaries()
+        client.send({"id": "compact", "type": "compact"})
+        assert provider.summary_entered.wait(timeout=5)
+        client.send({"id": "next", "type": "prompt", "message": "NEXT"})
+        assert client.wait_for(lambda record: record.get("id") == "next")["success"]
+        provider.release_summary.set()
+        records = client.collect_until(
+            lambda record: record.get("type") == "agent_start"
+        )
+        types = [record.get("type") for record in records]
+        end_index = types.index("compaction_end")
+        compact_response_index = next(
+            index
+            for index, record in enumerate(records)
+            if record.get("id") == "compact"
+        )
+        queue_index = types.index("queue_update")
+        promoted_start = len(records) - 1
+        assert end_index < compact_response_index < queue_index < promoted_start
+    finally:
+        client.close()
+
+
+def test_automatic_threshold_compaction_projects_balanced_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(loop_step_module, "AGENT_HISTORY_MAX_MESSAGES", 3)
+    client = _RpcClient(tmp_path)
+    try:
+        seen: list[dict] = []
+        for index in range(4):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            seen.extend(
+                client.collect_until(
+                    lambda record: record.get("type") == "agent_settled"
+                )
+            )
+        starts = [record for record in seen if record.get("type") == "compaction_start"]
+        ends = [record for record in seen if record.get("type") == "compaction_end"]
+        assert starts and len(starts) == len(ends)
+        assert all(record["reason"] == "threshold" for record in starts + ends)
+        assert all(record["willRetry"] is False for record in ends)
+        assert all(record["result"] is None for record in ends)
+        assert "SEEN:Provide" not in json.dumps(seen)
+    finally:
+        client.close()
+
+
+def test_automatic_compaction_reports_streaming_and_compacting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(loop_step_module, "AGENT_HISTORY_MAX_MESSAGES", 3)
+    provider = _BlockingCompactionAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        for index in range(3):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        provider.block_summaries()
+        client.send({"id": "active", "type": "prompt", "message": "NEXT"})
+        assert provider.summary_entered.wait(timeout=5)
+        client.send({"id": "state", "type": "get_state"})
+        state = client.wait_for(lambda record: record.get("id") == "state")
+        assert state["data"]["isStreaming"] is True
+        assert state["data"]["isCompacting"] is True
+        client.send({"id": "abort", "type": "abort"})
+        client.collect_until(lambda record: record.get("type") == "agent_end")
+    finally:
+        client.close()
+
+
+def test_automatic_compaction_failure_projects_bounded_end_and_clears_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(loop_step_module, "AGENT_HISTORY_MAX_MESSAGES", 3)
+    provider = _BlockingCompactionAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        for index in range(3):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        provider.fail_summaries()
+        client.send({"id": "active", "type": "prompt", "message": "NEXT"})
+        records = client.collect_until(
+            lambda record: record.get("type") == "agent_settled"
+        )
+        end = next(
+            record for record in records if record.get("type") == "compaction_end"
+        )
+        assert end["result"] is None
+        assert end["errorMessage"] == "Compaction failed"
+        client.send({"id": "state", "type": "get_state"})
+        state = client.wait_for(lambda record: record.get("id") == "state")
+        assert state["data"]["isCompacting"] is False
+    finally:
+        client.close()
+
+
+def test_automatic_persistence_failure_projects_private_accepted_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(loop_step_module, "AGENT_HISTORY_MAX_MESSAGES", 3)
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        for index in range(3):
+            client.send(
+                {"id": f"p{index}", "type": "prompt", "message": f"ROOT-{index}"}
+            )
+            client.collect_until(lambda record: record.get("type") == "agent_settled")
+        compaction_port = client._server._compaction
+        assert compaction_port is not None
+        effects = cast(Any, compaction_port)._effects
+        before_count = effects.coding_state.compaction_count
+
+        monkeypatch.setattr(
+            NativeSessionTree,
+            "append_compaction",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                OSError("durable append failed")
+            ),
+        )
+        client.send({"id": "active", "type": "prompt", "message": "NEXT"})
+        records = client.collect_until(
+            lambda record: record.get("type") == "compaction_end"
+        )
+        end = records[-1]
+        assert end["reason"] == "threshold"
+        assert end["result"] is None
+        assert (
+            end["errorMessage"] == "Compaction accepted but durable persistence failed"
+        )
+        assert "SEEN:Provide" not in json.dumps(records)
+        assert effects.coding_state.compaction_count == before_count + 1
+        assert client._server._worker is not None
+        client._server._worker.join(timeout=2)
+        assert not client._server._worker.is_alive()
+    finally:
+        client.close()
 
 
 def test_static_injected_provider_configuration_fallback(client) -> None:

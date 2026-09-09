@@ -319,6 +319,13 @@ class _RequestPreparationEffects:
             keep_recent_groups = 1
         if not pressure:
             return None
+        reason = "overflow" if budget.context_window is not None else "threshold"
+        observer = scope.compaction_event
+        lifecycle = (
+            None
+            if observer is None
+            else lambda phase, outcome: observer(phase, reason, outcome)
+        )
         outcome = scope.apply_compaction(
             "auto",
             budget,
@@ -326,6 +333,7 @@ class _RequestPreparationEffects:
             AutomaticCompactionContext(baseline, active_input, context)
             if budget.context_window is not None
             else None,
+            lifecycle,
         )
         emit_diagnostic(
             scope.terminal_ui.components.transcript

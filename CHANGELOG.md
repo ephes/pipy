@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- RPC `compact` now runs the native semantic-compaction owner as one idle-only,
+  cancellable worker operation, with correlated compaction lifecycle records and
+  truthful state/result projection. `set_auto_compaction` now persists the real
+  effective policy rather than an RPC-local flag; automatic preflight cuts emit
+  threshold or overflow lifecycle reasons. Summary provider output, retry phases
+  and usage remain private.
+
 - RPC model and thinking controls now use the native provider-mutation owner.
   Catalog-backed sessions expose available tool-capable selections, switch the
   actual next provider request while idle, and refresh supported thinking levels

@@ -105,6 +105,7 @@ class RunControlState:
     generation_ref: SessionGenerationRef
     agent_settled_pending: bool
     extension_in_agent_turn: bool
+    compaction_active: bool = False
     # ``line`` is (re)assigned by ``_ReplLoopStep.step_once`` before any read every
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
@@ -286,7 +287,13 @@ class ReplLoopScope:
     coding_footer_text: Callable[[], str]
     refresh_legacy_footer_with_usage: Callable[[], None]
     apply_compaction: Callable[
-        [str, RequestBudget, int, AutomaticCompactionContext | None],
+        [
+            str,
+            RequestBudget,
+            int,
+            AutomaticCompactionContext | None,
+            Callable[[str, CodingCompactionOutcome | None], None] | None,
+        ],
         CodingCompactionOutcome,
     ]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
@@ -299,3 +306,6 @@ class ReplLoopScope:
     extension_custom_driver: Callable[..., object]
     extension_notify: Callable[[str, str], None]
     coding_session_control: Callable[[], ExtensionCodingSessionControl]
+    compaction_event: (
+        Callable[[str, str, CodingCompactionOutcome | None], None] | None
+    ) = None

@@ -38,11 +38,13 @@ The shipped protocol implements:
 
 Recognized command names do not imply implemented behavior:
 
-- `compact`, `new_session`, `switch_session`, `fork`, `clone`, and `export_html` return
+- `compact` is an idle-only worker operation over the native semantic-compaction
+  owner. It emits a paired compaction lifecycle and then its correlated result;
+  `abort` cancels its claimed summary work. `set_auto_compaction` changes the
+  actual effective compaction setting. `set_auto_retry` remains transport-only
+  and `abort_retry` is a no-op.
+- `new_session`, `switch_session`, `fork`, `clone`, and `export_html` return
   correlated not-yet-implemented errors.
-- `set_auto_compaction` and `set_auto_retry` only record RPC flags; they do not
-  enable or change the coding session's compaction/retry policy. `abort_retry`
-  is a no-op.
 - Steering and follow-up delivery remains one message per turn boundary, steering
   first, regardless of the reported queue mode.
 - Model and thinking controls are idle-only owner operations. Available models

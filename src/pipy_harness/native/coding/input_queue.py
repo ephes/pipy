@@ -80,6 +80,7 @@ class _ExternalReservation:
     content: ProductContent
     kind: AgentQueuedInputKind | None
     claimed: bool
+    manual_compaction: ProductContent | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +104,7 @@ class _ExternalClaim:
     content: ProductContent
     kind: AgentQueuedInputKind | None
     abort_signal: _AcceptedAbortSignal
+    manual_compaction: ProductContent | None = None
 
 
 @dataclass(slots=True)
@@ -112,6 +114,7 @@ class _ExternalActiveSlot:
     kind: AgentQueuedInputKind | None
     abort_signal: _AcceptedAbortSignal
     claimed: bool = False
+    manual_compaction: ProductContent | None = None
 
 
 class _ExternalAbortSignalView:
@@ -169,6 +172,7 @@ class _NativeControlReservation:
     content: ProductContent
     kind: AgentQueuedInputKind | None
     claimed: bool
+    manual_compaction: ProductContent | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +205,16 @@ class _NativeRunClaim:
     @property
     def kind(self) -> AgentQueuedInputKind | None:
         return self._claim.kind
+
+    @property
+    def manual_compaction(self) -> ProductContent | None:
+        return self._claim.manual_compaction
+
+    @property
+    def is_aborted(self) -> bool:
+        """Read only this exact claim's latch, never a successor's latch."""
+
+        return self._claim.abort_signal.is_set()
 
 
 class _NativeControlAbortView:
@@ -265,6 +279,15 @@ class _NativeSessionControl:
     ) -> _NativeControlSnapshot:
         with self._gate:
             return _native_control_snapshot(self._queue._admit_external(content, kind))
+
+    def admit_manual_compaction(
+        self, custom_instructions: ProductContent | None
+    ) -> _NativeControlSnapshot | None:
+        """Reserve one idle-only private compaction operation."""
+
+        with self._gate:
+            snapshot = self._queue._admit_manual_compaction(custom_instructions)
+            return None if snapshot is None else _native_control_snapshot(snapshot)
 
     def _bridge_admit_steering(
         self, content: ProductContent, verify_authorized: Callable[[], None]
@@ -439,6 +462,7 @@ def _native_control_snapshot(
                 reservation.content,
                 reservation.kind,
                 reservation.claimed,
+                reservation.manual_compaction,
             )
         ),
         steering=tuple(snapshot.steering),
@@ -630,6 +654,29 @@ class CodingInputQueue:
         return _ExternalClaim(slot.token, slot.content, slot.kind, slot.abort_signal)
 
     @_guarded_queue_api
+    def _admit_manual_compaction(
+        self, custom_instructions: ProductContent | None
+    ) -> _ExternalAdmissionSnapshot | None:
+        if custom_instructions is not None:
+            _require_content(custom_instructions, "custom_instructions")
+        if (
+            self._external_active_slot is not None
+            or self._external_steering
+            or self._external_follow_ups
+        ):
+            return None
+        self._reserve_external(ProductContent(""), None)
+        assert self._external_active_slot is not None
+        # An empty marker distinguishes this control operation from an ordinary
+        # unclassified prompt while remaining private to the queue/control seam.
+        self._external_active_slot.manual_compaction = (
+            custom_instructions
+            if custom_instructions is not None
+            else ProductContent("")
+        )
+        return self._external_snapshot()
+
+    @_guarded_queue_api
     def _claim_external(
         self, token: _ExternalReservationToken
     ) -> _ExternalClaim | None:
@@ -639,7 +686,13 @@ class CodingInputQueue:
         if slot is None or slot.claimed:
             return None
         slot.claimed = True
-        return _ExternalClaim(slot.token, slot.content, slot.kind, slot.abort_signal)
+        return _ExternalClaim(
+            slot.token,
+            slot.content,
+            slot.kind,
+            slot.abort_signal,
+            slot.manual_compaction,
+        )
 
     @_guarded_queue_api
     def _settle_external(
@@ -1005,6 +1058,7 @@ class CodingInputQueue:
                 slot.content,
                 slot.kind,
                 slot.claimed,
+                slot.manual_compaction,
             )
         )
         return _ExternalAdmissionSnapshot(

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -32,6 +33,7 @@ from pipy_harness.native.coding.product_session import (
     CodingProductSessionContext,
     CodingProductSessionCoordinator,
 )
+from pipy_harness.native.coding.request_budget import RequestBudget, RequestEstimate
 from pipy_harness.native.coding.state import CodingContextChangedError
 from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
@@ -330,6 +332,29 @@ def test_summary_combines_prior_and_exact_dropped_prefix_then_reopens(
     assert effects.coding_state.compaction_suffix == "\n\n" + reopened.prior_summary
 
 
+def test_manual_custom_instructions_stay_private_to_summary_request(
+    tmp_path: Path,
+) -> None:
+    effects, provider = _fixture(tmp_path)
+    custom = "Keep the outstanding migration decision."
+
+    outcome = effects.compact_context(
+        "manual", custom_instructions=ProductContent(custom)
+    )
+
+    assert outcome.result is not None
+    assert len(provider.requests) == 1
+    request = provider.requests[0]
+    assert request.user_prompt.endswith("Additional compaction focus:\n" + custom)
+    assert request.messages[-1].content.value == request.user_prompt
+    assert custom not in "\n".join(
+        message.content.value for message in effects.coding_state.messages
+    )
+    tree_path = effects.ctl.session_tree.path
+    assert tree_path is not None
+    assert custom not in tree_path.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("failure", ["exception", "failed", "empty", "tool", "cancel"])
 def test_failed_summary_publishes_nothing_and_diagnostics_are_content_free(
     tmp_path: Path, failure: str
@@ -374,6 +399,34 @@ def test_failed_summary_publishes_nothing_and_diagnostics_are_content_free(
     assert (outcome.cancellation_reason is not None) == (failure == "cancel")
 
 
+def test_automatic_failure_lifecycle_end_runs_outside_mutation_lock(
+    tmp_path: Path,
+) -> None:
+    effects, provider = _fixture(tmp_path)
+    provider.on_complete = lambda _request: (_ for _ in ()).throw(
+        RuntimeError("private summary failed")
+    )
+    end_lock_available = threading.Event()
+
+    def lifecycle(phase: str, _outcome: object) -> None:
+        if phase != "end":
+            return
+
+        def acquire() -> None:
+            with effects.mutation_io_lock:
+                end_lock_available.set()
+
+        witness = threading.Thread(target=acquire)
+        witness.start()
+        witness.join(timeout=1)
+        assert not witness.is_alive()
+
+    outcome = effects.compact_context("auto", lifecycle=lifecycle)
+
+    assert outcome.result is None
+    assert end_lock_available.is_set()
+
+
 def test_extension_veto_preserves_reason_and_invokes_no_summary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -391,6 +444,35 @@ def test_extension_veto_preserves_reason_and_invokes_no_summary(
         == "pipy: compact blocked by extension: keep full context"
     )
     assert provider.requests == [] and _published(effects) == before
+
+
+def test_automatic_pre_attempt_refusals_emit_no_lifecycle_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects, provider = _fixture(tmp_path)
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        SessionExtensionOperations,
+        "session_allows",
+        lambda *_args, **_kwargs: SessionDecision(
+            allow=False, reason="keep full context"
+        ),
+    )
+    veto = effects.compact_context(
+        "auto", lifecycle=lambda phase, outcome: events.append((phase, outcome))
+    )
+    assert "blocked by extension" in veto.notice
+    assert events == [] and provider.requests == []
+
+    monkeypatch.undo()
+    events.clear()
+    refusal = effects.compact_context(
+        "auto",
+        RequestBudget(10, 1),
+        lifecycle=lambda phase, outcome: events.append((phase, outcome)),
+    )
+    assert "estimated summary request exceeds" in refusal.notice
+    assert events == [] and provider.requests == []
 
 
 def _mutate(effects: ProviderMutationEffects, name: str) -> None:
@@ -612,6 +694,80 @@ def _run_retained_control(operation: Callable[[], object]) -> None:
     writer.start()
     writer.join(timeout=2)
     assert not writer.is_alive() and failures == []
+
+
+@pytest.mark.parametrize(
+    ("context_window", "expected_reason"),
+    [(None, "threshold"), (32, "overflow")],
+)
+def test_automatic_compaction_projects_reason_from_pressure_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    context_window: int | None,
+    expected_reason: str,
+) -> None:
+    from pipy_harness.native.agent.active_input import AgentActiveInput
+    from pipy_harness.native.coding.compaction import CodingCompactionOutcome
+    from pipy_harness.native.repl import loop_step
+
+    user = AgentUserMessage(ProductContent("accepted"))
+    baseline = ProviderRequest(
+        "system", "accepted", "fake", "fake", tmp_path, messages=(user,)
+    )
+    events: list[tuple[str, str, CodingCompactionOutcome | None]] = []
+    applied: list[tuple[object, ...]] = []
+    outcome = CodingCompactionOutcome("accepted")
+
+    def apply_compaction(*args: object) -> CodingCompactionOutcome:
+        applied.append(args)
+        return outcome
+
+    scope = SimpleNamespace(
+        compaction_event=lambda *args: events.append(args),
+        apply_compaction=apply_compaction,
+        terminal_ui=None,
+        error_stream=None,
+    )
+    effects = loop_step._RequestPreparationEffects(
+        cast(
+            Any,
+            SimpleNamespace(
+                turn_input=SimpleNamespace(turn=SimpleNamespace(scope=scope))
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        loop_step,
+        "should_compact_agent_history",
+        lambda *_args, **_kwargs: True,
+    )
+    if context_window is not None:
+        monkeypatch.setattr(
+            loop_step,
+            "estimate_request",
+            lambda *_args, **_kwargs: RequestEstimate(0, 40, 0, 0, 0, 0, 0, 0, 1),
+        )
+
+    returned = effects._compact_if_needed(
+        cast(Any, SimpleNamespace(messages=(user,))),
+        RequestBudget(context_window, 1),
+        True,
+        baseline,
+        AgentActiveInput(user),
+    )
+
+    assert returned is outcome
+    lifecycle = applied[0][4]
+    assert callable(lifecycle)
+    lifecycle("start", None)
+    lifecycle("end", outcome)
+    assert [event[:2] for event in events] == [
+        ("start", expected_reason),
+        ("end", expected_reason),
+    ]
+    assert events[-1][2] is outcome
+    assert applied and applied[0][0] == "auto"
+    assert (applied[0][3] is None) == (context_window is None)
 
 
 @pytest.mark.parametrize(

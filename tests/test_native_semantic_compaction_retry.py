@@ -202,6 +202,140 @@ def test_recovered_summary_acceptance_survives_persistence_failure(
     assert effects.coding_state.compaction_count == 1
 
 
+def test_rpc_projection_retains_accepted_result_on_persistence_failure(
+    tmp_path: Path,
+) -> None:
+    effects, provider = _prepared_fixture(tmp_path, [_result("ACCEPTED")])
+    original_port = effects.product_session._port
+
+    def fail_persistence(_action: object) -> None:
+        raise OSError("durable append failed")
+
+    product = CodingProductSessionCoordinator(
+        state=effects.coding_state,
+        port=replace(
+            original_port,
+            apply_compaction_callback=fail_persistence,  # type: ignore[type-var]
+        ),
+    )
+    product.rebuild_active_history()
+    effects = replace(effects, product_session=product)
+    before_messages = effects.coding_state.messages
+
+    outcome = effects.compact_context("manual", project_persistence_failure=True)
+
+    assert outcome.persistence_failed is True
+    assert outcome.result is not None
+    assert outcome.result.summary == "ACCEPTED"
+    assert outcome.result.first_kept_entry_id is not None
+    assert effects.coding_state.messages != before_messages
+    assert len(provider.allowances) == 1
+
+
+def test_automatic_persistence_failure_projects_privately_then_propagates(
+    tmp_path: Path,
+) -> None:
+    effects, _provider = _prepared_fixture(tmp_path, [_result("PRIVATE SUMMARY")])
+    original_port = effects.product_session._port
+
+    def fail_persistence(_action: object) -> None:
+        raise OSError("durable append failed")
+
+    product = CodingProductSessionCoordinator(
+        state=effects.coding_state,
+        port=replace(
+            original_port,
+            apply_compaction_callback=fail_persistence,  # type: ignore[type-var]
+        ),
+    )
+    product.rebuild_active_history()
+    effects = replace(effects, product_session=product)
+    events: list[tuple[str, object]] = []
+
+    with pytest.raises(OSError, match="durable append failed"):
+        effects.compact_context(
+            "auto",
+            lifecycle=lambda phase, outcome: events.append((phase, outcome)),
+        )
+
+    assert [phase for phase, _outcome in events] == ["start", "end"]
+    end = events[-1][1]
+    assert getattr(end, "persistence_failed") is True
+    assert getattr(end, "result").summary == "PRIVATE SUMMARY"
+    assert effects.coding_state.compaction_count == 1
+
+
+def test_automatic_persistence_failure_keeps_primary_when_end_observer_fails(
+    tmp_path: Path,
+) -> None:
+    effects, _provider = _prepared_fixture(tmp_path, [_result("PRIVATE SUMMARY")])
+    original_port = effects.product_session._port
+
+    def fail_persistence(_action: object) -> None:
+        raise OSError("durable append failed")
+
+    product = CodingProductSessionCoordinator(
+        state=effects.coding_state,
+        port=replace(
+            original_port,
+            apply_compaction_callback=fail_persistence,  # type: ignore[type-var]
+        ),
+    )
+    product.rebuild_active_history()
+    effects = replace(effects, product_session=product)
+    activity = False
+
+    def lifecycle(phase: str, _outcome: object) -> None:
+        nonlocal activity
+        if phase == "start":
+            activity = True
+            return
+        activity = False
+        raise RuntimeError("observer output failed")
+
+    with pytest.raises(OSError, match="durable append failed") as raised:
+        effects.compact_context("auto", lifecycle=lifecycle)
+
+    assert activity is False
+    assert "compaction lifecycle publication also failed" in getattr(
+        raised.value, "__notes__", []
+    )
+    assert effects.coding_state.compaction_count == 1
+
+
+def test_projected_manual_persistence_result_survives_failing_lifecycle(
+    tmp_path: Path,
+) -> None:
+    effects, _provider = _prepared_fixture(tmp_path, [_result("ACCEPTED")])
+    original_port = effects.product_session._port
+
+    def fail_persistence(_action: object) -> None:
+        raise OSError("durable append failed")
+
+    product = CodingProductSessionCoordinator(
+        state=effects.coding_state,
+        port=replace(
+            original_port,
+            apply_compaction_callback=fail_persistence,  # type: ignore[type-var]
+        ),
+    )
+    product.rebuild_active_history()
+    effects = replace(effects, product_session=product)
+
+    def fail_end(phase: str, _outcome: object) -> None:
+        if phase == "end":
+            raise RuntimeError("observer output failed")
+
+    outcome = effects.compact_context(
+        "manual",
+        project_persistence_failure=True,
+        lifecycle=fail_end,
+    )
+
+    assert outcome.persistence_failed is True
+    assert outcome.result is not None
+
+
 @pytest.mark.parametrize(
     "blocked",
     [

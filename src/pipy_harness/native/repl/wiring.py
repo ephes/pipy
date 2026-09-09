@@ -70,6 +70,7 @@ from pipy_harness.native.chrome import (
 )
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
 from pipy_harness.native.coding.product_session import (
@@ -1322,6 +1323,9 @@ def _compose_collaborators(
                 runtime.loop_controller.control.publish_if_true_idle
             )
         )
+        runtime.loop_controller.bind_rpc_compaction_port(
+            provider_mutation.rpc_compaction_port()
+        )
 
     # The residual run-loop collaborators (diagnostics, session-name setters,
     # session-dir/resolution, tree rebuild, branch summarization, the extension
@@ -1493,6 +1497,45 @@ def _assemble_session_wiring(
     error_stream = inputs.error_stream
     _extension_notify = extension.extension_notify
     repl_loop_step = _repl_loop_step._ReplLoopStep()
+
+    def _compaction_event(
+        phase: str, reason: str, outcome: CodingCompactionOutcome | None
+    ) -> None:
+        if phase == "start":
+            with coding_effects.lock:
+                ctl.compaction_active = True
+            try:
+                if inputs.automation_observer is not None:
+                    inputs.automation_observer.emit(
+                        {"type": "compaction_start", "reason": reason}
+                    )
+            except BaseException:
+                with coding_effects.lock:
+                    ctl.compaction_active = False
+                raise
+            return
+        with coding_effects.lock:
+            ctl.compaction_active = False
+        if inputs.automation_observer is None:
+            return
+        event: dict[str, object] = {
+            "type": "compaction_end",
+            "reason": reason,
+            # Automatic summaries are private implementation work.  Explicit
+            # RPC `compact` owns its result projection separately; preflight
+            # lifecycle records never reveal a summary, origin, or token data.
+            "result": None,
+            "aborted": outcome is not None and outcome.cancellation_reason is not None,
+            "willRetry": False,
+        }
+        if outcome is None or (
+            outcome.result is None and outcome.cancellation_reason is None
+        ):
+            event["errorMessage"] = "Compaction failed"
+        elif outcome is not None and outcome.persistence_failed:
+            event["errorMessage"] = "Compaction accepted but durable persistence failed"
+        inputs.automation_observer.emit(event)
+
     scope = ReplLoopScope(
         ctl=ctl,
         loop_controller=loop_controller,
@@ -1535,6 +1578,7 @@ def _assemble_session_wiring(
         extension_custom_driver=collaborators.extension_custom_driver,
         extension_notify=_extension_notify,
         coding_session_control=collaborators.coding_session_control,
+        compaction_event=_compaction_event,
     )
     delegation = _LoopDelegation(
         loop_controller=loop_controller,

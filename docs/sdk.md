@@ -654,9 +654,9 @@ the worker claims the operation it writes `compaction_start` with reason
 `manual`, performs no JSONL output while summary work or an owner lock is held,
 then settles the exact claim and publishes `compaction_end` followed by the
 correlated `compact` response under the D5a publication gate. A promoted prompt
-is reflected by the normal queue projection and is woken only after those
-records. Successful `compaction_end.result` and response data carry the same
-immutable `CompactionResult`: generated `summary`, exact durable
+is reflected by the normal queue projection and is continued directly by the
+same worker only after those records. Successful `compaction_end.result` and
+response data carry the same immutable `CompactionResult`: generated `summary`, exact durable
 `firstKeptEntryId` for a persistent session, and the owner's nonnegative pre-cut
 `tokensBefore` measure; optional `details` may contain only bounded counts or
 measurement metadata. An explicitly non-persistent native session may compact
@@ -684,7 +684,10 @@ and emits exactly one matching `compaction_end`. Legacy message/byte pressure
 maps to public reason `threshold`; known-window estimated preflight pressure maps
 to `overflow`. Both use `willRetry: false`: pipy continues preparation of the
 same accepted run after a successful preflight cut and has no Pi-style
-post-response compact-and-retry path. During automatic work `isStreaming` and
+post-response compact-and-retry path. Automatic lifecycle records always carry
+`result: null`, including accepted-but-persistence-failed work: generated
+summaries, origins, token measures, private retry/delta events, and usage stay
+inside the owner. During automatic work `isStreaming` and
 `isCompacting` are both true; during claimed manual work only `isCompacting` is
 true. The compaction owner guards every activity-state reader and writer, and
 the observer cannot emit after operation retirement.

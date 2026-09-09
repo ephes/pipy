@@ -1064,7 +1064,8 @@ as a typed worker operation; it is neither line-framed `/compact` text nor a
 second transport queue. The existing semantic-compaction owner retains summary
 generation, retry/cancellation, guarded state acceptance, and durable append.
 The same native publication gate orders exact operation settlement, the paired
-compaction event, the correlated result, successor projection, and wake. A
+compaction event, the correlated result and successor projection; the worker
+then continues a promoted successor directly without adding a stale wake. A
 narrow owner-guarded activity projection makes `isCompacting` truthful for both
 manual work and automatic request-preparation compaction. Automatic work remains
 inside request preparation, with `threshold` for legacy message/byte pressure

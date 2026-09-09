@@ -136,6 +136,7 @@ class _NativeControlReady:
     abort_view: _NativeControlAbortView
     readiness_port: _ControllerReadinessPort
     configuration_port: object
+    compaction_port: object
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +156,7 @@ class _NativeSessionControlBridge:
         "_claim",
         "_event",
         "_fatal",
+        "_manual_handler",
         "_outcome",
         "_outcome_lock",
         "_pending_selected",
@@ -173,6 +175,27 @@ class _NativeSessionControlBridge:
         ) = None
         self._wake_reader: Callable[[], str] | None = None
         self._fatal = False
+        self._manual_handler: (
+            Callable[
+                [_NativeRunClaim, ProductContent | None],
+                Callable[[_NativeControlSnapshot], None],
+            ]
+            | None
+        ) = None
+
+    def bind_manual_compaction_handler(
+        self,
+        handler: Callable[
+            [_NativeRunClaim, ProductContent | None],
+            Callable[[_NativeControlSnapshot], None],
+        ],
+    ) -> None:
+        if not callable(handler):
+            raise TypeError("manual compaction handler must be callable")
+        with self._outcome_lock:
+            if self._manual_handler is not None:
+                raise RuntimeError("manual compaction handler is already bound")
+            self._manual_handler = handler
 
     def bind_wake_reader(self, reader: Callable[[], str]) -> None:
         """Bind the transport's wake/EOF reader before worker startup."""
@@ -190,21 +213,44 @@ class _NativeSessionControlBridge:
         reader = self._wake_reader
         if reader is None:
             raise RuntimeError("native control bridge wake reader is not bound")
-        wake = reader()
-        if wake:
-            raise RuntimeError("native control wake reader returned payload content")
-        ready = self._ready()
-        reservation = ready.control.snapshot().reservation
-        if reservation is None:
+        wait_for_wake = True
+        for _ in iter(lambda: True, False):
+            if wait_for_wake:
+                wake = reader()
+                if wake:
+                    raise RuntimeError(
+                        "native control wake reader returned payload content"
+                    )
+            ready = self._ready()
+            reservation = ready.control.snapshot().reservation
+            if reservation is None:
+                return ""
+            claim = self.attach_selected_claim(reservation)
+            if claim is None:
+                continue
+            if (
+                claim.manual_compaction is not None
+                or reservation.manual_compaction is not None
+            ):
+                handler = self._manual_handler
+                if handler is None:
+                    raise RuntimeError("native manual compaction handler is not bound")
+                publish = handler(claim, claim.manual_compaction)
+                snapshot = self.consume_attached_agent_end_and_publish(publish)
+                # A prompt admitted behind compaction is promoted under the
+                # same settlement gate. Consume it directly on this worker;
+                # enqueueing another wake here would leave stale transport work
+                # after the successor has already been selected.
+                wait_for_wake = snapshot.reservation is None
+                continue
+            queued = (
+                None
+                if claim.kind is None
+                else AgentQueuedInput(claim.content, claim.kind)
+            )
+            self._pending_selected = (claim.content, queued)
             return ""
-        claim = self.attach_selected_claim(reservation)
-        if claim is None:
-            return ""
-        queued = (
-            None if claim.kind is None else AgentQueuedInput(claim.content, claim.kind)
-        )
-        self._pending_selected = (claim.content, queued)
-        return ""
+        raise AssertionError("infinite native control drain terminated")
 
     def take_next(self) -> AgentQueuedInput | None:
         """Active-loop polling cannot consume a transport-owned reservation."""
@@ -230,6 +276,7 @@ class _NativeSessionControlBridge:
         abort_view: _NativeControlAbortView,
         readiness_port: _ControllerReadinessPort,
         configuration_port: object,
+        compaction_port: object,
     ) -> None:
         if type(control) is not _NativeSessionControl:
             raise TypeError("control must be a _NativeSessionControl")
@@ -243,8 +290,12 @@ class _NativeSessionControlBridge:
             raise ValueError("readiness_port must belong to the published control")
         if configuration_port is None:
             raise TypeError("configuration_port must not be None")
+        if compaction_port is None:
+            raise TypeError("compaction_port must not be None")
         self._publish(
-            _NativeControlReady(control, abort_view, readiness_port, configuration_port)
+            _NativeControlReady(
+                control, abort_view, readiness_port, configuration_port, compaction_port
+            )
         )
 
     def publish_failure(self, error: BaseException) -> None:
@@ -304,6 +355,11 @@ class _NativeSessionControlBridge:
         return self._ready().control._bridge_admit_follow_up(
             content, self._require_authorized
         )
+
+    def admit_manual_compaction(
+        self, custom_instructions: ProductContent | None
+    ) -> _NativeControlSnapshot | None:
+        return self._ready().control.admit_manual_compaction(custom_instructions)
 
     def attach_selected_claim(
         self, reservation: _NativeControlReservation
@@ -639,6 +695,7 @@ class CodingSessionController:
     __slots__ = (
         "_cleanup_failed_run",
         "_configuration_port",
+        "_compaction_port",
         "_coding_state",
         "_control",
         "_emitter",
@@ -671,6 +728,7 @@ class CodingSessionController:
         self._publish_ready: Callable[[], None] | None = None
         self._cleanup_failed_run: Callable[[BaseException], None] | None = None
         self._configuration_port: object | None = None
+        self._compaction_port: object | None = None
 
     @property
     def control(self) -> _NativeSessionControl:
@@ -695,11 +753,14 @@ class CodingSessionController:
         def publish_ready() -> None:
             if self._configuration_port is None:
                 raise RuntimeError("native RPC configuration port is not bound")
+            if self._compaction_port is None:
+                raise RuntimeError("native RPC compaction port is not bound")
             bridge.publish_ready(
                 self._control,
                 self._control.abort_view,
                 self._readiness_port,
                 self._configuration_port,
+                self._compaction_port,
             )
 
         self._publish_ready = publish_ready
@@ -717,6 +778,13 @@ class CodingSessionController:
         if self._configuration_port is not None:
             raise RuntimeError("native RPC configuration port is already bound")
         self._configuration_port = port
+
+    def bind_rpc_compaction_port(self, port: object) -> None:
+        if port is None:
+            raise TypeError("native RPC compaction port must not be None")
+        if self._compaction_port is not None:
+            raise RuntimeError("native RPC compaction port is already bound")
+        self._compaction_port = port
 
     def run_loop(
         self,

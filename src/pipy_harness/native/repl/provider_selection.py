@@ -46,6 +46,7 @@ from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.compaction import (
     AutomaticCompactionContext,
     CodingCompactionOutcome,
+    CodingCompactionResult,
     PrivateSummaryEvents,
     compaction_request,
     compound_compaction_cuts,
@@ -184,6 +185,41 @@ class RpcProviderConfigurationPort:
         return self._effects._rpc_cycle_thinking_level(self._commit_if_true_idle)
 
 
+class RpcCompactionPort:
+    """Private worker-only projection over the existing compaction owner."""
+
+    __slots__ = ("_effects",)
+
+    def __init__(self, effects: "ProviderMutationEffects") -> None:
+        self._effects = effects
+
+    def compact(
+        self, custom_instructions: ProductContent | None
+    ) -> CodingCompactionOutcome:
+        return self._effects.compact_context(
+            "manual",
+            custom_instructions=custom_instructions,
+            project_persistence_failure=True,
+        )
+
+    def auto_compaction_enabled(self) -> bool:
+        return self._effects.settings.capture_compaction_budget_settings().enabled
+
+    def is_compacting(self) -> bool:
+        with self._effects.ctl.coding_effects.lock:
+            return self._effects.ctl.compaction_active
+
+    def set_auto_compaction_enabled(self, enabled: bool) -> bool:
+        if type(enabled) is not bool:
+            raise TypeError("enabled must be an exact bool")
+        if self.auto_compaction_enabled() == enabled:
+            return True
+        # SettingsManager is the durable owner; it serializes file replacement
+        # with effective-policy publication. A later preparation captures this
+        # new immutable value while an already captured request keeps its old one.
+        return self._effects.settings.set_auto_compaction_enabled(enabled)
+
+
 @dataclass(frozen=True, slots=True)
 class _CompactionWork:
     context: CodingCompactionSnapshot
@@ -266,6 +302,9 @@ class ProviderMutationEffects:
         """Return the private RPC port after composition has bound all owners."""
 
         return RpcProviderConfigurationPort(self, commit_if_true_idle)
+
+    def rpc_compaction_port(self) -> RpcCompactionPort:
+        return RpcCompactionPort(self)
 
     def _rpc_snapshot(self) -> RpcConfigurationSnapshot:
         """Capture model and thinking from one owner state transition."""
@@ -998,6 +1037,9 @@ class ProviderMutationEffects:
         budget: RequestBudget | None = None,
         keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
         automatic_context: AutomaticCompactionContext | None = None,
+        lifecycle: Callable[[str, CodingCompactionOutcome | None], None] | None = None,
+        custom_instructions: ProductContent | None = None,
+        project_persistence_failure: bool = False,
     ) -> CodingCompactionOutcome:
         """Generate privately, then conditionally accept and persist one summary."""
 
@@ -1008,6 +1050,24 @@ class ProviderMutationEffects:
             return prepared
         work, budget = prepared
         completion = None
+        started = False
+        starting = False
+
+        def finish(
+            outcome: CodingCompactionOutcome | None,
+        ) -> CodingCompactionOutcome | None:
+            if started and lifecycle is not None:
+                lifecycle("end", outcome)
+            return outcome
+
+        def stale_after_start() -> CodingCompactionOutcome:
+            if trigger == "auto":
+                finish(None)
+                raise CodingContextChangedError()
+            outcome = self._stale_compaction(trigger)
+            assert outcome is not None
+            return finish(outcome)  # type: ignore[return-value]
+
         try:
             # Capturing request headers can reach extension callbacks. It must
             # neither hold the locks nor authorize a stale provider request.
@@ -1022,6 +1082,7 @@ class ProviderMutationEffects:
                 dropped_messages=work.cut.removed_messages,
                 prior_summary=work.context.summary_suffix.strip(),
                 retained_user=work.cut.retained_user_anchor,
+                custom_instructions=custom_instructions,
                 header_callback=header,
             )
             request = freeze_provider_request(request)
@@ -1037,6 +1098,12 @@ class ProviderMutationEffects:
             provider, waiter = provider_turn_inputs(
                 work.context.binding.provider, self.terminal_ui, self.abort_event
             )
+
+            if lifecycle is not None:
+                starting = True
+                lifecycle("start", None)
+                starting = False
+                started = True
 
             def _before_reissue() -> None:
                 with self.mutation_io_lock:
@@ -1057,48 +1124,101 @@ class ProviderMutationEffects:
                 ),
             )
         except _StaleCompactionRetry:
-            return self._stale_compaction(trigger)
+            return stale_after_start()
         except CodingContextChangedError:
+            finish(None)
             raise
         except Exception:  # noqa: BLE001 - auxiliary failures have content-free notices
+            if starting:
+                raise
             pass
+        post_outcome: CodingCompactionOutcome | None = None
+        stale_after_provider = False
+        action: CodingProductSessionCompaction | None = None
+        summary: str | None = None
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
                 if not self._compaction_matches_locked(work):
-                    return self._stale_compaction(trigger)
-                if completion is None:
-                    return CodingCompactionOutcome(
+                    stale_after_provider = True
+                elif completion is None:
+                    post_outcome = CodingCompactionOutcome(
                         "pipy: compaction failed; context unchanged."
                     )
-                if completion.cancellation_reason is not None:
-                    return CodingCompactionOutcome(
+                elif completion.cancellation_reason is not None:
+                    post_outcome = CodingCompactionOutcome(
                         "pipy: compaction cancelled.", completion.cancellation_reason
                     )
-                result = completion.result
-                summary = (
-                    summary_text(result)
-                    if result is not None and not result.tool_calls
-                    else None
-                )
-                if summary is None:
-                    return CodingCompactionOutcome(
-                        "pipy: compaction failed; context unchanged."
+                else:
+                    result = completion.result
+                    summary = (
+                        summary_text(result)
+                        if result is not None and not result.tool_calls
+                        else None
                     )
-                action = CodingProductSessionCompaction(
-                    retained_messages=work.cut.messages,
-                    summary_suffix=ProductContent("\n\n" + summary),
-                    durable_summary=ProductContent(summary),
-                    dropped_group_count=work.cut.dropped_group_count,
-                    dropped_message_count=work.cut.dropped_message_count,
-                    measure_before=work.cut.bytes_before,
-                    first_kept_entry_id=work.first_kept_entry_id,
-                    retained_user_entry_id=work.retained_user_entry_id,
+                    if summary is None:
+                        post_outcome = CodingCompactionOutcome(
+                            "pipy: compaction failed; context unchanged."
+                        )
+                    else:
+                        action = CodingProductSessionCompaction(
+                            retained_messages=work.cut.messages,
+                            summary_suffix=ProductContent("\n\n" + summary),
+                            durable_summary=ProductContent(summary),
+                            dropped_group_count=work.cut.dropped_group_count,
+                            dropped_message_count=work.cut.dropped_message_count,
+                            measure_before=work.cut.bytes_before,
+                            first_kept_entry_id=work.first_kept_entry_id,
+                            retained_user_entry_id=work.retained_user_entry_id,
+                        )
+                        self.product_session.accept_compaction(action)
+        if stale_after_provider:
+            return stale_after_start()
+        if post_outcome is not None:
+            return finish(post_outcome)  # type: ignore[return-value]
+        assert action is not None and summary is not None
+        # Accepted state intentionally survives a persistence exception. The
+        # established persistence owner keeps its mutation serialization; only
+        # the observer projection below runs after that scope has released.
+        try:
+            with self.mutation_io_lock:
+                self.product_session.persist_compaction(action)
+        except Exception as persistence_error:
+            projected = CodingCompactionOutcome(
+                self._compaction_notice(trigger, work.cut),
+                result=CodingCompactionResult(
+                    summary,
+                    action.first_kept_entry_id if work.tree.persist else None,
+                    action.measure_before,
+                    action.dropped_group_count,
+                    action.dropped_message_count,
+                ),
+                persistence_failed=True,
+            )
+            try:
+                finish(projected)
+            except BaseException:  # noqa: BLE001 - persistence remains primary
+                # Persistence is the primary state-first failure.  Manual RPC
+                # projection normally has no lifecycle observer; when a caller
+                # explicitly supplies one in projected-return mode, retain the
+                # accepted result rather than replacing it with observer I/O.
+                persistence_error.add_note(
+                    "compaction lifecycle publication also failed"
                 )
-                self.product_session.accept_compaction(action)
-            # Accepted state intentionally survives a persistence exception.
-            # Keep this callback outside the generation-failure handler above.
-            self.product_session.persist_compaction(action)
-        return CodingCompactionOutcome(self._compaction_notice(trigger, work.cut))
+            if not project_persistence_failure:
+                raise persistence_error
+            return projected
+        return finish(
+            CodingCompactionOutcome(
+                self._compaction_notice(trigger, work.cut),
+                result=CodingCompactionResult(
+                    summary,
+                    action.first_kept_entry_id if work.tree.persist else None,
+                    action.measure_before,
+                    action.dropped_group_count,
+                    action.dropped_message_count,
+                ),
+            )
+        )  # type: ignore[return-value]
 
     @staticmethod
     def _compaction_notice(trigger: str, cut: AgentHistoryCompaction) -> str:

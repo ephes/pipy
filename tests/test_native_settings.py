@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import stat
+import threading
 from pathlib import Path
 from typing import cast
 
@@ -551,6 +552,86 @@ def test_compaction_getters_defaults_and_overrides(tmp_path: Path) -> None:
     assert mgr2.get_compaction_enabled() is False
     assert mgr2.get_compaction_reserve_tokens() == 9000
     assert mgr2.get_compaction_keep_recent_tokens() == 20000  # default survives
+
+
+def test_rpc_auto_compaction_mutation_respects_effective_precedence(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "proj" / ".pipy" / "settings.json"
+    global_path = tmp_path / "config" / "settings.json"
+    _write_json(global_path, {"compaction": {"enabled": True}})
+    _write_json(project, {"compaction": {"enabled": True}})
+    manager = _manager(tmp_path)
+    assert manager.set_auto_compaction_enabled(False)
+    assert manager.get_compaction_enabled() is False
+    assert json.loads(project.read_text())["compaction"]["enabled"] is False
+    assert json.loads(global_path.read_text())["compaction"]["enabled"] is True
+
+    overridden = _manager(tmp_path, overrides={"compaction": {"enabled": True}})
+    assert overridden.set_auto_compaction_enabled(False) is False
+    assert overridden.get_compaction_enabled() is True
+
+
+def test_rpc_auto_compaction_mutation_uses_global_fallback_and_exact_bool(
+    tmp_path: Path,
+) -> None:
+    global_path = tmp_path / "config" / "settings.json"
+    _write_json(global_path, {"compaction": {"reserveTokens": 9000}})
+    manager = _manager(tmp_path)
+
+    # The default is already effective, so an idempotent command does not
+    # create a shadow setting or rewrite an unrelated scope.
+    assert manager.set_auto_compaction_enabled(True)
+    assert json.loads(global_path.read_text()) == {
+        "compaction": {"reserveTokens": 9000}
+    }
+    assert manager.set_auto_compaction_enabled(False)
+    assert json.loads(global_path.read_text())["compaction"] == {
+        "reserveTokens": 9000,
+        "enabled": False,
+    }
+    with pytest.raises(TypeError, match="exact bool"):
+        manager.set_auto_compaction_enabled(1)  # type: ignore[arg-type]
+
+
+def test_auto_compaction_scope_decision_serializes_reload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_json(
+        tmp_path / "config" / "settings.json", {"compaction": {"enabled": True}}
+    )
+    _write_json(
+        tmp_path / "proj" / ".pipy" / "settings.json",
+        {"compaction": {"enabled": True}},
+    )
+    manager = _manager(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    reloaded = threading.Event()
+    original = manager.raw_scope
+
+    def paused(scope: str) -> dict:
+        entered.set()
+        assert release.wait(timeout=2)
+        return original(scope)
+
+    monkeypatch.setattr(manager, "raw_scope", paused)
+    setter = threading.Thread(target=lambda: manager.set_auto_compaction_enabled(False))
+    setter.start()
+    assert entered.wait(timeout=2)
+
+    def reload_settings() -> None:
+        manager.reload()
+        reloaded.set()
+
+    reloader = threading.Thread(target=reload_settings)
+    reloader.start()
+    assert not reloaded.wait(timeout=0.05)
+    release.set()
+    setter.join(timeout=2)
+    reloader.join(timeout=2)
+    assert not setter.is_alive() and not reloader.is_alive()
+    assert manager.get_compaction_enabled() is False
 
 
 def test_retry_getters_defaults_and_overrides(tmp_path: Path) -> None:

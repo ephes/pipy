@@ -43,6 +43,7 @@ MEMBER_LIST = {
         "_tree_pointer_epoch",
         "agent_settled_pending",
         "coding_effects",
+        "compaction_active",
         "extension_in_agent_turn",
         "generation_ref",
         "line",
@@ -1371,6 +1372,12 @@ ALLOWED_WRITES = {
     ),
     _Access(
         "RunControlState",
+        "compaction_active",
+        "pipy_harness.native.repl.wiring",
+        "write",
+    ),
+    _Access(
+        "RunControlState",
         "extension_in_agent_turn",
         "pipy_harness.native.repl.loop_scope",
         "write",
@@ -1485,6 +1492,7 @@ class RunControlState:
     workspace_resources: object
     generation_ref: object
     agent_settled_pending: bool
+    compaction_active: bool
     extension_in_agent_turn: bool
     line: str
 """,
@@ -2339,7 +2347,7 @@ def test_field_inventory_rejects_a_second_definition_owner(tmp_path: Path) -> No
     ("target", "relative", "expected_count"),
     [
         ("TerminalUi", "pipy_harness/native/tui.py", 9),
-        ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 11),
+        ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 12),
         ("CodingSession", "pipy_harness/native/coding/session.py", 24),
     ],
 )

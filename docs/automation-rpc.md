@@ -625,13 +625,15 @@ native session tree (`docs/session-tree.md`).
 
 ### Compaction
 
-Current build: `compact` is recognized but has no RPC handler, so it returns a
-correlated not-yet-implemented error. `set_auto_compaction` changes the RPC
-server's reported flag only; it does not change the coding session's compaction
-settings. Likewise `set_auto_retry` records a flag without enabling a retry loop,
-and `abort_retry` is currently a no-op. These controls need the shared product
-session owner proposed in the
-[integrated planning basis](backlog.md).
+Current build: `compact` is an idle-only native worker operation. It runs the
+same semantic owner as terminal `/compact`, returns its full-content result after
+`compaction_start`/`compaction_end`, and uses the exact native abort claim rather
+than a transport flag. `set_auto_compaction` writes the real effective
+`compaction.enabled` policy through the settings owner; `get_state` projects that
+policy and guarded compaction activity. Automatic preflight compaction emits
+`threshold` for legacy message/byte pressure and `overflow` for known-window
+estimated pressure. Retry controls remain deferred: `set_auto_retry` records a
+flag without enabling a retry loop, and `abort_retry` is currently a no-op.
 
 The selected D5c contract keeps all summary policy in the existing native owner.
 RPC admits `compact` only at true idle as a typed operation in the same native
@@ -656,6 +658,9 @@ Automatic request-preparation compaction emits the same event pair only for a
 real selected attempt: legacy message/byte pressure uses `threshold`, and a
 known-window estimated preflight overflow uses `overflow`. Pipy has no
 post-response compact-and-retry path, so this reason does not imply a retry.
+Automatic lifecycle records always use `result: null`, including an accepted
+cut whose durable append fails; automatic summary content and other private
+summary details never enter JSONL.
 
 `set_auto_compaction` accepts an exact boolean and mutates
 `compaction.enabled` through a precedence-aware `SettingsManager` operation. An
@@ -668,9 +673,7 @@ effective automatic policy and `get_state.autoCompactionEnabled`. `get_state`
 also reads a guarded native compaction-activity projection; it reports manual
 compaction as compacting but not streaming, and automatic compaction as both.
 The detailed ownership, cancellation, privacy, and lock-order rules are in the
-[D5c SDK contract](sdk.md#d5c-rpc-compaction-control-adoption-contract). This is
-a reviewed implementation target, not a claim that the current transport already
-implements it.
+[D5c SDK contract](sdk.md#d5c-rpc-compaction-control-adoption-contract).
 
 ### Extension UI request/response channel
 

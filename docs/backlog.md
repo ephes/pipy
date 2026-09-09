@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** implement D5c1's reviewed RPC compaction-control adoption contract
-against the committed D5a shared-control and D1b semantic-compaction owners.
-Keep compaction policy and durable summary state out of the transport.
+**Next task:** refresh D5d's bounded RPC retry-control adoption contract against
+the committed D4 retry owner and D5a shared control, splitting a prerequisite
+contract slice before implementation if the source evidence requires it.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -155,6 +155,23 @@ docs-build and diff hygiene green. Fresh Terra High plan review R1 found two
 Warnings about ephemeral result IDs and settings precedence. Both were repaired;
 focused R2 returned CLEAN. These are independent contexts within the selected
 Terra model family, not different-family evidence. D5c1 is the sole next slice.
+
+D5c1 adopts manual and automatic RPC compaction through the existing native
+queue, semantic-compaction and settings owners. Manual requests are idle-only
+claimed worker operations with exact cancellation, persistent or ephemeral
+results, private custom focus, state-first persistence projection and ordered
+settlement. Automatic lifecycle starts only for a real selected summary attempt,
+keeps every summary/result detail private, and reports accepted persistence
+failure truthfully before preserving and re-raising the original exception. The
+transport-local enabled flag is gone; exact-boolean mutation and state projection use effective
+settings precedence. Root validation passed 673 focused tests and the full
+6,062-test gate (two skipped), with lint, formatting, Mypy, unchanged interpreter
+snapshots, eight PTY smoke tests, docs-build and diff hygiene green. Terra High
+code review R1 found one Critical privacy leak and two lifecycle Warnings; the
+bounded repairs also closed an orchestrator-found output-under-owner-lock path.
+Focused R2 returned CLEAN. This is same-model-family independent review evidence.
+D5c is complete; live-provider summary quality remains unverified. D5d is the
+sole next eligible task.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -624,8 +641,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5b1 | Complete `b3819f0`; full checks and focused Terra follow-up CLEAN; D5b0 `386ab33` | Route RPC model/thinking commands through the existing provider-mutation owner and delete RPC-local thinking authority | 261 focused and 6,035 full tests; truthful coherent snapshots, real next-request provider/level, catalog/trust/tool-capability filtering, durable thinking entry, correlated results |
 | D5b | Complete `b3819f0`; D5b0–D5b1 complete | RPC model/thinking controls milestone, not a separate dispatch | Existing provider construction, refresh/trust, settings and coding-binding owners remain authoritative |
 | D5c0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a, D1b | Reviewed worker-operation, event/result, settings and state-first RPC compaction contract in SDK/RPC/architecture/harness docs | 14 focused and 6,035 full tests; one queue/abort/summary/settings owner; exact reason and output ordering |
-| D5c1 | D5c0 | Adopt manual and automatic RPC compaction controls through the existing native queue, semantic owner and precedence-aware settings owner | Real persistent/ephemeral result and effective policy; custom focus; cancellation, persistence, override, event/correlation, state and admission races covered |
-| D5c | D5c1 | RPC compaction-control milestone, not a separate dispatch | No transport-owned compaction policy, queue, latch, enabled flag, summary or durable state |
+| D5c1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5c0 `67eb79c` | Adopt manual and automatic RPC compaction controls through the existing native queue, semantic owner and precedence-aware settings owner | 673 focused and 6,062 full tests; real persistent/ephemeral result and effective policy; custom focus; cancellation, persistence, privacy, override, event/correlation, state and admission races covered |
+| D5c | Complete in this chunk; D5c1 complete | RPC compaction-control milestone, not a separate dispatch | No transport-owned compaction policy, queue, latch, enabled flag, summary or durable state |
 | D5d | D5a, D4a3 | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
 | D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
@@ -637,7 +654,8 @@ every listed module. Add a file only when the selected behavior needs it.
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
 adoption is complete at `112397a`, and D5b model/thinking adoption is complete
-at `b3819f0`. D5c0 is the sole next eligible slice; D7 can move earlier
+at `b3819f0`. D5c compaction-control adoption is complete in the current chunk;
+D5d is the sole next eligible task. D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the

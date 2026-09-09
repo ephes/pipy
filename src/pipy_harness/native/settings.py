@@ -639,6 +639,38 @@ class SettingsManager:
             )
             assert published, "set_value holds the io lock across its publication"
 
+    def set_auto_compaction_enabled(self, enabled: bool) -> bool:
+        """Persist the effective compaction toggle without defeating precedence.
+
+        RPC uses this narrow owner operation instead of maintaining a transport
+        shadow flag. A command-line/environment override is deliberately not
+        rewritten: it wins until its caller removes it.
+        """
+
+        if type(enabled) is not bool:
+            raise TypeError("enabled must be an exact bool")
+        # Selection, file replacement, publication, and postcondition share
+        # the existing I/O lock.  `set_value` deliberately re-enters it, so a
+        # reload cannot change the project/global decision between these steps.
+        with self._io_lock:
+            current = self.capture_compaction_budget_settings().enabled
+            if current == enabled:
+                return True
+            override = self._overrides.get("compaction")
+            if isinstance(override, dict) and "enabled" in override:
+                return False
+            project = self.raw_scope(SCOPE_PROJECT).get("compaction")
+            scope = (
+                SCOPE_PROJECT
+                if self.project_trusted
+                and self.project_path is not None
+                and isinstance(project, dict)
+                and "enabled" in project
+                else SCOPE_GLOBAL
+            )
+            self.set_value("compaction.enabled", enabled, scope=scope)
+            return self.capture_compaction_budget_settings().enabled == enabled
+
     # --- typed accessors ---------------------------------------------------
 
     def _get(self, key: str) -> Any:
