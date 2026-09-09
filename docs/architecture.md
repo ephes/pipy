@@ -1047,7 +1047,7 @@ and queue guards before transition callbacks or durable work, then settles the
 exact claim once. Native wiring holds the RPC lifetime's initial persistent
 canonical lease in the same neutral slot before readiness, while RPC updates
 only its projection binding after native publication and retires the controller
-after a published rebuild failure. Terminal command adoption remains deferred.
+after a published rebuild failure. D6c3 is the first terminal adopter.
 
 That module also owns a guarded `CanonicalSessionLeaseSlot` bound once per
 lifetime. The slot is the only mutable current-lease owner. A prepared candidate
@@ -1089,8 +1089,8 @@ the controller lifetime finishes its bound lease slot before accepting a
 successor command. Lifecycle
 `session_start` and `session_shutdown` remain facade-lifetime bookends. The public completion
 observation is the frozen return value; D6b3 owns the one RPC event/UI rebind.
-The terminal's current session command owner remains behaviorally separate until
-it adopts this same port.
+The terminal's remaining session command owners stay behaviorally separate until
+each adopts this same port in its own reviewed slice.
 
 D6c0 inventories the remaining frontend split rather than treating shared core
 imports as proof of shared lifecycle ownership. The product Python facade and
@@ -1108,9 +1108,28 @@ boundary. `/new`, `/resume`, `/fork` and `/clone` still replace the live tree
 through `SessionCommandEffects`, and the terminal lifetime does not yet claim a
 `CanonicalSessionLeaseSlot`. `/resume` additionally uses permissive tree load,
 while the D6b coordinator owns strict workspace validation and candidate lease
-handoff. D6c2 reviews that one command's lease, failure and presentation
-contract before D6c3 code; other terminal commands and import replacement stay
-outside the slice.
+handoff.
+
+D6c2 fixes the first terminal adoption boundary without adding an owner. D6c3
+binds one canonical lease slot to the stream-driven terminal controller after
+successful composition and before lifecycle start; the controller's existing
+retirement path finishes whichever initial or adopted claim is current. The
+terminal adapter keeps picker/reference resolution and presentation, while a
+resolved `/resume` target delegates claim-before-strict-load, workspace
+validation, guarded tree publication, lease handoff, history rebuild and
+extension-input clearing to the D6b coordinator. Product and RPC keep their
+existing slot attachment paths.
+
+Expected candidate refusal is recoverable only before tree publication: lease
+conflict, strict-load failure or workspace mismatch leaves the old tree and slot
+usable and projects a sanitized terminal diagnostic. An unexpected tree-setter
+error remains fatal. Rebuild/clear failure after state-first publication also
+remains fatal; controller teardown releases the adopted claim after the normal
+shutdown/extension/chrome cleanup chain. Redraw and success output occur only
+after the coordinator completes. The slot is never exposed to session-command,
+picker or renderer code, and no lease/coding lock spans hooks, I/O or terminal
+presentation. Other terminal commands and import replacement stay outside the
+slice.
 
 The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;

@@ -148,6 +148,80 @@ coordinator's canonical claim, strict load and workspace check. D6c2 will review
 selection, list/rename/delete, `/tree`, import/export, `/new` and fork/clone are
 separate presentation or transition regions and are not folded into that slice.
 
+### D6c2 terminal `/resume` adoption contract
+
+D6c2 fixes the contract for D6c3; it changes no runtime behavior. The
+stream-driven terminal lifetime will own one `CanonicalSessionLeaseSlot`. After
+successful native composition and before `session_start` or any command can run,
+it canonical-claims the initial persistent tree and binds the slot's idempotent
+finisher to the existing `CodingSessionController` lifetime. An ephemeral
+initial tree gets an empty slot. Initial claim conflict refuses startup; a
+failure after the claim but before lifetime start releases it. Normal exit,
+fatal exit, startup failure after attachment, and a failure after switching all
+finish the slot exactly once after the existing shutdown, extension-session and
+chrome cleanup. Product and RPC lifetimes retain their already shipped binding
+paths; D6c3 does not add a second lease owner.
+
+`SessionCommandEffects` continues to classify `/resume` input. Bare captured
+input lists sessions; `named`, `rename`, and confirmed `delete` retain their
+current store/presentation behavior; bare live input retains the existing
+picker. Numeric, ID-prefix, path-stem and explicit-path resolution also remain
+in the terminal adapter. Only a resolved direct target or a different picker
+target enters the existing `SessionTransitionCoordinator`; neither the
+coordinator nor lease slot lists sessions, runs a picker, resolves a reference,
+or writes terminal output.
+
+For a resolved target, canonical equality with the active persistent path is a
+completed no-op before an extension hook, candidate claim, load, tree setter,
+history rebuild, extension-input clear, redraw, or lease release. Both direct
+aliases and picker selection use the picker's existing "already on the selected
+native session" diagnostic and the standard footer. A different target retains the
+existing `session_before_switch` gate and its bounded denial diagnostic. The
+native coordinator then claims the canonical candidate before reading it,
+strict-loads it, and requires its stored absolute cwd to resolve to the fixed
+terminal workspace. Terminal adoption does not select a new workspace or
+provider and does not reconstruct provider/model settings from the target.
+
+Successful adoption orders effects as follows: terminal resolution; extension
+gate; candidate claim; strict load and workspace validation while claimed;
+guarded `RunControlState.session_tree` publication; slot publication and old
+claim release; one `CodingProductSessionCoordinator` history rebuild; extension
+input clear; one terminal custom-entry redraw; one sanitized resumed-session
+diagnostic; then the existing standard footer. Tree publication remains
+state-first and does not add `session_start`, `session_shutdown`, provider/tool
+execution, workflow-archive output, or a second lifecycle generation.
+
+Expected failure before pointer publication is recoverable at this terminal
+boundary. An extension veto or candidate lease conflict returns a bounded
+diagnostic; strict-load failure, malformed or unknown records, and non-absolute
+or different-workspace headers become one sanitized target-load diagnostic.
+They release only the candidate claim and retain the old tree, lease, history,
+extension inputs, and usable terminal lifetime, followed by the standard
+footer. Raw target content and exception text are not printed. An unexpected
+tree-publication error still propagates and retires the lifetime. Once the tree
+setter and lease handoff publish the candidate, rollback is not promised: a
+history-rebuild or extension-input-clear failure propagates the typed published
+target failure, suppresses redraw/success diagnostic/footer, and controller
+teardown releases the adopted target once.
+
+The guarded inventory stays closed. `_LEASE_LOCK` guards the canonical registry;
+the slot lock guards only current-claim read, prepare, publish and finish;
+`RunControlState.session_tree` and its mutation binding remain under the one
+coding-effects lock; the product coordinator remains the history rebuild owner;
+and `CodingInputQueue` remains the extension-input owner. The terminal command
+adapter receives a typed transition operation, not a lease or mutable tree
+handoff. No lock spans an extension hook, filesystem I/O, redraw, diagnostic or
+footer write.
+
+D6c3 must prove initial claim conflict and cleanup, exact current/adopted lease
+release on normal and fatal exits, strict claim-before-load, same-canonical-path
+no-op for direct and picker targets, old-session usability after every expected
+prepublication refusal, and the success/fatal order above. It must retain picker
+cancel/current, list/named/rename/delete and reference-resolution coverage.
+`/tree`, `/import`, `/new`, `/fork`, `/clone`, startup `-r`, SDK/RPC behavior,
+cross-process locking, provider reconstruction and compatibility retirement are
+non-goals.
+
 `fork(entry_id=None)` requires a persistent active tree. Its default is the
 current leaf; an explicit `entry_id` is any exact known native entry, including
 model, compaction, label, branch-summary, custom, or message entries. It copies

@@ -2867,15 +2867,28 @@ retains outer trimming, the submitted user bubble, and queued/RPC bypass.
 Captured bare and `named` forms continue listing native product sessions, and
 `rename`/confirmed `delete` continue mutating only that private store. Live bare
 input uses the existing inline picker. Picker cancel/current selection and all
-management forms remain ungated; only resolved direct targets and different
-picker targets invoke `session_before_switch` with the exact path. Successful
-switches retain open/assignment, typed history rebuild, extension-input clear,
-custom-entry redraw, sanitized diagnostic, and one standard footer in order.
-Veto/error/fatal and open/rebuild/clear/redraw failure timing remains exact.
+management forms remain ungated. D6c3 changes only resolved direct targets and
+different picker targets: they use the D6b transition coordinator and one
+terminal-lifetime canonical lease slot. Same-canonical-path selection becomes a
+no-op before the switch hook or load. A different target retains
+`session_before_switch`, then claims before strict load and fixed-workspace
+validation, publishes through the guarded tree setter, hands off the lease,
+rebuilds typed history, clears extension input, redraws custom entries, emits a
+sanitized diagnostic, and applies one standard footer in that order.
+
+Extension refusal, lease conflict, strict-load failure and workspace mismatch
+retain the old tree/lease and are recoverable bounded terminal diagnostics with
+one footer. Unexpected pointer-publication error remains fatal. After pointer
+publication, rebuild or clear failure remains fatal and state-first: it emits no
+redraw, success diagnostic or footer, and controller teardown releases the
+adopted lease. The initial persistent tree is claimed after successful
+composition and before `session_start`; existing controller retirement releases
+the current slot after shutdown, extension close and chrome cleanup on every
+exit. This is the reviewed D6c2 contract; runtime remains unchanged until D6c3.
 
 The kernel gains no picker, terminal, provider, persistence, extension,
-automation/RPC, SDK, capture, or archive implementation. Direct-active reopen,
-run-lifetime provider/counter/filter state, ordinary scrollback, captured
+automation/RPC, SDK, capture, or archive implementation. Run-lifetime
+provider/counter/filter state, ordinary scrollback, captured
 active-rename staleness, explicit-path deletion policy, post-switch lifecycle
 hooks, registry metadata, and write relocation remain deferred.
 
