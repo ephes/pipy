@@ -9,9 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** complete the D6a1 validation/review gate and commit it. Then take
-the reviewed D7a direct-command cancellation contract as the next planning
-slice before implementation.
+**Next task:** complete the D7a0 direct-command cancellation contract review and
+commit it, then dispatch D7a1 as the sole eligible implementation slice.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -671,9 +670,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5a2 | Complete at `4c62378`; D5a2b complete | Native/facade adoption milestone, not a separate implementation dispatch | Real product submits use managed ownership; no new public concurrent admission or premature RPC settlement hook |
 | D5a3a0 | Complete `448f2a0`; full checks and focused Terra follow-up CLEAN; D5a2 | Reviewed internal control/readiness and atomic RPC migration contract in SDK/RPC/architecture docs | Independent review and commit before D5a3a; no runtime change or public SDK promise |
 | D5a3a | Complete `65c2015`; full checks and focused Terra follow-up CLEAN; D5a3a0 | Transport-neutral native managed-control seam and immutable transitions without RPC activation | Terra R1 3 Critical/1 Warning repaired; one queue owner, exact claims, coherent readiness, guard-free signaling; existing ProductSession behavior unchanged |
-| D5a3b | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | 276 focused and 6,022 full tests; stream-driven startup/failure readiness, wake/EOF-only transport, exact settlement, post-extension true idle, framing/correlation, typed delivery and EOF drain preserved |
-| D5a3 | Complete in this chunk; D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
-| D5a | Complete in this chunk; D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
+| D5a3b | Complete `112397a`; full checks and focused Terra follow-up CLEAN; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | 276 focused and 6,022 full tests; stream-driven startup/failure readiness, wake/EOF-only transport, exact settlement, post-extension true idle, framing/correlation, typed delivery and EOF drain preserved |
+| D5a3 | Complete `112397a`; D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
+| D5a | Complete `112397a`; D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
 | D5b0 | Complete `386ab33`; full checks and focused Terra follow-up CLEAN; D5a `112397a` | Fix the private RPC-to-provider-mutation handoff, idle commit ordering, catalog/scoped-cycle projection and injected-provider fallback | Reviewed implementation contract; no runtime change |
 | D5b1 | Complete `b3819f0`; full checks and focused Terra follow-up CLEAN; D5b0 `386ab33` | Route RPC model/thinking commands through the existing provider-mutation owner and delete RPC-local thinking authority | 261 focused and 6,035 full tests; truthful coherent snapshots, real next-request provider/level, catalog/trust/tool-capability filtering, durable thinking entry, correlated results |
 | D5b | Complete `b3819f0`; D5b0–D5b1 complete | RPC model/thinking controls milestone, not a separate dispatch | Existing provider construction, refresh/trust, settings and coding-binding owners remain authoritative |
@@ -684,11 +683,13 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5d1 | Complete `0bfd48c`; full checks and focused Terra follow-up CLEAN; D5d0 `e1060da` | Adopt RPC retry enable/abort through existing settings and canonical retry owners | 628 focused and 6,070 full tests; current request capture unchanged; abort/backoff/reissue/result-fixation/settlement races; no stale capability or private-summary exposure |
 | D5d | Complete `0bfd48c`; D5d1 complete | RPC retry-control milestone, not a separate dispatch | No transport-owned policy, activity flag, latch, attempt allowance, or summary control |
 | D6a0 | Complete `5c181dc`; full checks and focused Terra follow-up CLEAN; D2b, D5a | Review the exact-path public reopen, workspace authority and unchanged close/lifecycle contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D6a1; no runtime or public behavior change |
-| D6a1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D6a0 `5c181dc` | Add the explicit public product-session reopen factory, strict tree loading and canonical-path lifetime lease by delegating to existing owners | 69 focused and 6,082 full tests; equivalent reconstructed context; one in-process writer per durable file; same-file append; lifecycle once; invalid input refuses before composition; no late writes after retirement |
-| D6a | Complete in this chunk; D6a1 complete | Session resume/close API milestone, not a separate dispatch | Supported reopen plus existing idempotent close; no in-place replacement |
+| D6a1 | Complete `6e38076`; full checks and focused Terra follow-up CLEAN; D6a0 `5c181dc` | Add the explicit public product-session reopen factory, strict tree loading and canonical-path lifetime lease by delegating to existing owners | 69 focused and 6,082 full tests; equivalent reconstructed context; one in-process writer per durable file; same-file append; lifecycle once; invalid input refuses before composition; no late writes after retirement |
+| D6a | Complete `6e38076`; D6a1 complete | Session resume/close API milestone, not a separate dispatch | Supported reopen plus existing idempotent close; no in-place replacement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement, one entry point per chunk | Same session owner across SDK/modes; executable embedding example; update docs and remove replaced surfaces without aliases |
-| D7a | D0; coordinate with D5 writer | Direct RPC bash process cancellation; `command_sandbox.py`, existing process-lifetime capabilities, RPC bash handlers and tests | Process-tree termination; timeout differs from explicit abort; one terminal response; preserve direct-command versus model-tool policies |
+| D7a0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
+| D7a1 | D7a0 | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
+| D7a | D7a1 | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
 | D7b | D7a | Correlated incremental RPC bash output | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
@@ -696,7 +697,8 @@ D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
 adoption is complete at `112397a`, and D5b model/thinking adoption is complete
 at `b3819f0`. D5c compaction-control adoption is complete at `ca21328`; D5d
-retry-control adoption is complete at `0bfd48c`.
+retry-control adoption is complete at `0bfd48c`; D6a public reopen is complete
+at `6e38076`.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.
@@ -780,8 +782,8 @@ replacement, fork/clone, concurrent close, public queue/model/compaction
 controls, archive-backed resume, and compatibility SDK retirement remain D6b+
 or D6c work. D6a introduces no alias or deprecation shim.
 
-D6a1 implements that reviewed boundary in the existing product facade and tree
-owners. Strict loading is opt-in, while permissive CLI/internal open behavior is
+D6a1 `6e38076` implements that reviewed boundary in the existing product facade
+and tree owners. Strict loading is opt-in, while permissive CLI/internal open behavior is
 unchanged. The facade claims one resolved target before strict load or
 composition, normalizes persistent injected trees to the same target, and
 releases the exact lease on every lifetime exit. Focused tests cover same-path
@@ -795,6 +797,58 @@ Terra review R1 found one Warning: strict loading type-checked label and branch-
 summary references without enforcing the writer's relationships. The bounded
 repair requires an already accepted label target and an exact branch-summary
 attachment reference; focused R2 returned CLEAN.
+
+### D7a — Direct RPC bash cancellation
+
+At `6e38076`, direct RPC `bash` registers only a count and worker thread before
+calling `command_sandbox.run_command`; `abort_bash` errors while any such worker
+is active, and sandbox timeout is projected as cancellation. Summary-safe
+searches for direct RPC bash cancellation and `abort_bash` found no prior
+decision record. Pi reference commit `aa23e78` keeps one abort controller for
+each concurrent bash execution and aborts every controller active at the
+command boundary. Pipy must preserve its stricter direct-command sandbox rather
+than route this surface through the model's real-shell `BashTool`.
+
+D7a is split into the reviewed D7a0 target contract in
+[the automation RPC specification](automation-rpc.md#d7a-target-contract-not-shipped-until-d7a1)
+and the D7a1 implementation. Each accepted direct bash gets a fresh cancellation
+event and exact private operation identity registered before its worker can
+spawn. `abort_bash` marks and snapshots all active operations under the existing
+RPC lock, signals their events after releasing it, and returns correlated
+success even when idle.
+The sandbox keeps `shell=False`, the resolved allowlist and path/cwd confinement,
+scrubbed environment, separate stream capture, output bounds and redaction.
+Explicit abort and timeout both terminate the complete process group, drain
+available output and reap the child; only explicit abort returns
+`cancelled: true`, and both return a null exit code.
+
+Terminal outcome fixation retires the exact operation under the RPC lock before
+its one correlated bash response is written outside the lock. An abort mark that
+wins that ordering fixes explicit cancellation even when timeout races; a timeout
+fixed first cannot be reclassified by a later abort. An abort snapshot cannot
+reach a fixed predecessor or a later fresh operation. No RPC lock spans spawn,
+wait, kill, drain, reap, join, callbacks, or JSONL output; the JSONL writer
+remains the serialization owner. EOF retains bounded worker joining.
+D7a1 may write `src/pipy_harness/native/command_sandbox.py`,
+`src/pipy_harness/native/automation/rpc.py`,
+`tests/test_command_sandbox.py`, `tests/test_native_automation_rpc.py`, the
+three D7a0 contract documents and `CHANGELOG.md`; the orchestrator owns this
+backlog.
+
+Acceptance covers a real active process-group abort, idle success, a pre-spawn
+abort with no child, timeout/abort distinction, all-current snapshot behavior,
+completion/abort and successor races, a barrier-controlled simultaneous timeout/
+abort test for both lock orderings, one terminal response, EOF cleanup, and
+unchanged allowlist/confinement/environment/redaction/output bounds. D7b owns
+incremental output. D7a adds no history persistence, bash IDs, policy expansion,
+model-tool change, public session API, event bus, or cross-process owner.
+
+D7a0 full validation passed 6,082 tests with two skipped, plus lint, formatting,
+Mypy, docs-build and diff checks; virtualenv interpreter links and configuration
+stayed unchanged. Independent Terra plan review R1 found one Warning because the
+timeout/abort race lacked a deterministic winner. The repair linearizes abort
+marking and terminal fixation under the RPC lock and requires both lock orderings
+in a barrier-controlled test; focused R2 returned CLEAN.
 
 ### D5a — Refreshed queue ownership basis
 

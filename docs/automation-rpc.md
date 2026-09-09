@@ -452,6 +452,52 @@ which is in-scope full-content for this surface).
 truncated), `exitCode: number | undefined`, `cancelled: boolean`,
 `truncated: boolean`, `fullOutputPath?: string`.
 
+**Current shipped behavior.** Direct RPC bash is not yet externally
+cancellable: `abort_bash` reports an error while one is running and is a
+successful no-op while idle. Its current sandbox timeout is projected as
+`cancelled: true`; that value does not mean an explicit abort occurred.
+
+### D7a target contract (not shipped until D7a1)
+
+Each accepted `bash` command
+has one fresh cancellation event and one exact, private operation identity. The
+RPC owner registers that pair under its existing RPC lock before the worker can
+start or spawn a child. `abort_bash` marks every currently registered operation
+as abort-requested and snapshots its event under that lock, releases the lock,
+signals the snapshot, and always writes its own correlated success response,
+including while idle. It never promises that its response is ordered before or
+after any asynchronous `bash` terminal response.
+
+The worker checks its own event before spawn: an abort that wins there spawns no
+child and returns its one correlated `BashResult` with `cancelled: true` and
+`exitCode: null`. A started direct child gets a new process session, keeps
+`shell=False`, the current resolved allowlist/cwd/path policy, scrubbed
+environment, and separately captured stdout/stderr. Explicit abort and timeout
+both terminate the complete process group, drain output that is available, and
+reap the direct child. Explicit abort returns `cancelled: true, exitCode: null`;
+timeout returns `cancelled: false, exitCode: null`; ordinary completion returns
+`cancelled: false` with its integer exit code. Preflight rejection and spawn
+failure retain their current response treatment unless D7a1 evidence requires a
+separately reviewed correction.
+
+Abort marking and terminal-outcome fixation are ordered by the same RPC lock.
+Before a worker writes its terminal response, it fixes that exact operation's
+outcome and unregisters (or terminally marks) its exact identity under the lock.
+An abort request marked before that fixation wins, including when the sandbox
+deadline expires concurrently or timeout cleanup is already underway; the fixed
+wire result is explicit cancellation. If timeout or ordinary completion fixes
+the outcome first, a later abort snapshot cannot include the retired operation
+or change its result. This rule keeps the operation registered until fixation
+and gives simultaneous timeout/abort tests a deterministic winner.
+
+The response write happens outside the lock and exactly once. The RPC lock never
+covers spawn, wait, group termination, drain, reaping, worker join, JSONL
+writing, or callbacks; the JSONL writer remains the sole stdout serialization
+owner. EOF still joins bash workers. The bounded, secret-redacted combined
+stdout/stderr projection remains unchanged. This target adds neither incremental
+bash updates (D7b), bash IDs, history persistence, cross-process coordination,
+nor a model-tool or sandbox-policy change.
+
 `CompactionResult` (`compact`): `summary: string`,
 `firstKeptEntryId: string | null`, `tokensBefore: number`, `details?: object`.
 The ID is `null` only for an explicitly non-persistent native session; a
@@ -470,7 +516,8 @@ cancellation event, ordered completion/cancellation and bounded worker cleanup.
 A completed tool result/effect is retained when completion wins; late success is
 discarded when cancellation wins. Arbitrary extension tools remain cooperative.
 This does not change reservation, settlement, queued steering/follow-up or abort
-clearing, and does not make the separate RPC `bash` command cancellable.
+clearing. The separate direct RPC `bash` command remains uncancellable in the
+current shipped build; its D7a target is specified with `BashResult` above.
 
 While a `prompt` run is in flight:
 
@@ -595,15 +642,18 @@ native session tree (`docs/session-tree.md`).
 
 ### Bash, model, and thinking controls
 
-- `bash` runs a command on a worker thread through
-  `command_sandbox.run_command`, with its own `CommandPolicy`, and returns a
-  full `BashResult` including bounded, secret-scrubbed output. The sandbox is not externally cancellable, so `abort_bash` returns a
-  well-formed error while a bash is in flight (and a no-op success when idle)
-  rather than falsely claiming a cancel. The model tool loop uses the separate
-  `BashTool` executor and model-tool policy path, not this `run_command` call.
-  Full output is in-scope for this RPC surface. The current response maps a
-  sandbox timeout to `cancelled: true`; distinct timeout and explicit-abort
-  outcomes remain part of the planned process-lifecycle work.
+- **Direct bash, current and D7a target.** The current RPC `bash` worker calls
+  `command_sandbox.run_command` with its own `CommandPolicy`, and returns a
+  bounded, secret-scrubbed `BashResult`; it cannot yet be externally aborted.
+  D7a changes only this direct-command execution lifetime as specified above:
+  a fresh per-operation cancellation event, process-group lifecycle, exact
+  terminal-result retirement, and idle-success `abort_bash`. It preserves the
+  direct sandbox's current allowlist, resolved workspace/cwd/path policy,
+  scrubbed environment, `shell=False`, separate stream capture, bounded
+  secret-redacted projection, JSONL serialization, and EOF joining. The model
+  tool loop continues to use its separate `BashTool` executor and model-tool
+  policy path; D7a does not route direct RPC bash through it or broaden either
+  policy.
 - **Model and thinking controls.** RPC routes catalog-backed controls through
   the existing provider-mutation owner. `get_available_models` returns each
   locally available, tool-capable catalog selection and the active custom
