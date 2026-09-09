@@ -165,12 +165,46 @@ deterministic fake provider. It does not silently acquire multi-turn product
 semantics. `HarnessRunner`, `CapturePolicy`, `RunRequest`, `RunResult`,
 `HarnessStatus`, `ProviderPort` and `StreamChunkSink` remain exported.
 
+## D6c staged frontend adoption and compatibility retirement
+
+The product-session API above is the supported in-process coding product. The
+interactive, JSON, print and RPC modes already drive the same canonical coding
+session and agent loop through their mode-specific adapters. The one-shot
+compatibility API is different: `run_native` returns `RunResult`, creates a
+metadata-first workflow record and defaults to a fake provider. The installed
+`pipy run --agent pipy-native` command still reaches that compatibility runtime
+through `PipyNativeAdapter`; this is a real caller whose archive, streaming,
+failure and exit semantics cannot be replaced implicitly.
+
+At the D6c0 inventory boundary, `run_native` and
+`make_native_run_request` have no production callers inside this repository,
+but they remain documented and covered public names. D6c never aliases those
+names to `ProductSession` behavior. A retirement slice may remove them outright
+only after the user-facing embedding path and checked callers use the product
+replacement and the exact export/documentation change has been reviewed. The
+compatibility runtime and adapter remain while `pipy run` uses them, even if the
+Python SDK names are later retired.
+
+D6c1 is the first selected adoption: add a checked-in hermetic
+`create_product_session` example, execute it in a focused test, and make that
+example the README's primary Python embedding path. It must inject an explicit
+tool-capable fake, perform two submissions in one construction-thread lifetime,
+observe detached idle snapshots, close through the context manager, and create
+no workflow archive. It changes no runtime package, provider selection,
+session-tree policy, SDK export or compatibility behavior.
+
+Terminal session replacement remains a separate adoption program. The current
+`/new`, `/resume`, `/fork` and `/clone` handlers still replace trees directly
+and the terminal lifetime does not yet own the D6b canonical lease slot. D6c2
+will review the smallest `/resume` selection contract before D6c3 changes code;
+listing, rename/delete, `/tree`, import/export, `/new` and fork/clone remain
+outside that first terminal slice.
+
 ## D6b public session-transition contract
 
-**D6b2 shipped:** `ProductSession.fork()`, `clone()`, `new_session()`, and
-`switch_session()` implement the public region of this contract through the
-native transition owner. All RPC transition handlers remain unimplemented
-until D6b3.
+**D6b3 shipped:** `ProductSession.fork()`, `clone()`, `new_session()`, and
+`switch_session()` and the matching JSONL RPC commands use the native
+transition owner. Terminal command adoption remains deferred to D6c.
 
 D6b adds four construction-thread, idle-only operations to the existing
 `ProductSession` facade. They are not factories and do not create another
@@ -277,9 +311,9 @@ diagnostic string. Neither starts persistence, releases the old lease,
 publishes a tree, rebuilds state, or emits a successful-transition observation.
 For the public API, the one successful transition observation is its returned
 immutable result; it emits no new lifecycle or extension-completion event and
-has no UI subscription to rebind. D6b3 supplies the one correlated RPC result
-and the one RPC event/UI rebind. D6b does not add a second extension lifecycle
-generation or an event bus.
+has no UI subscription to rebind. RPC supplies one correlated result and one
+event/UI rebind. D6b does not add a second extension lifecycle generation or an
+event bus.
 
 `src/pipy_harness/native/repl/session_transition.py` is D6b's narrow native
 owner. D6b1 creates it, moves D6a's process-local canonical-path registry there
@@ -292,7 +326,7 @@ that port; native modules never import the facade or SDK. The port receives the
 existing `RunControlState` tree setter, extension gate and
 `CodingProductSessionCoordinator.rebuild_active_history` callbacks from wiring;
 it does not own a queue, lifecycle, renderer, event bus, or DI container. The
-same port is the future D6b3 RPC target and the eventual terminal-adoption seam.
+same port serves RPC and is the eventual terminal-adoption seam.
 The neutral module defines the exact immutable transition values and typed
 error; `product_api.py` and `sdk.py` re-export those same classes rather than
 maintaining a second public projection.
@@ -324,8 +358,8 @@ target.
 For D6a create/open, `product_api.py` creates this neutral slot around the
 initial lease before native lifetime composition and remains the lifecycle
 caller of `finish()`. The prepared native lifetime binds that exact slot once to
-the coordinator port before any public transition. D6b3 creates and binds its
-own slot for the RPC lifetime's initial persistent tree before accepting input;
+the coordinator port before any public transition. Native wiring creates and
+binds a slot for the RPC lifetime's initial persistent tree before accepting input;
 its fatal teardown uses the same `finish()` path. The registry and slot use one
 documented lock order, and no caller reads or swaps their mutable lease fields
 directly.
@@ -371,11 +405,11 @@ contract after both public operations exist.
 ## Current limits and JSON/RPC
 
 Public D6b product-session transitions now ship: `fork`, `clone`,
-`new_session`, and strict `switch_session`. RPC adoption of those transitions
-remains D6b3 work. Public steering queues, model/thinking controls, manual
-compaction and extension UI bridging remain later work. The product API supports
-a fixed observer and explicit provider injection. Live provider dogfooding and
-semantic-summary quality remain unverified by the synthetic acceptance tests.
+`new_session`, and strict `switch_session`; RPC uses the same transition owner.
+Public steering queues, model/thinking controls, manual compaction and extension
+UI bridging remain later work. The product API supports a fixed observer and
+explicit provider injection. Live provider dogfooding and semantic-summary
+quality remain unverified by the synthetic acceptance tests.
 
 [JSON Mode](json.md) and [RPC Mode](rpc.md) are the out-of-process headless
 surfaces for process isolation, JSONL framing and mid-turn controls. Product

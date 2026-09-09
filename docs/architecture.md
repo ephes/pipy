@@ -1092,6 +1092,26 @@ observation is the frozen return value; D6b3 owns the one RPC event/UI rebind.
 The terminal's current session command owner remains behaviorally separate until
 it adopts this same port.
 
+D6c0 inventories the remaining frontend split rather than treating shared core
+imports as proof of shared lifecycle ownership. The product Python facade and
+interactive/JSON/print/RPC modes use the canonical coding session and agent
+loop, while the checked-in README still leads with the separate one-shot SDK
+compatibility helper. `run_native` and `make_native_run_request` have no
+production repository caller; `pipy run --agent pipy-native` remains a real
+caller of `PipyNativeAdapter` and `NativeHarnessCompatibilityRuntime` and keeps
+their metadata archive, `RunResult`, streaming, failure and exit contract.
+D6c first adds an executable product-session embedding example. It does not
+rename or silently change the compatibility API.
+
+The terminal replacement commands are a second, runtime-bearing adoption
+boundary. `/new`, `/resume`, `/fork` and `/clone` still replace the live tree
+through `SessionCommandEffects`, and the terminal lifetime does not yet claim a
+`CanonicalSessionLeaseSlot`. `/resume` additionally uses permissive tree load,
+while the D6b coordinator owns strict workspace validation and candidate lease
+handoff. D6c2 reviews that one command's lease, failure and presentation
+contract before D6c3 code; other terminal commands and import replacement stay
+outside the slice.
+
 The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;
 headless model tools now select the external-abort waiter only when a signal is

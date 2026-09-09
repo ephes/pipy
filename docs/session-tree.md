@@ -138,6 +138,16 @@ encompassing public or RPC lifecycle finishes the adopted slot on teardown.
 No result value exposes the lease, and no other reader or writer accesses the
 slot's mutable current claim.
 
+The D6c0 inventory records that terminal commands have not adopted this slot or
+coordinator yet. `/new`, `/resume`, `/fork` and `/clone` still replace the tree
+inside `SessionCommandEffects`; the terminal lifetime holds no canonical path
+claim. `/resume` resolves its number/id/path in the terminal adapter and then
+uses the permissive internal loader, whereas public and RPC switching use the
+coordinator's canonical claim, strict load and workspace check. D6c2 will review
+`/resume` selection alone before implementation. Picker cancellation/current
+selection, list/rename/delete, `/tree`, import/export, `/new` and fork/clone are
+separate presentation or transition regions and are not folded into that slice.
+
 `fork(entry_id=None)` requires a persistent active tree. Its default is the
 current leaf; an explicit `entry_id` is any exact known native entry, including
 model, compaction, label, branch-summary, custom, or message entries. It copies
