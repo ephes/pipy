@@ -592,6 +592,34 @@ target vocabulary includes:
 | `session_before_tree` | Observe or block tree/session-history navigation before it starts. | None or `SessionDecision` |
 | `session_tree` | Observe completed tree/session-history navigation metadata. | None |
 
+### D6b public and RPC transition ordering
+
+The later public `ProductSession.fork`/`clone` and `new_session`/`switch_session`
+operations use the already activated generation's session gates; they do not
+restart extension lifecycle. Fork/clone resolves the persistent source and
+selected exact entry, then calls `session_before_fork(operation="fork",
+target=<entry id>)` before child creation. The public result distinguishes clone
+from fork without expanding the existing extension operation vocabulary. Fresh
+replacement calls
+`session_before_switch(operation="switch", target="new")` before file creation.
+Existing-session replacement canonicalizes its candidate and calls
+`session_before_switch(operation="switch", target=<canonical path>)` before
+claiming, strict-loading, workspace validation, lease handoff, or tree
+publication. A same-target switch is a no-op and calls neither hook.
+
+The existing gate dispatcher remains fail-closed: any `SessionDecision` denial,
+including a hook failure, returns the one stable public `extension_refusal` and
+the RPC cancelled projection. No adapter infers a hook crash from diagnostic
+text. Neither case writes a child/fresh session, publishes a candidate tree, or
+emits a completed transition observation. A successful
+transition's public observation is its one immutable result. It does not send
+`session_shutdown` followed by `session_start`, a new extension completion
+event, or a UI rebind: those bookends continue to occur once when the
+encompassing facade starts and retires. D6b3 owns the single RPC event/UI rebind
+after an accepted native transition. The state-first tree/context rebuild
+boundary is not an atomic transaction; a post-publication rebuild error retires
+the public lifetime before returning its typed published-target failure.
+
 The first implementation should still start small. `tool_call` should be the
 first policy hook because it enables high-value workflows such as protected
 paths and command gating without requiring package loading or rich UI hooks.

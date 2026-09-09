@@ -111,6 +111,60 @@ mode by default. Public embedded lifetimes also hold one process-local canonical
 file-path lease, so aliases cannot concurrently append through separate facades.
 This is not a cross-process lock.
 
+### D6b public transition contract
+
+The later in-place public transition operations are owned by one native
+`SessionTransitionCoordinator`, composed once by `native/repl/wiring.py`, not
+by `NativeSessionTree` factories or the outer `ProductSession` facade. The tree
+keeps creation, strict open, branch projection and durable append ownership. The
+coordinator receives the run-control setter, extension gate and state rebuild
+ports from wiring; `product_api.py`, later RPC, and eventual terminal adoption
+call its typed port without a native import of the outer facade.
+
+The same neutral module owns the process-local registry and one guarded
+`CanonicalSessionLeaseSlot` per active lifetime. A prepared handoff holds a
+candidate claim alongside the slot's old claim. Failure before pointer
+publication aborts only the candidate; after the setter returns, a non-failing
+publish swaps the slot to the candidate exactly once and releases the old claim.
+The encompassing public or RPC lifecycle finishes the adopted slot on teardown.
+No result value exposes the lease, and no other reader or writer accesses the
+slot's mutable current claim.
+
+`fork(entry_id=None)` requires a persistent active tree. Its default is the
+current leaf; an explicit `entry_id` is any exact known native entry, including
+model, compaction, label, branch-summary, custom, or message entries. It copies
+only that root-to-entry branch from the guarded active in-memory tree; public
+fork does not permissively reopen its own source file. `clone()` is the same
+operation at the current leaf, uses the existing `operation="fork"` extension
+gate vocabulary, and rejects an empty tree. The child uses the
+active source file's parent directory, has a fresh ID and entry IDs, records
+the source file in `parentSession`, reattaches labels to their mapped IDs,
+remaps branch-summary references, and inherits the source session name. It never rewrites the source
+file and accepts no caller-selected destination.
+
+`new_session()` requires a persistent active tree and creates a fresh empty
+tree in that active file's parent directory for the existing facade workspace.
+`switch_session(path)` canonicalizes one exact path and detects a same-path
+no-op without reading it. For another target, it runs the extension gate, claims
+the candidate through D6a's neutral native canonical lease registry, then
+strict-loads it and validates its stored absolute cwd against the facade
+workspace while claimed. Neither operation performs lookup by ID/recency,
+changes workspace, or adopts provider/model metadata. This is still not a
+cross-process file lock.
+
+Persistent creation is deliberately prior to adoption, not a transaction. After
+an allowed fork/clone/new, a child/fresh path may remain after a later creation,
+claim, publication, or rebuild failure; a failed creation write is not promised
+to contain a valid header or complete content. Strict-load failure creates no
+new artifact. The product coordinator first publishes the selected tree under
+its coding-effects/tree lock and then rebuilds the provider-visible history from
+that selected tree. A rebuild failure cannot promise atomic restoration: the
+public facade fails closed and retires before it raises a typed published-target
+failure. Candidate/open/load failure before pointer publication releases the
+candidate lease and leaves the old tree, lease, and usable facade untouched.
+An immutable target uses `session_path=None` when that retained tree is
+ephemeral.
+
 The full interactive workflow runs in the tool-loop product TUI — pipy's
 single Pi-like daily-driver shell. The non-TTY captured-stream fallback uses the
 same native product session store for ordinary user/assistant conversation

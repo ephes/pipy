@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** write and review D6b0's public fork/clone, fresh-session and
-existing-session replacement contract before any runtime implementation.
+**Next task:** after D6b0's contract is independently reviewed and committed,
+implement D6b1 public fork/clone through its native transition owner.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -685,7 +685,7 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6a0 | Complete `5c181dc`; full checks and focused Terra follow-up CLEAN; D2b, D5a | Review the exact-path public reopen, workspace authority and unchanged close/lifecycle contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D6a1; no runtime or public behavior change |
 | D6a1 | Complete `6e38076`; full checks and focused Terra follow-up CLEAN; D6a0 `5c181dc` | Add the explicit public product-session reopen factory, strict tree loading and canonical-path lifetime lease by delegating to existing owners | 69 focused and 6,082 full tests; equivalent reconstructed context; one in-process writer per durable file; same-file append; lifecycle once; invalid input refuses before composition; no late writes after retirement |
 | D6a | Complete `6e38076`; D6a1 complete | Session resume/close API milestone, not a separate dispatch | Supported reopen plus existing idempotent close; no in-place replacement |
-| D6b0 | D6a `6e38076`; scheduled grooming after D7b1 | Review public fork/clone plus fresh-session and existing-session replacement outcomes, extension gates, exact tree/lease handoff, one-rebuild lifecycle and RPC boundary | Resolve the in-place transition, result, target-entry/session-directory, failure/persistence and lifecycle decisions below; independent review and commit before runtime work |
+| D6b0 | Complete in this chunk; full checks and focused Terra R2 CLEAN; D6a `6e38076`; scheduled grooming after D7b1 | Review public fork/clone plus fresh-session and existing-session replacement outcomes, extension gates, exact tree/lease handoff, one-rebuild lifecycle and RPC boundary | Concrete five-document contract; independent review and commit before D6b1 runtime work |
 | D6b1 | D6b0 | Add public product-session fork/clone through existing tree, extension-gate and context-rebuild owners | Persistent source; exact selected entry/current leaf; fresh child lineage/IDs/references; canonical child lease; source unchanged on refusal; one coherent rebind |
 | D6b2 | D6b1 | Add public fresh-session and existing-session switch/replacement through the same lifetime owner | Existing targets use strict load; fresh targets use the reviewed session-directory owner; same-path no-op; claim the new target before publication; preserve the old tree/lease on refusal; exact handoff and one rebuild; no late cancellation crosses lifetimes |
 | D6b3 | D6b2, D5a `112397a` | Migrate RPC `new_session`, `switch_session`, `fork` and `clone` through the reviewed native transition owner | Pi-shaped correlated outcomes; queue admission/settlement and event/UI rebind once; no transport-owned tree or lifecycle authority |
@@ -829,38 +829,43 @@ submit, cross-thread cancel, idle snapshot and idempotent close. It has no fork,
 clone, fresh-session replacement or existing-session switch. Its persistent-path
 lease prevents two public facades from writing the same canonical file. The
 native tree already creates a forked file with fresh entry IDs, active-branch
-content, labels/name, remapped
-compaction references and `parentSession`. Terminal `/fork`, `/clone` and
+content, labels/name, remapped compaction references and `parentSession`.
+Terminal `/fork`, `/clone` and
 `/resume` already use extension vetoes and one established context rebuild;
 terminal `/new` separately creates a fresh persistent tree before that rebuild;
 the run-control tree setter adopts the coding-effects lock and increments its
 pointer epoch. RPC recognizes `new_session`, `switch_session`, `fork` and
 `clone` but still returns correlated not-implemented errors.
 
-D6b0 must decide and document the exact supported public transition rather than
-creating a parallel facade or lifecycle owner. The working direction is an
-idle, construction-thread operation on the existing facade: fork/clone creates
-and claims a child tree, switch strictly opens and claims an existing target,
-and fresh-session replacement creates and claims a new persistent tree through
-the reviewed session-directory owner. A successful pointer transition invokes
-the existing rebuild observation exactly once without another
-`session_start`/`session_shutdown`. The reviewed contract must fix lease
-ordering, same-path behavior, fresh-session directory and path selection,
-extension gate/crash outcomes, source/target persistence after every failure
-point, cancellation isolation, whether fork accepts any exact entry or only
-user entries, and the minimal immutable public result. It must also state
-whether a created child or fresh-session file may remain when a later
-state-first rebind fails. `run_native` remains unchanged.
+D6b0 fixes the public and later RPC boundary in
+[the SDK contract](sdk.md#d6b-public-session-transition-contract) and its
+session-tree, extension, automation and architecture companions. One neutral
+native transition coordinator reuses the current tree setter, extension gate,
+history rebuild and queue/controller lifetime. Its guarded canonical lease slot
+owns the exact old-to-candidate handoff; prepublication refusal preserves the
+old usable target, while a postpublication rebuild failure closes the lifetime
+and reports the actual published target without claiming rollback. Immutable
+public targets represent ephemeral paths explicitly, fork/clone accepts any
+exact entry with current-leaf default, same-path switch is a no-op, and
+`run_native` remains unchanged.
 
-D6b0 may write `docs/sdk.md`, `docs/session-tree.md`,
-`docs/automation-rpc.md`, `docs/architecture.md`, `docs/extension-api.md` and
-this backlog. D6b1/D6b2 write sets must be fixed there before implementation;
-expected owners are `product_api.py`, `sdk.py`, `session_tree.py`, the narrow
-existing transition/rebuild seam, focused product/tree/extension tests, matching
-docs and `CHANGELOG.md`. D6b3 is a separate RPC implementation and may not be
-folded into either public API chunk. No session lookup UI, cross-process file
-lock, new event bus/DI layer, async rewrite, history/archive mixing, alias or
-deprecation shim is part of D6b.
+The reviewed SDK section fixes exact serial write sets for D6b1, D6b2 and D6b3.
+D6b1 creates the neutral coordinator/lease owner and public fork/clone; D6b2
+extends it with fresh and strict existing replacement; D6b3 alone migrates the
+four RPC commands plus their readiness/wiring seam. No session lookup UI,
+cross-process file lock, new event bus/DI layer, async rewrite, history/archive
+mixing, alias or deprecation shim is part of D6b.
+
+Independent Terra plan review R1 found one Critical missing active-lease transfer
+owner and one Warning because immutable targets could not represent an ephemeral
+source. The repair added the guarded lease slot with exact prepare/publish/abort/
+finish ownership and made target paths optional. Focused R2 returned CLEAN; the
+two-round docs cap is closed.
+
+Focused architecture validation passed 192 tests. The full gate passed 6,108
+tests with two skipped, plus Ruff, formatting, Mypy, docs-build and diff checks;
+the virtualenv interpreter links and configuration stayed unchanged. No PTY or
+runtime behavior changed.
 
 ### D7a — Direct RPC bash cancellation
 

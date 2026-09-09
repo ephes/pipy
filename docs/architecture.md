@@ -1027,6 +1027,55 @@ lock binding remains composition-time. Native modules never import the outer
 product facade or SDK. Existing native automation entrypoints retain their
 adapter composition; coding and agent cores do not acquire an adapter dependency.
 
+D6b introduces one narrow native `SessionTransitionCoordinator` in
+`native/repl/session_transition.py`, composed once in `native/repl/wiring.py`.
+It receives existing native ports for the `RunControlState.session_tree` setter,
+extension gate, and `CodingProductSessionCoordinator` rebuild. The outer facade
+and later RPC call its typed port; native code never imports `product_api.py` or
+`sdk.py`. D6b1 also moves D6a's process-local canonical-path registry to this
+neutral native owner, allowing public and later transport callers to share
+claims without an event bus or DI framework.
+
+That module also owns a guarded `CanonicalSessionLeaseSlot` bound once per
+lifetime. The slot is the only mutable current-lease owner. A prepared candidate
+handoff holds the new registry claim while the slot still holds the old one;
+prepublication abort releases only the candidate. After the tree setter returns,
+the handoff's non-failing publish swaps the slot to the candidate exactly once
+and releases the old claim. Lifetime teardown calls one idempotent slot finish,
+so a rebuild failure releases the adopted candidate without leaking or
+double-releasing either claim. Public result values never carry lease objects.
+
+The public entry is construction-thread and true-idle only. The coordinator
+reuses the facade's workspace/provider/resources, existing queue/controller and
+stable external abort view for its entire lifetime; true idle already means no
+accepted, reserved, or settling queue work. It neither detaches that view nor
+settles invented retired-tree work. A rebuild clears the existing extension
+inputs/outboxes. The later RPC entry may hold the admitted native-control claim,
+so it uses a private admitted-control port rather than pretending that it is an
+external SDK true-idle call.
+
+For a non-noop existing target the coordinator canonicalizes the path, runs the
+extension gate without reading target content, claims it, and strict-loads and
+workspace-validates while claimed. The setter then binds a candidate tree under
+the coding-effects lock, advances its pointer epoch, and the product-session
+coordinator rebuilds state-first provider history. That publication/rebuild
+sequence is intentionally not an atomic durable transaction. Prepublication
+load/create/claim failure releases the candidate lease and leaves the old
+tree/lease and facade usable. After an allowed create, a child/fresh path can
+remain after later creation, claim, publication, or rebuild failure; a failed
+creation write is not promised to be complete. Strict load creates no artifact.
+
+Once a new pointer is published, rollback is not claimed. A rebuild failure
+retires/closes the public lifetime before its typed error returns; the error
+identifies the published selected target, and only post-close snapshot/close
+semantics remain. The later RPC adopter emits one correlated error and retires
+its controller and finishes its bound lease slot before accepting a successor
+command. Lifecycle `session_start`
+and `session_shutdown` remain facade-lifetime bookends. The public completion
+observation is the frozen return value; D6b3 owns the one RPC event/UI rebind.
+The terminal's current session command owner remains behaviorally separate until
+it adopts this same port.
+
 The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;
 headless model tools now select the external-abort waiter only when a signal is

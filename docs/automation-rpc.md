@@ -294,7 +294,7 @@ Prompting / run control:
 | `steer` | `message: string`, `images?` | none | Mid-turn interrupt; queued/applied per steering mode. |
 | `follow_up` | `message: string`, `images?` | none | Queue a message after the current run. |
 | `abort` | (none) | none | Abort the current run. |
-| `new_session` | `parentSession?: string` | `{ cancelled: boolean }` | Starts a new native session; rebinds event subscription. An extension may cancel. |
+| `new_session` | (none) | `{ cancelled: boolean }` | Target D6b3: starts a fresh native session through the native transition owner; a supplied legacy `parentSession` is refused until a later lineage contract. |
 
 State / introspection:
 
@@ -345,7 +345,7 @@ Session ops (native session tree, `docs/session-tree.md`):
 | Command | Args | Response `data` |
 | --- | --- | --- |
 | `switch_session` | `sessionPath: string` | `{ cancelled: boolean }` (rebinds on success) |
-| `fork` | `entryId: string` | `{ text: string, cancelled: boolean }` (rebinds on success) |
+| `fork` | `entryId: string` | `{ text: string, cancelled: boolean }` (rebinds on success; `text` is the native owner’s bounded completion notice, never copied session content) |
 | `clone` | (none) | `{ cancelled: boolean }` (clones current active branch; error if no current leaf) |
 | `set_session_name` | `name: string` | none (error if name is empty after trim) |
 | `export_html` | `outputPath?: string` | `{ path: string }` — deferred Pi-feature; may return an error response until implemented |
@@ -730,12 +730,37 @@ recognized commands without RPC handlers; each returns a correlated
 not-yet-implemented error. The following is the target contract, not shipped
 RPC behavior.
 
-When implemented, these commands change the active session and must **rebind** the event subscription so subsequent session events come
-from the new active session (Pi's `rebindSession()`), and re-bind the
-extension-UI context. Each may be cancelled by an extension hook
-(`docs/extension-api.md` `session_before_switch` / `session_before_fork`),
-surfaced as `{ cancelled: true }` with no rebind. These commands read/write the
-native session tree (`docs/session-tree.md`).
+D6b3 is the sole migration point. It must call the already-reviewed native
+`SessionTransitionCoordinator` port composed in wiring; RPC may parse paths and
+project correlation, but may not load/create trees, own canonical leases, fire
+lifecycle, or retain a parallel active tree. `new_session`, `switch_session`,
+`fork`, and `clone` map respectively to native fresh replacement, strict
+existing replacement, entry-selected fork, and current-leaf clone.
+`new_session.parentSession` is not adopted until a later separately reviewed
+lineage contract; D6b3 refuses a supplied value rather than inventing parent
+authority.
+
+Every accepted RPC session operation is admitted and settled by the existing
+native control with the same true-idle/abort boundary as other control commands.
+It returns one correlated response: completed or same-target no-op projects
+`{ cancelled: false }`; the stable native `extension_refusal` projects
+`{ cancelled: true }`; input/strict-load/lease/rebuild failures use the existing
+correlated error envelope. For a successful transition, RPC rebinds its event
+subscription and headless extension-UI context exactly once, after the native
+owner's active-target publication, then emits the response. Refusals cause no
+rebind. No transport queue reservation, pending input, cancellation signal, UI
+handle, or late completion from the retired tree may reach the adopted tree.
+The exact native result remains the authority for session id/path/leaf; RPC only
+projects its Pi-shaped response and events.
+
+A prepublication transition error leaves the RPC lifetime and old target usable.
+A postpublication rebuild error is fatal to that lifetime: RPC writes its one
+correlated error for the accepted command, accepts no successor command, and
+retires the native controller and finishes its bound neutral lease slot so an
+inconsistent tree/history pair cannot run. The published target file remains
+durable, and a later explicit reopen rebuilds it through the ordinary strict
+path. D6b3 claims and binds the RPC lifetime's initial persistent tree before it
+accepts input; all later target claims use that same slot and registry.
 
 
 ### Bash, model, and thinking controls

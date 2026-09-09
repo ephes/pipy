@@ -165,13 +165,206 @@ deterministic fake provider. It does not silently acquire multi-turn product
 semantics. `HarnessRunner`, `CapturePolicy`, `RunRequest`, `RunResult`,
 `HarnessStatus`, `ProviderPort` and `StreamChunkSink` remain exported.
 
+## D6b public session-transition contract
+
+D6b adds four construction-thread, idle-only operations to the existing
+`ProductSession` facade. They are not factories and do not create another
+coding lifetime: `fork(entry_id: str | None = None)`, `clone()`,
+`new_session()`, and `switch_session(session_path: Path)`. They use the
+facade's already validated workspace and its current explicit provider,
+tools, settings, resources, observer, diagnostic sink, and context-file
+policy. A transition never selects a provider, adopts a target workspace, or
+changes `run_native` semantics.
+
+Each method returns this frozen public value (exported from
+`pipy_harness.sdk` with `ProductSession`):
+
+```python
+@dataclass(frozen=True, slots=True)
+class ProductSessionTarget:
+    session_id: str
+    session_path: Path | None
+    leaf_id: str | None
+
+@dataclass(frozen=True, slots=True)
+class ProductSessionTransitionResult:
+    operation: Literal["fork", "clone", "new", "switch"]
+    status: Literal["completed", "refused"]
+    active: ProductSessionTarget
+    previous: ProductSessionTarget | None
+    refusal: Literal[
+        "ephemeral_source", "missing_leaf", "unknown_entry",
+        "extension_refusal", "lease_conflict"
+    ] | None
+
+@dataclass(frozen=True, slots=True)
+class ProductSessionTransitionFailure:
+    operation: Literal["fork", "clone", "new", "switch"]
+    retained: ProductSessionTarget
+    stage: Literal["load", "create", "publish", "rebuild"]
+    published: bool
+
+class ProductSessionTransitionError(RuntimeError):
+    failure: ProductSessionTransitionFailure
+```
+
+`completed` has `refusal is None` and exactly one active tree; except for the
+same-target no-op its active target differs from `previous`. `refused` reports
+the still-active old target in `active`, has `previous is None`, and has one
+listed refusal. `session_path` is `None` for an ephemeral current or previous
+tree, including an `ephemeral_source` refusal. A same-path
+`switch_session` is a successful no-op: it reports `completed`, retains the
+same target in both `active` and `previous`, runs no extension hook, changes no
+lease, tree pointer, queue, context, or event/UI binding. Invalid public
+argument types and empty/invalid entry identifiers raise `TypeError` or
+`ValueError` before an operation begins. Unexpected loading, creation,
+persistence during creation, or rebuild failures raise `ProductSessionTransitionError`; its
+frozen `.failure: ProductSessionTransitionFailure` records the coordinator's
+retained target and whether that target was already published. The SDK exports
+`ProductSessionTarget`, `ProductSessionTransitionResult`,
+`ProductSessionTransitionFailure`, and `ProductSessionTransitionError` alongside
+`ProductSession` and the two factories. It deliberately does not expose
+arbitrary exception text as a machine-readable outcome. Closed, reentrant
+or non-idle calls retain the current `ProductSession` `RuntimeError` behavior;
+they do not manufacture a transition result.
+
+All four methods have the same thread and reentry rules as `submit()` and
+`close()`: the construction thread calls while the existing facade is open and
+the native queue is truly idle, with no accepted, reserved, extension-delivered,
+or settling run. `cancel()` remains the only cross-thread operation. The
+current provider and validated workspace remain owned by the facade for its
+whole lifetime. Transition neither emits a new `session_start` nor a
+`session_shutdown`; those lifecycle events still occur once for construction
+and once for retirement of this facade.
+
+`fork(entry_id)` requires a persistent source. With no `entry_id`, it uses the
+current leaf; with one, it accepts an exact existing entry ID of any native
+entry type, not merely a user entry. It copies that entry's root-to-leaf branch
+from the guarded active in-memory tree; it does not permissively reopen the
+source path.
+`clone()` is `fork()` of the current leaf and refuses `missing_leaf` for an
+empty persistent source. Both retain the terminal command's child semantics:
+the child gets a fresh session ID and fresh entry IDs, `parentSession` points to
+the source path, labels are reattached to mapped IDs, branch-summary references
+are remapped, and the source name is copied. The child directory is exactly the
+source persistent file's parent; callers cannot provide a child path or
+directory. A fork/clone first resolves the selected source entry, then runs the
+`session_before_fork` gate with the existing `operation="fork"` vocabulary,
+then creates and claims its child before it can be published. The public result
+still distinguishes `fork` from `clone`.
+
+`new_session()` is the public equivalent of terminal `/new`. It uses the
+current persistent tree's parent directory and creates a fresh, empty,
+persistent tree for the already-owned workspace. It refuses `ephemeral_source`
+when the active facade has no persistent tree. It runs `session_before_switch`
+with target `"new"` before durable creation, so a veto leaves no new file.
+`switch_session(session_path)` canonicalizes its exact supplied path and first
+detects a same-target no-op without reading it. For another target it calls
+`session_before_switch` with that canonical path, then claims the candidate
+through the D6a canonical registry, then strict-loads and workspace-validates it
+while the claim is held. It does not do partial-ID lookup, recency selection, or
+permissive recovery. This preserves D6a claim-before-load protection and keeps
+target content unread until an extension allows the operation.
+
+The gate is fail-closed. A hook veto or hook failure returns the one stable
+`extension_refusal`; the public projection never infers a crash from a
+diagnostic string. Neither starts persistence, releases the old lease,
+publishes a tree, rebuilds state, or emits a successful-transition observation.
+For the public API, the one successful transition observation is its returned
+immutable result; it emits no new lifecycle or extension-completion event and
+has no UI subscription to rebind. D6b3 supplies the one correlated RPC result
+and the one RPC event/UI rebind. D6b does not add a second extension lifecycle
+generation or an event bus.
+
+`src/pipy_harness/native/repl/session_transition.py` is D6b's narrow native
+owner. D6b1 creates it, moves D6a's process-local canonical-path registry there
+as `CanonicalSessionLeaseRegistry`, and adds its guarded
+`CanonicalSessionLeaseSlot`. The slot holds at most one current lifetime lease;
+all current-lease reads, replacement and retirement go through it. D6b1 composes one
+`SessionTransitionCoordinator` in `native/repl/wiring.py`. Its typed port is
+returned through the already prepared native lifetime. `product_api.py` calls
+that port; native modules never import the facade or SDK. The port receives the
+existing `RunControlState` tree setter, extension gate and
+`CodingProductSessionCoordinator.rebuild_active_history` callbacks from wiring;
+it does not own a queue, lifecycle, renderer, event bus, or DI container. The
+same port is the future D6b3 RPC target and the eventual terminal-adoption seam.
+The neutral module defines the exact immutable transition values and typed
+error; `product_api.py` and `sdk.py` re-export those same classes rather than
+maintaining a second public projection.
+
+The slot prepares a candidate handoff by claiming its canonical path while
+retaining the old current lease. That private handoff holds the candidate until
+exactly one `publish()` or `abort()`. Prepublication load/create/claim failure
+aborts the handoff, releases only the candidate, and leaves the old tree, lease,
+slot and usable facade unchanged. The `RunControlState` setter either fails
+before assignment or publishes the candidate pointer. Immediately after a
+successful setter call, the coordinator calls the handoff's non-failing
+`publish()`: it replaces the slot's current lease exactly once and then releases
+the old claim. The public immutable result contains no lease or handoff object.
+
+After an extension has allowed fork/clone or fresh replacement, a child/fresh
+file may remain after any later creation, claim, publication, or rebuild failure;
+a failed creation write is not promised to have a valid header or complete
+branch. Strict-load failure creates no new artifact. The rebind is state-first:
+once it has published the new pointer, rollback is not claimed. A rebuild
+failure then retires/closes the public lifetime before raising
+`ProductSessionTransitionError`; its failure has `published=True` and the
+selected target, and only the existing post-close snapshot/close semantics
+remain. Facade teardown calls the slot's idempotent `finish()`, which releases
+the adopted candidate; the old claim was already released by `publish()`. If the
+tree setter fails before assignment, the handoff aborts and teardown is not
+required. A prepublication failure has `published=False` and retains the old
+target.
+
+For D6a create/open, `product_api.py` creates this neutral slot around the
+initial lease before native lifetime composition and remains the lifecycle
+caller of `finish()`. The prepared native lifetime binds that exact slot once to
+the coordinator port before any public transition. D6b3 creates and binds its
+own slot for the RPC lifetime's initial persistent tree before accepting input;
+its fatal teardown uses the same `finish()` path. The registry and slot use one
+documented lock order, and no caller reads or swaps their mutable lease fields
+directly.
+
+At public true-idle the accepted, reserved, and settling queue is empty. The
+coordinator reuses that queue, controller and stable external abort view for the
+facade lifetime; it neither detaches the view nor settles retired-tree work.
+History rebuild clears the current existing tree-bound extension inputs/outboxes.
+For D6b3 an RPC command can be the admitted native control claim, so the port
+also exposes a private admitted-control call path; public methods use only its
+external true-idle entry.
+
+D6b1's exact write set is `src/pipy_harness/product_api.py`,
+`src/pipy_harness/sdk.py`, `src/pipy_harness/native/session_tree.py`, new
+`src/pipy_harness/native/repl/session_transition.py`, and
+`src/pipy_harness/native/repl/wiring.py`; tests are
+`tests/test_product_session_api.py`,
+`tests/test_native_coding_session_fork_clone.py`, and
+`tests/test_native_extension_lifecycle.py`; documentation is these five D6b0
+documents plus `CHANGELOG.md`. It creates the registry/coordinator/common port
+and implements only fork/clone regions. D6b2's exact write set is
+`src/pipy_harness/product_api.py`,
+`src/pipy_harness/native/repl/session_transition.py`, and
+`src/pipy_harness/native/repl/wiring.py`; tests are
+`tests/test_product_session_api.py`,
+`tests/test_native_coding_session_lifetime.py`, and
+`tests/test_native_extension_lifecycle.py`; documentation is these five D6b0
+documents plus `CHANGELOG.md`. It extends only fresh/switch operation regions
+and must not change the D6b1 result schema, lease registry or fork/clone
+regions. These are serial single-writer slices; neither edits RPC files or
+handlers. D6b3 alone changes `src/pipy_harness/native/automation/rpc.py`,
+`src/pipy_harness/native/coding/session_controller.py`,
+`src/pipy_harness/native/repl/wiring.py`,
+`tests/test_native_automation_rpc.py`,
+`tests/test_native_coding_session_controller.py`, and the RPC/architecture
+contract after both public operations exist.
+
 ## Current limits and JSON/RPC
 
-Public resume/fork/clone controls, steering queues, model/thinking controls,
-manual compaction and extension UI bridging remain later work. The initial
-product API supports a fixed observer and explicit provider injection. Live
-provider dogfooding and semantic-summary quality remain unverified by the
-synthetic acceptance tests.
+The D6b transition surface is specified here but not yet implemented. Public
+steering queues, model/thinking controls, manual compaction and extension UI
+bridging remain later work. The product API supports a fixed observer and
+explicit provider injection. Live provider dogfooding and semantic-summary
+quality remain unverified by the synthetic acceptance tests.
 
 [JSON Mode](json.md) and [RPC Mode](rpc.md) are the out-of-process headless
 surfaces for process isolation, JSONL framing and mid-turn controls. Product
