@@ -597,12 +597,16 @@ def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     assert (
         "with self.coding_effects.lock:\n            tree.bind_mutation_lock" in scope
     )
-    # Every rebind of the active pointer travelled to the command that performs
-    # it -- `/new`, `/resume`, `/fork` and `/clone` to the session commands,
-    # `/import` to the transfer verbs. The composition root rebinds none.
+    # Every terminal rebind is now owned by SessionTransitionCoordinator:
+    # `/new`, `/resume`, `/fork` and `/clone` delegate from session commands,
+    # and `/import` delegates from transfer verbs. The composition root does
+    # not perform a direct rebind.
     assert collaborators.count("self.ctl.session_tree = ") == 0
     assert commands.count("self.ctl.session_tree = ") == 3
-    assert transfer.count("self.ctl.session_tree = ") == 1
+    assert transfer.count("self.ctl.session_tree = ") == 0
+    assert "import_terminal(" in (root / "repl/session_transition.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def _provider_mutation_fixture(

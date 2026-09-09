@@ -1628,9 +1628,24 @@ def _compose_commands(
             prompt_history_store=prompt_history_store,
         )
     )
+
+    def import_transition(
+        _target: str, _stage: Callable[[], NativeSessionTree | None]
+    ) -> ProductSessionTransitionResult | None:
+        if terminal_leases is None:
+            raise RuntimeError("terminal import transition lease is unavailable")
+        return collaborators_phase.transition.import_terminal(
+            leases=terminal_leases,
+            before_switch=lambda: collaborators.extension_session_allows(
+                "switch", operation="switch", target=_target
+            ),
+            stage=_stage,
+        )
+
     transfer_command_effects = collaborators.transfer_command_effects(
         system_prompt=system_prompt,
         input_stream=input_stream,
+        import_transition=import_transition,
     )
     reload_command_effects = collaborators.reload_command_effects(
         keybindings=keybindings,

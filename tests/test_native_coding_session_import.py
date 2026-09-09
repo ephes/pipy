@@ -8,7 +8,7 @@ import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TextIO, cast
+from typing import Any, TextIO, cast
 
 import pytest
 
@@ -39,6 +39,12 @@ from pipy_harness.native.extension_hooks import (
 )
 from pipy_harness.native.extension_types import SessionDecision
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseRegistry,
+    CanonicalSessionLeaseSlot,
+    ProductSessionTransitionError,
+    SessionTransitionCoordinator,
+)
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.runner import HarnessRunner
@@ -181,6 +187,265 @@ def _jsonl_objects(path: Path) -> list[dict[str, object]]:
     ]
     assert all(isinstance(item, dict) for item in result)
     return result
+
+
+def _import_transition(
+    *,
+    cwd: Path,
+    current: list[NativeSessionTree],
+    set_tree: Callable[[NativeSessionTree], None] | None = None,
+    rebuild: Callable[[], None] | None = None,
+    clear_extension_inputs: Callable[[], None] | None = None,
+) -> SessionTransitionCoordinator:
+    return SessionTransitionCoordinator(
+        workspace=cwd,
+        get_tree=lambda: current[0],
+        set_tree=set_tree or (lambda tree: current.__setitem__(0, tree)),
+        session_before_fork=lambda _target: True,
+        session_before_switch=lambda _target: True,
+        rebuild=rebuild or (lambda: None),
+        clear_extension_inputs=clear_extension_inputs or (lambda: None),
+    )
+
+
+@pytest.mark.parametrize("persistent", [True, False])
+def test_import_source_slot_mismatch_is_fatal_before_hook_or_staging(
+    tmp_path: Path, persistent: bool
+) -> None:
+    cwd = _workspace(tmp_path)
+    source = _active_tree(tmp_path, cwd, persist=persistent)
+    current = [source]
+    unrelated = NativeSessionTree.create(cwd, session_dir=tmp_path / "unrelated")
+    assert unrelated.path is not None
+    slot = CanonicalSessionLeaseSlot(
+        CanonicalSessionLeaseRegistry.claim(unrelated.path)
+    )
+    trace: list[str] = []
+    coordinator = _import_transition(cwd=cwd, current=current)
+
+    def before_switch() -> bool:
+        trace.append("hook")
+        return True
+
+    def stage() -> NativeSessionTree:
+        trace.append("stage")
+        return source
+
+    try:
+        with pytest.raises(ProductSessionTransitionError) as raised:
+            coordinator.import_terminal(
+                leases=slot,
+                before_switch=before_switch,
+                stage=stage,
+            )
+        assert raised.value.failure.operation == "import"
+        assert raised.value.failure.published is False
+        assert trace == []
+        assert current == [source]
+    finally:
+        slot.finish()
+
+
+def test_import_hook_and_staging_run_outside_tree_and_slot_locks(
+    tmp_path: Path,
+) -> None:
+    cwd = _workspace(tmp_path)
+    source = _active_tree(tmp_path, cwd)
+    candidate = NativeSessionTree.create(cwd, session_dir=tmp_path / "candidates")
+    assert source.path is not None and candidate.path is not None
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source.path))
+    observations: list[str] = []
+
+    def observe(phase: str) -> None:
+        assert not cast(Any, source.mutation_lock)._is_owned()
+        assert not cast(Any, slot)._lock.locked()
+        observations.append(phase)
+
+    def set_tree(tree: NativeSessionTree) -> None:
+        with source.mutation_lock:
+            observations.append("publish")
+            current[0] = tree
+
+    def before_switch() -> bool:
+        observe("hook")
+        return True
+
+    def stage() -> NativeSessionTree:
+        observe("stage")
+        return candidate
+
+    coordinator = _import_transition(cwd=cwd, current=current, set_tree=set_tree)
+    try:
+        result = coordinator.import_terminal(
+            leases=slot,
+            before_switch=before_switch,
+            stage=stage,
+        )
+        assert result is not None and result.status == "completed"
+        assert observations == ["hook", "stage", "publish"]
+    finally:
+        slot.finish()
+
+
+def test_import_candidate_conflict_keeps_source_slot_and_staged_artifact(
+    tmp_path: Path,
+) -> None:
+    cwd = _workspace(tmp_path)
+    source = _active_tree(tmp_path, cwd)
+    candidate = NativeSessionTree.create(cwd, session_dir=tmp_path / "candidates")
+    assert source.path is not None and candidate.path is not None
+    source_path = source.path.resolve()
+    candidate_path = candidate.path.resolve()
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+    blocker = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    coordinator = _import_transition(cwd=cwd, current=current)
+
+    try:
+        result = coordinator.import_terminal(
+            leases=slot, before_switch=lambda: True, stage=lambda: candidate
+        )
+        assert result is not None and result.refusal == "lease_conflict"
+        assert current == [source]
+        assert slot.current_path() == source_path
+        assert candidate_path.is_file()
+    finally:
+        blocker.finish()
+        slot.finish()
+
+
+def test_terminal_import_candidate_conflict_reports_exact_diagnostic_after_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    active = _active_tree(tmp_path, cwd)
+    source, _ = _import_source(tmp_path, cwd)
+    assert active.path is not None
+    original_claim = CanonicalSessionLeaseRegistry.claim
+    candidate_path = active.path.parent / source.name
+
+    def conflict(path: Path) -> object:
+        if path.expanduser().resolve() == candidate_path.resolve():
+            raise RuntimeError("persistent product session is already active")
+        return original_claim(path)
+
+    monkeypatch.setattr(CanonicalSessionLeaseRegistry, "claim", staticmethod(conflict))
+    provider = _RecordingProvider()
+    _result, _output, error = _run(
+        CodingSession(
+            provider=provider,
+            native_session=active,
+            settings_manager=_settings(tmp_path, cwd),
+            tool_registry={},
+        ),
+        cwd,
+        f"/import {source} --yes\nold stays active\n/exit\n",
+    )
+
+    assert "pipy: imported native session is already active." in error
+    assert candidate_path.is_file()
+    assert len(provider.requests) == 1
+    assert _user_texts(provider.requests[0]) == ["old stays active"]
+
+
+def test_import_releases_source_before_rebuild_and_keeps_candidate_claim(
+    tmp_path: Path,
+) -> None:
+    cwd = _workspace(tmp_path)
+    source = _active_tree(tmp_path, cwd)
+    candidate = NativeSessionTree.create(cwd, session_dir=tmp_path / "candidates")
+    assert source.path is not None and candidate.path is not None
+    source_path = source.path.resolve()
+    candidate_path = candidate.path.resolve()
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+
+    def rebuild() -> None:
+        released_source = CanonicalSessionLeaseRegistry.claim(source_path)
+        released_source.finish()
+        with pytest.raises(RuntimeError, match="already active"):
+            CanonicalSessionLeaseRegistry.claim(candidate_path)
+
+    coordinator = _import_transition(cwd=cwd, current=current, rebuild=rebuild)
+    try:
+        result = coordinator.import_terminal(
+            leases=slot, before_switch=lambda: True, stage=lambda: candidate
+        )
+        assert result is not None and result.status == "completed"
+        assert current == [candidate]
+        assert slot.current_path() == candidate_path
+    finally:
+        slot.finish()
+
+    released_candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    released_candidate.finish()
+
+
+def test_import_publication_failure_aborts_candidate_claim(
+    tmp_path: Path,
+) -> None:
+    cwd = _workspace(tmp_path)
+    source = _active_tree(tmp_path, cwd)
+    candidate = NativeSessionTree.create(cwd, session_dir=tmp_path / "candidates")
+    assert source.path is not None and candidate.path is not None
+    source_path = source.path.resolve()
+    candidate_path = candidate.path.resolve()
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+    coordinator = _import_transition(
+        cwd=cwd,
+        current=current,
+        set_tree=lambda _tree: (_ for _ in ()).throw(LookupError("publish failed")),
+    )
+
+    try:
+        with pytest.raises(LookupError, match="publish failed"):
+            coordinator.import_terminal(
+                leases=slot, before_switch=lambda: True, stage=lambda: candidate
+            )
+        assert current == [source]
+        assert slot.current_path() == source_path
+    finally:
+        slot.finish()
+
+    released_candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    released_candidate.finish()
+
+
+@pytest.mark.parametrize("failure", ["rebuild", "clear"])
+def test_import_postpublication_failure_retains_adopted_target_for_teardown(
+    tmp_path: Path, failure: str
+) -> None:
+    cwd = _workspace(tmp_path)
+    source = _active_tree(tmp_path, cwd)
+    candidate = NativeSessionTree.create(cwd, session_dir=tmp_path / "candidates")
+    assert source.path is not None and candidate.path is not None
+    candidate_path = candidate.path.resolve()
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source.path))
+
+    def fail() -> None:
+        raise RuntimeError(f"{failure} failed")
+
+    coordinator = _import_transition(
+        cwd=cwd,
+        current=current,
+        rebuild=fail if failure == "rebuild" else None,
+        clear_extension_inputs=fail if failure == "clear" else None,
+    )
+    try:
+        with pytest.raises(RuntimeError, match=f"{failure} failed"):
+            coordinator.import_terminal(
+                leases=slot, before_switch=lambda: True, stage=lambda: candidate
+            )
+        assert current == [candidate]
+        assert slot.current_path() == candidate_path
+    finally:
+        slot.finish()
+
+    released_candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    released_candidate.finish()
 
 
 def test_composition_preserves_raw_bubbles_outer_trim_and_path_routing(

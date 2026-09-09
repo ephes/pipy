@@ -41,6 +41,7 @@ from pipy_harness.native.export_distribution import (
     share_native_session,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.session_transition import ProductSessionTransitionResult
 from pipy_harness.native.repl.turn_leaves import CANCEL_JOIN_TIMEOUT_SECONDS
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.session_tree_commands import sanitize_label_text
@@ -112,36 +113,17 @@ def _resolve_import_source_path(argument: str, *, cwd: Path) -> Path | None:
     return cwd / source_path
 
 
-def import_session(
-    argument: ProductContent | None,
+def stage_import_session(
+    source_path: Path,
     *,
     cwd: Path,
     input_stream: TextIO,
     error_stream: TextIO,
     current_session_dir: Callable[[], Path],
-    session_switch_allows: Callable[[str], bool],
     diagnostic: Callable[[str], None],
 ) -> NativeSessionTree | None:
-    """Import a product session through the typed command effect."""
+    """Copy and permissively open a terminal import after the switch gate."""
 
-    if type(argument) is not ProductContent:
-        raise TypeError("SESSION_IMPORT requires an exact ProductContent argument")
-    source_path = _resolve_import_source_path(argument.value, cwd=cwd)
-    if source_path is None:
-        diagnostic("pipy: Usage: /import <path.jsonl>")
-        return None
-    confirm = "--yes" in argument.value.split()
-    if not confirm:
-        confirm = _confirm_import_prompt(
-            f"Replace current session with {source_path}? [y/N] ",
-            input_stream=input_stream,
-            error_stream=error_stream,
-        )
-    if not confirm:
-        diagnostic("pipy: /import cancelled.")
-        return None
-    if not session_switch_allows(str(source_path)):
-        return None
     try:
         return import_native_session_jsonl(
             source_path,
@@ -266,8 +248,10 @@ class TransferCommandEffects:
     terminal_ui: TerminalUi | None
     diag: Callable[[str], None]
     current_session_dir: Callable[[], Path]
-    session_switch_allows: Callable[[str], bool]
-    rebuild_messages_from_tree: Callable[[], None]
+    import_transition: Callable[
+        [str, Callable[[], NativeSessionTree | None]],
+        ProductSessionTransitionResult | None,
+    ]
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Execute one outcome from the closed transfer-command family."""
@@ -289,22 +273,45 @@ class TransferCommandEffects:
             raise AssertionError("transfer command executor received another action")
 
     def _execute_import(self, command_outcome: CodingCommandOutcome) -> None:
-        imported_tree = import_session(
-            command_outcome.argument,
-            cwd=self.cwd,
-            input_stream=self.input_stream,
-            error_stream=self.error_stream,
-            current_session_dir=self.current_session_dir,
-            session_switch_allows=self.session_switch_allows,
-            diagnostic=self.diag,
-        )
-        if imported_tree is None:
+        argument = command_outcome.argument
+        if type(argument) is not ProductContent:
+            raise TypeError("SESSION_IMPORT requires an exact ProductContent argument")
+        source_path = _resolve_import_source_path(argument.value, cwd=self.cwd)
+        if source_path is None:
+            self.diag("pipy: Usage: /import <path.jsonl>")
             return
-        self.ctl.session_tree = imported_tree
-        self.rebuild_messages_from_tree()
+        confirmed = "--yes" in argument.value.split()
+        if not confirmed:
+            confirmed = _confirm_import_prompt(
+                f"Replace current session with {source_path}? [y/N] ",
+                input_stream=self.input_stream,
+                error_stream=self.error_stream,
+            )
+        if not confirmed:
+            self.diag("pipy: /import cancelled.")
+            return
+
+        result = self.import_transition(
+            str(source_path),
+            lambda: stage_import_session(
+                source_path,
+                cwd=self.cwd,
+                input_stream=self.input_stream,
+                error_stream=self.error_stream,
+                current_session_dir=self.current_session_dir,
+                diagnostic=self.diag,
+            ),
+        )
+        if result is None:
+            return
+        if result.refusal == "lease_conflict":
+            self.diag("pipy: imported native session is already active.")
+            return
+        if result.status != "completed":
+            return
         self.diag(
             "pipy: imported native session "
-            f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])}."
+            f"{sanitize_label_text(result.active.session_id[:8])}."
         )
 
     def _execute_share(self) -> None:

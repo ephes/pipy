@@ -308,6 +308,10 @@ class SessionCollaborators:
         *,
         system_prompt: str,
         input_stream: TextIO,
+        import_transition: Callable[
+            [str, Callable[[], NativeSessionTree | None]],
+            ProductSessionTransitionResult | None,
+        ],
     ) -> TransferCommandEffects:
         """Assemble native session transfer effects from narrow live ports."""
 
@@ -321,15 +325,7 @@ class SessionCollaborators:
             terminal_ui=self.terminal_ui,
             diag=self.diag,
             current_session_dir=self.current_session_dir,
-            session_switch_allows=self.transfer_session_switch_allows,
-            rebuild_messages_from_tree=self.rebuild_messages_from_tree,
-        )
-
-    def transfer_session_switch_allows(self, target: str) -> bool:
-        """Apply the extension session-switch gate for an import source."""
-
-        return self.extension_session_allows(
-            "switch", operation="switch", target=target
+            import_transition=import_transition,
         )
 
     def reload_command_effects(

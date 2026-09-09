@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Terminal `/import` now stages its permissive copy through the existing
+  presentation path, then adopts that durable copy through the native transition
+  owner. The owner validates the current terminal lease before the switch hook,
+  claims the imported file before guarded state-first publication, retires the
+  old claim before rebuilding history, and releases the adopted claim on normal
+  or fatal teardown. Confirmations, recovery for missing recorded workspaces,
+  controlled diagnostics, and partial-copy behavior remain unchanged.
+
 - Terminal `/fork` and `/clone` now use the native transition owner. They
   snapshot the guarded active tree, claim and publish the child before releasing
   the source lease, and preserve terminal diagnostics, footers, and the detailed

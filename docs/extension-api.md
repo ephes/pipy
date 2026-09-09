@@ -597,7 +597,7 @@ target vocabulary includes:
 D6b3 implements this ordering for public `ProductSession.fork`, `clone`,
 `new_session`, and `switch_session`, and for the corresponding JSONL RPC
 commands. D6c3/D6c5/D6c7 adopt terminal resume/new/fork/clone through the same
-transition owner. D6c9 adds terminal import while retaining its presentation
+transition owner. D6c9 adopts terminal import while retaining its presentation
 boundary below.
 
 Public and RPC `fork`/`clone` and `new_session`/`switch_session` operations use

@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D6c9 adopts terminal `/import` through the reviewed native
-transition owner. Compatibility SDK retirement remains a separate later slice.
+**Next task:** D6c10 re-inventories and reviews compatibility SDK retirement
+without removing the production CLI compatibility runtime.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -698,8 +698,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c5 | Complete `6ea8802`; D6c4 `09ec687`; 415 focused and 6,164 full tests; focused Terra R3 CLEAN | Adopt terminal `/new` through the native transition owner | Persistent source uses exact create/claim/publish/handoff/rebuild order; ephemeral source remains in-memory with an empty slot; existing presentation/failure policy; no fork/clone, import or SDK change |
 | D6c6 | Complete `c7c2533`; D6c5 `6ea8802`; 198 focused and 6,164 full tests; focused Terra R2 CLEAN | Re-inventory terminal fork/clone, import replacement and compatibility callers; review the bounded fork/clone adoption contract | Fork/clone selected together because they share one transition and currently diverge from the lease slot and guarded active tree; import remains separate; no runtime change |
 | D6c7 | Complete `cba8e18`; D6c6 `c7c2533`; 361 focused and 6,171 full tests; first Terra code review CLEAN | Adopt terminal `/fork` and `/clone` through the native transition owner | Resolve terminal refs before one detailed fork gate; guarded active-tree snapshot; child claim and state-first handoff; empty current leaf refuses; no import or SDK change |
-| D6c8 | Complete in this planning chunk; D6c7 `cba8e18`; 275 focused and 6,171 full tests; two focused Terra plan rounds, final Warning repaired locally at the cap | Re-inventory and review terminal import replacement before compatibility SDK retirement | Preserve confirmation, permissive load, missing-workspace fallback and truthful partial-artifact behavior; one terminal lease/pointer owner; no runtime or compatibility change |
-| D6c9 | D6c8 | Adopt terminal `/import` through the native transition owner | Presentation-owned staging followed by candidate claim and state-first lease handoff; persistent and ephemeral sources; exact controlled/fatal failure cutoffs; no SDK/RPC change |
+| D6c8 | Complete `5ef8bef`; D6c7 `cba8e18`; 275 focused and 6,171 full tests; two focused Terra plan rounds, final Warning repaired locally at the cap | Re-inventory and review terminal import replacement before compatibility SDK retirement | Preserve confirmation, permissive load, missing-workspace fallback and truthful partial-artifact behavior; one terminal lease/pointer owner; no runtime or compatibility change |
+| D6c9 | Complete in this implementation chunk; D6c8 `5ef8bef`; 102 focused and 6,180 full tests; first Terra code review CLEAN | Adopt terminal `/import` through the native transition owner | Presentation-owned staging followed by candidate claim and state-first lease handoff; persistent and ephemeral sources; exact controlled/fatal failure cutoffs; no SDK/RPC change |
 | D6c10 | D6c9 | Re-inventory and review compatibility SDK retirement without removing the production CLI compatibility runtime | Exact export/caller/docs/test decision before deletion; no silent `run_native` semantics or `pipy run --agent pipy-native` regression |
 | D6c | D6c10 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
@@ -974,6 +974,20 @@ confirmed the stale-slot repair and found one overbroad phrase introduced by the
 lock wording; root narrowed it to allow short guarded reads while reserving tree
 mutation for guarded publication. The two-round planning cap closes with that
 wording repair locally adjudicated and no unresolved correctness finding.
+
+D6c9 implements the reviewed import boundary. Terminal presentation retains
+path parsing, both confirmations, the noncanonical detailed hook target,
+permissive staging, missing-workspace recovery and controlled diagnostics. The
+coordinator rejects a stale source slot before the hook, claims the staged copy,
+guarded-publishes it, hands off the slot and releases the source before the
+existing history/input rebuild. Persistent and ephemeral sources both adopt one
+claimed persistent target. Exact tests cover mismatch, callback lock freedom,
+candidate conflict, publication abort, source release and state-first fatal
+teardown. Root's focused gate passes 102 tests; the first independent Terra code
+review returned CLEAN over the complete runtime/test/doc diff. Full validation
+passed 6,180 tests with two skipped, plus lint, formatting and Mypy. PTY,
+documentation and diff checks passed; eight PTY smoke tests passed and
+interpreter links remained unchanged.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

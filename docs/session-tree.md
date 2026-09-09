@@ -312,7 +312,7 @@ provider selection, workflow capture and cross-process locking remain non-goals.
 
 ### D6c8/D6c9 terminal `/import` adoption contract
 
-D6c8 fixes this contract and D6c9 implements it. The terminal adapter keeps the
+D6c8 fixed this contract and D6c9 implements it. The terminal adapter keeps the
 exact quoted/unquoted, tilde and cwd-relative path parsing; the case-sensitive
 standalone `--yes` token; the raw first confirmation; the raw missing-workspace
 confirmation; controlled diagnostics; and the standard footer. The first

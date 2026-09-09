@@ -202,9 +202,9 @@ session-tree policy, SDK export or compatibility behavior.
 Terminal session replacement remains a separate adoption program. D6c3 and
 D6c5 give the terminal lifetime the D6b canonical lease slot and route resolved
 `/resume` and `/new` through it. D6c7 routes terminal `/fork` and `/clone`
-through the same owner. D6c8 fixes the remaining terminal `/import` contract:
-the adapter keeps its recovery and presentation policy, while D6c9 will claim
-and publish the staged persistent copy through that same slot and coordinator.
+through the same owner. D6c8 fixed the remaining terminal `/import` contract;
+D6c9 claims and publishes the staged persistent copy through that same slot and
+coordinator while the adapter retains its recovery and presentation policy.
 Listing, rename/delete, `/tree`, export/share, and compatibility retirement
 remain outside the adopted transition slices.
 

@@ -757,8 +757,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "terminal_ui",
             "diag",
             "current_session_dir",
-            "session_switch_allows",
-            "rebuild_messages_from_tree",
+            "import_transition",
         },
         "ReloadCommandEffects": {
             "implicit_trust",

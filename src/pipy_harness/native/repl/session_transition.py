@@ -25,7 +25,7 @@ class ProductSessionTarget:
 
 @dataclass(frozen=True, slots=True)
 class ProductSessionTransitionResult:
-    operation: Literal["fork", "clone", "new", "switch"]
+    operation: Literal["fork", "clone", "import", "new", "switch"]
     status: Literal["completed", "refused"]
     active: ProductSessionTarget
     previous: ProductSessionTarget | None
@@ -43,7 +43,7 @@ class ProductSessionTransitionResult:
 
 @dataclass(frozen=True, slots=True)
 class ProductSessionTransitionFailure:
-    operation: Literal["fork", "clone", "new", "switch"]
+    operation: Literal["fork", "clone", "import", "new", "switch"]
     retained: ProductSessionTarget
     stage: Literal["load", "create", "publish", "rebuild"]
     published: bool
@@ -392,6 +392,69 @@ class SessionTransitionCoordinator:
             session_path, leases=leases, before_switch=self.session_before_switch
         )
 
+    def import_terminal(
+        self,
+        *,
+        leases: CanonicalSessionLeaseSlot,
+        before_switch: Callable[[], bool],
+        stage: Callable[[], NativeSessionTree | None],
+    ) -> ProductSessionTransitionResult | None:
+        """Adopt a terminal-staged persistent import through the current slot.
+
+        Terminal presentation owns confirmation, the detailed hook target, and
+        permissive file staging.  This owner only validates the current source
+        slot before that hook, then claims and state-first publishes its staged
+        durable candidate.
+        """
+
+        source = self.get_tree()
+        previous = target_for(source)
+        source_path = (
+            source.path.expanduser().resolve()
+            if source.path is not None and source.persist
+            else None
+        )
+        if source_path is None:
+            if leases.current_path() is not None:
+                raise ProductSessionTransitionError(
+                    ProductSessionTransitionFailure(
+                        "import", previous, "publish", False
+                    )
+                )
+        elif leases.current_path() != source_path:
+            raise ProductSessionTransitionError(
+                ProductSessionTransitionFailure("import", previous, "publish", False)
+            )
+        if not before_switch():
+            return ProductSessionTransitionResult(
+                "import", "refused", previous, None, "extension_refusal"
+            )
+
+        candidate = stage()
+        if candidate is None:
+            return None
+        candidate_path = candidate.path
+        if candidate_path is None or not candidate.persist:
+            raise ProductSessionTransitionError(
+                ProductSessionTransitionFailure("import", previous, "create", False)
+            )
+        try:
+            handoff = leases.prepare(candidate_path)
+        except RuntimeError:
+            return ProductSessionTransitionResult(
+                "import", "refused", previous, None, "lease_conflict"
+            )
+        self._publish_and_rebuild(
+            candidate,
+            previous,
+            operation="import",
+            handoff=handoff,
+            translate_failures=False,
+        )
+        return ProductSessionTransitionResult(
+            "import", "completed", target_for(candidate), previous, None
+        )
+
     def _switch(
         self,
         session_path: Path,
@@ -478,7 +541,7 @@ class SessionTransitionCoordinator:
         candidate: NativeSessionTree,
         previous: ProductSessionTarget,
         *,
-        operation: Literal["new", "switch"],
+        operation: Literal["import", "new", "switch"],
         handoff: _LeaseHandoff,
         translate_failures: bool = True,
     ) -> None:

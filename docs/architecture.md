@@ -1116,7 +1116,8 @@ history owners while the slot stays empty. Public/RPC ephemeral refusal remains
 unchanged. D6c6 selects `/fork` and `/clone` as the next shared boundary: D6c7
 keeps terminal reference/presentation ownership and moves active-tree snapshot,
 child creation/claim, guarded publication, lease handoff and history/input
-rebuild into the same coordinator. D6c8 fixes the separate import boundary:
+rebuild into the same coordinator. D6c8 fixes the separate import boundary and
+D6c9 implements it:
 terminal presentation retains parsing, confirmations, the detailed switch gate,
 permissive staging, missing-workspace recovery and diagnostics; the coordinator
 claims the staged durable copy before guarded publication, publishes the slot,
