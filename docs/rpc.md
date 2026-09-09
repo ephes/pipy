@@ -108,9 +108,7 @@ page intentionally avoids duplicating the full RPC type table.
 - Use [JSON Mode](json.md) for one prompt with a complete event stream.
 - Use `--print`/`-p` for one prompt when only final assistant text is needed.
 - Use RPC mode for a long-lived out-of-process controller.
-- Use the [Python SDK](sdk.md) for persistent product sessions or one-shot
-  compatibility runs without
-  JSONL subprocess framing.
+- Use the [Python SDK](sdk.md) for persistent in-process product sessions.
 
 ## Content and privacy
 

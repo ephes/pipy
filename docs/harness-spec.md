@@ -1640,7 +1640,7 @@ progress; it performs no same-level retry or exponential sleep. Fallback shares
 the attempt's progress marker and stops after any accepted provider event.
 Providers without that capability receive one existing `complete` call; diagnostic
 metadata alone does not opt an injected provider into canonical reissue. Standalone
-provider calls and compatibility `run_native` retain their existing defaults.
+provider calls and the one-shot CLI runtime retain their existing defaults.
 D4a initially enables the capability only for Codex; `openai`, `openrouter` and
 non-capable injected providers still get one ordinary call when retry is enabled.
 Product tests pin that initial support boundary.
@@ -1776,7 +1776,7 @@ ordering remains authoritative. `get_state` gains no retry-active field, matchin
 the protocol surface. The existing generic `abort` still targets the accepted
 run, while `abort_retry` is deliberately narrower. D5d adds no retry for request
 preparation failures, no independent attempt allowance, no event-ordinal change,
-and no public `ProductSession` or compatibility `run_native` behavior.
+and no public `ProductSession` or one-shot CLI runtime behavior.
 
 ### Semantic Compaction Retry Contract (D4b1)
 
@@ -1831,7 +1831,7 @@ delays are bounded but have no cancellation source. Manual pending-input and aut
 Successful recovery conditionally accepts the original cut once and persists its
 summary once. Generation failure must remain distinct from append failure after
 acceptance: accepted in-memory state survives a persistence exception. No rollback,
-new transaction, queue owner, retry control, public API or compatibility `run_native`
+new transaction, queue owner, retry control, public API or one-shot CLI runtime
 change is introduced. Tests pin manual/automatic outcomes, cancellation and stale
 ordering, private output/events, and acceptance/persistence counts with scripted
 providers; live semantic-summary quality remains unverified.
@@ -2122,7 +2122,7 @@ tool capability while retaining its legacy transport reservations/settlement
 until D5a3b and its separate direct bash boundary. Headless runs with no abort
 signal keep direct tool execution. Native lifecycle cleanup and snapshot/state
 ownership are unchanged. See [SDK](sdk.md) for construction, diagnostics,
-privacy and failure semantics; the one-shot compatibility SDK remains separate.
+privacy and failure semantics; the one-shot CLI runtime remains separate.
 
 ### Model-Aware Request Budget Contract
 
@@ -2465,7 +2465,7 @@ refusal remains recoverable and queued settlement remains unchanged.
 
 Initial activation changes only known-limit automatic cuts. Manual two-group
 retention and unknown-limit legacy triggering remain unchanged; no new controls,
-retry policy, provider transport, lifecycle owner or compatibility SDK semantics
+retry policy, provider transport, lifecycle owner or one-shot CLI runtime semantics
 are selected. Live summary quality remains unverified. Tests must cover exact
 anchor/overlay identity, multi-call and error cycles, no-op/ambiguous refusal,
 truthful zero-group removal, compound and repeated cuts followed by ordinary

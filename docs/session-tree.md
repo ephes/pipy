@@ -366,7 +366,7 @@ Separate persistent-source and ephemeral-source mismatch witnesses prove the
 fatal pre-hook cutoff. Hook and staging instrumentation proves the
 coding-effects lock is unowned there and only guarded pointer publication takes
 it; the lease slot lock likewise does not span either callback.
-Public/RPC and compatibility SDK behavior, export/share, strict reopen,
+Public/RPC and one-shot CLI runtime behavior, export/share, strict reopen,
 cross-process locking and provider/workspace selection remain non-goals.
 
 `fork(entry_id=None)` requires a persistent active tree. Its default is the

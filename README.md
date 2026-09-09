@@ -75,10 +75,8 @@ inject it into `create_product_session(...)`; the factory never selects a
 provider or credentials for you. See [`docs/sdk.md`](docs/sdk.md) for the API
 and [`docs/automation-rpc.md`](docs/automation-rpc.md) for out-of-process use.
 
-`run_native` remains the separate one-shot metadata/archive compatibility API:
-it returns `RunResult` and does not provide multi-turn product-session
-semantics. `pipy run --agent pipy-native` continues to use that same
-compatibility runtime with its existing CLI behavior.
+`pipy run --agent pipy-native` remains a separate one-shot CLI surface with its
+existing metadata archive, streaming, failure, and exit behavior.
 
 ## Development Setup
 

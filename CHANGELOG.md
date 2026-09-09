@@ -172,7 +172,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   real tools, fixed full-content events, immutable idle snapshots, cross-thread
   cancellation and once-only disposal. Workspace preparation retains existing
   instruction loading and fail-closed project trust. Sessions are ephemeral by
-  default and create no workflow archive; `run_native` keeps its one-shot
+  default and create no workflow archive; the one-shot CLI runtime keeps its
   compatibility semantics. Optional diagnostic callbacks receive write fragments.
 - RPC active-run `abort` now interrupts model-driven tools through the canonical
   cancellation worker, as well as provider and semantic-summary execution.
@@ -282,6 +282,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 
 ### Removed
+
+- The pipy-only one-shot Python SDK facade has been removed outright. Python
+  embedding now uses `create_product_session(...)` or `open_product_session(...)`
+  with an explicit provider; `pipy run --agent pipy-native` retains its separate
+  compatibility runtime and CLI/archive behavior.
 
 - The pipy-only model-visible `edit_diff` tool and its unified-diff
   implementation have been removed outright, with no alias, compatibility

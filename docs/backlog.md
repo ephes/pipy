@@ -700,16 +700,16 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c7 | Complete `cba8e18`; D6c6 `c7c2533`; 361 focused and 6,171 full tests; first Terra code review CLEAN | Adopt terminal `/fork` and `/clone` through the native transition owner | Resolve terminal refs before one detailed fork gate; guarded active-tree snapshot; child claim and state-first handoff; empty current leaf refuses; no import or SDK change |
 | D6c8 | Complete `5ef8bef`; D6c7 `cba8e18`; 275 focused and 6,171 full tests; two focused Terra plan rounds, final Warning repaired locally at the cap | Re-inventory and review terminal import replacement before compatibility SDK retirement | Preserve confirmation, permissive load, missing-workspace fallback and truthful partial-artifact behavior; one terminal lease/pointer owner; no runtime or compatibility change |
 | D6c9 | Complete `24e01d9`; D6c8 `5ef8bef`; 102 focused and 6,180 full tests; first Terra code review CLEAN | Adopt terminal `/import` through the native transition owner | Presentation-owned staging followed by candidate claim and state-first lease handoff; persistent and ephemeral sources; exact controlled/fatal failure cutoffs; no SDK/RPC change |
-| D6c10 | Complete in this planning chunk; D6c9 `24e01d9`; 91 focused and 6,180 full tests; first Terra plan review CLEAN | Re-inventory and review compatibility SDK retirement without removing the production CLI compatibility runtime | Exact export/caller/docs/test decision before deletion; no silent `run_native` semantics or `pipy run --agent pipy-native` regression |
-| D6c11 | D6c10 | Remove the one-shot Python SDK facade and compatibility-only SDK re-exports | Exact product-only SDK surface; CLI/archive/stream/failure/exit behavior unchanged; docs/release note and absence tests |
-| D6c | D6c11 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
+| D6c10 | Complete `bc71f74`; D6c9 `24e01d9`; 91 focused and 6,180 full tests; first Terra plan review CLEAN | Re-inventory and review compatibility SDK retirement without removing the production CLI compatibility runtime | Exact export/caller/docs/test decision before deletion; no silent `run_native` semantics or `pipy run --agent pipy-native` regression |
+| D6c11 | Complete in this implementation chunk; D6c10 `bc71f74`; 169 focused and 6,183 full tests; first Terra code review CLEAN | Remove the one-shot Python SDK facade and compatibility-only SDK re-exports | Exact product-only SDK surface; CLI/archive/stream/failure/exit behavior unchanged; docs/release note and absence tests |
+| D6c | Complete in this implementation chunk; D6c1–D6c11 complete | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; deliberate one-shot Python facade removal while preserving the CLI runtime |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
 | D7a1 | Complete `d900ca5`; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
 | D7a | Complete `d900ca5`; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
 | D7b0 | Complete `5642c5e`; full checks and two Terra plan rounds, final Warning repaired and locally adjudicated; D7a `d900ca5` | Review correlated incremental direct-bash output, privacy, bounds and lifecycle contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current terminal-only behavior remains explicit until D7b1 |
 | D7b1 | Complete `66189ed`; full checks and first Terra code review CLEAN; D7b0 `5642c5e` | Add line-gated, correlated direct-bash update callbacks through the existing sandbox and RPC writer | Pi-shaped optional-ID deltas before one terminal response; bounded per-stream updates; no raw partial line, secret fragment, late callback, or terminal-result change |
 | D7b | Complete `66189ed`; D7b1 complete | Correlated incremental RPC bash output milestone, not a separate dispatch | No updates after completion; bounded output, JSONL purity and EOF disposal |
-| D8 | D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
+| D8 | Next eligible; D6c complete in this chunk | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
@@ -1039,6 +1039,17 @@ skipped, plus lint, formatting, Mypy, docs-build, diff hygiene and unchanged
 interpreter links. The first focused Terra planning review returned CLEAN after
 checking the complete diff, exact SDK exports, every repository caller and the
 direct CLI/adapter/runtime/runner path; the review loop stopped immediately.
+
+D6c11 implements that reviewed boundary by reducing `pipy_harness.sdk` to the
+exact product-session surface and removing the one-shot helpers, constants and
+compatibility-only re-exports without a shim. Exact export and failed-import
+tests pin the removal. Current user documentation directs Python embedders to
+product sessions and retains the separate CLI, JSON and RPC surfaces. The
+direct CLI adapter/runtime/runner path and its archive, streaming, failure and
+exit contracts are unchanged. Root's focused gate passes 169 tests; the first
+independent Terra code review returned CLEAN over the complete diff. Full
+validation passes 6,183 tests with two skipped, plus lint, formatting, Mypy and
+the documentation build; interpreter and diff-hygiene checks remain clean.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

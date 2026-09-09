@@ -1092,26 +1092,14 @@ observation is the frozen return value; D6b3 owns the one RPC event/UI rebind.
 The terminal's remaining session command owners stay behaviorally separate until
 each adopts this same port in its own reviewed slice.
 
-D6c0 inventories the remaining frontend split rather than treating shared core
-imports as proof of shared lifecycle ownership. The product Python facade and
-interactive/JSON/print/RPC modes use the canonical coding session and agent
-loop, while the checked-in README still leads with the separate one-shot SDK
-compatibility helper. `run_native` and `make_native_run_request` have no
-production repository caller; `pipy run --agent pipy-native` remains a real
-caller of `PipyNativeAdapter` and `NativeHarnessCompatibilityRuntime` and keeps
-their metadata archive, `RunResult`, streaming, failure and exit contract.
-D6c first adds an executable product-session embedding example. It does not
-rename or silently change the compatibility API.
-
-D6c10 confirms the one-shot Python wrapper is now removable without changing
-the CLI runtime. `run_native` and `make_native_run_request` have no production
-repository caller, while `pipy run --agent pipy-native` constructs
-`PipyNativeAdapter` directly and reaches `NativeHarnessCompatibilityRuntime`
-through `HarnessRunner`. D6c11 therefore removes only those SDK helpers,
-constants, implementation imports and compatibility-only re-exports. The SDK
-keeps the product factories/types, observer events, snapshot and `ProviderPort`;
-the CLI adapter/runtime, root harness exports, shared models, archive and
-streaming behavior remain in their current owners.
+D6c11 makes the product-session facade the only Python embedding surface. The
+SDK retains product factories/types, observer events, snapshots, and
+`ProviderPort`; it does not provide a one-shot compatibility wrapper. The
+interactive, JSON, print, and RPC modes use the canonical coding session and
+agent loop. `pipy run --agent pipy-native` remains independent: it constructs
+`PipyNativeAdapter`, reaches `NativeHarnessCompatibilityRuntime` through
+`HarnessRunner`, and keeps its metadata archive, `RunResult`, streaming,
+failure, and exit behavior in their current owners.
 
 The terminal replacement commands are a second, runtime-bearing adoption
 boundary. D6c3 adopts resolved `/resume` selection through the D6b coordinator
@@ -1180,8 +1168,8 @@ the queue remains the sole product-data owner under the existing coding-effects
 RLock. Lock order is outer gate then coding-effects lock. Queue access completes
 before output, worker wake, callbacks or cancellation signaling. Exact claim
 handles cross the worker boundary as immutable per-run capabilities, not as a
-second queue. Existing `ProductSession` and compatibility SDK behaviors remain
-unchanged, and this control is not public until a later SDK adoption task.
+second queue. Existing `ProductSession` behavior remains unchanged, and this
+control is not public until a later SDK adoption task.
 A private one-shot bridge on the existing abort/input composition side is
 composed and adopted by RPC: it publishes ready or failed once, and carries one
 immutable exact claim from worker selection to synchronous run-end settlement.

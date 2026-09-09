@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import get_type_hints
 
 import pytest
 
 import pipy_harness
 from pipy_harness import models, sdk
-from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import AdapterResult, HarnessStatus, RunRequest, RunResult
+from pipy_harness.models import AdapterResult, HarnessStatus, RunResult
 from pipy_harness.native import NativeRunOutput, ProviderResult
 from pipy_harness.native.coding.result import CodingSessionResult
-from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.status import HarnessStatus as CanonicalHarnessStatus
 from pipy_session.recorder import SessionRecord
 
@@ -24,149 +21,50 @@ def test_sdk_exports_expected_surface() -> None:
         "AgentEventSink",
         "CodingSessionResultSnapshot",
         "ProductSession",
+        "ProductSessionTarget",
+        "ProductSessionTransitionError",
+        "ProductSessionTransitionFailure",
+        "ProductSessionTransitionResult",
+        "ProviderPort",
         "create_product_session",
+        "open_product_session",
+    }
+    assert set(sdk.__all__) == expected
+    for name in expected:
+        assert hasattr(sdk, name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
         "CapturePolicy",
         "DEFAULT_NATIVE_AGENT",
         "DEFAULT_NATIVE_SLUG",
         "HarnessRunner",
         "HarnessStatus",
-        "ProviderPort",
         "RunRequest",
         "RunResult",
         "StreamChunkSink",
         "make_native_run_request",
         "run_native",
-    }
-    assert expected.issubset(set(sdk.__all__))
-    for name in expected:
-        assert hasattr(sdk, name)
+    ),
+)
+def test_sdk_retired_names_are_absent_and_cannot_be_imported(name: str) -> None:
+    assert not hasattr(sdk, name)
+    with pytest.raises(ImportError):
+        exec(f"from pipy_harness.sdk import {name}", {})
 
 
 def test_harness_status_public_exports_keep_canonical_identity() -> None:
     assert HarnessStatus is CanonicalHarnessStatus
     assert models.HarnessStatus is CanonicalHarnessStatus
     assert pipy_harness.HarnessStatus is CanonicalHarnessStatus
-    assert sdk.HarnessStatus is CanonicalHarnessStatus
 
 
 def test_public_run_model_type_hints_resolve_at_runtime() -> None:
     assert get_type_hints(AdapterResult)["status"] is CanonicalHarnessStatus
     assert get_type_hints(RunResult)["status"] is CanonicalHarnessStatus
-    assert get_type_hints(RunRequest)["capture_policy"] is CapturePolicy
     assert get_type_hints(RunResult)["record"] is SessionRecord
     assert get_type_hints(ProviderResult)["status"] is CanonicalHarnessStatus
     assert get_type_hints(NativeRunOutput)["status"] is CanonicalHarnessStatus
     assert get_type_hints(CodingSessionResult)["status"] is CanonicalHarnessStatus
-
-
-def test_make_native_run_request_fills_pipy_native_defaults(tmp_path: Path) -> None:
-    request = sdk.make_native_run_request(goal="GOAL", cwd=tmp_path)
-
-    assert isinstance(request, RunRequest)
-    assert request.agent == sdk.DEFAULT_NATIVE_AGENT
-    assert request.slug == sdk.DEFAULT_NATIVE_SLUG
-    assert request.goal == "GOAL"
-    assert request.cwd == tmp_path
-    assert request.command == []
-    assert request.capture_policy.record_file_paths is False
-    assert request.native_provider is None
-    assert request.native_model is None
-
-
-def test_make_native_run_request_requires_non_empty_goal(tmp_path: Path) -> None:
-    with pytest.raises(ValueError):
-        sdk.make_native_run_request(goal="", cwd=tmp_path)
-
-
-def test_make_native_run_request_requires_path_cwd() -> None:
-    with pytest.raises(TypeError):
-        sdk.make_native_run_request(goal="GOAL", cwd="/tmp")  # type: ignore[arg-type]
-
-
-def test_run_native_with_fake_provider_returns_succeeded_run_result(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "sessions"
-    request = sdk.make_native_run_request(
-        goal="sdk smoke",
-        cwd=tmp_path,
-        root=root,
-    )
-
-    result = sdk.run_native(request)
-
-    assert isinstance(result, RunResult)
-    assert result.exit_code == 0
-
-
-def test_run_native_uses_supplied_provider(tmp_path: Path) -> None:
-    captured: list[object] = []
-
-    class SDKObservingProvider:
-        name = "fake"
-        model_id = "fake-native-bootstrap"
-        supports_tool_calls = False
-
-        def complete(self, request, **_kwargs):
-            captured.append(request)
-            from datetime import UTC, datetime
-
-            from pipy_harness.native.models import ProviderResult
-
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="sdk-final",
-                usage={},
-                metadata=None,
-            )
-
-    root = tmp_path / "sessions"
-    request = sdk.make_native_run_request(goal="sdk goal", cwd=tmp_path, root=root)
-
-    result = sdk.run_native(request, provider=SDKObservingProvider())
-
-    assert len(captured) == 1
-    assert result.exit_code == 0
-
-
-def test_run_native_rejects_non_native_agent(tmp_path: Path) -> None:
-    root = tmp_path / "sessions"
-    request = RunRequest(
-        agent="custom",
-        slug="x",
-        command=["echo", "hi"],
-        cwd=tmp_path,
-        goal="goal",
-        root=root,
-        capture_policy=sdk.CapturePolicy(),
-    )
-
-    with pytest.raises(ValueError):
-        sdk.run_native(request)
-
-
-def test_run_native_threads_stream_sink_to_provider(tmp_path: Path) -> None:
-    captured: list[str] = []
-    provider = FakeNativeProvider(
-        programmable_text_chunks=("chunk-1", "chunk-2"),
-    )
-    root = tmp_path / "sessions"
-    request = sdk.make_native_run_request(
-        goal="streaming sdk goal",
-        cwd=tmp_path,
-        root=root,
-    )
-
-    result = sdk.run_native(
-        request,
-        provider=provider,
-        stream_sink=captured.append,
-    )
-
-    assert captured == ["chunk-1", "chunk-2"]
-    assert result.exit_code == 0

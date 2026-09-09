@@ -1,20 +1,18 @@
-"""Architecture contracts for the synchronous SDK and the two session stores.
+"""Architecture contracts for product embedding and the two session stores.
 
 These tests deliberately characterize boundaries rather than implementation
-details.  The SDK remains a synchronous ``RunRequest``-in/``RunResult``-out
-surface, while the raw native product session and the metadata-only
+details. The SDK is the persistent product-session embedding surface, while the
+raw native product session and the metadata-only
 ``pipy-session`` workflow archive remain separate stores with different
 privacy contracts.
 """
 
 from __future__ import annotations
 
-import inspect
 import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
@@ -99,9 +97,7 @@ def _assert_private_markers_absent(*texts: str) -> None:
         )
 
 
-def test_sdk_surface_is_synchronous_streaming_and_returns_a_finalized_result(
-    tmp_path: Path,
-) -> None:
+def test_sdk_surface_is_product_only() -> None:
     expected_exports = {
         "AgentEvent",
         "AgentEventSink",
@@ -111,63 +107,28 @@ def test_sdk_surface_is_synchronous_streaming_and_returns_a_finalized_result(
         "ProductSessionTransitionError",
         "ProductSessionTransitionFailure",
         "ProductSessionTransitionResult",
+        "ProviderPort",
         "create_product_session",
         "open_product_session",
+    }
+    assert set(sdk.__all__) == expected_exports
+    assert len(sdk.__all__) == len(expected_exports)
+
+    for name in (
         "CapturePolicy",
         "DEFAULT_NATIVE_AGENT",
         "DEFAULT_NATIVE_SLUG",
         "HarnessRunner",
         "HarnessStatus",
-        "ProviderPort",
         "RunRequest",
         "RunResult",
         "StreamChunkSink",
         "make_native_run_request",
         "run_native",
-    }
-    assert set(sdk.__all__) == expected_exports
-    assert len(sdk.__all__) == len(expected_exports)
-
-    signature = inspect.signature(sdk.run_native)
-    hints = get_type_hints(sdk.run_native)
-    assert tuple(signature.parameters) == ("request", "provider", "stream_sink")
-    assert hints["request"] is RunRequest
-    assert hints["return"] is RunResult
-    assert inspect.iscoroutinefunction(sdk.run_native) is False
-
-    trace: list[tuple[str, str]] = []
-    provider = FakeNativeProvider(
-        programmable_text_chunks=("sdk-stream-one", "sdk-stream-two"),
-    )
-    request = sdk.make_native_run_request(
-        goal="bounded SDK architecture characterization",
-        cwd=tmp_path,
-        root=tmp_path / "workflow-archive",
-    )
-
-    result = sdk.run_native(
-        request,
-        provider=provider,
-        stream_sink=lambda chunk: trace.append(("chunk", chunk)),
-    )
-    trace.append(("caller", "returned"))
-
-    assert trace == [
-        ("chunk", "sdk-stream-one"),
-        ("chunk", "sdk-stream-two"),
-        ("caller", "returned"),
-    ]
-    assert isinstance(result, RunResult)
-    assert result.status is HarnessStatus.SUCCEEDED
-    assert result.exit_code == 0
-    assert result.record.jsonl_path.exists()
-    assert result.record.markdown_path is not None
-    assert result.record.markdown_path.exists()
-    assert ".in-progress" not in result.record.jsonl_path.parts
-
-    events = _jsonl_events(result.record.jsonl_path)
-    assert events[-1]["type"] == "session.finalized"
-    assert events[-1]["run_id"] == result.run_id
+    ):
+        assert not hasattr(sdk, name)
+        with pytest.raises(ImportError):
+            exec(f"from pipy_harness.sdk import {name}", {})
 
 
 @dataclass(frozen=True, slots=True)

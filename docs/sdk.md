@@ -128,8 +128,8 @@ ordinary request, then persists the accepted user once during normal settlement.
 See [Compaction](compaction.md) for this boundary. Public compact/model/context
 controls remain unavailable. Correct injected settings for a later submission, or
 close and create a new session when explicit context replacement is needed.
-Request-preparation refusals do not trigger provider retry, and compatibility
-`run_native` keeps its existing behavior.
+Request-preparation refusals do not trigger provider retry. The separate
+one-shot CLI runtime keeps its existing behavior.
 
 Each ordinary product provider request captures the current retry settings once.
 The prepared OpenAI-Codex capability may retry an explicitly transient,
@@ -162,34 +162,14 @@ Without a sink, diagnostics are dropped and structured failures remain visible
 in state/results. Diagnostics and canonical events can contain private product
 content and must not be routed into metadata-only workflow summaries.
 
-## One-shot compatibility API
-
-`make_native_run_request(...)` and `run_native(request, provider=...,
-stream_sink=...)` retain their existing metadata-first harness semantics.
-`run_native` returns `RunResult`, finalizes a workflow record, and defaults to a
-deterministic fake provider. It does not silently acquire multi-turn product
-semantics. `HarnessRunner`, `CapturePolicy`, `RunRequest`, `RunResult`,
-`HarnessStatus`, `ProviderPort` and `StreamChunkSink` remain exported.
-
 ## D6c staged frontend adoption and compatibility retirement
 
-The product-session API above is the supported in-process coding product. The
-interactive, JSON, print and RPC modes already drive the same canonical coding
-session and agent loop through their mode-specific adapters. The one-shot
-compatibility API is different: `run_native` returns `RunResult`, creates a
-metadata-first workflow record and defaults to a fake provider. The installed
-`pipy run --agent pipy-native` command still reaches that compatibility runtime
-through `PipyNativeAdapter`; this is a real caller whose archive, streaming,
-failure and exit semantics cannot be replaced implicitly.
-
-At the D6c0 inventory boundary, `run_native` and
-`make_native_run_request` have no production callers inside this repository,
-but they remain documented and covered public names. D6c never aliases those
-names to `ProductSession` behavior. A retirement slice may remove them outright
-only after the user-facing embedding path and checked callers use the product
-replacement and the exact export/documentation change has been reviewed. The
-compatibility runtime and adapter remain while `pipy run` uses them, even if the
-Python SDK names are later retired.
+The product-session API above is the only supported in-process coding API. The
+interactive, JSON, print, and RPC modes drive the same canonical coding session
+and agent loop through mode-specific adapters. The installed `pipy run --agent
+pipy-native` command remains a separate one-shot CLI surface: it reaches its
+compatibility runtime through `PipyNativeAdapter`, and retains its metadata
+archive, streaming, failure, and exit behavior.
 
 D6c1 adds a checked-in hermetic
 `create_product_session` example, executes it in a focused test, and makes that
@@ -258,7 +238,7 @@ coding lifetime: `fork(entry_id: str | None = None)`, `clone()`,
 facade's already validated workspace and its current explicit provider,
 tools, settings, resources, observer, diagnostic sink, and context-file
 policy. A transition never selects a provider, adopts a target workspace, or
-changes `run_native` semantics.
+changes the CLI runtime semantics.
 
 Each method returns this frozen public value (exported from
 `pipy_harness.sdk` with `ProductSession`):
@@ -527,7 +507,7 @@ empty loader remains unchanged. D2p compares stream and shared preparation with
 the same loader/settings/options, including untrusted project resources and
 injected providers. D2b tests separately pin default instruction loading and the explicit opt-out.
 Preparation and wiring use the same settings instance; injected settings retain
-their explicit trust decision. The compatibility one-shot SDK is unchanged.
+their explicit trust decision. The one-shot CLI runtime is unchanged.
 
 ### API ownership and cancellation
 
@@ -695,7 +675,7 @@ callback execution outside the guard, fresh-next-reservation cancellation and
 extension-lane isolation, steering-first FIFO promotion and harmless idle abort.
 The adoption does not add readiness, EOF/sealing/close or event projection
 semantics. Full-content values stay private product data and never enter workflow
-archive summaries. Compatibility `run_native` semantics remain unchanged.
+archive summaries. The one-shot CLI runtime remains unchanged.
 
 ### D5a2b product operation adoption
 
@@ -748,7 +728,7 @@ exact retirement after enqueue/driver/terminal failure. Pin once-only startup/
 shutdown, binding refusal, guard-free signal registration/callbacks, and existing
 headless import boundaries. Private bridge-only tests may be replaced by equivalent
 queue/view ownership tests; do not delete the late-cancel guarantees they pinned.
-Compatibility `run_native`, RPC's current queue/latch/event behavior and private
+The one-shot CLI runtime, RPC's current queue/latch/event behavior and private
 workflow-archive boundaries remain.
 D5a3 owns concurrent control exposure and its distinct per-run RPC settlement
 contract; this operation seam does not authorize public event emission.
@@ -758,7 +738,7 @@ contract; this operation seam does not authorize public event emission.
 D5a3 is split so the native control seam can be proved before RPC adopts it.
 D5a3a adds one internal, transport-neutral control over the existing
 `CodingInputQueue`; it does not add a supported concurrent method to
-`ProductSession` or change the compatibility SDK. The control owns an outer
+`ProductSession` or change the one-shot CLI runtime. The control owns an outer
 admission/publication gate and a stable queue reference, but no parallel active
 flag, payload list, token slot or cancellation latch. Queue state remains under
 the existing coding-effects RLock. Immutable control snapshots report whether a
@@ -923,7 +903,7 @@ An injected provider without `NativeReplProviderState` is an explicit static
 fallback, not a second mutable owner. It exposes a singleton current model,
 accepts only that same model, returns `null` for model/thinking cycles, reports
 `off`, rejects unsupported non-`off` levels, and never promises that a provider
-can be rebuilt. Public `ProductSession` and compatibility `run_native` semantics
+can be rebuilt. Public `ProductSession` and one-shot CLI runtime semantics
 remain unchanged.
 
 ### D5c RPC compaction-control adoption contract
@@ -1026,7 +1006,7 @@ provider or filesystem work, extension callbacks, JSONL output, worker wake, or
 latch signaling. EOF uses the existing bounded drain and waits for a claimed
 manual compaction plus any promoted prompt. Manual compaction synthesizes no
 `agent_start`, `agent_end`, or `agent_settled`; `compaction_end` is its operation
-boundary. Public `ProductSession`, compatibility `run_native`, terminal
+boundary. Public `ProductSession`, the one-shot CLI runtime, terminal
 `/compact`, session replacement, retry controls, direct bash, and archive schema
 remain unchanged.
 
@@ -1069,14 +1049,14 @@ RPC continues to project the D4a event sequence: each reissue has one
 end. Command responses remain correlated, but `abort_retry` response order is not
 a synchronization guarantee for asynchronous events. `get_state` adds no retry
 activity field. Generic `abort`, queue ownership, eligibility, attempt counters,
-provider transport fallback, summary privacy, compatibility `run_native`, and the
+provider transport fallback, summary privacy, the one-shot CLI runtime, and the
 public product-session API remain unchanged.
 
-D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
-at a time, then removes replaced compatibility surfaces and their dedicated
-implementation/tests when callers are gone. D2 leaves `run_native`,
-`make_native_run_request` and `NativeHarnessCompatibilityRuntime` unchanged;
-no alias may silently assign their names to different product semantics.
+D6 owns resume/replacement and broader close semantics. D6c migrates one
+entrypoint at a time, then removes replaced compatibility surfaces and their
+dedicated implementation/tests when callers are gone. D6c11 removed the Python
+one-shot facade outright; `NativeHarnessCompatibilityRuntime` remains the direct
+CLI runtime, with no semantic conversion to product sessions.
 
 ### D6a public product-session reopen contract
 
@@ -1136,7 +1116,7 @@ writes or a delayed cancellation from reaching another reopened lifetime.
 The reopened tree is full-content private product state. Reopen creates no
 workflow-archive record and copies no tree content, path, events, or diagnostics
 into metadata-only session summaries. Explicit tree injection remains supported,
-and compatibility `run_native`, RPC, terminal resume/fork/clone, provider
+and the one-shot CLI runtime, RPC, terminal resume/fork/clone, provider
 construction, and resource/trust policy keep their existing semantics.
 
 The D2 owners are the existing adapter preparation, the small outer facade

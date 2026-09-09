@@ -57,7 +57,7 @@ Pipy current state:
   in Current Largest Gaps item 5).
 - `docs/session-tree.md` and `docs/extension-api.md` (house style; the native
   session tree and Python extension API this mode composes with).
-- `src/pipy_harness/sdk.py` (`run_native`, `StreamChunkSink`).
+- `src/pipy_harness/sdk.py` (product-session factories, types, and events).
 - `src/pipy_harness/cli.py` (`pipy run`, `--mode {text,json,rpc}`, `--print`,
   `--stream`; `--native-output json` was removed and is now rejected with
   guidance).
@@ -1017,7 +1017,7 @@ equivalent. They are complementary:
   `CodingSession`, `ProviderPort`, the native session tree). The RPC
   loop is a thin JSONL transport + dispatch layer over the same session object
   the SDK and CLI already drive; it must not fork the runtime.
-- `StreamChunkSink` (the existing streaming hook) is the in-process analogue of
+- The provider streaming hook is the in-process analogue of
   `message_update`/`text_delta` events; the RPC/JSON emitter can be built on the
   same event source the sink observes.
 - A future pipy `RpcClient`-style Python helper (spawn `pipy --mode rpc`, send
