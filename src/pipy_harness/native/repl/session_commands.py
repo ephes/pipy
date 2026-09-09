@@ -26,6 +26,10 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.session_transition import (
+    ProductSessionTransitionError,
+    ProductSessionTransitionResult,
+)
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.session_tree import (
     NativeSessionTree,
@@ -230,6 +234,7 @@ class SessionCommandEffects:
     extension_session_allows: Callable[..., bool]
     rebuild_messages_from_tree: Callable[[], None]
     redraw_custom_entries_for_active_branch: Callable[[], None]
+    resume_transition: Callable[[Path], ProductSessionTransitionResult] | None
     current_session_dir: Callable[[], Path]
     resolve_session_file: Callable[[str], Path | None]
     summarize_branch: Callable[[SessionEntry, str], BranchSummarySelectionResult]
@@ -379,15 +384,8 @@ class SessionCommandEffects:
         )
         if picked_session is None:
             self.diag("pipy: /resume cancelled.")
-        elif (
-            self.ctl.session_tree.path is not None
-            and picked_session == self.ctl.session_tree.path
-        ):
-            self.diag("pipy: already on the selected native session.")
-        elif self.extension_session_allows(
-            "switch", operation="switch", target=str(picked_session)
-        ):
-            self._open_session(picked_session)
+        else:
+            self._resume_path(picked_session)
 
     def _rename_session(self, resume_tokens: list[str]) -> None:
         if len(resume_tokens) < 3:
@@ -436,10 +434,40 @@ class SessionCommandEffects:
         target = self.resolve_session_file(argument)
         if target is None:
             self.diag(f"pipy: no native session matched {argument!r}.")
-        elif self.extension_session_allows(
-            "switch", operation="switch", target=str(target)
-        ):
-            self._open_session(target)
+        else:
+            self._resume_path(target)
+
+    def _resume_path(self, target: Path) -> None:
+        transition = self.resume_transition
+        if transition is None:
+            # Non-terminal command carriers retain their established behavior;
+            # they do not expose terminal selection semantics.
+            if self.extension_session_allows(
+                "switch", operation="switch", target=str(target)
+            ):
+                self._open_session(target)
+            return
+        try:
+            outcome = transition(target)
+        except ProductSessionTransitionError as error:
+            if error.failure.stage == "load" and not error.failure.published:
+                self.diag("pipy: unable to load the selected native session.")
+                return
+            raise
+        if outcome.status == "refused":
+            if outcome.refusal == "lease_conflict":
+                self.diag("pipy: selected native session is already active.")
+            # The extension gate emits its established detailed refusal.
+            return
+        if outcome.previous == outcome.active:
+            self.diag("pipy: already on the selected native session.")
+            return
+        self.redraw_custom_entries_for_active_branch()
+        self.diag(
+            "pipy: resumed native session "
+            f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])} "
+            f"({sanitize_label_text(self.ctl.session_tree.name) if self.ctl.session_tree.name else 'unnamed'})."
+        )
 
     def _open_session(self, target: Path) -> None:
         self.ctl.session_tree = NativeSessionTree.open(target)

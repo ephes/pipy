@@ -81,6 +81,7 @@ from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import ImplicitTrustState, ReloadCommandEffects
 from pipy_harness.native.repl.session_commands import SessionCommandEffects
 from pipy_harness.native.repl.session_transfer import TransferCommandEffects
+from pipy_harness.native.repl.session_transition import ProductSessionTransitionResult
 from pipy_harness.native.repl.turn_leaves import provider_turn_inputs
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.repl_state import (
@@ -248,7 +249,11 @@ class SessionCollaborators:
         return resolve_session_target(self.current_session_dir(), ref)
 
     def session_command_effects(
-        self, repl_input: "TerminalUi | NativeReplInput"
+        self,
+        repl_input: "TerminalUi | NativeReplInput",
+        *,
+        resume_transition: Callable[[Path], ProductSessionTransitionResult]
+        | None = None,
     ) -> SessionCommandEffects:
         """Assemble the session-command executor from this run's narrow ports."""
 
@@ -263,6 +268,7 @@ class SessionCollaborators:
             extension_session_allows=self.extension_session_allows,
             rebuild_messages_from_tree=self.rebuild_messages_from_tree,
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
+            resume_transition=resume_transition,
             current_session_dir=self.current_session_dir,
             resolve_session_file=self.resolve_session_file,
             summarize_branch=self.select_with_branch_summary,

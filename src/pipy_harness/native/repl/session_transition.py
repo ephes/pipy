@@ -93,11 +93,21 @@ class CanonicalSessionLeaseRegistry:
 class CanonicalSessionLeaseSlot:
     """The sole mutable current-lease owner for one public lifetime."""
 
-    __slots__ = ("_lock", "_current")
+    __slots__ = ("_initial_bound", "_lock", "_current")
 
     def __init__(self, lease: _CanonicalSessionLease | None = None) -> None:
         self._lock = threading.Lock()
         self._current = lease
+        self._initial_bound = lease is not None
+
+    def bind_initial(self, lease: _CanonicalSessionLease | None) -> None:
+        """Install the construction-time lease before a lifetime can start."""
+
+        with self._lock:
+            if self._initial_bound:
+                raise RuntimeError("initial session lease is already bound")
+            self._initial_bound = True
+            self._current = lease
 
     def current_path(self) -> Path | None:
         with self._lock:
@@ -254,17 +264,36 @@ class SessionTransitionCoordinator:
     ) -> ProductSessionTransitionResult:
         """Strict-load and adopt one exact durable target at external true idle."""
 
-        return self._switch(session_path, leases=leases)
+        return self._switch(
+            session_path, leases=leases, before_switch=self.session_before_switch
+        )
+
+    def switch_terminal(
+        self,
+        session_path: Path,
+        *,
+        leases: CanonicalSessionLeaseSlot,
+        before_switch: Callable[[str], bool],
+    ) -> ProductSessionTransitionResult:
+        """Adopt a terminal-resolved target with its presentation-aware gate."""
+
+        return self._switch(session_path, leases=leases, before_switch=before_switch)
 
     def switch_admitted(  # pragma: no cover - future D6b3 private seam
         self, session_path: Path, *, leases: CanonicalSessionLeaseSlot
     ) -> ProductSessionTransitionResult:
         """Use after a future transport has retained its exact control claim."""
 
-        return self._switch(session_path, leases=leases)
+        return self._switch(
+            session_path, leases=leases, before_switch=self.session_before_switch
+        )
 
     def _switch(
-        self, session_path: Path, *, leases: CanonicalSessionLeaseSlot
+        self,
+        session_path: Path,
+        *,
+        leases: CanonicalSessionLeaseSlot,
+        before_switch: Callable[[str], bool],
     ) -> ProductSessionTransitionResult:
 
         target_path = session_path.expanduser().resolve()
@@ -293,7 +322,7 @@ class SessionTransitionCoordinator:
                             "switch", previous, "publish", False
                         )
                     )
-                if not self.session_before_switch(str(target_path)):
+                if not before_switch(str(target_path)):
                     box.append(
                         ProductSessionTransitionResult(
                             "switch", "refused", previous, None, "extension_refusal"

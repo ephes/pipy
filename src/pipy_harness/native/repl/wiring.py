@@ -577,6 +577,8 @@ class _CollaboratorPhase:
     provider_request_policy: NativeAgentProviderRequestPolicy
     agent_tool_policy: NativeAgentToolPolicy
     rpc_retry_control: RpcRetryControl | None
+    transition: SessionTransitionCoordinator
+    terminal_transition_leases: CanonicalSessionLeaseSlot | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1491,6 +1493,30 @@ def _compose_collaborators(
         extension_ui_driver=extension_ui_driver,
         extension_notify=_extension_notify,
     )
+    transition = SessionTransitionCoordinator(
+        workspace=cwd,
+        get_tree=lambda: ctl.session_tree,
+        set_tree=lambda tree: setattr(ctl, "session_tree", tree),
+        session_before_fork=lambda target: (
+            extension_operations.session_allows(
+                "fork", operation="fork", target=target
+            ).allow
+        ),
+        session_before_switch=lambda target: (
+            extension_operations.session_allows(
+                "switch", operation="switch", target=target
+            ).allow
+        ),
+        rebuild=product_session.rebuild_active_history,
+        clear_extension_inputs=coding_input_queue.clear_extension_inputs,
+    )
+    bridge = _control_bridge(inputs)
+    terminal_transition_leases: CanonicalSessionLeaseSlot | None = None
+    if bridge is None and not isinstance(inputs.abort_event, _ExternalAbortSignalView):
+        # The public product facade owns its established lease slot outside
+        # this stream composition. Only the terminal/captured lifetime adopts
+        # its own controller-bound slot in D6c3.
+        terminal_transition_leases = CanonicalSessionLeaseSlot()
     provider_binding.bind(provider_mutation)
     provider_request_policy = NativeAgentProviderRequestPolicy(
         collaborators.prepare_agent_provider_request
@@ -1524,6 +1550,8 @@ def _compose_collaborators(
         provider_request_policy=provider_request_policy,
         agent_tool_policy=agent_tool_policy,
         rpc_retry_control=rpc_retry_control,
+        transition=transition,
+        terminal_transition_leases=terminal_transition_leases,
     )
 
 
@@ -1551,7 +1579,25 @@ def _compose_commands(
     input_stream = inputs.input_stream
     # Preserve built-in > resource > extension precedence while supplying the
     # four closed effect families to the interpreter.
-    session_command_effects = collaborators.session_command_effects(repl_input)
+    terminal_leases = collaborators_phase.terminal_transition_leases
+    session_command_effects = collaborators.session_command_effects(
+        repl_input,
+        resume_transition=(
+            None
+            if terminal_leases is None
+            else lambda target: collaborators_phase.transition.switch_terminal(
+                target,
+                leases=terminal_leases,
+                before_switch=lambda canonical_target: (
+                    collaborators.extension_session_allows(
+                        "switch",
+                        operation="switch",
+                        target=canonical_target,
+                    )
+                ),
+            )
+        ),
+    )
     provider_configuration_effects = (
         collaborators.provider_configuration_command_effects(
             keybindings=keybindings,
@@ -1588,6 +1634,29 @@ def _compose_commands(
         resolve_extension=collaborators.dispatch_extension_effect,
     )
     return _CommandPhase(command_effects=command_effects)
+
+
+def _bind_terminal_transition_lease(
+    *,
+    ctl: RunControlState,
+    loop_controller: CodingSessionController,
+    leases: CanonicalSessionLeaseSlot | None,
+) -> None:
+    """Claim the initial terminal tree after composition, before lifecycle start."""
+
+    if leases is None:
+        return
+    initial_lease = None
+    try:
+        active_tree = ctl.session_tree
+        if active_tree.path is not None and active_tree.persist:
+            initial_lease = CanonicalSessionLeaseRegistry.claim(active_tree.path)
+        leases.bind_initial(initial_lease)
+        loop_controller.bind_transition_lease_finisher(leases.finish)
+    except BaseException:
+        if initial_lease is not None:
+            initial_lease.finish()
+        raise
 
 
 def _assemble_session_wiring(
@@ -1745,33 +1814,24 @@ def _assemble_session_wiring(
             else lambda: None
         ),
     )
-    transition = SessionTransitionCoordinator(
-        workspace=cwd,
-        get_tree=lambda: ctl.session_tree,
-        set_tree=lambda tree: setattr(ctl, "session_tree", tree),
-        session_before_fork=lambda target: (
-            extension_operations.session_allows(
-                "fork", operation="fork", target=target
-            ).allow
-        ),
-        session_before_switch=lambda target: (
-            extension_operations.session_allows(
-                "switch", operation="switch", target=target
-            ).allow
-        ),
-        rebuild=product.product_session.rebuild_active_history,
-        clear_extension_inputs=runtime.coding_input_queue.clear_extension_inputs,
-    )
     bridge = _control_bridge(inputs)
     if bridge is not None:
         _bind_rpc_transition_port(
-            bridge, transition, ctl.session_tree, runtime.loop_controller
+            bridge,
+            collaborators_phase.transition,
+            ctl.session_tree,
+            runtime.loop_controller,
         )
+    _bind_terminal_transition_lease(
+        ctl=ctl,
+        loop_controller=runtime.loop_controller,
+        leases=collaborators_phase.terminal_transition_leases,
+    )
     return SessionWiring(
         startup_failure=None,
         delegation=delegation,
         control_bridge=bridge,
-        transition=transition,
+        transition=collaborators_phase.transition,
     )
 
 
@@ -1779,6 +1839,7 @@ def wire_session(inputs: SessionWiringInput) -> SessionWiring:
     """Compose one session in ordered immutable phases."""
 
     provider_binding = _ProviderMutationBinding()
+    collaborators: _CollaboratorPhase | None = None
     try:
         startup = _prepare_startup(inputs)
     except BaseException as error:
@@ -1828,6 +1889,10 @@ def wire_session(inputs: SessionWiringInput) -> SessionWiring:
             commands,
         )
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
+        if collaborators is not None:
+            terminal_leases = collaborators.terminal_transition_leases
+            if terminal_leases is not None:
+                terminal_leases.finish()
         _publish_bridge_failure(inputs, error)
         raise_first((error, _abort_startup_attachment_nonraising(extension.attachment)))
         raise AssertionError("startup failure did not propagate")

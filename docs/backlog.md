@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** after D6c2 is independently reviewed and committed, D6c3 adopts
-terminal `/resume` selection through the native transition owner. No terminal
-runtime work starts before that planning gate.
+**Next task:** after D6c3 is independently reviewed and committed, D6c4
+re-inventories the remaining terminal replacement and compatibility entry
+points before selecting one bounded adoption slice.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -693,8 +693,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6b | Complete `b370a8a`; D6b1–D6b3 complete | Fork/clone/session replacement milestone, not a separate dispatch | Public and RPC callers share existing tree, veto, lease, cancellation and rebuild owners; caller-visible outcomes and persistence agree |
 | D6c0 | Complete `9c87ee1`; full checks and first Terra plan review CLEAN; scheduled grooming after D6b1–D6b3 | Inventory frontend/session ownership and compatibility callers; select one bounded adoption at a time | Summary-safe history plus source/test evidence; no runtime change; one unambiguous next task |
 | D6c1 | Complete `b952ad2`; 71 focused and 6,154 full tests; focused Terra R3 CLEAN; D6c0 `9c87ee1` | Add and execute one hermetic `create_product_session` example; make it the README's primary Python embedding path | Two submissions share one lifetime/history; explicit tool-capable fake; immutable idle snapshots; no network, credentials, workflow archive, runtime change or compatibility removal |
-| D6c2 | Complete in this planning chunk; 255 focused and 6,154 full tests; first Terra plan review CLEAN; D6c1 `b952ad2` | Review the terminal `/resume` selection lease, strict-load, failure and presentation contract; planning only | Exact initial claim/teardown, same-path no-op, recoverable candidate refusal, fatal publication failure, redraw/diagnostic ordering and picker boundaries fixed before code |
-| D6c3 | D6c2 | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
+| D6c2 | Complete `59f8c95`; 255 focused and 6,154 full tests; first Terra plan review CLEAN; D6c1 `b952ad2` | Review the terminal `/resume` selection lease, strict-load, failure and presentation contract; planning only | Exact initial claim/teardown, same-path no-op, recoverable candidate refusal, fatal publication failure, redraw/diagnostic ordering and picker boundaries fixed before code |
+| D6c3 | Complete in this implementation chunk; 361 focused plus 251 repair-focused and 6,160 full tests; focused Terra R2 CLEAN; D6c2 `59f8c95` | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
 | D6c4 | D6c3 | Re-inventory and select the next one of terminal `/new`, fork/clone, import replacement or compatibility SDK retirement | Do not combine remaining entry points; remove SDK compatibility names only after docs/callers use the product replacement; keep `pipy run` archive/`RunResult` semantics unless separately reviewed |
 | D6c | D6c4 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
@@ -808,6 +808,20 @@ terminal call shape requires it, the existing
 that name changed private ports. Matching session-tree, harness, architecture,
 backlog and `CHANGELOG.md` updates are required. No other runtime, SDK, RPC,
 picker, tree-management or compatibility file is in the initial write set.
+
+D6c3 implements that reviewed boundary. Terminal composition claims the initial
+persistent tree before `session_start` and binds its one slot to controller
+retirement. Resolved direct and picker targets now use the existing coordinator
+for canonical no-op detection, candidate claim, strict workspace load, guarded
+publication, lease handoff and one history/input rebuild. Prepublication load
+and lease failures stay recoverable terminal diagnostics; published failures
+retire the lifetime. Terra R1 found two acceptance-coverage Warnings: reclaiming
+the adopted target after published failure and preserving the old usable
+session after a valid foreign-workspace refusal. Both tests were added, and
+focused R2 returned CLEAN. The final gate passed 6,160 tests with two skipped,
+Ruff, formatting, Mypy, eight PTY smoke tests, docs-build, diff hygiene and
+unchanged interpreter links. `/new`, `/fork`, `/clone`, import replacement,
+startup `-r`, SDK/RPC changes and compatibility retirement remain out of scope.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

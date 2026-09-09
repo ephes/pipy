@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Terminal `/resume` now adopts resolved native session targets through the
+  canonical transition owner. Each stream lifetime claims its initial durable
+  tree, strict-loads and workspace-validates a candidate before state-first
+  replacement, and releases the current claim on normal or fatal teardown.
+  Same-file aliases are no-ops; picker, listing and session-management
+  presentation remain unchanged.
+
 - Persistent Python product sessions can now fork or clone, create an empty
   sibling session, and strictly switch to one exact durable session in place.
   The native transition owner preserves the facade lifetime, canonical path

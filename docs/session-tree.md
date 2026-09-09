@@ -138,20 +138,17 @@ encompassing public or RPC lifecycle finishes the adopted slot on teardown.
 No result value exposes the lease, and no other reader or writer accesses the
 slot's mutable current claim.
 
-The D6c0 inventory records that terminal commands have not adopted this slot or
-coordinator yet. `/new`, `/resume`, `/fork` and `/clone` still replace the tree
-inside `SessionCommandEffects`; the terminal lifetime holds no canonical path
-claim. `/resume` resolves its number/id/path in the terminal adapter and then
-uses the permissive internal loader, whereas public and RPC switching use the
-coordinator's canonical claim, strict load and workspace check. D6c2 will review
-`/resume` selection alone before implementation. Picker cancellation/current
-selection, list/rename/delete, `/tree`, import/export, `/new` and fork/clone are
-separate presentation or transition regions and are not folded into that slice.
+D6c3 adopts terminal `/resume` while retaining the D6c0 inventory's separation
+for the remaining commands. Resolved numeric, ID, path and different-picker
+targets now use the coordinator's canonical claim, strict load and workspace
+check; the controller lifetime holds the terminal slot. Picker
+cancellation/current selection, list/rename/delete, `/tree`, import/export,
+`/new` and fork/clone remain separate presentation or transition regions.
 
-### D6c2 terminal `/resume` adoption contract
+### D6c2/D6c3 terminal `/resume` adoption contract
 
-D6c2 fixes the contract for D6c3; it changes no runtime behavior. The
-stream-driven terminal lifetime will own one `CanonicalSessionLeaseSlot`. After
+D6c2 fixed this contract and D6c3 implements it. The
+stream-driven terminal lifetime owns one `CanonicalSessionLeaseSlot`. After
 successful native composition and before `session_start` or any command can run,
 it canonical-claims the initial persistent tree and binds the slot's idempotent
 finisher to the existing `CodingSessionController` lifetime. An ephemeral
@@ -160,7 +157,7 @@ failure after the claim but before lifetime start releases it. Normal exit,
 fatal exit, startup failure after attachment, and a failure after switching all
 finish the slot exactly once after the existing shutdown, extension-session and
 chrome cleanup. Product and RPC lifetimes retain their already shipped binding
-paths; D6c3 does not add a second lease owner.
+paths; D6c3 adds no second lease owner.
 
 `SessionCommandEffects` continues to classify `/resume` input. Bare captured
 input lists sessions; `named`, `rename`, and confirmed `delete` retain their
@@ -213,11 +210,11 @@ adapter receives a typed transition operation, not a lease or mutable tree
 handoff. No lock spans an extension hook, filesystem I/O, redraw, diagnostic or
 footer write.
 
-D6c3 must prove initial claim conflict and cleanup, exact current/adopted lease
+Coverage proves initial claim conflict and cleanup, exact current/adopted lease
 release on normal and fatal exits, strict claim-before-load, same-canonical-path
-no-op for direct and picker targets, old-session usability after every expected
-prepublication refusal, and the success/fatal order above. It must retain picker
-cancel/current, list/named/rename/delete and reference-resolution coverage.
+no-op for direct and picker targets, old-session usability after expected
+prepublication refusal, and the success/fatal order above. It retains picker
+cancel/current, list/named/rename/delete and reference-resolution behavior.
 `/tree`, `/import`, `/new`, `/fork`, `/clone`, startup `-r`, SDK/RPC behavior,
 cross-process locking, provider reconstruction and compatibility retirement are
 non-goals.

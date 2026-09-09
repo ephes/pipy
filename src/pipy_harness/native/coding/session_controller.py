@@ -893,19 +893,27 @@ class CodingSessionController:
             raise TypeError("native RPC transition port must not be None")
         if not callable(finish_transition_lease):
             raise TypeError("native RPC transition lease finisher must be callable")
-        if (
-            self._transition_port is not None
-            or self._finish_transition_lease is not None
-        ):
+        if self._transition_port is not None:
             raise RuntimeError("native RPC transition port is already bound")
         self._transition_port = port
-        self._finish_transition_lease = finish_transition_lease
+        self.bind_transition_lease_finisher(finish_transition_lease)
         bridge = self._control_bridge
         if bridge is not None:
             bridge.bind_transition_control(
                 self._admit_rpc_transition_operation,
                 self._settle_rpc_transition_operation,
             )
+
+    def bind_transition_lease_finisher(
+        self, finish_transition_lease: Callable[[], None]
+    ) -> None:
+        """Bind the one active canonical-session lease to this lifetime."""
+
+        if not callable(finish_transition_lease):
+            raise TypeError("native transition lease finisher must be callable")
+        if self._finish_transition_lease is not None:
+            raise RuntimeError("native transition lease finisher is already bound")
+        self._finish_transition_lease = finish_transition_lease
 
     def _admit_rpc_transition_operation(
         self, verify_authorized: Callable[[], None]

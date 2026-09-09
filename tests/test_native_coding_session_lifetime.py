@@ -25,6 +25,7 @@ from pipy_harness.native.extensions.activation import _ExtensionCandidate
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.repl import loop_step
 from pipy_harness.native.repl.loop_scope import ReplLoopScope
+from pipy_harness.native.repl.session_transition import CanonicalSessionLeaseRegistry
 from pipy_harness.native.repl.wiring import _PreparedCodingSession
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
@@ -41,6 +42,68 @@ class _Sink:
 
     def emit(self, event: AgentEvent) -> None:
         self.events.append(event)
+
+
+@pytest.mark.parametrize("body_fails", [False, True])
+def test_terminal_lifetime_claims_initial_tree_and_releases_on_normal_or_fatal_exit(
+    tmp_path: Path, body_fails: bool
+) -> None:
+    tree = NativeSessionTree.create(tmp_path)
+    assert tree.path is not None
+    session = CodingSession(provider=_RecordingToolProvider(), native_session=tree)
+
+    expected = LookupError if body_fails else None
+    try:
+        with session._open_lifetime(
+            workspace_root=tmp_path,
+            input_stream=_NoRead(),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        ):
+            with pytest.raises(RuntimeError, match="already active"):
+                with CodingSession(
+                    provider=_RecordingToolProvider(), native_session=tree
+                )._open_lifetime(
+                    workspace_root=tmp_path,
+                    input_stream=_NoRead(),
+                    output_stream=io.StringIO(),
+                    error_stream=io.StringIO(),
+                ):
+                    raise AssertionError("conflicting lifetime was admitted")
+            if body_fails:
+                raise LookupError("fatal terminal lifetime")
+    except LookupError:
+        if expected is None:
+            raise
+
+    released = CanonicalSessionLeaseRegistry.claim(tree.path)
+    released.finish()
+
+
+def test_terminal_initial_lease_releases_when_startup_fails_after_attachment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path)
+    assert tree.path is not None
+
+    def fail_start(*_args: object, **_kwargs: object) -> None:
+        raise LookupError("terminal startup failed")
+
+    monkeypatch.setattr(
+        loop_step._ReplLoopStep,
+        "fire_session_start",
+        fail_start,
+    )
+    with pytest.raises(LookupError, match="terminal startup failed"):
+        CodingSession(provider=_RecordingToolProvider(), native_session=tree).run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO(""),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+
+    released = CanonicalSessionLeaseRegistry.claim(tree.path)
+    released.finish()
 
 
 def _scope(prepared: _PreparedCodingSession) -> ReplLoopScope:

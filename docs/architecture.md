@@ -1104,13 +1104,14 @@ D6c first adds an executable product-session embedding example. It does not
 rename or silently change the compatibility API.
 
 The terminal replacement commands are a second, runtime-bearing adoption
-boundary. `/new`, `/resume`, `/fork` and `/clone` still replace the live tree
-through `SessionCommandEffects`, and the terminal lifetime does not yet claim a
-`CanonicalSessionLeaseSlot`. `/resume` additionally uses permissive tree load,
-while the D6b coordinator owns strict workspace validation and candidate lease
-handoff.
+boundary. D6c3 adopts resolved `/resume` selection through the D6b coordinator
+and a controller-bound `CanonicalSessionLeaseSlot`: it strict-loads and
+workspace-validates candidate trees, while picker/reference resolution and
+presentation remain terminal-owned. `/new`, `/fork` and `/clone` still replace
+the live tree through `SessionCommandEffects` and remain separate adoption
+boundaries.
 
-D6c2 fixes the first terminal adoption boundary without adding an owner. D6c3
+D6c2 fixed the first terminal adoption boundary without adding an owner. D6c3
 binds one canonical lease slot to the stream-driven terminal controller after
 successful composition and before lifecycle start; the controller's existing
 retirement path finishes whichever initial or adopted claim is current. The

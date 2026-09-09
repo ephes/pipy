@@ -2884,7 +2884,8 @@ redraw, success diagnostic or footer, and controller teardown releases the
 adopted lease. The initial persistent tree is claimed after successful
 composition and before `session_start`; existing controller retirement releases
 the current slot after shutdown, extension close and chrome cleanup on every
-exit. This is the reviewed D6c2 contract; runtime remains unchanged until D6c3.
+exit. D6c3 implements this reviewed D6c2 contract without changing the kernel,
+SDK, RPC, picker, or session-management surfaces.
 
 The kernel gains no picker, terminal, provider, persistence, extension,
 automation/RPC, SDK, capture, or archive implementation. Run-lifetime

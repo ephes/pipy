@@ -50,6 +50,10 @@ from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.session_commands import (
     run_interactive_session_picker,
 )
+from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseRegistry,
+    ProductSessionTransitionError,
+)
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
     CompactionEntry,
@@ -1598,9 +1602,11 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
         del terminal_ui
         return None if picker_result == "cancel" else session_tree.path
 
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
         open_calls.append(path)
-        return original_open(path, persist=persist)
+        return original_open(path, persist=persist, strict=strict)
 
     monkeypatch.setattr(
         ops_module,
@@ -1628,7 +1634,8 @@ def test_resume_switch_order_gate_and_fresh_history(
     import pipy_harness.native.repl.session_commands as commands_module
 
     cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
-    assert selected.path is not None
+    selected_path = selected.path
+    assert selected_path is not None
     command = "/resume" if selection_mode == "picker" else f"/resume {selected.path}"
     _install_resume_terminal(monkeypatch, cwd=cwd, commands=(command, "FRESH", "/exit"))
     trace: list[str] = []
@@ -1646,9 +1653,11 @@ def test_resume_switch_order_gate_and_fresh_history(
         del session_tree, terminal_ui
         return selected.path
 
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
         trace.append("open")
-        return original_open(path, persist=persist)
+        return original_open(path, persist=persist, strict=strict)
 
     def rebuild(self: CodingProductSessionCoordinator) -> None:
         trace.append("rebuild")
@@ -1705,7 +1714,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     assert _request_users(provider.requests[0]) == ["SELECTED", "FRESH"]
 
 
-def test_direct_resume_of_active_path_still_gates_and_reopens(
+def test_direct_resume_of_active_path_is_a_noop_before_gate_or_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.repl.extension_operations as ops_module
@@ -1717,9 +1726,11 @@ def test_direct_resume_of_active_path_still_gates_and_reopens(
     original_gate = ops_module.dispatch_session_before_hooks
     original_open = NativeSessionTree.open
 
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
         trace.append(f"open:{path}")
-        return original_open(path, persist=persist)
+        return original_open(path, persist=persist, strict=strict)
 
     monkeypatch.setattr(
         ops_module,
@@ -1737,12 +1748,104 @@ def test_direct_resume_of_active_path_still_gates_and_reopens(
     _run(
         CodingSession(provider=provider, native_session=active),
         cwd,
-        f"/resume {active.path}\n/exit\n",
+        f"/resume {active.path.parent / '.' / active.path.name}\n/exit\n",
     )
 
-    assert trace == [f"hook:switch:{active.path}", f"open:{active.path}"]
+    assert trace == []
     assert footer_calls == [None, None]
     assert provider.requests == []
+
+
+def test_resume_lease_conflict_keeps_old_tree_usable_and_releases_adopted_path(
+    tmp_path: Path,
+) -> None:
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    assert active.path is not None and selected.path is not None
+    held = CanonicalSessionLeaseRegistry.claim(selected.path)
+    provider = _SeenProvider()
+    try:
+        _out, err = _run(
+            CodingSession(provider=provider, native_session=active),
+            cwd,
+            f"/resume {selected.path}\nFRESH\n/exit\n",
+        )
+        assert "selected native session is already active" in err
+        assert _request_users(provider.requests[0]) == ["ACTIVE", "FRESH"]
+    finally:
+        held.finish()
+
+    _run(
+        CodingSession(provider=_SeenProvider(), native_session=active),
+        cwd,
+        f"/resume {selected.path}\n/exit\n",
+    )
+    released_active = CanonicalSessionLeaseRegistry.claim(active.path)
+    released_active.finish()
+    released_selected = CanonicalSessionLeaseRegistry.claim(selected.path)
+    released_selected.finish()
+
+
+def test_resume_foreign_workspace_keeps_old_tree_usable_and_releases_candidate(
+    tmp_path: Path,
+) -> None:
+    cwd, session_dir, active, _selected = _resume_fixture(tmp_path)
+    assert active.path is not None
+    foreign_workspace = tmp_path / "foreign-workspace"
+    foreign_workspace.mkdir()
+    foreign = NativeSessionTree.create(foreign_workspace, session_dir=session_dir)
+    assert foreign.path is not None
+    provider = _SeenProvider()
+
+    _out, err = _run(
+        CodingSession(provider=provider, native_session=active),
+        cwd,
+        f"/resume {foreign.path}\nFRESH\n/exit\n",
+    )
+
+    assert "unable to load the selected native session" in err
+    assert _request_users(provider.requests[0]) == ["ACTIVE", "FRESH"]
+    released_active = CanonicalSessionLeaseRegistry.claim(active.path)
+    released_active.finish()
+    released_foreign = CanonicalSessionLeaseRegistry.claim(foreign.path)
+    released_foreign.finish()
+
+
+def test_resume_claims_candidate_before_strict_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    selected_path = selected.path
+    assert selected_path is not None
+    import pipy_harness.native.repl.session_transition as transition_module
+
+    trace: list[str] = []
+    original_claim = CanonicalSessionLeaseRegistry.claim
+    original_open = NativeSessionTree.open
+
+    def claim(path: Path) -> object:
+        trace.append(f"claim:{path.resolve()}")
+        return original_claim(path)
+
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
+        assert strict is True
+        assert trace[-1] == f"claim:{selected_path.resolve()}"
+        trace.append("open")
+        return original_open(path, persist=persist, strict=strict)
+
+    monkeypatch.setattr(
+        transition_module.CanonicalSessionLeaseRegistry, "claim", staticmethod(claim)
+    )
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+
+    _run(
+        CodingSession(provider=_SeenProvider(), native_session=active),
+        cwd,
+        f"/resume {selected_path}\n/exit\n",
+    )
+
+    assert trace[-2:] == [f"claim:{selected_path.resolve()}", "open"]
 
 
 @pytest.mark.parametrize(
@@ -1765,9 +1868,11 @@ def test_resume_switch_gate_denial_or_error_cuts_off_open_with_footer(
     footer_calls: list[None] = []
     original_open = NativeSessionTree.open
 
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
         open_calls.append(path)
-        return original_open(path, persist=persist)
+        return original_open(path, persist=persist, strict=strict)
 
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     monkeypatch.setattr(
@@ -1804,9 +1909,11 @@ def test_resume_switch_gate_fatal_cuts_off_open_and_footer(
     footer_calls: list[None] = []
     original_open = NativeSessionTree.open
 
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
         open_calls.append(path)
-        return original_open(path, persist=persist)
+        return original_open(path, persist=persist, strict=strict)
 
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     monkeypatch.setattr(
@@ -1837,7 +1944,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
     assert selected.path is not None
     _install_resume_terminal(
-        monkeypatch, cwd=cwd, commands=(f"/resume {selected.path}",)
+        monkeypatch, cwd=cwd, commands=(f"/resume {selected.path}", "/exit")
     )
     trace: list[str] = []
     rebuild_calls = 0
@@ -1845,11 +1952,13 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     original_open = NativeSessionTree.open
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
 
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+    def open_tree(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
         trace.append("open")
         if failure_stage == "open":
             raise RuntimeError("open failed")
-        return original_open(path, persist=persist)
+        return original_open(path, persist=persist, strict=strict)
 
     def rebuild(self: CodingProductSessionCoordinator) -> None:
         nonlocal rebuild_calls
@@ -1888,12 +1997,20 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
         lambda *_args, **_kwargs: trace.append("footer"),
     )
 
-    with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
-        _run(
-            CodingSession(provider=_SeenProvider(), native_session=active),
-            cwd,
-            "",
+    if failure_stage == "open":
+        _run(CodingSession(provider=_SeenProvider(), native_session=active), cwd, "")
+    else:
+        expected_exception = (
+            ProductSessionTransitionError
+            if failure_stage in {"rebuild", "clear"}
+            else RuntimeError
         )
+        with pytest.raises(expected_exception):
+            _run(
+                CodingSession(provider=_SeenProvider(), native_session=active),
+                cwd,
+                "",
+            )
 
     expected = ["hook", "open"]
     if failure_stage != "open":
@@ -1903,6 +2020,11 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     if failure_stage == "redraw":
         expected.append("redraw")
     assert trace == expected
+    assert active.path is not None and selected.path is not None
+    released_active = CanonicalSessionLeaseRegistry.claim(active.path)
+    released_active.finish()
+    released_selected = CanonicalSessionLeaseRegistry.claim(selected.path)
+    released_selected.finish()
 
 
 def test_resume_success_diagnostic_is_sanitized_and_local(
@@ -2235,10 +2357,9 @@ def test_resume_open_rename_and_tree_notices_sanitize_crafted_id(
         ),
     )
     assert "\x1b" not in err
-    # Prove the crafted file was actually opened and its entry reached (the
-    # crafted entry id "ent\x1bid"[:8] sanitizes to "ent id"); otherwise the
-    # test would pass without exercising the open/label path.
-    assert "ent id" in err
+    # Strict terminal adoption refuses crafted headers rather than carrying
+    # their identifiers into the active product tree.
+    assert "unable to load the selected native session" in err
     # The rename persisted the new name to the crafted file.
     assert NativeSessionTree.open(crafted).name == "renamed-crafted"
 
