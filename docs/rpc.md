@@ -33,14 +33,13 @@ The shipped protocol implements:
 - live model/thinking controls and reported queue-mode settings;
 - message/state introspection and message/tool counters;
 - current-session naming;
-- bash execution with bounded output through `command_sandbox.run_command`
+- bash execution with bounded terminal output and zero or more asynchronous,
+  correlated `bash_execution_update` records through `command_sandbox.run_command`
   and its direct-command policy, separate from the model's `BashTool` policy.
-  The next D7b slice will additionally emit zero or more asynchronous,
-  correlated `bash_execution_update` records before the direct bash command's
-  terminal response. Their optional `id` mirrors the original request ID;
-  `delta` is append-only and line-gated/redacted before nonblocking relay
-  admission. A separate emitter performs the blocking JSONL write, so direct
-  process cleanup stays reachable under stdout backpressure. See
+  Their optional `id` mirrors the original request ID; `delta` is append-only
+  and line-gated/redacted before nonblocking relay admission. A separate
+  emitter performs the blocking JSONL write, so direct process cleanup stays
+  reachable under stdout backpressure. See
   [Automation & RPC](automation-rpc.md#d7b-incremental-direct-bash-output-contract).
 
 Recognized command names do not imply implemented behavior:
@@ -136,8 +135,7 @@ restricted policy while owning one exact-operation cancellation event. An abort
 cannot reach a result that has already fixed or a later successor. It returns
 `cancelled: true, exitCode: null` only for an explicit abort; timeout returns
 `cancelled: false, exitCode: null`.
-When D7b lands, direct bash output updates will remain asynchronous JSONL
-records, will never carry a new operation identifier, and will precede their
-operation's terminal response. The terminal `BashResult.output` remains the
-authoritative bounded output; a slow stdout consumer cannot hold up direct-bash
-timeout or abort cleanup.
+Direct bash output updates are asynchronous JSONL records, never carry a new
+operation identifier, and precede their operation's terminal response. The
+terminal `BashResult.output` remains the authoritative bounded output; a slow
+stdout consumer cannot hold up direct-bash timeout or abort cleanup.

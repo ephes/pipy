@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Direct RPC bash now emits bounded, line-gated and secret-redacted
+  `bash_execution_update` records before its correlated terminal response.
+  Per-operation relays isolate update correlation and let direct process cleanup
+  proceed while a stdout consumer is blocked; terminal bash output remains the
+  authoritative independently redacted result.
+
 - Direct RPC bash operations can now be cancelled as an abort-all snapshot of
   their current exact operation identities. The restricted command sandbox
   starts each child in a separate process group, terminates and reaps that

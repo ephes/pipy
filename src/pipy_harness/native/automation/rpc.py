@@ -61,7 +61,49 @@ class _BashOperation:
     """One private direct-RPC bash lifetime, owned by ``NativeRpcServer``."""
 
     cancel_event: threading.Event
+    relay: "_BashUpdateRelay"
     abort_requested: bool = False
+
+
+class _BashUpdateRelay:
+    """One bounded, closeable callback-to-writer relay.
+
+    The sandbox's per-stream gate already bounds every accepted operation's
+    total safe payload.  Coalescing into one pending delta keeps the relay
+    bounded even when ``JsonlWriter`` is blocked, while this condition lock is
+    independent of the RPC operation registry lock.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._pending = ""
+        self._closed = False
+
+    def admit(self, delta: str) -> None:
+        """Nonblocking safe-delta admission called from the sandbox selector."""
+
+        if not delta:
+            return
+        with self._condition:
+            if self._closed:
+                return
+            self._pending += delta
+            self._condition.notify()
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+
+    def take(self) -> str | None:
+        with self._condition:
+            while not self._pending and not self._closed:
+                self._condition.wait()
+            if self._pending:
+                delta = self._pending
+                self._pending = ""
+                return delta
+            return None
 
 
 def _dumps(value: Any) -> str:
@@ -1001,7 +1043,9 @@ class NativeRpcServer:
         self._writer.write_line({"type": "session_info_changed", "name": name.strip()})
 
     # -- bash ------------------------------------------------------------
-    def _cmd_bash(self, cid: str | None, command: dict[str, Any]) -> None:
+    def _cmd_bash(  # noqa: C901 - exact-operation terminal projection branches
+        self, cid: str | None, command: dict[str, Any]
+    ) -> None:
         cmd = command.get("command")
         if not isinstance(cmd, str) or not cmd:
             self._respond_error(cid, "bash", "bash requires a non-empty command")
@@ -1010,16 +1054,45 @@ class NativeRpcServer:
         # worker can start. A late abort can therefore neither reclassify a
         # fixed result nor spill into a later command.
         identity = object()
-        operation = _BashOperation(cancel_event=threading.Event())
+        relay = _BashUpdateRelay()
+        operation = _BashOperation(cancel_event=threading.Event(), relay=relay)
 
         def _run_bash() -> None:
             result = None
             error: Exception | None = None
+
+            def emit_updates() -> None:
+                while (delta := relay.take()) is not None:
+                    update: dict[str, Any] = {
+                        "type": "bash_execution_update",
+                        "delta": delta,
+                    }
+                    if cid is not None:
+                        update = {"id": cid, **update}
+                    self._writer.write_line(update)
+
+            emitter = threading.Thread(
+                target=emit_updates,
+                name="pipy-rpc-bash-output",
+                daemon=True,
+            )
+            emitter.start()
             try:
                 policy = CommandPolicy(workspace_root=self._cwd)
-                result = run_command(cmd, policy, cancel_event=operation.cancel_event)
+                result = run_command(
+                    cmd,
+                    policy,
+                    cancel_event=operation.cancel_event,
+                    output_callback=relay.admit,
+                )
             except Exception as exc:  # noqa: BLE001 - becomes one RPC error response
                 error = exc
+            finally:
+                # The sandbox has completed all drain/reap work.  Closing
+                # rejects any late callback before the terminal fixation; the
+                # join guarantees every accepted update precedes that response.
+                relay.close()
+                emitter.join()
 
             # This is the sole terminal fixation point. An abort mark observed
             # here wins over a concurrently settled sandbox outcome; retirement

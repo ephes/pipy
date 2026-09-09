@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** complete independent review and commit of the D7b0 incremental
-direct-bash-output contract, then dispatch D7b1 as the sole implementation slice.
+**Next task:** perform the scheduled focused grooming after the D6a1, D7a1 and
+D7b1 implementation commits, using summary-safe session search/list first.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -688,11 +688,11 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement, one entry point per chunk | Same session owner across SDK/modes; executable embedding example; update docs and remove replaced surfaces without aliases |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
-| D7a1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
-| D7a | Complete in this chunk; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
-| D7b0 | Complete in this chunk; full checks and two Terra plan rounds, final Warning repaired and locally adjudicated; D7a `d900ca5` | Review correlated incremental direct-bash output, privacy, bounds and lifecycle contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current terminal-only behavior remains explicit until D7b1 |
-| D7b1 | D7b0 | Add line-gated, correlated direct-bash update callbacks through the existing sandbox and RPC writer | Pi-shaped optional-ID deltas before one terminal response; bounded per-stream updates; no raw partial line, secret fragment, late callback, or terminal-result change |
-| D7b | D7b1 | Correlated incremental RPC bash output milestone, not a separate dispatch | No updates after completion; bounded output, JSONL purity and EOF disposal |
+| D7a1 | Complete `d900ca5`; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
+| D7a | Complete `d900ca5`; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
+| D7b0 | Complete `5642c5e`; full checks and two Terra plan rounds, final Warning repaired and locally adjudicated; D7a `d900ca5` | Review correlated incremental direct-bash output, privacy, bounds and lifecycle contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current terminal-only behavior remains explicit until D7b1 |
+| D7b1 | Complete in this chunk; full checks and first Terra code review CLEAN; D7b0 `5642c5e` | Add line-gated, correlated direct-bash update callbacks through the existing sandbox and RPC writer | Pi-shaped optional-ID deltas before one terminal response; bounded per-stream updates; no raw partial line, secret fragment, late callback, or terminal-result change |
+| D7b | Complete in this chunk; D7b1 complete | Correlated incremental RPC bash output milestone, not a separate dispatch | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
@@ -932,6 +932,24 @@ exception and caps each stream at its configured bytes plus at most that one
 marker. The two-round docs cap is reached; the final disposition is advisory,
 not CLEAN, with no unresolved material finding and no reason for another prose
 round.
+
+D7b1 implements the reviewed line gate and one private coalescing relay per
+exact RPC bash operation. The sandbox publishes only classified complete lines
+or exact-stream EOF fragments, applies per-stream budgets and stable exhausting
+markers, and keeps its independent full terminal capture. The relay admits safe
+deltas without waiting for stdout, while its emitter drains through the sole
+JSONL writer before operation fixation and the terminal response. Real-process
+tests prove both abort and timeout reap their child while the update writer is
+blocked, then preserve update-before-terminal ordering after release.
+
+Root's focused gate passed 165 sandbox, RPC, JSONL and architecture tests. The
+full gate passed 6,108 tests with two skipped, plus lint, formatting, Mypy,
+docs-build and diff checks; the virtualenv interpreter links and configuration
+stayed unchanged. The first independent Terra code review returned CLEAN after
+re-running the same 165 focused tests. This is same-model-family independent
+review evidence. No PTY surface changed. D7b1 is the third implementation commit
+after the last scheduled grooming, so the next chunk is the required focused
+backlog grooming pass before D6b or another implementation dispatch.
 
 ### D5a — Refreshed queue ownership basis
 

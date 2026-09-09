@@ -69,6 +69,7 @@ from pipy_harness.native.read_only_tool import (
 TRUNCATION_MARKER = "... (truncated)"
 
 _SECRET_REDACTION_MARKER = "[redacted: secret-shaped content]"
+_OVERLONG_UPDATE_MARKER = "[output update suppressed: overlong line]"
 
 # Characters that imply shell behavior pipy never wants a feature command to
 # trigger: command substitution, expansion, globbing, redirection, chaining.
@@ -321,6 +322,7 @@ def run_command(
     cwd_relative: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
     cancel_event: threading.Event | None = None,
+    output_callback: Callable[[str], None] | None = None,
 ) -> CommandResult:
     """Execute a single model-supplied command string through the sandbox.
 
@@ -372,7 +374,11 @@ def run_command(
     # ``runner`` remains a small compatibility/test seam for the older
     # synchronous callers. The cancellable RPC path always uses Popen below so
     # it can own group lifetime and observe its fresh event promptly.
-    if cancel_event is None and runner is not subprocess.run:
+    if (
+        cancel_event is None
+        and output_callback is None
+        and runner is not subprocess.run
+    ):
         return _run_with_runner(
             runner,
             resolved_exe=resolved_exe,
@@ -407,6 +413,7 @@ def run_command(
         cancel_event=cancel_event,
         timeout_seconds=policy.timeout_seconds,
         max_output_bytes=policy.max_output_bytes,
+        output_callback=output_callback,
     )
     duration = time.perf_counter() - started
     return CommandResult(
@@ -478,6 +485,7 @@ def _collect_process_output(
     cancel_event: threading.Event | None,
     timeout_seconds: float,
     max_output_bytes: int,
+    output_callback: Callable[[str], None] | None,
 ) -> tuple[str, str, bool, bool, CommandStatus]:
     """Drain two pipes while enforcing cancellation/timeout process lifetime."""
 
@@ -485,6 +493,10 @@ def _collect_process_output(
     assert proc.stderr is not None
     streams = (proc.stdout, proc.stderr)
     buffers = [_CapturedBytes(), _CapturedBytes()]
+    gates = (
+        _IncrementalOutputGate(max_output_bytes, output_callback),
+        _IncrementalOutputGate(max_output_bytes, output_callback),
+    )
     selector = selectors.DefaultSelector()
     for index, stream in enumerate(streams):
         selector.register(stream, selectors.EVENT_READ, index)
@@ -509,7 +521,7 @@ def _collect_process_output(
                     stopped = True
                     kill_deadline = time.monotonic() + _TERMINATION_GRACE_SECONDS
 
-            _drain_selector(selector, buffers)
+            _drain_selector(selector, buffers, gates)
 
             if kill_deadline is not None and time.monotonic() >= kill_deadline:
                 # The direct child can exit while a same-group descendant keeps
@@ -540,16 +552,25 @@ def _requested_outcome(
 
 
 def _drain_selector(
-    selector: selectors.BaseSelector, buffers: list["_CapturedBytes"]
+    selector: selectors.BaseSelector,
+    buffers: list["_CapturedBytes"],
+    gates: tuple["_IncrementalOutputGate", "_IncrementalOutputGate"],
 ) -> None:
     for key, _ in selector.select(timeout=0.02):
         try:
             data = os.read(key.fd, 64 * 1024)
         except OSError:
-            data = b""
+            # Read faults are not an EOF proof for an unterminated prefix.
+            selector.unregister(key.fileobj)
+            continue
         if data:
             buffers[key.data].append(data)
+            gates[key.data].feed(data)
         else:
+            # Only a real zero-byte ``os.read`` is EOF for this exact stream.
+            # A direct-child exit, a short read, or termination request does not
+            # make an unterminated prefix eligible for publication.
+            gates[key.data].finish_eof()
             selector.unregister(key.fileobj)
 
 
@@ -559,6 +580,94 @@ class _CapturedBytes:
 
     def append(self, chunk: bytes) -> None:
         self.data.extend(chunk)
+
+
+@dataclass(slots=True)
+class _IncrementalOutputGate:
+    """Line-gate safe callback output for one captured byte stream.
+
+    Terminal output intentionally keeps its whole-stream redaction semantics.
+    This stricter projection never exposes a byte until a complete LF record
+    (or the exact stream's EOF fragment) has been classified.  The gate is
+    deliberately synchronous and tiny: its callback is required to be a
+    nonblocking admission seam owned by the caller.
+    """
+
+    max_output_bytes: int
+    callback: Callable[[str], None] | None
+    _pending: bytearray = dataclass_field(default_factory=bytearray)
+    _emitted_bytes: int = 0
+    _exhausted: bool = False
+
+    def feed(self, data: bytes) -> None:
+        """Accept one raw read without exposing a partial/unclassified prefix."""
+
+        if self._exhausted:
+            return
+        for byte in data:
+            self._pending.append(byte)
+            if byte == ord("\n"):
+                record = bytes(self._pending)
+                self._pending.clear()
+                self._commit(record)
+                if self._exhausted:
+                    return
+            elif len(self._pending) > self.max_output_bytes:
+                # This is mutually exclusive with the ordinary truncation
+                # marker.  Do not decode or expose even a safe-looking prefix.
+                self._publish(_OVERLONG_UPDATE_MARKER)
+                self._exhausted = True
+                self._pending.clear()
+                return
+
+    def finish_eof(self) -> None:
+        """Classify the final unterminated fragment after this stream's EOF."""
+
+        if self._exhausted or not self._pending:
+            return
+        record = bytes(self._pending)
+        self._pending.clear()
+        self._commit(record)
+
+    def _commit(self, record: bytes) -> None:
+        if self._exhausted:
+            return
+        text = record.decode("utf-8", "replace")
+        if has_secret_shaped_content(text):
+            self._commit_secret(record.endswith(b"\n"))
+            return
+        self._commit_safe(text)
+
+    def _commit_secret(self, source_has_lf: bool) -> None:
+        marker_bytes = len(_SECRET_REDACTION_MARKER.encode("utf-8"))
+        remaining = self.max_output_bytes - self._emitted_bytes
+        if marker_bytes > remaining:
+            self._exhausted = True
+            return
+        delta = _SECRET_REDACTION_MARKER
+        if source_has_lf and marker_bytes + 1 <= remaining:
+            delta += "\n"
+        self._publish(delta)
+        self._emitted_bytes += len(delta.encode("utf-8"))
+
+    def _commit_safe(self, text: str) -> None:
+        remaining = self.max_output_bytes - self._emitted_bytes
+        payload_bytes = text.encode("utf-8")
+        if len(payload_bytes) <= remaining:
+            self._publish(text)
+            self._emitted_bytes += len(payload_bytes)
+            return
+        # The text has already passed complete-record classification.  Trim
+        # only at UTF-8 code-point boundaries, then append the one permitted
+        # over-budget exhaustion marker.
+        clipped = payload_bytes[:remaining].decode("utf-8", "ignore")
+        self._publish(clipped + TRUNCATION_MARKER)
+        self._emitted_bytes += len(clipped.encode("utf-8"))
+        self._exhausted = True
+
+    def _publish(self, delta: str) -> None:
+        if self.callback is not None:
+            self.callback(delta)
 
 
 def _shape_captured_bytes(

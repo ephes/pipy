@@ -25,6 +25,7 @@ from pipy_harness.native.command_sandbox import (
     CommandRejectionReason,
     CommandStatus,
     _CapturedBytes,
+    _IncrementalOutputGate,
     _shape_captured_bytes,
     execute_allowlisted_argv,
     run_command,
@@ -403,6 +404,64 @@ def test_capture_redacts_secret_split_across_reads_before_cap() -> None:
     assert truncated is True
     assert "ABCDEFGHIJKLMNOP" not in output
     assert output.startswith("[redacted")
+
+
+def test_incremental_gate_waits_for_lf_and_redacts_split_secrets() -> None:
+    updates: list[str] = []
+    gate = _IncrementalOutputGate(128, updates.append)
+
+    gate.feed(b"api_key=ABCDEFGHI")
+    assert updates == []
+    gate.feed(b"JKLMNOP\n")
+
+    assert updates == ["[redacted: secret-shaped content]\n"]
+    assert "ABCDEFGHIJKLMNOP" not in "".join(updates)
+
+
+def test_incremental_gate_preserves_crlf_split_utf8_and_eof_framing() -> None:
+    updates: list[str] = []
+    gate = _IncrementalOutputGate(128, updates.append)
+
+    gate.feed(b"one\r")
+    assert updates == []
+    gate.feed(b"\n\xe2\x82")
+    assert updates == ["one\r\n"]
+    gate.feed(b"\xac\nlast")
+    assert updates == ["one\r\n", "€\n"]
+    gate.finish_eof()
+
+    assert updates == ["one\r\n", "€\n", "last"]
+
+
+def test_incremental_gate_bounds_secret_and_overlong_streams_without_prefixes() -> None:
+    secret_updates: list[str] = []
+    secret_gate = _IncrementalOutputGate(40, secret_updates.append)
+    secret_gate.feed(b"api_key=ABCDEFGHIJKLMNOP\n")
+    secret_gate.feed(b"api_key=QRSTUVWXYZABCDEF\n")
+    assert secret_updates == ["[redacted: secret-shaped content]\n"]
+    assert sum(len(update.encode()) for update in secret_updates) <= 40
+
+    overlong_updates: list[str] = []
+    overlong_gate = _IncrementalOutputGate(5, overlong_updates.append)
+    overlong_gate.feed(b"safe-prefix")
+    overlong_gate.feed(b"\nother\n")
+    assert overlong_updates == ["[output update suppressed: overlong line]"]
+    assert "safe" not in "".join(overlong_updates)
+    assert TRUNCATION_MARKER not in "".join(overlong_updates)
+    assert sum(len(update.encode()) for update in overlong_updates) <= 5 + len(
+        "[output update suppressed: overlong line]".encode()
+    )
+
+
+def test_incremental_gate_clips_safe_records_at_utf8_boundaries_once() -> None:
+    updates: list[str] = []
+    gate = _IncrementalOutputGate(8, updates.append)
+    gate.feed(b"a\n")
+    gate.feed("€€\n".encode())
+    gate.feed(b"later\n")
+
+    assert updates == ["a\n", "€€... (truncated)"]
+    assert sum(len(update.encode()) for update in updates) == 8 + len(TRUNCATION_MARKER)
 
 
 def test_environment_is_scrubbed(tmp_path: Path, monkeypatch: Any) -> None:

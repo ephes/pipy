@@ -996,7 +996,7 @@ retires the operation unchanged. The lock is not held for process work,
 output/callback work, or JSONL writes; the JSONL writer remains the output
 serialization owner.
 
-D7b will extend that direct-bash boundary with a private per-operation relay,
+D7b extends that direct-bash boundary with a private per-operation relay,
 never a new event bus. The sandbox owns per-stream raw-byte buffering,
 LF-line classification/redaction, and process cleanup. Its callback only admits
 or coalesces bounded safe deltas and returns; an RPC-owned emitter is the sole

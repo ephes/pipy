@@ -495,8 +495,8 @@ coordination, nor a model-tool or sandbox-policy change.
 
 ### D7b incremental direct-bash output contract
 
-D7b1 will add correlated incremental output only for an **accepted** direct
-RPC `bash` command. It emits zero or more asynchronous Pi-shaped records:
+Direct RPC `bash` emits correlated incremental output only for an **accepted**
+command. It emits zero or more asynchronous Pi-shaped records:
 
 ```json
 {"type":"bash_execution_update","id":"<request id>","delta":"<append-only text>"}
@@ -579,7 +579,7 @@ budget. In particular, repeated short secret lines cannot emit unbounded
 redaction markers. These update limits do not change the terminal result's
 independent full-stream redaction/truncation behavior.
 
-D7b1 acceptance coverage must prove paced real output produces correlated
+Coverage proves paced real output produces correlated
 updates before exactly one terminal response; an absent request ID omits `id`;
 concurrent operations remain correctly correlated and JSONL stays parseable;
 split-read secrets and UTF-8 are safe; CR/LF and EOF-fragment framing are exact;

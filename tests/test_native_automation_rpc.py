@@ -14,6 +14,7 @@ import io
 import json
 import os
 import queue
+import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -1437,7 +1438,7 @@ def test_no_payload_response_omits_data(client) -> None:
 
 def test_bash_returns_bash_result(client) -> None:
     client.send({"id": "b", "type": "bash", "command": "echo hi"})
-    resp = client.wait_for(lambda r: r.get("id") == "b")
+    resp = client.wait_for(lambda r: r.get("id") == "b" and r.get("type") == "response")
     assert resp["success"] is True
     assert "hi" in resp["data"]["output"]
     assert resp["data"]["exitCode"] == 0
@@ -1508,12 +1509,374 @@ def _bare_bash_server(tmp_path: Path) -> tuple[NativeRpcServer, io.BytesIO]:
     )
 
 
+class _BlockingWriteBuffer(io.BytesIO):
+    """Hold the first serialized update write to model stdout backpressure."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.write_started = threading.Event()
+        self.release = threading.Event()
+
+    def write(self, data: Any) -> int:
+        if not self.write_started.is_set():
+            self.write_started.set()
+            assert self.release.wait(timeout=3.0)
+        return super().write(data)
+
+
 def _join_bash_workers(server: NativeRpcServer) -> None:
     with server._lock:
         workers = list(server._bash_threads)
     for worker in workers:
         worker.join(timeout=3.0)
         assert not worker.is_alive()
+
+
+def test_rpc_bash_publishes_paced_safe_updates_before_terminal_response(
+    client, tmp_path: Path
+) -> None:
+    fifo = tmp_path / "paced"
+    os.mkfifo(fifo)
+    client.send({"id": "paced", "type": "bash", "command": "cat paced"})
+
+    fd = os.open(fifo, os.O_WRONLY)
+    try:
+        os.write(fd, b"first\n")
+        first = client.wait_for(
+            lambda record: (
+                record.get("type") == "bash_execution_update"
+                and record.get("id") == "paced"
+            )
+        )
+        assert first["delta"] == "first\n"
+        os.write(fd, b"second\n")
+    finally:
+        os.close(fd)
+
+    records = [
+        first,
+        *client.collect_until(
+            lambda record: (
+                record.get("id") == "paced" and record.get("type") == "response"
+            )
+        ),
+    ]
+    terminal_index = next(
+        index
+        for index, record in enumerate(records)
+        if record.get("id") == "paced" and record.get("type") == "response"
+    )
+    assert records[terminal_index]["type"] == "response"
+    updates = [
+        record
+        for record in records[:terminal_index]
+        if record.get("type") == "bash_execution_update"
+    ]
+    assert "".join(record["delta"] for record in updates) == "first\nsecond\n"
+    assert records[terminal_index]["data"]["output"] == "first\nsecond\n"
+
+
+def test_rpc_bash_updates_do_not_redefine_terminal_stream_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, output = _bare_bash_server(tmp_path)
+
+    def ordered_callback(
+        _command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
+    ) -> CommandResult:
+        assert output_callback is not None
+        output_callback("stderr-ready\n")
+        output_callback("stdout-ready\n")
+        return CommandResult(
+            status=CommandStatus.COMPLETED,
+            stdout="stdout-terminal\n",
+            stderr="stderr-terminal\n",
+            exit_code=0,
+        )
+
+    monkeypatch.setattr(rpc_module, "run_command", ordered_callback)
+    server._cmd_bash("ordered", {"command": "echo ordered"})
+    _join_bash_workers(server)
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+
+    assert (
+        "".join(
+            record["delta"]
+            for record in records
+            if record.get("type") == "bash_execution_update"
+        )
+        == "stderr-ready\nstdout-ready\n"
+    )
+    terminal = next(
+        record
+        for record in records
+        if record.get("id") == "ordered" and record.get("type") == "response"
+    )
+    assert terminal["data"]["output"] == "stdout-terminal\nstderr-terminal\n"
+
+
+def test_rpc_bash_secret_output_is_redacted_in_updates_and_terminal(
+    client, tmp_path: Path
+) -> None:
+    secret = "api_key=ABCDEFGHIJKLMNOP\n"
+    (tmp_path / "creds").write_text(secret, encoding="utf-8")
+    client.send({"id": "secret", "type": "bash", "command": "cat creds"})
+    records = client.collect_until(
+        lambda record: record.get("id") == "secret" and record.get("type") == "response"
+    )
+    updates = [
+        record["delta"]
+        for record in records
+        if record.get("type") == "bash_execution_update"
+    ]
+    terminal = records[-1]
+    assert updates == ["[redacted: secret-shaped content]\n"]
+    assert "ABCDEFGHIJKLMNOP" not in "".join(updates)
+    assert terminal["data"]["output"] == "[redacted: secret-shaped content]\n"
+
+
+def test_rpc_bash_update_omits_missing_id_and_isolated_per_operation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, output = _bare_bash_server(tmp_path)
+
+    def emit_once(
+        command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
+    ) -> CommandResult:
+        assert output_callback is not None
+        output_callback(f"{command}\n")
+        return CommandResult(
+            status=CommandStatus.COMPLETED, stdout=command, exit_code=0
+        )
+
+    monkeypatch.setattr(rpc_module, "run_command", emit_once)
+    server._cmd_bash(None, {"command": "no-id"})
+    server._cmd_bash("two", {"command": "two"})
+    _join_bash_workers(server)
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+
+    updates = [
+        record for record in records if record["type"] == "bash_execution_update"
+    ]
+    assert any(
+        "id" not in record and record["delta"] == "no-id\n" for record in updates
+    )
+    assert any(
+        record.get("id") == "two" and record["delta"] == "two\n" for record in updates
+    )
+    for cid in (None, "two"):
+        relevant = [
+            record
+            for record in records
+            if (record.get("id") if "id" in record else None) == cid
+        ]
+        assert relevant[-1]["type"] == "response"
+        assert relevant[-1]["command"] == "bash"
+
+
+def test_rpc_bash_update_is_closed_before_successor_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, output = _bare_bash_server(tmp_path)
+    first_callback: Callable[[str], None] | None = None
+
+    def controlled(
+        command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
+    ) -> CommandResult:
+        nonlocal first_callback
+        assert output_callback is not None
+        if command == "first":
+            first_callback = output_callback
+            output_callback("first\n")
+        else:
+            output_callback("second\n")
+        return CommandResult(
+            status=CommandStatus.COMPLETED, stdout=command, exit_code=0
+        )
+
+    monkeypatch.setattr(rpc_module, "run_command", controlled)
+    server._cmd_bash("same", {"command": "first"})
+    _join_bash_workers(server)
+    assert first_callback is not None
+    first_callback("late\n")
+    server._cmd_bash("same", {"command": "second"})
+    _join_bash_workers(server)
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+
+    assert [
+        record["delta"]
+        for record in records
+        if record["type"] == "bash_execution_update"
+    ] == [
+        "first\n",
+        "second\n",
+    ]
+    assert (
+        len(
+            [
+                record
+                for record in records
+                if record.get("id") == "same" and record["type"] == "response"
+            ]
+        )
+        == 2
+    )
+
+
+def test_blocked_update_writer_does_not_block_abort_or_terminal_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = _BlockingWriteBuffer()
+    server = NativeRpcServer(
+        adapter=object(),
+        cwd=tmp_path,
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=io.StringIO(),
+        stdout_buffer=output,
+        error_stream=io.StringIO(),
+    )
+    callback_admitted = threading.Event()
+    sandbox_returned = threading.Event()
+
+    def blocked_sandbox(
+        _command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
+    ) -> CommandResult:
+        assert cancel_event is not None and output_callback is not None
+        output_callback("safe\n")
+        callback_admitted.set()
+        assert cancel_event.wait(timeout=3.0)
+        sandbox_returned.set()
+        return CommandResult(status=CommandStatus.CANCELLED, stdout="safe\n")
+
+    monkeypatch.setattr(rpc_module, "run_command", blocked_sandbox)
+    server._cmd_bash("bash", {"command": "echo safe"})
+    assert callback_admitted.wait(timeout=3.0)
+    assert output.write_started.wait(timeout=3.0)
+
+    abort_thread = threading.Thread(
+        target=lambda: server._cmd_abort_bash("abort", {}), daemon=True
+    )
+    abort_thread.start()
+    assert sandbox_returned.wait(timeout=3.0)
+
+    output.release.set()
+    abort_thread.join(timeout=3.0)
+    assert not abort_thread.is_alive()
+    _join_bash_workers(server)
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+    update = next(
+        record for record in records if record.get("type") == "bash_execution_update"
+    )
+    terminal = next(
+        record
+        for record in records
+        if record.get("id") == "bash" and record.get("type") == "response"
+    )
+    assert terminal["data"]["cancelled"] is True
+    assert records.index(update) < records.index(terminal)
+
+
+@pytest.mark.parametrize(
+    ("termination", "expected_cancelled"),
+    [("abort", True), ("timeout", False)],
+)
+def test_blocked_update_writer_does_not_delay_real_sandbox_reap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    termination: str,
+    expected_cancelled: bool,
+) -> None:
+    """A blocked update write cannot hold up the real Popen cleanup path."""
+
+    output = _BlockingWriteBuffer()
+    server = NativeRpcServer(
+        adapter=object(),
+        cwd=tmp_path,
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=io.StringIO(),
+        stdout_buffer=output,
+        error_stream=io.StringIO(),
+    )
+    (tmp_path / "input").write_text("safe\n", encoding="utf-8")
+    original_popen = subprocess.Popen
+    reaped = threading.Event()
+    instances: list[Any] = []
+
+    class RecordingPopen:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._child = original_popen(*args, **kwargs)
+            instances.append(self)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._child, name)
+
+        def wait(self, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return self._child.wait(*args, **kwargs)
+            finally:
+                reaped.set()
+
+    def short_policy(*, workspace_root: Path) -> CommandPolicy:
+        return CommandPolicy(
+            workspace_root=workspace_root,
+            allowed_executables=frozenset({"tail"}),
+            timeout_seconds=0.08,
+        )
+
+    monkeypatch.setattr(subprocess, "Popen", RecordingPopen)
+    monkeypatch.setattr(rpc_module, "CommandPolicy", short_policy)
+    server._cmd_bash("bash", {"command": "tail -f input"})
+    assert output.write_started.wait(timeout=3.0)
+    assert len(instances) == 1
+
+    abort_thread: threading.Thread | None = None
+    try:
+        if termination == "abort":
+            abort_thread = threading.Thread(
+                target=lambda: server._cmd_abort_bash("abort", {}), daemon=True
+            )
+            abort_thread.start()
+        # ``wait`` is called by the sandbox after its selector drain and direct
+        # child cleanup. It must happen while the sole JsonlWriter remains held.
+        assert reaped.wait(timeout=3.0)
+    finally:
+        output.release.set()
+
+    if abort_thread is not None:
+        abort_thread.join(timeout=3.0)
+        assert not abort_thread.is_alive()
+    _join_bash_workers(server)
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+    updates = [
+        record for record in records if record.get("type") == "bash_execution_update"
+    ]
+    terminals = [
+        record
+        for record in records
+        if record.get("id") == "bash" and record.get("type") == "response"
+    ]
+    assert updates and updates[0]["delta"] == "safe\n"
+    assert len(terminals) == 1
+    terminal = terminals[0]
+    assert terminal["data"]["cancelled"] is expected_cancelled
+    assert terminal["data"]["exitCode"] is None
+    assert records.index(updates[-1]) < records.index(terminal)
 
 
 def test_abort_bash_snapshots_all_active_operations_and_preserves_output(
@@ -1523,7 +1886,11 @@ def test_abort_bash_snapshots_all_active_operations_and_preserves_output(
     entered = threading.Barrier(3)
 
     def blocked_result(
-        _command: str, _policy: Any, *, cancel_event: threading.Event | None = None
+        _command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
     ) -> CommandResult:
         assert cancel_event is not None
         entered.wait(timeout=3.0)
@@ -1565,7 +1932,11 @@ def test_abort_bash_and_timeout_fixation_have_deterministic_lock_order(
     release_timeout = threading.Event()
 
     def held_timeout(
-        _command: str, _policy: Any, *, cancel_event: threading.Event | None = None
+        _command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
     ) -> CommandResult:
         timeout_ready.set()
         assert release_timeout.wait(timeout=3.0)
@@ -1601,7 +1972,11 @@ def test_late_abort_cannot_spill_into_a_fresh_bash_operation(
     server, output = _bare_bash_server(tmp_path)
 
     def completed(
-        command: str, _policy: Any, *, cancel_event: threading.Event | None = None
+        command: str,
+        _policy: Any,
+        *,
+        cancel_event: threading.Event | None = None,
+        output_callback: Callable[[str], None] | None = None,
     ) -> CommandResult:
         assert cancel_event is not None and not cancel_event.is_set()
         return CommandResult(
@@ -1638,7 +2013,9 @@ def test_abort_bash_cancels_an_active_sandbox_child(client, tmp_path: Path) -> N
 
     client.send({"id": "abort", "type": "abort_bash"})
     abort = client.wait_for(lambda record: record.get("id") == "abort")
-    terminal = client.wait_for(lambda record: record.get("id") == "bash")
+    terminal = client.wait_for(
+        lambda record: record.get("id") == "bash" and record.get("type") == "response"
+    )
     assert abort["success"] is True
     assert terminal["success"] is True
     assert terminal["data"]["cancelled"] is True
@@ -1658,7 +2035,11 @@ def test_rpc_bash_timeout_is_not_reported_as_explicit_cancellation(
     monkeypatch.setattr(rpc_module, "CommandPolicy", short_policy)
     (tmp_path / "input").write_text("waiting\n", encoding="utf-8")
     client.send({"id": "timeout", "type": "bash", "command": "tail -f input"})
-    response = client.wait_for(lambda record: record.get("id") == "timeout")
+    response = client.wait_for(
+        lambda record: (
+            record.get("id") == "timeout" and record.get("type") == "response"
+        )
+    )
     assert response["success"] is True
     assert response["data"]["cancelled"] is False
     assert response["data"]["exitCode"] is None
@@ -1672,9 +2053,21 @@ def test_eof_joins_the_direct_bash_terminal_response(tmp_path: Path) -> None:
         records: list[dict[str, Any]] = []
         while not client._records.empty():
             records.append(client._records.get())
-        terminal = next(record for record in records if record.get("id") == "bash")
+        terminal = next(
+            record
+            for record in records
+            if record.get("id") == "bash" and record.get("type") == "response"
+        )
+        update = next(
+            record
+            for record in records
+            if record.get("id") == "bash"
+            and record.get("type") == "bash_execution_update"
+        )
         assert terminal["success"] is True
         assert terminal["data"]["exitCode"] == 0
+        assert update["delta"] == "eof\n"
+        assert records.index(update) < records.index(terminal)
     finally:
         # ``close`` is idempotent only at the test's resource layer; it has
         # already closed every stream on the successful path above.
@@ -1707,7 +2100,11 @@ def test_eof_joins_an_abort_in_progress_without_losing_either_response(
         while not client._records.empty():
             records.append(client._records.get())
         abort = next(record for record in records if record.get("id") == "abort")
-        terminal = next(record for record in records if record.get("id") == "bash")
+        terminal = next(
+            record
+            for record in records
+            if record.get("id") == "bash" and record.get("type") == "response"
+        )
         assert abort["success"] is True
         assert terminal["data"]["cancelled"] is True
     finally:
