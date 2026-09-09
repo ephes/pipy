@@ -769,6 +769,67 @@ implementation/tests when callers are gone. D2 leaves `run_native`,
 `make_native_run_request` and `NativeHarnessCompatibilityRuntime` unchanged;
 no alias may silently assign their names to different product semantics.
 
+### D6a public product-session reopen contract
+
+D6a adds one explicit `open_product_session(...)` factory for reopening a
+specific durable native product-session file. The factory is keyword-only and
+requires `workspace: Path`, `session_path: Path`, and an explicit tool-capable
+`ProviderPort`. It accepts the same optional tools, settings, resources,
+observer, diagnostic sink, and context-file loading switch as
+`create_product_session(...)`. It does not add session-id lookup, recent-session
+selection, or an in-place operation on an existing `ProductSession`.
+
+The factory validates and resolves the workspace using the existing creation
+rules and canonicalizes the existing session path before acquiring ownership.
+It opens exactly that native-session JSONL through a strict opt-in
+`NativeSessionTree.open` mode and requires the session header's stored cwd to be
+absolute and resolve to the same workspace. Strict loading rejects malformed
+JSON, non-object records, invalid or unknown entries, duplicate headers or IDs,
+and invalid parent/compaction ancestry rather than skipping them. The current
+permissive loader remains the default for existing internal and CLI callers. A
+missing or malformed file, invalid argument, or workspace mismatch fails before
+composition, extension activation, provider work, or durable append. Reopen
+then delegates to the same internal create-with-tree path as explicit tree
+injection; callers cannot supply a second tree authority.
+
+The product facade owns one private process-local registry keyed by the
+canonical persistent session path. `open_product_session(...)` claims that path
+before loading. `create_product_session(..., tree=...)` claims the same key when
+the injected tree is persistent, so two public lifetimes cannot append through
+separate in-memory trees or evade exclusion through a relative path or symlink
+alias. A conflicting active lifetime refuses before composition or mutation.
+The exact lease is attached to the facade before callback-bearing startup and
+released once only after startup failure, terminal retirement, explicit close,
+or context exit. No registry guard spans tree parsing, composition, callbacks,
+provider work, persistence, or cleanup.
+
+This lease defines supported in-process public-factory ownership. Direct
+internal `NativeSessionTree` use and coordination with another OS process remain
+caller responsibilities; D6a does not introduce a cross-process locking format.
+
+Reopen creates a fresh runtime lifetime over the existing durable conversation.
+The active leaf's canonical messages, prior compaction summary, retained-user
+anchor, and tree identity are reconstructed by the current tree/product-session
+owners. The explicitly supplied provider remains authoritative; reopen does not
+silently select a provider or thinking level from tree metadata. Historical
+agent or extension events are not replayed. New accepted exchanges append to the
+same file once, and the new lifetime emits one current `session_start` and one
+`session_shutdown` through the existing extension lifecycle.
+
+`ProductSession.close()` does not gain concurrent or replacement semantics. It
+remains an idempotent, construction-thread, non-reentrant idle disposal; its
+detached snapshot remains readable, and later submit refuses. Startup failure,
+extension activation failure, terminal driver exit, explicit close, and context
+exit continue through the one native lifetime owner. Its existing output gates,
+exact queue settlement, tree locking, and stable cancellation view prevent late
+writes or a delayed cancellation from reaching another reopened lifetime.
+
+The reopened tree is full-content private product state. Reopen creates no
+workflow-archive record and copies no tree content, path, events, or diagnostics
+into metadata-only session summaries. Explicit tree injection remains supported,
+and compatibility `run_native`, RPC, terminal resume/fork/clone, provider
+construction, and resource/trust policy keep their existing semantics.
+
 The D2 owners are the existing adapter preparation, the small outer facade
 and `sdk.py`, the shared cancellation primitive and headless waiter composition.
 Use D2a's lifetime without moving its ownership. Never copy prompt/resource

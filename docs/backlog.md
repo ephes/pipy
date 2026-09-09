@@ -9,8 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** after D5d1 is committed, perform the scheduled three-implementation
-grooming pass and select the next eligible D6a or D7a slice from current evidence.
+**Next task:** D6a0, the reviewed public product-session reopen/close contract.
+It precedes D6a1 implementation; D7a follows D6a unless observed RPC workflows
+make direct-command cancellation the immediate blocker.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -680,9 +681,11 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5c1 | Complete `ca21328`; full checks and focused Terra follow-up CLEAN; D5c0 `67eb79c` | Adopt manual and automatic RPC compaction controls through the existing native queue, semantic owner and precedence-aware settings owner | 673 focused and 6,062 full tests; real persistent/ephemeral result and effective policy; custom focus; cancellation, persistence, privacy, override, event/correlation, state and admission races covered |
 | D5c | Complete `ca21328`; D5c1 complete | RPC compaction-control milestone, not a separate dispatch | No transport-owned compaction policy, queue, latch, enabled flag, summary or durable state |
 | D5d0 | Complete `e1060da`; full checks and focused Terra follow-up CLEAN; D5a, D4a3 | Reviewed settings/phase ownership and race contract in SDK/RPC overview/architecture/harness docs | 219 focused and 6,062 full tests; exact-bool effective policy; exact ordinary-retry capability; late abort no-op; private summary retries excluded |
-| D5d1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5d0 `e1060da` | Adopt RPC retry enable/abort through existing settings and canonical retry owners | 628 focused and 6,070 full tests; current request capture unchanged; abort/backoff/reissue/result-fixation/settlement races; no stale capability or private-summary exposure |
-| D5d | Complete in this chunk; D5d1 complete | RPC retry-control milestone, not a separate dispatch | No transport-owned policy, activity flag, latch, attempt allowance, or summary control |
-| D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
+| D5d1 | Complete `0bfd48c`; full checks and focused Terra follow-up CLEAN; D5d0 `e1060da` | Adopt RPC retry enable/abort through existing settings and canonical retry owners | 628 focused and 6,070 full tests; current request capture unchanged; abort/backoff/reissue/result-fixation/settlement races; no stale capability or private-summary exposure |
+| D5d | Complete `0bfd48c`; D5d1 complete | RPC retry-control milestone, not a separate dispatch | No transport-owned policy, activity flag, latch, attempt allowance, or summary control |
+| D6a0 | D2b, D5a; scheduled grooming complete | Review the exact-path public reopen, workspace authority and unchanged close/lifecycle contract in `docs/sdk.md`; backlog only otherwise | Independent review and commit before D6a1; no runtime or public behavior change |
+| D6a1 | D6a0 | Add the explicit public product-session reopen factory, strict tree loading and canonical-path lifetime lease by delegating to existing owners | Equivalent reconstructed context; one in-process writer per durable file; same-file append; lifecycle once; invalid input refuses before composition; no late writes after retirement |
+| D6a | D6a1 | Session resume/close API milestone, not a separate dispatch | Supported reopen plus existing idempotent close; no in-place replacement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement, one entry point per chunk | Same session owner across SDK/modes; executable embedding example; update docs and remove replaced surfaces without aliases |
 | D7a | D0; coordinate with D5 writer | Direct RPC bash process cancellation; `command_sandbox.py`, existing process-lifetime capabilities, RPC bash handlers and tests | Process-tree termination; timeout differs from explicit abort; one terminal response; preserve direct-command versus model-tool policies |
@@ -692,14 +695,90 @@ every listed module. Add a file only when the selected behavior needs it.
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
 adoption is complete at `112397a`, and D5b model/thinking adoption is complete
-at `b3819f0`. D5c compaction-control adoption is complete at `ca21328`; D5d0
-selected the bounded contract at `e1060da`, and D5d1 completes the retry-control
-milestone in this chunk. A scheduled grooming pass follows before D6a; D7 can move earlier
-if direct-command cancellation matters to the selected workflow. The
-orchestrator records such a decision here before dispatch. No simultaneous
+at `b3819f0`. D5c compaction-control adoption is complete at `ca21328`; D5d
+retry-control adoption is complete at `0bfd48c`.
+
+The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
+search/list results and current D6a/D7a source/test evidence at `0bfd48c`.
+No matching prior decision record changes the queue. The supported SDK already
+owns a persistent product lifetime and accepts an injected opened tree, but
+public resume remains an undocumented escape hatch. Direct RPC bash cancellation
+is also a real gap, although it affects only the restricted direct-command RPC
+surface. D6a therefore remains first and is split into the reviewed D6a0
+contract and narrow D6a1 implementation below. D7a follows D6a unless an
+observed controller workflow makes it the immediate blocker. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the
 D5/D7 families share
 `rpc.py`. Read-only investigation of later tasks can proceed during any of them.
+
+### D6a — Public product-session reopen
+
+At `0bfd48c`, `create_product_session(..., tree=NativeSessionTree)` already
+rebuilds an injected tree's active coding context through the existing
+composition and product-session owners. `NativeSessionTree.open(path)` already
+parses the durable JSONL and reconstructs its active leaf, while
+`ProductSession.close()` already provides idempotent construction-thread
+retirement and a detached snapshot remains readable afterwards. The missing
+behavior is a supported, bounded reopen entry point with an explicit workspace
+authority check; D6a must not create another lifecycle or replace context in a
+live facade.
+
+D6a0 fixes that API contract in
+[the SDK specification](sdk.md#d6a-public-product-session-reopen-contract).
+D6a1 adds one exported keyword-only `open_product_session(...)` factory. It
+accepts an exact `workspace: Path`, exact `session_path: Path`, explicit
+tool-capable provider, and the same optional tools/settings/resources/observer/
+diagnostic/context-file inputs as creation. It opens exactly that existing
+native session file, requires its stored header cwd to be absolute and resolve
+to the supplied workspace, and then delegates to the existing create-with-tree
+path. It uses a strict opt-in tree load that rejects malformed JSON, non-object
+records, invalid or unknown entries, duplicate headers/IDs and invalid ancestry
+instead of silently skipping them. Missing, malformed, or foreign-workspace
+input refuses before session composition, extension activation, provider work,
+or durable mutation; the existing permissive internal/CLI loader remains
+unchanged by default.
+
+A reopened facade is a fresh native runtime lifetime over the same durable
+conversation. It reconstructs the active leaf's provider-visible messages,
+including compaction summary and retained-user anchors, while the explicitly
+supplied provider remains authoritative. It appends later accepted product messages to
+the same file once, emits current lifecycle events once without replaying
+historical events, and uses the existing state, queue, controller, generation,
+tree-lock, persistence and cancellation owners. Existing close semantics remain:
+owner-thread and non-reentrant, idempotent while idle, snapshot-readable after
+close, later submit refused, and delayed cancellation from the retired lifetime
+unable to affect another reopened lifetime.
+
+Before opening or composing a persistent tree, the public product facade
+canonicalizes the existing file path and atomically claims one private
+process-local lease for that path. The lease also applies when
+`create_product_session(..., tree=...)` receives a persistent tree, so callers
+cannot bypass it by mixing the two public factories or by using a symlink alias.
+It is held through the entire native lifetime and released exactly once after
+startup failure, terminal retirement, explicit close, or context exit. A second
+active public lifetime for the same canonical file refuses before composition
+or mutation. Direct internal tree use and coordination with another OS process
+remain explicit caller responsibilities; D6a does not claim a cross-process
+file-locking protocol.
+
+D6a1 may write `src/pipy_harness/product_api.py`,
+`src/pipy_harness/sdk.py`, `src/pipy_harness/native/session_tree.py`,
+`tests/test_product_session_api.py`, `tests/test_native_session_tree_core.py`,
+and an existing SDK/export contract test only when needed. Matching behavior documentation is
+`docs/sdk.md`, `docs/session-tree.md`, `docs/harness-spec.md` and
+`CHANGELOG.md`; `docs/backlog.md` remains orchestrator-owned. Acceptance must
+cover exact reconstructed provider context, same-file single append, one
+start/shutdown per lifetime, no historical event replay, strict malformed/
+unknown/duplicate/ancestry refusal, missing and workspace-mismatched refusal
+before effects, same-path and symlink-alias exclusion across both public
+factories, lease release on every exit, close idempotence, post-close snapshot/
+refusal, and stale-cancel isolation. Preserve explicit tree injection, privacy,
+`run_native`, RPC, terminal commands and all current import boundaries.
+
+Session-id/recency resolution, cross-project search, in-place resume or
+replacement, fork/clone, concurrent close, public queue/model/compaction
+controls, archive-backed resume, and compatibility SDK retirement remain D6b+
+or D6c work. D6a introduces no alias or deprecation shim.
 
 ### D5a — Refreshed queue ownership basis
 
