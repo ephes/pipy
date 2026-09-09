@@ -709,7 +709,10 @@ every listed module. Add a file only when the selected behavior needs it.
 | D7b0 | Complete `5642c5e`; full checks and two Terra plan rounds, final Warning repaired and locally adjudicated; D7a `d900ca5` | Review correlated incremental direct-bash output, privacy, bounds and lifecycle contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current terminal-only behavior remains explicit until D7b1 |
 | D7b1 | Complete `66189ed`; full checks and first Terra code review CLEAN; D7b0 `5642c5e` | Add line-gated, correlated direct-bash update callbacks through the existing sandbox and RPC writer | Pi-shaped optional-ID deltas before one terminal response; bounded per-stream updates; no raw partial line, secret fragment, late callback, or terminal-result change |
 | D7b | Complete `66189ed`; D7b1 complete | Correlated incremental RPC bash output milestone, not a separate dispatch | No updates after completion; bounded output, JSONL purity and EOF disposal |
-| D8 | Next eligible; D6c complete in this chunk | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
+| D8e | Verified in this planning chunk; D6c `b275c82` | Reuse the existing extension conformance example/tests and prove whether behavior is missing | Golden product/gate coverage exercises tools, commands, events, chrome/renderers and privacy; generic command-surface tests cover the only residual menu-row assertion; no duplicate example or runtime change |
+| D8a0 | Complete in this planning chunk; 6,183 full tests; first Terra plan review CLEAN; D6c `b275c82` | Review target-safe cross-provider tool-correlation replay without changing durable history | Exact portable mapping, affected non-Codex wire owners, same-provider preservation, product-path witness and bounded write set fixed before code |
+| D8a1 | Next eligible after this planning commit | Compile raw canonical tool correlations to paired target-safe wire IDs | Anthropic/Bedrock, Google/Vertex, Responses/Azure and Chat-compatible adapters preserve pairing; Codex split replay and durable schema unchanged |
+| D8 | D8a1 | Close the extension-conformance and provider-replay audit milestone | Existing conformance reused; same-provider and cross-provider text/tool history proved; no unsupported rich-content/provenance migration or live-provider claim |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
@@ -1050,6 +1053,63 @@ exit contracts are unchanged. Root's focused gate passes 169 tests; the first
 independent Terra code review returned CLEAN over the complete diff. Full
 validation passes 6,183 tests with two skipped, plus lint, formatting, Mypy and
 the documentation build; interpreter and diff-hygiene checks remain clean.
+
+At the D8 phase boundary, summary-safe archive search found no prior extension
+conformance or provider-replay decision. Two read-only Terra audits at
+`b275c82` rechecked the existing golden extension, canonical message/tree
+schema, public reopen path and every provider wire family. The golden extension
+and parity gate already exercise discovery and activation, command dispatch, a
+queued ordinary turn, tool execution/result transformation, lifecycle and
+provider-header events, chrome/renderers, UI notification and metadata privacy.
+The only literal contract assertion not made by that golden test is its own
+command-menu row; the same projection is implemented and covered generically.
+That does not prove a runtime defect, so D8e closes as verification-only with no
+new example or test-only churn.
+
+The replay audit found no lost canonical content that justifies a session-schema
+migration. Same-provider reopen already reconstructs ordered user, assistant,
+tool-call and paired-result messages, including compacted history. A concrete
+wire defect does remain for the supported public path that reopens a durable
+tree with an explicitly supplied different provider: Codex stores its required
+`call_id|item_id` correlation, Anthropic/Bedrock emit that invalid compound
+value raw, Google/Vertex omit correlation IDs, and the generic Responses and
+Chat-compatible wires also pass target-originated punctuation through without
+a portable projection. The target adapter boundary owns this compilation; raw
+canonical and durable values remain unchanged.
+
+D8a0 fixes the implementation contract in
+[the harness specification](harness-spec.md#cross-provider-tool-correlation-replay-contract-d8a)
+and [session-tree specification](session-tree.md#cross-provider-tool-correlation-replay-d8a).
+D8a1 adds one pure internal helper plus the four shared non-Codex wire owners.
+An ID matching `^[A-Za-z0-9_-]{1,64}$` passes through byte-for-byte. Any other
+ID maps deterministically to `tc_` plus the unpadded URL-safe Base64 encoding of
+its full SHA-256 digest. Calls and results invoke the same stateless mapping over
+the same raw ID, so their pairing survives; distinct unsafe test values must not
+collapse. The dedicated Codex wire remains outside the helper and keeps its
+existing split reconstruction.
+
+The allowed runtime write set is
+`src/pipy_harness/native/tool_call_ids.py`,
+`src/pipy_harness/native/_provider_helpers.py`,
+`src/pipy_harness/native/providers/anthropic_messages_wire.py`,
+`src/pipy_harness/native/providers/google_generate_content_wire.py`, and
+`src/pipy_harness/native/providers/openai_responses_wire.py`. Focused evidence
+may use a new `tests/test_native_cross_provider_replay.py` and only the existing
+provider tests whose expected wire shape must change. Matching current specs,
+`docs/backlog.md` and `CHANGELOG.md` may change. Acceptance requires helper
+alphabet/length/passthrough/determinism/idempotence/collision-resistance
+witnesses; paired unsafe IDs through all four shared wires; Google response-ID
+retention with its existing fallback; unchanged Codex compound replay; and one
+durable-tree `open_product_session` continuation through a real Anthropic
+adapter with fake HTTP proving target-safe pairing and no repeated tool effect.
+
+Provider provenance, a rich ordered content union, schema migration, history
+repair, provider expansion, in-place `/model` semantics and live credentialed
+dogfooding are excluded. Live API acceptance and cross-provider semantic answer
+quality remain unverified. The first independent Terra plan/spec review returned
+CLEAN over the complete three-document contract, and the loop stopped after one
+round. Full validation passes 6,183 tests with two skipped, plus lint,
+formatting, Mypy, documentation build and diff hygiene.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

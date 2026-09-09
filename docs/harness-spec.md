@@ -2124,6 +2124,49 @@ signal keep direct tool execution. Native lifecycle cleanup and snapshot/state
 ownership are unchanged. See [SDK](sdk.md) for construction, diagnostics,
 privacy and failure semantics; the one-shot CLI runtime remains separate.
 
+### Cross-Provider Tool-Correlation Replay Contract (D8a)
+
+Canonical `AgentAssistantMessage` tool calls and `AgentToolResultMessage`
+results keep the provider-returned correlation ID unchanged. The native session
+tree stores and reconstructs that raw identity so the dedicated Codex Responses
+adapter can split its `call_id|item_id` value during same-provider replay.
+Neither public reopen nor another session transition rewrites history for the
+selected target provider.
+
+Every other shared provider wire compiles the raw ID at outbound serialization.
+One pure `portable_tool_correlation_id` helper passes values matching
+`^[A-Za-z0-9_-]{1,64}$` through byte-for-byte. For any other value it returns
+`tc_` followed by the unpadded URL-safe Base64 encoding of the full SHA-256
+digest of the raw UTF-8 value. This makes the projection deterministic,
+idempotent, target-safe and collision-resistant. It is stateless: applying it
+independently to the assistant call and paired tool result yields the same wire
+ID without adding another mutable identity owner.
+
+The Anthropic Messages serializer uses the projection for `tool_use.id` and
+`tool_result.tool_use_id`, covering direct Anthropic and Bedrock. The Google
+generate-content serializer uses it for both `functionCall.id` and
+`functionResponse.id`, covering Generative AI and Vertex; its parser preserves a
+returned nonempty `functionCall.id` as the raw canonical correlation and keeps
+the existing provider-prefix/index fallback when the field is absent. The
+generic OpenAI Responses serializer uses it for both `function_call.call_id`
+and `function_call_output.call_id`, covering direct OpenAI and Azure. The shared
+Chat Completions serializer uses it for assistant `tool_calls[].id` and result
+`tool_call_id`, covering OpenAI Chat, ds4, Mistral, OpenRouter and Cloudflare.
+The dedicated Codex adapter is intentionally excluded and retains its existing
+compound split behavior.
+
+Executable acceptance proves safe passthrough; deterministic, distinct and
+idempotent unsafe mappings within the portable alphabet and length; paired
+projection through all four shared wire owners; Google returned-ID preservation
+and fallback; and unchanged Codex compound replay. One strict durable-tree
+reopen through a real Anthropic adapter with fake HTTP must prove that a stored
+Codex-style tool pair reaches the target with matching portable IDs and that no
+historical tool effect is executed again. Raw canonical messages, durable JSONL,
+session ownership and in-place provider/model switching remain unchanged.
+Provider provenance, rich ordered content, schema migration, history repair and
+provider expansion are non-goals. Live provider acceptance and cross-provider
+semantic answer quality remain unverified.
+
 ### Model-Aware Request Budget Contract
 
 D3a1 implements the pure measurement and catalog-provenance foundation below;

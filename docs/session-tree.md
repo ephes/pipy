@@ -660,6 +660,38 @@ record with a null or unmatched correlation id remains a private storage-only
 message so descendants and forks keep their ancestry, but it is omitted from
 provider context rather than fabricating tool identity or dropping the entry.
 
+### Cross-provider tool-correlation replay (D8a)
+
+The durable tree keeps each provider correlation ID exactly as returned. Codex
+Responses needs this raw value to preserve its compound `call_id|item_id` and
+reconstruct both fields during same-provider replay. Reopen with a different
+explicit provider therefore does not rewrite, migrate or annotate stored
+messages.
+
+Target adapters compile that canonical identity only while building an outbound
+request. Every non-Codex shared wire maps the assistant tool-call ID and its
+paired tool-result ID with the same pure function. Values matching
+`^[A-Za-z0-9_-]{1,64}$` pass through byte-for-byte. Other values become `tc_`
+plus the unpadded URL-safe Base64 encoding of the full SHA-256 digest of the raw
+UTF-8 value. The result is deterministic, idempotent, within the shared target
+alphabet and length, and collision-resistant without a mutable mapping table.
+Canonical in-memory values and JSONL stay unchanged.
+
+The mapping applies to the shared Anthropic Messages wire (including Bedrock),
+Google generate-content wire (including Vertex), OpenAI Responses wire
+(including Azure), and Chat Completions wire (including compatible providers).
+Google also emits the mapped ID on both `functionCall` and `functionResponse` and
+retains a returned nonempty `functionCall.id`; responses without an ID retain
+the existing provider-prefix/index fallback. The dedicated Codex wire continues
+to split its raw compound value and does not use the portable mapper.
+
+Tests must prove safe passthrough, deterministic distinct unsafe mappings,
+call/result pairing through each shared wire, Google response-ID retention,
+unchanged Codex replay, and one strict durable reopen into a different real
+adapter with fake transport. No provider provenance, rich-content union,
+history repair or session-schema migration is introduced. Live-provider
+acceptance and semantic answer quality remain unverified.
+
 Not every `message` entry is provider-visible exactly as stored. The
 leaf->root context build (`buildSessionContext`) collects the active branch,
 but some entries are filtered later during LLM message conversion: for example
