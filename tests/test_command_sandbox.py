@@ -9,15 +9,23 @@ attempt at execution-resolution time, not just via a string blocklist.
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
+import threading
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Never
+
+import pytest
 
 from pipy_harness.native.command_sandbox import (
     TRUNCATION_MARKER,
     CommandPolicy,
     CommandRejectionReason,
     CommandStatus,
+    _CapturedBytes,
+    _shape_captured_bytes,
     execute_allowlisted_argv,
     run_command,
 )
@@ -159,6 +167,193 @@ def test_times_out_long_running_command(tmp_path: Path) -> None:
     assert result.exit_code is None
 
 
+def test_pre_spawn_cancellation_does_not_call_popen(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    cancelled = threading.Event()
+    cancelled.set()
+
+    def fail_popen(*_args: Any, **_kwargs: Any) -> Never:
+        raise AssertionError("pre-spawn cancellation must not create a child")
+
+    monkeypatch.setattr(subprocess, "Popen", fail_popen)
+    result = run_command("echo hi", _policy(tmp_path), cancel_event=cancelled)
+
+    assert result.status is CommandStatus.CANCELLED
+    assert result.exit_code is None
+
+
+def test_cancellation_kills_the_started_process_group_and_reaps_child(
+    tmp_path: Path,
+) -> None:
+    # ``sh`` is intentionally absent from the product allowlist. It is allowed
+    # only in this substrate-level test so a script can create a direct child
+    # and pin that group termination reaches descendants too.
+    script = tmp_path / "spawn-child.sh"
+    pids = tmp_path / "pids"
+    script.write_text(
+        'sleep 30 &\nchild=$!\nprintf \'%s %s\\n\' "$$" "$child" > pids\nwait "$child"\n',
+        encoding="utf-8",
+    )
+    cancelled = threading.Event()
+    result_box: dict[str, Any] = {}
+
+    def invoke() -> None:
+        result_box["result"] = run_command(
+            "sh spawn-child.sh",
+            _policy(
+                tmp_path,
+                allowed_executables=frozenset({"sh"}),
+                timeout_seconds=10.0,
+            ),
+            cancel_event=cancelled,
+        )
+
+    worker = threading.Thread(target=invoke)
+    worker.start()
+    deadline = time.monotonic() + 3.0
+    while not pids.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert pids.exists(), "shell did not start its child"
+    shell_pid, child_pid = (int(value) for value in pids.read_text().split())
+    assert os.getpgid(child_pid) == shell_pid
+
+    cancelled.set()
+    worker.join(timeout=3.0)
+    assert not worker.is_alive()
+    result = result_box["result"]
+    assert result.status is CommandStatus.CANCELLED
+    assert result.exit_code is None
+
+    # The shell and its child were in the fresh process group; both have been
+    # terminated before ``run_command`` returns.
+    for pid in (shell_pid, child_pid):
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+
+
+def _start_term_ignoring_descendant(
+    tmp_path: Path,
+    *,
+    cancel_event: threading.Event | None,
+    timeout_seconds: float,
+) -> tuple[threading.Thread, dict[str, Any], int, int]:
+    """Start a direct shell that exits while its TERM-ignoring child holds pipes."""
+
+    child = tmp_path / "stubborn-child.sh"
+    parent = tmp_path / "parent-exits.sh"
+    pids = tmp_path / "pids"
+    child.write_text(
+        "trap '' TERM\nprintf '%s\\n' \"$$\" > child.pid\nwhile :; do sleep 1; done\n",
+        encoding="utf-8",
+    )
+    parent.write_text(
+        'sh stubborn-child.sh &\nchild=$!\nprintf \'%s %s\\n\' "$$" "$child" > pids\nexit 0\n',
+        encoding="utf-8",
+    )
+    result_box: dict[str, Any] = {}
+
+    def invoke() -> None:
+        result_box["result"] = run_command(
+            "sh parent-exits.sh",
+            _policy(
+                tmp_path,
+                allowed_executables=frozenset({"sh"}),
+                timeout_seconds=timeout_seconds,
+            ),
+            cancel_event=cancel_event,
+        )
+
+    worker = threading.Thread(target=invoke)
+    worker.start()
+    deadline = time.monotonic() + 3.0
+    while not pids.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert pids.exists(), "parent did not publish descendant creation"
+    parent_pid, child_pid = (int(value) for value in pids.read_text().split())
+    assert os.getpgid(child_pid) == parent_pid
+
+    # The direct child is reaped by the selector loop, while the descendant
+    # still owns inherited stdout/stderr. This is the former hang condition.
+    while time.monotonic() < deadline:
+        try:
+            os.kill(parent_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("direct parent did not exit")
+    return worker, result_box, parent_pid, child_pid
+
+
+def _force_kill_test_group(group_id: int) -> None:
+    try:
+        os.killpg(group_id, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _assert_process_gone(pid: int) -> None:
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"process {pid} survived group cleanup")
+
+
+def test_cancellation_escalates_after_parent_exit_when_descendant_holds_pipes(
+    tmp_path: Path,
+) -> None:
+    cancelled = threading.Event()
+    worker: threading.Thread | None = None
+    group_id: int | None = None
+    try:
+        worker, result_box, group_id, child_pid = _start_term_ignoring_descendant(
+            tmp_path,
+            cancel_event=cancelled,
+            timeout_seconds=10.0,
+        )
+        cancelled.set()
+        worker.join(timeout=3.0)
+        assert not worker.is_alive()
+        result = result_box["result"]
+        assert result.status is CommandStatus.CANCELLED
+        assert result.exit_code is None
+        _assert_process_gone(child_pid)
+    finally:
+        if group_id is not None:
+            _force_kill_test_group(group_id)
+        if worker is not None:
+            worker.join(timeout=3.0)
+
+
+def test_timeout_escalates_after_parent_exit_when_descendant_holds_pipes(
+    tmp_path: Path,
+) -> None:
+    worker: threading.Thread | None = None
+    group_id: int | None = None
+    try:
+        worker, result_box, group_id, child_pid = _start_term_ignoring_descendant(
+            tmp_path,
+            cancel_event=None,
+            timeout_seconds=0.5,
+        )
+        worker.join(timeout=3.0)
+        assert not worker.is_alive()
+        result = result_box["result"]
+        assert result.status is CommandStatus.TIMED_OUT
+        assert result.exit_code is None
+        _assert_process_gone(child_pid)
+    finally:
+        if group_id is not None:
+            _force_kill_test_group(group_id)
+        if worker is not None:
+            worker.join(timeout=3.0)
+
+
 def test_bounds_oversized_output(tmp_path: Path) -> None:
     (tmp_path / "big.txt").write_text("x" * 5000 + "\n", encoding="utf-8")
     result = run_command("cat big.txt", _policy(tmp_path, max_output_bytes=200))
@@ -166,6 +361,13 @@ def test_bounds_oversized_output(tmp_path: Path) -> None:
     assert result.truncated is True
     assert TRUNCATION_MARKER in result.stdout
     assert len(result.stdout.encode("utf-8")) <= 200 + len(TRUNCATION_MARKER) + 4
+
+
+def test_literal_truncation_marker_is_not_a_truncation_signal(tmp_path: Path) -> None:
+    (tmp_path / "marker.txt").write_text(TRUNCATION_MARKER, encoding="utf-8")
+    result = run_command("cat marker.txt", _policy(tmp_path))
+    assert result.status is CommandStatus.COMPLETED
+    assert result.truncated is False
 
 
 def test_redacts_secret_shaped_output(tmp_path: Path) -> None:
@@ -176,6 +378,31 @@ def test_redacts_secret_shaped_output(tmp_path: Path) -> None:
     assert result.status is CommandStatus.COMPLETED
     assert "AKIAIOSFODNN7EXAMPLE" not in result.stdout
     assert "redacted" in result.stdout.lower()
+
+
+def test_redacts_secret_before_returned_output_cap(tmp_path: Path) -> None:
+    secret = "api_key=ABCDEFGHIJKLMNOP\n"
+    (tmp_path / "creds.txt").write_text(secret, encoding="utf-8")
+
+    result = run_command("cat creds.txt", _policy(tmp_path, max_output_bytes=20))
+
+    assert result.status is CommandStatus.COMPLETED
+    assert result.truncated is True
+    assert "ABCDEFGHIJKLMNOP" not in result.stdout
+    assert "api_key=ABCDEFGHIJKL" not in result.stdout
+    assert result.stdout.startswith("[redacted")
+
+
+def test_capture_redacts_secret_split_across_reads_before_cap() -> None:
+    captured = _CapturedBytes()
+    captured.append(b"api_key=ABCDEFGHI")
+    captured.append(b"JKLMNOP\n")
+
+    output, truncated = _shape_captured_bytes(captured, max_output_bytes=20)
+
+    assert truncated is True
+    assert "ABCDEFGHIJKLMNOP" not in output
+    assert output.startswith("[redacted")
 
 
 def test_environment_is_scrubbed(tmp_path: Path, monkeypatch: Any) -> None:

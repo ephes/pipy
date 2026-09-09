@@ -60,12 +60,11 @@ Recognized command names do not imply implemented behavior:
   messages and tool calls/results, but token totals and cost are zero placeholders.
 - The extension-UI channel is unwired: no `extension_ui_request` is emitted,
   and received `extension_ui_response` lines are accepted and ignored.
-- Direct RPC `bash` cannot yet be externally aborted. `abort_bash` returns an
-  error while a command runs and succeeds without action when idle. Timeouts
-  currently map to `cancelled: true`; this is not evidence of explicit-abort
-  support. D7a's reviewed target is a fresh cancellation event per accepted
-  direct bash, process-group termination, and distinct explicit-abort versus
-  timeout results; it is not shipped until D7a1.
+- Direct RPC `bash` has a fresh private cancellation event per accepted
+  operation. `abort_bash` snapshots and cancels every active operation and
+  succeeds when idle. Explicit abort terminates the direct child process group
+  and returns `cancelled: true, exitCode: null`; sandbox timeout uses the same
+  cleanup but returns `cancelled: false, exitCode: null`.
 
 See [Automation & RPC](automation-rpc.md) for exact response and event contracts.
 
@@ -125,8 +124,8 @@ It settles that accepted run through the normal cancellation lifecycle while
 preserving queued input. It cannot cancel a later run or private semantic and
 branch-summary retries. Its response may arrive before or after the asynchronous
 retry lifecycle event.
-The separate RPC `bash` / `abort_bash` command behavior is currently unchanged:
-direct bash still uses the command sandbox and is not externally cancellable.
-D7a1 will add exact-operation cancellation to that separate boundary, retaining
-the sandbox policy and returning `cancelled: true, exitCode: null` only for an
-explicit abort; timeout will return `cancelled: false, exitCode: null`.
+The separate RPC `bash` / `abort_bash` command retains the command sandbox's
+restricted policy while owning one exact-operation cancellation event. An abort
+cannot reach a result that has already fixed or a later successor. It returns
+`cancelled: true, exitCode: null` only for an explicit abort; timeout returns
+`cancelled: false, exitCode: null`.

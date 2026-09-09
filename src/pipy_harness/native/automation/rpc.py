@@ -25,6 +25,7 @@ import json
 import queue
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
@@ -53,6 +54,14 @@ from pipy_harness.native.command_sandbox import (
 # ``data: null`` (Pi's `... | null` data contract, e.g. cycle_model).
 _OMIT: Any = object()
 _MISSING_COMPACTION_CORRELATION: Any = object()
+
+
+@dataclass(slots=True)
+class _BashOperation:
+    """One private direct-RPC bash lifetime, owned by ``NativeRpcServer``."""
+
+    cancel_event: threading.Event
+    abort_requested: bool = False
 
 
 def _dumps(value: Any) -> str:
@@ -224,7 +233,7 @@ class NativeRpcServer:
         self._compaction: Any | None = None
         self._retry: Any | None = None
         self._compact_ids: dict[object, str | None] = {}
-        self._bash_in_flight = 0
+        self._bash_operations: dict[object, _BashOperation] = {}
         self._bash_threads: list[threading.Thread] = []
         self._worker: threading.Thread | None = None
 
@@ -491,22 +500,17 @@ class NativeRpcServer:
             self._emit_queue_update(snapshot)
 
     def _cmd_abort_bash(self, cid: str | None, command: dict[str, Any]) -> None:
-        # RPC `bash` runs on a worker thread through the bounded, secret-scrubbing
-        # sandbox, which is not externally cancellable (it completes or hits its
-        # timeout). If a bash is in flight we surface a well-formed error rather
-        # than falsely claiming a cancellation that did not happen; otherwise
-        # there is nothing to abort (a valid no-op success).
+        # Mark and snapshot while the operation registry is stable. Signalling
+        # happens after releasing the RPC lock: an Event callback must never be
+        # able to block command correlation or terminal fixation.
         with self._lock:
-            running = self._bash_in_flight > 0
-        if running:
-            self._respond_error(
-                cid,
-                "abort_bash",
-                "a running sandboxed bash command is not externally cancellable; "
-                "it completes or hits its timeout",
-            )
-        else:
-            self._respond(cid, "abort_bash")
+            events = []
+            for operation in self._bash_operations.values():
+                operation.abort_requested = True
+                events.append(operation.cancel_event)
+        for event in events:
+            event.set()
+        self._respond(cid, "abort_bash")
 
     def _cmd_abort_retry(self, cid: str | None, command: dict[str, Any]) -> None:
         self._retry_port().abort_retry()
@@ -1002,38 +1006,66 @@ class NativeRpcServer:
         if not isinstance(cmd, str) or not cmd:
             self._respond_error(cid, "bash", "bash requires a non-empty command")
             return
-        # Run on a worker thread so the dispatch loop stays responsive to other
-        # commands (steer/abort/abort_bash) while a (bounded) bash runs. The
-        # response is written from the worker when the command settles. Output is
-        # secret-scrubbed and bounded by the sandbox.
-        with self._lock:
-            self._bash_in_flight += 1
+        # Each accepted command receives a fresh identity/event pair before its
+        # worker can start. A late abort can therefore neither reclassify a
+        # fixed result nor spill into a later command.
+        identity = object()
+        operation = _BashOperation(cancel_event=threading.Event())
 
         def _run_bash() -> None:
+            result = None
+            error: Exception | None = None
             try:
                 policy = CommandPolicy(workspace_root=self._cwd)
-                result = run_command(cmd, policy)
-                output = result.stdout
-                if result.stderr:
-                    output = output + result.stderr
+                result = run_command(cmd, policy, cancel_event=operation.cancel_event)
+            except Exception as exc:  # noqa: BLE001 - becomes one RPC error response
+                error = exc
+
+            # This is the sole terminal fixation point. An abort mark observed
+            # here wins over a concurrently settled sandbox outcome; retirement
+            # before an abort snapshot prevents later reclassification.
+            with self._lock:
+                abort_requested = operation.abort_requested
+                self._bash_operations.pop(identity, None)
+
+            if abort_requested:
+                output = ""
+                truncated = False
+                if result is not None:
+                    output = result.stdout + result.stderr
+                    truncated = result.truncated
                 self._respond(
                     cid,
                     "bash",
                     {
                         "output": output,
-                        "exitCode": result.exit_code,
-                        "cancelled": result.status == CommandStatus.TIMED_OUT,
-                        "truncated": result.truncated,
+                        "exitCode": None,
+                        "cancelled": True,
+                        "truncated": truncated,
                     },
                 )
-            except Exception as exc:  # noqa: BLE001 - reported as a command error response
-                self._respond_error(cid, "bash", f"{type(exc).__name__}: {exc}")
-            finally:
-                with self._lock:
-                    self._bash_in_flight -= 1
+                return
+            if error is not None:
+                self._respond_error(cid, "bash", f"{type(error).__name__}: {error}")
+                return
+            assert result is not None
+            output = result.stdout
+            if result.stderr:
+                output = output + result.stderr
+            self._respond(
+                cid,
+                "bash",
+                {
+                    "output": output,
+                    "exitCode": result.exit_code,
+                    "cancelled": result.status is CommandStatus.CANCELLED,
+                    "truncated": result.truncated,
+                },
+            )
 
         thread = threading.Thread(target=_run_bash, name="pipy-rpc-bash", daemon=True)
         with self._lock:
+            self._bash_operations[identity] = operation
             # Prune finished workers, then track this one so EOF shutdown can join
             # it and guarantee its response is written before the process exits.
             self._bash_threads = [t for t in self._bash_threads if t.is_alive()]

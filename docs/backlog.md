@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** complete the D7a0 direct-command cancellation contract review and
-commit it, then dispatch D7a1 as the sole eligible implementation slice.
+**Next task:** inspect D7b's existing RPC output/event owners and tests, then
+bound the correlated incremental-bash-output contract before implementation.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -687,9 +687,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6a | Complete `6e38076`; D6a1 complete | Session resume/close API milestone, not a separate dispatch | Supported reopen plus existing idempotent close; no in-place replacement |
 | D6b | D6a | Fork/clone/session replacement API | Existing tree and extension veto contracts; rebind observations once; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement, one entry point per chunk | Same session owner across SDK/modes; executable embedding example; update docs and remove replaced surfaces without aliases |
-| D7a0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
-| D7a1 | D7a0 | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
-| D7a | D7a1 | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
+| D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
+| D7a1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
+| D7a | Complete in this chunk; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
 | D7b | D7a | Correlated incremental RPC bash output | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
@@ -809,8 +809,8 @@ each concurrent bash execution and aborts every controller active at the
 command boundary. Pipy must preserve its stricter direct-command sandbox rather
 than route this surface through the model's real-shell `BashTool`.
 
-D7a is split into the reviewed D7a0 target contract in
-[the automation RPC specification](automation-rpc.md#d7a-target-contract-not-shipped-until-d7a1)
+D7a was split into the reviewed D7a0 contract, now reflected in
+[the shipped automation RPC specification](automation-rpc.md#d7a-shipped-contract),
 and the D7a1 implementation. Each accepted direct bash gets a fresh cancellation
 event and exact private operation identity registered before its worker can
 spawn. `abort_bash` marks and snapshots all active operations under the existing
@@ -849,6 +849,33 @@ stayed unchanged. Independent Terra plan review R1 found one Warning because the
 timeout/abort race lacked a deterministic winner. The repair linearizes abort
 marking and terminal fixation under the RPC lock and requires both lock orderings
 in a barrier-controlled test; focused R2 returned CLEAN.
+
+D7a1 implements the reviewed boundary with one exact operation object and fresh
+cancellation event per accepted command. The sandbox launches the allowlisted
+argv in a new process group, drains both streams, and independently escalates to
+group SIGKILL after the grace period even when the direct child exits first.
+Explicit abort and timeout retain distinct result projection, while abort marking
+and terminal fixation use the RPC lock to determine the race winner. Captured
+output still passes through redaction before the returned-output cap.
+
+Root's focused integration gate passed 141 tests. The full gate passed 6,096
+tests with two skipped, plus lint, formatting, Mypy, docs-build and diff checks;
+the virtualenv interpreter links and configuration stayed unchanged. Independent
+Terra review R1 found one Critical descendant-lifetime defect: escalation to
+SIGKILL depended on the direct parent still running. The bounded repair made the
+kill deadline independent and added explicit-abort and timeout regressions for a
+parent-exited, SIGTERM-ignoring descendant. Root also caught and repaired a
+redaction-before-truncation regression with decisive-suffix and split-read tests.
+Focused R2 reviewed both repairs and returned CLEAN. The final test-only Mypy
+correction used the test module's direct `CommandPolicy` import and changed no
+runtime behavior, so the clean second round closes the review gate without a
+third round.
+
+The chunk-boundary dependency check leaves both D6b and D7b technically eligible.
+D7b remains next because it extends the just-validated direct-bash operation and
+JSONL response owners; inspecting and fixing that bounded contract before another
+RPC edit reduces ownership churn. D6b remains deferred behind that adjacent RPC
+slice, with no prerequisite or acceptance change.
 
 ### D5a — Refreshed queue ownership basis
 

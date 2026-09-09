@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Direct RPC bash operations can now be cancelled as an abort-all snapshot of
+  their current exact operation identities. The restricted command sandbox
+  starts each child in a separate process group, terminates and reaps that
+  group on explicit abort or timeout, preserves bounded redacted output, and
+  distinguishes explicit cancellation from timeout in the correlated result.
+
 - Python embeddings can now reopen one exact durable native product-session
   JSONL file with `open_product_session(...)`. Reopen validates the workspace
   header, strictly rejects malformed or structurally invalid durable records,

@@ -452,12 +452,7 @@ which is in-scope full-content for this surface).
 truncated), `exitCode: number | undefined`, `cancelled: boolean`,
 `truncated: boolean`, `fullOutputPath?: string`.
 
-**Current shipped behavior.** Direct RPC bash is not yet externally
-cancellable: `abort_bash` reports an error while one is running and is a
-successful no-op while idle. Its current sandbox timeout is projected as
-`cancelled: true`; that value does not mean an explicit abort occurred.
-
-### D7a target contract (not shipped until D7a1)
+### D7a shipped contract
 
 Each accepted `bash` command
 has one fresh cancellation event and one exact, private operation identity. The
@@ -494,7 +489,7 @@ The response write happens outside the lock and exactly once. The RPC lock never
 covers spawn, wait, group termination, drain, reaping, worker join, JSONL
 writing, or callbacks; the JSONL writer remains the sole stdout serialization
 owner. EOF still joins bash workers. The bounded, secret-redacted combined
-stdout/stderr projection remains unchanged. This target adds neither incremental
+stdout/stderr projection remains unchanged. This implementation adds neither incremental
 bash updates (D7b), bash IDs, history persistence, cross-process coordination,
 nor a model-tool or sandbox-policy change.
 
@@ -516,8 +511,8 @@ cancellation event, ordered completion/cancellation and bounded worker cleanup.
 A completed tool result/effect is retained when completion wins; late success is
 discarded when cancellation wins. Arbitrary extension tools remain cooperative.
 This does not change reservation, settlement, queued steering/follow-up or abort
-clearing. The separate direct RPC `bash` command remains uncancellable in the
-current shipped build; its D7a target is specified with `BashResult` above.
+clearing. The separate direct RPC `bash` command has its own exact-operation
+cancellation boundary described with `BashResult` above.
 
 While a `prompt` run is in flight:
 
@@ -642,11 +637,10 @@ native session tree (`docs/session-tree.md`).
 
 ### Bash, model, and thinking controls
 
-- **Direct bash, current and D7a target.** The current RPC `bash` worker calls
-  `command_sandbox.run_command` with its own `CommandPolicy`, and returns a
-  bounded, secret-scrubbed `BashResult`; it cannot yet be externally aborted.
-  D7a changes only this direct-command execution lifetime as specified above:
-  a fresh per-operation cancellation event, process-group lifecycle, exact
+- **Direct bash.** The RPC `bash` worker calls `command_sandbox.run_command`
+  with its own `CommandPolicy`, and returns a bounded, secret-scrubbed
+  `BashResult`. Each accepted operation has a fresh cancellation event,
+  process-group lifecycle, exact
   terminal-result retirement, and idle-success `abort_bash`. It preserves the
   direct sandbox's current allowlist, resolved workspace/cwd/path policy,
   scrubbed environment, `shell=False`, separate stream capture, bounded
@@ -791,8 +785,9 @@ no-op stubs in `rpc-mode.ts`. Extension errors are surfaced as
   143) or SIGHUP (exit 129), or an extension shutdown request after the current
   command settles.
 - On shutdown pipy unsubscribes event listeners, disposes the runtime, flushes
-  stdout (except on SIGTERM), and exits. Pipy must kill any tracked detached
-  child processes started by `bash` (Pi's `killTrackedDetachedChildren()`).
+  stdout (except on SIGTERM), and exits. It joins tracked direct-bash workers;
+  explicit abort and timeout terminate their child process groups before the
+  terminal response is written.
 
 ## (c) `--print/-p` One-Shot Mapping
 

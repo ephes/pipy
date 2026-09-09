@@ -45,12 +45,16 @@ Standard library only; no new runtime dependencies.
 from __future__ import annotations
 
 import os
+import selectors
 import shlex
 import shutil
+import signal
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -138,12 +142,14 @@ _DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 _HARD_MAX_OUTPUT_BYTES = 256 * 1024
 _HARD_MAX_TIMEOUT_SECONDS = 600.0
+_TERMINATION_GRACE_SECONDS = 0.1
 
 
 class CommandStatus(StrEnum):
     """Terminal status for one substrate execution attempt."""
 
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
     REJECTED = "rejected"
     TIMED_OUT = "timed-out"
     SPAWN_FAILED = "spawn-failed"
@@ -314,13 +320,15 @@ def run_command(
     *,
     cwd_relative: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
+    cancel_event: threading.Event | None = None,
 ) -> CommandResult:
     """Execute a single model-supplied command string through the sandbox.
 
     Returns a :class:`CommandResult`. A rejection (preflight or path policy)
     never spawns a process. A spawned process is confined to ``cwd_relative``
-    (resolved under the workspace), runs with a scrubbed environment, is killed
-    at the policy deadline, and has its output bounded and secret-redacted.
+    and runs with a scrubbed environment. When ``cancel_event`` is supplied,
+    cancellation and timeout terminate its complete process group, drain the
+    available separate streams, and reap the direct child.
     """
 
     workspace = policy.workspace_root.resolve()
@@ -352,10 +360,84 @@ def run_command(
         return CommandResult(status=CommandStatus.REJECTED, reason=resolution)
     program, resolved_exe, rest_args = resolution
 
+    # The gate deliberately follows preflight: rejection remains a normal
+    # policy result, while an abort that wins before Popen starts no child.
+    if cancel_event is not None and cancel_event.is_set():
+        return CommandResult(
+            status=CommandStatus.CANCELLED,
+            argv_program=program,
+        )
+
     started = time.perf_counter()
+    # ``runner`` remains a small compatibility/test seam for the older
+    # synchronous callers. The cancellable RPC path always uses Popen below so
+    # it can own group lifetime and observe its fresh event promptly.
+    if cancel_event is None and runner is not subprocess.run:
+        return _run_with_runner(
+            runner,
+            resolved_exe=resolved_exe,
+            rest_args=rest_args,
+            cwd=cwd,
+            safe_path=safe_path,
+            policy=policy,
+            program=program,
+            started=started,
+        )
+
+    try:
+        proc = subprocess.Popen(  # noqa: S603 - resolved + allowlisted, shell=False
+            [resolved_exe, *rest_args],  # noqa: S603 - resolved + allowlisted, shell=False
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            env=_sandbox_env(cwd, safe_path),
+            start_new_session=True,
+        )
+    except OSError:
+        return CommandResult(
+            status=CommandStatus.SPAWN_FAILED,
+            duration_seconds=time.perf_counter() - started,
+            argv_program=program,
+        )
+
+    stdout, stderr, out_truncated, err_truncated, outcome = _collect_process_output(
+        proc,
+        cancel_event=cancel_event,
+        timeout_seconds=policy.timeout_seconds,
+        max_output_bytes=policy.max_output_bytes,
+    )
+    duration = time.perf_counter() - started
+    return CommandResult(
+        status=outcome,
+        exit_code=(
+            int(proc.returncode) if outcome is CommandStatus.COMPLETED else None
+        ),
+        stdout=stdout,
+        stderr=stderr,
+        truncated=out_truncated or err_truncated,
+        duration_seconds=duration,
+        argv_program=program,
+    )
+
+
+def _run_with_runner(
+    runner: Callable[..., subprocess.CompletedProcess[Any]],
+    *,
+    resolved_exe: str,
+    rest_args: list[str],
+    cwd: Path,
+    safe_path: str,
+    policy: CommandPolicy,
+    program: str,
+    started: float,
+) -> CommandResult:
+    """Preserve the legacy injectable synchronous runner contract."""
+
     try:
         completed = runner(
-            [resolved_exe, *rest_args],  # noqa: S603 - resolved + allowlisted, shell=False
+            [resolved_exe, *rest_args],  # noqa: S603 - resolved + allowlisted
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             capture_output=True,
@@ -377,8 +459,6 @@ def run_command(
             duration_seconds=time.perf_counter() - started,
             argv_program=program,
         )
-
-    duration = time.perf_counter() - started
     stdout, out_trunc = _shape_output(completed.stdout, policy.max_output_bytes)
     stderr, err_trunc = _shape_output(completed.stderr, policy.max_output_bytes)
     return CommandResult(
@@ -387,9 +467,127 @@ def run_command(
         stdout=stdout,
         stderr=stderr,
         truncated=out_trunc or err_trunc,
-        duration_seconds=duration,
+        duration_seconds=time.perf_counter() - started,
         argv_program=program,
     )
+
+
+def _collect_process_output(
+    proc: subprocess.Popen[bytes],
+    *,
+    cancel_event: threading.Event | None,
+    timeout_seconds: float,
+    max_output_bytes: int,
+) -> tuple[str, str, bool, bool, CommandStatus]:
+    """Drain two pipes while enforcing cancellation/timeout process lifetime."""
+
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+    streams = (proc.stdout, proc.stderr)
+    buffers = [_CapturedBytes(), _CapturedBytes()]
+    selector = selectors.DefaultSelector()
+    for index, stream in enumerate(streams):
+        selector.register(stream, selectors.EVENT_READ, index)
+
+    deadline = time.monotonic() + timeout_seconds
+    outcome = CommandStatus.COMPLETED
+    stopped = False
+    kill_deadline: float | None = None
+    try:
+        while True:
+            # Poll every cycle rather than only after both pipes close: a
+            # descendant can retain inherited descriptors after the direct
+            # child exits, and the direct child must still be reaped promptly.
+            direct_child_running = proc.poll() is None
+            if not selector.get_map() and not direct_child_running:
+                break
+            if not stopped:
+                requested = _requested_outcome(cancel_event, deadline)
+                if requested is not None:
+                    outcome = requested
+                    _terminate_process_group(proc)
+                    stopped = True
+                    kill_deadline = time.monotonic() + _TERMINATION_GRACE_SECONDS
+
+            _drain_selector(selector, buffers)
+
+            if kill_deadline is not None and time.monotonic() >= kill_deadline:
+                # The direct child can exit while a same-group descendant keeps
+                # its inherited pipes open. The grace is therefore independent
+                # of ``proc.poll()``: pipe/group work still requires escalation.
+                _kill_process_group(proc)
+                kill_deadline = None
+    finally:
+        selector.close()
+        # The direct child must be reaped even if a read descriptor faults.
+        if proc.poll() is None:
+            _kill_process_group(proc)
+        proc.wait()
+
+    stdout, stdout_truncated = _shape_captured_bytes(buffers[0], max_output_bytes)
+    stderr, stderr_truncated = _shape_captured_bytes(buffers[1], max_output_bytes)
+    return stdout, stderr, stdout_truncated, stderr_truncated, outcome
+
+
+def _requested_outcome(
+    cancel_event: threading.Event | None, deadline: float
+) -> CommandStatus | None:
+    if cancel_event is not None and cancel_event.is_set():
+        return CommandStatus.CANCELLED
+    if time.monotonic() >= deadline:
+        return CommandStatus.TIMED_OUT
+    return None
+
+
+def _drain_selector(
+    selector: selectors.BaseSelector, buffers: list["_CapturedBytes"]
+) -> None:
+    for key, _ in selector.select(timeout=0.02):
+        try:
+            data = os.read(key.fd, 64 * 1024)
+        except OSError:
+            data = b""
+        if data:
+            buffers[key.data].append(data)
+        else:
+            selector.unregister(key.fileobj)
+
+
+@dataclass(slots=True)
+class _CapturedBytes:
+    data: bytearray = dataclass_field(default_factory=bytearray)
+
+    def append(self, chunk: bytes) -> None:
+        self.data.extend(chunk)
+
+
+def _shape_captured_bytes(
+    buffer: _CapturedBytes, max_output_bytes: int
+) -> tuple[str, bool]:
+    # Redact the complete stream before applying the returned-result cap. A
+    # secret's decisive suffix can arrive in a later read chunk or after the
+    # visible prefix, and a partial value must never escape that boundary.
+    return _shape_output(
+        bytes(buffer.data).decode("utf-8", "replace"), max_output_bytes
+    )
+
+
+def _terminate_process_group(proc: subprocess.Popen[bytes]) -> None:
+    """Ask every member of the new child session to terminate."""
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
+def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
+    """Reap a stubborn direct child and any descendants in its process group."""
+
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def _resolve_cwd(

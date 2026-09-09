@@ -24,6 +24,7 @@ from typing import Any, Never, cast
 
 import pytest
 
+import pipy_harness.native.automation.rpc as rpc_module
 import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.repl.wiring as loop_module
 from pipy_harness.adapters.native import CodingSessionAdapter
@@ -45,6 +46,11 @@ from pipy_harness.native.automation.rpc import NativeRpcServer, _WakeChannel
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.coding.session_controller import _NativeControlFailed
+from pipy_harness.native.command_sandbox import (
+    CommandPolicy,
+    CommandResult,
+    CommandStatus,
+)
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import (
@@ -1485,6 +1491,228 @@ def test_abort_bash_is_honest_when_idle(client) -> None:
     resp = client.wait_for(lambda r: r.get("id") == "ab")
     assert resp["command"] == "abort_bash"
     assert resp["success"] is True
+
+
+def _bare_bash_server(tmp_path: Path) -> tuple[NativeRpcServer, io.BytesIO]:
+    output = io.BytesIO()
+    return (
+        NativeRpcServer(
+            adapter=object(),
+            cwd=tmp_path,
+            native_session=NativeSessionTree.create(tmp_path, persist=False),
+            stdin=io.StringIO(),
+            stdout_buffer=output,
+            error_stream=io.StringIO(),
+        ),
+        output,
+    )
+
+
+def _join_bash_workers(server: NativeRpcServer) -> None:
+    with server._lock:
+        workers = list(server._bash_threads)
+    for worker in workers:
+        worker.join(timeout=3.0)
+        assert not worker.is_alive()
+
+
+def test_abort_bash_snapshots_all_active_operations_and_preserves_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, output = _bare_bash_server(tmp_path)
+    entered = threading.Barrier(3)
+
+    def blocked_result(
+        _command: str, _policy: Any, *, cancel_event: threading.Event | None = None
+    ) -> CommandResult:
+        assert cancel_event is not None
+        entered.wait(timeout=3.0)
+        assert cancel_event.wait(timeout=3.0)
+        return CommandResult(
+            status=CommandStatus.COMPLETED,
+            stdout="drained-output",
+            exit_code=0,
+        )
+
+    monkeypatch.setattr(rpc_module, "run_command", blocked_result)
+    server._cmd_bash("one", {"command": "echo one"})
+    server._cmd_bash("two", {"command": "echo two"})
+    entered.wait(timeout=3.0)
+
+    server._cmd_abort_bash("abort", {})
+    _join_bash_workers(server)
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+
+    assert [record["id"] for record in records].count("abort") == 1
+    assert next(record for record in records if record.get("id") == "abort")["success"]
+    terminal = [record for record in records if record.get("id") in {"one", "two"}]
+    assert len(terminal) == 2
+    assert all(record["success"] for record in terminal)
+    assert all(record["data"]["cancelled"] is True for record in terminal)
+    assert all(record["data"]["exitCode"] is None for record in terminal)
+    assert all(record["data"]["output"] == "drained-output" for record in terminal)
+    with server._lock:
+        assert not server._bash_operations
+
+
+def test_abort_bash_and_timeout_fixation_have_deterministic_lock_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # First operation: abort is marked while its timeout result is held at a
+    # barrier, so abort wins at the shared registry lock.
+    server, output = _bare_bash_server(tmp_path)
+    timeout_ready = threading.Event()
+    release_timeout = threading.Event()
+
+    def held_timeout(
+        _command: str, _policy: Any, *, cancel_event: threading.Event | None = None
+    ) -> CommandResult:
+        timeout_ready.set()
+        assert release_timeout.wait(timeout=3.0)
+        return CommandResult(status=CommandStatus.TIMED_OUT)
+
+    monkeypatch.setattr(rpc_module, "run_command", held_timeout)
+    server._cmd_bash("abort-wins", {"command": "echo held"})
+    assert timeout_ready.wait(timeout=3.0)
+    server._cmd_abort_bash("abort-first", {})
+    release_timeout.set()
+    _join_bash_workers(server)
+
+    # Second operation: its timeout result fixes and retires before the abort
+    # snapshot, so the later abort is an idle success and cannot reclassify it.
+    server._cmd_bash("timeout-wins", {"command": "echo timeout"})
+    _join_bash_workers(server)
+    server._cmd_abort_bash("abort-late", {})
+
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+    abort_wins = next(record for record in records if record.get("id") == "abort-wins")
+    timeout_wins = next(
+        record for record in records if record.get("id") == "timeout-wins"
+    )
+    assert abort_wins["data"]["cancelled"] is True
+    assert abort_wins["data"]["exitCode"] is None
+    assert timeout_wins["data"]["cancelled"] is False
+    assert timeout_wins["data"]["exitCode"] is None
+
+
+def test_late_abort_cannot_spill_into_a_fresh_bash_operation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, output = _bare_bash_server(tmp_path)
+
+    def completed(
+        command: str, _policy: Any, *, cancel_event: threading.Event | None = None
+    ) -> CommandResult:
+        assert cancel_event is not None and not cancel_event.is_set()
+        return CommandResult(
+            status=CommandStatus.COMPLETED, stdout=command, exit_code=0
+        )
+
+    monkeypatch.setattr(rpc_module, "run_command", completed)
+    server._cmd_bash("first", {"command": "echo first"})
+    _join_bash_workers(server)
+    server._cmd_abort_bash("late", {})
+    server._cmd_bash("successor", {"command": "echo successor"})
+    _join_bash_workers(server)
+
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+    successor = next(record for record in records if record.get("id") == "successor")
+    assert successor["data"]["cancelled"] is False
+    assert successor["data"]["exitCode"] == 0
+
+
+def test_abort_bash_cancels_an_active_sandbox_child(client, tmp_path: Path) -> None:
+    # ``cat`` on a FIFO is an accepted, real sandbox child. The direct
+    # substrate test separately proves group termination reaches descendants.
+    fifo = tmp_path / "blocked"
+    os.mkfifo(fifo)
+    client.send({"id": "bash", "type": "bash", "command": "cat blocked"})
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        with client._server._lock:
+            if client._server._bash_operations:
+                break
+        time.sleep(0.01)
+    with client._server._lock:
+        assert len(client._server._bash_operations) == 1
+
+    client.send({"id": "abort", "type": "abort_bash"})
+    abort = client.wait_for(lambda record: record.get("id") == "abort")
+    terminal = client.wait_for(lambda record: record.get("id") == "bash")
+    assert abort["success"] is True
+    assert terminal["success"] is True
+    assert terminal["data"]["cancelled"] is True
+    assert terminal["data"]["exitCode"] is None
+
+
+def test_rpc_bash_timeout_is_not_reported_as_explicit_cancellation(
+    client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def short_policy(*, workspace_root: Path) -> CommandPolicy:
+        return CommandPolicy(
+            workspace_root=workspace_root,
+            allowed_executables=frozenset({"tail"}),
+            timeout_seconds=0.05,
+        )
+
+    monkeypatch.setattr(rpc_module, "CommandPolicy", short_policy)
+    (tmp_path / "input").write_text("waiting\n", encoding="utf-8")
+    client.send({"id": "timeout", "type": "bash", "command": "tail -f input"})
+    response = client.wait_for(lambda record: record.get("id") == "timeout")
+    assert response["success"] is True
+    assert response["data"]["cancelled"] is False
+    assert response["data"]["exitCode"] is None
+
+
+def test_eof_joins_the_direct_bash_terminal_response(tmp_path: Path) -> None:
+    client = _RpcClient(tmp_path)
+    try:
+        client.send({"id": "bash", "type": "bash", "command": "echo eof"})
+        assert client.close() == 0
+        records: list[dict[str, Any]] = []
+        while not client._records.empty():
+            records.append(client._records.get())
+        terminal = next(record for record in records if record.get("id") == "bash")
+        assert terminal["success"] is True
+        assert terminal["data"]["exitCode"] == 0
+    finally:
+        # ``close`` is idempotent only at the test's resource layer; it has
+        # already closed every stream on the successful path above.
+        if client._server_thread.is_alive():
+            client.close()
+
+
+def test_eof_joins_an_abort_in_progress_without_losing_either_response(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path)
+    fifo = tmp_path / "blocked"
+    os.mkfifo(fifo)
+    try:
+        client.send({"id": "bash", "type": "bash", "command": "cat blocked"})
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            with client._server._lock:
+                if client._server._bash_operations:
+                    break
+            time.sleep(0.01)
+        with client._server._lock:
+            assert client._server._bash_operations
+
+        # Both frames are already in the input pipe when EOF arrives. Shutdown
+        # must still dispatch the abort and join the terminal bash worker.
+        client.send({"id": "abort", "type": "abort_bash"})
+        assert client.close() == 0
+        records: list[dict[str, Any]] = []
+        while not client._records.empty():
+            records.append(client._records.get())
+        abort = next(record for record in records if record.get("id") == "abort")
+        terminal = next(record for record in records if record.get("id") == "bash")
+        assert abort["success"] is True
+        assert terminal["data"]["cancelled"] is True
+    finally:
+        if client._server_thread.is_alive():
+            client.close()
 
 
 def test_set_session_name_then_get_state(client) -> None:

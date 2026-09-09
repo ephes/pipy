@@ -987,7 +987,7 @@ full-content product transports, not workflow-archive channels.
 one-shot JSON/print drivers, and the long-lived RPC server. RPC additionally
 owns command correlation and its direct bash boundary. Native queue/control owns
 queued-input reservation/settlement and protocol-idle admission, leaving RPC no
-parallel product-state authority. D7a's target keeps direct-bash operation
+parallel product-state authority. D7a keeps direct-bash operation
 identity and cancellation-event registration in that RPC boundary: the existing
 RPC lock protects registration, abort-request marking and event snapshots, and
 terminal-result fixation/retirement. An abort mark that precedes fixation wins
@@ -1019,8 +1019,8 @@ Provider and summary execution use their existing start-gated callback bridge;
 headless model tools now select the external-abort waiter only when a signal is
 installed. Their canonical worker/completion ordering and bounded cleanup stay
 unchanged, including completed tool effects. RPC uses the bound native abort
-view and exact queue claims; its direct bash ownership remains separate. D7a's
-target does not reuse the model `BashTool`: the command sandbox owns direct
+view and exact queue claims; its direct bash ownership remains separate. D7a
+does not reuse the model `BashTool`: the command sandbox owns direct
 child preflight, resolved policy and output shaping, while its process-lifetime
 implementation owns new-session child execution, group termination, available
 output drain, and child reaping. The exact RPC operation retires under the RPC
