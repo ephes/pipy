@@ -1036,11 +1036,12 @@ and later RPC call its typed port; native code never imports `product_api.py` or
 neutral native owner, allowing public and later transport callers to share
 claims without an event bus or DI framework.
 
-D6b1 wires the public fork/clone portion of that port into the existing
-headless product lifetime. The public facade uses the construction-thread
-true-idle port, snapshots its current in-memory source branch, runs the existing
-fork gate before child creation, and rebinds the existing tree/history owners.
-Public new/switch and RPC migration remain later work.
+D6b2 wires the full public fork/clone/new/switch portion of that port into the
+existing headless product lifetime. The public facade uses the
+construction-thread true-idle port, snapshots its current in-memory source
+branch for fork/clone, runs the existing fork or switch gate before durable
+work, and rebinds the existing tree/history owners. RPC migration remains D6b3
+work.
 
 That module also owns a guarded `CanonicalSessionLeaseSlot` bound once per
 lifetime. The slot is the only mutable current-lease owner. A prepared candidate

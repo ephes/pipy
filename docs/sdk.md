@@ -167,10 +167,10 @@ semantics. `HarnessRunner`, `CapturePolicy`, `RunRequest`, `RunResult`,
 
 ## D6b public session-transition contract
 
-**D6b1 shipped:** `ProductSession.fork()` and `clone()` now implement the
-fork/clone region of this contract through the native transition owner. Public
-`new_session()` and `switch_session()` and all RPC transition handlers remain
-unimplemented.
+**D6b2 shipped:** `ProductSession.fork()`, `clone()`, `new_session()`, and
+`switch_session()` implement the public region of this contract through the
+native transition owner. All RPC transition handlers remain unimplemented
+until D6b3.
 
 D6b adds four construction-thread, idle-only operations to the existing
 `ProductSession` facade. They are not factories and do not create another
@@ -358,7 +358,7 @@ and implements only fork/clone regions. D6b2's exact write set is
 `tests/test_product_session_api.py`,
 `tests/test_native_coding_session_lifetime.py`, and
 `tests/test_native_extension_lifecycle.py`; documentation is these five D6b0
-documents plus `CHANGELOG.md`. It extends only fresh/switch operation regions
+documents plus `CHANGELOG.md`. It implements only fresh/switch operation regions
 and must not change the D6b1 result schema, lease registry or fork/clone
 regions. These are serial single-writer slices; neither edits RPC files or
 handlers. D6b3 alone changes `src/pipy_harness/native/automation/rpc.py`,
@@ -370,11 +370,12 @@ contract after both public operations exist.
 
 ## Current limits and JSON/RPC
 
-The D6b transition surface is specified here but not yet implemented. Public
-steering queues, model/thinking controls, manual compaction and extension UI
-bridging remain later work. The product API supports a fixed observer and
-explicit provider injection. Live provider dogfooding and semantic-summary
-quality remain unverified by the synthetic acceptance tests.
+Public D6b product-session transitions now ship: `fork`, `clone`,
+`new_session`, and strict `switch_session`. RPC adoption of those transitions
+remains D6b3 work. Public steering queues, model/thinking controls, manual
+compaction and extension UI bridging remain later work. The product API supports
+a fixed observer and explicit provider injection. Live provider dogfooding and
+semantic-summary quality remain unverified by the synthetic acceptance tests.
 
 [JSON Mode](json.md) and [RPC Mode](rpc.md) are the out-of-process headless
 surfaces for process isolation, JSONL framing and mid-turn controls. Product

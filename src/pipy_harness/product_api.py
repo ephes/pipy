@@ -195,6 +195,34 @@ class ProductSession:
                     self._exit_scope(type(error), error, error.__traceback__)
                 raise
 
+    def new_session(self) -> ProductSessionTransitionResult:
+        """Replace the active persistent tree with one empty sibling tree."""
+
+        with self._entry():
+            if self._scope is None:
+                raise RuntimeError("product session is closed")
+            try:
+                return self._prepared.new_product_session()
+            except ProductSessionTransitionError as error:
+                if error.failure.published:
+                    self._exit_scope(type(error), error, error.__traceback__)
+                raise
+
+    def switch_session(self, session_path: Path) -> ProductSessionTransitionResult:
+        """Strictly replace the active tree with one exact durable target."""
+
+        with self._entry():
+            if self._scope is None:
+                raise RuntimeError("product session is closed")
+            if not isinstance(session_path, Path):
+                raise TypeError("session_path must be a Path")
+            try:
+                return self._prepared.switch_product_session(session_path)
+            except ProductSessionTransitionError as error:
+                if error.failure.published:
+                    self._exit_scope(type(error), error, error.__traceback__)
+                raise
+
     def snapshot(self) -> CodingSessionResultSnapshot:
         """Read the native immutable projection while idle, including after close."""
 

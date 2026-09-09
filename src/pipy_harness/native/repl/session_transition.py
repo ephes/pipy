@@ -157,8 +157,214 @@ class SessionTransitionCoordinator:
     get_tree: Callable[[], NativeSessionTree]
     set_tree: Callable[[NativeSessionTree], None]
     session_before_fork: Callable[[str | None], bool]
+    session_before_switch: Callable[[str], bool]
     rebuild: Callable[[], None]
     clear_extension_inputs: Callable[[], None]
+
+    def new_external(
+        self, *, leases: CanonicalSessionLeaseSlot
+    ) -> ProductSessionTransitionResult:
+        """Create and adopt one empty persistent tree at external true idle."""
+
+        return self._new(leases=leases)
+
+    def new_admitted(  # pragma: no cover - future D6b3 private seam
+        self, *, leases: CanonicalSessionLeaseSlot
+    ) -> ProductSessionTransitionResult:
+        """Use after a future transport has retained its exact control claim."""
+
+        return self._new(leases=leases)
+
+    def _new(
+        self, *, leases: CanonicalSessionLeaseSlot
+    ) -> ProductSessionTransitionResult:
+
+        box: list[ProductSessionTransitionResult] = []
+        error: list[BaseException] = []
+
+        def work() -> None:  # noqa: C901
+            try:
+                source = self.get_tree()
+                previous = target_for(source)
+                if source.path is None or not source.persist:
+                    box.append(
+                        ProductSessionTransitionResult(
+                            "new", "refused", previous, None, "ephemeral_source"
+                        )
+                    )
+                    return
+                source_path = source.path.expanduser().resolve()
+                if leases.current_path() != source_path:
+                    raise ProductSessionTransitionError(
+                        ProductSessionTransitionFailure(
+                            "new", previous, "publish", False
+                        )
+                    )
+                if not self.session_before_switch("new"):
+                    box.append(
+                        ProductSessionTransitionResult(
+                            "new", "refused", previous, None, "extension_refusal"
+                        )
+                    )
+                    return
+                try:
+                    candidate = NativeSessionTree.create(
+                        self.workspace, session_dir=source_path.parent
+                    )
+                except BaseException:  # noqa: BLE001 - translate public failure
+                    raise ProductSessionTransitionError(
+                        ProductSessionTransitionFailure(
+                            "new", previous, "create", False
+                        )
+                    ) from None
+                candidate_path = candidate.path
+                if candidate_path is None:
+                    raise ProductSessionTransitionError(
+                        ProductSessionTransitionFailure(
+                            "new", previous, "create", False
+                        )
+                    )
+                try:
+                    handoff = leases.prepare(candidate_path)
+                except RuntimeError:
+                    box.append(
+                        ProductSessionTransitionResult(
+                            "new", "refused", previous, None, "lease_conflict"
+                        )
+                    )
+                    return
+                self._publish_and_rebuild(
+                    candidate, previous, operation="new", handoff=handoff
+                )
+                box.append(
+                    ProductSessionTransitionResult(
+                        "new", "completed", target_for(candidate), previous, None
+                    )
+                )
+            except BaseException as exc:  # noqa: BLE001 - preserve typed error
+                error.append(exc)
+
+        work()
+        if error:
+            raise error[0]
+        return box[0]
+
+    def switch_external(
+        self, session_path: Path, *, leases: CanonicalSessionLeaseSlot
+    ) -> ProductSessionTransitionResult:
+        """Strict-load and adopt one exact durable target at external true idle."""
+
+        return self._switch(session_path, leases=leases)
+
+    def switch_admitted(  # pragma: no cover - future D6b3 private seam
+        self, session_path: Path, *, leases: CanonicalSessionLeaseSlot
+    ) -> ProductSessionTransitionResult:
+        """Use after a future transport has retained its exact control claim."""
+
+        return self._switch(session_path, leases=leases)
+
+    def _switch(
+        self, session_path: Path, *, leases: CanonicalSessionLeaseSlot
+    ) -> ProductSessionTransitionResult:
+
+        target_path = session_path.expanduser().resolve()
+        box: list[ProductSessionTransitionResult] = []
+        error: list[BaseException] = []
+
+        def work() -> None:  # noqa: C901
+            try:
+                source = self.get_tree()
+                previous = target_for(source)
+                source_path = (
+                    source.path.expanduser().resolve()
+                    if source.path is not None and source.persist
+                    else None
+                )
+                if source_path == target_path:
+                    box.append(
+                        ProductSessionTransitionResult(
+                            "switch", "completed", previous, previous, None
+                        )
+                    )
+                    return
+                if leases.current_path() != source_path:
+                    raise ProductSessionTransitionError(
+                        ProductSessionTransitionFailure(
+                            "switch", previous, "publish", False
+                        )
+                    )
+                if not self.session_before_switch(str(target_path)):
+                    box.append(
+                        ProductSessionTransitionResult(
+                            "switch", "refused", previous, None, "extension_refusal"
+                        )
+                    )
+                    return
+                try:
+                    handoff = leases.prepare(target_path)
+                except RuntimeError:
+                    box.append(
+                        ProductSessionTransitionResult(
+                            "switch", "refused", previous, None, "lease_conflict"
+                        )
+                    )
+                    return
+                try:
+                    candidate = NativeSessionTree.open(handoff.lease.path, strict=True)
+                    header_cwd = Path(candidate.header.cwd)
+                    if (
+                        not header_cwd.is_absolute()
+                        or header_cwd.expanduser().resolve() != self.workspace
+                    ):
+                        raise ValueError("native session workspace does not match")
+                except BaseException:  # noqa: BLE001 - translate public failure
+                    handoff.abort()
+                    raise ProductSessionTransitionError(
+                        ProductSessionTransitionFailure(
+                            "switch", previous, "load", False
+                        )
+                    ) from None
+                self._publish_and_rebuild(
+                    candidate, previous, operation="switch", handoff=handoff
+                )
+                box.append(
+                    ProductSessionTransitionResult(
+                        "switch", "completed", target_for(candidate), previous, None
+                    )
+                )
+            except BaseException as exc:  # noqa: BLE001 - preserve typed error
+                error.append(exc)
+
+        work()
+        if error:
+            raise error[0]
+        return box[0]
+
+    def _publish_and_rebuild(
+        self,
+        candidate: NativeSessionTree,
+        previous: ProductSessionTarget,
+        *,
+        operation: Literal["new", "switch"],
+        handoff: _LeaseHandoff,
+    ) -> None:
+        try:
+            self.set_tree(candidate)
+        except BaseException:  # noqa: BLE001 - translate public failure
+            handoff.abort()
+            raise ProductSessionTransitionError(
+                ProductSessionTransitionFailure(operation, previous, "publish", False)
+            ) from None
+        handoff.publish()
+        try:
+            self.rebuild()
+            self.clear_extension_inputs()
+        except BaseException:  # noqa: BLE001 - translate public failure
+            raise ProductSessionTransitionError(
+                ProductSessionTransitionFailure(
+                    operation, target_for(candidate), "rebuild", True
+                )
+            ) from None
 
     def fork_external(
         self,

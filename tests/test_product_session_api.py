@@ -265,6 +265,8 @@ def test_foreign_thread_and_reentrant_operations_refuse(tmp_path: Path) -> None:
             lambda: session.submit("nested"),
             session.fork,
             session.clone,
+            session.new_session,
+            lambda: session.switch_session(tmp_path / "nested.jsonl"),
             session.snapshot,
             session.close,
             session.__enter__,
@@ -282,6 +284,8 @@ def test_foreign_thread_and_reentrant_operations_refuse(tmp_path: Path) -> None:
                 lambda: session.submit("foreign"),
                 session.fork,
                 session.clone,
+                session.new_session,
+                lambda: session.switch_session(tmp_path / "foreign.jsonl"),
                 session.snapshot,
                 session.close,
                 session.__enter__,
@@ -295,7 +299,7 @@ def test_foreign_thread_and_reentrant_operations_refuse(tmp_path: Path) -> None:
         worker.start()
         _join(worker)
         assert session.submit("outer").user_turn_count == 1
-    assert refused == ["foreign"] * 6 + ["reentry"] * 6
+    assert refused == ["foreign"] * 8 + ["reentry"] * 8
 
 
 def test_construction_thread_object_identity_is_required(
@@ -1356,6 +1360,9 @@ def test_public_fork_clone_refusals_validation_and_frozen_exports(
     with sdk.create_product_session(
         workspace=tmp_path, provider=_RecordingToolProvider()
     ) as ephemeral:
+        assert ephemeral.new_session().refusal == "ephemeral_source"
+        with pytest.raises(TypeError, match="session_path"):
+            ephemeral.switch_session(cast(Any, "not-a-path"))
         refused = ephemeral.clone()
         assert refused.status == "refused"
         assert refused.refusal == "ephemeral_source"
@@ -1402,6 +1409,10 @@ def test_public_fork_handoff_releases_source_and_retains_child_lease(
         session.fork()
     with pytest.raises(RuntimeError, match="closed"):
         session.clone()
+    with pytest.raises(RuntimeError, match="closed"):
+        session.new_session()
+    with pytest.raises(RuntimeError, match="closed"):
+        session.switch_session(result.active.session_path)
     with sdk.open_product_session(
         workspace=tmp_path,
         session_path=result.active.session_path,
@@ -1448,6 +1459,7 @@ def test_transition_lease_slot_finishes_once_aborts_candidate_and_requires_sourc
             AssertionError("must not publish")
         ),
         session_before_fork=record_gate,
+        session_before_switch=lambda _target: True,
         rebuild=lambda: (_ for _ in ()).throw(AssertionError("must not rebuild")),
         clear_extension_inputs=lambda: (_ for _ in ()).throw(
             AssertionError("must not clear")
@@ -1654,3 +1666,407 @@ def test_public_fork_rebuild_failure_fails_closed_after_publication(
         provider=_RecordingToolProvider(),
     ):
         pass
+
+
+def test_public_new_and_switch_replace_history_and_handoff_leases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    source.append_message(AgentUserMessage(ProductContent("source")))
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target.append_message(AgentUserMessage(ProductContent("target")))
+    assert source.path is not None and target.path is not None
+    source_path = source.path
+    target_path = target.path
+    proof = tmp_path / "switch-hook.txt"
+    extension = tmp_path / "switch-hook.py"
+    extension.write_text(
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import SessionDecision\n"
+        f"PROOF = Path({str(proof)!r})\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_switch')\n"
+        "    def gate(event, ctx):\n"
+        "        with PROOF.open('a') as output:\n"
+        "            output.write(f'{event.operation}:{event.target}\\n')\n"
+        "        return SessionDecision(allow=True)\n",
+        encoding="utf-8",
+    )
+
+    session = sdk.create_product_session(
+        workspace=tmp_path,
+        provider=_RecordingToolProvider(),
+        tree=source,
+        resources=RuntimeResourceOptions(extension_paths=(extension,)),
+    )
+    fresh = session.new_session()
+    assert fresh.operation == "new" and fresh.status == "completed"
+    assert fresh.previous is not None and fresh.previous.session_path == source_path
+    assert fresh.active.session_path is not None
+    assert fresh.active.session_path.parent == source_path.parent
+    assert NativeSessionTree.open(fresh.active.session_path, strict=True).entries == []
+    assert session.snapshot().messages == ()
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=source_path, provider=_RecordingToolProvider()
+    ):
+        pass
+
+    original_open = NativeSessionTree.open
+
+    def open_while_claimed(
+        path: Path, *, persist: bool = True, strict: bool = False
+    ) -> NativeSessionTree:
+        assert persist and strict
+        with pytest.raises(RuntimeError, match="already active"):
+            CanonicalSessionLeaseRegistry.claim(path)
+        return original_open(path, persist=persist, strict=strict)
+
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_while_claimed))
+    switched = session.switch_session(target_path)
+    assert switched.operation == "switch" and switched.status == "completed"
+    assert switched.previous == fresh.active
+    assert switched.active.session_path == target_path.resolve()
+    assert proof.read_text().splitlines() == [
+        "switch:new",
+        f"switch:{target_path.resolve()}",
+    ]
+    assert [message.content.value for message in session.snapshot().messages] == [
+        "target"
+    ]
+    with pytest.raises(RuntimeError, match="already active"):
+        sdk.open_product_session(
+            workspace=tmp_path,
+            session_path=target_path,
+            provider=_RecordingToolProvider(),
+        )
+    session.close()
+
+
+def test_public_new_switch_gate_refuses_before_creation_or_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    source_path = source.path
+    extension = tmp_path / "switch-gate.py"
+    extension.write_text(
+        "from pipy_harness.extensions import SessionDecision\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_switch')\n"
+        "    def gate(event, ctx):\n"
+        "        return SessionDecision(allow=False)\n",
+        encoding="utf-8",
+    )
+    session = sdk.create_product_session(
+        workspace=tmp_path,
+        provider=_RecordingToolProvider(),
+        tree=source,
+        resources=RuntimeResourceOptions(extension_paths=(extension,)),
+    )
+    original_open = NativeSessionTree.open
+
+    def forbid_open(*_args: object, **_kwargs: object) -> NativeSessionTree:
+        raise AssertionError("vetoed switch must not read target")
+
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(forbid_open))
+    before = set(source_path.parent.glob("*.jsonl"))
+    assert session.new_session().refusal == "extension_refusal"
+    assert set(source_path.parent.glob("*.jsonl")) == before
+    assert session.switch_session(target.path).refusal == "extension_refusal"
+    assert session._scope is not None
+    monkeypatch.setattr(NativeSessionTree, "open", original_open)
+    session.close()
+
+
+def test_public_switch_same_path_is_noop_before_gate_or_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert tree.path is not None
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    )
+    transition = session._prepared.wiring.transition
+    assert transition is not None
+    object.__setattr__(
+        transition,
+        "session_before_switch",
+        lambda _target: (_ for _ in ()).throw(AssertionError("must not gate")),
+    )
+    monkeypatch.setattr(
+        NativeSessionTree,
+        "open",
+        staticmethod(
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("must not load")
+            )
+        ),
+    )
+    result = session.switch_session(tree.path)
+    assert result.status == "completed" and result.active == result.previous
+    session.close()
+
+
+def test_public_switch_strict_load_failure_releases_candidate_and_keeps_source(
+    tmp_path: Path,
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None
+    malformed = tmp_path / "malformed.jsonl"
+    malformed.write_text("not json\n", encoding="utf-8")
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=source
+    )
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        session.switch_session(malformed)
+    assert raised.value.failure.stage == "load"
+    assert not raised.value.failure.published
+    assert raised.value.failure.retained.session_path == source.path
+    released = CanonicalSessionLeaseRegistry.claim(malformed)
+    released.finish()
+    assert (
+        session.submit("source remains usable").messages[-1].content.value == "answer"
+    )
+    session.close()
+
+
+def test_public_switch_workspace_mismatch_and_lease_conflict_are_nonpublishing(
+    tmp_path: Path,
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    other_workspace = tmp_path / "other"
+    other_workspace.mkdir()
+    mismatch = NativeSessionTree.create(other_workspace, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert (
+        source.path is not None
+        and mismatch.path is not None
+        and target.path is not None
+    )
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=source
+    )
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        session.switch_session(mismatch.path)
+    assert raised.value.failure.stage == "load" and not raised.value.failure.published
+    holder = sdk.open_product_session(
+        workspace=tmp_path, session_path=target.path, provider=_RecordingToolProvider()
+    )
+    refused = session.switch_session(target.path)
+    assert refused.status == "refused" and refused.refusal == "lease_conflict"
+    assert session._scope is not None
+    holder.close()
+    session.close()
+
+
+@pytest.mark.parametrize("operation", ["new", "switch"])
+def test_public_new_switch_prepublication_setter_failure_keeps_source_usable(
+    tmp_path: Path, operation: str
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=source
+    )
+    transition = session._prepared.wiring.transition
+    assert transition is not None
+    object.__setattr__(
+        transition,
+        "set_tree",
+        lambda _tree: (_ for _ in ()).throw(LookupError("injected publication")),
+    )
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        (
+            session.new_session()
+            if operation == "new"
+            else session.switch_session(target.path)
+        )
+    assert raised.value.failure.stage == "publish"
+    assert not raised.value.failure.published
+    assert raised.value.failure.retained.session_path == source.path
+    assert (
+        session.submit("source remains usable").messages[-1].content.value == "answer"
+    )
+    session.close()
+
+
+@pytest.mark.parametrize("operation", ["new", "switch"])
+def test_public_new_switch_rebuild_failure_closes_published_facade(
+    tmp_path: Path, operation: str
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=source
+    )
+    transition = session._prepared.wiring.transition
+    assert transition is not None
+    object.__setattr__(
+        transition,
+        "rebuild",
+        lambda: (_ for _ in ()).throw(LookupError("injected rebuild")),
+    )
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        (
+            session.new_session()
+            if operation == "new"
+            else session.switch_session(target.path)
+        )
+    assert raised.value.failure.stage == "rebuild"
+    assert raised.value.failure.published
+    assert session._scope is None
+    with pytest.raises(RuntimeError, match="closed"):
+        session.submit("must fail closed")
+    session.close()
+
+
+def test_public_switch_accepts_equivalent_absolute_header_workspace_path(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "child").mkdir()
+    alias = tmp_path / "workspace-alias"
+    alias.symlink_to(workspace, target_is_directory=True)
+    source = NativeSessionTree.create(workspace, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(workspace, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    records = target.path.read_text(encoding="utf-8").splitlines()
+    header = json.loads(records[0])
+    header["cwd"] = str(alias / "child" / "..")
+    target.path.write_text(
+        "\n".join((json.dumps(header), *records[1:])) + "\n", encoding="utf-8"
+    )
+
+    with sdk.create_product_session(
+        workspace=workspace, provider=_RecordingToolProvider(), tree=source
+    ) as session:
+        result = session.switch_session(target.path)
+        assert result.status == "completed"
+        assert result.active.session_path == target.path.resolve()
+
+
+def test_admitted_new_and_switch_share_public_transition_semantics(
+    tmp_path: Path,
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    current = [source]
+    gates: list[str] = []
+    rebuilds: list[None] = []
+    clears: list[None] = []
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source.path))
+
+    def allow_switch(target_name: str) -> bool:
+        gates.append(target_name)
+        return True
+
+    coordinator = SessionTransitionCoordinator(
+        workspace=tmp_path.resolve(),
+        get_tree=lambda: current[0],
+        set_tree=lambda tree: current.__setitem__(0, tree),
+        session_before_fork=lambda _entry: True,
+        session_before_switch=allow_switch,
+        rebuild=lambda: rebuilds.append(None),
+        clear_extension_inputs=lambda: clears.append(None),
+    )
+    try:
+        fresh = coordinator.new_admitted(leases=slot)
+        assert fresh.status == "completed"
+        assert current[0].path == fresh.active.session_path
+        switched = coordinator.switch_admitted(target.path, leases=slot)
+        assert switched.status == "completed"
+        assert current[0].path == target.path.resolve()
+        assert gates == ["new", str(target.path.resolve())]
+        assert rebuilds == [None, None]
+        assert clears == [None, None]
+    finally:
+        slot.finish()
+
+
+@pytest.mark.parametrize("operation", ["new", "switch"])
+def test_public_new_switch_clear_failure_closes_published_facade_and_releases_leases(
+    tmp_path: Path, operation: str
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=source
+    )
+    transition = session._prepared.wiring.transition
+    assert transition is not None
+    object.__setattr__(
+        transition,
+        "clear_extension_inputs",
+        lambda: (_ for _ in ()).throw(LookupError("injected clear")),
+    )
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        (
+            session.new_session()
+            if operation == "new"
+            else session.switch_session(target.path)
+        )
+    failure = raised.value.failure
+    assert failure.stage == "rebuild" and failure.published
+    assert session._scope is None
+    assert failure.retained.session_path is not None
+    session.close()
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=source.path, provider=_RecordingToolProvider()
+    ):
+        pass
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=failure.retained.session_path,
+        provider=_RecordingToolProvider(),
+    ):
+        pass
+
+
+@pytest.mark.parametrize(("operation", "fails"), [("new", False), ("switch", True)])
+def test_public_new_switch_preserve_once_only_facade_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, fails: bool
+) -> None:
+    starts: list[object] = []
+    stops: list[object] = []
+    start = loop_step._ReplLoopStep.fire_session_start
+    shutdown = loop_step._ReplLoopStep.fire_session_shutdown
+
+    def record_start(self: loop_step._ReplLoopStep, **kwargs: Any) -> None:
+        starts.append(self)
+        start(self, **kwargs)
+
+    def record_shutdown(self: loop_step._ReplLoopStep, **kwargs: Any) -> None:
+        stops.append(self)
+        shutdown(self, **kwargs)
+
+    monkeypatch.setattr(loop_step._ReplLoopStep, "fire_session_start", record_start)
+    monkeypatch.setattr(
+        loop_step._ReplLoopStep, "fire_session_shutdown", record_shutdown
+    )
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    target = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "trees")
+    assert source.path is not None and target.path is not None
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=source
+    )
+    if fails:
+        transition = session._prepared.wiring.transition
+        assert transition is not None
+        object.__setattr__(
+            transition,
+            "clear_extension_inputs",
+            lambda: (_ for _ in ()).throw(LookupError("injected clear")),
+        )
+        with pytest.raises(ProductSessionTransitionError):
+            session.switch_session(target.path)
+    else:
+        assert session.new_session().status == "completed"
+    session.close()
+    assert len(starts) == 1
+    assert len(stops) == 1

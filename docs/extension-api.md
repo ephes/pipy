@@ -594,10 +594,11 @@ target vocabulary includes:
 
 ### D6b public and RPC transition ordering
 
-D6b1 implements this ordering for public `ProductSession.fork` and `clone`.
-Public new/switch and every RPC transition remain deferred.
+D6b2 implements this ordering for public `ProductSession.fork`, `clone`,
+`new_session`, and `switch_session`. Every RPC transition remains deferred to
+D6b3.
 
-The later public `ProductSession.fork`/`clone` and `new_session`/`switch_session`
+Public `ProductSession.fork`/`clone` and `new_session`/`switch_session`
 operations use the already activated generation's session gates; they do not
 restart extension lifecycle. Fork/clone resolves the persistent source and
 selected exact entry, then calls `session_before_fork(operation="fork",

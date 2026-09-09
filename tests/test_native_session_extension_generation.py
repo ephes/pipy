@@ -3240,6 +3240,16 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ),
         (
             "abort",
+            transition_file,
+            ("class:SessionTransitionCoordinator", "function:_switch", "function:work"),
+        ),
+        (
+            "abort",
+            transition_file,
+            ("class:SessionTransitionCoordinator", "function:_publish_and_rebuild"),
+        ),
+        (
+            "abort",
             wiring,
             ("function:_abort_startup_attachment_nonraising",),
         ),

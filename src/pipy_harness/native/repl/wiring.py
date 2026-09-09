@@ -334,6 +334,22 @@ class _PreparedCodingSession:
             entry_id, operation="clone" if clone else "fork", leases=slot
         )
 
+    def new_product_session(self) -> ProductSessionTransitionResult:
+        transition = self.wiring.transition
+        slot = self._transition_leases
+        if transition is None or slot is None:
+            raise RuntimeError("product session transition is unavailable")
+        return transition.new_external(leases=slot)
+
+    def switch_product_session(
+        self, session_path: Path
+    ) -> ProductSessionTransitionResult:
+        transition = self.wiring.transition
+        slot = self._transition_leases
+        if transition is None or slot is None:
+            raise RuntimeError("product session transition is unavailable")
+        return transition.switch_external(session_path, leases=slot)
+
     def drive_external_operation(
         self, content: ProductContent
     ) -> CodingSessionResult | None:
@@ -1654,6 +1670,11 @@ def _assemble_session_wiring(
         session_before_fork=lambda target: (
             extension_operations.session_allows(
                 "fork", operation="fork", target=target
+            ).allow
+        ),
+        session_before_switch=lambda target: (
+            extension_operations.session_allows(
+                "switch", operation="switch", target=target
             ).allow
         ),
         rebuild=product.product_session.rebuild_active_history,
