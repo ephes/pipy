@@ -2961,6 +2961,43 @@ sanitized fork/clone diagnostic and one footer without custom redraw or a
 provider/tool call. Import, SDK/RPC, lifecycle, workspace/provider selection,
 capture and cross-process locking remain outside D6c7.
 
+Slice 3.1d.3e keeps full-content `SESSION_IMPORT` and its standard footer while
+D6c9 adopts replacement ownership. The adapter retains exact path parsing,
+standalone case-sensitive `--yes`, both raw confirmation prompts, the expanded
+but noncanonical source spelling used for display and the detailed switch hook,
+permissive import validation, missing-cwd recovery, collision naming, sanitized
+diagnostics and current partial-artifact behavior. A veto occurs before source
+validation or copying. No queue, lease or coding-effects lock spans confirmation,
+the hook or file I/O.
+
+The coordinator requires the persistent active path to match the terminal slot,
+or an ephemeral source with an empty slot. After the gate a presentation-owned
+callback stages a persistent copy in the active source directory or default
+native store, rewrites only that copy when missing-cwd recovery is accepted,
+permissively opens it and selects its last entry. The coordinator then claims
+the candidate, guarded-publishes it, publishes the slot and releases the source
+claim, rebuilds history once and clears extension input once. Success emits the
+existing import diagnostic and footer without redraw, lifecycle restart or
+provider/tool work.
+
+A persistent source-slot mismatch or ephemeral source with a nonempty slot is
+fatal before the hook, staging, candidate claim or any tree/history/input
+mutation and emits no command diagnostic/footer. Focused tests instrument both
+the hook and staging callback to prove the coding-effects and slot locks do not
+span them; guarded pointer publication remains the only coding-effects critical
+section that mutates the tree in this transition. Short guarded reads remain
+allowed.
+
+Usage, cancellation, veto and `NativeExportError` stay controlled. Candidate
+lease conflict is a recoverable `pipy: imported native session is already
+active.` after staging and may leave the copy. Unexpected staging or publication
+errors remain fatal; publication failure aborts the candidate claim. Rebuild or
+clear failure after publication remains state-first and fatal, and teardown
+releases the adopted candidate. No fatal path synthesizes a success diagnostic
+or command footer. Public/RPC, SDK compatibility, strict reopen, workspace or
+provider selection, export/share, capture and cross-process locking remain
+outside D6c9.
+
 Slice 3.1d.4a adds the exact payload-free `TRUST_PROJECT` action for `/trust` with the
 standard footer. The direct kernel recognizes only the already-edge-stripped
 exact command; composition retains outer trimming, the submitted user bubble,

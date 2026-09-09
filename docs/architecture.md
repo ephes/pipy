@@ -1116,7 +1116,13 @@ history owners while the slot stays empty. Public/RPC ephemeral refusal remains
 unchanged. D6c6 selects `/fork` and `/clone` as the next shared boundary: D6c7
 keeps terminal reference/presentation ownership and moves active-tree snapshot,
 child creation/claim, guarded publication, lease handoff and history/input
-rebuild into the same coordinator. Import remains a later, separate boundary.
+rebuild into the same coordinator. D6c8 fixes the separate import boundary:
+terminal presentation retains parsing, confirmations, the detailed switch gate,
+permissive staging, missing-workspace recovery and diagnostics; the coordinator
+claims the staged durable copy before guarded publication, publishes the slot,
+retires the source claim and invokes the existing history/input rebuild owners.
+Persistent and ephemeral sources therefore converge on one claimed persistent
+target without changing import recovery or partial-artifact behavior.
 
 D6c2 fixed the first terminal adoption boundary without adding an owner. D6c3
 binds one canonical lease slot to the stream-driven terminal controller after
@@ -1137,7 +1143,11 @@ shutdown/extension/chrome cleanup chain. Redraw and success output occur only
 after the coordinator completes. The slot is never exposed to session-command,
 picker or renderer code, and no lease/coding lock spans hooks, I/O or terminal
 presentation. Other terminal commands and import replacement stay outside the
-slice.
+slice. D6c9 uses the same source-slot validation and state-first publication
+boundary for import. Confirmation, extension hooks and file staging run without
+the lease or coding-effects lock. Expected import/candidate refusal preserves
+the old usable state; postpublication failure retires through the existing
+terminal lifetime and releases the adopted claim.
 
 The unchanged accepted-abort primitive is shared from `native/cancellation.py`.
 Provider and summary execution use their existing start-gated callback bridge;

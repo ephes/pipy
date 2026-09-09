@@ -596,7 +596,9 @@ target vocabulary includes:
 
 D6b3 implements this ordering for public `ProductSession.fork`, `clone`,
 `new_session`, and `switch_session`, and for the corresponding JSONL RPC
-commands. Terminal-command adoption remains deferred.
+commands. D6c3/D6c5/D6c7 adopt terminal resume/new/fork/clone through the same
+transition owner. D6c9 adds terminal import while retaining its presentation
+boundary below.
 
 Public and RPC `fork`/`clone` and `new_session`/`switch_session` operations use
 the already activated generation's session gates; they do not restart extension
@@ -624,6 +626,16 @@ after an accepted native transition; refusal and same-target no-op do not
 rebind. The state-first tree/context rebuild
 boundary is not an atomic transaction; a post-publication rebuild error retires
 the public lifetime before returning its typed published-target failure.
+
+Terminal `/import` first retains its confirmation and path-presentation policy.
+The detailed `session_before_switch(operation="switch")` target is the expanded,
+cwd-joined source spelling without canonical resolution. The hook runs once,
+after the first confirmation and source-slot validation but before source
+validation, copy or missing-workspace recovery. A denial therefore creates no
+import artifact. Once allowed, the terminal stages and permissively opens a
+persistent copy; the native coordinator claims and publishes that copy through
+the current terminal lease slot. Missing-workspace confirmation, controlled
+import errors and partial-artifact behavior remain terminal import concerns.
 
 The first implementation should still start small. `tool_call` should be the
 first policy hook because it enables high-value workflows such as protected

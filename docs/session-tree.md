@@ -310,6 +310,65 @@ calls `fork_from` or assigns the tree directly. Import/export, picker/tree
 management, startup selection, SDK/RPC behavior, lifecycle hooks, workspace and
 provider selection, workflow capture and cross-process locking remain non-goals.
 
+### D6c8/D6c9 terminal `/import` adoption contract
+
+D6c8 fixes this contract and D6c9 implements it. The terminal adapter keeps the
+exact quoted/unquoted, tilde and cwd-relative path parsing; the case-sensitive
+standalone `--yes` token; the raw first confirmation; the raw missing-workspace
+confirmation; controlled diagnostics; and the standard footer. The first
+confirmation happens before the transition. Its displayed source and detailed
+`session_before_switch(operation="switch")` target are the expanded and
+cwd-joined path spelling without canonical resolution. The coordinator validates
+that a persistent active source matches the terminal lease slot, or that an
+ephemeral source has an empty slot, before running that detailed gate once.
+Mismatch is fatal under the terminal transition convention: no hook, staging,
+candidate claim, tree/history/input mutation, command diagnostic or footer runs.
+
+An allowed operation calls a presentation-owned staging callback outside the
+lease and coding-effects locks. Staging preserves the established recovery
+boundary: permissively validate the imported header and entries; ask whether to
+replace a missing recorded cwd with the fixed terminal workspace; select the
+active persistent file's directory or the default native-session directory for
+an ephemeral source; choose a collision-free name; copy and chmod the file;
+rewrite only the copy's header when accepted; permissively open the durable
+copy; and select its last imported entry. The source is never changed. Import
+does not adopt the strict product reopen loader or infer a different runtime
+workspace, provider or model from the imported header.
+
+The staged candidate has a durable path. The coordinator claims that path before
+guarded `RunControlState.session_tree` publication, publishes the slot and
+releases the old source claim, rebuilds history once, and clears extension input
+once. Success returns to terminal presentation for the existing sanitized
+imported-session diagnostic and one footer. It performs no custom-entry redraw,
+provider/tool call, lifecycle restart or workflow capture.
+
+Usage, either confirmation cancellation, an extension veto, and a controlled
+`NativeExportError` keep their current bounded diagnostic and footer behavior.
+The veto precedes source validation and copying. Candidate lease conflict occurs
+after copy/open, emits `pipy: imported native session is already active.`, and
+retains the old usable tree, slot, history and extension input; the copied
+artifact may remain. Unexpected copy, copied-header rewrite or open errors stay
+fatal with their current partial-artifact effects and no command footer.
+Unexpected pointer-publication failure aborts the candidate claim, retains the
+source slot and may leave the copy. Rebuild or clear failure after publication
+is state-first and fatal, emits no success diagnostic/footer, and terminal
+teardown releases the adopted candidate exactly once. A later diagnostic or
+footer failure likewise does not roll back successful adoption.
+
+Coverage pins both confirmations, the exact noncanonical gate target, veto
+before source validation/copy, permissive import, collision and copied-only cwd
+rewrite, persistent and ephemeral destination/slot behavior, claim-before-
+publication, source release before rebuild, old-session usability after claim
+conflict, candidate release after publication failure, state-first postpublish
+failure and terminal teardown. Structural coverage proves transfer composition
+does not assign the controller tree or rebuild terminal history directly.
+Separate persistent-source and ephemeral-source mismatch witnesses prove the
+fatal pre-hook cutoff. Hook and staging instrumentation proves the
+coding-effects lock is unowned there and only guarded pointer publication takes
+it; the lease slot lock likewise does not span either callback.
+Public/RPC and compatibility SDK behavior, export/share, strict reopen,
+cross-process locking and provider/workspace selection remain non-goals.
+
 `fork(entry_id=None)` requires a persistent active tree. Its default is the
 current leaf; an explicit `entry_id` is any exact known native entry, including
 model, compaction, label, branch-summary, custom, or message entries. It copies
