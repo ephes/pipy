@@ -13,6 +13,12 @@ nonempty text, preserves multiline content (including leading `/` and `!`), and
 returns a `CodingSessionResultSnapshot` after all extension continuations settle.
 It retains the same conversation and resources for later submissions.
 
+See the executable, offline
+[`product_session_embedding.py`](examples/product_session_embedding.py) example
+for two literal submissions in one context-managed lifetime, detached immutable
+idle snapshots, and an explicit tool-capable fake. Production callers construct
+and inject a real provider through pipy's provider boundary.
+
 `open_product_session(...)` starts a fresh lifetime over one exact existing
 native session-tree JSONL file. It requires the same explicit provider and a
 workspace that matches the stored, absolute header cwd after resolution. It is
@@ -185,11 +191,11 @@ replacement and the exact export/documentation change has been reviewed. The
 compatibility runtime and adapter remain while `pipy run` uses them, even if the
 Python SDK names are later retired.
 
-D6c1 is the first selected adoption: add a checked-in hermetic
-`create_product_session` example, execute it in a focused test, and make that
-example the README's primary Python embedding path. It must inject an explicit
-tool-capable fake, perform two submissions in one construction-thread lifetime,
-observe detached idle snapshots, close through the context manager, and create
+D6c1 adds a checked-in hermetic
+`create_product_session` example, executes it in a focused test, and makes that
+example the README's primary Python embedding path. It injects an explicit
+tool-capable fake, performs two submissions in one construction-thread lifetime,
+observes detached idle snapshots, closes through the context manager, and creates
 no workflow archive. It changes no runtime package, provider selection,
 session-tree policy, SDK export or compatibility behavior.
 

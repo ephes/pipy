@@ -60,29 +60,25 @@ pipy remove <source>
 
 ## Headless Python Embedding
 
-Pipy is intended to be usable without its CLI/TUI from Python programs that need
-agentic workflow support. The in-process surface is `pipy_harness.sdk`; it lets
-callers build a native run request, inject providers or stream sinks, execute one
-`pipy-native` turn, and receive a `RunResult` as a Python object:
+Pipy's supported in-process coding API is a persistent product session. It
+accepts an explicitly injected tool-capable provider, retains full conversation
+history across submissions, and does not create a workflow archive. The checked-in
+[two-turn embedding example](docs/examples/product_session_embedding.py) runs
+offline with an explicit deterministic fake:
 
-```python
-from pathlib import Path
-
-from pipy_harness.sdk import make_native_run_request, run_native
-
-request = make_native_run_request(
-    goal="Summarize the current repository state",
-    cwd=Path.cwd(),
-)
-result = run_native(request)
+```sh
+uv run python docs/examples/product_session_embedding.py
 ```
 
-By default this example uses the deterministic fake provider, so it is safe for
-smoke tests and does not contact a model provider. The stable SDK is
-intentionally narrow today. Richer multi-turn/session-control embedding is a
-design goal; Pi-style JSON/RPC automation is specified separately for
-out-of-process callers. See [`docs/sdk.md`](docs/sdk.md) and
-[`docs/automation-rpc.md`](docs/automation-rpc.md).
+In production, construct a real provider through pipy's provider boundary and
+inject it into `create_product_session(...)`; the factory never selects a
+provider or credentials for you. See [`docs/sdk.md`](docs/sdk.md) for the API
+and [`docs/automation-rpc.md`](docs/automation-rpc.md) for out-of-process use.
+
+`run_native` remains the separate one-shot metadata/archive compatibility API:
+it returns `RunResult` and does not provide multi-turn product-session
+semantics. `pipy run --agent pipy-native` continues to use that same
+compatibility runtime with its existing CLI behavior.
 
 ## Development Setup
 

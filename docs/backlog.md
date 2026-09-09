@@ -9,10 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D6c1, the executable hermetic product-session embedding example
-and README adoption described below. It changes no runtime or compatibility
-surface. D6c2 reviews the terminal `/resume` ownership contract only after D6c1
-is committed.
+**Next task:** after D6c1 is independently reviewed and committed, D6c2 reviews
+the terminal `/resume` ownership contract. No terminal runtime work starts
+before that planning gate.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -692,8 +691,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6b2 | Complete `6b06613`; 113 focused and 6,137 full tests; focused Terra R2 CLEAN; D6b1 `cd92191` | Add public fresh-session and existing-session switch/replacement through the same lifetime owner | Existing targets use strict load; fresh targets use the reviewed session-directory owner; same-path no-op; claim the new target before publication; preserve the old tree/lease on refusal; exact handoff and one rebuild; no late cancellation crosses lifetimes |
 | D6b3 | Complete `b370a8a`; 180 focused and 6,153 full tests; focused Terra R2 CLEAN; D6b2 `6b06613`, D5a `112397a` | Migrate RPC `new_session`, `switch_session`, `fork` and `clone` through the reviewed native transition owner | Pi-shaped correlated outcomes; queue admission/settlement and event/UI rebind once; no transport-owned tree or lifecycle authority |
 | D6b | Complete `b370a8a`; D6b1–D6b3 complete | Fork/clone/session replacement milestone, not a separate dispatch | Public and RPC callers share existing tree, veto, lease, cancellation and rebuild owners; caller-visible outcomes and persistence agree |
-| D6c0 | Complete in this planning chunk; full checks and first Terra plan review CLEAN; scheduled grooming after D6b1–D6b3 | Inventory frontend/session ownership and compatibility callers; select one bounded adoption at a time | Summary-safe history plus source/test evidence; no runtime change; one unambiguous next task |
-| D6c1 | D6c0 | Add and execute one hermetic `create_product_session` example; make it the README's primary Python embedding path | Two submissions share one lifetime/history; explicit tool-capable fake; immutable idle snapshots; no network, credentials, workflow archive, runtime change or compatibility removal |
+| D6c0 | Complete `9c87ee1`; full checks and first Terra plan review CLEAN; scheduled grooming after D6b1–D6b3 | Inventory frontend/session ownership and compatibility callers; select one bounded adoption at a time | Summary-safe history plus source/test evidence; no runtime change; one unambiguous next task |
+| D6c1 | Complete in this chunk; 71 focused and 6,154 full tests; focused Terra R3 CLEAN; D6c0 `9c87ee1` | Add and execute one hermetic `create_product_session` example; make it the README's primary Python embedding path | Two submissions share one lifetime/history; explicit tool-capable fake; immutable idle snapshots; no network, credentials, workflow archive, runtime change or compatibility removal |
 | D6c2 | D6c1 | Review the terminal `/resume` selection lease, strict-load, failure and presentation contract; planning only | Exact initial claim/teardown, same-path no-op, candidate failure, redraw/diagnostic ordering and picker boundaries fixed before code |
 | D6c3 | D6c2 | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
 | D6c4 | D6c3 | Re-inventory and select the next one of terminal `/new`, fork/clone, import replacement or compatibility SDK retirement | Do not combine remaining entry points; remove SDK compatibility names only after docs/callers use the product replacement; keep `pipy run` archive/`RunResult` semantics unless separately reviewed |
@@ -755,6 +754,25 @@ cancel/current selection and terminal path/id resolution remain presentation;
 listing, rename, delete, `/tree`, import/export, `/new`, fork/clone and SDK
 retirement remain separate later choices. No compatibility name is removed or
 assigned product semantics in D6c1.
+
+D6c1 adds `docs/examples/product_session_embedding.py` as an executable,
+temporary-workspace two-turn product-session example and makes it the README's
+primary Python embedding path. The artifact supplies an empty private settings
+owner, scopes native system-prompt discovery to that same private root, and
+disables default extensions, skills, prompt templates, themes and context
+files, rather than inheriting the caller's global configuration. A
+focused test executes the checked-in artifact with isolated home, config and
+workflow-archive paths, proves the first history is retained as a detached
+immutable prefix of the second idle snapshot, and finds no workflow archive.
+The example explicitly injects a tool-capable deterministic fake and directs
+production callers to the existing provider-construction boundary. It changes
+no runtime package, SDK export, provider selection, session tree, compatibility
+API or release behavior. Root's focused product/example gate passes 71 tests;
+the pre-review full gate passes 6,154 tests (two skipped), static checks and
+docs-build, diff hygiene and unchanged interpreter links. Terra R1 found two
+Warnings: inherited global resources and stale validation status. R2 found that
+system-prompt discovery still used the caller environment. All accepted
+findings were repaired, and focused R3 returned CLEAN.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.
