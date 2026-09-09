@@ -113,6 +113,11 @@ This is not a cross-process lock.
 
 ### D6b public transition contract
 
+**D6b1 shipped:** persistent public product sessions can now fork an exact
+active in-memory entry or clone their current leaf through the native
+coordinator. The terminal commands remain separate; public new/switch and RPC
+adoption remain deferred.
+
 The later in-place public transition operations are owned by one native
 `SessionTransitionCoordinator`, composed once by `native/repl/wiring.py`, not
 by `NativeSessionTree` factories or the outer `ProductSession` facade. The tree

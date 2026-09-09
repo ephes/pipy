@@ -21,6 +21,14 @@ from pipy_harness.native.agent import AgentEventSink, ProductContent
 from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseRegistry,
+    CanonicalSessionLeaseSlot,
+    ProductSessionTarget,
+    ProductSessionTransitionError,
+    ProductSessionTransitionFailure,
+    ProductSessionTransitionResult,
+)
 from pipy_harness.native.repl.wiring import _PreparedCodingSession
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -31,47 +39,15 @@ from pipy_harness.native.workspace_context import (
     empty_workspace_instruction_loader,
 )
 
-_PERSISTENT_PATH_LEASE_LOCK = threading.Lock()
-_PERSISTENT_PATH_LEASES: dict[Path, object] = {}
-
-
-class _PersistentPathLease:
-    """One process-local public-lifetime claim for a canonical durable file."""
-
-    __slots__ = ("_key", "_token")
-
-    def __init__(self, key: Path, token: object) -> None:
-        self._key = key
-        self._token: object | None = token
-
-    @property
-    def path(self) -> Path:
-        """Return the resolved target bound to this exact lifetime claim."""
-
-        return self._key
-
-    def finish(self) -> None:
-        """Release this exact claim once, after native lifetime retirement."""
-
-        token = self._token
-        if token is None:
-            return
-        self._token = None
-        with _PERSISTENT_PATH_LEASE_LOCK:
-            if _PERSISTENT_PATH_LEASES.get(self._key) is token:
-                del _PERSISTENT_PATH_LEASES[self._key]
-
-
-def _claim_persistent_path(path: Path) -> _PersistentPathLease:
-    """Atomically claim a path without holding the registry during any work."""
-
-    key = path.expanduser().resolve()
-    token = object()
-    with _PERSISTENT_PATH_LEASE_LOCK:
-        if key in _PERSISTENT_PATH_LEASES:
-            raise RuntimeError("persistent product session is already active")
-        _PERSISTENT_PATH_LEASES[key] = token
-    return _PersistentPathLease(key, token)
+__all__ = [
+    "ProductSession",
+    "ProductSessionTarget",
+    "ProductSessionTransitionResult",
+    "ProductSessionTransitionFailure",
+    "ProductSessionTransitionError",
+    "create_product_session",
+    "open_product_session",
+]
 
 
 def _persistent_tree_path(tree: NativeSessionTree | None) -> Path | None:
@@ -110,13 +86,13 @@ class ProductSession:
         abort: _ExternalAbortSignalView,
         diagnostic_sink: Callable[[str], None] | None,
         *,
-        lease: _PersistentPathLease | None = None,
+        lease_slot: CanonicalSessionLeaseSlot | None = None,
     ) -> None:
         self._thread = threading.current_thread()
         self._entry_in_progress = True
         self._abort = abort
         # Attach before startup can invoke extension/observer callbacks.
-        self._lease = lease
+        self._lease_slot = lease_slot or CanonicalSessionLeaseSlot()
         self._scope: AbstractContextManager[_PreparedCodingSession] | None = None
         try:
             context = adapter.prepare_session_context(workspace)
@@ -136,6 +112,7 @@ class ProductSession:
                     failure.error_message or "product session startup failed"
                 )
             self._prepared.bind_external_abort_signal(abort)
+            self._prepared.bind_transition_lease_slot(self._lease_slot)
         except BaseException as error:
             self._exit_scope(type(error), error, error.__traceback__)
             raise
@@ -187,6 +164,37 @@ class ProductSession:
 
         self._abort.cancel()
 
+    def fork(self, entry_id: str | None = None) -> ProductSessionTransitionResult:
+        """Fork one exact active-tree branch into a fresh persistent child."""
+
+        if entry_id is not None:
+            if not isinstance(entry_id, str):
+                raise TypeError("entry_id must be a str or None")
+            if not entry_id:
+                raise ValueError("entry_id must be nonempty")
+        with self._entry():
+            if self._scope is None:
+                raise RuntimeError("product session is closed")
+            try:
+                return self._prepared.fork_product_session(entry_id, clone=False)
+            except ProductSessionTransitionError as error:
+                if error.failure.published:
+                    self._exit_scope(type(error), error, error.__traceback__)
+                raise
+
+    def clone(self) -> ProductSessionTransitionResult:
+        """Fork the active leaf while recording a distinct public operation."""
+
+        with self._entry():
+            if self._scope is None:
+                raise RuntimeError("product session is closed")
+            try:
+                return self._prepared.fork_product_session(None, clone=True)
+            except ProductSessionTransitionError as error:
+                if error.failure.published:
+                    self._exit_scope(type(error), error, error.__traceback__)
+                raise
+
     def snapshot(self) -> CodingSessionResultSnapshot:
         """Read the native immutable projection while idle, including after close."""
 
@@ -211,10 +219,7 @@ class ProductSession:
             if scope is not None:
                 scope.__exit__(exc_type, exc, traceback)
         finally:
-            lease = self._lease
-            self._lease = None
-            if lease is not None:
-                lease.finish()
+            self._lease_slot.finish()
 
     def __enter__(self) -> ProductSession:
         with self._entry():
@@ -261,7 +266,7 @@ def _create_product_session(
     observer: AgentEventSink | None,
     diagnostic_sink: Callable[[str], None] | None,
     load_context_files: bool,
-    lease: _PersistentPathLease | None,
+    lease_slot: CanonicalSessionLeaseSlot | None,
 ) -> ProductSession:
     abort = _ExternalAbortSignalView()
     adapter = CodingSessionAdapter(
@@ -278,7 +283,9 @@ def _create_product_session(
             else empty_workspace_instruction_loader
         ),
     )
-    return ProductSession(adapter, workspace, abort, diagnostic_sink, lease=lease)
+    return ProductSession(
+        adapter, workspace, abort, diagnostic_sink, lease_slot=lease_slot
+    )
 
 
 def create_product_session(
@@ -306,7 +313,12 @@ def create_product_session(
         diagnostic_sink=diagnostic_sink,
     )
     persistent_path = _persistent_tree_path(tree)
-    lease = _claim_persistent_path(persistent_path) if persistent_path else None
+    lease = (
+        CanonicalSessionLeaseRegistry.claim(persistent_path)
+        if persistent_path
+        else None
+    )
+    lease_slot = CanonicalSessionLeaseSlot(lease)
     try:
         if tree is not None and lease is not None:
             # The public lifetime must persist through the exact resolved target
@@ -322,11 +334,11 @@ def create_product_session(
             observer=observer,
             diagnostic_sink=diagnostic_sink,
             load_context_files=load_context_files,
-            lease=lease,
+            lease_slot=lease_slot,
         )
     except BaseException:
         if lease is not None:
-            lease.finish()
+            lease_slot.finish()
         raise
 
 
@@ -356,7 +368,8 @@ def open_product_session(
     )
     if not isinstance(session_path, Path):
         raise TypeError("session_path must be a Path")
-    lease = _claim_persistent_path(session_path)
+    lease = CanonicalSessionLeaseRegistry.claim(session_path)
+    lease_slot = CanonicalSessionLeaseSlot(lease)
     try:
         tree = NativeSessionTree.open(lease.path, strict=True)
         header_cwd = Path(tree.header.cwd)
@@ -375,8 +388,8 @@ def open_product_session(
             observer=observer,
             diagnostic_sink=diagnostic_sink,
             load_context_files=load_context_files,
-            lease=lease,
+            lease_slot=lease_slot,
         )
     except BaseException:
-        lease.finish()
+        lease_slot.finish()
         raise

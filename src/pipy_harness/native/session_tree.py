@@ -1435,6 +1435,43 @@ class NativeSessionTree:
             new_tree.append_session_info(source_name)
         return new_tree
 
+    @classmethod
+    def fork_from_snapshot(
+        cls,
+        source: "NativeSessionTree",
+        target_cwd: Path,
+        *,
+        leaf_id: str | None,
+        session_dir: Path,
+    ) -> "NativeSessionTree":
+        """Fork an exact guarded in-memory source branch without reopening it."""
+
+        if not isinstance(source, cls):
+            raise TypeError("source must be a NativeSessionTree")
+        if source.path is None:
+            raise ValueError("source tree is not persistent")
+        with source.mutation_lock:
+            path_entries = source.get_branch(leaf_id)
+            labels = {entry.id: source.get_label(entry.id) for entry in path_entries}
+            source_name = source.name
+            parent = str(source.path.expanduser().resolve())
+        new_tree = cls.create(
+            target_cwd, session_dir=session_dir, parent_session=parent
+        )
+        id_map: dict[str, str] = {}
+        for entry in path_entries:
+            if isinstance(entry, LabelEntry):
+                continue
+            new_entry = new_tree._clone_entry_onto_leaf(entry, id_map=id_map)
+            id_map[entry.id] = new_entry.id
+        for old_id, new_id in id_map.items():
+            label = labels.get(old_id)
+            if label:
+                new_tree.append_label_change(new_id, label)
+        if source_name:
+            new_tree.append_session_info(source_name)
+        return new_tree
+
     def bind_mutation_lock(self, lock: threading.RLock) -> None:
         """Adopt the run's exact coordinator lock before becoming active."""
 
@@ -1702,7 +1739,7 @@ class NativeSessionTree:
                 id=self._next_id(),
                 parent_id=self.leaf_id,
                 timestamp=_now_iso(),
-                from_id=entry.from_id,
+                from_id=(id_map or {}).get(entry.from_id, entry.from_id),
                 summary=entry.summary,
             )
             return self._append_entry(new_entry)
@@ -1865,6 +1902,10 @@ class NativeSessionTree:
             path.insert(0, current)
             current = self.by_id.get(current.parent_id) if current.parent_id else None
         return path
+
+    @_guarded_tree_api
+    def has_entry(self, entry_id: str) -> bool:
+        return entry_id in self.by_id
 
     @_guarded_tree_api
     def build_context(self) -> SessionContext:

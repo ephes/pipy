@@ -1036,6 +1036,12 @@ and later RPC call its typed port; native code never imports `product_api.py` or
 neutral native owner, allowing public and later transport callers to share
 claims without an event bus or DI framework.
 
+D6b1 wires the public fork/clone portion of that port into the existing
+headless product lifetime. The public facade uses the construction-thread
+true-idle port, snapshots its current in-memory source branch, runs the existing
+fork gate before child creation, and rebinds the existing tree/history owners.
+Public new/switch and RPC migration remain later work.
+
 That module also owns a guarded `CanonicalSessionLeaseSlot` bound once per
 lifetime. The slot is the only mutable current-lease owner. A prepared candidate
 handoff holds the new registry claim while the slot still holds the old one;
@@ -1050,9 +1056,12 @@ reuses the facade's workspace/provider/resources, existing queue/controller and
 stable external abort view for its entire lifetime; true idle already means no
 accepted, reserved, or settling queue work. It neither detaches that view nor
 settles invented retired-tree work. A rebuild clears the existing extension
-inputs/outboxes. The later RPC entry may hold the admitted native-control claim,
-so it uses a private admitted-control port rather than pretending that it is an
-external SDK true-idle call.
+inputs/outboxes. The construction-thread facade calls this external port after
+its completed synchronous drive and does not hold the queue/admission gate for
+extension callbacks, filesystem work, claims, publication, or rebuild. The later
+RPC entry may hold the admitted native-control claim, so it uses a private
+admitted-control port rather than pretending that it is an external SDK true-idle
+call.
 
 For a non-noop existing target the coordinator canonicalizes the path, runs the
 extension gate without reading target content, claims it, and strict-loads and

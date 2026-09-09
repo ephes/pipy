@@ -29,6 +29,10 @@ from pipy_harness.native.workspace_context import (
 )
 from pipy_harness.product_api import (
     ProductSession,
+    ProductSessionTarget,
+    ProductSessionTransitionError,
+    ProductSessionTransitionFailure,
+    ProductSessionTransitionResult,
     create_product_session,
     open_product_session,
 )
@@ -39,6 +43,10 @@ __all__ = [
     "AgentEventSink",
     "CodingSessionResultSnapshot",
     "ProductSession",
+    "ProductSessionTarget",
+    "ProductSessionTransitionError",
+    "ProductSessionTransitionFailure",
+    "ProductSessionTransitionResult",
     "create_product_session",
     "open_product_session",
     "CapturePolicy",

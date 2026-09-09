@@ -167,6 +167,11 @@ semantics. `HarnessRunner`, `CapturePolicy`, `RunRequest`, `RunResult`,
 
 ## D6b public session-transition contract
 
+**D6b1 shipped:** `ProductSession.fork()` and `clone()` now implement the
+fork/clone region of this contract through the native transition owner. Public
+`new_session()` and `switch_session()` and all RPC transition handlers remain
+unimplemented.
+
 D6b adds four construction-thread, idle-only operations to the existing
 `ProductSession` facade. They are not factories and do not create another
 coding lifetime: `fork(entry_id: str | None = None)`, `clone()`,
@@ -328,6 +333,11 @@ directly.
 At public true-idle the accepted, reserved, and settling queue is empty. The
 coordinator reuses that queue, controller and stable external abort view for the
 facade lifetime; it neither detaches the view nor settles retired-tree work.
+The synchronous construction-thread facade proves that external-idle boundary
+before it calls the coordinator; its transition body never holds the queue or
+admission guard across an extension callback, filesystem operation, lease
+handoff, tree publication, or rebuild. A separate private admitted-control port
+is reserved for D6b3's already-claimed RPC control operation.
 History rebuild clears the current existing tree-bound extension inputs/outboxes.
 For D6b3 an RPC command can be the admitted native control claim, so the port
 also exposes a private admitted-control call path; public methods use only its

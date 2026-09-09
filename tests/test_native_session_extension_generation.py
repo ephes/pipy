@@ -3154,6 +3154,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     wiring = "native/repl/wiring.py"
     reload_file = "native/repl/reload.py"
     reload_owner = "class:ReloadCommandEffects"
+    transition_file = "native/repl/session_transition.py"
     attach_file = "native/repl/extension_attach.py"
     attach_prepare = ("function:_prepare_reload_generation",)
     attach_build = ("function:_build_projection_and_route",)
@@ -3232,6 +3233,11 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ("release", "native/ui/paint_lock.py", ("class:PaintLock", "function:release")),
         ("drain", hooks, sequencer),
         ("abort", sg, reserve),
+        (
+            "abort",
+            transition_file,
+            ("class:SessionTransitionCoordinator", "function:_fork", "function:work"),
+        ),
         (
             "abort",
             wiring,

@@ -725,6 +725,9 @@ compaction, retry, session replacement or public SDK lifecycle behavior.
 
 ### Session switching, fork, clone
 
+D6b1 adds only the public native fork/clone owner; RPC still has no transition
+handlers and does not own a tree or canonical lease.
+
 Current build: `switch_session`, `fork`, `clone`, and `new_session` are
 recognized commands without RPC handlers; each returns a correlated
 not-yet-implemented error. The following is the target contract, not shipped

@@ -27,6 +27,7 @@ from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import NoticeSink, emit_diagnostic
 from pipy_harness.native.extension_types import SessionDecision
 from pipy_harness.native.session_tree import (
+    BranchSummaryEntry,
     CompactionEntry,
     LabelEntry,
     MessageEntry,
@@ -504,6 +505,50 @@ def test_fork_copies_only_active_branch_with_fresh_identity_and_metadata(
     assert '"thinkingLevel": "high"' in child_text
     assert "SIBLING" not in child_text and sibling.id not in child_text
     assert archive.read_bytes() == before
+
+
+def test_fork_snapshot_copies_exact_non_user_branch_with_remapped_references(
+    tmp_path: Path,
+) -> None:
+    cwd, session_dir, source = _persistent_tree(tmp_path)
+    source.append_message(AgentUserMessage(ProductContent("ROOT")))
+    retained = source.append_message(AgentUserMessage(ProductContent("KEEP")))
+    compaction = source.append_compaction(
+        summary="SUMMARY",
+        first_kept_entry_id=retained.id,
+        tokens_before=7,
+    )
+    summary = source.branch_with_summary(compaction.id, "BRANCH SUMMARY")
+    selected = source.append_label_change(summary.id, "selected-label")
+    source.append_session_info("copied-name")
+    source_before = source.path.read_bytes() if source.path is not None else b""
+
+    child = NativeSessionTree.fork_from_snapshot(
+        source, cwd, leaf_id=selected.id, session_dir=session_dir
+    )
+
+    assert source.path is not None and child.path is not None
+    assert child.header.parent_session == str(source.path.resolve())
+    assert source.path.read_bytes() == source_before
+    source_ids = {entry.id for entry in source.get_entries()}
+    child_entries = child.get_entries()
+    child_ids = {entry.id for entry in child_entries}
+    assert source_ids.isdisjoint(child_ids)
+    assert child.name == "copied-name"
+    child_compaction = next(
+        entry for entry in child_entries if isinstance(entry, CompactionEntry)
+    )
+    child_summary = next(
+        entry for entry in child_entries if isinstance(entry, BranchSummaryEntry)
+    )
+    child_label = next(
+        entry for entry in child_entries if isinstance(entry, LabelEntry)
+    )
+    assert child_compaction.first_kept_entry_id in child_ids
+    assert child_compaction.retained_user_entry_id is None
+    assert child_summary.from_id == child_compaction.id
+    assert child_label.target_id == child_summary.id
+    assert child.get_label(child_summary.id) == "selected-label"
 
 
 @pytest.mark.parametrize("failure_stage", ["fork", "open", "write", "rebuild", "clear"])

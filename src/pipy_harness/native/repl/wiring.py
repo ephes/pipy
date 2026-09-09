@@ -146,6 +146,11 @@ from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
 )
+from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseSlot,
+    ProductSessionTransitionResult,
+    SessionTransitionCoordinator,
+)
 from pipy_harness.native.repl.turn_leaves import (
     CANCEL_JOIN_TIMEOUT_SECONDS,
     pricing_for,
@@ -256,6 +261,7 @@ class SessionWiring:
     startup_failure: CodingSessionResult | None
     delegation: _LoopDelegation | None
     control_bridge: _NativeSessionControlBridge | None = None
+    transition: SessionTransitionCoordinator | None = None
 
 
 def _control_bridge(inputs: SessionWiringInput) -> _NativeSessionControlBridge | None:
@@ -296,6 +302,9 @@ class _PreparedCodingSession:
     wiring: SessionWiring
     lifetime: _CodingSessionLifetime | None
     _startup_closed: bool = field(default=False, init=False)
+    _transition_leases: CanonicalSessionLeaseSlot | None = field(
+        default=None, init=False
+    )
 
     def enqueue_seed(self, content: ProductContent) -> None:
         if self.lifetime is None:
@@ -306,6 +315,24 @@ class _PreparedCodingSession:
         if self.lifetime is None:
             raise RuntimeError("coding session startup failed")
         self.lifetime.bind_external_abort_signal(signal)
+
+    def bind_transition_lease_slot(self, slot: CanonicalSessionLeaseSlot) -> None:
+        if not isinstance(slot, CanonicalSessionLeaseSlot):
+            raise TypeError("slot must be a CanonicalSessionLeaseSlot")
+        if self._transition_leases is not None:
+            raise RuntimeError("transition lease slot is already bound")
+        self._transition_leases = slot
+
+    def fork_product_session(
+        self, entry_id: str | None, *, clone: bool
+    ) -> ProductSessionTransitionResult:
+        transition = self.wiring.transition
+        slot = self._transition_leases
+        if transition is None or slot is None:
+            raise RuntimeError("product session transition is unavailable")
+        return transition.fork_external(
+            entry_id, operation="clone" if clone else "fork", leases=slot
+        )
 
     def drive_external_operation(
         self, content: ProductContent
@@ -1620,10 +1647,23 @@ def _assemble_session_wiring(
             else lambda: None
         ),
     )
+    transition = SessionTransitionCoordinator(
+        workspace=cwd,
+        get_tree=lambda: ctl.session_tree,
+        set_tree=lambda tree: setattr(ctl, "session_tree", tree),
+        session_before_fork=lambda target: (
+            extension_operations.session_allows(
+                "fork", operation="fork", target=target
+            ).allow
+        ),
+        rebuild=product.product_session.rebuild_active_history,
+        clear_extension_inputs=runtime.coding_input_queue.clear_extension_inputs,
+    )
     return SessionWiring(
         startup_failure=None,
         delegation=delegation,
         control_bridge=_control_bridge(inputs),
+        transition=transition,
     )
 
 

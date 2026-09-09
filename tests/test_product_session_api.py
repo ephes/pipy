@@ -35,6 +35,12 @@ from pipy_harness.native.coding.input_queue import (
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.repl import loop_step
+from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseRegistry,
+    CanonicalSessionLeaseSlot,
+    ProductSessionTransitionError,
+    SessionTransitionCoordinator,
+)
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
@@ -257,6 +263,8 @@ def test_foreign_thread_and_reentrant_operations_refuse(tmp_path: Path) -> None:
             return
         for operation in (
             lambda: session.submit("nested"),
+            session.fork,
+            session.clone,
             session.snapshot,
             session.close,
             session.__enter__,
@@ -272,6 +280,8 @@ def test_foreign_thread_and_reentrant_operations_refuse(tmp_path: Path) -> None:
         def foreign() -> None:
             for operation in (
                 lambda: session.submit("foreign"),
+                session.fork,
+                session.clone,
                 session.snapshot,
                 session.close,
                 session.__enter__,
@@ -285,7 +295,7 @@ def test_foreign_thread_and_reentrant_operations_refuse(tmp_path: Path) -> None:
         worker.start()
         _join(worker)
         assert session.submit("outer").user_turn_count == 1
-    assert refused == ["foreign"] * 4 + ["reentry"] * 4
+    assert refused == ["foreign"] * 6 + ["reentry"] * 6
 
 
 def test_construction_thread_object_identity_is_required(
@@ -1308,3 +1318,339 @@ def test_terminal_driver_failure_raises_after_once_only_disposal(
     assert len(stops) == 1
     with pytest.raises(RuntimeError, match="closed"):
         session.submit("later")
+
+
+def test_public_fork_and_clone_replace_one_persistent_tree_lifetime(
+    tmp_path: Path,
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    source = tree.append_message(AgentUserMessage(ProductContent("source")))
+    assert tree.path is not None
+    original_path = tree.path
+    with sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    ) as session:
+        forked = session.fork(source.id)
+        assert forked.operation == "fork"
+        assert forked.status == "completed"
+        assert forked.previous is not None
+        assert forked.previous.session_path == original_path
+        assert forked.active.session_path is not None
+        assert forked.active.session_path.parent == original_path.parent
+        assert forked.active.session_path != original_path
+        cloned = session.clone()
+        assert cloned.operation == "clone"
+        assert cloned.status == "completed"
+        assert cloned.previous == forked.active
+        assert cloned.active.session_id != forked.active.session_id
+    assert NativeSessionTree.open(original_path).leaf_id == source.id
+
+
+def test_public_fork_clone_refusals_validation_and_frozen_exports(
+    tmp_path: Path,
+) -> None:
+    assert sdk.ProductSessionTarget is not None
+    target = sdk.ProductSessionTarget("id", None, None)
+    with pytest.raises(FrozenInstanceError):
+        target.session_id = "other"  # type: ignore[misc]
+    with sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider()
+    ) as ephemeral:
+        refused = ephemeral.clone()
+        assert refused.status == "refused"
+        assert refused.refusal == "ephemeral_source"
+        assert refused.active.session_path is None
+
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    with sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    ) as session:
+        assert session.clone().refusal == "missing_leaf"
+        assert session.fork("unknown").refusal == "unknown_entry"
+        with pytest.raises(TypeError, match="entry_id"):
+            session.fork(cast(Any, 1))
+        with pytest.raises(ValueError, match="nonempty"):
+            session.fork("")
+
+
+def test_public_fork_handoff_releases_source_and_retains_child_lease(
+    tmp_path: Path,
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    tree.append_message(AgentUserMessage(ProductContent("source")))
+    assert tree.path is not None
+    source_path = tree.path
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    )
+    result = session.clone()
+    assert result.active.session_path is not None
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=source_path,
+        provider=_RecordingToolProvider(),
+    ):
+        pass
+    with pytest.raises(RuntimeError, match="already active"):
+        sdk.open_product_session(
+            workspace=tmp_path,
+            session_path=result.active.session_path,
+            provider=_RecordingToolProvider(),
+        )
+    session.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        session.fork()
+    with pytest.raises(RuntimeError, match="closed"):
+        session.clone()
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=result.active.session_path,
+        provider=_RecordingToolProvider(),
+    ):
+        pass
+
+
+def test_transition_lease_slot_finishes_once_aborts_candidate_and_requires_source_slot(
+    tmp_path: Path,
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    source.append_message(AgentUserMessage(ProductContent("source")))
+    assert source.path is not None
+    source_path = source.path.resolve()
+    candidate_path = source_path.parent / "candidate.jsonl"
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+    handoff = slot.prepare(candidate_path)
+    handoff.abort()
+    handoff.abort()
+    # Candidate abort is idempotent and does not release the old current lease.
+    candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    candidate.finish()
+    with pytest.raises(RuntimeError, match="already active"):
+        CanonicalSessionLeaseRegistry.claim(source_path)
+    slot.finish()
+    slot.finish()
+    released_source = CanonicalSessionLeaseRegistry.claim(source_path)
+    released_source.finish()
+
+    mismatched = CanonicalSessionLeaseSlot(
+        CanonicalSessionLeaseRegistry.claim(candidate_path)
+    )
+    gated: list[str] = []
+
+    def record_gate(_entry: str | None) -> bool:
+        gated.append("gate")
+        return True
+
+    coordinator = SessionTransitionCoordinator(
+        workspace=tmp_path,
+        get_tree=lambda: source,
+        set_tree=lambda _tree: (_ for _ in ()).throw(
+            AssertionError("must not publish")
+        ),
+        session_before_fork=record_gate,
+        rebuild=lambda: (_ for _ in ()).throw(AssertionError("must not rebuild")),
+        clear_extension_inputs=lambda: (_ for _ in ()).throw(
+            AssertionError("must not clear")
+        ),
+    )
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        coordinator.fork_external(None, operation="clone", leases=mismatched)
+    assert raised.value.failure.stage == "publish"
+    assert not raised.value.failure.published
+    assert gated == []
+    mismatched.finish()
+
+
+def test_public_fork_uses_in_memory_non_message_entry_without_source_reopen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    message = tree.append_message(AgentUserMessage(ProductContent("source")))
+    label = tree.append_label_change(message.id, "kept")
+
+    def forbid_open(*_args: object, **_kwargs: object) -> NativeSessionTree:
+        raise AssertionError("public fork must not reopen its source")
+
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(forbid_open))
+    with sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    ) as session:
+        result = session.fork(label.id)
+        assert result.status == "completed"
+
+
+@pytest.mark.parametrize("method", ["fork", "clone"])
+@pytest.mark.parametrize(
+    ("body", "expected_status"),
+    [
+        ("        return SessionDecision(allow=True)\n", "completed"),
+        ("        return SessionDecision(allow=False, reason='stay')\n", "refused"),
+        ("        raise LookupError('gate crash')\n", "refused"),
+    ],
+)
+def test_public_fork_gate_preserves_lifetime_and_uses_canonical_vocabulary(
+    tmp_path: Path,
+    method: str,
+    body: str,
+    expected_status: str,
+) -> None:
+    """Public fork/clone shares the terminal gate but never restarts its lifetime."""
+
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    selected = tree.append_message(AgentUserMessage(ProductContent("source")))
+    assert tree.path is not None
+    source_path = tree.path
+    proof = tmp_path / "fork-gate.txt"
+    extension = tmp_path / "fork-gate.py"
+    extension.write_text(
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import SessionDecision\n"
+        f"PROOF = Path({str(proof)!r})\n"
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def start(event, ctx):\n"
+        "        with PROOF.open('a') as output: output.write('start\\n')\n"
+        "    @api.on('session_before_fork')\n"
+        "    def gate(event, ctx):\n"
+        "        with PROOF.open('a') as output:\n"
+        "            output.write(f'gate:{event.operation}:{event.target}\\n')\n"
+        f"{body}"
+        "    @api.on('session_shutdown')\n"
+        "    def stop(event, ctx):\n"
+        "        with PROOF.open('a') as output: output.write('shutdown\\n')\n",
+        encoding="utf-8",
+    )
+    resources = RuntimeResourceOptions(extension_paths=(extension,))
+    session = sdk.create_product_session(
+        workspace=tmp_path,
+        provider=_RecordingToolProvider(),
+        tree=tree,
+        resources=resources,
+    )
+    result = session.clone() if method == "clone" else session.fork(selected.id)
+    assert result.status == expected_status
+    assert proof.read_text().splitlines() == [
+        "start",
+        f"gate:fork:{selected.id}",
+    ]
+    if expected_status == "completed":
+        assert result.active.session_path is not None
+        assert result.active.session_path != source_path
+    else:
+        assert result.refusal == "extension_refusal"
+        assert list(source_path.parent.glob("*.jsonl")) == [source_path]
+        with pytest.raises(RuntimeError, match="already active"):
+            sdk.open_product_session(
+                workspace=tmp_path,
+                session_path=source_path,
+                provider=_RecordingToolProvider(),
+            )
+        assert (
+            session.submit("old facade remains usable").messages[-1].content.value
+            == "answer"
+        )
+    session.close()
+    assert proof.read_text().splitlines()[-1] == "shutdown"
+    assert proof.read_text().count("start\n") == 1
+    assert proof.read_text().count("shutdown\n") == 1
+
+
+def test_public_fork_publish_failure_aborts_candidate_and_keeps_source_usable(
+    tmp_path: Path,
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    tree.append_message(AgentUserMessage(ProductContent("source")))
+    assert tree.path is not None
+    source_path = tree.path
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    )
+    transition = session._prepared.wiring.transition
+    assert transition is not None
+
+    def fail_publish(_candidate: NativeSessionTree) -> None:
+        raise LookupError("injected publication failure")
+
+    object.__setattr__(transition, "set_tree", fail_publish)
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        session.clone()
+    failure = raised.value.failure
+    assert failure.stage == "publish" and not failure.published
+    assert failure.retained.session_path == source_path
+    assert session._scope is not None
+    assert session.submit("source still active").messages[-1].content.value == "answer"
+    candidates = [
+        path for path in source_path.parent.glob("*.jsonl") if path != source_path
+    ]
+    assert len(candidates) == 1
+    # Candidate creation is durable, but its unadopted claim was released.
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=candidates[0],
+        provider=_RecordingToolProvider(),
+    ):
+        pass
+    session.close()
+
+
+def test_public_fork_rebuild_failure_fails_closed_after_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    starts: list[object] = []
+    stops: list[object] = []
+    start = loop_step._ReplLoopStep.fire_session_start
+    shutdown = loop_step._ReplLoopStep.fire_session_shutdown
+
+    def record_start(self: loop_step._ReplLoopStep, **kwargs: Any) -> None:
+        starts.append(self)
+        start(self, **kwargs)
+
+    def record_shutdown(self: loop_step._ReplLoopStep, **kwargs: Any) -> None:
+        stops.append(self)
+        shutdown(self, **kwargs)
+
+    monkeypatch.setattr(loop_step._ReplLoopStep, "fire_session_start", record_start)
+    monkeypatch.setattr(
+        loop_step._ReplLoopStep, "fire_session_shutdown", record_shutdown
+    )
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
+    tree.append_message(AgentUserMessage(ProductContent("source")))
+    assert tree.path is not None
+    source_path = tree.path
+    session = sdk.create_product_session(
+        workspace=tmp_path, provider=_RecordingToolProvider(), tree=tree
+    )
+    transition = session._prepared.wiring.transition
+    assert transition is not None
+
+    def fail_rebuild() -> None:
+        raise LookupError("injected rebuild failure")
+
+    object.__setattr__(transition, "rebuild", fail_rebuild)
+    with pytest.raises(ProductSessionTransitionError) as raised:
+        session.clone()
+    failure = raised.value.failure
+    assert failure.stage == "rebuild" and failure.published
+    child_path = failure.retained.session_path
+    assert child_path is not None and child_path != source_path
+    assert session._scope is None
+    assert session._prepared.lifetime is not None and session._prepared.lifetime.closed
+    with pytest.raises(RuntimeError, match="closed"):
+        session.submit("must fail closed")
+    session.close()
+    assert len(starts) == 1
+    assert len(stops) == 1
+    # Publication is not rolled back: both durable files survive, while both
+    # lifetime claims have been released by the fail-closed retirement.
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=source_path,
+        provider=_RecordingToolProvider(),
+    ):
+        pass
+    with sdk.open_product_session(
+        workspace=tmp_path,
+        session_path=child_path,
+        provider=_RecordingToolProvider(),
+    ):
+        pass

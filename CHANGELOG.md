@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Persistent Python product sessions can now fork an exact active-tree entry or
+  clone their current leaf in place. The native transition owner preserves the
+  existing facade lifetime, canonical path claims, extension fork gate, and
+  state-first history rebuild; new/switch public controls and RPC adoption are
+  still deferred.
+
 - Direct RPC bash now emits bounded, line-gated and secret-redacted
   `bash_execution_update` records before its correlated terminal response.
   Per-operation relays isolate update correlation and let direct process cleanup
