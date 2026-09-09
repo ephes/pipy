@@ -1058,6 +1058,24 @@ model-induced effective thinking change uses the same durable owner entry as an
 explicit thinking change, and its RPC event follows the correlated model
 response. Static injected providers expose only their immutable singleton identity.
 
+D5c adds a separate private compaction port to that complete readiness outcome.
+Manual RPC compaction occupies and claims the existing native-control active slot
+as a typed worker operation; it is neither line-framed `/compact` text nor a
+second transport queue. The existing semantic-compaction owner retains summary
+generation, retry/cancellation, guarded state acceptance, and durable append.
+The same native publication gate orders exact operation settlement, the paired
+compaction event, the correlated result, successor projection, and wake. A
+narrow owner-guarded activity projection makes `isCompacting` truthful for both
+manual work and automatic request-preparation compaction. Automatic work remains
+inside request preparation, with `threshold` for legacy message/byte pressure
+and `overflow` for known-window estimated preflight pressure; neither denotes a
+post-response retry in pipy. The real `compaction.enabled` setting remains owned
+by `SettingsManager`; its precedence-aware mutation updates the winning writable
+project/global layer or refuses a conflicting immutable override, and RPC reads
+the resulting effective value instead of caching a flag. See the
+[D5c contract](sdk.md#d5c-rpc-compaction-control-adoption-contract) for failure,
+privacy, and output ordering.
+
 Project trust is fail-closed. Final-workspace project settings, packages,
 resources, and executable extensions are unavailable until saved or run-local
 trust is resolved; global and explicit CLI sources follow their documented

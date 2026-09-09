@@ -452,8 +452,10 @@ which is in-scope full-content for this surface).
 truncated), `exitCode: number | undefined`, `cancelled: boolean`,
 `truncated: boolean`, `fullOutputPath?: string`.
 
-`CompactionResult` (`compact`): `summary: string`, `firstKeptEntryId: string`,
-`tokensBefore: number`, `details?: object`.
+`CompactionResult` (`compact`): `summary: string`,
+`firstKeptEntryId: string | null`, `tokensBefore: number`, `details?: object`.
+The ID is `null` only for an explicitly non-persistent native session; a
+persistent session requires the exact retained durable entry ID.
 
 `RpcSlashCommand` (`get_commands`): `name: string`, `description?: string`,
 `source: "extension" | "prompt" | "skill"`, `sourceInfo: object`. pipy lists
@@ -631,12 +633,44 @@ and `abort_retry` is currently a no-op. These controls need the shared product
 session owner proposed in the
 [integrated planning basis](backlog.md).
 
-Target behavior: `compact` performs context compaction and returns a
-`CompactionResult`, bracketed by `compaction_start` / `compaction_end` events.
-Auto-compaction controls must affect the real session policy, emitting the same
-event pair with `reason: "threshold" | "overflow"`, with durable summaries in the native
-session tree (`docs/session-tree.md`). This target is not a claim that the
-current transport implements it.
+The selected D5c contract keeps all summary policy in the existing native owner.
+RPC admits `compact` only at true idle as a typed operation in the same native
+active slot used by prompts, then the native worker claims and settles its exact
+token. Busy requests fail without events. The command is asynchronous from the
+reader's perspective, so `abort`, state queries, and queued prompts remain
+responsive while the private summary request runs. No literal `/compact` line,
+second queue, or transport-owned compaction state is introduced.
+
+For an admitted manual operation, output order is `compaction_start`, exactly
+one `compaction_end`, then the correlated `compact` response. A successful end
+event and response contain the same `CompactionResult`. Refusal or generation
+failure has no result and is followed by an error response. Cancellation has
+`aborted: true`, no result/error message, and an error response. If state was
+accepted but its durable append failed, the end event includes that accepted
+result plus a fixed persistence error, the response fails, and later state uses
+the accepted in-memory cut. `willRetry` is false for every D5c event.
+
+`customInstructions` must be absent or a string. Nonempty text is preserved as
+additional private summary focus; it is not a user message or archive record.
+Automatic request-preparation compaction emits the same event pair only for a
+real selected attempt: legacy message/byte pressure uses `threshold`, and a
+known-window estimated preflight overflow uses `overflow`. Pipy has no
+post-response compact-and-retry path, so this reason does not imply a retry.
+
+`set_auto_compaction` accepts an exact boolean and mutates
+`compaction.enabled` through a precedence-aware `SettingsManager` operation. An
+equal effective value is an idempotent success. Otherwise the owner writes an
+explicit trusted-project value when that layer currently supplies the setting,
+or the global fallback when no higher writable layer supplies it. A conflicting
+CLI/environment override is immutable for this command and causes a correlated
+refusal with no file write. Successful responses therefore agree with both the
+effective automatic policy and `get_state.autoCompactionEnabled`. `get_state`
+also reads a guarded native compaction-activity projection; it reports manual
+compaction as compacting but not streaming, and automatic compaction as both.
+The detailed ownership, cancellation, privacy, and lock-order rules are in the
+[D5c SDK contract](sdk.md#d5c-rpc-compaction-control-adoption-contract). This is
+a reviewed implementation target, not a claim that the current transport already
+implements it.
 
 ### Extension UI request/response channel
 

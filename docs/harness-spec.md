@@ -1787,6 +1787,47 @@ change is introduced. Tests pin manual/automatic outcomes, cancellation and stal
 ordering, private output/events, and acceptance/persistence counts with scripted
 providers; live semantic-summary quality remains unverified.
 
+### RPC Compaction Adoption Contract (D5c)
+
+D5c reuses the semantic owner above through the private native control described
+in [the SDK contract](sdk.md#d5c-rpc-compaction-control-adoption-contract). A
+manual RPC request is a typed, idle-only operation in the existing queue-owned
+active slot. The native worker claims its exact token, uses the same fresh abort
+latch as provider and summary execution, and settles it once after success,
+refusal, cancellation, stale work, or failure. Literal custom instructions reach
+only `compaction_request` as additional summary focus. They do not become a user
+message, durable instruction entry, workflow event, or ordinary provider hook.
+
+The implementation must replace notice-text inference with a typed bounded
+compaction result/status sufficient to project success, cancellation, ordinary
+failure, and accepted-but-not-persisted failure. It must not weaken the existing
+terminal behavior: terminal `/compact` still propagates a persistence exception
+after state advances. RPC reports that state-first case with an end-event result
+and an error response, never as an unaccepted cut and never by rolling back.
+Private summary events, retry phases, deltas, and usage stay suppressed.
+
+Automatic observation wraps the existing preparation call rather than moving
+the call or creating a scheduler. A real selected attempt emits one start and
+one end; unknown-window message/byte pressure uses `threshold`, while a known
+window's estimated preflight pressure uses `overflow`. `willRetry` remains false
+because the ordinary provider request has not yet run. The accepted cut still
+changes that same prepared request, and stale automatic work retains its fatal
+`CodingContextChangedError` cleanup. All compaction activity-state reads and
+writes use one owner guard.
+
+RPC persists an exact-boolean `set_auto_compaction` through a precedence-aware
+settings-owner operation. It writes the trusted project layer only when that
+layer explicitly supplies the effective key, otherwise the global layer; a
+conflicting CLI/environment override refuses before any write. Equal effective
+values are no-op successes. Settings capture, rather than command arrival time,
+decides whether an in-progress preparation uses the old or new value. No
+native-control gate spans the settings filesystem write. A successful persistent
+compaction requires an exact retained entry ID; an explicitly non-persistent
+session reports `firstKeptEntryId: null` and performs no durable append. The
+transport retains only command correlation, Pi-shaped projection, and JSONL
+serialization; it owns no compaction policy, summary, tree mutation, activity
+flag, or enabled flag.
+
 ### Canonical Agent Usage Accounting
 
 `pipy_harness.native.agent.usage.AgentUsageAccumulator` is the reusable owner

@@ -616,6 +616,107 @@ accepts only that same model, returns `null` for model/thinking cycles, reports
 can be rebuilt. Public `ProductSession` and compatibility `run_native` semantics
 remain unchanged.
 
+### D5c RPC compaction-control adoption contract
+
+D5c exposes the already implemented semantic-compaction owner to RPC without
+putting summary policy, provider execution, durable tree state, or settings
+ownership in the transport. A second private, once-bound compaction port joins
+the D5a startup outcome beside the D5b configuration port. Readiness is complete
+only when the queue control, abort view, readiness port, configuration port, and
+compaction port are all present. The port exposes immutable state and bounded
+operations; RPC never receives `ProviderMutationEffects`, `SettingsManager`,
+`CodingSessionState`, `NativeSessionTree`, provider objects, or their locks.
+
+Manual RPC compaction is an asynchronous worker operation. The RPC reader first
+validates `customInstructions` as absent or an exact string, then atomically
+admits one private compaction operation only when the D5a native control is truly
+idle: there is no active/reserved operation and no queued steering or follow-up.
+Busy admission returns one correlated failure and emits no compaction event. A
+second compaction request is not queued. Once admitted, the existing
+`CodingInputQueue` active slot owns the operation token and fresh abort latch;
+the worker claims that exact token and carries it until compaction settles. The
+operation is not encoded as `"/compact"`, is never provider-visible, and does not
+create another queue, active flag, cancellation source, or policy owner.
+
+The worker invokes `ProviderMutationEffects.compact_context` with trigger
+`manual`, using its existing extension gate, complete history/tree/generation
+witness, private no-tool provider request, canonical retry and cancellation,
+guarded acceptance, and state-first persistence. Nonempty custom instructions
+are appended verbatim as additional focus to the private summary request; they
+do not replace the standard continuity instructions. Empty text is equivalent
+to no additional focus. The instruction itself is not appended to the product
+tree or metadata archive. The accepted generated summary remains a full-content
+native-session value and may be returned only through the explicitly requested
+full-content RPC operation.
+
+Manual lifecycle ordering matches the protocol's awaited command shape. After
+the worker claims the operation it writes `compaction_start` with reason
+`manual`, performs no JSONL output while summary work or an owner lock is held,
+then settles the exact claim and publishes `compaction_end` followed by the
+correlated `compact` response under the D5a publication gate. A promoted prompt
+is reflected by the normal queue projection and is woken only after those
+records. Successful `compaction_end.result` and response data carry the same
+immutable `CompactionResult`: generated `summary`, exact durable
+`firstKeptEntryId` for a persistent session, and the owner's nonnegative pre-cut
+`tokensBefore` measure; optional `details` may contain only bounded counts or
+measurement metadata. An explicitly non-persistent native session may compact
+successfully with `firstKeptEntryId: null` and performs no durable append. A
+persistent session still refuses a cut with no resolved origin. Summary-provider
+usage and private retry/delta events remain excluded.
+
+No-cut, extension-veto, budget, provider, retry-exhaustion, or stale outcomes
+emit a paired end event with no `result`, `aborted: false`, `willRetry: false`,
+and a bounded content-free `errorMessage`, followed by a correlated error
+response. Abort before claim invokes no summary hooks or provider work. Abort
+during summary generation reaches the claimed operation's canonical waiter,
+publishes no state/tree transition, and ends with `aborted: true`, no result or
+error message, and a correlated cancellation error. A late abort cannot affect a
+promoted operation. Existing state-first persistence remains deliberately
+non-transactional: if live acceptance succeeds and durable append then fails,
+`compaction_end` includes the accepted result plus a fixed persistence-failure
+message, the correlated response is an error, and subsequent state/context
+reflects the accepted in-memory cut. There is no rollback or hidden retry.
+
+Automatic compaction stays in canonical request preparation; it is never
+enqueued as an RPC control operation. A narrow observer around the existing
+owner emits `compaction_start` only when pressure selects a real summary attempt
+and emits exactly one matching `compaction_end`. Legacy message/byte pressure
+maps to public reason `threshold`; known-window estimated preflight pressure maps
+to `overflow`. Both use `willRetry: false`: pipy continues preparation of the
+same accepted run after a successful preflight cut and has no Pi-style
+post-response compact-and-retry path. During automatic work `isStreaming` and
+`isCompacting` are both true; during claimed manual work only `isCompacting` is
+true. The compaction owner guards every activity-state reader and writer, and
+the observer cannot emit after operation retirement.
+
+`set_auto_compaction` accepts only an exact boolean and calls a dedicated
+precedence-aware `SettingsManager` mutation for `compaction.enabled`. If the
+requested value already equals the effective policy, it is an idempotent success
+without a write. Otherwise the owner updates the explicit trusted-project value
+when that writable layer currently supplies the key, or the global fallback
+when no higher writable layer supplies it. A conflicting CLI/environment
+override cannot be changed by RPC; the owner refuses before writing either file.
+The command response follows successful atomic file replacement and in-memory
+publication, and a success must leave the effective value equal to the request.
+Failure returns a correlated error and leaves the prior effective value. The
+operation may run while an agent turn is active: the settings lock linearizes it
+against policy capture, so already captured preparation uses its old immutable
+value and a later capture uses the new value. `get_state` reads
+`autoCompactionEnabled` from that same effective owner and `isCompacting` from
+the guarded compaction activity projection; RPC deletes its local compaction
+flag. Test configuration roots must be isolated and the user's theme/settings
+left intact.
+
+The control gate remains outermost whenever queue admission, exact settlement,
+and publication are combined. Release the queue/coding-effects locks before
+provider or filesystem work, extension callbacks, JSONL output, worker wake, or
+latch signaling. EOF uses the existing bounded drain and waits for a claimed
+manual compaction plus any promoted prompt. Manual compaction synthesizes no
+`agent_start`, `agent_end`, or `agent_settled`; `compaction_end` is its operation
+boundary. Public `ProductSession`, compatibility `run_native`, terminal
+`/compact`, session replacement, retry controls, direct bash, and archive schema
+remain unchanged.
+
 D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
 at a time, then removes replaced compatibility surfaces and their dedicated
 implementation/tests when callers are gone. D2 leaves `run_native`,
