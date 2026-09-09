@@ -43,6 +43,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.deferred_tools import responses_tool_search_items
 from pipy_harness.native.http import ProviderHTTPError, extract_responses_usage
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.base import ToolDefinition
 
 
@@ -158,7 +159,9 @@ def envelope_to_input_items(
             items.append(
                 {
                     "type": "function_call",
-                    "call_id": call.provider_correlation_id,
+                    "call_id": portable_tool_correlation_id(
+                        call.provider_correlation_id
+                    ),
                     "name": call.tool_name,
                     "arguments": call.arguments_json.value,
                 }
@@ -168,7 +171,9 @@ def envelope_to_input_items(
         return [
             {
                 "type": "function_call_output",
-                "call_id": envelope.provider_correlation_id,
+                "call_id": portable_tool_correlation_id(
+                    envelope.provider_correlation_id
+                ),
                 "output": envelope.content.value,
             }
         ]

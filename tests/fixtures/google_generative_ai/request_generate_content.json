@@ -16,6 +16,7 @@
         },
         {
           "functionCall": {
+            "id": "google-tool-0",
             "name": "read",
             "args": {
               "path": "config.toml"
@@ -29,6 +30,7 @@
       "parts": [
         {
           "functionResponse": {
+            "id": "google-tool-0",
             "name": "read",
             "response": {
               "result": "port = 8080"

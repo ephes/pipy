@@ -81,7 +81,8 @@ the third implementation after D5a0.
 
 The scheduled post-D5a3a grooming inspected summary-safe D5a3 records and the
 actual `65c2015` RPC, controller, wiring and queue paths. It found no reason to
-reorder the program: D5a3b is the sole next eligible implementation. The
+reorder the program: D5a3b was the sole next eligible implementation at that
+checkpoint. The
 committed seam is intentionally dormant, so D5a3b must connect all of its
 activation points together: stream-driven `CodingSession.run` readiness and
 pre-end failure cleanup, a claim-bearing worker selection at the existing
@@ -119,8 +120,8 @@ High plan review R1 found two Warnings about custom-model projection and
 model-induced thinking persistence/event ordering, plus one Suggestion to state
 model-switch versus thinking-only history and usage behavior. All were resolved;
 focused R2 returned CLEAN. These are independent contexts within the selected
-Terra model family, not different-family evidence. D5b1 is the sole next
-eligible implementation.
+Terra model family, not different-family evidence. D5b1 was the sole next
+eligible implementation at that checkpoint.
 
 D5b1 routes RPC model and thinking commands through the existing
 `ProviderMutationEffects` owner and removes the transport-local thinking cache.
@@ -153,7 +154,8 @@ skipped), with lint, formatting, Mypy, unchanged interpreter snapshots,
 docs-build and diff hygiene green. Fresh Terra High plan review R1 found two
 Warnings about ephemeral result IDs and settings precedence. Both were repaired;
 focused R2 returned CLEAN. These are independent contexts within the selected
-Terra model family, not different-family evidence. D5c1 is the sole next slice.
+Terra model family, not different-family evidence. D5c1 was the sole next slice
+at that checkpoint.
 
 D5c1 adopts manual and automatic RPC compaction through the existing native
 queue, semantic-compaction and settings owners. Manual requests are idle-only
@@ -169,8 +171,8 @@ snapshots, eight PTY smoke tests, docs-build and diff hygiene green. Terra High
 code review R1 found one Critical privacy leak and two lifecycle Warnings; the
 bounded repairs also closed an orchestrator-found output-under-owner-lock path.
 Focused R2 returned CLEAN. This is same-model-family independent review evidence.
-D5c is complete; live-provider summary quality remains unverified. D5d is the
-sole next eligible task.
+D5c is complete; live-provider summary quality remains unverified. D5d was the
+sole next eligible task at that checkpoint.
 
 D5d0 fixes the retry-control adoption contract after a read-only Terra High
 investigation at `ca21328`. D4 already owns ordinary request retry execution,
@@ -181,8 +183,9 @@ selected contract removes that flag, mutates effective `retry.enabled` with the
 same precedence discipline as compaction, and adds one private once-bound port
 whose exact capability exists only during an ordinary canonical retry phase.
 Result fixation and abort linearize so a late command cannot cancel the
-surrounding provider turn or later work. Summary retries stay private. D5d1 is
-the sole next implementation slice. Root validation passed 219 focused checks
+surrounding provider turn or later work. Summary retries stay private. D5d1 was
+the sole next implementation slice at that checkpoint. Root validation passed
+219 focused checks
 and the full 6,062-test gate (two skipped), with lint, formatting, Mypy,
 unchanged interpreter snapshots, docs-build and diff hygiene green. Fresh Terra
 High plan review R1 found one Warning for the stale user-facing RPC overview;
@@ -710,9 +713,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D7b1 | Complete `66189ed`; full checks and first Terra code review CLEAN; D7b0 `5642c5e` | Add line-gated, correlated direct-bash update callbacks through the existing sandbox and RPC writer | Pi-shaped optional-ID deltas before one terminal response; bounded per-stream updates; no raw partial line, secret fragment, late callback, or terminal-result change |
 | D7b | Complete `66189ed`; D7b1 complete | Correlated incremental RPC bash output milestone, not a separate dispatch | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8e | Verified in this planning chunk; D6c `b275c82` | Reuse the existing extension conformance example/tests and prove whether behavior is missing | Golden product/gate coverage exercises tools, commands, events, chrome/renderers and privacy; generic command-surface tests cover the only residual menu-row assertion; no duplicate example or runtime change |
-| D8a0 | Complete in this planning chunk; 6,183 full tests; first Terra plan review CLEAN; D6c `b275c82` | Review target-safe cross-provider tool-correlation replay without changing durable history | Exact portable mapping, affected non-Codex wire owners, same-provider preservation, product-path witness and bounded write set fixed before code |
-| D8a1 | Next eligible after this planning commit | Compile raw canonical tool correlations to paired target-safe wire IDs | Anthropic/Bedrock, Google/Vertex, Responses/Azure and Chat-compatible adapters preserve pairing; Codex split replay and durable schema unchanged |
-| D8 | D8a1 | Close the extension-conformance and provider-replay audit milestone | Existing conformance reused; same-provider and cross-provider text/tool history proved; no unsupported rich-content/provenance migration or live-provider claim |
+| D8a0 | Complete `787de4e`; 6,183 full tests; first Terra plan review CLEAN; D6c `b275c82` | Review target-safe cross-provider tool-correlation replay without changing durable history | Exact portable mapping, affected non-Codex wire owners, same-provider preservation, product-path witness and bounded write set fixed before code |
+| D8a1 | Complete in this implementation chunk; 151 focused and 6,190 full tests; focused Terra R3 CLEAN; D8a0 `787de4e` | Compile raw canonical tool correlations to paired target-safe wire IDs | Anthropic/Bedrock, Google/Vertex, Responses/Azure and Chat-compatible adapters preserve pairing; Codex split replay and durable schema unchanged |
+| D8 | Complete in this implementation chunk; D8e and D8a1 complete | Close the extension-conformance and provider-replay audit milestone | Existing conformance reused; same-provider and cross-provider text/tool history proved; no unsupported rich-content/provenance migration or live-provider claim |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
 session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
@@ -730,12 +733,13 @@ lease and strict reopen are complete, and D7 now has exact cancellable operation
 plus bounded private update relays. Live-provider dogfooding and semantic-summary
 quality remain explicitly unverified.
 
-D6b is next but was too broad for one writer: public fork/clone, public switching
-and RPC transition adoption have different failure and ownership boundaries.
+D6b was next at that checkpoint but too broad for one writer: public fork/clone,
+public switching and RPC transition adoption have different failure and
+ownership boundaries.
 The split above keeps D6b0 planning-only, D6b1 on child creation, D6b2 on target
 lease handoff, and D6b3 on the already migrated RPC queue/transport boundary.
 D6c remains downstream and must choose one frontend entry point per commit before
-retiring its replaced compatibility surface. D8 is not independently eligible:
+retiring its replaced compatibility surface. D8 was not independently eligible then:
 its extension example already exists, and its provider-history/conformance audit
 must refresh only after D6c adoption is complete.
 
@@ -1111,13 +1115,34 @@ CLEAN over the complete three-document contract, and the loop stopped after one
 round. Full validation passes 6,183 tests with two skipped, plus lint,
 formatting, Mypy, documentation build and diff hygiene.
 
+D8a1 implements the reviewed transport boundary with one stateless portable-ID
+helper and the four shared non-Codex serializers. Safe target IDs pass through;
+unsafe raw IDs compile to the reviewed digest form on both sides of each tool
+pair. Google now emits paired IDs and preserves a returned nonempty ID while
+retaining its existing fallback. The canonical agent, durable JSONL and Codex
+compound split remain unchanged. A strict product-session reopen through the
+real Anthropic adapter with fake HTTP proves paired outbound IDs, raw durable
+retention and no historical tool re-execution. Root's focused gate passes 151
+tests. Terra code review R1 found one release-note sentence that implied raw
+durability was new; the wording was corrected, and the focused R2 returned
+CLEAN without reopening the audit. The first full run then exposed two stale
+Google golden-request fixtures; their paired safe-ID expectations were updated,
+ten fixture tests pass, and a fixture-only R3 returned CLEAN. Final validation
+passes 6,190 tests with two skipped, plus lint, formatting and Mypy.
+
+The integrated D0–D8 implementation queue is now complete. No further eligible
+implementation slice is evidenced by the backlog. Credentialed live-provider
+dogfooding, live semantic-summary quality and live cross-provider answer quality
+remain explicitly unverified; synthetic and fake-transport coverage is not a
+claim of observed daily usability.
+
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.
 No matching prior decision record changes the queue. The supported SDK already
 owns a persistent product lifetime and accepts an injected opened tree, but
 public resume remains an undocumented escape hatch. Direct RPC bash cancellation
 is also a real gap, although it affects only the restricted direct-command RPC
-surface. D6a therefore remains first and is split into the reviewed D6a0
+surface. D6a therefore remained first and was split into the reviewed D6a0
 contract and narrow D6a1 implementation below. D7a follows D6a unless an
 observed controller workflow makes it the immediate blocker. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the

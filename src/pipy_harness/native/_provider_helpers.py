@@ -18,6 +18,7 @@ from typing import Any
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.base import materialize_tool_input_schema
 
 
@@ -184,7 +185,7 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
         if envelope.tool_calls:
             message["tool_calls"] = [
                 {
-                    "id": call.provider_correlation_id,
+                    "id": portable_tool_correlation_id(call.provider_correlation_id),
                     "type": "function",
                     "function": {
                         "name": call.tool_name,
@@ -199,7 +200,9 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
     if isinstance(envelope, AgentToolResultMessage):
         return {
             "role": "tool",
-            "tool_call_id": envelope.provider_correlation_id,
+            "tool_call_id": portable_tool_correlation_id(
+                envelope.provider_correlation_id
+            ),
             "content": envelope.content.value,
         }
     raise ValueError(f"unsupported message envelope: {type(envelope).__name__}")

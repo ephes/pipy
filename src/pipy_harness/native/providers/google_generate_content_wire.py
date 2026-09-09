@@ -47,6 +47,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.http import ProviderHTTPError, extract_usage_from_fields
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.base import materialize_tool_input_schema
 
 
@@ -145,6 +146,9 @@ def envelope_to_content(
             parts.append(
                 {
                     "functionCall": {
+                        "id": portable_tool_correlation_id(
+                            call.provider_correlation_id
+                        ),
                         "name": call.tool_name,
                         "args": dict(parsed_args),
                     }
@@ -159,6 +163,9 @@ def envelope_to_content(
             "parts": [
                 {
                     "functionResponse": {
+                        "id": portable_tool_correlation_id(
+                            envelope.provider_correlation_id
+                        ),
                         "name": envelope.tool_name,
                         "response": {"result": envelope.content.value},
                     }
@@ -272,7 +279,12 @@ def extract_tool_calls(
             arguments_json = args
         else:
             arguments_json = "{}"
-        correlation = f"{tool_call_provider_prefix}-tool-{index}"
+        returned_id = function_call.get("id")
+        correlation = (
+            returned_id
+            if isinstance(returned_id, str) and returned_id
+            else f"{tool_call_provider_prefix}-tool-{index}"
+        )
         try:
             calls.append(
                 ProviderToolCall(

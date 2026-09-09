@@ -394,6 +394,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Cross-provider product-session reopens now project each durable tool-call and
+  result pair to matching target-safe provider wire IDs while retaining raw
+  canonical history and JSONL.
+
 - The legacy score test now uses its installed interpreter directly under its
   isolated home, avoiding nested `uv run` calls that could change the shared
   development environment. Explicit `PIPY_PARITY_PYTHON` mode preflights Python,

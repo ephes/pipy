@@ -231,6 +231,7 @@ def test_tool_result_round_trip(tmp_path):
                 {"text": "thinking"},
                 {
                     "functionCall": {
+                        "id": "google-vertex-tool-0",
                         "name": "read_file",
                         "args": {"path": "README.md"},
                     }
@@ -242,6 +243,7 @@ def test_tool_result_round_trip(tmp_path):
             "parts": [
                 {
                     "functionResponse": {
+                        "id": "google-vertex-tool-0",
                         "name": "read_file",
                         "response": {"result": "file contents go here"},
                     }

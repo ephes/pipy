@@ -51,6 +51,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.http import ProviderHTTPError, extract_anthropic_usage
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +195,7 @@ def envelope_to_message(
             content.append(
                 {
                     "type": "tool_use",
-                    "id": call.provider_correlation_id,
+                    "id": portable_tool_correlation_id(call.provider_correlation_id),
                     "name": call.tool_name,
                     "input": dict(parsed_input),
                 }
@@ -231,7 +232,7 @@ def convert_tool_result(
         references.append({"type": "tool_reference", "tool_name": name})
     block: dict[str, object] = {
         "type": "tool_result",
-        "tool_use_id": envelope.provider_correlation_id,
+        "tool_use_id": portable_tool_correlation_id(envelope.provider_correlation_id),
         "content": references if references else envelope.content.value,
     }
     if envelope.is_error:
