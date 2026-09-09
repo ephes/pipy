@@ -489,9 +489,112 @@ The response write happens outside the lock and exactly once. The RPC lock never
 covers spawn, wait, group termination, drain, reaping, worker join, JSONL
 writing, or callbacks; the JSONL writer remains the sole stdout serialization
 owner. EOF still joins bash workers. The bounded, secret-redacted combined
-stdout/stderr projection remains unchanged. This implementation adds neither incremental
-bash updates (D7b), bash IDs, history persistence, cross-process coordination,
-nor a model-tool or sandbox-policy change.
+stdout/stderr projection remains unchanged. This implementation adds neither
+incremental bash updates (D7b), bash IDs, history persistence, cross-process
+coordination, nor a model-tool or sandbox-policy change.
+
+### D7b incremental direct-bash output contract
+
+D7b1 will add correlated incremental output only for an **accepted** direct
+RPC `bash` command. It emits zero or more asynchronous Pi-shaped records:
+
+```json
+{"type":"bash_execution_update","id":"<request id>","delta":"<append-only text>"}
+```
+
+`id` is the original optional request ID and is omitted when the request had no
+ID. There is no public operation ID, stream label, sequence number, timestamp,
+completion field, `fullOutputPath`, persistence record, or new generic event
+surface. `delta` is append-only, never a cumulative snapshot. Updates and all
+other RPC output use the sole `JsonlWriter`; concurrent operations and session
+events may interleave at record boundaries, but a JSONL record never interleaves
+mid-line.
+
+The sandbox callback performs only bounded, nonblocking admission or
+coalescing of already-safe deltas into a private relay owned by that exact RPC
+operation, then returns. It never calls the blocking `JsonlWriter`. The relay's
+pending state is bounded by the same finite per-stream payload budgets as its
+updates; it may coalesce admitted deltas but may not grow an unbounded queue of
+records. A separate RPC-owned emitter drains the relay through `JsonlWriter`.
+Thus a blocked stdout writer cannot prevent timeout/abort polling, process-group
+escalation, pipe draining, or direct-child reaping in the sandbox.
+
+For one operation, every admitted update precedes that operation's one terminal
+`bash` response in writer order. After `run_command` returns with process cleanup
+complete, the worker closes that operation's relay and waits for every admitted
+update write before it fixes/retires the exact RPC operation and writes the
+terminal response. The callback admits nothing after sandbox return, operation
+fixation or retirement, a terminal response, pre-spawn cancellation, preflight
+rejection, spawn failure, EOF disposal, or into a later operation that happens
+to use the same request ID. Callback admission, relay emission, and JSONL writes
+remain outside the RPC state lock; `JsonlWriter` keeps its existing
+blocking/backpressure behavior.
+
+Termination request and termination finalization are distinct. A timeout or
+explicit abort may request group cleanup while the sandbox continues to drain
+safe complete records; those records may be admitted and emitted before
+`run_command` returns and before operation fixation. Once cleanup returns and
+the relay closes, no new update may publish. The relay drain still completes
+before the terminal response.
+
+The terminal `BashResult.output` remains authoritative. It keeps the current
+separate-stream `stdout + stderr` shaping, complete-stream redaction and
+truncation semantics, and `truncated` flag. Selector readiness only determines
+which eligible callback is observed next; update deltas are not promised to
+concatenate byte-for-byte to terminal output.
+
+Pipy deliberately gates update privacy more strictly than Pi. The sandbox must
+never send a raw selector chunk, partial line, or unclassified prefix to the
+callback. It buffers stdout and stderr independently by raw bytes, commits only
+LF-delimited records, then decodes committed bytes with UTF-8 replacement and
+applies the existing complete-line secret classifier and redaction. A CR before
+LF is content, never framing. An ordinary or redacted LF-delimited update
+retains its source LF only when that LF fits its stream budget. A final
+unterminated fragment is eligible for classification only after `os.read`
+returns EOF for that exact stream; a short read, direct-child exit, timeout or
+abort request, and SIGTERM do not make a fragment safe to publish. That EOF
+fragment has no LF. A secret-shaped line emits only `[redacted: secret-shaped
+content]`; a decisive suffix split across reads cannot expose its prefix. A
+split UTF-8 code point likewise cannot make an invalid update string.
+
+`CommandPolicy.max_output_bytes` is both the per-stream serialized-delta budget
+and the maximum pending unterminated raw-line size. The budget is the UTF-8 byte
+length of the emitted `delta` payload after shaping, excluding the outer JSONL
+envelope and request ID. Ordinary text, redaction markers, retained LFs, and
+opaque markers all consume that stream's budget except for one stable exhausting
+marker. Each stream's total emitted `delta` payload is bounded by
+`CommandPolicy.max_output_bytes` plus at most one such marker: either
+`... (truncated)` or `[output update suppressed: overlong line]`, never both.
+When a classified safe line would cross its remaining budget, the sandbox clips
+only already-classified safe text at a UTF-8 code-point boundary, emits the
+stable `... (truncated)` marker, and immediately exhausts/suppresses that
+stream. A secret marker is never an over-budget marker: it is emitted with its
+LF when both fit, without its LF when only the marker fits, and otherwise the
+stream is suppressed without emitting the line. If an unterminated raw line
+exceeds the pending cap before classification, the sandbox emits exactly one
+`[output update suppressed: overlong line]` marker for that stream, immediately
+exhausts/suppresses that stream, discards bytes from it through its next LF or
+EOF, and never emits its prefix. The other stream continues under its own
+budget. In particular, repeated short secret lines cannot emit unbounded
+redaction markers. These update limits do not change the terminal result's
+independent full-stream redaction/truncation behavior.
+
+D7b1 acceptance coverage must prove paced real output produces correlated
+updates before exactly one terminal response; an absent request ID omits `id`;
+concurrent operations remain correctly correlated and JSONL stays parseable;
+split-read secrets and UTF-8 are safe; CR/LF and EOF-fragment framing are exact;
+secret lines emit only the redaction marker; repeated secret lines under a tiny
+budget remain bounded; huge unterminated lines, including a tiny-budget case,
+remain bounded with one opaque marker and no prefix; each stream's cumulative
+serialized-delta payload remains within its budget plus at most one exhausting
+marker, never both markers;
+stdout/stderr selector order does not override terminal authority; and explicit
+abort, timeout, both abort versus fixation orders, EOF joining, and
+late/successor callback attempts allow only safe pre-terminal updates. A
+deliberately blocked writer must still permit abort and timeout to terminate and
+reap the child before writer release, then drain admitted updates and the one
+terminal response in order. Existing allowlist, cwd, environment, redaction,
+and terminal-result coverage remains unchanged.
 
 `CompactionResult` (`compact`): `summary: string`,
 `firstKeptEntryId: string | null`, `tokensBefore: number`, `details?: object`.
@@ -647,7 +750,9 @@ native session tree (`docs/session-tree.md`).
   secret-redacted projection, JSONL serialization, and EOF joining. The model
   tool loop continues to use its separate `BashTool` executor and model-tool
   policy path; D7a does not route direct RPC bash through it or broaden either
-  policy.
+  policy. D7b's planned incremental records are callback-driven, correlated by
+  the optional RPC request ID, and line-gated before publication; they add no
+  stream/event infrastructure or model-tool behavior.
 - **Model and thinking controls.** RPC routes catalog-backed controls through
   the existing provider-mutation owner. `get_available_models` returns each
   locally available, tool-capable catalog selection and the active custom

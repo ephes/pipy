@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** inspect D7b's existing RPC output/event owners and tests, then
-bound the correlated incremental-bash-output contract before implementation.
+**Next task:** complete independent review and commit of the D7b0 incremental
+direct-bash-output contract, then dispatch D7b1 as the sole implementation slice.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -690,7 +690,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
 | D7a1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
 | D7a | Complete in this chunk; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
-| D7b | D7a | Correlated incremental RPC bash output | No updates after completion; bounded output, JSONL purity and EOF disposal |
+| D7b0 | Complete in this chunk; full checks and two Terra plan rounds, final Warning repaired and locally adjudicated; D7a `d900ca5` | Review correlated incremental direct-bash output, privacy, bounds and lifecycle contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current terminal-only behavior remains explicit until D7b1 |
+| D7b1 | D7b0 | Add line-gated, correlated direct-bash update callbacks through the existing sandbox and RPC writer | Pi-shaped optional-ID deltas before one terminal response; bounded per-stream updates; no raw partial line, secret fragment, late callback, or terminal-result change |
+| D7b | D7b1 | Correlated incremental RPC bash output milestone, not a separate dispatch | No updates after completion; bounded output, JSONL purity and EOF disposal |
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
@@ -876,6 +878,60 @@ D7b remains next because it extends the just-validated direct-bash operation and
 JSONL response owners; inspecting and fixing that bounded contract before another
 RPC edit reduces ownership churn. D6b remains deferred behind that adjacent RPC
 slice, with no prerequisite or acceptance change.
+
+### D7b — Correlated incremental direct-bash output
+
+Read-only Terra investigations at `d900ca5` found that the sandbox owns selector
+draining, separate raw stdout/stderr capture, process cleanup and terminal
+redaction, while RPC owns the exact operation identity and the sole serialized
+JSONL writer. Pi reference `aa23e78` emits append-only
+`bash_execution_update` deltas with the original optional request ID and no
+stream or sequence field. Copying its raw-chunk callback would violate pipy's
+stricter privacy boundary: the existing secret classifier may need a suffix from
+a later read before it can classify the prefix.
+
+D7b0 fixes the bounded implementation contract in
+[the automation RPC specification](automation-rpc.md#d7b-incremental-direct-bash-output-contract).
+D7b1 adds an optional direct-RPC callback at the existing sandbox drain boundary.
+Each source stream buffers raw bytes until a complete LF-delimited line or safe
+EOF fragment can be classified, decoded and redacted. A pending unterminated line
+and cumulative updates use the existing per-stream output limit; all text and
+markers consume that budget, while an overlong line emits one opaque terminal
+suppression marker without exposing its prefix. Callback admission into a bounded
+private per-operation relay never blocks process cleanup; a separate emitter uses
+the existing writer, drains before operation fixation, and orders every emitted
+Pi-shaped delta before that exact operation's terminal response. Terminal output
+keeps its current independent, authoritative stdout-then-stderr shaping.
+
+D7b1 may write `src/pipy_harness/native/command_sandbox.py`,
+`src/pipy_harness/native/automation/rpc.py`, `tests/test_command_sandbox.py`,
+`tests/test_native_automation_rpc.py`, and `tests/test_native_automation_jsonl.py`
+only if the shared writer needs an additional ordering witness. Matching behavior
+documentation is `docs/automation-rpc.md`, `docs/rpc.md`, `docs/architecture.md`
+and `CHANGELOG.md`; the orchestrator owns this backlog. It adds no public bash
+operation ID, stream/sequence schema, history persistence, model-tool behavior,
+event bus, async rewrite, sandbox-policy expansion, or terminal result change.
+
+Acceptance must cover paced real output and missing-ID updates, concurrent
+correlation and parseable JSONL, split-read secrets and UTF-8, secret and
+overlong-line markers, per-stream budgets, stdout/stderr readiness versus
+terminal authority, explicit abort and timeout, both abort/fixation orderings,
+EOF joining, late/successor callback isolation, repeated secret lines under a
+tiny budget, and process termination/reaping while the JSONL writer is blocked.
+D7b depends only on completed D7a. D6b remains eligible afterward and its
+contract is unchanged.
+
+Independent Terra plan review R1 found one Critical issue: a synchronous update
+write could block the sandbox's timeout/abort cleanup, plus Warnings for marker
+accounting and line/EOF finalization. The repair introduced the bounded
+nonblocking relay, charged all ordinary/redacted output and markers, and pinned
+LF, CR, exact-stream EOF and termination-drain behavior. Focused R2 found one
+remaining Warning because the fixed overlong-line marker can exceed a one-byte
+policy budget. The final repair makes either exhausting marker the sole bounded
+exception and caps each stream at its configured bytes plus at most that one
+marker. The two-round docs cap is reached; the final disposition is advisory,
+not CLEAN, with no unresolved material finding and no reason for another prose
+round.
 
 ### D5a — Refreshed queue ownership basis
 

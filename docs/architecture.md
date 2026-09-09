@@ -996,6 +996,19 @@ retires the operation unchanged. The lock is not held for process work,
 output/callback work, or JSONL writes; the JSONL writer remains the output
 serialization owner.
 
+D7b will extend that direct-bash boundary with a private per-operation relay,
+never a new event bus. The sandbox owns per-stream raw-byte buffering,
+LF-line classification/redaction, and process cleanup. Its callback only admits
+or coalesces bounded safe deltas and returns; an RPC-owned emitter is the sole
+blocking `JsonlWriter` caller for those updates. Consequently writer backpressure
+cannot block timeout/abort polling, group escalation, draining, or child reaping.
+After sandbox cleanup returns, the relay closes and every admitted write drains
+before RPC fixes/retires the exact operation and emits its sole terminal response.
+The RPC lock remains free of callbacks and writes. Update records can interleave
+with other serialized JSONL records but cannot escape their operation after
+relay close, fixation, EOF disposal, or successor registration. Terminal
+`BashResult` shaping remains independent and authoritative.
+
 `product_api.py` composes one prepared `CodingSessionAdapter` and enters the
 existing native persistent lifetime. `sdk.py` exports that full-content API
 alongside the unchanged one-shot compatibility surface. The facade owns only
