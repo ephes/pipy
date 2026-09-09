@@ -9,9 +9,10 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** implement D5b1 against the reviewed D5b0 RPC
-model/thinking-control contract. Keep model selection, provider construction and
-refresh/trust policy in their existing owner.
+**Next task:** investigate and fix D5c's bounded RPC compaction-control adoption
+contract against the committed D5a shared-control and D1b semantic-compaction
+owners before implementation. Keep compaction policy and durable summary state
+out of the transport.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -122,6 +123,25 @@ model-switch versus thinking-only history and usage behavior. All were resolved;
 focused R2 returned CLEAN. These are independent contexts within the selected
 Terra model family, not different-family evidence. D5b1 is the sole next
 eligible implementation.
+
+D5b1 routes RPC model and thinking commands through the existing
+`ProviderMutationEffects` owner and removes the transport-local thinking cache.
+The full ready outcome now includes the non-null configuration port; catalog,
+custom-model and `enabledModels` glob projection is truthful; idle-only model and
+thinking mutations update the actual next provider binding with the specified
+history/usage, persistence, event and state-first failure behavior. Deterministic
+tests cover both admission/preparation race orders, catalog refusal and scope,
+static injected providers, owner retention/reset and a subsequent real provider
+request. Root validation passed 261 focused tests and the full 6,035-test gate
+(two skipped), with lint, formatting, Mypy, unchanged interpreter snapshots,
+docs-build and diff hygiene green. Fresh Terra High code review R1 found one
+Warning that a filtered known active catalog row was re-added; root also found
+exact-only scope matching. The bounded repair distinguishes catalog-absent
+custom selections, uses the canonical exact/glob cycle helpers and handles
+zero/one choices. Focused R2 returned CLEAN. These are independent contexts
+within the selected Terra model family, not different-family evidence. D5b is
+complete; live credential/provider acceptance and daily-use switching remain
+unverified.
 
 Validation lesson: test fixtures isolate HOME. Do not wrap project `uv` or
 `just check` in a temporary HOME; isolate standalone product experiments
@@ -587,9 +607,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D5a3b | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a3a `65c2015` | Atomically migrate RPC prompt/steer/follow-up/abort/state and end/settled projection; delete the old RPC writers/readers together | 276 focused and 6,022 full tests; stream-driven startup/failure readiness, wake/EOF-only transport, exact settlement, post-extension true idle, framing/correlation, typed delivery and EOF drain preserved |
 | D5a3 | Complete in this chunk; D5a3a–D5a3b complete | Shared-control/RPC adoption milestone, not a separate dispatch | RPC retains transport/projection only; no dual queue, latch, reservation or active-state authority |
 | D5a | Complete in this chunk; D5a1–D5a3 complete | Completion milestone for shared session queue and RPC adoption, not a separate implementation dispatch | No dual authorities or unadopted migration seams; all inventory and equivalence gates satisfied |
-| D5b0 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5a `112397a` | Fix the private RPC-to-provider-mutation handoff, idle commit ordering, catalog/scoped-cycle projection and injected-provider fallback | Reviewed implementation contract; no runtime change |
-| D5b1 | Eligible after D5b0 commit | Route RPC model/thinking commands through the existing provider-mutation owner and delete RPC-local thinking authority | Truthful coherent snapshots, real next-request provider/level, catalog/trust/tool-capability filtering, durable thinking entry, correlated results |
-| D5b | D5b0–D5b1 complete | RPC model/thinking controls milestone, not a separate dispatch | Existing provider construction, refresh/trust, settings and coding-binding owners remain authoritative |
+| D5b0 | Complete `386ab33`; full checks and focused Terra follow-up CLEAN; D5a `112397a` | Fix the private RPC-to-provider-mutation handoff, idle commit ordering, catalog/scoped-cycle projection and injected-provider fallback | Reviewed implementation contract; no runtime change |
+| D5b1 | Complete in this chunk; full checks and focused Terra follow-up CLEAN; D5b0 `386ab33` | Route RPC model/thinking commands through the existing provider-mutation owner and delete RPC-local thinking authority | 261 focused and 6,035 full tests; truthful coherent snapshots, real next-request provider/level, catalog/trust/tool-capability filtering, durable thinking entry, correlated results |
+| D5b | Complete in this chunk; D5b0–D5b1 complete | RPC model/thinking controls milestone, not a separate dispatch | Existing provider construction, refresh/trust, settings and coding-binding owners remain authoritative |
 | D5c | D5a, D1b | RPC compaction and auto-compaction controls | Controls affect real session policy; preserve documented event names, reason values, framing and correlation |
 | D5d | D5a, D4a3 | RPC retry enable/abort | Controls reach the real retry owner; abort/backoff/settlement races covered |
 | D6a | D2b, D5a | Session resume/close API | Equivalent reconstructed context; extension lifecycle once; no late writes after retirement |
@@ -600,8 +620,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D8 | D0; refresh embedding after D2b/D6c | Reuse existing extension conformance example/tests; audit provider replay before selecting changes | `docs/examples/extensions/pipy-extension-conformance.py` already covers tools/commands/events: prove missing behavior before adding examples; same-provider resume/cross-provider history evidence before schema work |
 
 D1a/D1b delivered semantic continuity; D2a/D2b established the minimal reusable
-session API. D4 recovery is complete at `8c34a9c`, and D5a queue/RPC shared-control
-adoption is complete at `112397a`. D5b0 is the next eligible slice; D7 can move earlier
+session API. D4 recovery is complete at `8c34a9c`, D5a queue/RPC shared-control
+adoption is complete at `112397a`, and D5b model/thinking adoption is complete
+in the current chunk. D5c is the sole next eligible slice; D7 can move earlier
 if direct-command cancellation matters to the selected workflow. The
 orchestrator records such a decision here before dispatch. No simultaneous
 runtime writers: the D1a–D4b slices share session/provider integration, and the

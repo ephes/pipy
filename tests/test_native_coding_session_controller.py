@@ -63,6 +63,8 @@ from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl import wiring as _wiring
 from pipy_harness.native.tui import TerminalUi
 
+_DUMMY_CONFIGURATION_PORT = object()
+
 
 class _FakeProvider:
     @property
@@ -1656,10 +1658,16 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
         bridge.admit_prompt(ProductContent("too early"))
     control = _NativeSessionControl(CodingInputQueue())
     readiness = _ControllerReadinessPort(control)
-    bridge.publish_ready(control, control.abort_view, readiness)
+    with pytest.raises(TypeError, match="configuration_port"):
+        bridge.publish_ready(control, control.abort_view, readiness, None)
+    assert bridge.wait_ready(0) is None
+    bridge.publish_ready(
+        control, control.abort_view, readiness, _DUMMY_CONFIGURATION_PORT
+    )
     outcome = bridge.wait_ready(0)
     assert type(outcome) is _NativeControlReady
     assert outcome.control is control
+    assert outcome.configuration_port is _DUMMY_CONFIGURATION_PORT
     assert bridge.publish_failure_if_unpublished(RuntimeError("late")) is False
     with pytest.raises(RuntimeError, match="already published"):
         bridge.publish_failure(RuntimeError("late"))
@@ -1672,10 +1680,40 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
         failed.publish_failure(ValueError("duplicate"))
 
 
+def test_controller_missing_configuration_port_fails_before_ready_publication() -> None:
+    queue = CodingInputQueue()
+    controller, _ = _controller(queue)
+    bridge = _NativeSessionControlBridge()
+    controller.bind_native_control_bridge(bridge)
+    with pytest.raises(RuntimeError, match="configuration port is not bound") as raised:
+        controller.run_loop(
+            step_once=lambda: LoopStepSignal.break_loop(),
+            finalize=_repl_result,
+            fire_session_start=lambda: None,
+            fire_session_shutdown=lambda: None,
+            consume_settle_pending=lambda: False,
+            close_extension_session=lambda: None,
+            clear_extension_chrome=lambda: None,
+        )
+    assert bridge.wait_ready(0) is None
+    assert bridge.publish_failure_if_unpublished(raised.value)
+    outcome = bridge.wait_ready(0)
+    assert type(outcome) is _NativeControlFailed
+    assert outcome.error is raised.value
+
+    with pytest.raises(TypeError, match="configuration port"):
+        controller.bind_rpc_configuration_port(None)
+
+
 def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
-    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+    )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
     claim = bridge.attach_selected_claim(admitted.reservation)
@@ -1691,7 +1729,12 @@ def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
 def test_control_bridge_foreign_or_mismatched_claim_fails_closed() -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
-    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+    )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
     claim = bridge.attach_selected_claim(admitted.reservation)
@@ -1719,7 +1762,12 @@ def test_control_bridge_foreign_or_mismatched_claim_fails_closed() -> None:
 def test_control_bridge_token_mismatch_never_settles_the_attached_claim() -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
-    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+    )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
     claim = bridge.attach_selected_claim(admitted.reservation)
@@ -1739,10 +1787,20 @@ def test_control_bridge_rejects_mismatched_ready_components() -> None:
     second = _NativeSessionControl(CodingInputQueue())
 
     with pytest.raises(ValueError, match="abort_view"):
-        bridge.publish_ready(first, second.abort_view, _ControllerReadinessPort(first))
+        bridge.publish_ready(
+            first,
+            second.abort_view,
+            _ControllerReadinessPort(first),
+            _DUMMY_CONFIGURATION_PORT,
+        )
     assert bridge.wait_ready(0) is None
     with pytest.raises(ValueError, match="readiness_port"):
-        bridge.publish_ready(first, first.abort_view, _ControllerReadinessPort(second))
+        bridge.publish_ready(
+            first,
+            first.abort_view,
+            _ControllerReadinessPort(second),
+            _DUMMY_CONFIGURATION_PORT,
+        )
     assert bridge.wait_ready(0) is None
 
 
@@ -1751,7 +1809,12 @@ def test_bridge_admission_racing_fatal_consumption_serializes_before_failure(
 ) -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
-    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+    )
     active = bridge.admit_prompt(ProductContent("active"))
     assert active.reservation is not None
     claim = bridge.attach_selected_claim(active.reservation)
@@ -1820,7 +1883,12 @@ def test_extension_phase_failure_publishes_bridge_failure(
 def test_control_bridge_pre_end_failure_settles_exact_claim_and_retires() -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
-    bridge.publish_ready(control, control.abort_view, _ControllerReadinessPort(control))
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+    )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
     claim = bridge.attach_selected_claim(admitted.reservation)
@@ -1845,6 +1913,7 @@ def test_run_loop_pre_end_failure_settles_claim_before_lifetime_retirement() -> 
     controller, emitter = _controller(queue)
     bridge = _NativeSessionControlBridge()
     controller.bind_native_control_bridge(bridge)
+    controller.bind_rpc_configuration_port(_DUMMY_CONFIGURATION_PORT)
     primary = LookupError("provider failed before AgentRunCompleted")
     retired: list[str] = []
 

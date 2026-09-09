@@ -602,53 +602,24 @@ native session tree (`docs/session-tree.md`).
   Full output is in-scope for this RPC surface. The current response maps a
   sandbox timeout to `cancelled: true`; distinct timeout and explicit-abort
   outcomes remain part of the planned process-lifecycle work.
-- **Model controls — current build (documented boundary).**
-  `get_available_models` returns the configured provider/model; `set_model`
-  succeeds for the currently selected provider/model and returns a well-formed
-  error for any other (the automation build runs a single configured provider);
-  `cycle_model` returns `null` data (nothing to cycle to). No live provider
-  switch happens.
-- **Thinking controls.** `set_thinking_level`/`cycle_thinking_level` validate
-  and record the requested level, surface it in `get_state.thinkingLevel`, emit a
-  `thinking_level_changed` event, and, for catalog-backed RPC sessions, thread
-  the level through the shared provider-state construction boundary so the next
-  provider request uses the selected thinking level. Injected-provider adapters
-  without a provider-state boundary keep the recorded/get_state behavior only.
-  Live provider switching over RPC remains an explicit follow-on; the accepted
-  command vocabulary and response shapes stay Pi-compatible.
-
-#### Planned D5b model/thinking adoption
-
-D5b routes these commands through the session's existing provider-mutation
-owner. For catalog-backed sessions, `get_available_models` will return the
-locally available, tool-capable catalog choices plus the active custom selection
-when it is outside that catalog list. D5b's immutable, privacy-safe `Model`
-projection is exactly `{ "provider": string, "id": string }`; richer catalog
-metadata remains outside this slice. `set_model` and `cycle_model` will rebuild
-and atomically publish the live coding provider used by the next request.
-Selecting the already active pair is an idempotent success with no construction,
-persistence or event. Cycling uses `enabledModels` when that scope selects at
-least one effective choice and reports `isScoped`; a singleton effective set
-returns explicit `null`.
-
-Model and thinking changes are idle-only. Provider construction happens before
-the final native-control gate; the commit rechecks that no prompt, reservation or
-pending continuation was admitted. A racing prompt wins and the correlated
-configuration command fails without retargeting that run. Thinking changes use
-the selected model's supported levels, rebind the same model's provider, append
-one durable entry for an effective change, and emit
-`thinking_level_changed` only after the successful response. `get_state` reads
-one owner snapshot instead of RPC-local thinking state. A model switch clamps
-the prior level through the existing model-capability helper; if that changes the
-effective level, the owner records one durable thinking entry as part of the
-successful operation, then RPC writes the model response followed by one
-`thinking_level_changed` event. Model switches retain the existing coding-history
-and usage reset, while a thinking-only rebind preserves both values.
-
-An injected-provider session without the catalog/state owner remains a truthful
-static singleton. It cannot switch or record a transport-only thinking level.
-Live credential refresh and provider-side acceptance remain dogfood checks, not
-claims established by synthetic RPC tests.
+- **Model and thinking controls.** RPC routes catalog-backed controls through
+  the existing provider-mutation owner. `get_available_models` returns each
+  locally available, tool-capable catalog selection and the active custom
+  selection when needed; every model projection is exactly `{ "provider":
+  string, "id": string }`. `set_model` and `cycle_model` rebuild and atomically
+  publish the provider for the next request. Re-selecting the active pair is a
+  no-op success. Cycling honors effective `enabledModels` scope and reports
+  `isScoped`; a singleton yields explicit `null`.
+- Changes are idle-only: construction happens before the final native-control
+  gate and an admitted prompt wins any race, leaving the live binding unchanged.
+  A model switch resets provider-visible history and usage; a thinking-only
+  refresh retains both. Supported effective thinking changes append one durable
+  entry, write the correlated response, then emit `thinking_level_changed`.
+  No-op changes emit no event, and no model-change event exists.
+- An injected provider without `NativeReplProviderState` is a static singleton:
+  selecting its current model succeeds, cycles return `null`, state reports
+  `off`, and unsupported non-off thinking levels fail. Live credentials and
+  provider-side acceptance remain unverified dogfood checks.
 
 ### Compaction
 

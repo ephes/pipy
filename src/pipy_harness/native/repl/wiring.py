@@ -1316,6 +1316,12 @@ def _compose_collaborators(
         provider_turn_executor=extension.provider_turn_executor,
         abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
     )
+    if _control_bridge(inputs) is not None:
+        runtime.loop_controller.bind_rpc_configuration_port(
+            provider_mutation.rpc_configuration_port(
+                runtime.loop_controller.control.publish_if_true_idle
+            )
+        )
 
     # The residual run-loop collaborators (diagnostics, session-name setters,
     # session-dir/resolution, tree rebuild, branch summarization, the extension

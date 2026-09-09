@@ -135,6 +135,7 @@ class _NativeControlReady:
     control: _NativeSessionControl
     abort_view: _NativeControlAbortView
     readiness_port: _ControllerReadinessPort
+    configuration_port: object
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +229,7 @@ class _NativeSessionControlBridge:
         control: _NativeSessionControl,
         abort_view: _NativeControlAbortView,
         readiness_port: _ControllerReadinessPort,
+        configuration_port: object,
     ) -> None:
         if type(control) is not _NativeSessionControl:
             raise TypeError("control must be a _NativeSessionControl")
@@ -239,7 +241,11 @@ class _NativeSessionControlBridge:
             raise ValueError("abort_view must belong to the published control")
         if readiness_port.control is not control:
             raise ValueError("readiness_port must belong to the published control")
-        self._publish(_NativeControlReady(control, abort_view, readiness_port))
+        if configuration_port is None:
+            raise TypeError("configuration_port must not be None")
+        self._publish(
+            _NativeControlReady(control, abort_view, readiness_port, configuration_port)
+        )
 
     def publish_failure(self, error: BaseException) -> None:
         if not isinstance(error, BaseException):
@@ -632,6 +638,7 @@ class CodingSessionController:
 
     __slots__ = (
         "_cleanup_failed_run",
+        "_configuration_port",
         "_coding_state",
         "_control",
         "_emitter",
@@ -663,6 +670,7 @@ class CodingSessionController:
         self._readiness_port = _ControllerReadinessPort(self._control)
         self._publish_ready: Callable[[], None] | None = None
         self._cleanup_failed_run: Callable[[BaseException], None] | None = None
+        self._configuration_port: object | None = None
 
     @property
     def control(self) -> _NativeSessionControl:
@@ -685,12 +693,30 @@ class CodingSessionController:
             raise RuntimeError("native control bridge is already bound")
 
         def publish_ready() -> None:
+            if self._configuration_port is None:
+                raise RuntimeError("native RPC configuration port is not bound")
             bridge.publish_ready(
-                self._control, self._control.abort_view, self._readiness_port
+                self._control,
+                self._control.abort_view,
+                self._readiness_port,
+                self._configuration_port,
             )
 
         self._publish_ready = publish_ready
         self._cleanup_failed_run = bridge.cleanup_attached_failed_run
+
+    def bind_rpc_configuration_port(self, port: object) -> None:
+        """Bind the once-composed private configuration projection for RPC.
+
+        The bridge publishes readiness only after this value and its queue
+        control are both available.  It remains opaque to the controller.
+        """
+
+        if port is None:
+            raise TypeError("native RPC configuration port must not be None")
+        if self._configuration_port is not None:
+            raise RuntimeError("native RPC configuration port is already bound")
+        self._configuration_port = port
 
     def run_loop(
         self,

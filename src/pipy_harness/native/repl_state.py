@@ -68,6 +68,15 @@ class PreparedNativeModelMutation:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedNativeThinkingMutation:
+    """Detached replacement provider for an otherwise unchanged selection."""
+
+    expected: NativeModelMutationState
+    replacement_level: str
+    provider: ProviderPort = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
 class ReplSelectionReloadValue:
     """Expected and replacement active selection for the reload path."""
 
@@ -492,6 +501,8 @@ class NativeReplProviderState:
         self,
         expected: NativeModelMutationState,
         reference: str,
+        *,
+        clamp_thinking: bool = False,
     ) -> tuple[PreparedNativeModelMutation | None, str]:
         """Resolve and construct a model mutation without changing live state.
 
@@ -520,6 +531,8 @@ class NativeReplProviderState:
                 if selected_thinking is None
                 else selected_thinking
             )
+            if clamp_thinking:
+                thinking_level = self.clamp_thinking_level(selection, thinking_level)
             provider = self._provider_for_prepared_selection(
                 selection, thinking_level=thinking_level
             )
@@ -578,6 +591,49 @@ class NativeReplProviderState:
             else None
         )
 
+    def prepare_thinking_mutation(
+        self, expected: NativeModelMutationState, level: str
+    ) -> PreparedNativeThinkingMutation | None:
+        """Validate and construct a same-selection thinking refresh off-lock."""
+
+        if type(expected) is not NativeModelMutationState:
+            raise TypeError("expected must be an exact NativeModelMutationState")
+        normalized = level.strip().lower()
+        if normalized not in THINKING_LEVELS:
+            return None
+        levels = tuple(self.model_runtime.thinking_levels(expected.selection))
+        if normalized not in levels:
+            return None
+        try:
+            provider = self._provider_for_prepared_selection(
+                expected.selection, thinking_level=normalized
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:  # noqa: BLE001 - provider construction boundary
+            return None
+        return PreparedNativeThinkingMutation(expected, normalized, provider)
+
+    def thinking_mutation_matches_expected(
+        self, prepared: PreparedNativeThinkingMutation
+    ) -> bool:
+        """Check the owner values captured before detached construction."""
+
+        with self._state_lock:
+            return (
+                self.selection == prepared.expected.selection
+                and self.thinking_level == prepared.expected.thinking_level
+                and self.pending_default == prepared.expected.pending_default
+            )
+
+    def publish_thinking_mutation(
+        self, prepared: PreparedNativeThinkingMutation
+    ) -> None:
+        """Publish the already-validated level by assignment only."""
+
+        with self._state_lock:
+            self.thinking_level = prepared.replacement_level
+
     def pending_default_value(self) -> NativeModelSelection | None:
         with self._state_lock:
             return self.pending_default
@@ -629,13 +685,31 @@ class NativeReplProviderState:
             return next_level
 
     def _supports_thinking_locked(self) -> bool:
-        current = self.selection
+        return self.supports_thinking(self.selection)
+
+    def supports_thinking(self, selection: NativeModelSelection) -> bool:
+        """Return static catalog capability without constructing a provider."""
+
         return any(
-            option.selection.provider_name == current.provider_name
-            and option.selection.model_id == current.model_id
+            option.selection.provider_name == selection.provider_name
+            and option.selection.model_id == selection.model_id
             and bool(option.reasoning)
             for option in self.model_options()
         )
+
+    def clamp_thinking_level(
+        self, selection: NativeModelSelection, level: str | None
+    ) -> str:
+        """Clamp one captured level through the selected model's capability helper."""
+
+        normalized = level or "off"
+        spec = self.model_runtime.resolve_spec(selection)
+        if spec is not None:
+            from pipy_harness.native.thinking import clamp_thinking_level
+
+            return clamp_thinking_level(spec, normalized)
+        levels = tuple(self.model_runtime.thinking_levels(selection))
+        return normalized if normalized in levels else "off"
 
     def current_provider(self) -> ProviderPort:
         with self._state_lock:

@@ -87,6 +87,7 @@ from pipy_harness.native.repl_state import (
     UnavailableAfterReloadProvider,
     normalize_repl_fake_selection,
 )
+from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.session_generation import SessionGenerationSnapshot
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager, retry_policy_from_settings
@@ -118,6 +119,69 @@ class _PreparedModelMutation:
     provider_state: NativeReplProviderState
     selection: PreparedNativeModelMutation
     coding: CodingModelMutation | None
+
+
+@dataclass(frozen=True, slots=True)
+class RpcConfigurationSnapshot:
+    """Immutable configuration projection consumed by the RPC transport."""
+
+    selection: NativeModelSelection
+    thinking_level: str
+
+
+@dataclass(frozen=True, slots=True)
+class RpcConfigurationResult:
+    """Bounded outcome of one RPC configuration operation."""
+
+    success: bool
+    snapshot: RpcConfigurationSnapshot | None = None
+    thinking_changed: bool = False
+    diagnostic: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RpcModelCycleResult:
+    """A cycle projection, including Pi's enabled-model scope indication."""
+
+    result: RpcConfigurationResult
+    is_scoped: bool
+
+
+class RpcProviderConfigurationPort:
+    """Private, once-bound RPC view over :class:`ProviderMutationEffects`.
+
+    It deliberately carries only immutable projections and callbacks.  The
+    transport never receives provider state, settings, catalog rows, locks, or
+    construction functions.
+    """
+
+    __slots__ = ("_commit_if_true_idle", "_effects")
+
+    def __init__(
+        self,
+        effects: "ProviderMutationEffects",
+        commit_if_true_idle: Callable[[Callable[[], None]], bool],
+    ) -> None:
+        self._effects = effects
+        self._commit_if_true_idle = commit_if_true_idle
+
+    def snapshot(self) -> RpcConfigurationSnapshot:
+        return self._effects._rpc_snapshot()
+
+    def available_models(self) -> tuple[NativeModelSelection, ...]:
+        return self._effects._rpc_available_models()
+
+    def set_model(self, selection: NativeModelSelection) -> RpcConfigurationResult:
+        return self._effects._rpc_set_model(selection, self._commit_if_true_idle)
+
+    def cycle_model(self) -> RpcModelCycleResult | None:
+        return self._effects._rpc_cycle_model(self._commit_if_true_idle)
+
+    def set_thinking_level(self, level: str) -> RpcConfigurationResult:
+        return self._effects._rpc_set_thinking_level(level, self._commit_if_true_idle)
+
+    def cycle_thinking_level(self) -> RpcConfigurationResult | None:
+        return self._effects._rpc_cycle_thinking_level(self._commit_if_true_idle)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +259,298 @@ class ProviderMutationEffects:
     mutation_io_lock: "threading.RLock"
     provider_turn_executor: ProviderTurnExecutor
     abort_event: threading.Event | _AbortCallbackSignal | None
+
+    def rpc_configuration_port(
+        self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
+    ) -> RpcProviderConfigurationPort:
+        """Return the private RPC port after composition has bound all owners."""
+
+        return RpcProviderConfigurationPort(self, commit_if_true_idle)
+
+    def _rpc_snapshot(self) -> RpcConfigurationSnapshot:
+        """Capture model and thinking from one owner state transition."""
+
+        state = self.provider_state
+        if isinstance(state, NativeReplProviderState):
+            with self.mutation_io_lock:
+                with self.ctl.generation_ref.lock:
+                    value = state.capture_model_mutation_state()
+            return RpcConfigurationSnapshot(
+                value.selection, value.thinking_level or "off"
+            )
+        binding = self.coding_state.provider_binding
+        return RpcConfigurationSnapshot(
+            NativeModelSelection(binding.provider_name, binding.model_id), "off"
+        )
+
+    def _rpc_available_models(self) -> tuple[NativeModelSelection, ...]:
+        _active, models = self._rpc_selectable_models()
+        return models
+
+    def _rpc_selectable_models(
+        self,
+    ) -> tuple[NativeModelSelection, tuple[NativeModelSelection, ...]]:
+        """Project selectable catalog models with one locked active snapshot.
+
+        Catalog enumeration and detached provider construction intentionally run
+        after releasing the session owners.  A selected custom reference that
+        has no catalog row remains visible, while a known but unavailable or
+        tool-incapable row remains excluded.
+        """
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            selection = self._rpc_snapshot().selection
+            return selection, (selection,)
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                expected = state.capture_model_mutation_state()
+        active = expected.selection
+        options = tuple(state.model_options())
+        catalog_selections = {option.selection for option in options}
+        models: list[NativeModelSelection] = []
+        for option in options:
+            if not option.available:
+                continue
+            prepared, _message = state.prepare_model_mutation(
+                expected, option.selection.reference
+            )
+            if prepared is None:
+                continue
+            try:
+                if prepared.provider.supports_tool_calls:
+                    models.append(option.selection)
+            except Exception:  # noqa: BLE001 - provider capability boundary
+                continue
+        models_tuple = tuple(models)
+        if active not in catalog_selections and active not in models_tuple:
+            models_tuple = (*models_tuple, active)
+        return active, models_tuple
+
+    def _rpc_commit_model_if_idle(
+        self,
+        state: NativeReplProviderState,
+        prepared: _PreparedModelMutation,
+        commit_if_true_idle: Callable[[Callable[[], None]], bool],
+    ) -> tuple[bool, bool]:
+        """Publish prepared model state under the outer admission gate."""
+
+        committed = False
+
+        def commit() -> None:
+            nonlocal committed
+            with self.mutation_io_lock:
+                with self.ctl.generation_ref.lock:
+                    if (
+                        self.ctl.coding_effects.terminal
+                        or self.provider_state is not state
+                        or not state.model_mutation_matches_expected(prepared.selection)
+                        or prepared.coding is None
+                        or not self.coding_state.model_mutation_matches_expected(
+                            prepared.coding
+                        )
+                    ):
+                        return
+                    state.publish_model_mutation(prepared.selection)
+                    self.coding_state.publish_model_mutation(prepared.coding)
+                    committed = True
+
+        return commit_if_true_idle(commit), committed
+
+    def _rpc_set_model(
+        self,
+        selection: NativeModelSelection,
+        commit_if_true_idle: Callable[[Callable[[], None]], bool],
+    ) -> RpcConfigurationResult:
+        """Prepare a model detached, then publish under the queue's idle gate."""
+
+        current = self._rpc_snapshot()
+        if selection == current.selection:
+            return RpcConfigurationResult(True, current)
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return RpcConfigurationResult(False, diagnostic="unknown provider/model")
+        if selection not in self._rpc_available_models():
+            return RpcConfigurationResult(False, diagnostic="unknown provider/model")
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if self.ctl.coding_effects.terminal:
+                    return RpcConfigurationResult(False, diagnostic="session is closed")
+                expected = state.capture_model_mutation_state()
+                expected_binding = self.coding_state.provider_binding
+        prepared, message = self._prepare_model_mutation(
+            state,
+            expected,
+            expected_binding,
+            selection.reference,
+            clamp_thinking=True,
+        )
+        if prepared is None or prepared.coding is None:
+            return RpcConfigurationResult(False, diagnostic=message)
+
+        idle, committed = self._rpc_commit_model_if_idle(
+            state, prepared, commit_if_true_idle
+        )
+        if not idle:
+            return RpcConfigurationResult(False, diagnostic="session is not idle")
+        if not committed:
+            return RpcConfigurationResult(
+                False, diagnostic="configuration changed during preparation"
+            )
+        snapshot = self._rpc_snapshot()
+        diagnostics: list[str] = []
+        if snapshot.thinking_level != (expected.thinking_level or "off"):
+            diagnostics.extend(self._rpc_append_thinking(snapshot.thinking_level))
+        finish = self._finish_model_mutation(state, message)
+        diagnostics.extend(
+            line for line in finish.splitlines() if " is active but " in line
+        )
+        self._rpc_emit_diagnostics(diagnostics)
+        return RpcConfigurationResult(
+            True,
+            snapshot,
+            thinking_changed=snapshot.thinking_level
+            != (expected.thinking_level or "off"),
+            diagnostic="\n".join(diagnostics) or None,
+        )
+
+    def _rpc_cycle_model(
+        self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
+    ) -> RpcModelCycleResult | None:
+        current, all_models = self._rpc_selectable_models()
+        if len(all_models) <= 1:
+            return None
+        all_references = [model.reference for model in all_models]
+        patterns = self.settings.get_enabled_models()
+        scoped_references = filter_scoped_references(all_references, patterns)
+        scoped = bool(patterns) and bool(scoped_references)
+        choices = (
+            tuple(
+                model
+                for model in all_models
+                if model.reference in set(scoped_references)
+            )
+            if scoped
+            else all_models
+        )
+        if len(choices) <= 1:
+            return None
+        next_model = next_reference(
+            [model.reference for model in choices], current.reference, forward=True
+        )
+        if next_model is None:
+            return None
+        result = self._rpc_set_model(
+            next(model for model in choices if model.reference == next_model),
+            commit_if_true_idle,
+        )
+        return RpcModelCycleResult(result, scoped)
+
+    def _rpc_append_thinking(self, level: str) -> list[str]:
+        """Persist a live thinking transition after releasing the queue gate."""
+
+        try:
+            with self.mutation_io_lock:
+                self.ctl.session_tree.append_thinking_level_change(level)
+        except Exception as exc:  # noqa: BLE001 - state-first durable outcome
+            return [
+                "pipy: thinking level is active but durable append failed with "
+                f"{sanitize_text(type(exc).__name__)}."
+            ]
+        return []
+
+    def _rpc_emit_diagnostics(self, diagnostics: Sequence[str]) -> None:
+        """Surface bounded post-commit failures without changing live success."""
+
+        for diagnostic in diagnostics:
+            emit_diagnostic(
+                self.terminal_ui.components.transcript if self.terminal_ui else None,
+                self.error_stream,
+                diagnostic,
+            )
+
+    def _rpc_set_thinking_level(
+        self,
+        level: str,
+        commit_if_true_idle: Callable[[Callable[[], None]], bool],
+    ) -> RpcConfigurationResult:
+        """Refresh the same provider binding for a supported thinking level."""
+
+        current = self._rpc_snapshot()
+        normalized = level.strip().lower()
+        if normalized == current.thinking_level:
+            return RpcConfigurationResult(True, current)
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return RpcConfigurationResult(
+                False, diagnostic="unsupported thinking level"
+            )
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if self.ctl.coding_effects.terminal:
+                    return RpcConfigurationResult(False, diagnostic="session is closed")
+                expected = state.capture_model_mutation_state()
+                expected_binding = self.coding_state.provider_binding
+        prepared = state.prepare_thinking_mutation(expected, normalized)
+        if prepared is None:
+            return RpcConfigurationResult(
+                False, diagnostic="unsupported thinking level"
+            )
+        committed = False
+
+        def commit() -> None:
+            nonlocal committed
+            with self.mutation_io_lock:
+                with self.ctl.generation_ref.lock:
+                    if (
+                        self.ctl.coding_effects.terminal
+                        or self.provider_state is not state
+                        or not state.thinking_mutation_matches_expected(prepared)
+                        or self.coding_state.provider_binding is not expected_binding
+                    ):
+                        return
+                    state.publish_thinking_mutation(prepared)
+                    self.coding_state.refresh_provider(prepared.provider)
+                    committed = True
+
+        if not commit_if_true_idle(commit):
+            return RpcConfigurationResult(False, diagnostic="session is not idle")
+        if not committed:
+            return RpcConfigurationResult(
+                False, diagnostic="configuration changed during preparation"
+            )
+        snapshot = self._rpc_snapshot()
+        diagnostics = self._rpc_append_thinking(snapshot.thinking_level)
+        try:
+            self.refresh_footer_text()
+        except Exception as exc:  # noqa: BLE001 - presentation is post-commit
+            diagnostics.append(
+                "pipy: thinking level is active but presentation refresh failed with "
+                f"{sanitize_text(type(exc).__name__)}."
+            )
+        self._rpc_emit_diagnostics(diagnostics)
+        return RpcConfigurationResult(
+            True,
+            snapshot,
+            thinking_changed=True,
+            diagnostic="\n".join(diagnostics) or None,
+        )
+
+    def _rpc_cycle_thinking_level(
+        self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
+    ) -> RpcConfigurationResult | None:
+        snapshot = self._rpc_snapshot()
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return None
+        levels = tuple(state.model_runtime.thinking_levels(snapshot.selection))
+        if len(levels) <= 1:
+            return None
+        current = (
+            snapshot.thinking_level if snapshot.thinking_level in levels else "off"
+        )
+        level = levels[(levels.index(current) + 1) % len(levels)]
+        return self._rpc_set_thinking_level(level, commit_if_true_idle)
 
     def extension_set_active_tools(
         self, generation_id: int, tool_names: Sequence[str]
@@ -311,10 +667,14 @@ class ProviderMutationEffects:
         expected: NativeModelMutationState,
         expected_binding: CodingProviderBinding,
         reference: str,
+        *,
+        clamp_thinking: bool = False,
     ) -> tuple[_PreparedModelMutation | None, str]:
         """Complete every fallible model/provider preparation while unlocked."""
 
-        selection, message = state.prepare_model_mutation(expected, reference)
+        selection, message = state.prepare_model_mutation(
+            expected, reference, clamp_thinking=clamp_thinking
+        )
         if selection is None:
             return None, message
         try:

@@ -30,7 +30,7 @@ The shipped protocol implements:
 
 - prompting and asynchronous prompt execution;
 - steering/follow-up queue control and abort;
-- thinking controls and reported queue-mode settings;
+- live model/thinking controls and reported queue-mode settings;
 - message/state introspection and message/tool counters;
 - current-session naming;
 - bash execution with bounded output through `command_sandbox.run_command`
@@ -43,13 +43,14 @@ Recognized command names do not imply implemented behavior:
 - `set_auto_compaction` and `set_auto_retry` only record RPC flags; they do not
   enable or change the coding session's compaction/retry policy. `abort_retry`
   is a no-op.
-- Live model switching is unavailable: `set_model` accepts only the current
-  provider/model, `get_available_models` reports that selection, and
-  `cycle_model` returns `null`.
 - Steering and follow-up delivery remains one message per turn boundary, steering
   first, regardless of the reported queue mode.
-- Thinking controls affect the next provider construction in catalog-backed
-  sessions. Injected providers without that boundary only record the level.
+- Model and thinking controls are idle-only owner operations. Available models
+  are locally available, tool-capable catalog rows plus the active custom
+  selection. Model switches rebuild the next provider request and reset coding
+  history/usage; thinking-only refreshes retain them. `enabledModels` scopes
+  model cycling when effective, and model/thinking no-ops emit no event. An
+  injected provider remains a static singleton with `off` thinking.
 - `get_commands` returns an empty command list. `get_session_stats` counts
   messages and tool calls/results, but token totals and cost are zero placeholders.
 - The extension-UI channel is unwired: no `extension_ui_request` is emitted,

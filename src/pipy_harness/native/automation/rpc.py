@@ -37,7 +37,6 @@ from pipy_harness.native.automation.jsonl import (
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
-from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.coding.session_controller import (
     _NativeControlReady,
     _NativeControlSnapshot,
@@ -221,12 +220,10 @@ class NativeRpcServer:
         self._last_assistant_text: str | None = None
         self._auto_compaction = True
         self._auto_retry = True
-        self._thinking_level = "off"
+        self._configuration: Any | None = None
         self._bash_in_flight = 0
         self._bash_threads: list[threading.Thread] = []
         self._worker: threading.Thread | None = None
-
-    _THINKING_LEVELS = THINKING_LEVELS
 
     # -- event tap (called from the worker thread) -----------------------
     def emit(self, event: dict[str, Any]) -> None:
@@ -280,6 +277,7 @@ class NativeRpcServer:
                 )
                 return 1
             outcome.readiness_port.bind(self._publish_true_idle)
+            self._configuration = outcome.configuration_port
             ready = True
             self._read_loop()
         finally:
@@ -529,65 +527,114 @@ class NativeRpcServer:
         self._auto_retry = bool(command.get("enabled"))
         self._respond(cid, "set_auto_retry")
 
-    def _set_thinking_level(self, level: str) -> None:
-        self._thinking_level = level
-        provider_state = getattr(self._adapter, "provider_state", None)
-        assign = getattr(provider_state, "assign_thinking_level", None)
-        if callable(assign):
-            assign(level)
+    def _configuration_port(self) -> Any:
+        port = self._configuration
+        if port is None:
+            raise RuntimeError("native RPC configuration port is not ready")
+        return port
+
+    @staticmethod
+    def _model(selection: Any) -> dict[str, str]:
+        return {"provider": selection.provider_name, "id": selection.model_id}
+
+    def _configuration_error(self, cid: str | None, command: str, result: Any) -> None:
+        self._respond_error(cid, command, result.diagnostic or "configuration refused")
 
     def _cmd_set_thinking_level(self, cid: str | None, command: dict[str, Any]) -> None:
         level = command.get("level")
-        if level not in self._THINKING_LEVELS:
+        if not isinstance(level, str):
             self._respond_error(
                 cid, "set_thinking_level", f"unknown thinking level: {level}"
             )
             return
-        # Pi routes RPC thinking controls through AgentSession.setThinkingLevel(),
-        # so the next provider request is constructed with the new level. In
-        # pipy's automation build, NativeReplProviderState is the shared
-        # construction boundary; injected-provider adapters keep the
-        # transport-local recorded value because there is no provider state to
-        # mutate.
-        self._set_thinking_level(level)
+        result = self._configuration_port().set_thinking_level(level)
+        if not result.success:
+            self._configuration_error(cid, "set_thinking_level", result)
+            return
         self._respond(cid, "set_thinking_level")
-        self._writer.write_line({"type": "thinking_level_changed", "level": level})
+        if result.thinking_changed:
+            assert result.snapshot is not None
+            self._writer.write_line(
+                {
+                    "type": "thinking_level_changed",
+                    "level": result.snapshot.thinking_level,
+                }
+            )
 
     def _cmd_cycle_thinking_level(
         self, cid: str | None, command: dict[str, Any]
     ) -> None:
-        index = self._THINKING_LEVELS.index(self._thinking_level)
-        level = self._THINKING_LEVELS[(index + 1) % len(self._THINKING_LEVELS)]
-        self._set_thinking_level(level)
-        self._respond(cid, "cycle_thinking_level", {"level": level})
-        self._writer.write_line({"type": "thinking_level_changed", "level": level})
+        result = self._configuration_port().cycle_thinking_level()
+        if result is None:
+            self._respond(cid, "cycle_thinking_level", None)
+            return
+        if not result.success:
+            self._configuration_error(cid, "cycle_thinking_level", result)
+            return
+        assert result.snapshot is not None
+        self._respond(
+            cid, "cycle_thinking_level", {"level": result.snapshot.thinking_level}
+        )
+        if result.thinking_changed:
+            self._writer.write_line(
+                {
+                    "type": "thinking_level_changed",
+                    "level": result.snapshot.thinking_level,
+                }
+            )
 
     def _cmd_set_model(self, cid: str | None, command: dict[str, Any]) -> None:
-        provider, model_id = self._selection()
-        if command.get("provider") == provider and command.get("modelId") == model_id:
-            self._respond(cid, "set_model", {"provider": provider, "id": model_id})
+        provider = command.get("provider")
+        model_id = command.get("modelId")
+        if not isinstance(provider, str) or not isinstance(model_id, str):
+            self._respond_error(cid, "set_model", "unknown provider/model")
             return
-        # Single-provider automation build: any other provider/model is unknown.
-        self._respond_error(
-            cid,
-            "set_model",
-            f"unknown provider/model: {command.get('provider')}/{command.get('modelId')}",
+        from pipy_harness.native.repl_state import NativeModelSelection
+
+        result = self._configuration_port().set_model(
+            NativeModelSelection(provider, model_id)
         )
+        if not result.success:
+            self._configuration_error(cid, "set_model", result)
+            return
+        assert result.snapshot is not None
+        self._respond(cid, "set_model", self._model(result.snapshot.selection))
+        if result.thinking_changed:
+            self._writer.write_line(
+                {
+                    "type": "thinking_level_changed",
+                    "level": result.snapshot.thinking_level,
+                }
+            )
 
     def _cmd_cycle_model(self, cid: str | None, command: dict[str, Any]) -> None:
-        # Single configured model in this build: nothing to cycle to (Pi returns
-        # null `data` for "no other model"), not a misleading success payload.
-        self._respond(cid, "cycle_model", None)
+        cycle = self._configuration_port().cycle_model()
+        if cycle is None:
+            self._respond(cid, "cycle_model", None)
+            return
+        result = cycle.result
+        if not result.success:
+            self._configuration_error(cid, "cycle_model", result)
+            return
+        assert result.snapshot is not None
+        self._respond(
+            cid,
+            "cycle_model",
+            {
+                "model": self._model(result.snapshot.selection),
+                "thinkingLevel": result.snapshot.thinking_level,
+                "isScoped": cycle.is_scoped,
+            },
+        )
+        if result.thinking_changed:
+            self._writer.write_line(
+                {
+                    "type": "thinking_level_changed",
+                    "level": result.snapshot.thinking_level,
+                }
+            )
 
     # -- introspection ---------------------------------------------------
-    def _selection(self) -> tuple[str, str]:
-        # No fallback identity: an adapter built without `provider`/`provider_state`
-        # raises `ValueError`, and reporting a fabricated `fake`/`fake-tools`
-        # selection would make a misconfigured session indistinguishable from a
-        # working one. `_handle()` turns the raise into a real error response.
-        sel = self._adapter._current_selection()
-        return sel.provider_name, sel.model_id
-
     def _messages(self) -> list[Any]:
         try:
             return list(self._tree.build_context().messages)
@@ -595,7 +642,7 @@ class NativeRpcServer:
             return []
 
     def _cmd_get_state(self, cid: str | None, command: dict[str, Any]) -> None:
-        provider, model_id = self._selection()
+        configuration = self._configuration_port().snapshot()
         messages = self._messages()
         snapshot = self._bridge.snapshot()
         streaming = snapshot.reservation is not None
@@ -607,8 +654,8 @@ class NativeRpcServer:
             cid,
             "get_state",
             {
-                "model": {"provider": provider, "id": model_id},
-                "thinkingLevel": self._thinking_level,
+                "model": self._model(configuration.selection),
+                "thinkingLevel": configuration.thinking_level,
                 "isStreaming": streaming,
                 "isCompacting": False,
                 "steeringMode": steering_mode,
@@ -745,11 +792,15 @@ class NativeRpcServer:
     def _cmd_get_available_models(
         self, cid: str | None, command: dict[str, Any]
     ) -> None:
-        provider, model_id = self._selection()
         self._respond(
             cid,
             "get_available_models",
-            {"models": [{"provider": provider, "id": model_id}]},
+            {
+                "models": [
+                    self._model(model)
+                    for model in self._configuration_port().available_models()
+                ]
+            },
         )
 
     def _cmd_set_session_name(self, cid: str | None, command: dict[str, Any]) -> None:

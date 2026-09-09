@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- RPC model and thinking controls now use the native provider-mutation owner.
+  Catalog-backed sessions expose available tool-capable selections, switch the
+  actual next provider request while idle, and refresh supported thinking levels
+  with durable state-first entries. Model switches reset coding history and
+  usage; thinking-only refreshes retain them. Static injected providers remain
+  truthful singleton fallbacks. Live credentials and provider acceptance remain
+  unverified dogfood work.
+
 - RPC now adopts the native coding-session control atomically. Native queue
   state owns prompt/steer/follow-up admission, abort, exact claims and
   settlement; RPC retains LF JSONL framing, correlation, output projection and

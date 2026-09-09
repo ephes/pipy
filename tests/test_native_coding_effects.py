@@ -28,6 +28,7 @@ from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.session import production_tool_registry
+from pipy_harness.native.coding.session_controller import _NativeSessionControl
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.extension_hooks import (
     _compose_extension_bundle,
@@ -49,6 +50,7 @@ from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeDefaultsStore,
+    NativeModelOption,
     NativeModelSelection,
     NativeReplProviderState,
 )
@@ -609,6 +611,7 @@ def _provider_mutation_fixture(
     persist_tree: bool = False,
     persist_defaults: bool = False,
     order_check: bool = False,
+    settings: Any = None,
 ) -> tuple[
     ProviderMutationEffects,
     NativeReplProviderState,
@@ -675,7 +678,7 @@ def _provider_mutation_fixture(
         product_session=cast(Any, None),
         terminal_ui=None,
         tool_capabilities=tools,
-        settings=cast(Any, None),
+        settings=cast(Any, settings),
         cwd=tmp_path,
         input_stream=io.StringIO(),
         error_stream=io.StringIO(),
@@ -924,6 +927,332 @@ def _block_model_construction(
 
     monkeypatch.setattr(ModelRuntime, "construct", blocked)
     return entered, release, lock_observations
+
+
+def test_rpc_model_admission_wins_detached_preparation_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An accepted native reservation must prevent a prepared rebind publishing."""
+
+    effects, state, _tools, ref, _coordinator, tree, footers = (
+        _provider_mutation_fixture(tmp_path, persist_defaults=True)
+    )
+    control = _NativeSessionControl(CodingInputQueue())
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+    coding = effects.coding_state
+    history = AgentUserMessage(content=ProductContent("already visible"))
+    coding.append_message(history)
+    coding.absorb_usage(AgentProviderUsageSample(input_tokens=7, total_tokens=7))
+    before = (
+        state.capture_model_mutation_state(),
+        coding.provider_binding,
+        coding.messages,
+        coding._usage_accumulator,
+        coding.usage_snapshot(),
+        tuple(tree.get_entries()),
+        control.snapshot(),
+        tuple(footers),
+    )
+    entered, release, lock_observations = _block_model_construction(monkeypatch, ref)
+    results: list[object] = []
+    worker = threading.Thread(
+        target=lambda: results.append(
+            port.set_model(NativeModelSelection("openai", "gpt-5.4"))
+        )
+    )
+    worker.start()
+    assert entered.wait(1)
+    admitted = control.admit_prompt(ProductContent("reserved while preparing"))
+    assert admitted.reservation is not None
+    release.set()
+    worker.join(1)
+
+    assert not worker.is_alive()
+    result = results[0]
+    assert getattr(result, "success") is False
+    assert getattr(result, "diagnostic") == "session is not idle"
+    after = (
+        state.capture_model_mutation_state(),
+        coding.provider_binding,
+        coding.messages,
+        coding._usage_accumulator,
+        coding.usage_snapshot(),
+        tuple(tree.get_entries()),
+        tuple(footers),
+    )
+    assert after == (*before[:6], before[-1])
+    assert coding._usage_accumulator is before[3]
+    assert control.snapshot() == admitted
+    assert lock_observations and not any(lock_observations)
+
+
+def test_rpc_configuration_gate_excludes_admission_after_detached_preparation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The final assignment holds the native gate, after unlocked construction."""
+
+    effects, state, _tools, ref, _coordinator, _tree, _footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    control = _NativeSessionControl(CodingInputQueue())
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+    entered_commit = threading.Event()
+    release_commit = threading.Event()
+    construction_locks: list[bool] = []
+    original_construct = ModelRuntime.construct
+
+    def observed_construct(
+        runtime: ModelRuntime,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+        options: Any,
+    ) -> Any:
+        construction_locks.append(cast(Any, ref.lock)._is_owned())
+        return original_construct(
+            runtime, selection, thinking_level=thinking_level, options=options
+        )
+
+    original_publish = _NativeSessionControl.publish_if_true_idle
+
+    def blocked_publish(
+        owner: _NativeSessionControl, publish: Callable[[], None]
+    ) -> bool:
+        if owner is not control:
+            return original_publish(owner, publish)
+        with owner._gate:
+            entered_commit.set()
+            assert release_commit.wait(1)
+            publish()
+            return True
+
+    monkeypatch.setattr(ModelRuntime, "construct", observed_construct)
+    monkeypatch.setattr(_NativeSessionControl, "publish_if_true_idle", blocked_publish)
+    # The port captured the method before monkeypatching; bind a fresh port.
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+    results: list[object] = []
+    mutation = threading.Thread(
+        target=lambda: results.append(
+            port.set_model(NativeModelSelection("openai", "gpt-5.4"))
+        )
+    )
+    mutation.start()
+    assert entered_commit.wait(1)
+    admission: list[object] = []
+    prompt = threading.Thread(
+        target=lambda: admission.append(control.admit_prompt(ProductContent("next")))
+    )
+    prompt.start()
+    assert not admission
+    release_commit.set()
+    mutation.join(1)
+    prompt.join(1)
+
+    assert getattr(results[0], "success") is True
+    assert admission and getattr(admission[0], "reservation") is not None
+    assert state.current_selection() == NativeModelSelection("openai", "gpt-5.4")
+    assert effects.coding_state.provider_binding.model_id == "gpt-5.4"
+    assert construction_locks and not any(construction_locks)
+
+
+def test_rpc_model_resets_history_and_usage_but_thinking_refresh_retains_them(
+    tmp_path: Path,
+) -> None:
+    effects, state, _tools, _ref, _coordinator, tree, _footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    control = _NativeSessionControl(CodingInputQueue())
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+    coding = effects.coding_state
+    message = AgentUserMessage(content=ProductContent("retained only for thinking"))
+    coding.append_message(message)
+    coding.absorb_usage(AgentProviderUsageSample(input_tokens=9, total_tokens=9))
+    durable_before = tuple(tree.get_entries())
+    old_usage = coding._usage_accumulator
+
+    model = port.set_model(NativeModelSelection("openai", "gpt-5.4"))
+    assert model.success
+    assert coding.messages == ()
+    assert coding._usage_accumulator is not old_usage
+    assert coding.usage_snapshot().usage.input_tokens == 0
+    assert tuple(tree.get_entries()) == durable_before
+
+    coding.append_message(message)
+    coding.absorb_usage(AgentProviderUsageSample(input_tokens=11, total_tokens=11))
+    binding_before = coding.provider_binding
+    usage_before = coding._usage_accumulator
+    usage_snapshot = coding.usage_snapshot()
+    history_before = coding.messages
+    thinking = port.set_thinking_level("high")
+    assert thinking.success
+    assert state.current_selection() == NativeModelSelection("openai", "gpt-5.4")
+    assert coding.provider_binding.provider is not binding_before.provider
+    assert coding.messages == history_before
+    assert coding._usage_accumulator is usage_before
+    assert coding.usage_snapshot() == usage_snapshot
+
+
+def test_rpc_post_commit_thinking_append_failure_is_sanitized_and_successful(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects, _state, _tools, _ref, _coordinator, tree, _footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    control = _NativeSessionControl(CodingInputQueue())
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+
+    def fail_append(_level: str) -> None:
+        raise RuntimeError("secret=must-not-leak")
+
+    monkeypatch.setattr(tree, "append_thinking_level_change", fail_append)
+    result = port.set_thinking_level("high")
+    diagnostic = cast(io.StringIO, effects.error_stream).getvalue()
+
+    assert result.success
+    assert effects.coding_state.provider_binding.provider is not None
+    assert diagnostic.count("durable append failed") == 1
+    assert "RuntimeError" in diagnostic
+    assert "must-not-leak" not in diagnostic
+
+
+def test_rpc_catalog_filters_tool_capability_and_cycles_scoped_or_unscoped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RPC projects only usable rows, retaining active custom selections."""
+
+    (tmp_path / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme": {
+                        "baseUrl": "http://127.0.0.1:9000/v1",
+                        "apiKey": "local-test-key",
+                        "api": "openai-completions",
+                        "models": [{"id": "rocket-1"}, {"id": "rocket-2"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    enabled = ["openai/gpt-5.4", "acme/rocket-1"]
+    settings = SimpleNamespace(get_enabled_models=lambda: enabled)
+    effects, state, _tools, _ref, _coordinator, _tree, _footers = (
+        _provider_mutation_fixture(tmp_path, settings=settings)
+    )
+    control = _NativeSessionControl(CodingInputQueue())
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+    original_construct = ModelRuntime.construct
+
+    def no_tools_for_gpt4o(
+        runtime: ModelRuntime,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+        options: Any,
+    ) -> Any:
+        if selection == NativeModelSelection("openai", "gpt-4o"):
+            from pipy_harness.native.fake import FakeNativeProvider
+
+            return FakeNativeProvider(model_id="gpt-4o", supports_tool_calls=False)
+        return original_construct(
+            runtime, selection, thinking_level=thinking_level, options=options
+        )
+
+    monkeypatch.setattr(ModelRuntime, "construct", no_tools_for_gpt4o)
+    available = port.available_models()
+    assert NativeModelSelection("acme", "rocket-1") in available
+    assert NativeModelSelection("anthropic", "claude-opus-4-7") not in available
+    assert NativeModelSelection("openai", "gpt-4o") not in available
+    before = state.capture_model_mutation_state()
+    refused = port.set_model(NativeModelSelection("openai", "gpt-4o"))
+    assert not refused.success
+    assert state.capture_model_mutation_state() == before
+
+    state.replace_selection(NativeModelSelection("openai", "gpt-4o"))
+    assert NativeModelSelection("openai", "gpt-4o") not in port.available_models()
+    enabled.clear()
+    unscoped_from_filtered_active = port.cycle_model()
+    assert unscoped_from_filtered_active is not None
+    assert unscoped_from_filtered_active.is_scoped is False
+    assert unscoped_from_filtered_active.result.success
+    assert unscoped_from_filtered_active.result.snapshot is not None
+    assert unscoped_from_filtered_active.result.snapshot.selection != (
+        NativeModelSelection("openai", "gpt-4o")
+    )
+
+    state.replace_selection(NativeModelSelection("anthropic", "claude-opus-4-7"))
+    assert NativeModelSelection("anthropic", "claude-opus-4-7") not in (
+        port.available_models()
+    )
+
+    state.replace_selection(NativeModelSelection("acme", "outside-catalog"))
+    assert NativeModelSelection("acme", "outside-catalog") in port.available_models()
+    enabled[:] = ["openai/gpt-5.4", "acme/rocket-1"]
+    scoped = port.cycle_model()
+    assert scoped is not None and scoped.is_scoped is True
+    assert scoped.result.success
+    assert scoped.result.snapshot is not None
+    assert (
+        scoped.result.snapshot.selection,
+        scoped.result.snapshot.thinking_level,
+        scoped.is_scoped,
+    ) == (NativeModelSelection("openai", "gpt-5.4"), "off", True)
+
+    enabled[:] = ["acme/rocket-*"]
+    state.replace_selection(NativeModelSelection("acme", "outside-catalog"))
+    glob_scoped = port.cycle_model()
+    assert glob_scoped is not None and glob_scoped.is_scoped is True
+    assert glob_scoped.result.success
+    assert glob_scoped.result.snapshot is not None
+    assert glob_scoped.result.snapshot.selection == NativeModelSelection(
+        "acme", "rocket-1"
+    )
+
+    enabled[:] = ["missing/*"]
+    unscoped = port.cycle_model()
+    assert unscoped is not None and unscoped.is_scoped is False
+    assert unscoped.result.success
+    assert unscoped.result.snapshot is not None
+    assert unscoped.result.snapshot.selection != NativeModelSelection(
+        "acme", "rocket-1"
+    )
+
+
+def test_rpc_cycle_returns_null_for_zero_or_one_selectable_catalog_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects, state, _tools, _ref, _coordinator, _tree, _footers = (
+        _provider_mutation_fixture(
+            tmp_path,
+            settings=SimpleNamespace(get_enabled_models=lambda: []),
+        )
+    )
+    control = _NativeSessionControl(CodingInputQueue())
+    port = effects.rpc_configuration_port(control.publish_if_true_idle)
+    active = NativeModelSelection("openai", "gpt-5.5")
+    state.replace_selection(active)
+
+    monkeypatch.setattr(
+        NativeReplProviderState,
+        "model_options",
+        lambda _state: [NativeModelOption(active, available=False)],
+    )
+    assert port.available_models() == ()
+    assert port.cycle_model() is None
+
+    monkeypatch.setattr(
+        NativeReplProviderState,
+        "model_options",
+        lambda _state: [
+            NativeModelOption(active, available=False),
+            NativeModelOption(
+                NativeModelSelection("openai", "gpt-5.4"), available=True
+            ),
+        ],
+    )
+    assert port.available_models() == (NativeModelSelection("openai", "gpt-5.4"),)
+    assert port.cycle_model() is None
 
 
 @pytest.mark.parametrize(

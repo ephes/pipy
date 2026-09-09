@@ -17,6 +17,7 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Never
 
@@ -25,6 +26,7 @@ import pytest
 import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.repl.wiring as loop_module
 from pipy_harness.adapters.native import CodingSessionAdapter
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunStarted,
@@ -45,6 +47,11 @@ from pipy_harness.native.coding.session_controller import _NativeControlFailed
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl.provider_selection import (
+    RpcConfigurationResult,
+    RpcConfigurationSnapshot,
+    RpcModelCycleResult,
+)
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -104,12 +111,54 @@ class _BlockingFirstAutomationProvider:
         )
 
 
+class _RecordingConfiguredProvider:
+    """Construction seam proving the live coding binding serves the next turn."""
+
+    def __init__(self, provider_name: str, model_id: str, thinking: str | None) -> None:
+        self._provider_name = provider_name
+        self._model_id = model_id
+        self.thinking = thinking
+        self.requests: list[ProviderRequest] = []
+
+    @property
+    def name(self) -> str:
+        return self._provider_name
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return True
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        self.requests.append(request)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="configured answer",
+        )
+
+
 class _RpcClient:
     def __init__(
         self,
         tmp_path: Path,
         *,
         provider: ProviderPort | None = None,
+        provider_state: NativeReplProviderState | None = None,
         tools: dict[str, ToolPort] | None = None,
     ) -> None:
         self._cwd = tmp_path
@@ -124,13 +173,19 @@ class _RpcClient:
         self.canonical = _CanonicalCollectingSink()
         adapter = CodingSessionAdapter(
             tool_registry=tools,
+            provider_state=provider_state,
             provider=(
-                provider
-                if provider is not None
-                else AutomationFakeProvider(block_timeout_seconds=5.0)
+                None
+                if provider_state is not None
+                else (
+                    provider
+                    if provider is not None
+                    else AutomationFakeProvider(block_timeout_seconds=5.0)
+                )
             ),
             agent_event_sink=self.canonical,
         )
+        self.adapter = adapter
         tree = NativeSessionTree.create(tmp_path, persist=False)
         self.tree = tree
         self._server = NativeRpcServer(
@@ -227,79 +282,99 @@ def _provider_state_adapter(tmp_path: Path) -> CodingSessionAdapter:
     return CodingSessionAdapter(provider_state=state)
 
 
-def test_set_thinking_level_updates_provider_state_before_construction(
+def test_set_thinking_level_refreshes_live_provider_binding(
     tmp_path: Path,
 ) -> None:
     adapter = _provider_state_adapter(tmp_path)
-    tree = NativeSessionTree.create(tmp_path, persist=False)
-    server = NativeRpcServer(
-        adapter=adapter,
-        cwd=tmp_path,
-        native_session=tree,
-        stdin=io.StringIO(),
-        stdout_buffer=io.BytesIO(),
-        error_stream=io.StringIO(),
-    )
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    try:
+        client.send({"id": "t", "type": "set_thinking_level", "level": "high"})
+        records = client.collect_until(
+            lambda record: record.get("type") == "thinking_level_changed"
+        )
+        assert records[-2]["command"] == "set_thinking_level"
+        assert adapter.provider_state is not None
+        assert adapter.provider_state.current_thinking_level() == "high"
+        assert (
+            getattr(client.adapter._current_provider(), "reasoning_effort", None)
+            == "high"
+        )
+    finally:
+        client.close()
 
-    server._cmd_set_thinking_level("t", {"level": "high"})
 
-    assert adapter.provider_state is not None
-    assert adapter.provider_state.current_thinking_level() == "high"
-    provider = adapter._current_provider()
-    assert getattr(provider, "reasoning_effort", None) == "high"
-
-
-def test_cycle_thinking_level_updates_provider_state_before_construction(
+def test_cycle_thinking_level_refreshes_live_provider_binding(
     tmp_path: Path,
 ) -> None:
     adapter = _provider_state_adapter(tmp_path)
-    tree = NativeSessionTree.create(tmp_path, persist=False)
-    server = NativeRpcServer(
-        adapter=adapter,
-        cwd=tmp_path,
-        native_session=tree,
-        stdin=io.StringIO(),
-        stdout_buffer=io.BytesIO(),
-        error_stream=io.StringIO(),
-    )
-
-    server._cmd_cycle_thinking_level("t", {})
-
-    assert adapter.provider_state is not None
-    assert adapter.provider_state.current_thinking_level() == "minimal"
-    provider = adapter._current_provider()
-    assert getattr(provider, "reasoning_effort", None) == "minimal"
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    try:
+        client.send({"id": "t", "type": "cycle_thinking_level"})
+        client.collect_until(
+            lambda record: record.get("type") == "thinking_level_changed"
+        )
+        assert adapter.provider_state is not None
+        assert adapter.provider_state.current_thinking_level() == "minimal"
+        assert (
+            getattr(client.adapter._current_provider(), "reasoning_effort", None)
+            == "minimal"
+        )
+    finally:
+        client.close()
 
 
-def test_rpc_thinking_adapter_uses_the_provider_session_mutex(
-    tmp_path: Path,
+def test_rpc_configuration_drives_the_actual_next_provider_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Configuration must reach CodingSessionState, not only adapter lookup."""
+
+    instances: list[_RecordingConfiguredProvider] = []
+
+    def construct(
+        _runtime: ModelRuntime,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+        options: object,
+    ) -> _RecordingConfiguredProvider:
+        provider = _RecordingConfiguredProvider(
+            selection.provider_name, selection.model_id, thinking_level
+        )
+        instances.append(provider)
+        return provider
+
+    monkeypatch.setattr(ModelRuntime, "construct", construct)
     adapter = _provider_state_adapter(tmp_path)
     assert adapter.provider_state is not None
-    mutex = threading.RLock()
-    adapter.provider_state.bind_state_lock(mutex)
-    server = NativeRpcServer(
-        adapter=adapter,
-        cwd=tmp_path,
-        native_session=NativeSessionTree.create(tmp_path, persist=False),
-        stdin=io.StringIO(),
-        stdout_buffer=io.BytesIO(),
-        error_stream=io.StringIO(),
-    )
-    done = threading.Event()
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    try:
+        client.send(
+            {
+                "id": "model",
+                "type": "set_model",
+                "provider": "openai",
+                "modelId": "gpt-5.4",
+            }
+        )
+        assert client.wait_for(lambda record: record.get("id") == "model")["success"]
+        client.send({"id": "thinking", "type": "set_thinking_level", "level": "high"})
+        client.collect_until(
+            lambda record: record.get("type") == "thinking_level_changed"
+        )
+        client.send({"id": "prompt", "type": "prompt", "message": "use new binding"})
+        client.collect_until(lambda record: record.get("type") == "agent_end")
 
-    def set_level() -> None:
-        server._set_thinking_level("high")
-        done.set()
-
-    with mutex:
-        writer = threading.Thread(target=set_level)
-        writer.start()
-        assert not done.wait(0.05)
-        assert adapter.provider_state.thinking_level is None
-    writer.join(1)
-    assert done.is_set()
-    assert adapter.provider_state.current_thinking_level() == "high"
+        used = [
+            provider
+            for provider in instances
+            if provider.model_id == "gpt-5.4" and provider.thinking == "high"
+        ]
+        assert len(used) == 1
+        assert len(used[0].requests) == 1
+        request = used[0].requests[0]
+        assert (request.provider_name, request.model_id) == ("openai", "gpt-5.4")
+    finally:
+        client.close()
 
 
 def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:
@@ -514,6 +589,189 @@ def test_get_state_and_get_messages(client) -> None:
     assert "user" in roles and "assistant" in roles
 
 
+def test_static_injected_provider_configuration_fallback(client) -> None:
+    client.send({"id": "state", "type": "get_state"})
+    state = client.wait_for(lambda record: record.get("id") == "state")
+    model = state["data"]["model"]
+    assert state["data"]["thinkingLevel"] == "off"
+
+    client.send({"id": "models", "type": "get_available_models"})
+    assert client.wait_for(lambda record: record.get("id") == "models")["data"] == {
+        "models": [model]
+    }
+    client.send(
+        {
+            "id": "same",
+            "type": "set_model",
+            "provider": model["provider"],
+            "modelId": model["id"],
+        }
+    )
+    assert client.wait_for(lambda record: record.get("id") == "same")["success"]
+    for command in ("cycle_model", "cycle_thinking_level"):
+        client.send({"id": command, "type": command})
+        assert (
+            client.wait_for(lambda record: record.get("id") == command)["data"] is None
+        )
+    client.send(
+        {"id": "other", "type": "set_model", "provider": "other", "modelId": "x"}
+    )
+    assert not client.wait_for(lambda record: record.get("id") == "other")["success"]
+    client.send({"id": "thinking", "type": "set_thinking_level", "level": "high"})
+    assert not client.wait_for(lambda record: record.get("id") == "thinking")["success"]
+    client.send({"id": "state-after", "type": "get_state"})
+    client.wait_for(lambda record: record.get("id") == "state-after")
+    assert not hasattr(client._server, "_thinking_level")
+    assert not any(
+        record.get("type") == "thinking_level_changed" for record in client._seen
+    )
+    assert not [
+        entry
+        for entry in client.tree.entries
+        if getattr(entry, "type", "") == "thinking_level_change"
+    ]
+
+
+def test_catalog_model_selection_uses_owner_and_emits_no_model_event(
+    tmp_path: Path,
+) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    assert adapter.provider_state is not None
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    try:
+        client.send({"id": "models", "type": "get_available_models"})
+        available = client.wait_for(lambda record: record.get("id") == "models")
+        models = available["data"]["models"]
+        assert {"provider": "openai", "id": "gpt-5.5"} in models
+        assert {"provider": "openai", "id": "gpt-5.4"} in models
+
+        client.send(
+            {
+                "id": "set",
+                "type": "set_model",
+                "provider": "openai",
+                "modelId": "gpt-5.4",
+            }
+        )
+        response = client.wait_for(lambda record: record.get("id") == "set")
+        assert response["data"] == {"provider": "openai", "id": "gpt-5.4"}
+        assert adapter.provider_state.current_selection() == NativeModelSelection(
+            "openai", "gpt-5.4"
+        )
+        assert not [
+            record for record in client._seen if record.get("type") == "model_changed"
+        ]
+
+        client.send(
+            {
+                "id": "same",
+                "type": "set_model",
+                "provider": "openai",
+                "modelId": "gpt-5.4",
+            }
+        )
+        assert client.wait_for(lambda record: record.get("id") == "same")["success"]
+    finally:
+        client.close()
+
+
+def test_rpc_configuration_noops_emit_no_thinking_event_or_durable_entry(
+    tmp_path: Path,
+) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    assert adapter.provider_state is not None
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    client._seen = []
+    try:
+        client.send({"id": "thinking", "type": "set_thinking_level", "level": "high"})
+        client.collect_until(
+            lambda record: record.get("type") == "thinking_level_changed"
+        )
+        entries_before = tuple(client.tree.entries)
+        client.send(
+            {
+                "id": "same-model",
+                "type": "set_model",
+                "provider": "openai",
+                "modelId": "gpt-5.5",
+            }
+        )
+        client.wait_for(lambda record: record.get("id") == "same-model")
+        client.send(
+            {"id": "same-thinking", "type": "set_thinking_level", "level": "high"}
+        )
+        client.wait_for(lambda record: record.get("id") == "same-thinking")
+        # Commands are serialized, so this barrier response follows either
+        # hypothetical event and makes its absence deterministic.
+        seen_before = len(client._seen)
+        client.send({"id": "barrier", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "barrier")
+
+        assert tuple(client.tree.entries) == entries_before
+        assert not any(
+            record.get("type") == "thinking_level_changed"
+            for record in client._seen[seen_before:]
+        )
+    finally:
+        client.close()
+
+
+def test_model_switch_clamps_thinking_and_orders_response_before_event(
+    tmp_path: Path,
+) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    assert adapter.provider_state is not None
+    adapter.provider_state.assign_thinking_level("max")
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    try:
+        client.send(
+            {
+                "id": "set",
+                "type": "set_model",
+                "provider": "openai",
+                "modelId": "gpt-4o",
+            }
+        )
+        records = client.collect_until(
+            lambda record: record.get("type") == "thinking_level_changed"
+        )
+        response_index = next(
+            index for index, record in enumerate(records) if record.get("id") == "set"
+        )
+        event_index = next(
+            index
+            for index, record in enumerate(records)
+            if record.get("type") == "thinking_level_changed"
+        )
+        assert response_index < event_index
+        assert records[response_index]["data"] == {"provider": "openai", "id": "gpt-4o"}
+        assert records[event_index]["level"] == "off"
+        assert adapter.provider_state.current_thinking_level() == "off"
+        entries = [
+            entry
+            for entry in client.tree.entries
+            if getattr(entry, "type", "") == "thinking_level_change"
+        ]
+        assert len(entries) == 1
+        assert getattr(entries[0], "thinking_level") == "off"
+    finally:
+        client.close()
+
+
+def test_thinking_refuses_level_not_supported_by_current_model(tmp_path: Path) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    assert adapter.provider_state is not None
+    adapter.provider_state.replace_selection(NativeModelSelection("openai", "gpt-4o"))
+    client = _RpcClient(tmp_path, provider_state=adapter.provider_state)
+    try:
+        client.send({"id": "thinking", "type": "set_thinking_level", "level": "high"})
+        response = client.wait_for(lambda record: record.get("id") == "thinking")
+        assert response["success"] is False
+        assert adapter.provider_state.current_thinking_level() is None
+    finally:
+        client.close()
+
+
 def test_cycle_model_returns_explicit_null_data(client) -> None:
     # Single configured model: cycle_model must carry an explicit `data: null`
     # (Pi's `... | null` contract), not omit the data field.
@@ -523,6 +781,51 @@ def test_cycle_model_returns_explicit_null_data(client) -> None:
     assert resp["success"] is True
     assert "data" in resp
     assert resp["data"] is None
+
+
+def test_cycle_model_handler_returns_exact_scoped_projection(tmp_path: Path) -> None:
+    """Exercise the handler payload independently of threaded settings setup."""
+
+    class _TwoModelConfigurationPort:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def cycle_model(self) -> RpcModelCycleResult:
+            self.calls += 1
+            selection = NativeModelSelection(
+                "openai", "gpt-5.4" if self.calls == 1 else "gpt-5.5"
+            )
+            return RpcModelCycleResult(
+                RpcConfigurationResult(
+                    True, RpcConfigurationSnapshot(selection, "high")
+                ),
+                is_scoped=self.calls == 1,
+            )
+
+    output = io.BytesIO()
+    server = NativeRpcServer(
+        adapter=object(),
+        cwd=tmp_path,
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=io.StringIO(),
+        stdout_buffer=output,
+        error_stream=io.StringIO(),
+    )
+    server._configuration = _TwoModelConfigurationPort()
+    server._cmd_cycle_model("scoped", {})
+    server._cmd_cycle_model("unscoped", {})
+    records = [json.loads(line) for line in output.getvalue().decode().splitlines()]
+
+    assert records[0]["data"] == {
+        "model": {"provider": "openai", "id": "gpt-5.4"},
+        "thinkingLevel": "high",
+        "isScoped": True,
+    }
+    assert records[1]["data"] == {
+        "model": {"provider": "openai", "id": "gpt-5.5"},
+        "thinkingLevel": "high",
+        "isScoped": False,
+    }
 
 
 def test_no_payload_response_omits_data(client) -> None:
