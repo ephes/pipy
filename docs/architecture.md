@@ -1103,6 +1103,16 @@ their metadata archive, `RunResult`, streaming, failure and exit contract.
 D6c first adds an executable product-session embedding example. It does not
 rename or silently change the compatibility API.
 
+D6c10 confirms the one-shot Python wrapper is now removable without changing
+the CLI runtime. `run_native` and `make_native_run_request` have no production
+repository caller, while `pipy run --agent pipy-native` constructs
+`PipyNativeAdapter` directly and reaches `NativeHarnessCompatibilityRuntime`
+through `HarnessRunner`. D6c11 therefore removes only those SDK helpers,
+constants, implementation imports and compatibility-only re-exports. The SDK
+keeps the product factories/types, observer events, snapshot and `ProviderPort`;
+the CLI adapter/runtime, root harness exports, shared models, archive and
+streaming behavior remain in their current owners.
+
 The terminal replacement commands are a second, runtime-bearing adoption
 boundary. D6c3 adopts resolved `/resume` selection through the D6b coordinator
 and a controller-bound `CanonicalSessionLeaseSlot`: it strict-loads and

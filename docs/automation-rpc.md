@@ -1002,15 +1002,15 @@ boundaries.
 
 ## (e) Python SDK Relationship
 
-`src/pipy_harness/sdk.py` (`create_product_session` and the separate
-`run_native` compatibility surface) is the **in-process Python** embedding surface — Pi's
-TypeScript SDK equivalent. `--mode rpc` is the **out-of-process** embedding
-surface — Pi's `RpcClient` equivalent. They are complementary:
+`src/pipy_harness/sdk.py` is the **in-process Python** product-session embedding
+surface — Pi's TypeScript SDK equivalent. D6c11 removes its obsolete one-shot
+compatibility helpers while preserving the separate `pipy run` runtime.
+`--mode rpc` is the **out-of-process** embedding surface — Pi's `RpcClient`
+equivalent. They are complementary:
 
 - The SDK is for Python callers that link pipy directly (tests, smoke checks,
   library integrations). Product sessions return immutable native snapshots
-  across repeated submissions with no implicit workflow record. The one-shot
-  compatibility `run_native` still returns `RunResult` and finalizes a record.
+  across repeated submissions with no implicit workflow record.
 - `--mode rpc` is for non-Python or process-isolated callers that want Pi's
   exact JSONL protocol, asynchronous events, and mid-turn control.
 - Both reuse the **same** native runtime (`PipyNativeAdapter`,

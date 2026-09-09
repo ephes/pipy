@@ -2998,6 +2998,21 @@ or command footer. Public/RPC, SDK compatibility, strict reopen, workspace or
 provider selection, export/share, capture and cross-process locking remain
 outside D6c9.
 
+D6c10 fixes the final frontend compatibility boundary. D6c11 removes the
+pipy-only `pipy_harness.sdk.run_native` and `make_native_run_request` helpers,
+their constants and compatibility-only SDK re-exports outright. The retained
+Python SDK is the persistent product-session factory/type/event/snapshot surface
+with `ProviderPort` injection. There is no alias, warning, shim or semantic
+conversion of the old one-shot names.
+
+The production one-shot command remains independent: `pipy run --agent
+pipy-native` directly composes `PipyNativeAdapter`, `HarnessRunner` and
+`NativeHarnessCompatibilityRuntime`. D6c11 changes none of their request,
+provider selection, metadata archive, `RunResult`, stream/stdout privacy,
+failure or exit contracts. Exact SDK export/absence tests and unchanged direct
+CLI/runtime/archive tests distinguish removal of the Python facade from removal
+of the runtime.
+
 Slice 3.1d.4a adds the exact payload-free `TRUST_PROJECT` action for `/trust` with the
 standard footer. The direct kernel recognizes only the already-edge-stripped
 exact command; composition retains outer trimming, the submitted user bubble,

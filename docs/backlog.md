@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D6c10 re-inventories and reviews compatibility SDK retirement
-without removing the production CLI compatibility runtime.
+**Next task:** D6c11 retires the one-shot Python SDK facade while preserving
+the production `pipy run --agent pipy-native` compatibility path.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -699,9 +699,10 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c6 | Complete `c7c2533`; D6c5 `6ea8802`; 198 focused and 6,164 full tests; focused Terra R2 CLEAN | Re-inventory terminal fork/clone, import replacement and compatibility callers; review the bounded fork/clone adoption contract | Fork/clone selected together because they share one transition and currently diverge from the lease slot and guarded active tree; import remains separate; no runtime change |
 | D6c7 | Complete `cba8e18`; D6c6 `c7c2533`; 361 focused and 6,171 full tests; first Terra code review CLEAN | Adopt terminal `/fork` and `/clone` through the native transition owner | Resolve terminal refs before one detailed fork gate; guarded active-tree snapshot; child claim and state-first handoff; empty current leaf refuses; no import or SDK change |
 | D6c8 | Complete `5ef8bef`; D6c7 `cba8e18`; 275 focused and 6,171 full tests; two focused Terra plan rounds, final Warning repaired locally at the cap | Re-inventory and review terminal import replacement before compatibility SDK retirement | Preserve confirmation, permissive load, missing-workspace fallback and truthful partial-artifact behavior; one terminal lease/pointer owner; no runtime or compatibility change |
-| D6c9 | Complete in this implementation chunk; D6c8 `5ef8bef`; 102 focused and 6,180 full tests; first Terra code review CLEAN | Adopt terminal `/import` through the native transition owner | Presentation-owned staging followed by candidate claim and state-first lease handoff; persistent and ephemeral sources; exact controlled/fatal failure cutoffs; no SDK/RPC change |
-| D6c10 | D6c9 | Re-inventory and review compatibility SDK retirement without removing the production CLI compatibility runtime | Exact export/caller/docs/test decision before deletion; no silent `run_native` semantics or `pipy run --agent pipy-native` regression |
-| D6c | D6c10 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
+| D6c9 | Complete `24e01d9`; D6c8 `5ef8bef`; 102 focused and 6,180 full tests; first Terra code review CLEAN | Adopt terminal `/import` through the native transition owner | Presentation-owned staging followed by candidate claim and state-first lease handoff; persistent and ephemeral sources; exact controlled/fatal failure cutoffs; no SDK/RPC change |
+| D6c10 | Complete in this planning chunk; D6c9 `24e01d9`; 91 focused and 6,180 full tests; first Terra plan review CLEAN | Re-inventory and review compatibility SDK retirement without removing the production CLI compatibility runtime | Exact export/caller/docs/test decision before deletion; no silent `run_native` semantics or `pipy run --agent pipy-native` regression |
+| D6c11 | D6c10 | Remove the one-shot Python SDK facade and compatibility-only SDK re-exports | Exact product-only SDK surface; CLI/archive/stream/failure/exit behavior unchanged; docs/release note and absence tests |
+| D6c | D6c11 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
 | D7a1 | Complete `d900ca5`; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
 | D7a | Complete `d900ca5`; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
@@ -988,6 +989,56 @@ review returned CLEAN over the complete runtime/test/doc diff. Full validation
 passed 6,180 tests with two skipped, plus lint, formatting and Mypy. PTY,
 documentation and diff checks passed; eight PTY smoke tests passed and
 interpreter links remained unchanged.
+
+At the D6c10 phase boundary, summary-safe searches found no prior compatibility
+retirement decision. Two read-only Terra inventories at `24e01d9` confirmed that
+`run_native` and `make_native_run_request` have no production repository caller.
+The installed one-shot command bypasses `sdk.py`: `cli.main` constructs
+`PipyNativeAdapter`, `HarnessRunner` drives it, and the adapter constructs
+`NativeHarnessCompatibilityRuntime`. That direct path owns the metadata archive,
+`RunResult`, streaming, failure and exit contract and remains production code.
+
+D6c11 removes only the pipy-only Python one-shot facade. In
+`pipy_harness.sdk`, delete `run_native`, `make_native_run_request`,
+`DEFAULT_NATIVE_AGENT`, `DEFAULT_NATIVE_SLUG`, their implementation imports,
+and the compatibility-only `CapturePolicy`, `HarnessRunner`, `HarnessStatus`,
+`RunRequest`, `RunResult`, and `StreamChunkSink` re-exports. The exact retained
+SDK surface is `AgentEvent`, `AgentEventSink`, `CodingSessionResultSnapshot`,
+`ProductSession`, `ProductSessionTarget`, `ProductSessionTransitionError`,
+`ProductSessionTransitionFailure`, `ProductSessionTransitionResult`,
+`ProviderPort`, `create_product_session`, and `open_product_session`. The
+no-deprecation policy forbids aliases, warnings or shims.
+
+The root `pipy_harness` exports, adapters package, `PipyNativeAdapter`,
+`NativeHarnessCompatibilityRuntime`, `HarnessRunner`, shared models, archive
+schema, CLI routing/provider selection and direct native exports do not change.
+The unfortunately named private `SdkAgentEventAdapter` also remains because it
+serves CLI streaming; renaming it would expand scope without protecting the
+retirement. No one-shot behavior is converted to product-session behavior.
+
+D6c11 may write `src/pipy_harness/sdk.py`, `tests/test_sdk.py`, and the SDK
+section of `tests/test_architecture_archive_sdk_contracts.py`. User/current
+contract updates may touch `README.md`, `docs/sdk.md`, `docs/architecture.md`,
+`docs/harness-spec.md`, `docs/automation-rpc.md`, `docs/pi-parity.md`,
+`docs/rpc.md`, `docs/session-tree.md`, `docs/backlog.md`, and `CHANGELOG.md`.
+Dated audits, assessments, implementation plans and archived parity reports keep
+their then-true historical text.
+
+Acceptance pins the exact retained `sdk.__all__`, absence of every retired name,
+the hermetic product example and existing product/reopen/transition tests. The
+unchanged direct CLI and one-shot-runtime tests must still prove finalized
+metadata records, stdout/stream privacy, failure and exit behavior; direct
+adapter/archive tests remain unchanged. Current user documentation must no longer
+offer the removed Python helpers and must direct Python embedders to the product
+facade while retaining `pipy run`, JSON and RPC as separate command/process
+surfaces. This is an intentional breaking removal in a private pre-parity API,
+not evidence that the CLI compatibility runtime is obsolete.
+
+Root validation passed 91 focused tests and the full 6,180-test gate with two
+skipped, plus lint, formatting, Mypy, docs-build, diff hygiene and unchanged
+interpreter links. The first focused Terra planning review returned CLEAN after
+checking the complete diff, exact SDK exports, every repository caller and the
+direct CLI/adapter/runtime/runner path; the review loop stopped immediately.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

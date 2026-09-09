@@ -208,6 +208,43 @@ coordinator while the adapter retains its recovery and presentation policy.
 Listing, rename/delete, `/tree`, export/share, and compatibility retirement
 remain outside the adopted transition slices.
 
+### D6c10/D6c11 one-shot Python facade retirement contract
+
+D6c10 fixes the retirement boundary and D6c11 implements it. Repository source
+has no production caller of `run_native` or `make_native_run_request`; their
+callers are this documentation and dedicated compatibility tests. The supported
+Python embedding path is now the persistent product session demonstrated above.
+Because pipy is private and has no users before parity, removal follows the
+no-deprecation policy: no aliases, notices or shims remain.
+
+After D6c11, `pipy_harness.sdk.__all__` contains exactly `AgentEvent`,
+`AgentEventSink`, `CodingSessionResultSnapshot`, `ProductSession`,
+`ProductSessionTarget`, `ProductSessionTransitionError`,
+`ProductSessionTransitionFailure`, `ProductSessionTransitionResult`,
+`ProviderPort`, `create_product_session`, and `open_product_session`. The module
+deletes `run_native`, `make_native_run_request`, `DEFAULT_NATIVE_AGENT`,
+`DEFAULT_NATIVE_SLUG`, and the one-shot-only re-exports `CapturePolicy`,
+`HarnessRunner`, `HarnessStatus`, `RunRequest`, `RunResult`, and
+`StreamChunkSink`. Generic harness callers can continue importing their owned
+types from the top-level `pipy_harness` package; provider contracts retain their
+native owner.
+
+The installed `pipy run --agent pipy-native` path does not import `sdk.py`. It
+continues to construct `PipyNativeAdapter`, drive it through `HarnessRunner`, and
+use `NativeHarnessCompatibilityRuntime`. Its one-shot metadata archive,
+`RunResult`, stdout/stream privacy, provider resolution, failure and exit
+behavior remain unchanged. The adapters/native packages, root harness exports,
+shared models, runtime and CLI wiring are outside the D6c11 write set. D6c11 does
+not give the command product-session semantics or rename its private streaming
+adapter.
+
+Acceptance uses an exact product-only SDK export/absence test, runs the hermetic
+two-turn example plus product create/reopen/transition tests, and retains direct
+CLI/one-shot-runtime/archive tests as unchanged witnesses. README and current
+SDK, automation, parity and architecture documentation remove the Python
+one-shot offer while continuing to document the separate CLI, JSON and RPC
+surfaces. Historical dated evidence remains unchanged.
+
 ## D6b public session-transition contract
 
 **D6b3 shipped:** `ProductSession.fork()`, `clone()`, `new_session()`, and
