@@ -41,8 +41,11 @@ Recognized command names do not imply implemented behavior:
 - `compact` is an idle-only worker operation over the native semantic-compaction
   owner. It emits a paired compaction lifecycle and then its correlated result;
   `abort` cancels its claimed summary work. `set_auto_compaction` changes the
-  actual effective compaction setting. `set_auto_retry` remains transport-only
-  and `abort_retry` is a no-op.
+  actual effective compaction setting. In the current build `set_auto_retry`
+  remains transport-only and `abort_retry` is a no-op. The selected D5d change
+  makes the former update effective `retry.enabled` with settings precedence and
+  makes the latter cancel only an exact active ordinary retry phase; see the
+  [D5d adoption contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
 - `new_session`, `switch_session`, `fork`, `clone`, and `export_html` return
   correlated not-yet-implemented errors.
 - Steering and follow-up delivery remains one message per turn boundary, steering

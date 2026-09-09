@@ -1729,6 +1729,50 @@ witness and state-first publication. Branch summaries remain outside that opt-in
 D4a does not add RPC retry controls, queue migration, public session control
 methods, a new provider family, or compatibility SDK behavior changes.
 
+### RPC Retry Control Adoption Contract (D5d)
+
+D5d exposes the implemented D4a ordinary-request retry policy and retry phase to
+RPC without giving the transport retry ownership. `set_auto_retry` accepts only
+an exact boolean and calls a narrow, precedence-aware `SettingsManager` mutation
+for `retry.enabled`. An equal effective value is an idempotent success. Otherwise
+the owner updates an explicit trusted-project value when that layer supplies the
+key, or the global layer when no higher writable layer supplies it. A conflicting
+CLI/environment override refuses before any write. File replacement, in-memory
+publication, and the success postcondition remain atomic under the settings I/O
+lock. The request-preparation capture point decides policy: a request that has
+already captured its immutable policy keeps it, and the next capture observes a
+successful change.
+
+`abort_retry` reaches a private, once-bound control port installed by the product
+composition root. That port has no queue, enabled flag, active-state projection,
+or transport-owned latch. Only canonical execution of an eligible ordinary
+product request activates an exact, short-lived cancellation capability. Semantic
+compaction and branch-summary retries remain private and never install that
+capability; non-capable providers perform their existing single call and expose
+no retry phase.
+
+The canonical executor activates the capability before publishing
+`RetryScheduled`. It covers the interruptible delay, caller-thread reissue
+admission, and reissued provider phase through the existing ordered per-turn
+cancellation path. Retirement and result fixation share one synchronization
+boundary with an abort request: if abort wins, the executor emits exactly one
+unsuccessful `RetryCompleted`, starts no later attempt, and lets normal canonical
+cancellation settle the run; if result fixation and retirement win, a concurrent
+or later `abort_retry` is a successful no-op and cannot cancel the ordinary
+provider phase, a promoted input, or a later run. Retire the capability before
+publishing its final retry-completion event. Never invoke a transport callback,
+event sink, latch signal, or provider operation while holding product state,
+settings, queue, or control locks.
+
+RPC retains command correlation and event projection only. `abort_retry` succeeds
+when there is no active ordinary retry phase. Its response has no guaranteed total
+order relative to asynchronous retry events; the canonical start/end/terminal
+ordering remains authoritative. `get_state` gains no retry-active field, matching
+the protocol surface. The existing generic `abort` still targets the accepted
+run, while `abort_retry` is deliberately narrower. D5d adds no retry for request
+preparation failures, no independent attempt allowance, no event-ordinal change,
+and no public `ProductSession` or compatibility `run_native` behavior.
+
 ### Semantic Compaction Retry Contract (D4b1)
 
 This is the implemented contract; semantic summaries opt into canonical retries.

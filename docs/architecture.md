@@ -1077,6 +1077,19 @@ the resulting effective value instead of caching a flag. See the
 [D5c contract](sdk.md#d5c-rpc-compaction-control-adoption-contract) for failure,
 privacy, and output ordering.
 
+D5d adds one more private, once-bound readiness port for retry cancellation. The
+transport uses the settings owner for `retry.enabled` and sends `abort_retry`
+through this stable port; it owns neither retry policy nor an activity flag. The
+canonical provider-turn executor alone installs an exact capability for an
+ordinary product retry, before its start event, and retires it atomically with
+result fixation before the matching end event. The capability covers delay,
+reissue admission, and the reissued provider phase through the accepted turn's
+ordered cancellation path. A losing late abort is a no-op, so it cannot escape
+the retry phase into the surrounding provider turn, a promoted input, or a later
+run. Auxiliary summary retries and non-capable providers never install the
+capability. See the
+[D5d SDK contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
+
 Project trust is fail-closed. Final-workspace project settings, packages,
 resources, and executable extensions are unavailable until saved or run-local
 trust is resolved; global and explicit CLI sources follow their documented

@@ -109,8 +109,9 @@ providers without the prepared capability remain single-call. Auxiliary summarie
 used by semantic compaction capture the same policy and prepared capability while
 keeping retry events, deltas, and usage private; their original cut and context
 witness gate every reissue and final acceptance. Branch summaries retain their
-provider-owned behavior. The RPC
-`set_auto_retry`/`abort_retry` controls remain deferred.
+provider-owned behavior. D5d adopts RPC retry controls through that ordinary
+canonical owner; it does not expose auxiliary-summary retries or change the
+in-process `ProductSession` surface.
 
 A terminal driver failure, such as three consecutive malformed tool calls,
 retires the lifetime and raises `RuntimeError` containing
@@ -719,6 +720,48 @@ manual compaction plus any promoted prompt. Manual compaction synthesizes no
 boundary. Public `ProductSession`, compatibility `run_native`, terminal
 `/compact`, session replacement, retry controls, direct bash, and archive schema
 remain unchanged.
+
+### D5d RPC retry-control adoption contract
+
+D5d removes RPC's transport-local retry toggle and connects both retry commands
+to existing owners. `set_auto_retry` accepts an exact boolean and uses a dedicated
+`SettingsManager` operation for the effective `retry.enabled` value. The operation
+is idempotent when the effective value already matches. Otherwise it writes the
+trusted project layer only when that layer explicitly supplies the key, falling
+back to the global layer; it refuses a conflicting CLI/environment override
+without writing. The settings I/O lock covers layer selection, atomic replacement,
+publication, and the effective-value postcondition. Policy already captured for
+an ordinary request is immutable; a successful mutation affects its next policy
+capture.
+
+The product composition root also constructs one stable private retry-control
+port and includes it in the complete native readiness outcome. RPC may request
+`abort_retry` through that port, but cannot inspect or mutate retry phase state.
+Canonical `ProviderTurnExecutor` execution for an ordinary product request is the
+only path that installs an exact active capability. It is installed before the
+matching `auto_retry_start`, remains active across delay, guarded reissue
+admission, and the reissued provider phase, and is retired atomically when the
+result becomes fixed. Private semantic-compaction and branch-summary execution
+do not install it. Providers without the prepared capability never install it.
+
+The capability reuses the accepted turn's ordered cancellation mechanism; it is
+not a second run abort latch. Exactly one side wins a race between retry abort and
+result fixation. An accepted retry abort wakes delay/provider waits, prevents any
+later attempt, emits one unsuccessful `auto_retry_end`, and proceeds through the
+ordinary cancelled run settlement. Once retirement wins, a concurrent or later
+command is a successful no-op and cannot affect the surrounding ordinary provider
+phase, a promoted queue item, or a later run. Activation and retirement are
+paired on every callback, admission, provider, cancellation, and cleanup exit.
+No control/settings/queue/coding lock spans callbacks, wake signaling, provider
+I/O, or JSONL output.
+
+RPC continues to project the D4a event sequence: each reissue has one
+`auto_retry_start` and one `auto_retry_end`, with no intermediate turn or agent
+end. Command responses remain correlated, but `abort_retry` response order is not
+a synchronization guarantee for asynchronous events. `get_state` adds no retry
+activity field. Generic `abort`, queue ownership, eligibility, attempt counters,
+provider transport fallback, summary privacy, compatibility `run_native`, and the
+public product-session API remain unchanged.
 
 D6 owns resume/replacement and broader close semantics. D6c migrates one entrypoint
 at a time, then removes replaced compatibility surfaces and their dedicated

@@ -675,6 +675,30 @@ compaction as compacting but not streaming, and automatic compaction as both.
 The detailed ownership, cancellation, privacy, and lock-order rules are in the
 [D5c SDK contract](sdk.md#d5c-rpc-compaction-control-adoption-contract).
 
+### Retry controls
+
+The current build already projects canonical D4a retry events for eligible
+ordinary prepared OpenAI-Codex requests. D5d adopts the remaining controls without
+creating another retry owner. `set_auto_retry` accepts an exact boolean and writes
+the effective `retry.enabled` setting through the precedence-aware settings owner:
+an equal value succeeds without a write, an explicit trusted-project value stays
+in that layer, the global layer is the fallback, and a conflicting CLI/environment
+override produces a correlated error. A request that has captured its immutable
+policy keeps it; the next capture observes a successful change.
+
+`abort_retry` addresses only the exact active ordinary retry phase. That phase
+starts before `auto_retry_start`, spans backoff, reissue admission, and the
+reissued provider request, and retires atomically with result fixation before
+`auto_retry_end`. If abort wins, the end event is unsuccessful, no later attempt
+starts, and normal cancelled-run events follow. If retirement wins, the command
+is a successful no-op; it cannot cancel the surrounding ordinary provider phase,
+queued/promoted input, or a later run. The command also succeeds as a no-op for
+non-capable providers and when no retry is active. Response correlation does not
+promise ordering against asynchronous event output. `get_state` has no retry
+activity field. Generic run abort and private semantic/branch-summary retries are
+unchanged. See the
+[D5d SDK contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
+
 ### Extension UI request/response channel
 
 When a Python extension (`docs/extension-api.md`) needs user interaction in
@@ -792,9 +816,11 @@ now applies configured retry policy to eligible ordinary prepared OpenAI-Codex
 requests. RPC observes the existing retry lifecycle envelopes within the same
 accepted provider iteration, without intermediate `turn_end`/`agent_end` or
 repeating earlier tools. The retry event counters describe reissues and exclude
-the initial attempt and transport fallback. `set_auto_retry` still only records
-a flag and does not override the captured product settings; `abort_retry` remains
-inert. Those controls remain D5d after shared queue ownership.
+the initial attempt and transport fallback. The D5d implementation connects
+`set_auto_retry` to the effective product setting and `abort_retry` to the exact
+active ordinary retry phase. Until that slice lands, the current transport-local
+flag and inert abort handler remain implementation gaps; the selected contract
+above is authoritative for the change.
 
 ## (e) Python SDK Relationship
 
