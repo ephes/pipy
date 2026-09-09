@@ -252,6 +252,7 @@ class SessionCollaborators:
         self,
         repl_input: "TerminalUi | NativeReplInput",
         *,
+        new_transition: Callable[[], ProductSessionTransitionResult] | None = None,
         resume_transition: Callable[[Path], ProductSessionTransitionResult]
         | None = None,
     ) -> SessionCommandEffects:
@@ -268,6 +269,7 @@ class SessionCollaborators:
             extension_session_allows=self.extension_session_allows,
             rebuild_messages_from_tree=self.rebuild_messages_from_tree,
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
+            new_transition=new_transition,
             resume_transition=resume_transition,
             current_session_dir=self.current_session_dir,
             resolve_session_file=self.resolve_session_file,

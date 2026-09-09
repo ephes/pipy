@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Terminal `/new` now uses the native transition owner. Persistent terminal
+  sessions create and claim a sibling before state-first replacement and release
+  the adopted claim on teardown; in-memory terminal sessions remain file-free.
+  Existing terminal diagnostics, footers, and extension-switch gating are
+  preserved, while Python and RPC `new_session` semantics remain unchanged.
+
 - Terminal `/resume` now adopts resolved native session targets through the
   canonical transition owner. Each stream lifetime claims its initial durable
   tree, strict-loads and workspace-validates a candidate before state-first

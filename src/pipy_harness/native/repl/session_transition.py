@@ -176,17 +176,47 @@ class SessionTransitionCoordinator:
     ) -> ProductSessionTransitionResult:
         """Create and adopt one empty persistent tree at external true idle."""
 
-        return self._new(leases=leases)
+        return self._new(
+            leases=leases,
+            before_switch=self.session_before_switch,
+            allow_ephemeral=False,
+            translate_failures=True,
+        )
+
+    def new_terminal(
+        self,
+        *,
+        leases: CanonicalSessionLeaseSlot,
+        before_switch: Callable[[str], bool],
+    ) -> ProductSessionTransitionResult:
+        """Replace the terminal tree through its presentation-aware gate."""
+
+        return self._new(
+            leases=leases,
+            before_switch=before_switch,
+            allow_ephemeral=True,
+            translate_failures=False,
+        )
 
     def new_admitted(  # pragma: no cover - future D6b3 private seam
         self, *, leases: CanonicalSessionLeaseSlot
     ) -> ProductSessionTransitionResult:
         """Use after a future transport has retained its exact control claim."""
 
-        return self._new(leases=leases)
+        return self._new(
+            leases=leases,
+            before_switch=self.session_before_switch,
+            allow_ephemeral=False,
+            translate_failures=True,
+        )
 
-    def _new(
-        self, *, leases: CanonicalSessionLeaseSlot
+    def _new(  # noqa: C901
+        self,
+        *,
+        leases: CanonicalSessionLeaseSlot,
+        before_switch: Callable[[str], bool],
+        allow_ephemeral: bool,
+        translate_failures: bool,
     ) -> ProductSessionTransitionResult:
 
         box: list[ProductSessionTransitionResult] = []
@@ -197,9 +227,47 @@ class SessionTransitionCoordinator:
                 source = self.get_tree()
                 previous = target_for(source)
                 if source.path is None or not source.persist:
+                    if not allow_ephemeral:
+                        box.append(
+                            ProductSessionTransitionResult(
+                                "new", "refused", previous, None, "ephemeral_source"
+                            )
+                        )
+                        return
+                    if leases.current_path() is not None:
+                        raise ProductSessionTransitionError(
+                            ProductSessionTransitionFailure(
+                                "new", previous, "publish", False
+                            )
+                        )
+                    if not before_switch("new"):
+                        box.append(
+                            ProductSessionTransitionResult(
+                                "new", "refused", previous, None, "extension_refusal"
+                            )
+                        )
+                        return
+                    if translate_failures:
+                        try:
+                            candidate = NativeSessionTree.create(
+                                self.workspace, persist=False
+                            )
+                        except BaseException:  # noqa: BLE001 - typed public failure
+                            raise ProductSessionTransitionError(
+                                ProductSessionTransitionFailure(
+                                    "new", previous, "create", False
+                                )
+                            ) from None
+                    else:
+                        candidate = NativeSessionTree.create(
+                            self.workspace, persist=False
+                        )
+                    self._publish_ephemeral_and_rebuild(
+                        candidate, previous, translate_failures=translate_failures
+                    )
                     box.append(
                         ProductSessionTransitionResult(
-                            "new", "refused", previous, None, "ephemeral_source"
+                            "new", "completed", target_for(candidate), previous, None
                         )
                     )
                     return
@@ -210,23 +278,28 @@ class SessionTransitionCoordinator:
                             "new", previous, "publish", False
                         )
                     )
-                if not self.session_before_switch("new"):
+                if not before_switch("new"):
                     box.append(
                         ProductSessionTransitionResult(
                             "new", "refused", previous, None, "extension_refusal"
                         )
                     )
                     return
-                try:
+                if translate_failures:
+                    try:
+                        candidate = NativeSessionTree.create(
+                            self.workspace, session_dir=source_path.parent
+                        )
+                    except BaseException:  # noqa: BLE001 - typed public failure
+                        raise ProductSessionTransitionError(
+                            ProductSessionTransitionFailure(
+                                "new", previous, "create", False
+                            )
+                        ) from None
+                else:
                     candidate = NativeSessionTree.create(
                         self.workspace, session_dir=source_path.parent
                     )
-                except BaseException:  # noqa: BLE001 - translate public failure
-                    raise ProductSessionTransitionError(
-                        ProductSessionTransitionFailure(
-                            "new", previous, "create", False
-                        )
-                    ) from None
                 candidate_path = candidate.path
                 if candidate_path is None:
                     raise ProductSessionTransitionError(
@@ -244,7 +317,11 @@ class SessionTransitionCoordinator:
                     )
                     return
                 self._publish_and_rebuild(
-                    candidate, previous, operation="new", handoff=handoff
+                    candidate,
+                    previous,
+                    operation="new",
+                    handoff=handoff,
+                    translate_failures=translate_failures,
                 )
                 box.append(
                     ProductSessionTransitionResult(
@@ -258,6 +335,33 @@ class SessionTransitionCoordinator:
         if error:
             raise error[0]
         return box[0]
+
+    def _publish_ephemeral_and_rebuild(
+        self,
+        candidate: NativeSessionTree,
+        previous: ProductSessionTarget,
+        *,
+        translate_failures: bool,
+    ) -> None:
+        try:
+            self.set_tree(candidate)
+        except BaseException:  # noqa: BLE001 - preserve terminal failure
+            if not translate_failures:
+                raise
+            raise ProductSessionTransitionError(
+                ProductSessionTransitionFailure("new", previous, "publish", False)
+            ) from None
+        try:
+            self.rebuild()
+            self.clear_extension_inputs()
+        except BaseException:  # noqa: BLE001 - preserve terminal failure
+            if not translate_failures:
+                raise
+            raise ProductSessionTransitionError(
+                ProductSessionTransitionFailure(
+                    "new", target_for(candidate), "rebuild", True
+                )
+            ) from None
 
     def switch_external(
         self, session_path: Path, *, leases: CanonicalSessionLeaseSlot
@@ -376,11 +480,14 @@ class SessionTransitionCoordinator:
         *,
         operation: Literal["new", "switch"],
         handoff: _LeaseHandoff,
+        translate_failures: bool = True,
     ) -> None:
         try:
             self.set_tree(candidate)
-        except BaseException:  # noqa: BLE001 - translate public failure
+        except BaseException:  # noqa: BLE001 - preserve terminal failure
             handoff.abort()
+            if not translate_failures:
+                raise
             raise ProductSessionTransitionError(
                 ProductSessionTransitionFailure(operation, previous, "publish", False)
             ) from None
@@ -388,7 +495,9 @@ class SessionTransitionCoordinator:
         try:
             self.rebuild()
             self.clear_extension_inputs()
-        except BaseException:  # noqa: BLE001 - translate public failure
+        except BaseException:  # noqa: BLE001 - preserve terminal failure
+            if not translate_failures:
+                raise
             raise ProductSessionTransitionError(
                 ProductSessionTransitionFailure(
                     operation, target_for(candidate), "rebuild", True

@@ -1582,6 +1582,16 @@ def _compose_commands(
     terminal_leases = collaborators_phase.terminal_transition_leases
     session_command_effects = collaborators.session_command_effects(
         repl_input,
+        new_transition=(
+            None
+            if terminal_leases is None
+            else lambda: collaborators_phase.transition.new_terminal(
+                leases=terminal_leases,
+                before_switch=lambda target: collaborators.extension_session_allows(
+                    "switch", operation="switch", target=target
+                ),
+            )
+        ),
         resume_transition=(
             None
             if terminal_leases is None

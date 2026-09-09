@@ -567,6 +567,7 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         "extension_session_allows",
         "rebuild_messages_from_tree",
         "redraw_custom_entries_for_active_branch",
+        "new_transition",
         "resume_transition",
         "current_session_dir",
         "resolve_session_file",

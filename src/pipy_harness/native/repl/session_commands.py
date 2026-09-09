@@ -234,6 +234,7 @@ class SessionCommandEffects:
     extension_session_allows: Callable[..., bool]
     rebuild_messages_from_tree: Callable[[], None]
     redraw_custom_entries_for_active_branch: Callable[[], None]
+    new_transition: Callable[[], ProductSessionTransitionResult] | None
     resume_transition: Callable[[Path], ProductSessionTransitionResult] | None
     current_session_dir: Callable[[], Path]
     resolve_session_file: Callable[[str], Path | None]
@@ -284,7 +285,20 @@ class SessionCommandEffects:
             self.diag(f"pipy: session named {session_name_argument.value!r}.")
 
     def _execute_new(self) -> None:
-        # Start a fresh native product session in the same store.
+        transition = self.new_transition
+        if transition is not None:
+            outcome = transition()
+            if outcome.status == "refused":
+                if outcome.refusal == "lease_conflict":
+                    self.diag("pipy: new native session is already active.")
+                # The extension gate emits its established detailed refusal.
+                return
+            self.diag(
+                "pipy: started a new native session "
+                f"({sanitize_label_text(self.ctl.session_tree.session_id[:8])})."
+            )
+            return
+        # Non-terminal command carriers retain their established behavior.
         if self.extension_session_allows("switch", operation="switch", target="new"):
             session_dir = (
                 self.ctl.session_tree.path.parent

@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D6c5 adopts terminal `/new` through the reviewed native
-transition owner while preserving the terminal's existing persistent and
-ephemeral behavior.
+**Next task:** D6c6 re-inventories terminal fork/clone, import replacement and
+compatibility retirement against the adopted terminal lease slot, then selects
+one bounded next slice.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -695,8 +695,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c1 | Complete `b952ad2`; 71 focused and 6,154 full tests; focused Terra R3 CLEAN; D6c0 `9c87ee1` | Add and execute one hermetic `create_product_session` example; make it the README's primary Python embedding path | Two submissions share one lifetime/history; explicit tool-capable fake; immutable idle snapshots; no network, credentials, workflow archive, runtime change or compatibility removal |
 | D6c2 | Complete `59f8c95`; 255 focused and 6,154 full tests; first Terra plan review CLEAN; D6c1 `b952ad2` | Review the terminal `/resume` selection lease, strict-load, failure and presentation contract; planning only | Exact initial claim/teardown, same-path no-op, recoverable candidate refusal, fatal publication failure, redraw/diagnostic ordering and picker boundaries fixed before code |
 | D6c3 | Complete `a25f67d`; 361 focused plus 251 repair-focused and 6,160 full tests; focused Terra R2 CLEAN; D6c2 `59f8c95` | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
-| D6c4 | Complete in this planning chunk; D6c3 `a25f67d` | Re-inventory terminal `/new`, fork/clone, import replacement and compatibility callers; review the bounded `/new` adoption contract | `/new` selected first because direct replacement now diverges from the terminal lease slot; preserve ephemeral terminal behavior; no runtime change or combined entry point |
-| D6c5 | D6c4 | Adopt terminal `/new` through the native transition owner | Persistent source uses exact create/claim/publish/handoff/rebuild order; ephemeral source remains in-memory with an empty slot; existing presentation/failure policy; no fork/clone, import or SDK change |
+| D6c4 | Complete `09ec687`; D6c3 `a25f67d` | Re-inventory terminal `/new`, fork/clone, import replacement and compatibility callers; review the bounded `/new` adoption contract | `/new` selected first because direct replacement now diverges from the terminal lease slot; preserve ephemeral terminal behavior; no runtime change or combined entry point |
+| D6c5 | Complete in this implementation chunk; D6c4 `09ec687`; 415 focused and 6,164 full tests; focused Terra R3 CLEAN | Adopt terminal `/new` through the native transition owner | Persistent source uses exact create/claim/publish/handoff/rebuild order; ephemeral source remains in-memory with an empty slot; existing presentation/failure policy; no fork/clone, import or SDK change |
 | D6c6 | D6c5 | Re-inventory and select the next one of terminal fork/clone, import replacement or compatibility SDK retirement | Do not combine remaining entry points; remove SDK compatibility names only after docs/callers use the product replacement; keep `pipy run` archive/`RunResult` semantics unless separately reviewed |
 | D6c | D6c6 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |

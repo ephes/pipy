@@ -7,6 +7,7 @@ reconstructs context when resumed from an existing native session file.
 
 from __future__ import annotations
 
+import inspect
 import io
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
@@ -48,11 +49,14 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.session_commands import (
+    SessionCommandEffects,
     run_interactive_session_picker,
 )
 from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseRegistry,
+    CanonicalSessionLeaseSlot,
     ProductSessionTransitionError,
+    SessionTransitionCoordinator,
 )
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
@@ -681,7 +685,10 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     session_dir = tmp_path / "sessions"
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     active.append_message(AgentUserMessage(content=ProductContent("OLD")))
+    assert active.path is not None
+    active_path = active.path.resolve()
     trace: list[str] = []
+    rebuild_calls = 0
 
     class TracingProvider(_SeenProvider):
         def complete(
@@ -692,6 +699,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
 
     original_gate = ops_module.dispatch_session_before_hooks
     original_create = NativeSessionTree.create
+    original_claim = CanonicalSessionLeaseRegistry.claim
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
     original_diag = emit_diagnostic
@@ -721,8 +729,17 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         )
         return tree
 
+    def claim(path: Path) -> object:
+        trace.append(f"claim:{path.resolve()}")
+        return original_claim(path)
+
     def rebuild(self: CodingProductSessionCoordinator) -> None:
+        nonlocal rebuild_calls
+        rebuild_calls += 1
         trace.append("rebuild")
+        if rebuild_calls == 2:
+            released_source_during_rebuild = original_claim(active_path)
+            released_source_during_rebuild.finish()
         original_rebuild(self)
 
     def clear(self: CodingInputQueue) -> None:
@@ -739,6 +756,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
     monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
+    monkeypatch.setattr(CanonicalSessionLeaseRegistry, "claim", staticmethod(claim))
     monkeypatch.setattr(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
@@ -760,18 +778,30 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     )
 
     assert trace[:2] == ["rebuild", "footer"]
-    assert trace[2:8] == [
+    initial_claim = f"claim:{active_path}"
+    assert trace[2] == initial_claim
+    candidate_path = next(
+        path.resolve()
+        for path in session_dir.glob("*.jsonl")
+        if path.resolve() != active_path
+    )
+    assert trace[3:10] == [
         "hook:switch:new",
         f"create:{session_dir}:True",
+        f"claim:{candidate_path}",
         "rebuild",
         "clear-extension",
         "diagnostic",
         "footer",
     ]
-    assert trace[8:] == ["provider", "footer"]
+    assert trace[10:] == ["provider", "footer"]
     assert _request_users(provider.requests[0]) == ["FRESH"]
     assert len(list(session_dir.glob("*.jsonl"))) == 2
     assert "\x1b" not in err and "\x07" not in err and "EV IL X" in err
+    released_source = CanonicalSessionLeaseRegistry.claim(active_path)
+    released_source.finish()
+    released_candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    released_candidate.finish()
 
 
 def test_new_command_preserves_ephemeral_session_policy(
@@ -804,6 +834,13 @@ def test_new_command_preserves_ephemeral_session_policy(
         )
 
     monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
+    monkeypatch.setattr(
+        CanonicalSessionLeaseRegistry,
+        "claim",
+        staticmethod(
+            lambda _path: pytest.fail("ephemeral /new must not claim a lease")
+        ),
+    )
     provider = _SeenProvider()
     _run(
         CodingSession(provider=provider, native_session=active),
@@ -814,6 +851,87 @@ def test_new_command_preserves_ephemeral_session_policy(
     assert calls == [(None, False)]
     assert provider.requests == []
     assert list(tmp_path.rglob("*.jsonl")) == []
+
+
+def test_terminal_new_publication_failure_aborts_candidate_and_retains_source(
+    tmp_path: Path,
+) -> None:
+    source = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    assert source.path is not None
+    source_path = source.path.resolve()
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+    coordinator = SessionTransitionCoordinator(
+        workspace=tmp_path.resolve(),
+        get_tree=lambda: current[0],
+        set_tree=lambda _tree: (_ for _ in ()).throw(
+            LookupError("injected terminal publication failure")
+        ),
+        session_before_fork=lambda _entry: True,
+        session_before_switch=lambda _target: True,
+        rebuild=lambda: None,
+        clear_extension_inputs=lambda: None,
+    )
+
+    try:
+        with pytest.raises(LookupError, match="terminal publication failure"):
+            coordinator.new_terminal(leases=slot, before_switch=lambda _target: True)
+        assert current == [source]
+        assert slot.current_path() == source_path
+        candidate_path = next(
+            path.resolve()
+            for path in (tmp_path / "sessions").glob("*.jsonl")
+            if path.resolve() != source_path
+        )
+    finally:
+        slot.finish()
+
+    released_source = CanonicalSessionLeaseRegistry.claim(source_path)
+    released_source.finish()
+    released_candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+    released_candidate.finish()
+
+
+def test_new_command_delegates_tree_ownership_to_transition_port() -> None:
+    source = inspect.getsource(SessionCommandEffects._execute_new)
+    terminal_source, _marker, _fallback = source.partition(
+        "# Non-terminal command carriers"
+    )
+
+    assert "NativeSessionTree.create" not in terminal_source
+    assert ".session_tree =" not in terminal_source
+    assert "transition()" in terminal_source
+
+
+def test_new_lease_conflict_keeps_old_tree_usable_then_releases_source_on_teardown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "sessions"
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    active.append_message(AgentUserMessage(content=ProductContent("OLD")))
+    assert active.path is not None
+    active_path = active.path.resolve()
+    original_claim = CanonicalSessionLeaseRegistry.claim
+
+    def claim(path: Path) -> object:
+        if path.resolve() != active_path:
+            raise RuntimeError("persistent product session is already active")
+        return original_claim(path)
+
+    monkeypatch.setattr(CanonicalSessionLeaseRegistry, "claim", staticmethod(claim))
+    provider = _SeenProvider()
+    _out, err = _run(
+        CodingSession(provider=provider, native_session=active),
+        cwd,
+        "/new\nFRESH\n/exit\n",
+    )
+
+    assert "new native session is already active" in err
+    assert _request_users(provider.requests[0]) == ["OLD", "FRESH"]
+    assert len(list(session_dir.glob("*.jsonl"))) == 2
+    released_active = CanonicalSessionLeaseRegistry.claim(active.path)
+    released_active.finish()
 
 
 def _write_new_switch_gate(cwd: Path, body: str) -> None:
@@ -896,7 +1014,7 @@ def test_new_switch_gate_controlled_fatal_cuts_off_create_and_footer(
     assert footer_calls == [None]
 
 
-@pytest.mark.parametrize("failure_stage", ["create", "rebuild"])
+@pytest.mark.parametrize("failure_stage", ["create", "rebuild", "clear"])
 def test_new_storage_failure_cuts_off_later_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -940,10 +1058,15 @@ def test_new_storage_failure_cuts_off_later_effects(
     def rebuild(self: CodingProductSessionCoordinator) -> None:
         nonlocal rebuild_calls
         rebuild_calls += 1
-        if rebuild_calls == 2:
+        if rebuild_calls == 2 and failure_stage == "rebuild":
             trace.append("rebuild")
             raise RuntimeError("rebuild failed")
         original_rebuild(self)
+
+    def clear(self: CodingInputQueue) -> None:
+        trace.append("clear-extension")
+        if failure_stage == "clear":
+            raise RuntimeError("clear failed")
 
     monkeypatch.setattr(
         ops_module,
@@ -957,7 +1080,7 @@ def test_new_storage_failure_cuts_off_later_effects(
     monkeypatch.setattr(
         CodingInputQueue,
         "clear_extension_inputs",
-        lambda _self: trace.append("clear-extension"),
+        clear,
     )
     monkeypatch.setattr(
         "pipy_harness.native.repl.wiring.emit_diagnostic",
@@ -976,11 +1099,21 @@ def test_new_storage_failure_cuts_off_later_effects(
             "/new\n",
         )
 
-    assert trace == ["footer", "hook", "create"] + (
-        ["rebuild"] if failure_stage == "rebuild" else []
-    )
-    expected_files = 2 if failure_stage == "rebuild" else 1
+    later = {
+        "create": [],
+        "rebuild": ["rebuild"],
+        "clear": ["clear-extension"],
+    }[failure_stage]
+    assert trace == ["footer", "hook", "create"] + later
+    expected_files = 1 if failure_stage == "create" else 2
     assert len(list(session_dir.glob("*.jsonl"))) == expected_files
+    if failure_stage in {"rebuild", "clear"}:
+        assert active.path is not None
+        candidate_path = next(
+            path for path in session_dir.glob("*.jsonl") if path != active.path
+        )
+        released_candidate = CanonicalSessionLeaseRegistry.claim(candidate_path)
+        released_candidate.finish()
 
 
 def test_name_command_queries_sets_and_persists_without_provider_turn(
