@@ -2893,6 +2893,28 @@ provider/counter/filter state, ordinary scrollback, captured
 active-rename staleness, explicit-path deletion policy, post-switch lifecycle
 hooks, registry metadata, and write relocation remain deferred.
 
+D6c4 selects terminal `/new` as the next transition-owner adoption. D6c5 keeps
+the existing command and presentation surface but replaces its direct tree
+creation/publication with one typed terminal-new operation. For a persistent
+source the coordinator verifies the terminal slot holds the source, runs the
+existing detailed switch gate once, creates beside the source, claims the
+candidate, guarded-publishes the tree, publishes the slot and retires the old
+claim, rebuilds history once, and clears extension input once. The command then
+emits its sanitized success diagnostic and standard footer without a custom
+entry redraw.
+
+An extension veto precedes creation. Candidate lease conflict after creation is
+recoverable and preserves the old usable state, though its fresh durable
+artifact may remain. Create or unexpected pointer-publication failure stays
+fatal. Rebuild or clear failure after publication is fatal and state-first;
+terminal teardown releases the adopted claim once and no success/footer is
+emitted. An ephemeral terminal source instead requires an empty slot, creates a
+fresh nonpersistent tree, guarded-publishes and rebuilds/clears it with no lease
+claim, and leaves the slot empty. This preserves terminal and Pi behavior while
+the public/RPC operation continues to refuse ephemeral sources. D6c5 adds no
+fork/clone, import, SDK/RPC, lifecycle, provider/workspace, archive or
+cross-process-locking behavior.
+
 Slice 3.1d.3d adds full-content `SESSION_FORK` and payload-free
 `SESSION_CLONE`, both with the standard footer. The direct kernel accepts bare
 or already-edge-stripped literal-space `/fork` and exact `/clone`; composition

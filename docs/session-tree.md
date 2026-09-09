@@ -141,9 +141,11 @@ slot's mutable current claim.
 D6c3 adopts terminal `/resume` while retaining the D6c0 inventory's separation
 for the remaining commands. Resolved numeric, ID, path and different-picker
 targets now use the coordinator's canonical claim, strict load and workspace
-check; the controller lifetime holds the terminal slot. Picker
-cancellation/current selection, list/rename/delete, `/tree`, import/export,
-`/new` and fork/clone remain separate presentation or transition regions.
+check; the controller lifetime holds the terminal slot. D6c4 selects `/new` as
+the next bounded adoption because its direct tree replacement does not update
+that slot. Picker cancellation/current selection, list/rename/delete, `/tree`,
+import/export, and fork/clone remain separate presentation or transition
+regions.
 
 ### D6c2/D6c3 terminal `/resume` adoption contract
 
@@ -218,6 +220,47 @@ cancel/current, list/named/rename/delete and reference-resolution behavior.
 `/tree`, `/import`, `/new`, `/fork`, `/clone`, startup `-r`, SDK/RPC behavior,
 cross-process locking, provider reconstruction and compatibility retirement are
 non-goals.
+
+### D6c4/D6c5 terminal `/new` adoption contract
+
+D6c4 fixes the contract and D6c5 implements it. `SessionCommandEffects` keeps
+classifying `/new`, emitting terminal diagnostics and applying the standard
+footer. It receives one typed terminal-new operation from composition; it does
+not receive the lease slot, create or publish a tree, or rebuild history itself.
+The terminal operation uses the existing detailed `session_before_switch`
+presentation callback exactly once rather than also running the coordinator's
+silent public/RPC gate.
+
+For a persistent source, successful replacement orders the switch gate, fresh
+tree creation beside the source file, canonical candidate claim, guarded
+`RunControlState.session_tree` publication, slot publication and old-claim
+release, one history rebuild, one extension-input clear, the existing sanitized
+started-session diagnostic, and one footer. It does not redraw custom entries.
+The slot must hold the canonical source before the operation starts. Extension
+veto occurs before creation. Candidate lease conflict is recoverable after
+creation: the old tree, claim, history and extension input remain usable, while
+the newly created durable artifact may remain. Create failure and unexpected
+pointer-publication failure are fatal. Rebuild or clear failure after
+publication is state-first and fatal, emits no success diagnostic or footer,
+and controller teardown releases the adopted candidate exactly once.
+
+An ephemeral terminal source retains the existing Pi-aligned behavior: the slot
+must be empty, the gate runs before `NativeSessionTree.create(...,
+persist=False)`, and guarded publication is followed by one history rebuild and
+one extension-input clear. No durable file or canonical claim is created, and
+the slot stays empty through success and teardown. Create, publication, rebuild
+and clear failures keep the same fatal timing as the persistent path. The public
+`ProductSession.new_session()` and RPC operation continue to refuse ephemeral
+sources; terminal preservation does not broaden those contracts.
+
+Coverage pins persistent initial/adopted release, create-before-claim ordering,
+old-session usability after lease conflict, veto-before-create, one fresh
+history rebuild/input clear without redraw, sanitized success/footer ordering,
+published-failure candidate release, and the empty-slot/no-file ephemeral case.
+Structural coverage proves terminal `/new` no longer creates or assigns a tree
+directly. Fork/clone, import, startup selection, SDK/RPC behavior, provider or
+workspace changes, lifecycle hooks, workflow capture and cross-process locking
+are non-goals.
 
 `fork(entry_id=None)` requires a persistent active tree. Its default is the
 current leaf; an explicit `entry_id` is any exact known native entry, including

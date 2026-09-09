@@ -9,9 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** after D6c3 is independently reviewed and committed, D6c4
-re-inventories the remaining terminal replacement and compatibility entry
-points before selecting one bounded adoption slice.
+**Next task:** D6c5 adopts terminal `/new` through the reviewed native
+transition owner while preserving the terminal's existing persistent and
+ephemeral behavior.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -694,9 +694,11 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c0 | Complete `9c87ee1`; full checks and first Terra plan review CLEAN; scheduled grooming after D6b1–D6b3 | Inventory frontend/session ownership and compatibility callers; select one bounded adoption at a time | Summary-safe history plus source/test evidence; no runtime change; one unambiguous next task |
 | D6c1 | Complete `b952ad2`; 71 focused and 6,154 full tests; focused Terra R3 CLEAN; D6c0 `9c87ee1` | Add and execute one hermetic `create_product_session` example; make it the README's primary Python embedding path | Two submissions share one lifetime/history; explicit tool-capable fake; immutable idle snapshots; no network, credentials, workflow archive, runtime change or compatibility removal |
 | D6c2 | Complete `59f8c95`; 255 focused and 6,154 full tests; first Terra plan review CLEAN; D6c1 `b952ad2` | Review the terminal `/resume` selection lease, strict-load, failure and presentation contract; planning only | Exact initial claim/teardown, same-path no-op, recoverable candidate refusal, fatal publication failure, redraw/diagnostic ordering and picker boundaries fixed before code |
-| D6c3 | Complete in this implementation chunk; 361 focused plus 251 repair-focused and 6,160 full tests; focused Terra R2 CLEAN; D6c2 `59f8c95` | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
-| D6c4 | D6c3 | Re-inventory and select the next one of terminal `/new`, fork/clone, import replacement or compatibility SDK retirement | Do not combine remaining entry points; remove SDK compatibility names only after docs/callers use the product replacement; keep `pipy run` archive/`RunResult` semantics unless separately reviewed |
-| D6c | D6c4 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
+| D6c3 | Complete `a25f67d`; 361 focused plus 251 repair-focused and 6,160 full tests; focused Terra R2 CLEAN; D6c2 `59f8c95` | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
+| D6c4 | Complete in this planning chunk; D6c3 `a25f67d` | Re-inventory terminal `/new`, fork/clone, import replacement and compatibility callers; review the bounded `/new` adoption contract | `/new` selected first because direct replacement now diverges from the terminal lease slot; preserve ephemeral terminal behavior; no runtime change or combined entry point |
+| D6c5 | D6c4 | Adopt terminal `/new` through the native transition owner | Persistent source uses exact create/claim/publish/handoff/rebuild order; ephemeral source remains in-memory with an empty slot; existing presentation/failure policy; no fork/clone, import or SDK change |
+| D6c6 | D6c5 | Re-inventory and select the next one of terminal fork/clone, import replacement or compatibility SDK retirement | Do not combine remaining entry points; remove SDK compatibility names only after docs/callers use the product replacement; keep `pipy run` archive/`RunResult` semantics unless separately reviewed |
+| D6c | D6c6 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
 | D7a1 | Complete `d900ca5`; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
 | D7a | Complete `d900ca5`; D7a1 complete | Direct RPC bash cancellation milestone, not a separate dispatch | No uncancellable direct child, stale operation identity or timeout-as-cancel projection remains |
@@ -822,6 +824,42 @@ focused R2 returned CLEAN. The final gate passed 6,160 tests with two skipped,
 Ruff, formatting, Mypy, eight PTY smoke tests, docs-build, diff hygiene and
 unchanged interpreter links. `/new`, `/fork`, `/clone`, import replacement,
 startup `-r`, SDK/RPC changes and compatibility retirement remain out of scope.
+
+D6c4 re-inventories the remaining replacement and compatibility entry points at
+`a25f67d`. Summary-safe session search found no prior D6c decision that changes
+the queue. `run_native` and `make_native_run_request` still have only docs and
+test callers, but `pipy run --agent pipy-native` remains a production caller of
+`PipyNativeAdapter`/`NativeHarnessCompatibilityRuntime` and its distinct archive
+and `RunResult` contract. Compatibility retirement is therefore not the next
+mechanical deletion. Terminal `/fork` and `/clone` still reopen the durable
+source, while `/import` owns confirmation, workspace fallback and import error
+presentation; each needs its own contract.
+
+Terminal `/new` is selected first. It has no reference, picker or load policy,
+and the D6b coordinator already owns persistent fresh-tree creation and the
+state-first lease handoff. More urgently, D6c3's terminal lifetime now owns a
+canonical lease slot, while the old `/new` path replaces the guarded tree
+without updating that slot. D6c5 closes this ownership gap without combining
+the other replacement commands. It adds a terminal-only coordinator operation:
+persistent sources reuse the existing public create/claim/publish/handoff path;
+ephemeral sources preserve the current Pi-aligned in-memory `/new` behavior and
+require an empty slot. The public/RPC refusal for ephemeral sources remains
+unchanged.
+
+The terminal continues to own command classification, the detailed
+`session_before_switch` diagnostic, sanitized success output and the standard
+footer. Success orders gate, create, candidate claim for persistent trees,
+guarded tree publication, slot handoff and old-claim release, one history
+rebuild, one extension-input clear, success diagnostic and footer. Ephemeral
+success omits claim/handoff and leaves the slot empty. `/new` retains its lack
+of custom-entry redraw. A veto occurs before creation; persistent candidate
+lease conflict is recoverable, retains the old usable tree/lease/history/input,
+and may leave the already-created durable artifact. Create or unexpected
+pointer-publication failure remains fatal. Rebuild or clear failure after
+publication remains state-first and fatal; controller teardown releases the
+adopted persistent candidate once. D6c5 changes no lifecycle hooks, workspace,
+provider/model selection, SDK/RPC semantics, workflow archive, fork/clone,
+import, picker/list/rename/delete or cross-process locking.
 
 The scheduled grooming after D5b1/D5c1/D5d1 inspected summary-safe archive
 search/list results and current D6a/D7a source/test evidence at `0bfd48c`.

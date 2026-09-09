@@ -1107,9 +1107,13 @@ The terminal replacement commands are a second, runtime-bearing adoption
 boundary. D6c3 adopts resolved `/resume` selection through the D6b coordinator
 and a controller-bound `CanonicalSessionLeaseSlot`: it strict-loads and
 workspace-validates candidate trees, while picker/reference resolution and
-presentation remain terminal-owned. `/new`, `/fork` and `/clone` still replace
-the live tree through `SessionCommandEffects` and remain separate adoption
-boundaries.
+presentation remain terminal-owned. D6c4 selects `/new` as the next boundary
+because its direct replacement can diverge from that slot. D6c5 gives terminal
+composition a typed new-session operation: persistent sources reuse the D6b
+create/claim/state-first publish/handoff/rebuild owner; ephemeral terminal
+sources keep their existing in-memory semantics under the same guarded tree and
+history owners while the slot stays empty. Public/RPC ephemeral refusal remains
+unchanged. `/fork` and `/clone` remain a later adoption boundary.
 
 D6c2 fixed the first terminal adoption boundary without adding an owner. D6c3
 binds one canonical lease slot to the stream-driven terminal controller after
