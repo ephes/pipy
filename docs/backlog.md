@@ -9,8 +9,8 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** D6c7 adopts terminal `/fork` and `/clone` through the reviewed
-native transition owner and guarded active-tree snapshot.
+**Next task:** D6c8 re-inventories and reviews the terminal `/import`
+replacement contract before compatibility SDK retirement.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -696,8 +696,8 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6c3 | Complete `a25f67d`; 361 focused plus 251 repair-focused and 6,160 full tests; focused Terra R2 CLEAN; D6c2 `59f8c95` | Adopt terminal `/resume` selection through the native transition owner | Existing numeric/id/picker presentation retained; one canonical slot, strict workspace load and one successful rebuild/redraw; listing/rename/delete/tree/import excluded |
 | D6c4 | Complete `09ec687`; D6c3 `a25f67d` | Re-inventory terminal `/new`, fork/clone, import replacement and compatibility callers; review the bounded `/new` adoption contract | `/new` selected first because direct replacement now diverges from the terminal lease slot; preserve ephemeral terminal behavior; no runtime change or combined entry point |
 | D6c5 | Complete in this implementation chunk; D6c4 `09ec687`; 415 focused and 6,164 full tests; focused Terra R3 CLEAN | Adopt terminal `/new` through the native transition owner | Persistent source uses exact create/claim/publish/handoff/rebuild order; ephemeral source remains in-memory with an empty slot; existing presentation/failure policy; no fork/clone, import or SDK change |
-| D6c6 | Complete in this planning chunk; D6c5 `6ea8802`; 198 focused and 6,164 full tests; focused Terra R2 CLEAN | Re-inventory terminal fork/clone, import replacement and compatibility callers; review the bounded fork/clone adoption contract | Fork/clone selected together because they share one transition and currently diverge from the lease slot and guarded active tree; import remains separate; no runtime change |
-| D6c7 | D6c6 | Adopt terminal `/fork` and `/clone` through the native transition owner | Resolve terminal refs before one detailed fork gate; guarded active-tree snapshot; child claim and state-first handoff; empty current leaf refuses; no import or SDK change |
+| D6c6 | Complete `c7c2533`; D6c5 `6ea8802`; 198 focused and 6,164 full tests; focused Terra R2 CLEAN | Re-inventory terminal fork/clone, import replacement and compatibility callers; review the bounded fork/clone adoption contract | Fork/clone selected together because they share one transition and currently diverge from the lease slot and guarded active tree; import remains separate; no runtime change |
+| D6c7 | Complete in this implementation chunk; D6c6 `c7c2533`; 361 focused and 6,171 full tests; first Terra code review CLEAN | Adopt terminal `/fork` and `/clone` through the native transition owner | Resolve terminal refs before one detailed fork gate; guarded active-tree snapshot; child claim and state-first handoff; empty current leaf refuses; no import or SDK change |
 | D6c8 | D6c7 | Re-inventory and review terminal import replacement before compatibility SDK retirement | Preserve confirmation, missing-workspace fallback and truthful partial-artifact behavior; do not combine import with compatibility removal |
 | D6c | D6c8 | Incremental frontend adoption and deliberate compatibility SDK retirement milestone | Same session owner across adopted SDK/modes; executable embedding example; no silent `run_native` semantic change or premature compatibility deletion |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |

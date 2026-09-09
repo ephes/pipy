@@ -1607,6 +1607,20 @@ def _compose_commands(
                 ),
             )
         ),
+        fork_transition=(
+            None
+            if terminal_leases is None
+            else lambda entry_id, operation: (
+                collaborators_phase.transition.fork_terminal(
+                    entry_id,
+                    operation=operation,
+                    leases=terminal_leases,
+                    before_fork=lambda target: collaborators.extension_session_allows(
+                        "fork", operation="fork", target=target
+                    ),
+                )
+            )
+        ),
     )
     provider_configuration_effects = (
         collaborators.provider_configuration_command_effects(

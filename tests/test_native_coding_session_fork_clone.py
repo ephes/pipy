@@ -6,7 +6,7 @@ import io
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TextIO, TypedDict, Unpack
+from typing import TextIO
 
 import pytest
 
@@ -26,6 +26,12 @@ from pipy_harness.native.coding.product_session import CodingProductSessionCoord
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import NoticeSink, emit_diagnostic
 from pipy_harness.native.extension_types import SessionDecision
+from pipy_harness.native.repl.session_commands import SessionCommandEffects
+from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseRegistry,
+    CanonicalSessionLeaseSlot,
+    SessionTransitionCoordinator,
+)
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
     CompactionEntry,
@@ -58,14 +64,6 @@ class _RecordingProvider:
             final_text="ok",
             tool_calls=(),
         )
-
-
-class _ForkKwargs(TypedDict, total=False):
-    leaf_id: str | None
-    session_dir: Path | None
-    state_root: Path | None
-    persist: bool
-    session_id: str | None
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -172,6 +170,7 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
     trace: list[str] = []
+    footers: list[None] = []
     monkeypatch.setattr(
         commands_module,
         "resolve_entry_ref",
@@ -181,6 +180,11 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
         ops_module,
         "dispatch_session_before_hooks",
         lambda *_args, **_kwargs: trace.append("gate"),
+    )
+    monkeypatch.setattr(
+        _ChromeFooterEffects,
+        "_print_footer",
+        lambda *_args, **_kwargs: footers.append(None),
     )
     provider = _RecordingProvider()
 
@@ -192,6 +196,7 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
 
     assert "requires a persistent native session" in error
     assert trace == []
+    assert footers == [None, None]
     assert provider.requests == []
 
 
@@ -202,6 +207,7 @@ def test_unresolved_fork_target_stops_before_gate_and_copy(
 
     cwd, _session_dir, tree = _persistent_tree(tmp_path)
     trace: list[str] = []
+    footers: list[None] = []
 
     def gate(
         _hooks: object,
@@ -216,8 +222,13 @@ def test_unresolved_fork_target_stops_before_gate_and_copy(
     monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
     monkeypatch.setattr(
         NativeSessionTree,
-        "fork_from",
+        "fork_from_snapshot",
         staticmethod(lambda *_args, **_kwargs: trace.append("fork")),
+    )
+    monkeypatch.setattr(
+        _ChromeFooterEffects,
+        "_print_footer",
+        lambda *_args, **_kwargs: footers.append(None),
     )
 
     _output, error = _run(
@@ -228,6 +239,7 @@ def test_unresolved_fork_target_stops_before_gate_and_copy(
 
     assert "no tree entry matched 'missing'" in error
     assert trace == []
+    assert footers == [None, None]
 
 
 @pytest.mark.parametrize("command", ["/fork", "/clone"])
@@ -280,19 +292,81 @@ def test_fork_accepts_resolvable_assistant_entry_as_explicit_target(
     ]
 
 
-def test_clone_accepts_empty_persistent_tree_and_none_target(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("command", "message"),
+    [
+        ("/fork", "pipy: nothing to fork yet."),
+        ("/clone", "pipy: nothing to clone yet."),
+    ],
+)
+def test_bare_fork_and_clone_refuse_empty_persistent_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    message: str,
+) -> None:
     cwd, session_dir, tree = _persistent_tree(tmp_path)
-    _write_fork_gate(cwd, "        return SessionDecision(allow=True)\n", target=None)
-
-    _run(
-        CodingSession(provider=_RecordingProvider(), native_session=tree),
-        cwd,
-        "/clone\n/exit\n",
+    footers: list[None] = []
+    monkeypatch.setattr(
+        _ChromeFooterEffects,
+        "_print_footer",
+        lambda *_args, **_kwargs: footers.append(None),
     )
 
-    child = _child_tree(tree, session_dir)
-    assert child.get_entries() == []
-    assert child.get_header().parent_session == str(tree.path)
+    _output, error = _run(
+        CodingSession(provider=_RecordingProvider(), native_session=tree),
+        cwd,
+        f"{command}\n/exit\n",
+    )
+
+    assert message in error
+    assert list(session_dir.glob("*.jsonl")) == [tree.path]
+    assert footers == [None, None]
+
+
+@pytest.mark.parametrize(
+    ("command", "success_fragment"),
+    [("/fork", "forked"), ("/clone", "cloned")],
+)
+def test_fork_and_clone_lease_conflict_keep_source_usable_with_one_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    success_fragment: str,
+) -> None:
+    cwd, session_dir, source = _persistent_tree(tmp_path)
+    source.append_message(AgentUserMessage(ProductContent("ROOT")))
+    assert source.path is not None
+    source_path = source.path.resolve()
+    original_claim = CanonicalSessionLeaseRegistry.claim
+    footers: list[None] = []
+
+    def claim(path: Path) -> object:
+        if path.resolve() != source_path:
+            raise RuntimeError("persistent product session is already active")
+        return original_claim(path)
+
+    monkeypatch.setattr(CanonicalSessionLeaseRegistry, "claim", staticmethod(claim))
+    monkeypatch.setattr(
+        _ChromeFooterEffects,
+        "_print_footer",
+        lambda *_args, **_kwargs: footers.append(None),
+    )
+    provider = _RecordingProvider()
+
+    _output, error = _run(
+        CodingSession(provider=provider, native_session=source),
+        cwd,
+        f"{command}\nFRESH\n/exit\n",
+    )
+
+    assert "pipy: new native session is already active." in error
+    assert success_fragment not in error
+    assert _request_users(provider.requests[0]) == ["ROOT", "FRESH"]
+    assert len(list(session_dir.glob("*.jsonl"))) == 2
+    assert footers == [None, None, None]
+    released_source = original_claim(source_path)
+    released_source.finish()
 
 
 @pytest.mark.parametrize(
@@ -377,7 +451,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         commands=("/fork", "FRESH", "/exit"),
         read_trace=trace,
     )
-    original_fork = NativeSessionTree.fork_from
+    original_fork = NativeSessionTree.fork_from_snapshot
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
     original_diag = emit_diagnostic
@@ -394,10 +468,14 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         return SessionDecision()
 
     def fork(
-        source: Path, target: Path, **kwargs: Unpack[_ForkKwargs]
+        source: NativeSessionTree,
+        target: Path,
+        *,
+        leaf_id: str | None,
+        session_dir: Path,
     ) -> NativeSessionTree:
-        trace.append("fork-from")
-        return original_fork(source, target, **kwargs)
+        trace.append("fork-snapshot")
+        return original_fork(source, target, leaf_id=leaf_id, session_dir=session_dir)
 
     def rebuild(self: CodingProductSessionCoordinator) -> None:
         nonlocal rebuild_count
@@ -416,7 +494,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         original_diag(ui, stream, message)
 
     monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
-    monkeypatch.setattr(NativeSessionTree, "fork_from", staticmethod(fork))
+    monkeypatch.setattr(NativeSessionTree, "fork_from_snapshot", staticmethod(fork))
     monkeypatch.setattr(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
@@ -438,7 +516,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
     command_start = trace.index(f"gate:fork:{leaf.id}")
     assert trace[command_start : command_start + 6] == [
         f"gate:fork:{leaf.id}",
-        "fork-from",
+        "fork-snapshot",
         "rebuild-new",
         "clear-extension",
         "diagnostic",
@@ -551,7 +629,7 @@ def test_fork_snapshot_copies_exact_non_user_branch_with_remapped_references(
     assert child.get_label(child_summary.id) == "selected-label"
 
 
-@pytest.mark.parametrize("failure_stage", ["fork", "open", "write", "rebuild", "clear"])
+@pytest.mark.parametrize("failure_stage", ["snapshot", "write", "rebuild", "clear"])
 def test_fork_failure_timing_cuts_off_later_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -560,21 +638,21 @@ def test_fork_failure_timing_cuts_off_later_effects(
     cwd, session_dir, tree = _persistent_tree(tmp_path)
     tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
     trace: list[str] = []
-    original_fork = NativeSessionTree.fork_from
+    original_fork = NativeSessionTree.fork_from_snapshot
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     rebuild_count = 0
 
     def fork(
-        source: Path, target: Path, **kwargs: Unpack[_ForkKwargs]
+        source: NativeSessionTree,
+        target: Path,
+        *,
+        leaf_id: str | None,
+        session_dir: Path,
     ) -> NativeSessionTree:
-        trace.append("fork")
-        if failure_stage == "fork":
-            raise RuntimeError("fork failed")
-        return original_fork(source, target, **kwargs)
-
-    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
-        trace.append("open")
-        raise RuntimeError("open failed")
+        trace.append("snapshot")
+        if failure_stage == "snapshot":
+            raise RuntimeError("snapshot failed")
+        return original_fork(source, target, leaf_id=leaf_id, session_dir=session_dir)
 
     def write_header(self: NativeSessionTree) -> None:
         trace.append("write")
@@ -594,9 +672,7 @@ def test_fork_failure_timing_cuts_off_later_effects(
         if failure_stage == "clear":
             raise RuntimeError("clear failed")
 
-    monkeypatch.setattr(NativeSessionTree, "fork_from", staticmethod(fork))
-    if failure_stage == "open":
-        monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    monkeypatch.setattr(NativeSessionTree, "fork_from_snapshot", staticmethod(fork))
     if failure_stage == "write":
         monkeypatch.setattr(NativeSessionTree, "_write_header", write_header)
     monkeypatch.setattr(
@@ -620,16 +696,23 @@ def test_fork_failure_timing_cuts_off_later_effects(
             "/fork\n",
         )
 
-    expected = ["footer", "fork"]
-    if failure_stage in {"open", "write"}:
+    expected = ["footer", "snapshot"]
+    if failure_stage == "write":
         expected.append(failure_stage)
     if failure_stage in {"rebuild", "clear"}:
         expected.append("rebuild")
     if failure_stage == "clear":
         expected.append("clear")
     assert trace == expected
-    expected_files = 1 if failure_stage in {"fork", "open", "write"} else 2
+    expected_files = 1 if failure_stage in {"snapshot", "write"} else 2
     assert len(list(session_dir.glob("*.jsonl"))) == expected_files
+    if failure_stage in {"rebuild", "clear"}:
+        assert tree.path is not None
+        child_path = next(
+            path for path in session_dir.glob("*.jsonl") if path != tree.path
+        )
+        released_child = CanonicalSessionLeaseRegistry.claim(child_path)
+        released_child.finish()
 
 
 def test_fork_diagnostic_sanitizes_returned_session_id(
@@ -651,3 +734,143 @@ def test_fork_diagnostic_sanitizes_returned_session_id(
     assert "forked into new native session EV IL X" in error
     assert "\x1b" not in error and "\x07" not in error
     assert provider.requests == []
+
+
+def test_terminal_fork_releases_source_before_rebuild_and_holds_child_lease(
+    tmp_path: Path,
+) -> None:
+    cwd, session_dir, source = _persistent_tree(tmp_path)
+    source.append_message(AgentUserMessage(ProductContent("ROOT")))
+    assert source.path is not None
+    source_path = source.path.resolve()
+    current = [source]
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+    trace: list[str] = []
+
+    def rebuild() -> None:
+        trace.append("rebuild")
+        released_source = CanonicalSessionLeaseRegistry.claim(source_path)
+        released_source.finish()
+        assert current[0].path is not None
+        with pytest.raises(RuntimeError, match="already active"):
+            CanonicalSessionLeaseRegistry.claim(current[0].path)
+
+    def silent_gate(entry: str | None) -> bool:
+        trace.append(f"gate:{entry}")
+        return True
+
+    def terminal_gate(entry: str | None) -> bool:
+        trace.append(f"terminal-gate:{entry}")
+        return True
+
+    coordinator = SessionTransitionCoordinator(
+        workspace=cwd,
+        get_tree=lambda: current[0],
+        set_tree=lambda tree: current.__setitem__(0, tree),
+        session_before_fork=silent_gate,
+        session_before_switch=lambda _target: True,
+        rebuild=rebuild,
+        clear_extension_inputs=lambda: trace.append("clear"),
+    )
+
+    try:
+        result = coordinator.fork_terminal(
+            None,
+            operation="clone",
+            leases=slot,
+            before_fork=terminal_gate,
+        )
+        assert result.status == "completed"
+        assert result.previous is not None
+        assert result.previous.session_path == source_path
+        assert current[0].path is not None
+        child_path = current[0].path.resolve()
+        assert slot.current_path() == child_path
+        assert trace == [
+            f"terminal-gate:{source.leaf_id}",
+            "rebuild",
+            "clear",
+        ]
+    finally:
+        slot.finish()
+
+    released_child = CanonicalSessionLeaseRegistry.claim(child_path)
+    released_child.finish()
+    assert len(list(session_dir.glob("*.jsonl"))) == 2
+
+
+@pytest.mark.parametrize(
+    ("command", "success_fragment"),
+    [("/fork", "forked into"), ("/clone", "cloned active branch")],
+)
+def test_terminal_fork_adopts_child_before_later_new_transition(
+    tmp_path: Path, command: str, success_fragment: str
+) -> None:
+    cwd, session_dir, source = _persistent_tree(tmp_path)
+    source.append_message(AgentUserMessage(ProductContent("ROOT")))
+
+    _output, error = _run(
+        CodingSession(provider=_RecordingProvider(), native_session=source),
+        cwd,
+        f"{command}\n/new\n/exit\n",
+    )
+
+    assert success_fragment in error
+    assert "started a new native session" in error
+    assert len(list(session_dir.glob("*.jsonl"))) == 3
+
+
+def test_terminal_fork_publication_failure_aborts_child_claim_and_keeps_source(
+    tmp_path: Path,
+) -> None:
+    cwd, session_dir, source = _persistent_tree(tmp_path)
+    source.append_message(AgentUserMessage(ProductContent("ROOT")))
+    assert source.path is not None
+    source_path = source.path.resolve()
+    slot = CanonicalSessionLeaseSlot(CanonicalSessionLeaseRegistry.claim(source_path))
+    coordinator = SessionTransitionCoordinator(
+        workspace=cwd,
+        get_tree=lambda: source,
+        set_tree=lambda _tree: (_ for _ in ()).throw(LookupError("publish failed")),
+        session_before_fork=lambda _entry: True,
+        session_before_switch=lambda _target: True,
+        rebuild=lambda: pytest.fail("must not rebuild after publication failure"),
+        clear_extension_inputs=lambda: pytest.fail(
+            "must not clear after publication failure"
+        ),
+    )
+
+    try:
+        with pytest.raises(LookupError, match="publish failed"):
+            coordinator.fork_terminal(
+                None,
+                operation="fork",
+                leases=slot,
+                before_fork=lambda _entry: True,
+            )
+        assert slot.current_path() == source_path
+        child_path = next(
+            path.resolve()
+            for path in session_dir.glob("*.jsonl")
+            if path.resolve() != source_path
+        )
+    finally:
+        slot.finish()
+
+    released_child = CanonicalSessionLeaseRegistry.claim(child_path)
+    released_child.finish()
+    released_source = CanonicalSessionLeaseRegistry.claim(source_path)
+    released_source.finish()
+
+
+def test_terminal_fork_handler_delegates_tree_ownership_to_transition_port() -> None:
+    import inspect
+
+    source = inspect.getsource(SessionCommandEffects._execute_fork_or_clone)
+    terminal_source, _marker, _fallback = source.partition(
+        "if fork_target_resolved and self.extension_session_allows"
+    )
+
+    assert "fork_transition" in terminal_source
+    assert "fork_from" not in terminal_source
+    assert ".session_tree =" not in terminal_source

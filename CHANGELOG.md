@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Terminal `/fork` and `/clone` now use the native transition owner. They
+  snapshot the guarded active tree, claim and publish the child before releasing
+  the source lease, and preserve terminal diagnostics, footers, and the detailed
+  fork extension gate. Empty terminal sessions now refuse either command rather
+  than creating an empty child; import and Python/RPC transition behavior are
+  unchanged.
+
 - Terminal `/new` now uses the native transition owner. Persistent terminal
   sessions create and claim a sibling before state-first replacement and release
   the adopted claim on teardown; in-memory terminal sessions remain file-free.

@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Literal, TextIO
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
@@ -255,6 +255,10 @@ class SessionCollaborators:
         new_transition: Callable[[], ProductSessionTransitionResult] | None = None,
         resume_transition: Callable[[Path], ProductSessionTransitionResult]
         | None = None,
+        fork_transition: Callable[
+            [str | None, Literal["fork", "clone"]], ProductSessionTransitionResult
+        ]
+        | None = None,
     ) -> SessionCommandEffects:
         """Assemble the session-command executor from this run's narrow ports."""
 
@@ -271,6 +275,7 @@ class SessionCollaborators:
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
             new_transition=new_transition,
             resume_transition=resume_transition,
+            fork_transition=fork_transition,
             current_session_dir=self.current_session_dir,
             resolve_session_file=self.resolve_session_file,
             summarize_branch=self.select_with_branch_summary,

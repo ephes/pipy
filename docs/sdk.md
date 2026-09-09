@@ -201,11 +201,11 @@ session-tree policy, SDK export or compatibility behavior.
 
 Terminal session replacement remains a separate adoption program. D6c3 and
 D6c5 give the terminal lifetime the D6b canonical lease slot and route resolved
-`/resume` and `/new` through it. `/fork`, `/clone`, and import still replace
-trees directly; D6c6 selects fork/clone as the next shared-owner adoption before
-the more complex import boundary.
+`/resume` and `/new` through it. D6c7 routes terminal `/fork` and `/clone`
+through the same owner. Import still replaces trees directly and remains the
+next, more complex adoption boundary.
 Listing, rename/delete, `/tree`, and import/export remain outside the adopted
-transition slices; fork/clone remain planned until D6c7 lands.
+transition slices.
 
 ## D6b public session-transition contract
 

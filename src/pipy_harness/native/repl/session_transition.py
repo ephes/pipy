@@ -516,7 +516,31 @@ class SessionTransitionCoordinator:
         No queue/admission guard is held while callbacks, I/O, lease work, tree
         publication, or history rebuild occur.
         """
-        return self._fork(entry_id, operation=operation, leases=leases)
+        return self._fork(
+            entry_id,
+            operation=operation,
+            leases=leases,
+            before_fork=self.session_before_fork,
+            translate_failures=True,
+        )
+
+    def fork_terminal(
+        self,
+        entry_id: str | None,
+        *,
+        operation: Literal["fork", "clone"],
+        leases: CanonicalSessionLeaseSlot,
+        before_fork: Callable[[str | None], bool],
+    ) -> ProductSessionTransitionResult:
+        """Fork through the terminal's presentation-aware extension gate."""
+
+        return self._fork(
+            entry_id,
+            operation=operation,
+            leases=leases,
+            before_fork=before_fork,
+            translate_failures=False,
+        )
 
     def fork_admitted(  # pragma: no cover - future D6b3 private seam
         self,
@@ -526,7 +550,13 @@ class SessionTransitionCoordinator:
         leases: CanonicalSessionLeaseSlot,
     ) -> ProductSessionTransitionResult:
         """Use after a future transport has retained its exact control claim."""
-        return self._fork(entry_id, operation=operation, leases=leases)
+        return self._fork(
+            entry_id,
+            operation=operation,
+            leases=leases,
+            before_fork=self.session_before_fork,
+            translate_failures=True,
+        )
 
     def _fork(  # noqa: C901
         self,
@@ -534,6 +564,8 @@ class SessionTransitionCoordinator:
         *,
         operation: Literal["fork", "clone"],
         leases: CanonicalSessionLeaseSlot,
+        before_fork: Callable[[str | None], bool],
+        translate_failures: bool,
     ) -> ProductSessionTransitionResult:
         box: list[ProductSessionTransitionResult] = []
         error: list[BaseException] = []
@@ -574,26 +606,34 @@ class SessionTransitionCoordinator:
                             )
                         )
                         return
-                if not self.session_before_fork(selected):
+                if not before_fork(selected):
                     box.append(
                         ProductSessionTransitionResult(
                             operation, "refused", previous, None, "extension_refusal"
                         )
                     )
                     return
-                try:
+                if translate_failures:
+                    try:
+                        child = NativeSessionTree.fork_from_snapshot(
+                            source,
+                            self.workspace,
+                            leaf_id=selected,
+                            session_dir=source_path.parent,
+                        )
+                    except BaseException:  # noqa: BLE001 - translated at public boundary
+                        raise ProductSessionTransitionError(
+                            ProductSessionTransitionFailure(
+                                operation, previous, "create", False
+                            )
+                        ) from None
+                else:
                     child = NativeSessionTree.fork_from_snapshot(
                         source,
                         self.workspace,
                         leaf_id=selected,
                         session_dir=source_path.parent,
                     )
-                except BaseException:  # noqa: BLE001 - translated at public boundary
-                    raise ProductSessionTransitionError(
-                        ProductSessionTransitionFailure(
-                            operation, previous, "create", False
-                        )
-                    ) from None
                 child_path = child.path
                 if child_path is None:
                     raise ProductSessionTransitionError(
@@ -614,6 +654,8 @@ class SessionTransitionCoordinator:
                     self.set_tree(child)
                 except BaseException:  # noqa: BLE001 - translated at public boundary
                     handoff.abort()
+                    if not translate_failures:
+                        raise
                     raise ProductSessionTransitionError(
                         ProductSessionTransitionFailure(
                             operation, previous, "publish", False
@@ -624,6 +666,8 @@ class SessionTransitionCoordinator:
                     self.rebuild()
                     self.clear_extension_inputs()
                 except BaseException:  # noqa: BLE001 - translated at public boundary
+                    if not translate_failures:
+                        raise
                     raise ProductSessionTransitionError(
                         ProductSessionTransitionFailure(
                             operation, target_for(child), "rebuild", True

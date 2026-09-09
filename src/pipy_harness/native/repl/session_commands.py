@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import TextIO
+from typing import Literal, TextIO
 
 from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.coding.commands import (
@@ -236,6 +236,10 @@ class SessionCommandEffects:
     redraw_custom_entries_for_active_branch: Callable[[], None]
     new_transition: Callable[[], ProductSessionTransitionResult] | None
     resume_transition: Callable[[Path], ProductSessionTransitionResult] | None
+    fork_transition: (
+        Callable[[str | None, Literal["fork", "clone"]], ProductSessionTransitionResult]
+        | None
+    )
     current_session_dir: Callable[[], Path]
     resolve_session_file: Callable[[str], Path | None]
     summarize_branch: Callable[[SessionEntry, str], BranchSummarySelectionResult]
@@ -531,6 +535,10 @@ class SessionCommandEffects:
                 fork_leaf = target_entry.id
         else:
             fork_leaf = self.ctl.session_tree.get_leaf_id()
+        transition = self.fork_transition
+        if fork_target_resolved and transition is not None:
+            self._execute_terminal_fork_or_clone(action, fork_leaf, transition)
+            return
         if fork_target_resolved and self.extension_session_allows(
             "fork", operation="fork", target=fork_leaf
         ):
@@ -552,3 +560,32 @@ class SessionCommandEffects:
                 f"pipy: {success_text}"
                 f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])}."
             )
+
+    def _execute_terminal_fork_or_clone(
+        self,
+        action: CodingCommandAction,
+        fork_leaf: str | None,
+        transition: Callable[
+            [str | None, Literal["fork", "clone"]], ProductSessionTransitionResult
+        ],
+    ) -> None:
+        operation: Literal["fork", "clone"] = (
+            "fork" if action is CodingCommandAction.SESSION_FORK else "clone"
+        )
+        outcome = transition(fork_leaf, operation)
+        if outcome.status == "refused":
+            if outcome.refusal == "missing_leaf":
+                command_name = "/fork" if operation == "fork" else "/clone"
+                self.diag(f"pipy: nothing to {command_name[1:]} yet.")
+            elif outcome.refusal == "lease_conflict":
+                self.diag("pipy: new native session is already active.")
+            # The extension gate emits its established detailed refusal.
+            return
+        success_text = {
+            CodingCommandAction.SESSION_FORK: "forked into new native session ",
+            CodingCommandAction.SESSION_CLONE: "cloned active branch into new native session ",
+        }[action]
+        self.diag(
+            f"pipy: {success_text}"
+            f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])}."
+        )

@@ -2936,8 +2936,8 @@ empty clone, copied names/labels/compaction records, absent custom/ordinary TUI
 redraw, absent post-fork lifecycle hooks, write relocation, registry metadata,
 aliases, and async behavior remain deliberately unchanged.
 
-D6c6 selects terminal `/fork` and `/clone` for shared-owner adoption, and D6c7
-supersedes the direct composition path above. The command adapter keeps explicit
+D6c7 adopts terminal `/fork` and `/clone` through the shared owner, superseding
+the direct composition path above. The command adapter keeps explicit
 reference resolution, command-specific diagnostics and footer presentation. A
 typed terminal operation validates the persistent source and matching lifetime
 slot, rejects a missing current leaf for bare fork or clone, runs the detailed
