@@ -594,13 +594,13 @@ target vocabulary includes:
 
 ### D6b public and RPC transition ordering
 
-D6b2 implements this ordering for public `ProductSession.fork`, `clone`,
-`new_session`, and `switch_session`. Every RPC transition remains deferred to
-D6b3.
+D6b3 implements this ordering for public `ProductSession.fork`, `clone`,
+`new_session`, and `switch_session`, and for the corresponding JSONL RPC
+commands. Terminal-command adoption remains deferred.
 
-Public `ProductSession.fork`/`clone` and `new_session`/`switch_session`
-operations use the already activated generation's session gates; they do not
-restart extension lifecycle. Fork/clone resolves the persistent source and
+Public and RPC `fork`/`clone` and `new_session`/`switch_session` operations use
+the already activated generation's session gates; they do not restart extension
+lifecycle. Fork/clone resolves the persistent source and
 selected exact entry, then calls `session_before_fork(operation="fork",
 target=<entry id>)` before child creation. The public result distinguishes clone
 from fork without expanding the existing extension operation vocabulary. Fresh
@@ -620,7 +620,8 @@ transition's public observation is its one immutable result. It does not send
 `session_shutdown` followed by `session_start`, a new extension completion
 event, or a UI rebind: those bookends continue to occur once when the
 encompassing facade starts and retires. D6b3 owns the single RPC event/UI rebind
-after an accepted native transition. The state-first tree/context rebuild
+after an accepted native transition; refusal and same-target no-op do not
+rebind. The state-first tree/context rebuild
 boundary is not an atomic transaction; a post-publication rebuild error retires
 the public lifetime before returning its typed published-target failure.
 

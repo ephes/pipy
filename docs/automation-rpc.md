@@ -294,7 +294,7 @@ Prompting / run control:
 | `steer` | `message: string`, `images?` | none | Mid-turn interrupt; queued/applied per steering mode. |
 | `follow_up` | `message: string`, `images?` | none | Queue a message after the current run. |
 | `abort` | (none) | none | Abort the current run. |
-| `new_session` | (none) | `{ cancelled: boolean }` | Target D6b3: starts a fresh native session through the native transition owner; a supplied legacy `parentSession` is refused until a later lineage contract. |
+| `new_session` | (none) | `{ cancelled: boolean }` | Starts a fresh native session through the native transition owner; a supplied legacy `parentSession` is refused until a later lineage contract. |
 
 State / introspection:
 
@@ -725,25 +725,19 @@ compaction, retry, session replacement or public SDK lifecycle behavior.
 
 ### Session switching, fork, clone
 
-D6b2 adds the full public native fork/clone/new/switch owner; RPC still has no
-transition handlers and does not own a tree or canonical lease.
-
-Current build: `switch_session`, `fork`, `clone`, and `new_session` are
-recognized commands without RPC handlers; each returns a correlated
-not-yet-implemented error. The following is the target contract, not shipped
-RPC behavior.
-
-D6b3 is the sole migration point. It must call the already-reviewed native
+D6b3 routes `switch_session`, `fork`, `clone`, and `new_session` through the
+already-reviewed native transition owner. RPC calls the composed native
 `SessionTransitionCoordinator` port composed in wiring; RPC may parse paths and
-project correlation, but may not load/create trees, own canonical leases, fire
-lifecycle, or retain a parallel active tree. `new_session`, `switch_session`,
+project correlation, but does not load/create trees, own the canonical registry
+or lease handoff, fire lifecycle, or retain a parallel active tree.
+`new_session`, `switch_session`,
 `fork`, and `clone` map respectively to native fresh replacement, strict
 existing replacement, entry-selected fork, and current-leaf clone.
 `new_session.parentSession` is not adopted until a later separately reviewed
 lineage contract; D6b3 refuses a supplied value rather than inventing parent
 authority.
 
-Every accepted RPC session operation is admitted and settled by the existing
+Every accepted RPC session operation is atomically admitted and settled by the existing
 native control with the same true-idle/abort boundary as other control commands.
 It returns one correlated response: completed or same-target no-op projects
 `{ cancelled: false }`; the stable native `extension_refusal` projects
@@ -759,11 +753,11 @@ projects its Pi-shaped response and events.
 A prepublication transition error leaves the RPC lifetime and old target usable.
 A postpublication rebuild error is fatal to that lifetime: RPC writes its one
 correlated error for the accepted command, accepts no successor command, and
-retires the native controller and finishes its bound neutral lease slot so an
-inconsistent tree/history pair cannot run. The published target file remains
+retires the native controller, whose lifetime finishes its bound neutral lease
+slot so an inconsistent tree/history pair cannot run. The published target file remains
 durable, and a later explicit reopen rebuilds it through the ordinary strict
-path. D6b3 claims and binds the RPC lifetime's initial persistent tree before it
-accepts input; all later target claims use that same slot and registry.
+path. Native wiring claims and binds the RPC lifetime's initial persistent tree
+before it accepts input; all later target claims use that same slot and registry.
 
 
 ### Bash, model, and thinking controls

@@ -9,8 +9,9 @@ state. Read the selected task and its referenced contracts, not old execution
 ledgers. A task card is a bounded work order; it does not override a current
 runtime contract. The orchestrator alone updates this index.
 
-**Next task:** after D6b2 is independently reviewed and committed, implement
-D6b3 RPC session-transition adoption.
+**Next task:** after D6b3 is independently reviewed and committed, perform the
+required three-commit grooming pass and select the first bounded D6c adoption
+inventory/planning slice.
 
 Recovery is complete: D4b1 `9ccb22e` added semantic-summary retry, D4b3a `30d6d33`
 guarded branch acceptance and state-first persistence, and D4b3b `8c34a9c`
@@ -687,9 +688,9 @@ every listed module. Add a file only when the selected behavior needs it.
 | D6a | Complete `6e38076`; D6a1 complete | Session resume/close API milestone, not a separate dispatch | Supported reopen plus existing idempotent close; no in-place replacement |
 | D6b0 | Complete `4cb8fb0`; full checks and focused Terra R2 CLEAN; D6a `6e38076`; scheduled grooming after D7b1 | Review public fork/clone plus fresh-session and existing-session replacement outcomes, extension gates, exact tree/lease handoff, one-rebuild lifecycle and RPC boundary | Concrete five-document contract; independent review and commit before D6b1 runtime work |
 | D6b1 | Complete `cd92191`; 98 focused and 6,122 full tests; first Terra code review CLEAN; D6b0 `4cb8fb0` | Add public product-session fork/clone through existing tree, extension-gate and context-rebuild owners | Persistent source; exact selected entry/current leaf; fresh child lineage/IDs/references; canonical child lease; source unchanged on refusal; one coherent rebind |
-| D6b2 | Complete in this chunk; 113 focused tests; focused Terra R2 CLEAN; D6b1 `cd92191` | Add public fresh-session and existing-session switch/replacement through the same lifetime owner | Existing targets use strict load; fresh targets use the reviewed session-directory owner; same-path no-op; claim the new target before publication; preserve the old tree/lease on refusal; exact handoff and one rebuild; no late cancellation crosses lifetimes |
-| D6b3 | D6b2, D5a `112397a` | Migrate RPC `new_session`, `switch_session`, `fork` and `clone` through the reviewed native transition owner | Pi-shaped correlated outcomes; queue admission/settlement and event/UI rebind once; no transport-owned tree or lifecycle authority |
-| D6b | D6b3 | Fork/clone/session replacement milestone, not a separate dispatch | Public and RPC callers share existing tree, veto, lease, cancellation and rebuild owners; caller-visible outcomes and persistence agree |
+| D6b2 | Complete `6b06613`; 113 focused and 6,137 full tests; focused Terra R2 CLEAN; D6b1 `cd92191` | Add public fresh-session and existing-session switch/replacement through the same lifetime owner | Existing targets use strict load; fresh targets use the reviewed session-directory owner; same-path no-op; claim the new target before publication; preserve the old tree/lease on refusal; exact handoff and one rebuild; no late cancellation crosses lifetimes |
+| D6b3 | Complete in this chunk; 180 focused and 6,153 full tests; focused Terra R2 CLEAN; D6b2 `6b06613`, D5a `112397a` | Migrate RPC `new_session`, `switch_session`, `fork` and `clone` through the reviewed native transition owner | Pi-shaped correlated outcomes; queue admission/settlement and event/UI rebind once; no transport-owned tree or lifecycle authority |
+| D6b | Complete with D6b3 in this chunk | Fork/clone/session replacement milestone, not a separate dispatch | Public and RPC callers share existing tree, veto, lease, cancellation and rebuild owners; caller-visible outcomes and persistence agree |
 | D6c | D6b | Incremental frontend adoption and deliberate compatibility SDK retirement program; start with an inventory/selection planning chunk, then one entry point per implementation commit | Same session owner across SDK/modes; executable embedding example; remove a compatibility surface only after its replacement has no remaining callers; never silently change `run_native` semantics |
 | D7a0 | Complete `3327a3a`; full checks and focused Terra follow-up CLEAN; D0, D5a `112397a` | Review direct RPC bash operation identity, process lifetime, result and lock contract in automation/RPC/architecture docs | Independent review and commit before runtime work; current behavior remains explicit until D7a1 |
 | D7a1 | Complete `d900ca5`; full checks and focused Terra follow-up CLEAN; D7a0 `3327a3a` | Add cancellable direct RPC bash through `command_sandbox.py`, current RPC direct-bash owners and focused tests | Abort all snapshotted operations; process-group termination/reap; timeout differs from explicit abort; one exact correlated terminal response; preserve sandbox policy |
@@ -906,6 +907,27 @@ exhaustive extension-generation call inventory; the focused repair passed 114
 tests including that inventory. The repaired full gate passed 6,137 tests with
 two skipped, plus Ruff, formatting, Mypy, docs-build and diff checks; the
 virtualenv interpreter links and configuration stayed unchanged.
+
+D6b3 routes the four recognized RPC transition commands through an opaque
+admitted port over the native coordinator. The initial implementation reserves
+and claims one idle-only control operation, runs transition callbacks and I/O
+after releasing the admission guards, settles the exact claim, and refreshes
+RPC tree projections after native publication. It adds initial persistent-path
+lease binding and fatal published-failure retirement while keeping terminal
+adoption deferred. Terra R1 found one Critical settlement/rebind retirement gap
+and four Warnings covering readiness, ownership, stale shipped-status prose and
+acceptance coverage. The repair makes transition readiness mandatory, keeps
+registry/slot and admission authority in wiring/controller, retires after fatal
+published failures, and expands lifecycle, strict-load, refusal, correlation and
+projection tests. The writer's expanded controller/RPC gate passed 180 tests.
+Root additionally fixed the fatal-retirement order so the controller lifetime
+holds the active lease through shutdown and releases it only after lifecycle and
+extension teardown; four targeted ownership/failure tests pass. Focused Terra R2
+inspected the complete 12-file diff plus the unchanged queue and transition
+owners and returned CLEAN. Root's repaired full gate passed 6,153 tests with two
+skipped, plus Ruff, formatting and Mypy. The only initial full-gate failure was
+an exhaustive static `retire` call-count inventory; its exact test-only update
+passed before the clean rerun.
 
 ### D7a — Direct RPC bash cancellation
 

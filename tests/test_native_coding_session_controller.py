@@ -66,6 +66,7 @@ from pipy_harness.native.tui import TerminalUi
 _DUMMY_CONFIGURATION_PORT = object()
 _DUMMY_COMPACTION_PORT = object()
 _DUMMY_RETRY_PORT = object()
+_DUMMY_TRANSITION_PORT = object()
 
 
 class _FakeProvider:
@@ -1662,7 +1663,13 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
     readiness = _ControllerReadinessPort(control)
     with pytest.raises(TypeError, match="configuration_port"):
         bridge.publish_ready(
-            control, control.abort_view, readiness, None, object(), object()
+            control,
+            control.abort_view,
+            readiness,
+            None,
+            object(),
+            object(),
+            _DUMMY_TRANSITION_PORT,
         )
     with pytest.raises(TypeError, match="compaction_port"):
         bridge.publish_ready(
@@ -1672,6 +1679,7 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
             _DUMMY_CONFIGURATION_PORT,
             None,
             _DUMMY_RETRY_PORT,
+            _DUMMY_TRANSITION_PORT,
         )
     with pytest.raises(TypeError, match="retry_port"):
         bridge.publish_ready(
@@ -1680,6 +1688,17 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
             readiness,
             _DUMMY_CONFIGURATION_PORT,
             _DUMMY_COMPACTION_PORT,
+            None,
+            _DUMMY_TRANSITION_PORT,
+        )
+    with pytest.raises(TypeError, match="transition_port"):
+        bridge.publish_ready(
+            control,
+            control.abort_view,
+            readiness,
+            _DUMMY_CONFIGURATION_PORT,
+            _DUMMY_COMPACTION_PORT,
+            _DUMMY_RETRY_PORT,
             None,
         )
     assert bridge.wait_ready(0) is None
@@ -1690,6 +1709,7 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
         _DUMMY_CONFIGURATION_PORT,
         _DUMMY_COMPACTION_PORT,
         _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
     )
     outcome = bridge.wait_ready(0)
     assert type(outcome) is _NativeControlReady
@@ -1697,6 +1717,7 @@ def test_control_bridge_refuses_pre_ready_and_publishes_one_outcome() -> None:
     assert outcome.configuration_port is _DUMMY_CONFIGURATION_PORT
     assert outcome.compaction_port is _DUMMY_COMPACTION_PORT
     assert outcome.retry_port is _DUMMY_RETRY_PORT
+    assert outcome.transition_port is _DUMMY_TRANSITION_PORT
     assert bridge.publish_failure_if_unpublished(RuntimeError("late")) is False
     with pytest.raises(RuntimeError, match="already published"):
         bridge.publish_failure(RuntimeError("late"))
@@ -1757,6 +1778,35 @@ def test_controller_missing_compaction_port_fails_before_ready_publication() -> 
         controller.bind_rpc_compaction_port(None)
 
 
+def test_controller_missing_transition_port_fails_before_ready_publication() -> None:
+    queue = CodingInputQueue()
+    controller, _ = _controller(queue)
+    bridge = _NativeSessionControlBridge()
+    controller.bind_native_control_bridge(bridge)
+    controller.bind_rpc_configuration_port(_DUMMY_CONFIGURATION_PORT)
+    controller.bind_rpc_compaction_port(_DUMMY_COMPACTION_PORT)
+    controller.bind_rpc_retry_port(_DUMMY_RETRY_PORT)
+
+    with pytest.raises(RuntimeError, match="transition port is not bound") as raised:
+        controller.run_loop(
+            step_once=lambda: LoopStepSignal.break_loop(),
+            finalize=_repl_result,
+            fire_session_start=lambda: None,
+            fire_session_shutdown=lambda: None,
+            consume_settle_pending=lambda: False,
+            close_extension_session=lambda: None,
+            clear_extension_chrome=lambda: None,
+        )
+    assert bridge.wait_ready(0) is None
+    assert bridge.publish_failure_if_unpublished(raised.value)
+    outcome = bridge.wait_ready(0)
+    assert type(outcome) is _NativeControlFailed
+    assert outcome.error is raised.value
+
+    with pytest.raises(TypeError, match="transition port"):
+        controller.bind_rpc_transition_port(None, lambda: None)
+
+
 def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
@@ -1767,6 +1817,7 @@ def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
         _DUMMY_CONFIGURATION_PORT,
         _DUMMY_COMPACTION_PORT,
         _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
     )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
@@ -1790,6 +1841,7 @@ def test_control_bridge_foreign_or_mismatched_claim_fails_closed() -> None:
         _DUMMY_CONFIGURATION_PORT,
         _DUMMY_COMPACTION_PORT,
         _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
     )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
@@ -1825,6 +1877,7 @@ def test_control_bridge_token_mismatch_never_settles_the_attached_claim() -> Non
         _DUMMY_CONFIGURATION_PORT,
         _DUMMY_COMPACTION_PORT,
         _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
     )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
@@ -1852,6 +1905,7 @@ def test_control_bridge_rejects_mismatched_ready_components() -> None:
             _DUMMY_CONFIGURATION_PORT,
             _DUMMY_COMPACTION_PORT,
             _DUMMY_RETRY_PORT,
+            _DUMMY_TRANSITION_PORT,
         )
     assert bridge.wait_ready(0) is None
     with pytest.raises(ValueError, match="readiness_port"):
@@ -1862,6 +1916,7 @@ def test_control_bridge_rejects_mismatched_ready_components() -> None:
             _DUMMY_CONFIGURATION_PORT,
             _DUMMY_COMPACTION_PORT,
             _DUMMY_RETRY_PORT,
+            _DUMMY_TRANSITION_PORT,
         )
     assert bridge.wait_ready(0) is None
 
@@ -1878,6 +1933,7 @@ def test_bridge_admission_racing_fatal_consumption_serializes_before_failure(
         _DUMMY_CONFIGURATION_PORT,
         _DUMMY_COMPACTION_PORT,
         _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
     )
     active = bridge.admit_prompt(ProductContent("active"))
     assert active.reservation is not None
@@ -1954,6 +2010,7 @@ def test_control_bridge_pre_end_failure_settles_exact_claim_and_retires() -> Non
         _DUMMY_CONFIGURATION_PORT,
         _DUMMY_COMPACTION_PORT,
         _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
     )
     admitted = bridge.admit_prompt(ProductContent("run"))
     assert admitted.reservation is not None
@@ -1982,6 +2039,7 @@ def test_run_loop_pre_end_failure_settles_claim_before_lifetime_retirement() -> 
     controller.bind_rpc_configuration_port(_DUMMY_CONFIGURATION_PORT)
     controller.bind_rpc_compaction_port(_DUMMY_COMPACTION_PORT)
     controller.bind_rpc_retry_port(_DUMMY_RETRY_PORT)
+    controller.bind_rpc_transition_port(_DUMMY_TRANSITION_PORT, lambda: None)
     primary = LookupError("provider failed before AgentRunCompleted")
     retired: list[str] = []
 
@@ -2012,3 +2070,32 @@ def test_run_loop_pre_end_failure_settles_claim_before_lifetime_retirement() -> 
     assert getattr(primary, "__notes__", []) == []
     assert retired == ["shutdown", "close", "chrome"]
     assert emitter.settled_calls == 0
+
+
+def test_bridge_transition_operation_is_idle_only_and_settles_exact_claim() -> None:
+    bridge = _NativeSessionControlBridge()
+    controller, _ = _controller(CodingInputQueue())
+    control = controller.control
+    controller.bind_native_control_bridge(bridge)
+    controller.bind_rpc_transition_port(_DUMMY_TRANSITION_PORT, lambda: None)
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+        _DUMMY_COMPACTION_PORT,
+        _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
+    )
+
+    claim = bridge.admit_transition_operation()
+    assert claim is not None
+    assert bridge.admit_transition_operation() is None
+    active = bridge.snapshot()
+    assert active.reservation is not None and active.reservation.claimed
+
+    settled = bridge.settle_transition_operation(claim)
+    assert settled.reservation is None
+    successor = bridge.admit_transition_operation()
+    assert successor is not None
+    assert bridge.settle_transition_operation(successor).reservation is None

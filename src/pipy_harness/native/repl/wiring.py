@@ -88,6 +88,7 @@ from pipy_harness.native.coding.session_controller import (
     _CallableCodingCommandEffects,
     _CodingSessionLifetime,
     _NativeSessionControlBridge,
+    _NativeTransitionControlError,
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic
@@ -147,6 +148,7 @@ from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
 )
 from pipy_harness.native.repl.session_transition import (
+    CanonicalSessionLeaseRegistry,
     CanonicalSessionLeaseSlot,
     ProductSessionTransitionResult,
     SessionTransitionCoordinator,
@@ -262,6 +264,86 @@ class SessionWiring:
     delegation: _LoopDelegation | None
     control_bridge: _NativeSessionControlBridge | None = None
     transition: SessionTransitionCoordinator | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _RpcSessionTransitionPort:
+    """Opaque admitted-transition port for the headless RPC transport."""
+
+    bridge: _NativeSessionControlBridge
+    transition: SessionTransitionCoordinator
+    leases: CanonicalSessionLeaseSlot
+
+    def _run(
+        self, operation: Callable[[], ProductSessionTransitionResult]
+    ) -> ProductSessionTransitionResult | None:
+        claim = self.bridge.admit_transition_operation()
+        if claim is None:
+            return None
+        try:
+            result = operation()
+        except BaseException as primary:
+            try:
+                self.bridge.settle_transition_operation(claim)
+            except BaseException as settlement:  # noqa: BLE001 - fail closed
+                error = _NativeTransitionControlError(
+                    "native transition operation settlement failed"
+                )
+                error.add_note(f"transition primary was {type(primary).__name__}")
+                raise error from settlement
+            raise
+        else:
+            try:
+                self.bridge.settle_transition_operation(claim)
+            except BaseException as settlement:  # noqa: BLE001 - fail closed
+                raise _NativeTransitionControlError(
+                    "native transition operation settlement failed"
+                ) from settlement
+            return result
+
+    def new_session(self) -> ProductSessionTransitionResult | None:
+        return self._run(lambda: self.transition.new_admitted(leases=self.leases))
+
+    def switch_session(
+        self, session_path: Path
+    ) -> ProductSessionTransitionResult | None:
+        return self._run(
+            lambda: self.transition.switch_admitted(session_path, leases=self.leases)
+        )
+
+    def fork(
+        self, entry_id: str | None, *, clone: bool
+    ) -> ProductSessionTransitionResult | None:
+        return self._run(
+            lambda: self.transition.fork_admitted(
+                entry_id,
+                operation="clone" if clone else "fork",
+                leases=self.leases,
+            )
+        )
+
+    def active_tree(self) -> NativeSessionTree:
+        return self.transition.get_tree()
+
+
+def _bind_rpc_transition_port(
+    bridge: _NativeSessionControlBridge,
+    transition: SessionTransitionCoordinator,
+    active_tree: NativeSessionTree,
+    controller: CodingSessionController,
+) -> None:
+    initial_lease = None
+    try:
+        if active_tree.path is not None and active_tree.persist:
+            initial_lease = CanonicalSessionLeaseRegistry.claim(active_tree.path)
+        slot = CanonicalSessionLeaseSlot(initial_lease)
+        controller.bind_rpc_transition_port(
+            _RpcSessionTransitionPort(bridge, transition, slot), slot.finish
+        )
+    except BaseException:
+        if initial_lease is not None:
+            initial_lease.finish()
+        raise
 
 
 def _control_bridge(inputs: SessionWiringInput) -> _NativeSessionControlBridge | None:
@@ -1680,10 +1762,15 @@ def _assemble_session_wiring(
         rebuild=product.product_session.rebuild_active_history,
         clear_extension_inputs=runtime.coding_input_queue.clear_extension_inputs,
     )
+    bridge = _control_bridge(inputs)
+    if bridge is not None:
+        _bind_rpc_transition_port(
+            bridge, transition, ctl.session_tree, runtime.loop_controller
+        )
     return SessionWiring(
         startup_failure=None,
         delegation=delegation,
-        control_bridge=_control_bridge(inputs),
+        control_bridge=bridge,
         transition=transition,
     )
 

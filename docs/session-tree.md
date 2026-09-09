@@ -113,25 +113,28 @@ This is not a cross-process lock.
 
 ### D6b public transition contract
 
-**D6b2 shipped:** persistent public product sessions can fork an exact active
-in-memory entry, clone their current leaf, create an empty sibling tree, or
-strictly replace their active tree through the native coordinator. The terminal
-commands and RPC adoption remain deferred.
+**D6b3 shipped:** persistent public product sessions and the JSONL RPC lifetime
+can fork an exact active in-memory entry, clone their current leaf, create an
+empty sibling tree, or
+strictly replace their active tree through the native coordinator. Terminal
+command adoption remains deferred.
 
 The in-place public transition operations are owned by one native
 `SessionTransitionCoordinator`, composed once by `native/repl/wiring.py`, not
 by `NativeSessionTree` factories or the outer `ProductSession` facade. The tree
 keeps creation, strict open, branch projection and durable append ownership. The
 coordinator receives the run-control setter, extension gate and state rebuild
-ports from wiring; `product_api.py`, later RPC, and eventual terminal adoption
-call its typed port without a native import of the outer facade.
+ports from wiring; `product_api.py`, RPC, and eventual terminal adoption call
+its typed port without a native import of the outer facade.
 
 The same neutral module owns the process-local registry and one guarded
 `CanonicalSessionLeaseSlot` per active lifetime. A prepared handoff holds a
 candidate claim alongside the slot's old claim. Failure before pointer
 publication aborts only the candidate; after the setter returns, a non-failing
 publish swaps the slot to the candidate exactly once and releases the old claim.
-The encompassing public or RPC lifecycle finishes the adopted slot on teardown.
+Native wiring claims the RPC lifetime's initial persistent tree before readiness
+and binds the slot's idempotent finisher to the controller lifetime. The
+encompassing public or RPC lifecycle finishes the adopted slot on teardown.
 No result value exposes the lease, and no other reader or writer accesses the
 slot's mutable current claim.
 

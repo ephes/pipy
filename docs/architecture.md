@@ -1040,8 +1040,14 @@ D6b2 wires the full public fork/clone/new/switch portion of that port into the
 existing headless product lifetime. The public facade uses the
 construction-thread true-idle port, snapshots its current in-memory source
 branch for fork/clone, runs the existing fork or switch gate before durable
-work, and rebinds the existing tree/history owners. RPC migration remains D6b3
-work.
+work, and rebinds the existing tree/history owners. D6b3 routes the four RPC
+commands through a private admitted-control port composed in the same wiring.
+That port atomically reserves and claims only at true idle, releases the control
+and queue guards before transition callbacks or durable work, then settles the
+exact claim once. Native wiring holds the RPC lifetime's initial persistent
+canonical lease in the same neutral slot before readiness, while RPC updates
+only its projection binding after native publication and retires the controller
+after a published rebuild failure. Terminal command adoption remains deferred.
 
 That module also owns a guarded `CanonicalSessionLeaseSlot` bound once per
 lifetime. The slot is the only mutable current-lease owner. A prepared candidate
@@ -1078,10 +1084,10 @@ creation write is not promised to be complete. Strict load creates no artifact.
 Once a new pointer is published, rollback is not claimed. A rebuild failure
 retires/closes the public lifetime before its typed error returns; the error
 identifies the published selected target, and only post-close snapshot/close
-semantics remain. The later RPC adopter emits one correlated error and retires
-its controller and finishes its bound lease slot before accepting a successor
-command. Lifecycle `session_start`
-and `session_shutdown` remain facade-lifetime bookends. The public completion
+semantics remain. RPC emits one correlated error and retires its controller;
+the controller lifetime finishes its bound lease slot before accepting a
+successor command. Lifecycle
+`session_start` and `session_shutdown` remain facade-lifetime bookends. The public completion
 observation is the frozen return value; D6b3 owns the one RPC event/UI rebind.
 The terminal's current session command owner remains behaviorally separate until
 it adopts this same port.

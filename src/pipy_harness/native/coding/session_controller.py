@@ -138,11 +138,16 @@ class _NativeControlReady:
     configuration_port: object
     compaction_port: object
     retry_port: object
+    transition_port: object
 
 
 @dataclass(frozen=True, slots=True)
 class _NativeControlFailed:
     error: BaseException
+
+
+class _NativeTransitionControlError(RuntimeError):
+    """A private RPC transition control invariant failed after admission."""
 
 
 class _NativeSessionControlBridge:
@@ -161,6 +166,9 @@ class _NativeSessionControlBridge:
         "_outcome",
         "_outcome_lock",
         "_pending_selected",
+        "_retired",
+        "_transition_admit",
+        "_transition_settle",
         "_wake_reader",
         "_worker",
     )
@@ -173,6 +181,13 @@ class _NativeSessionControlBridge:
         self._claim: _NativeRunClaim | None = None
         self._pending_selected: (
             tuple[ProductContent, AgentQueuedInput | None] | None
+        ) = None
+        self._retired = False
+        self._transition_admit: (
+            Callable[[Callable[[], None]], _NativeRunClaim | None] | None
+        ) = None
+        self._transition_settle: (
+            Callable[[_NativeRunClaim], _NativeControlSnapshot] | None
         ) = None
         self._wake_reader: Callable[[], str] | None = None
         self._fatal = False
@@ -208,6 +223,24 @@ class _NativeSessionControlBridge:
                 raise RuntimeError("native control bridge wake reader is already bound")
             self._wake_reader = reader
 
+    def bind_transition_control(
+        self,
+        admit: Callable[[Callable[[], None]], _NativeRunClaim | None],
+        settle: Callable[[_NativeRunClaim], _NativeControlSnapshot],
+    ) -> None:
+        """Bind controller-owned transition admission and exact settlement."""
+
+        if not callable(admit) or not callable(settle):
+            raise TypeError("native RPC transition control ports must be callable")
+        with self._outcome_lock:
+            if (
+                self._transition_admit is not None
+                or self._transition_settle is not None
+            ):
+                raise RuntimeError("native RPC transition control is already bound")
+            self._transition_admit = admit
+            self._transition_settle = settle
+
     def readline(self, *_args: object) -> str:
         """Wait for a wake, then select one exact native reservation."""
 
@@ -222,6 +255,9 @@ class _NativeSessionControlBridge:
                     raise RuntimeError(
                         "native control wake reader returned payload content"
                     )
+            with self._outcome_lock:
+                if self._retired:
+                    return ""
             ready = self._ready()
             reservation = ready.control.snapshot().reservation
             if reservation is None:
@@ -271,6 +307,12 @@ class _NativeSessionControlBridge:
     def publish_if_true_idle(self, publish: Callable[[], None]) -> bool:
         return self._ready().control.publish_if_true_idle(publish)
 
+    def retire(self) -> None:
+        """Stop bridge intake after an unrecoverable transport transition error."""
+
+        with self._outcome_lock:
+            self._retired = True
+
     def publish_ready(
         self,
         control: _NativeSessionControl,
@@ -279,6 +321,7 @@ class _NativeSessionControlBridge:
         configuration_port: object,
         compaction_port: object,
         retry_port: object,
+        transition_port: object,
     ) -> None:
         if type(control) is not _NativeSessionControl:
             raise TypeError("control must be a _NativeSessionControl")
@@ -296,6 +339,8 @@ class _NativeSessionControlBridge:
             raise TypeError("compaction_port must not be None")
         if retry_port is None:
             raise TypeError("retry_port must not be None")
+        if transition_port is None:
+            raise TypeError("transition_port must not be None")
         self._publish(
             _NativeControlReady(
                 control,
@@ -304,6 +349,7 @@ class _NativeSessionControlBridge:
                 configuration_port,
                 compaction_port,
                 retry_port,
+                transition_port,
             )
         )
 
@@ -369,6 +415,29 @@ class _NativeSessionControlBridge:
         self, custom_instructions: ProductContent | None
     ) -> _NativeControlSnapshot | None:
         return self._ready().control.admit_manual_compaction(custom_instructions)
+
+    def admit_transition_operation(self) -> _NativeRunClaim | None:
+        """Reserve and claim an idle-only transport control operation.
+
+        The opaque claim is returned only to the native transition port.  The
+        queue and its admission gate are released before the port invokes any
+        extension, filesystem, lease, publication, or rebuild callback.
+        """
+
+        self._ready()
+        admit = self._transition_admit
+        if admit is None:
+            raise RuntimeError("native RPC transition control is not bound")
+        return admit(self._require_authorized)
+
+    def settle_transition_operation(
+        self, claim: _NativeRunClaim
+    ) -> _NativeControlSnapshot:
+        self._ready()
+        settle = self._transition_settle
+        if settle is None:
+            raise RuntimeError("native RPC transition control is not bound")
+        return settle(claim)
 
     def attach_selected_claim(
         self, reservation: _NativeControlReservation
@@ -705,6 +774,7 @@ class CodingSessionController:
         "_cleanup_failed_run",
         "_configuration_port",
         "_compaction_port",
+        "_control_bridge",
         "_coding_state",
         "_control",
         "_emitter",
@@ -712,6 +782,8 @@ class CodingSessionController:
         "_readiness_port",
         "_publish_ready",
         "_retry_port",
+        "_finish_transition_lease",
+        "_transition_port",
     )
 
     def __init__(
@@ -739,7 +811,10 @@ class CodingSessionController:
         self._cleanup_failed_run: Callable[[BaseException], None] | None = None
         self._configuration_port: object | None = None
         self._compaction_port: object | None = None
+        self._control_bridge: _NativeSessionControlBridge | None = None
         self._retry_port: object | None = None
+        self._transition_port: object | None = None
+        self._finish_transition_lease: Callable[[], None] | None = None
 
     @property
     def control(self) -> _NativeSessionControl:
@@ -768,6 +843,8 @@ class CodingSessionController:
                 raise RuntimeError("native RPC compaction port is not bound")
             if self._retry_port is None:
                 raise RuntimeError("native RPC retry port is not bound")
+            if self._transition_port is None:
+                raise RuntimeError("native RPC transition port is not bound")
             bridge.publish_ready(
                 self._control,
                 self._control.abort_view,
@@ -775,10 +852,12 @@ class CodingSessionController:
                 self._configuration_port,
                 self._compaction_port,
                 self._retry_port,
+                self._transition_port,
             )
 
         self._publish_ready = publish_ready
         self._cleanup_failed_run = bridge.cleanup_attached_failed_run
+        self._control_bridge = bridge
 
     def bind_rpc_configuration_port(self, port: object) -> None:
         """Bind the once-composed private configuration projection for RPC.
@@ -806,6 +885,50 @@ class CodingSessionController:
         if self._retry_port is not None:
             raise RuntimeError("native RPC retry port is already bound")
         self._retry_port = port
+
+    def bind_rpc_transition_port(
+        self, port: object, finish_transition_lease: Callable[[], None]
+    ) -> None:
+        if port is None:
+            raise TypeError("native RPC transition port must not be None")
+        if not callable(finish_transition_lease):
+            raise TypeError("native RPC transition lease finisher must be callable")
+        if (
+            self._transition_port is not None
+            or self._finish_transition_lease is not None
+        ):
+            raise RuntimeError("native RPC transition port is already bound")
+        self._transition_port = port
+        self._finish_transition_lease = finish_transition_lease
+        bridge = self._control_bridge
+        if bridge is not None:
+            bridge.bind_transition_control(
+                self._admit_rpc_transition_operation,
+                self._settle_rpc_transition_operation,
+            )
+
+    def _admit_rpc_transition_operation(
+        self, verify_authorized: Callable[[], None]
+    ) -> _NativeRunClaim | None:
+        if not callable(verify_authorized):
+            raise TypeError("verify_authorized must be callable")
+        box: list[_input_queue._ExternalClaim] = []
+
+        def reserve() -> None:
+            verify_authorized()
+            claim = self._input_queue._begin_external_operation(ProductContent(""))
+            if claim is None:
+                raise RuntimeError("native transition admission invariant failed")
+            box.append(claim)
+
+        if not self._control.publish_if_true_idle(reserve):
+            return None
+        return _NativeRunClaim(box[0])
+
+    def _settle_rpc_transition_operation(
+        self, claim: _NativeRunClaim
+    ) -> _NativeControlSnapshot:
+        return self._control.settle(claim)
 
     def run_loop(
         self,
@@ -910,10 +1033,20 @@ class CodingSessionController:
             close_extension_session=close_extension_session,
             clear_extension_chrome=clear_extension_chrome,
             cleanup_failed_run=cleanup_failed_run,
+            finish_transition_lease=self._finish_transition_lease,
         )
-        fire_session_start()
-        if publish_ready is not None:
-            publish_ready()
+        started = False
+        try:
+            fire_session_start()
+            started = True
+            if publish_ready is not None:
+                publish_ready()
+        except BaseException:
+            if started:
+                lifetime._retire_lifetime()
+            else:
+                lifetime._finish_transition_lease()
+            raise
         try:
             yield lifetime
         except BaseException:
@@ -1119,6 +1252,7 @@ class _CodingSessionLifetime:
     close_extension_session: Callable[[], None]
     clear_extension_chrome: Callable[[], None]
     cleanup_failed_run: Callable[[BaseException], None] | None = None
+    finish_transition_lease: Callable[[], None] | None = None
     closed: bool = False
     result: CodingSessionResult | None = None
 
@@ -1227,7 +1361,15 @@ class _CodingSessionLifetime:
             try:
                 self.close_extension_session()
             finally:
-                self.clear_extension_chrome()
+                try:
+                    self.clear_extension_chrome()
+                finally:
+                    self._finish_transition_lease()
+
+    def _finish_transition_lease(self) -> None:
+        finisher = self.finish_transition_lease
+        if finisher is not None:
+            finisher()
 
 
 def _require_exact_coding_loop_step_fields(step: CodingLoopStep) -> None:

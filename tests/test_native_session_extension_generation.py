@@ -2988,7 +2988,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         "_accept_message_route=2 _bind_session_mutex=3 _commit_activation=2 "
         "_install_candidate_route=1 accept=2 finalize_retirement=3 "
         "install_candidate_route=1 mark_retired_locked=3 release_pending=1 "
-        "release_pending_route=0 retire=1 retire_route=1 "
+        "release_pending_route=0 retire=2 retire_route=1 "
         "route_drain=1 submit=2"
     )
     built = {

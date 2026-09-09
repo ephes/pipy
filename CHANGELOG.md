@@ -11,8 +11,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Persistent Python product sessions can now fork or clone, create an empty
   sibling session, and strictly switch to one exact durable session in place.
   The native transition owner preserves the facade lifetime, canonical path
-  claims, extension gates, and state-first history rebuild. RPC adoption remains
-  deferred to D6b3.
+  claims, extension gates, and state-first history rebuild. RPC now adopts the
+  same native owner for `new_session`, strict `switch_session`, `fork`, and
+  `clone`, preserving correlated outcomes and the native idle-only control
+  boundary.
 
 - Direct RPC bash now emits bounded, line-gated and secret-redacted
   `bash_execution_update` records before its correlated terminal response.

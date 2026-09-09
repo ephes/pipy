@@ -52,8 +52,11 @@ Recognized command names do not imply implemented behavior:
   refuses a conflicting CLI or environment override. `abort_retry` cancels only
   an exact active ordinary retry phase and otherwise succeeds as a no-op; see the
   [D5d adoption contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
-- `new_session`, `switch_session`, `fork`, `clone`, and `export_html` return
-  correlated not-yet-implemented errors.
+- `new_session`, strict `switch_session`, exact-entry `fork`, and current-leaf
+  `clone` are native idle-only transition operations. They retain one RPC
+  lifetime and rebind its session projections after publication; terminal
+  command adoption remains deferred. `export_html` returns a correlated
+  not-yet-implemented error.
 - Steering and follow-up delivery remains one message per turn boundary, steering
   first, regardless of the reported queue mode.
 - Model and thinking controls are idle-only owner operations. Available models

@@ -46,7 +46,10 @@ from pipy_harness.native.automation.jsonl import JsonlLineBuffer
 from pipy_harness.native.automation.rpc import NativeRpcServer, _WakeChannel
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
-from pipy_harness.native.coding.session_controller import _NativeControlFailed
+from pipy_harness.native.coding.session_controller import (
+    _NativeControlFailed,
+    _NativeSessionControlBridge,
+)
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
     CommandResult,
@@ -65,11 +68,13 @@ from pipy_harness.native.repl.provider_selection import (
     RpcConfigurationSnapshot,
     RpcModelCycleResult,
 )
+from pipy_harness.native.repl.session_transition import CanonicalSessionLeaseRegistry
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
 )
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tools import ToolPort
 
@@ -283,6 +288,7 @@ class _RpcClient:
         provider_state: NativeReplProviderState | None = None,
         tools: dict[str, ToolPort] | None = None,
         persist_tree: bool = False,
+        resource_options: RuntimeResourceOptions | None = None,
     ) -> None:
         self._cwd = tmp_path
         stdin_r, self._stdin_w = os.pipe()
@@ -307,6 +313,7 @@ class _RpcClient:
                 )
             ),
             agent_event_sink=self.canonical,
+            resource_options=resource_options,
         )
         self.adapter = adapter
         tree = NativeSessionTree.create(tmp_path, persist=persist_tree)
@@ -2623,5 +2630,518 @@ def test_rpc_abort_cancels_model_tool_then_next_prompt_succeeds(tmp_path: Path) 
             len([e for e in client.canonical.events if isinstance(e, RunCancelled)])
             == 1
         )
+    finally:
+        client.close()
+
+
+def test_rpc_new_session_adopts_native_tree_and_releases_initial_lease(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    original = client.tree.path
+    assert original is not None
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "ready")
+        with pytest.raises(RuntimeError, match="already active"):
+            CanonicalSessionLeaseRegistry.claim(original)
+        client.send({"id": "new", "type": "new_session"})
+        response = client.wait_for(
+            lambda record: (
+                record.get("type") == "response" and record.get("id") == "new"
+            )
+        )
+        assert response == {
+            "id": "new",
+            "type": "response",
+            "command": "new_session",
+            "success": True,
+            "data": {"cancelled": False},
+        }
+        client.send({"id": "state", "type": "get_state"})
+        state = client.wait_for(lambda record: record.get("id") == "state")
+        assert state["data"]["sessionFile"] != str(original)
+        assert client.adapter.native_session is client._server._tree
+        adopted_tree = client._server._tree
+        assert isinstance(adopted_tree, NativeSessionTree)
+        adopted = adopted_tree.path
+        assert adopted is not None
+        released_old = CanonicalSessionLeaseRegistry.claim(original)
+        released_old.finish()
+        with pytest.raises(RuntimeError, match="already active"):
+            CanonicalSessionLeaseRegistry.claim(adopted)
+    finally:
+        client.close()
+    released = CanonicalSessionLeaseRegistry.claim(original)
+    released.finish()
+    released_adopted = CanonicalSessionLeaseRegistry.claim(adopted)
+    released_adopted.finish()
+
+
+def test_rpc_transition_busy_refuses_without_queueing_then_succeeds(
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingFirstAutomationProvider()
+    client = _RpcClient(tmp_path, provider=provider, persist_tree=True)
+    try:
+        client.send({"id": "prompt", "type": "prompt", "message": "hold"})
+        client.wait_for(lambda record: record.get("id") == "prompt")
+        deadline = time.monotonic() + 5
+        while not provider.requests and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert provider.requests
+
+        original = client._server._tree
+        client.send({"id": "busy", "type": "new_session"})
+        busy = client.wait_for(lambda record: record.get("id") == "busy")
+        assert busy == {
+            "id": "busy",
+            "type": "response",
+            "command": "new_session",
+            "success": False,
+            "error": "session is not idle",
+        }
+        assert client._server._tree is original
+
+        provider.release()
+        client.wait_for(lambda record: record.get("type") == "agent_settled")
+        client.send({"id": "after", "type": "new_session"})
+        assert client.wait_for(lambda record: record.get("id") == "after")["success"]
+        assert client._server._tree is not original
+    finally:
+        client.close()
+
+
+def test_rpc_initial_lease_releases_when_readiness_startup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_ready(
+        _self: _NativeSessionControlBridge, *_args: object, **_kwargs: object
+    ) -> None:
+        raise RuntimeError("injected readiness failure")
+
+    monkeypatch.setattr(_NativeSessionControlBridge, "publish_ready", fail_ready)
+    client = _RpcClient(tmp_path, persist_tree=True)
+    path = client.tree.path
+    assert path is not None
+    try:
+        client._server_thread.join(timeout=5)
+        assert not client._server_thread.is_alive()
+        released = CanonicalSessionLeaseRegistry.claim(path)
+        released.finish()
+    finally:
+        client.close()
+
+
+def test_rpc_session_transition_validates_and_projects_idle_refusal(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"id": "parent", "type": "new_session", "parentSession": "x"})
+        parent = client.wait_for(lambda record: record.get("id") == "parent")
+        assert parent["success"] is False
+        assert parent["error"] == "parentSession is not supported"
+
+        client.send({"id": "fork", "type": "fork"})
+        fork = client.wait_for(lambda record: record.get("id") == "fork")
+        assert fork["success"] is False
+        assert fork["error"] == "fork requires entryId"
+
+        client.send({"id": "clone", "type": "clone"})
+        clone = client.wait_for(lambda record: record.get("id") == "clone")
+        assert clone["success"] is False
+        assert clone["error"] == "session transition refused: missing_leaf"
+    finally:
+        client.close()
+
+
+def test_rpc_fork_clone_and_switch_use_the_admitted_native_transition_port(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    original = client.tree.path
+    assert original is not None
+    try:
+        client.send({"id": "prompt", "type": "prompt", "message": "root"})
+        client.wait_for(lambda record: record.get("id") == "prompt")
+        client.wait_for(lambda record: record.get("type") == "agent_settled")
+        entry_id = client._server._tree.leaf_id
+        assert entry_id is not None
+
+        client.send({"id": "fork", "type": "fork", "entryId": entry_id})
+        fork = client.wait_for(lambda record: record.get("id") == "fork")
+        assert fork["data"] == {"text": "Forked native session", "cancelled": False}
+        fork_path = client._server._tree.path
+        assert fork_path is not None and fork_path != original
+
+        client.send({"id": "clone", "type": "clone"})
+        clone = client.wait_for(lambda record: record.get("id") == "clone")
+        assert clone["data"] == {"cancelled": False}
+
+        client.send(
+            {"id": "switch", "type": "switch_session", "sessionPath": str(original)}
+        )
+        switched = client.wait_for(lambda record: record.get("id") == "switch")
+        assert switched["data"] == {"cancelled": False}
+        assert client._server._tree.path == original
+
+        client.send(
+            {"id": "same", "type": "switch_session", "sessionPath": str(original)}
+        )
+        same = client.wait_for(lambda record: record.get("id") == "same")
+        assert same["data"] == {"cancelled": False}
+    finally:
+        client.close()
+
+
+def test_rpc_switch_rebinds_every_tree_projection_and_next_prompt_persists(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        target = NativeSessionTree.create(tmp_path, persist=True)
+        target.append_message(AgentUserMessage(ProductContent("adopted history")))
+        target.append_session_info("adopted name")
+        assert target.path is not None
+        target_path = target.path
+
+        client.send(
+            {
+                "id": "switch",
+                "type": "switch_session",
+                "sessionPath": str(target_path),
+            }
+        )
+        assert client.wait_for(lambda record: record.get("id") == "switch")["data"] == {
+            "cancelled": False
+        }
+
+        for command in (
+            "get_state",
+            "get_messages",
+            "get_entries",
+            "get_tree",
+            "get_session_stats",
+        ):
+            client.send({"id": command, "type": command})
+        state = client.wait_for(lambda record: record.get("id") == "get_state")
+        messages = client.wait_for(lambda record: record.get("id") == "get_messages")
+        entries = client.wait_for(lambda record: record.get("id") == "get_entries")
+        tree = client.wait_for(lambda record: record.get("id") == "get_tree")
+        stats = client.wait_for(lambda record: record.get("id") == "get_session_stats")
+        assert state["data"]["sessionFile"] == str(target_path)
+        assert state["data"]["sessionName"] == "adopted name"
+        assert messages["data"]["messages"][0]["content"] == [
+            {"type": "text", "text": "adopted history"}
+        ]
+        assert entries["data"]["entries"][-1]["type"] == "session_info"
+        assert tree["data"]["leafId"] == target.leaf_id
+        assert stats["data"]["sessionFile"] == str(target_path)
+
+        client.send({"id": "prompt", "type": "prompt", "message": "adopted prompt"})
+        client.wait_for(lambda record: record.get("id") == "prompt")
+        client.wait_for(lambda record: record.get("type") == "agent_settled")
+        reopened = NativeSessionTree.open(target_path, strict=True)
+        assert any(
+            getattr(getattr(entry, "message", None), "content", None)
+            == ProductContent("adopted prompt")
+            for entry in reopened.entries
+        )
+    finally:
+        client.close()
+
+
+def test_rpc_transition_prepublication_failure_keeps_old_tree_usable(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "ready")
+        transition_port = client._server._transition
+        assert transition_port is not None
+        transition = transition_port.transition
+        original = client._server._tree
+        object.__setattr__(
+            transition,
+            "set_tree",
+            lambda _candidate: (_ for _ in ()).throw(LookupError("publish")),
+        )
+        client.send({"id": "new", "type": "new_session"})
+        failure = client.wait_for(lambda record: record.get("id") == "new")
+        assert failure["success"] is False
+        assert client._server._tree is original
+
+        client.send({"id": "prompt", "type": "prompt", "message": "still usable"})
+        client.wait_for(lambda record: record.get("id") == "prompt")
+        client.wait_for(lambda record: record.get("type") == "agent_settled")
+    finally:
+        client.close()
+
+
+def test_rpc_strict_load_and_lease_failures_retain_old_tree(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        before = client.wait_for(lambda record: record.get("id") == "ready")
+        malformed = tmp_path / "malformed.jsonl"
+        malformed.write_text("not json\n", encoding="utf-8")
+        client.send(
+            {"id": "malformed", "type": "switch_session", "sessionPath": str(malformed)}
+        )
+        malformed_response = client.wait_for(
+            lambda record: record.get("id") == "malformed"
+        )
+        assert malformed_response["success"] is False
+
+        missing = tmp_path / "missing.jsonl"
+        client.send(
+            {"id": "missing", "type": "switch_session", "sessionPath": str(missing)}
+        )
+        assert not client.wait_for(lambda record: record.get("id") == "missing")[
+            "success"
+        ]
+
+        foreign_workspace = tmp_path / "foreign-workspace"
+        foreign_workspace.mkdir()
+        foreign = NativeSessionTree.create(foreign_workspace, persist=True)
+        assert foreign.path is not None
+        client.send(
+            {
+                "id": "foreign",
+                "type": "switch_session",
+                "sessionPath": str(foreign.path),
+            }
+        )
+        assert not client.wait_for(lambda record: record.get("id") == "foreign")[
+            "success"
+        ]
+
+        target = NativeSessionTree.create(tmp_path, persist=True)
+        assert target.path is not None
+        held = CanonicalSessionLeaseRegistry.claim(target.path)
+        try:
+            client.send(
+                {
+                    "id": "leased",
+                    "type": "switch_session",
+                    "sessionPath": str(target.path),
+                }
+            )
+            leased_response = client.wait_for(
+                lambda record: record.get("id") == "leased"
+            )
+            assert leased_response["success"] is False
+            assert (
+                leased_response["error"] == "session transition refused: lease_conflict"
+            )
+        finally:
+            held.finish()
+
+        client.send({"id": "after", "type": "get_state"})
+        after = client.wait_for(lambda record: record.get("id") == "after")
+        assert after["data"]["sessionFile"] == before["data"]["sessionFile"]
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "        return SessionDecision(allow=False)\n",
+        "        raise RuntimeError('private extension failure')\n",
+    ),
+)
+def test_rpc_extension_refusal_projects_cancelled_without_rebinding(
+    tmp_path: Path, body: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extension = tmp_path / ".pipy" / "extensions" / "switch_gate.py"
+    extension.parent.mkdir(parents=True)
+    extension.write_text(
+        "from pipy_harness.extensions import SessionDecision\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_switch')\n"
+        "    def gate(event, ctx):\n"
+        "        assert event.operation == 'switch'\n"
+        "        assert event.target == 'new'\n" + body,
+        encoding="utf-8",
+    )
+    starts: list[object] = []
+    shutdowns: list[object] = []
+    start = loop_step_module._ReplLoopStep.fire_session_start
+    shutdown = loop_step_module._ReplLoopStep.fire_session_shutdown
+
+    def record_start(self: object, **kwargs: object) -> None:
+        starts.append(self)
+        start(self, **kwargs)  # type: ignore[arg-type]
+
+    def record_shutdown(self: object, **kwargs: object) -> None:
+        shutdowns.append(self)
+        shutdown(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        loop_step_module._ReplLoopStep, "fire_session_start", record_start
+    )
+    monkeypatch.setattr(
+        loop_step_module._ReplLoopStep, "fire_session_shutdown", record_shutdown
+    )
+    client = _RpcClient(
+        tmp_path,
+        persist_tree=True,
+        resource_options=RuntimeResourceOptions(extension_paths=(extension,)),
+    )
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "ready")
+        original = client._server._tree
+        client.send({"id": "new", "type": "new_session"})
+        response = client.wait_for(lambda record: record.get("id") == "new")
+        assert response["data"] == {"cancelled": True}
+        assert client._server._tree is original
+        assert client.adapter.native_session is original
+    finally:
+        client.close()
+    assert len(starts) == 1
+    assert len(shutdowns) == 1
+
+
+def test_rpc_published_transition_failure_holds_lease_until_controller_retires(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shutdown_entered = threading.Event()
+    release_shutdown = threading.Event()
+    shutdown = loop_step_module._ReplLoopStep.fire_session_shutdown
+
+    def block_shutdown(self: object, **kwargs: object) -> None:
+        shutdown_entered.set()
+        assert release_shutdown.wait(timeout=5)
+        shutdown(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        loop_step_module._ReplLoopStep, "fire_session_shutdown", block_shutdown
+    )
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "ready")
+        transition_port = client._server._transition
+        assert transition_port is not None
+        transition = transition_port.transition
+        object.__setattr__(
+            transition,
+            "rebuild",
+            lambda: (_ for _ in ()).throw(LookupError("rebuild")),
+        )
+        client._stdin_write.write(
+            json.dumps({"id": "new", "type": "new_session"})
+            + "\n"
+            + json.dumps({"id": "successor", "type": "get_state"})
+            + "\n"
+        )
+        client._stdin_write.flush()
+        failure = client.wait_for(lambda record: record.get("id") == "new")
+        assert failure["success"] is False
+        assert shutdown_entered.wait(timeout=5)
+        active_path = transition_port.leases.current_path()
+        assert active_path is not None
+        with pytest.raises(RuntimeError, match="already active"):
+            CanonicalSessionLeaseRegistry.claim(active_path)
+        release_shutdown.set()
+        client._server_thread.join(timeout=5)
+        assert not client._server_thread.is_alive()
+        assert client._server._retired is True
+        assert transition_port.leases.current_path() is None
+        assert not any(record.get("id") == "successor" for record in client._seen)
+    finally:
+        release_shutdown.set()
+        client.close()
+
+
+def test_rpc_transition_response_without_id_keeps_command_correlation(
+    tmp_path: Path,
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"type": "new_session"})
+        response = client.wait_for(
+            lambda record: record.get("command") == "new_session"
+        )
+        assert response == {
+            "type": "response",
+            "command": "new_session",
+            "success": True,
+            "data": {"cancelled": False},
+        }
+    finally:
+        client.close()
+
+
+def test_rpc_transition_settlement_failure_retires_and_releases_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "ready")
+        transition_port = client._server._transition
+        assert transition_port is not None
+
+        def fail_settle(_self: _NativeSessionControlBridge, _claim: object) -> object:
+            raise RuntimeError("injected settle failure")
+
+        monkeypatch.setattr(
+            _NativeSessionControlBridge, "settle_transition_operation", fail_settle
+        )
+        client._stdin_write.write(
+            json.dumps({"id": "new", "type": "new_session"})
+            + "\n"
+            + json.dumps({"id": "successor", "type": "get_state"})
+            + "\n"
+        )
+        client._stdin_write.flush()
+        failure = client.wait_for(lambda record: record.get("id") == "new")
+        assert failure["success"] is False
+        client._server_thread.join(timeout=5)
+        assert not client._server_thread.is_alive()
+        assert client._server._retired is True
+        assert transition_port.leases.current_path() is None
+        assert not any(record.get("id") == "successor" for record in client._seen)
+    finally:
+        client.close()
+
+
+def test_rpc_transition_rebind_failure_retires_and_releases_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _RpcClient(tmp_path, persist_tree=True)
+    try:
+        client.send({"id": "ready", "type": "get_state"})
+        client.wait_for(lambda record: record.get("id") == "ready")
+        transition_port = client._server._transition
+        assert transition_port is not None
+        monkeypatch.setattr(
+            NativeRpcServer,
+            "_rebind_transition_tree",
+            lambda _self: (_ for _ in ()).throw(
+                RuntimeError("injected rebind failure")
+            ),
+        )
+        client._stdin_write.write(
+            json.dumps({"id": "new", "type": "new_session"})
+            + "\n"
+            + json.dumps({"id": "successor", "type": "get_state"})
+            + "\n"
+        )
+        client._stdin_write.flush()
+        failure = client.wait_for(lambda record: record.get("id") == "new")
+        assert failure["success"] is False
+        client._server_thread.join(timeout=5)
+        assert not client._server_thread.is_alive()
+        assert client._server._retired is True
+        assert transition_port.leases.current_path() is None
+        assert not any(record.get("id") == "successor" for record in client._seen)
     finally:
         client.close()

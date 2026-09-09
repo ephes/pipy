@@ -43,11 +43,15 @@ from pipy_harness.native.coding.session_controller import (
     _NativeControlReady,
     _NativeControlSnapshot,
     _NativeSessionControlBridge,
+    _NativeTransitionControlError,
 )
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
     CommandStatus,
     run_command,
+)
+from pipy_harness.native.repl.session_transition import (
+    ProductSessionTransitionError,
 )
 
 # Sentinel distinguishing "omit the response data field" from an explicit
@@ -274,6 +278,8 @@ class NativeRpcServer:
         self._configuration: Any | None = None
         self._compaction: Any | None = None
         self._retry: Any | None = None
+        self._transition: Any | None = None
+        self._retired = False
         self._compact_ids: dict[object, str | None] = {}
         self._bash_operations: dict[object, _BashOperation] = {}
         self._bash_threads: list[threading.Thread] = []
@@ -334,6 +340,7 @@ class NativeRpcServer:
             self._configuration = outcome.configuration_port
             self._compaction = outcome.compaction_port
             self._retry = outcome.retry_port
+            self._transition = outcome.transition_port
             self._bridge.bind_manual_compaction_handler(self._run_manual_compaction)
             ready = True
             self._read_loop()
@@ -344,7 +351,7 @@ class NativeRpcServer:
             # EOF sentinel ahead of a reserved queued message and drop it. Batch
             # clients (submit commands, then close stdin) therefore still get
             # their queued steering/follow-up runs delivered.
-            if ready:
+            if ready and not self._retired:
                 self._await_drain(timeout=120.0)
             self._channel.signal_eof()
             if self._worker is not None:
@@ -403,9 +410,13 @@ class NativeRpcServer:
                 # Flush any buffered partial line, then EOF → graceful shutdown.
                 for line in buffer.flush():
                     self._handle_line(line)
+                    if self._retired:
+                        return
                 return
             for line in buffer.feed(chunk):
                 self._handle_line(line)
+                if self._retired:
+                    return
 
     # -- dispatch --------------------------------------------------------
     def _handle_line(self, line: str) -> None:
@@ -429,6 +440,9 @@ class NativeRpcServer:
         if not isinstance(ctype, str) or ctype not in _KNOWN_COMMANDS:
             # Pi drops the id for unknown commands (rpc-mode.ts:665-668).
             self._respond_error(None, str(ctype), f"Unknown command: {ctype}")
+            return
+        if self._retired:
+            self._respond_error(cid, ctype, "native session transition retired")
             return
         try:
             self._dispatch(ctype, cid, command)
@@ -490,6 +504,130 @@ class NativeRpcServer:
     def _publish_true_idle(self) -> None:
         self._bridge.publish_if_true_idle(
             lambda: self._writer.write_line({"type": "agent_settled"})
+        )
+
+    def _transition_port(self) -> Any:
+        port = self._transition
+        if port is None:
+            raise RuntimeError("native RPC transition port is not ready")
+        return port
+
+    def _rebind_transition_tree(self) -> None:
+        """Adopt the native owner's published tree once for RPC projections."""
+
+        self._tree = self._transition_port().active_tree()
+        self._adapter.native_session = self._tree
+        self._adapter.automation_observer = self
+        self._last_assistant_text = None
+
+    def _retire_published_transition(self) -> None:
+        self._retired = True
+        self._bridge.retire()
+        self._channel.signal_eof()
+
+    def _project_transition(
+        self,
+        cid: str | None,
+        command: str,
+        result: Any | None,
+        *,
+        fork: bool = False,
+    ) -> None:
+        if result is None:
+            self._respond_error(cid, command, "session is not idle")
+            return
+        if result.status == "refused":
+            if result.refusal == "extension_refusal":
+                data: dict[str, Any] = {"cancelled": True}
+                if fork:
+                    data["text"] = ""
+                self._respond(cid, command, data)
+                return
+            self._respond_error(
+                cid, command, f"session transition refused: {result.refusal}"
+            )
+            return
+        same_path = result.previous is not None and result.active == result.previous
+        if not same_path:
+            self._rebind_transition_tree()
+        data = {"cancelled": False}
+        if fork:
+            data = {"text": "Forked native session", "cancelled": False}
+        self._respond(cid, command, data)
+
+    def _run_transition(
+        self,
+        cid: str | None,
+        command: str,
+        invoke: Any,
+        *,
+        fork: bool = False,
+    ) -> None:
+        try:
+            result = invoke()
+        except _NativeTransitionControlError:
+            self._retire_published_transition()
+            self._respond_error(cid, command, "native session transition failed")
+            return
+        except ProductSessionTransitionError as error:
+            if error.failure.published:
+                self._retire_published_transition()
+            self._respond_error(cid, command, "native session transition failed")
+            return
+        except Exception:  # noqa: BLE001 - do not disclose tree/lease details
+            self._respond_error(cid, command, "native session transition failed")
+            return
+        try:
+            self._project_transition(cid, command, result, fork=fork)
+        except Exception:  # noqa: BLE001 - published projection must fail closed
+            if (
+                result is not None
+                and result.status == "completed"
+                and result.previous is not None
+                and result.active != result.previous
+            ):
+                self._retire_published_transition()
+            self._respond_error(cid, command, "native session transition failed")
+
+    def _cmd_new_session(self, cid: str | None, command: dict[str, Any]) -> None:
+        if "parentSession" in command:
+            self._respond_error(cid, "new_session", "parentSession is not supported")
+            return
+        self._run_transition(cid, "new_session", self._transition_port().new_session)
+
+    def _cmd_switch_session(self, cid: str | None, command: dict[str, Any]) -> None:
+        session_path = command.get("sessionPath")
+        if not isinstance(session_path, str) or not session_path:
+            self._respond_error(
+                cid, "switch_session", "switch_session requires sessionPath"
+            )
+            return
+        path = Path(session_path)
+        if not path.is_absolute():
+            path = self._cwd / path
+        self._run_transition(
+            cid,
+            "switch_session",
+            lambda: self._transition_port().switch_session(path),
+        )
+
+    def _cmd_fork(self, cid: str | None, command: dict[str, Any]) -> None:
+        entry_id = command.get("entryId")
+        if not isinstance(entry_id, str) or not entry_id:
+            self._respond_error(cid, "fork", "fork requires entryId")
+            return
+        self._run_transition(
+            cid,
+            "fork",
+            lambda: self._transition_port().fork(entry_id, clone=False),
+            fork=True,
+        )
+
+    def _cmd_clone(self, cid: str | None, command: dict[str, Any]) -> None:
+        self._run_transition(
+            cid,
+            "clone",
+            lambda: self._transition_port().fork(None, clone=True),
         )
 
     # -- prompting / run control ----------------------------------------
