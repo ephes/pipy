@@ -11,28 +11,26 @@ This file is for coding agents working in this repository. It records local proj
 - Keep `pipy-native` as the product runtime direction. Codex, Claude, Pi, or other CLI wrapping may be useful for capture/reference work, but must not become the main product execution path unless the project direction explicitly changes.
 - Keep capture metadata-first by default; see Session Capture and Workflow Learning Capture below for privacy rules.
 - For nontrivial implementation slices, expect focused tests, `just check`, relevant docs updates, and an independent review pass before treating the work as complete.
-- Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed. See **Review budget** below for the caps and the triage rule.
+- Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed. See **Review budget** below for the stopping rule and the triage rule.
 
 ## Review budget
 
 An independent review is a gate against shipping defects, not a search for a
-perfect artifact. A `CLEAN` verdict is evidence, not the objective. These caps
-are the default. A generic prompt such as "review until clean" does not override
-them — read that as "do not ship a defect", not as "iterate without bound".
+perfect artifact. A `CLEAN` verdict is evidence, not the objective. There is no
+fixed round count: run review cycles until diminishing returns, as defined in
+the `cross-agent-review-cycle` skill in `~/projects/agent-stuff`. A generic
+prompt such as "review until clean" means "do not ship a defect", not "iterate
+without bound". Do not copy a round or retry count into goal or handoff prompts.
 
-- **Docs, specs, and plans: at most 2 review rounds.** Prose has no fixed point;
+- **Docs, specs, and plans:** returns diminish fast. Prose has no fixed point;
   a reviewer can always ask for more precision. Land what is right and record
   what is still open as an explicit question owned by a later slice.
-- **Code: at most 3 review rounds.** If it is not clean by then, report the
-  outstanding findings rather than continuing.
-
-An operator may explicitly authorize rounds beyond the default cap when the
-latest round produced new, actionable feedback that materially improves
-correctness, maintainability, tests, or durable documentation. Record why the
-feedback remains valuable before starting each extra round. An extension is not
-permission to chase declined nits or prose precision: stop at the first clean
-round, when remaining feedback is no longer material, or when either
-early-stop signal under **Two signals mean stop even before the cap** applies.
+- **Code:** continue while the latest round produced new, actionable feedback
+  that materially improves correctness, maintainability, tests, or durable
+  documentation. Before each further round, record briefly why the feedback
+  remains valuable. Stop at the first clean round, when remaining feedback is no
+  longer material, or when either signal under **Two signals mean stop** applies,
+  and report any outstanding findings.
 
 Triage findings by what they change, and do not fix everything a review reports:
 
@@ -42,7 +40,7 @@ Triage findings by what they change, and do not fix everything a review reports:
 | This is underspecified | Note it as a later slice's decision | Fix now |
 | These two statements contradict each other | Fix only if it changes the code written next | Fix now |
 
-Two signals mean stop even before the cap:
+Two signals mean stop:
 
 - **Self-inflicted churn.** When a round's finding exists only because of the
   previous round's fix, the loop is consuming itself. Once is normal; twice in a
@@ -54,7 +52,7 @@ Two signals mean stop even before the cap:
   invariants. Protocols, orderings, and delivery semantics belong in the slice
   that implements them, where they are executable.
 
-One class of finding is exempt from every cap above: **correctness defects in
+One class of finding is exempt from every stopping rule above: **correctness defects in
 shared mutable state** — unsynchronized check-then-mutate, lost updates, or a
 guard taken by only some of a field's readers and writers. Later slices build on
 those assumptions, so they cannot be deferred and fixed later. If two reviews
