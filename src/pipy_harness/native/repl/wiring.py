@@ -204,6 +204,7 @@ from pipy_harness.native.ui.components.custom_entry_renderer import (
     CustomEntryRenderer,
     CustomEntryTerminalTarget,
 )
+from pipy_harness.native.ui.components.session_history import SessionHistoryRenderer
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.version_check import pipy_version
 
@@ -561,6 +562,9 @@ class _RuntimePhase:
     coding_input_queue: CodingInputQueue
     loop_controller: CodingSessionController
     custom_renderer: CustomEntryRenderer
+    # Redraws the transcript from the active branch (Pi renderInitialMessages);
+    # a no-op without a terminal.
+    render_active_branch: Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -609,6 +613,12 @@ class _ProviderMutationBinding:
 
     def append_durable_compaction(self, action: CodingProductSessionCompaction) -> None:
         self._bound().append_durable_compaction(action)
+
+    def record_session_start(self) -> None:
+        # Messages persist only once the session runs, after binding; an
+        # unbound call has no model to record yet.
+        if self._value is not None:
+            self._value.record_session_start()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1105,6 +1115,9 @@ def _compose_product_session(
         )
 
     def _persist_agent_message(message: AgentMessage) -> None:
+        # Pi writes a new session's model_change and thinking_level_change
+        # with its first message (core/sdk.ts:431-437).
+        provider_binding.record_session_start()
         ctl.session_tree.append_message(message)
 
     def _persist_compaction(action: CodingProductSessionCompaction) -> None:
@@ -1286,7 +1299,48 @@ def _compose_runtime_adapters(
         coding_input_queue=coding_input_queue,
         loop_controller=loop_controller,
         custom_renderer=custom_renderer,
+        render_active_branch=_history_render(
+            terminal_ui, product.renderer, ctl, custom_renderer
+        ),
     )
+
+
+def _history_render(
+    terminal_ui: TerminalUi | None,
+    renderer: _ToolLoopRenderer | TuiToolLoopRenderer,
+    ctl: RunControlState,
+    custom_renderer: CustomEntryRenderer,
+) -> Callable[[], None]:
+    """The active-branch transcript redraw, or a no-op without a terminal."""
+
+    if terminal_ui is None or not isinstance(renderer, TuiToolLoopRenderer):
+        return _no_history_render
+    return SessionHistoryRenderer(
+        session_tree=lambda: ctl.session_tree,
+        transcript=terminal_ui.components.transcript,
+        paint_lock=terminal_ui.components.screen.paint_lock,
+        render_inputs=terminal_ui.components.screen.render_inputs,
+        tool_renderer=renderer,
+        custom_renderer=custom_renderer,
+    ).render_active_branch
+
+
+def _no_history_render() -> None:
+    """Headless sessions have no transcript to redraw."""
+
+
+def _rebuild_replaced_session(
+    rebuild_history: Callable[[], None], sync_settings: Callable[[], None]
+) -> None:
+    """A published session replacement: history, then model and thinking.
+
+    Pi creates a whole runtime for ``/resume``, ``/fork``, ``/clone``,
+    ``/new`` and import, which restores the session's model and level
+    (``core/sdk.ts``); the transition coordinator runs this after publishing.
+    """
+
+    rebuild_history()
+    sync_settings()
 
 
 def _start_chrome(
@@ -1302,7 +1356,6 @@ def _start_chrome(
     workspace_resources = startup.workspace_resources
     terminal_ui = extension.terminal_ui
     startup_commands = extension.startup_commands
-    custom_renderer = runtime.custom_renderer
     input_stream = inputs.input_stream
     error_stream = inputs.error_stream
     repl_input = (
@@ -1353,6 +1406,9 @@ def _start_chrome(
             footer.coding_footer_text()
         )
         terminal_ui.start()
+        # The opened session's active branch (Pi renderInitialMessages): user,
+        # assistant, tool, summary and extension rows, after the startup chrome.
+        runtime.render_active_branch()
         if inputs.resume_context is not None:
             # Safe resumed-state notice committed to scrollback at startup:
             # prior session id, provider, model, turn count, finalized time
@@ -1363,7 +1419,6 @@ def _start_chrome(
                     branch_label=inputs.resume_branch_label,
                 )
             )
-        custom_renderer.replay_custom_entries_to_terminal()
 
     # Startup changelog: on a fresh session, show the entries new since the
     # stored lastChangelogVersion (or a condensed line under collapseChangelog)
@@ -1511,7 +1566,11 @@ def _compose_collaborators(
                 "switch", operation="switch", target=target
             ).allow
         ),
-        rebuild=product_session.rebuild_active_history,
+        rebuild=partial(
+            _rebuild_replaced_session,
+            product_session.rebuild_active_history,
+            provider_mutation.sync_session_settings,
+        ),
         clear_extension_inputs=coding_input_queue.clear_extension_inputs,
     )
     bridge = _control_bridge(inputs)
@@ -1586,6 +1645,7 @@ def _compose_commands(
     terminal_leases = collaborators_phase.terminal_transition_leases
     session_command_effects = collaborators.session_command_effects(
         repl_input,
+        render_active_branch=runtime.render_active_branch,
         new_transition=(
             None
             if terminal_leases is None
@@ -1638,13 +1698,17 @@ def _compose_commands(
     ) -> ProductSessionTransitionResult | None:
         if terminal_leases is None:
             raise RuntimeError("terminal import transition lease is unavailable")
-        return collaborators_phase.transition.import_terminal(
+        result = collaborators_phase.transition.import_terminal(
             leases=terminal_leases,
             before_switch=lambda: collaborators.extension_session_allows(
                 "switch", operation="switch", target=_target
             ),
             stage=_stage,
         )
+        if result is not None and result.status == "completed":
+            # Pi renders the imported session like any session replacement.
+            runtime.render_active_branch()
+        return result
 
     transfer_command_effects = collaborators.transfer_command_effects(
         system_prompt=system_prompt,
@@ -1918,6 +1982,10 @@ def wire_session(inputs: SessionWiringInput) -> SessionWiring:
         collaborators = _compose_collaborators(
             inputs, startup, extension, product, runtime, chrome, provider_binding
         )
+        # Pi createAgentSession: a new session records its starting model and
+        # thinking level, an older one without a thinking entry gets one. The
+        # CLI already restored an opened session's model and level.
+        collaborators.provider_mutation.sync_session_settings()
         commands = _compose_commands(
             inputs, startup, extension, product, runtime, chrome, collaborators
         )

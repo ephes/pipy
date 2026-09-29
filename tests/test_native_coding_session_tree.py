@@ -1800,8 +1800,8 @@ def test_resume_switch_order_gate_and_fresh_history(
         trace.append("clear-extension")
         original_clear(self)
 
-    def redraw(self: TranscriptComponent, entries: object) -> None:
-        del self, entries
+    def redraw(self: TranscriptComponent, blocks: object) -> None:
+        del self, blocks
         trace.append("redraw")
 
     def diagnostic(ui: NoticeSink | None, stream: TextIO, message: str) -> None:
@@ -1820,7 +1820,7 @@ def test_resume_switch_order_gate_and_fresh_history(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(TranscriptComponent, "redraw_custom_entries", redraw)
+    monkeypatch.setattr(TranscriptComponent, "replace_conversation", redraw)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
         "pipy_harness.native.repl.collaborators.emit_diagnostic",
@@ -1843,7 +1843,8 @@ def test_resume_switch_order_gate_and_fresh_history(
         "redraw",
         "diagnostic",
     ]
-    assert trace == ["rebuild", *expected_switch]
+    # Startup renders the opened branch once before any command runs.
+    assert trace == ["rebuild", "redraw", *expected_switch]
     assert _request_users(provider.requests[0]) == ["SELECTED", "FRESH"]
 
 
@@ -2107,8 +2108,14 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
         if failure_stage == "clear":
             raise RuntimeError("clear failed")
 
-    def redraw(self: TranscriptComponent, entries: object) -> None:
-        del self, entries
+    redraw_calls = 0
+
+    def redraw(self: TranscriptComponent, blocks: object) -> None:
+        nonlocal redraw_calls
+        del self, blocks
+        redraw_calls += 1
+        if redraw_calls == 1:
+            return  # the startup render of the opened branch
         trace.append("redraw")
         if failure_stage == "redraw":
             raise RuntimeError("redraw failed")
@@ -2123,7 +2130,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(TranscriptComponent, "redraw_custom_entries", redraw)
+    monkeypatch.setattr(TranscriptComponent, "replace_conversation", redraw)
     monkeypatch.setattr(
         _ChromeFooterEffects,
         "_print_footer",

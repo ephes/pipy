@@ -658,7 +658,7 @@ def test_settings_selector_write_failures_notice_and_reopen_without_provider_wor
     assert provider.completions == 0
 
 
-def test_settings_model_selection_rebinds_without_deferred_tree_or_hook(
+def test_settings_model_selection_rebinds_and_records_without_hook(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     extension_dir = tmp_path / ".pipy" / "extensions"
@@ -706,7 +706,12 @@ def test_settings_model_selection_rebinds_without_deferred_tree_or_hook(
     assert result.model_id == "gpt-5.5"
     assert ui.dialog_calls == 2
     assert any("selected model" in notice for notice in _notices(ui))
-    assert not any(isinstance(entry, ModelChangeEntry) for entry in tree.entries)
+    # The switch is recorded (Pi setModel); no model_select hook is dispatched.
+    assert [
+        (entry.provider, entry.model_id)
+        for entry in tree.entries
+        if isinstance(entry, ModelChangeEntry)
+    ] == [("openai", "gpt-5.5")]
     assert proof.read_text(encoding="utf-8").splitlines() == ["session-start"]
     assert all(provider.completions == 0 for provider in built)
 

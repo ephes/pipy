@@ -240,6 +240,7 @@ class _ExitOnlyUi:
             driver=SimpleNamespace(),
             screen=SimpleNamespace(
                 render_inputs=render_inputs,
+                paint_lock=paint_lock,
                 close=self.close,
                 external_io_suspension=noop_scope,
             ),

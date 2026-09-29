@@ -28,6 +28,7 @@ from pipy_harness.native.extension_types import (
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
 )
+from pipy_harness.native.local_shell_record import format_local_shell_record
 from pipy_harness.native.repl.turn_leaves import CANCEL_JOIN_TIMEOUT_SECONDS
 from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
 from pipy_harness.native.tui import (
@@ -157,10 +158,7 @@ def run_local_shell_shortcut(
 
     if exclude_from_context or not result.started:
         return None
-    return (
-        "I ran a shell command in the workspace (not a tool call):\n\n"
-        f"$ {command}\n{status_line}\n\n{output_text}"
-    )
+    return format_local_shell_record(command, status_line, output_text)
 
 
 def _execute_local_shell(

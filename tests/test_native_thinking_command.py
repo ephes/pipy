@@ -223,7 +223,7 @@ class TestSharedThinkingMutation:
             for line in tree.path.read_text().splitlines()[1:]
         ]
         assert durable == ["low", "high"]
-        assert effects.pending_thinking_appends == []
+        assert effects.pending_session_appends == []
 
     def test_pending_level_is_appended_before_a_model_clamp(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -240,10 +240,10 @@ class TestSharedThinkingMutation:
         # caller were still between the gate and the drain.
         with monkeypatch.context() as patch:
             patch.setattr(
-                ProviderMutationEffects, "_drain_thinking_appends", lambda _self: []
+                ProviderMutationEffects, "_drain_session_appends", lambda _self: []
             )
             assert effects._set_thinking_level("xhigh", commit_without_drain).success
-        assert effects.pending_thinking_appends == ["xhigh"]
+        assert effects.pending_session_appends == ["xhigh"]
         assert _thinking_levels(tree) == []
 
         # An RPC model switch to a row without xhigh clamps the level; its own
@@ -254,7 +254,7 @@ class TestSharedThinkingMutation:
         levels = _thinking_levels(tree)
         assert levels[0] == "xhigh"
         assert levels[1:] == [state.current_thinking_level() or "off"]
-        assert effects.pending_thinking_appends == []
+        assert effects.pending_session_appends == []
 
 
 class TestThinkingCommand:

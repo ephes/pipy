@@ -1231,6 +1231,11 @@ def main(argv: list[str] | None = None) -> int:
                 resume_branch_label=resume_branch_label,
                 native_session=native_session,
                 thinking=args.thinking,
+                # Only the CLI flags pin a model over the session's own; a
+                # settings default is a fallback (Pi options.model).
+                cli_model_explicit=(
+                    args.native_provider is not None or args.native_model is not None
+                ),
                 api_key=args.api_key,
                 settings_manager=settings_manager,
                 system_prompt_source=args.system_prompt,
@@ -2175,6 +2180,7 @@ def _tool_repl_adapter_for(
     resume_branch_label: str | None = None,
     native_session: Any = None,
     thinking: str | None = None,
+    cli_model_explicit: bool = False,
     api_key: str | None = None,
     settings_manager: SettingsManager | None = None,
     system_prompt_source: str | None = None,
@@ -2212,19 +2218,26 @@ def _tool_repl_adapter_for(
     # the no-provider fallback) must use the tool-capable ``fake-tools`` model.
     selection = normalize_repl_fake_selection(selection)
     using_stored_default = native_provider is None and native_model is None
+    cli_thinking = _validated_thinking_level(thinking)
     provider_state = NativeReplProviderState(
         selection=selection,
         construction_options=_construction_options_for(settings_manager),
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         model_runtime=ModelRuntime(catalog=catalog_state),
-        thinking_level=_startup_thinking_level(thinking, settings_manager),
+        thinking_level=_startup_thinking_level(cli_thinking, settings_manager),
+        cli_selection=selection if cli_model_explicit else None,
+        cli_thinking_level=cli_thinking,
     )
     if using_stored_default and not provider_state.provider_available(
         selection.provider_name
     ):
         provider_state.selection = normalize_repl_fake_selection(
             _fallback_default_selection(provider_state)
+        )
+    if native_session is not None:
+        _restore_startup_session_settings(
+            provider_state, native_session, settings_manager
         )
     # Pi clamps the startup level to the startup model (sdk.ts:258-263).
     provider_state.thinking_level = provider_state.clamp_thinking_level(
@@ -2710,8 +2723,9 @@ def _startup_thinking_level(
 
     ``--thinking`` wins, then the settings ``defaultThinkingLevel``, then Pi's
     ``DEFAULT_THINKING_LEVEL`` (``medium``). The caller clamps the result to
-    the startup model (Pi ``sdk.ts:258-263``). Pi's session-restore and
-    per-model-setting rungs have no pipy input and are not ported.
+    the startup model (Pi ``sdk.ts:258-263``). The session-restore rung is
+    :func:`_restore_startup_session_settings`; Pi's per-model thinking setting
+    has no pipy input and is not ported.
     """
 
     explicit = _validated_thinking_level(thinking)
@@ -2722,6 +2736,48 @@ def _startup_thinking_level(
         if configured is not None:
             return configured
     return DEFAULT_THINKING_LEVEL
+
+
+def _restore_startup_session_settings(
+    provider_state: NativeReplProviderState,
+    native_session: Any,
+    settings_manager: SettingsManager | None,
+) -> None:
+    """Start an opened session on its own model and thinking level.
+
+    Pi ``createAgentSession`` (``core/sdk.ts:194-256``): a session with
+    messages restores the branch's last ``model_change`` unless the CLI pinned
+    a model, and its last ``thinking_level_change`` unless the CLI gave
+    ``--thinking`` (the settings default or ``medium`` when it has none). An
+    unrestorable model keeps the startup selection and prints Pi's fallback
+    warning. Recording entries for new sessions happens once the session runs.
+    """
+
+    from pipy_harness.native.session_settings import resolve_session_settings
+
+    if not native_session.build_context().messages:
+        return
+    configured = (
+        settings_manager.get_default_thinking_level()
+        if settings_manager is not None
+        else None
+    )
+    decision = resolve_session_settings(
+        native_session.get_branch(),
+        has_messages=True,
+        cli_selection=provider_state.cli_selection,
+        cli_thinking=provider_state.cli_thinking_level,
+        fallback_selection=provider_state.selection,
+        current_thinking=provider_state.thinking_level or DEFAULT_THINKING_LEVEL,
+        default_thinking=configured or DEFAULT_THINKING_LEVEL,
+        usable=provider_state.restorable,
+    )
+    from pipy_harness.native.repl_state import normalize_repl_fake_selection
+
+    provider_state.selection = normalize_repl_fake_selection(decision.selection)
+    provider_state.thinking_level = decision.thinking_level
+    if decision.fallback_message is not None:
+        print(f"pipy: {decision.fallback_message}", file=sys.stderr)
 
 
 def _validated_thinking_level(thinking: str | None) -> str | None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TextIO
 
@@ -158,6 +159,7 @@ def build_terminal_components(input: TerminalCompositionInput) -> TerminalCompon
         screen.paint,
         reset_scrollback=screen.force_full_redraw,
         render_inputs=screen.render_inputs,
+        replace_scrollback=partial(screen.force_full_redraw, clear_scrollback=True),
     )
     pending_messages = PendingMessages(
         editor,

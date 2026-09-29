@@ -252,6 +252,7 @@ class SessionCollaborators:
         self,
         repl_input: "TerminalUi | NativeReplInput",
         *,
+        render_active_branch: Callable[[], None],
         new_transition: Callable[[], ProductSessionTransitionResult] | None = None,
         resume_transition: Callable[[Path], ProductSessionTransitionResult]
         | None = None,
@@ -272,7 +273,8 @@ class SessionCollaborators:
             apply_compaction=self.provider_mutation.apply_compaction,
             extension_session_allows=self.extension_session_allows,
             rebuild_messages_from_tree=self.rebuild_messages_from_tree,
-            redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
+            render_active_branch=render_active_branch,
+            sync_session_settings=self.provider_mutation.sync_session_settings,
             new_transition=new_transition,
             resume_transition=resume_transition,
             fork_transition=fork_transition,

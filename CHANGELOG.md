@@ -6,6 +6,29 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- A resumed conversation is shown again. Startup with `-r`, `--continue` or
+  `--session`, `/resume`, `/tree` navigation, `/fork`, `/clone`, `/new` and
+  `/import` redraw the transcript from the active branch, as Pi does: user and
+  assistant messages, tool calls with their results, `!` shell rows,
+  `[compaction]` and `[branch]` summaries (Ctrl+O expands them) and extension
+  entries. Before, the screen stayed empty although the model had the context.
+- A resumed session gets its model and thinking level back. pipy now records a
+  `model_change` with a new session's first message and on every model switch
+  (plus a `thinking_level_change` when the switch clamps the level), and
+  opening a session restores its last model (unless `--native-provider` or
+  `--native-model` pins one) and thinking level (unless `--thinking` is
+  given), at startup and after `/resume`, `/fork` and `/clone`. A model that
+  cannot be used prints `pipy: Could not restore model …` at startup and keeps
+  the default. Before, a resumed session started at the default thinking
+  level and model.
+
+### Changed
+
+- Ctrl+O now expands and collapses tool results already on screen, not only
+  the ones rendered afterwards.
+
 ## [0.2.0] - 2026-09-29
 
 ### Highlights

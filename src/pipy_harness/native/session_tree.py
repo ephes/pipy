@@ -684,6 +684,26 @@ def build_coding_context(
     )
 
 
+def build_context_entries(
+    entries: list[SessionEntry],
+    leaf_id: str | None,
+    by_id: dict[str, SessionEntry] | None = None,
+) -> list[SessionEntry]:
+    """Return the active branch's entries as the transcript renders them.
+
+    Pi ``buildContextEntries`` (``session-manager.ts:476``): the latest
+    compaction entry first, then the entries its cut retains (the same cut
+    ``build_coding_context`` projects), otherwise the whole active path.
+    """
+
+    if by_id is None:
+        by_id = {entry.id: entry for entry in entries}
+    path = _active_branch_path(leaf_id, by_id)
+    _, _, compaction = _reconstruct_context_settings(path)
+    retained = _retained_context_entries(path, compaction)
+    return [compaction, *retained] if compaction is not None else retained
+
+
 def _active_branch_path(
     leaf_id: str | None, by_id: dict[str, SessionEntry]
 ) -> list[SessionEntry]:
@@ -1916,6 +1936,12 @@ class NativeSessionTree:
         """Project real coding groups without a synthetic compaction user group."""
 
         return build_coding_context(self.entries, self.leaf_id, self.by_id)
+
+    @_guarded_tree_api
+    def build_context_entries(self) -> list[SessionEntry]:
+        """Active-branch entries for transcript rendering (Pi's same name)."""
+
+        return build_context_entries(self.entries, self.leaf_id, self.by_id)
 
     @_guarded_tree_api
     def get_tree(self) -> list[SessionTreeNode]:
