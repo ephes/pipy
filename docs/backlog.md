@@ -134,19 +134,34 @@ Deviations kept as follow-ons, not queued separately yet:
 - **Record** a short, dated acceptance note. It covers the "Minimum acceptance"
   bar below and is also usable as demo material.
 
-### 4. PC1 — OpenAI/Codex prompt-cache affinity (S)
+### 4. PC1 — OpenAI/Codex prompt-cache affinity (done 2026-09-29)
 
-Pipy sends no `prompt_cache_key` today, and `openai_codex_provider.py:1284`
-sets `session-id` to a fresh per-request ID, which defeats cache affinity.
-Mirror Pi (`packages/ai/src/api/openai-codex-responses.ts:561`, `:1674`,
-`openai-prompt-cache.ts`):
+Landed on branch `feat/pc1-prompt-cache-affinity`. Codex, OpenAI Responses and
+Azure now follow Pi `4df157433`; the plan is in
+`docs/specs/2026-09-29-pc1-prompt-cache-affinity-plan.md` and the user docs in
+`docs/providers.md` (OpenAI prompt caching).
 
-- Send the durable session ID, clamped, as the body `prompt_cache_key` and as
-  the websocket `session-id` and `x-client-request-id` headers.
-- Cover Codex, Responses and Azure.
-- Omit the key when cache retention is `none` and on private summary calls.
+- Main turns carry the current session id. Codex sends it, cut to 64
+  characters, as `prompt_cache_key` and as the SSE and WebSocket `session-id`
+  and `x-client-request-id` headers. Responses adds Pi's affinity headers.
+  Azure sends the key only.
+- Compaction and branch summaries use retention `none` and a fresh routing id,
+  as in Pi. Azure ignores retention, so it still gets that id as its key; the
+  backlog's "omit on summary calls" was wrong for Azure.
+- `PIPY_CACHE_RETENTION=long` (Pi `PI_CACHE_RETENTION`) drives the Responses
+  `prompt_cache_retention`/`prompt_cache_options`. The six OpenAI GPT-5.6/GPT-6
+  rows carry Pi's generated `supportsExplicitPromptCacheMode`.
+- Live: two `--mode json` turns in one session on openai-codex gpt-6-sol. The
+  second turn read 4.4k of 4.5k input tokens from cache (footer `R4.4k
+  CH97.7%`); the first had `CH0.0%`.
 
-The tau reference is `src/tau_ai/openai_cache.py` (`1401fcd`).
+Deviations kept as follow-ons, not queued separately yet:
+
+- openai-completions `prompt_cache_key` and affinity headers
+  (Pi `openai-completions.ts:771-826`).
+- Codex WebSocket connection reuse/continuation, and Pi's per-session
+  SSE-fallback memory (pipy remembers the fallback per provider instance).
+- Routing ids are uuid4 hex, not uuidv7.
 
 ### 5. PC2 — Anthropic `cache_control` and retention (M)
 

@@ -161,6 +161,13 @@ _GEMINI_3_FLASH = {
 }
 _GEMINI_3_PRO = {**_GEMINI_3_FLASH, "minimal": None}
 _OPENAI_TOOLS = {"supportsToolSearch": True}
+# Pi's generator (``applyOpenAIExplicitPromptCacheMetadata``) marks every
+# ``openai`` / ``openai-responses`` row that bills cache writes (GPT-5.6+) as
+# accepting ``prompt_cache_options``.
+_OPENAI_TOOLS_EXPLICIT_CACHE = {
+    **_OPENAI_TOOLS,
+    "supportsExplicitPromptCacheMode": True,
+}
 
 
 BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
@@ -366,7 +373,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_MAX,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(2.0, 10.0, 0.2, 2.5),
         context_window=272_000,
         max_tokens=128_000,
@@ -379,7 +386,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_MAX,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(0.1, 0.5, 0.01, 0.125),
         context_window=272_000,
         max_tokens=128_000,
@@ -392,7 +399,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_6_ASTRA,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(10.0, 50.0, 1.0, 12.5),
         context_window=272_000,
         max_tokens=128_000,
@@ -405,7 +412,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_MAX,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(4.0, 20.0, 0.4, 5.0),
         context_window=272_000,
         max_tokens=128_000,
@@ -418,7 +425,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_MAX,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(2.0, 12.0, 0.2, 2.5),
         context_window=272_000,
         max_tokens=128_000,
@@ -431,7 +438,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_MAX,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(0.2, 1.2, 0.02, 0.25),
         context_window=272_000,
         max_tokens=128_000,

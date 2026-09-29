@@ -24,8 +24,12 @@ from pipy_harness.native.http import (
 from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
 )
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import CacheRetention, ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.providers.openai_prompt_cache import (
+    clamp_openai_prompt_cache_key,
+    resolve_cache_retention,
+)
 from pipy_harness.native.providers.openai_responses_wire import (
     parse_response,
     responses_input,
@@ -77,6 +81,13 @@ class OpenAIResponsesProvider:
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
     supports_tool_search: bool = False
+    # Pi ``OpenAIResponsesCompat`` prompt-cache bits, resolved from the catalog
+    # row at construction (``openai-responses.ts:68-80``): the session-affinity
+    # header format (``openai`` | ``openai-nosession`` | ``openrouter``),
+    # long-retention support (default true) and GPT-5.6+ explicit cache mode.
+    session_affinity_format: str = "openai"
+    supports_long_cache_retention: bool = True
+    supports_explicit_prompt_cache_mode: bool = False
 
     @property
     def name(self) -> str:
@@ -132,6 +143,8 @@ class OpenAIResponsesProvider:
             ),
             "store": False,
         }
+        retention = resolve_cache_retention(request.cache_retention)
+        self._apply_prompt_cache_fields(body, request, retention)
         if immediate_tools:
             body["tools"] = [
                 serialize_tool_for_responses(tool) for tool in immediate_tools
@@ -143,6 +156,9 @@ class OpenAIResponsesProvider:
         # Merged models.json/model headers (may include an explicit Authorization).
         for header_name, header_value in self.extra_headers.items():
             headers[header_name] = header_value
+        # Session-affinity headers follow the model headers; the request-scoped
+        # hook below may still override them, like Pi's ``options.headers``.
+        headers.update(self._session_affinity_headers(request, retention))
         # Apply ``Bearer api_key`` only when no explicit Authorization is present.
         if self.api_key and not has_explicit_authorization:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -192,6 +208,52 @@ class OpenAIResponsesProvider:
             },
             tool_calls=result.tool_calls,
         )
+
+    def _apply_prompt_cache_fields(
+        self,
+        body: dict[str, Any],
+        request: ProviderRequest,
+        retention: CacheRetention,
+    ) -> None:
+        """Pi ``buildParams`` cache fields (``openai-responses.ts:309-316``)."""
+
+        if retention != "none":
+            key = clamp_openai_prompt_cache_key(request.session_id)
+            if key is not None:
+                body["prompt_cache_key"] = key
+        if (
+            retention == "long"
+            and self.supports_long_cache_retention
+            and not self.supports_explicit_prompt_cache_mode
+        ):
+            body["prompt_cache_retention"] = "24h"
+        if self.supports_explicit_prompt_cache_mode:
+            if retention == "none":
+                body["prompt_cache_options"] = {"mode": "explicit"}
+            elif retention == "long" and self.supports_long_cache_retention:
+                body["prompt_cache_options"] = {"ttl": "30m"}
+
+    def _session_affinity_headers(
+        self, request: ProviderRequest, retention: CacheRetention
+    ) -> dict[str, str]:
+        """Pi ``createClient`` affinity headers (``openai-responses.ts:259-268``).
+
+        They carry the unclamped session id and are omitted when retention is
+        ``none`` or there is no session.
+        """
+
+        if retention == "none":
+            return {}
+        session_id = request.session_id
+        if not session_id:
+            return {}
+        if self.session_affinity_format == "openrouter":
+            return {"x-session-id": session_id}
+        headers: dict[str, str] = {}
+        if self.session_affinity_format == "openai":
+            headers["session_id"] = session_id
+        headers["x-client-request-id"] = session_id
+        return headers
 
 
 class OpenAIProviderError(ProviderHTTPError):

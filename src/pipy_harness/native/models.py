@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pipy_harness.status import HarnessStatus
 
@@ -127,6 +127,9 @@ class NativeRunInput:
 ProviderHeaderCallback = Callable[[MutableMapping[str, str | None]], None]
 """In-memory extension callback for one provider request's assembled headers."""
 
+CacheRetention = Literal["none", "short", "long"]
+"""Pi ``CacheRetention`` (``ai/src/types.ts``): prompt-cache retention preference."""
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderRequest:
@@ -161,6 +164,13 @@ class ProviderRequest:
     provider_header_callback: ProviderHeaderCallback | None = field(
         default=None, repr=False, compare=False
     )
+    # Pi ``StreamOptions.sessionId``: the durable product-session id for main
+    # agent turns (prompt-cache affinity), a fresh routing id for private
+    # summary calls, and ``None`` for callers without a session.
+    session_id: str | None = None
+    # Pi ``StreamOptions.cacheRetention``; ``None`` is the provider default.
+    # Private summary calls force ``"none"`` (Pi ``completeSummarization``).
+    cache_retention: CacheRetention | None = None
 
 
 @dataclass(frozen=True, slots=True)
