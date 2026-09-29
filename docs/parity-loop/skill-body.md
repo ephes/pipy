@@ -191,24 +191,16 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    matches two rungs (e.g. a together provider on an openrouter.ai base URL →
    together shape). The different-family plan reviewer flags exactly this ordering
    bug.
-   The INVERSE case is an EXPLICIT-COMPAT-ONLY variant — one with NO `detectCompat`
-   rung — and it needs ZERO resolver work and NO precedence test. Pi's
-   `thinkingFormat` `detectCompat` chain is isDeepSeek > isZai > isTogether >
-   isAntLing > isOpenRouter > openai (openai-completions.ts:1126-1136); there is no
-   `isQwen` or `isStringThinking`, so the `qwen`, `qwen-chat-template`, and
-   `string-thinking` variants are reachable ONLY through an explicit
-   `model.compat.thinkingFormat`. pipy's `_resolve_thinking_format` already returns
-   any explicit `compat.thinkingFormat` verbatim in its first branch, so for these
-   variants you add ONLY the request-shape `elif` branch in `provider_construction`
-   and change NEITHER the resolver NOR its docstring detection order — and you write
-   NO detection-chain/precedence test, because there is no collision row to
-   disambiguate. Helper test specs for these variants must set
-   `compat={thinkingFormat: <variant>}` explicitly. Contrast `ant-ling`, which IS in
-   the chain (isAntLing) and therefore DOES need an ordered detection rung plus a
-   precedence test when ported. So in the plan, pin per remaining variant whether it
-   is auto-detected (needs a rung at its Pi-faithful chain position) or explicit-only
-   (request-shape branch only), so the diff is not over-built with an unused
-   detection rung. Also pin any constant companion field a variant's branch forces
+   The INVERSE case is an EXPLICIT-COMPAT-ONLY variant with NO `detectCompat` rung
+   (Pi's chain, openai-completions.ts:1126-1136, has no `isQwen` or
+   `isStringThinking`): `qwen`, `qwen-chat-template`, and `string-thinking` are
+   reachable only through an explicit `model.compat.thinkingFormat`, which pipy's
+   `_resolve_thinking_format` already returns verbatim. Add ONLY the request-shape
+   `elif` in `provider_construction` — no resolver change and no precedence test —
+   and set `compat={thinkingFormat: <variant>}` explicitly in test specs. `ant-ling`
+   IS in the chain (isAntLing) and needs an ordered rung plus a precedence test. Pin
+   per variant in the plan whether it is auto-detected or explicit-only, so the
+   diff is not over-built. Also pin any constant companion field a variant's branch forces
    regardless of the reasoning state: e.g. `qwen-chat-template` emits a Pi-forced
    literal `preserve_thinking: true` present in BOTH the reasoning-on and
    reasoning-off sub-states, independent of the toggled `enable_thinking` boolean.
@@ -249,18 +241,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    persist across a model switch, port request-time CLAMPING at the touched
    provider's request path — mirror exactly where Pi clamps (`clampThinkingLevel`
    inside `openai-codex-responses.ts:468`), a provider-SCOPED clamp-then-map. Do
-   NOT port the clamp globally (over-scopes, breaks other providers' omit tests)
-   and do NOT defer clamping entirely: deferring is itself a NEW divergence the
-   different-family PLAN reviewer flags (Pi emits the clamped effort; pipy would
-   emit nothing), which cost 3 plan-review rounds when learned. The Shift+Tab
-   cycle only offers supported levels, so the divergence is reachable only via
-   cross-model persistence (switch, CLI/settings/extension store) — still add a
-   regression test: a stored `max` on a Codex model lacking `max` clamps to
-   `xhigh`; on a model mapping neither, to `high`. Keep generalized cross-provider
-   clamp+label unification as a named follow-on, not part of the slice. Also fix
-   the doc-contract line for the clamping provider: effort is omitted ONLY for
-   unset/off, NOT for an unsupported level (the level is clamped and still
-   emitted).
+   NOT port the clamp globally (breaks other providers' omit tests) and do NOT
+   defer it (Pi emits the clamped effort; pipy would emit nothing). It is
+   reachable only via cross-model persistence, but still test it: a stored `max`
+   on a Codex model lacking `max` clamps to `xhigh`; mapping neither, to `high`.
+   Keep cross-provider clamp+label unification as a named follow-on, and state in
+   docs that effort is omitted ONLY for unset/off, not for an unsupported level.
    Do NOT reuse `thinking.supported_thinking_levels` to build a Pi-faithful
    Shift+Tab cycle or a clamp: pipy derives it from `thinkingLevelMap` KEYS, but
    Pi `getSupportedThinkingLevels` (`models.ts:410-419`) treats an unmapped,
@@ -336,6 +322,17 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    fatal returns and unexpected exceptions as separate tests: the former still
    emits `agent_end` before settlement, while the latter settles without an
    invented `agent_end`; these are distinct control-flow edges.
+   For session persistence/history slices, check Pi's persistence timing first:
+   Pi writes a session file lazily (first assistant flush) while pipy writes the
+   tree eagerly, so append session-start entries such as `model_change` just
+   before the branch's first message, keeping empty sessions empty. When porting
+   a re-render of stored history, port Pi's pairing state exactly
+   (`renderSessionItems` keeps each unanswered tool call pending across all
+   intervening entries until the first later `toolResult` with its id).
+   Reproduce compaction/budget bugs with a persistent `NativeSessionTree`
+   (`create_product_session(tree=...)`), not only an ephemeral SDK session whose
+   durable-origin refusals never fire: parametrize tests over persisted and
+   ephemeral sessions and do a stub-provider PTY run before the plan is final.
    For a catalog/model-data slice, take Pi-exact row values from Pi's generated
    catalog, not from reading `generate-models.ts` overrides by hand or from the
    installed `pi` release (which may predate the reference commit). The catalog
@@ -375,14 +372,25 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    body: Pi's compaction and branch-summary calls pass no `sessionId`, so they get
    a fresh routing id rather than the session's. Verify these per caller in the Pi
    source instead of trusting a backlog or audit summary.
-   For a slice that changes state feeding a provider or model selector, trace
+   For a slice that changes a contract or state with several consumers, trace
    every consumer in the plan, not the first one found:
+   - Built-in tool ports: grep every consumer hard-coding the old contract
+     (`tool_renderers.py` headers such as a baked `:1-200` range, tool lines in
+     the `session.py` system prompt, `@file` references, `parity_score.sh` test
+     ids), and inventory every refusal layer (path, suffix, content) against Pi:
+     `read_only_tool._is_ignored_or_generated` also refuses generated dirs and
+     suffixes such as `.png`, so an image test named `x.png` never reaches the
+     image check. Transcribe Pi arithmetic literally (Python slicing matches
+     `Array.prototype.slice` for negative ends), but JS `toFixed` rounds ties up
+     (1280 B is `1.3KB`): use `Decimal` `ROUND_HALF_UP` and pin a tie value.
    - Providers bake some values at construction (e.g.
      `OpenAIResponsesProvider.reasoning_effort`), so a state-only assignment can
      update the footer while requests keep the old value. Route every interactive
      change through the prepare/commit path that calls
      `coding_state.refresh_provider`, and test the bound provider's identity and
-     field after the mutation. Derive capabilities from the same row the UI uses
+     field after the mutation. A model switch commits `model_change` and a
+     clamped `thinking_level_change` together (Pi `setModel` calls
+     `setThinkingLevel`). Derive capabilities from the same row the UI uses
      (`ModelRuntime.resolve_spec(selection).reasoning`), not from a parallel
      source such as `model_options`/`supports_thinking`.
    - A ported availability filter (Pi `filterModels`) applies to every selection
@@ -410,7 +418,9 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      under `docs/specs/`). `git add` it, then run the different-family
      review over the diff. The harness bundles staged/untracked content but
      **not gitignored** files, so a plan kept only under the gitignored
-     `docs/parity-loop/runs/` must not use this path.
+     `docs/parity-loop/runs/` must not use this path. Stage the `docs/backlog.md`
+     follow-on for every deferred divergence in the same plan diff, or the
+     reviewer keeps flagging it.
    - **Direct handoff:** for an untracked/gitignored plan note, use a
      `handoff-review` prompt that includes the plan content inline, or run a
      review mode whose tools can read the path. A tools-disabled reviewer given
@@ -437,14 +447,16 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
 5. **Implement.** Execute on `main`, TDD where it applies, matching Pi behavior;
    remove pipy-only accretions per the no-deprecation policy. Verify each edit
    landed (grep/Read) before running gates: some hosts' guards refuse shell edits
-   without applying them. Exercise UI/cost behavior without live credentials via
-   an isolated `PIPY_CONFIG_HOME` in a real tmux PTY: the REPL fake runs as the
-   synthesized row `fake/fake-tools` and reports no usage, so set
-   `modelOverrides.fake-native-bootstrap.reasoning=true` in its `models.json` for
-   thinking UI, and for a non-zero cost point a custom `openai-completions`
-   provider (with `cost`) at a local stdlib HTTP stub returning usage, then check
-   the footer and `--mode rpc` `get_session_stats` against the exactly computed
-   value. *Done-when:* code complete, focused tests written.
+   without applying them. Before editing a native module, check the line-ceiling
+   pins in `tests/test_architecture_quality_gates.py` and
+   `tests/test_god_file_decomposition_final_audit.py`:
+   `src/pipy_harness/native/session.py` sits exactly at the ceiling (the audit
+   asserts equality), so edits there, including `NATIVE_TOOL_LOOP_SYSTEM_PROMPT`,
+   must keep its line count unchanged. Exercise UI, cost, tool-call, and
+   restored-session behavior without live credentials in a real tmux PTY using
+   `docs/parity-loop/pty-evidence.md` (isolated env, fake-provider limits, local
+   completions stub, `pipy -r` model restore, offline real-Pi comparison).
+   *Done-when:* code complete, focused tests written.
 6. **Update docs (part of the change).** Bring docs + release notes + the parity
    docs (`docs/parity-plan.md`, `docs/pi-mono-gap-audit.md`, `docs/backlog.md`)
    in line with the change, *before* the review gate, so the reviewed diff is
