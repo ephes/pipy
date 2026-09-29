@@ -72,7 +72,11 @@ from pipy_harness.native.settings import (
     DEFAULT_HTTP_IDLE_TIMEOUT_MS,
     DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
 )
-from pipy_harness.native.thinking import map_thinking_level
+from pipy_harness.native.thinking import (
+    clamp_thinking_level,
+    map_thinking_level,
+    resolve_responses_reasoning,
+)
 
 if TYPE_CHECKING:
     from pipy_harness.native.repl_state import NativeModelSelection
@@ -101,6 +105,9 @@ class ResolvedConstruction:
     # to emit Pi's explicit ``thinking:{type:"disabled"}`` shape. Mutually
     # exclusive with ``reasoning_effort``.
     thinking_disabled: bool = False
+    # Pi's ``compat.forceAdaptiveThinking === true`` gate. Only the
+    # anthropic-messages adapter consumes it (adaptive vs budget thinking).
+    force_adaptive_thinking: bool = False
     # Anthropic-native deferred tools are opt-in by explicit compat or by Pi's
     # bounded first-party Claude 4.5+ detector. Only the anthropic adapter uses
     # this value.
@@ -204,7 +211,7 @@ def resolve_construction(
     # ``reasoning_value is None`` — so an unsupported clamped level stays
     # out of the off branch (Pi treats it as still-thinking-and-clamp; pipy does
     # not clamp, so it emits neither on- nor off-state).
-    reasoning_effort, thinking_disabled = _resolve_request_thinking(
+    reasoning_effort, thinking_disabled = _resolve_family_thinking(
         spec, thinking_level, body_extra
     )
     supports_tool_references = (
@@ -227,9 +234,70 @@ def resolve_construction(
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
         thinking_disabled=thinking_disabled,
+        force_adaptive_thinking=_resolve_anthropic_adaptive_thinking(spec),
         supports_tool_references=supports_tool_references,
         supports_tool_search=supports_tool_search,
     )
+
+
+_RESPONSES_FAMILIES = frozenset({"openai-responses", "azure-openai-responses"})
+_GOOGLE_FAMILIES = frozenset({"google-generative-ai", "google-vertex"})
+
+
+def _resolve_family_thinking(
+    spec: NativeModelSpec,
+    thinking_level: str | None,
+    body_extra: dict[str, object],
+) -> tuple[str | None, bool]:
+    """Resolve ``(reasoning_effort, thinking_disabled)`` per adapter family.
+
+    - openai-responses / azure-openai-responses follow Pi's request-time
+      clamp-then-map plus the ``map.off ?? "none"`` off-state
+      (:func:`resolve_responses_reasoning`); they never use the disabled flag.
+    - google-generative-ai / google-vertex clamp the level first, as Pi does at
+      request time (``google-generative-ai.ts:323``, ``google-vertex.ts:329``);
+      a level that clamps to ``off`` takes the adapter's disabled shape.
+    - anthropic-messages emits ``thinking:{type:"disabled"}`` only when the row
+      does not mark ``off`` unsupported (Pi's ``map.off !== null`` gate,
+      ``anthropic-messages.ts:1187``).
+    - every other family keeps the existing format-driven resolution.
+    """
+
+    if spec.api in _RESPONSES_FAMILIES:
+        effort, _off_state = resolve_responses_reasoning(spec, thinking_level)
+        return effort, False
+    if (
+        spec.api in _GOOGLE_FAMILIES
+        and spec.reasoning
+        and thinking_level
+        and thinking_level != "off"
+    ):
+        thinking_level = clamp_thinking_level(spec, thinking_level)
+    effort, disabled = _resolve_request_thinking(spec, thinking_level, body_extra)
+    if spec.api == "anthropic-messages" and disabled and _off_unsupported(spec):
+        disabled = False
+    return effort, disabled
+
+
+def _off_unsupported(spec: NativeModelSpec) -> bool:
+    """Whether the row maps ``off`` to ``None`` (key membership, not ``.get``)."""
+
+    level_map = spec.thinking_level_map or {}
+    return "off" in level_map and level_map["off"] is None
+
+
+def _resolve_anthropic_adaptive_thinking(spec: NativeModelSpec) -> bool:
+    """Pi's runtime adaptive gate: ``compat.forceAdaptiveThinking === true``.
+
+    Pi's anthropic-messages adapter switches to adaptive thinking only on the
+    explicit compat flag (``anthropic-messages.ts:886,1173``); its generator
+    sets that flag on the built-in adaptive rows, which pipy's catalog rows
+    carry explicitly. An unflagged custom ``models.json`` id stays on the budget
+    path, as in Pi.
+    """
+
+    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
+    return compat.get("forceAdaptiveThinking") is True
 
 
 @dataclass(frozen=True, slots=True)
@@ -782,6 +850,7 @@ def _build_catalog_provider(
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
             thinking_disabled=resolved.thinking_disabled,
+            force_adaptive_thinking=resolved.force_adaptive_thinking,
             supports_tool_references=resolved.supports_tool_references,
             **http_kwargs,
         )
@@ -872,15 +941,16 @@ def build_openai_codex_provider(
     Codex is not built from the resolved catalog auth: its OAuth/SSE transport
     and settings-derived retry/idle-timeout/websocket knobs come from
     ``options``, and its ``supports_tool_search``/``reasoning_effort`` are
-    resolved from ``spec`` directly (``resolve_codex_effort`` clamp-then-maps the
-    stored thinking level; ``resolve_openai_tool_search`` reads the explicit
+    resolved from ``spec`` directly (``resolve_responses_reasoning``
+    clamp-then-maps the stored thinking level, including Pi's off-state effort;
+    ``resolve_openai_tool_search`` reads the explicit
     ``compat.supportsToolSearch`` bit). Field order and value derivation exactly
     reproduce the former legacy-factory build plus the ``_apply_codex_catalog_options``
     injection, so the codex request bytes are unchanged.
     """
 
     from pipy_harness.native.openai_codex_provider import OpenAICodexResponsesProvider
-    from pipy_harness.native.thinking import resolve_codex_effort
+    from pipy_harness.native.thinking import resolve_responses_reasoning
 
     codex_options: dict[str, Any] = {
         "model_id": spec.model_id,
@@ -891,10 +961,11 @@ def build_openai_codex_provider(
         ),
         "supports_tool_search": resolve_openai_tool_search(spec),
     }
-    if thinking_level:
-        effort = resolve_codex_effort(spec, thinking_level)
-        if effort is not None:
-            codex_options["reasoning_effort"] = effort
+    effort, off_state = resolve_responses_reasoning(spec, thinking_level)
+    if off_state:
+        codex_options["reasoning_off"] = True
+    if effort is not None:
+        codex_options["reasoning_effort"] = effort
     if options.retry_policy is not None:
         codex_options["retry_policy"] = options.retry_policy
     return OpenAICodexResponsesProvider(**codex_options)

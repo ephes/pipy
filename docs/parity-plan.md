@@ -220,7 +220,13 @@ extension-lifecycle slices.
    ([gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md)) — **shipped** 2026-07-14: the Sol
    Codex row, the `max` vocabulary, a Codex-scoped clamp-then-map, model-aware
    Shift+Tab cycling, and the 372K budget. Generalized cross-provider clamping is
-   the one named follow-on.
+   the one named follow-on. The 2026-09-29 model-currency refresh
+   ([plan](specs/2026-09-29-model-currency-plan.md)) made several changes:
+   - It corrected Sol to Pi's 272K context.
+   - It added the Claude 5.x, GPT-6, GPT-5.6 Terra/Luna and Gemini 3.5 rows.
+   - It aligned every provider default with Pi.
+   - It extended request-time clamping to OpenAI Responses, Azure and Gemini.
+     Anthropic and Bedrock stay unclamped at request time, as in Pi.
 2. **Project trust** — the design, trust-core/settings-resource slice, and
    interactive/package-management slice shipped 2026-07-15
    ([design](specs/2026-07-15-project-trust-design.md),

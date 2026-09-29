@@ -1384,7 +1384,8 @@ def _check_tier1_construction(checks, tmp: Path):
     )
 
     # 20a': anthropic adaptive model -> adaptive thinking + output_config.effort
-    # (Pi's compat.forceAdaptiveThinking set), not the budget path.
+    # when compat.forceAdaptiveThinking is set (Pi's runtime gate), not the
+    # budget path; the same id without the flag stays on the budget path.
     aa_path = tmp / "tier1_anthropic_adaptive.json"
     aa_path.write_text(
         json.dumps(
@@ -1399,7 +1400,13 @@ def _check_tier1_construction(checks, tmp: Path):
                                 "id": "claude-opus-4-8",
                                 "reasoning": True,
                                 "thinkingLevelMap": {"high": "high"},
-                            }
+                                "compat": {"forceAdaptiveThinking": True},
+                            },
+                            {
+                                "id": "claude-opus-4-8-unflagged",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            },
                         ],
                     }
                 }
@@ -1412,15 +1419,22 @@ def _check_tier1_construction(checks, tmp: Path):
     aa_sent, _ = _construct_and_capture(
         aa_state, aa_spec, runtime_api_key=None, thinking_level="high"
     )
-    anthropic_adaptive_ok = aa_sent["body"]["thinking"] == {
-        "type": "adaptive",
-        "display": "summarized",
-    } and aa_sent["body"]["output_config"] == {"effort": "high"}
+    aa_budget_spec = aa_state.find("acme-claude", "claude-opus-4-8-unflagged")
+    aa_budget_sent, _ = _construct_and_capture(
+        aa_state, aa_budget_spec, runtime_api_key=None, thinking_level="high"
+    )
+    anthropic_adaptive_ok = (
+        aa_sent["body"]["thinking"] == {"type": "adaptive", "display": "summarized"}
+        and aa_sent["body"]["output_config"] == {"effort": "high"}
+        and aa_budget_sent["body"]["thinking"].get("type") == "enabled"
+        and "output_config" not in aa_budget_sent["body"]
+    )
     checks.append(
         Check(
             "20_anthropic_adaptive_thinking",
             anthropic_adaptive_ok,
-            "anthropic-messages: adaptive models use type:adaptive + output_config.effort",
+            "anthropic-messages: compat.forceAdaptiveThinking models use "
+            "type:adaptive + output_config.effort; unflagged ids use the budget",
         )
     )
 

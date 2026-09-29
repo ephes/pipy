@@ -161,15 +161,20 @@ def build_builtin_catalog() -> NativeCatalog:
 # form an initialization cycle. Every value below is also a row in
 # ``catalog_data.BUILTIN_MODEL_ROWS`` (asserted by the catalog tests).
 default_model_per_provider: dict[str, str] = {
-    "anthropic": "claude-3-5-sonnet-20241022",
+    # Values mirror Pi's ``defaultModelPerProvider`` (model-resolver.ts:21-62).
+    # ``azure-openai`` / ``cloudflare`` are pipy's names for Pi's
+    # ``azure-openai-responses`` / ``cloudflare-workers-ai``. ``openai-completions``
+    # is a pipy-only provider name with no Pi entry; it takes Pi's ``openai``
+    # default.
+    "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.5",
     "openai-codex": "gpt-5.5",
-    "openai-completions": "gpt-4o-mini",
-    "openrouter": "openai/gpt-5.1-codex",
-    "google": "gemini-2.0-flash-exp",
-    "google-vertex": "gemini-2.0-flash-001",
-    "mistral": "mistral-large-latest",
-    "amazon-bedrock": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-    "azure-openai": "gpt-4o",
-    "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
+    "openai-completions": "gpt-5.5",
+    "openrouter": "moonshotai/kimi-k2.6",
+    "google": "gemini-3.1-pro-preview",
+    "google-vertex": "gemini-3.1-pro-preview",
+    "mistral": "devstral-medium-latest",
+    "amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
+    "azure-openai": "gpt-5.4",
+    "cloudflare": "@cf/moonshotai/kimi-k2.6",
 }

@@ -66,6 +66,7 @@ from pipy_harness.native.themes import (
     NativeThemeStore,
     resolve_active_theme_name,
 )
+from pipy_harness.native.thinking import DEFAULT_THINKING_LEVEL
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
@@ -1595,8 +1596,11 @@ def _run_provider_for_selection(
         construction_options=_construction_options_for(settings_manager),
         auth_manager_factory=OpenAICodexAuthManager,
         model_runtime=ModelRuntime(catalog=catalog_state),
-        thinking_level=_validated_thinking_level(thinking),
+        thinking_level=_startup_thinking_level(thinking, settings_manager),
         persist_defaults=False,
+    )
+    provider_state.thinking_level = provider_state.clamp_thinking_level(
+        selection, provider_state.thinking_level
     )
     return provider_state.current_provider()
 
@@ -2214,7 +2218,7 @@ def _tool_repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         model_runtime=ModelRuntime(catalog=catalog_state),
-        thinking_level=_validated_thinking_level(thinking),
+        thinking_level=_startup_thinking_level(thinking, settings_manager),
     )
     if using_stored_default and not provider_state.provider_available(
         selection.provider_name
@@ -2222,6 +2226,10 @@ def _tool_repl_adapter_for(
         provider_state.selection = normalize_repl_fake_selection(
             _fallback_default_selection(provider_state)
         )
+    # Pi clamps the startup level to the startup model (sdk.ts:258-263).
+    provider_state.thinking_level = provider_state.clamp_thinking_level(
+        provider_state.selection, provider_state.thinking_level
+    )
     return CodingSessionAdapter(
         provider_state=provider_state,
         tool_budget=tool_budget,
@@ -2693,6 +2701,27 @@ def _build_catalog_state(
         )
         state.set_extension_provider_contributions(providers, unregistered)
     return state
+
+
+def _startup_thinking_level(
+    thinking: str | None, settings_manager: SettingsManager | None
+) -> str:
+    """Startup thinking level (subset of Pi ``sdk.ts:238-256``).
+
+    ``--thinking`` wins, then the settings ``defaultThinkingLevel``, then Pi's
+    ``DEFAULT_THINKING_LEVEL`` (``medium``). The caller clamps the result to
+    the startup model (Pi ``sdk.ts:258-263``). Pi's session-restore and
+    per-model-setting rungs have no pipy input and are not ported.
+    """
+
+    explicit = _validated_thinking_level(thinking)
+    if explicit is not None:
+        return explicit
+    if settings_manager is not None:
+        configured = settings_manager.get_default_thinking_level()
+        if configured is not None:
+            return configured
+    return DEFAULT_THINKING_LEVEL
 
 
 def _validated_thinking_level(thinking: str | None) -> str | None:

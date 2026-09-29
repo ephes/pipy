@@ -5,7 +5,16 @@ hand-authored and deliberately smaller: it covers every provider pipy
 implements with a real adapter, carrying multiple rows per provider (aliases +
 dated versions + a default) so pattern matching, ``--list-models`` and the
 ``/model`` selector are useful. It does not need to be byte-identical to Pi's
-table.
+table, but every row Pi also ships carries Pi's generated cost, context window,
+max tokens and thinking map (``packages/ai/scripts/generate-models.ts``).
+
+Pi thinking maps that are PARTIAL (they omit an ordinary level Pi treats as
+identity-supported) are spelled out here, because pipy's ``map_thinking_level``
+derives support from map keys. A Pi ``null`` stays ``None``; a key Pi omits stays
+omitted — this matters for ``off``: an absent ``off`` means the Responses
+off-state sends ``"none"`` and Anthropic sends ``thinking:{type:"disabled"}``,
+while ``off: None`` means thinking cannot be switched off (the level is not
+offered and no off-state field is sent).
 
 ds4 is intentionally absent: it is a ``models.json`` custom provider, not a
 built-in row. ``fake`` is the deterministic bootstrap.
@@ -17,6 +26,8 @@ built-in row. ``fake`` is the deterministic bootstrap.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 from pipy_harness.native.catalog import (
     ContextWindowSource,
@@ -55,12 +66,12 @@ def _m(
     *,
     base_url: str | None = None,
     reasoning: bool = False,
-    thinking: dict[str, str | None] | None = None,
+    thinking: Mapping[str, str | None] | None = None,
     image: bool = False,
     cost: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     context_window: int = 128_000,
     max_tokens: int = 16_384,
-    compat: dict[str, object] | None = None,
+    compat: Mapping[str, object] | None = None,
 ) -> NativeModelSpec:
     return NativeModelSpec(
         provider_name=provider,
@@ -82,6 +93,7 @@ def _m(
 
 
 _ANTHROPIC_URL = "https://api.anthropic.com"
+# Legacy pipy-only rows (not in Pi's current table) keep their original maps.
 _REASONING_LEVELS = {
     "off": None,
     "minimal": "minimal",
@@ -89,24 +101,168 @@ _REASONING_LEVELS = {
     "medium": "medium",
     "high": "high",
 }
-_REASONING_LEVELS_XHIGH = {**_REASONING_LEVELS, "xhigh": "xhigh"}
-# GPT-5.6 Sol (Codex) row. Pi ships `{"xhigh":"xhigh","max":"max","minimal":"low"}`
-# and relies on identity support for the ordinary tier; pipy derives support from
-# map keys, so the ordinary levels are spelled out explicitly. `minimal → "low"`
-# is a non-identity mapping straight from Pi's Sol row.
-_SOL_THINKING = {
+_ORDINARY_IDENTITY: dict[str, str | None] = {
+    "minimal": "minimal",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+}
+# ---- Anthropic (adaptive Claude) -------------------------------------------
+# Pi generate-models.ts:1080-1094 merges {xhigh, max} for opus-4-7+/opus-5/
+# sonnet-5, and {off: null, xhigh, max} for fable-5.
+_CLAUDE_XHIGH_MAX = {**_ORDINARY_IDENTITY, "xhigh": "xhigh", "max": "max"}
+_CLAUDE_NO_OFF_XHIGH_MAX = {"off": None, **_CLAUDE_XHIGH_MAX}
+# Opus/Sonnet 5.5: Pi's full map (models.dev effort options).
+_CLAUDE_5_5 = {
     "off": None,
-    "minimal": "low",
+    "minimal": None,
     "low": "low",
     "medium": "medium",
     "high": "high",
     "xhigh": "xhigh",
     "max": "max",
 }
+_CLAUDE_MAX_ONLY = {**_ORDINARY_IDENTITY, "max": "max"}
+_ADAPTIVE = {"forceAdaptiveThinking": True}
+# ---- OpenAI Responses (api.openai.com) -------------------------------------
+_OPENAI_GPT_5_5 = {
+    "off": "none",
+    "minimal": None,
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+    "max": None,
+}
+_OPENAI_GPT_MAX = {**_OPENAI_GPT_5_5, "max": "max"}
+_OPENAI_GPT_6_ASTRA = {**_OPENAI_GPT_MAX, "off": None}
+# ---- OpenAI Codex (chatgpt.com) --------------------------------------------
+# Pi merges {minimal: "low"} into every xhigh-capable Codex row
+# (generate-models.ts:1120); no `off` key means the off-state sends "none".
+_CODEX_XHIGH = {
+    "minimal": "low",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+}
+_CODEX_XHIGH_MAX = {**_CODEX_XHIGH, "max": "max"}
+_CODEX_GPT_6 = {"off": "none", **_CODEX_XHIGH_MAX}
+_CODEX_GPT_6_ASTRA = {**_CODEX_GPT_6, "off": None}
+# ---- Google Gemini 3.x -----------------------------------------------------
+_GEMINI_3_FLASH = {
+    "off": None,
+    "minimal": "minimal",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": None,
+    "max": None,
+}
+_GEMINI_3_PRO = {**_GEMINI_3_FLASH, "minimal": None}
+_OPENAI_TOOLS = {"supportsToolSearch": True}
 
 
 BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     # ---- anthropic (anthropic-messages) -------------------------------------
+    _m(
+        "anthropic",
+        "claude-opus-5-5",
+        "Claude Opus 5.5",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_5_5,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(4.0, 20.0, 0.2, 5.0),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-sonnet-5-5",
+        "Claude Sonnet 5.5",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_5_5,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(2.0, 10.0, 0.2, 2.5),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-fable-5-1",
+        "Claude Fable 5.1",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(10.0, 50.0, 0.25, 12.5),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-fable-5",
+        "Claude Fable 5",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(10.0, 50.0, 1.0, 12.5),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-opus-5",
+        "Claude Opus 5",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(5.0, 25.0, 0.5, 6.25),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-sonnet-5",
+        "Claude Sonnet 5",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_XHIGH_MAX,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(2.0, 10.0, 0.2, 2.5),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-opus-4-8",
+        "Claude Opus 4.8",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        thinking=_CLAUDE_XHIGH_MAX,
+        image=True,
+        compat=_ADAPTIVE,
+        cost=(5.0, 25.0, 0.5, 6.25),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
     _m(
         "anthropic",
         "claude-opus-4-7",
@@ -114,8 +270,9 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "anthropic-messages",
         base_url=_ANTHROPIC_URL,
         reasoning=True,
-        thinking={"xhigh": "xhigh"},
+        thinking=_CLAUDE_XHIGH_MAX,
         image=True,
+        compat=_ADAPTIVE,
         cost=(5.0, 25.0, 0.5, 6.25),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -129,7 +286,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         image=True,
         cost=(3.0, 15.0, 0.3, 3.75),
-        context_window=200_000,
+        context_window=1_000_000,
         max_tokens=64_000,
     ),
     _m(
@@ -141,6 +298,30 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         image=True,
         cost=(3.0, 15.0, 0.3, 3.75),
+        context_window=1_000_000,
+        max_tokens=64_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-haiku-4-5",
+        "Claude Haiku 4.5 (latest)",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        image=True,
+        cost=(1.0, 5.0, 0.1, 1.25),
+        context_window=200_000,
+        max_tokens=64_000,
+    ),
+    _m(
+        "anthropic",
+        "claude-haiku-4-5-20251001",
+        "Claude Haiku 4.5",
+        "anthropic-messages",
+        base_url=_ANTHROPIC_URL,
+        reasoning=True,
+        image=True,
+        cost=(1.0, 5.0, 0.1, 1.25),
         context_window=200_000,
         max_tokens=64_000,
     ),
@@ -179,15 +360,93 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     # ---- openai (openai-responses) ------------------------------------------
     _m(
         "openai",
+        "gpt-6-sol",
+        "GPT-6 Sol",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_MAX,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(2.0, 10.0, 0.2, 2.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
+        "gpt-6-luna",
+        "GPT-6 Luna",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_MAX,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(0.1, 0.5, 0.01, 0.125),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
+        "gpt-6-astra",
+        "GPT-6 Astra",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_6_ASTRA,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(10.0, 50.0, 1.0, 12.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
+        "gpt-5.6-sol",
+        "GPT-5.6 Sol",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_MAX,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(4.0, 20.0, 0.4, 5.0),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
+        "gpt-5.6-terra",
+        "GPT-5.6 Terra",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_MAX,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(2.0, 12.0, 0.2, 2.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
+        "gpt-5.6-luna",
+        "GPT-5.6 Luna",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_MAX,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(0.2, 1.2, 0.02, 0.25),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
         "gpt-5.5",
         "GPT-5.5",
         "openai-responses",
         reasoning=True,
-        thinking=_REASONING_LEVELS_XHIGH,
+        thinking=_OPENAI_GPT_5_5,
         image=True,
-        compat={"supportsToolSearch": True},
-        cost=(1.25, 10.0, 0.125, 0.0),
-        context_window=400_000,
+        compat=_OPENAI_TOOLS,
+        cost=(5.0, 30.0, 0.5, 0.0),
+        context_window=272_000,
         max_tokens=128_000,
     ),
     _m(
@@ -196,11 +455,11 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "GPT-5.4",
         "openai-responses",
         reasoning=True,
-        thinking=_REASONING_LEVELS,
+        thinking=_OPENAI_GPT_5_5,
         image=True,
-        compat={"supportsToolSearch": True},
-        cost=(1.25, 10.0, 0.125, 0.0),
-        context_window=400_000,
+        compat=_OPENAI_TOOLS,
+        cost=(2.5, 15.0, 0.25, 0.0),
+        context_window=272_000,
         max_tokens=128_000,
     ),
     _m(
@@ -236,29 +495,58 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=16_384,
     ),
     # ---- openai-codex (openai-codex-responses) ------------------------------
+    # Pi's Codex rows are all 272K context / 128K output; Pi retired the Codex
+    # gpt-5.4 rows (2e6fe2f98), so pipy does not carry one.
+    _m(
+        "openai-codex",
+        "gpt-6-sol",
+        "GPT-6 Sol (Codex/ChatGPT)",
+        "openai-codex-responses",
+        reasoning=True,
+        thinking=_CODEX_GPT_6,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(2.0, 10.0, 0.2, 2.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai-codex",
+        "gpt-6-luna",
+        "GPT-6 Luna (Codex/ChatGPT)",
+        "openai-codex-responses",
+        reasoning=True,
+        thinking=_CODEX_GPT_6,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(0.1, 0.5, 0.01, 0.125),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai-codex",
+        "gpt-6-astra",
+        "GPT-6 Astra (Codex/ChatGPT)",
+        "openai-codex-responses",
+        reasoning=True,
+        thinking=_CODEX_GPT_6_ASTRA,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(10.0, 50.0, 1.0, 12.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
     _m(
         "openai-codex",
         "gpt-5.5",
         "GPT-5.5 (Codex/ChatGPT)",
         "openai-codex-responses",
         reasoning=True,
-        thinking=_REASONING_LEVELS_XHIGH,
+        thinking=_CODEX_XHIGH,
         image=True,
-        compat={"supportsToolSearch": True},
-        cost=(0.0, 0.0, 0.0, 0.0),
-        context_window=400_000,
-        max_tokens=128_000,
-    ),
-    _m(
-        "openai-codex",
-        "gpt-5.4",
-        "GPT-5.4 (Codex/ChatGPT)",
-        "openai-codex-responses",
-        reasoning=True,
-        thinking=_REASONING_LEVELS,
-        image=True,
-        compat={"supportsToolSearch": True},
-        context_window=400_000,
+        compat=_OPENAI_TOOLS,
+        cost=(5.0, 30.0, 0.5, 0.0),
+        context_window=272_000,
         max_tokens=128_000,
     ),
     _m(
@@ -272,24 +560,65 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         context_window=400_000,
         max_tokens=128_000,
     ),
-    # Codex thinking maps differ per row: gpt-5.5 above maps xhigh
-    # (_REASONING_LEVELS_XHIGH), gpt-5.4 / gpt-5.1-codex map only the ordinary
-    # tier (_REASONING_LEVELS), and Sol below is the only Codex row mapping max.
-    # So `max` clamps to xhigh on gpt-5.5 but to high on gpt-5.4/gpt-5.1-codex.
+    # Codex thinking maps differ per row: gpt-5.5 maps xhigh but not max, the
+    # GPT-5.6 and GPT-6 rows map both, and gpt-5.1-codex maps only the ordinary
+    # tier. So a stored `max` clamps to xhigh on gpt-5.5 and to high on
+    # gpt-5.1-codex.
     _m(
         "openai-codex",
         "gpt-5.6-sol",
         "GPT-5.6 Sol (Codex/ChatGPT)",
         "openai-codex-responses",
         reasoning=True,
-        thinking=_SOL_THINKING,
-        compat={"supportsToolSearch": True},
+        thinking=_CODEX_XHIGH_MAX,
+        compat=_OPENAI_TOOLS,
         image=True,
-        cost=(0.0, 0.0, 0.0, 0.0),
-        context_window=372_000,
+        cost=(4.0, 20.0, 0.4, 5.0),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai-codex",
+        "gpt-5.6-terra",
+        "GPT-5.6 Terra (Codex/ChatGPT)",
+        "openai-codex-responses",
+        reasoning=True,
+        thinking=_CODEX_XHIGH_MAX,
+        compat=_OPENAI_TOOLS,
+        image=True,
+        cost=(2.0, 12.0, 0.2, 2.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai-codex",
+        "gpt-5.6-luna",
+        "GPT-5.6 Luna (Codex/ChatGPT)",
+        "openai-codex-responses",
+        reasoning=True,
+        thinking=_CODEX_XHIGH_MAX,
+        compat=_OPENAI_TOOLS,
+        image=True,
+        cost=(0.2, 1.2, 0.02, 0.25),
+        context_window=272_000,
         max_tokens=128_000,
     ),
     # ---- openai-completions (openai-completions) ----------------------------
+    # pipy-only provider name for OpenAI Chat Completions. Pi has no such
+    # provider, so its default mirrors Pi's `openai` default (gpt-5.5) and the
+    # row copies Pi's openai gpt-5.5 metadata.
+    _m(
+        "openai-completions",
+        "gpt-5.5",
+        "GPT-5.5 (Completions)",
+        "openai-completions",
+        reasoning=True,
+        thinking=_OPENAI_GPT_5_5,
+        image=True,
+        cost=(5.0, 30.0, 0.5, 0.0),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
     _m(
         "openai-completions",
         "gpt-4o-mini",
@@ -321,6 +650,9 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=32_768,
     ),
     # ---- openrouter (openai-completions) ------------------------------------
+    # Pi routes OpenRouter `anthropic/claude-*` rows through anthropic-messages
+    # (openrouter.ai/api + session-affinity headers); pipy's openrouter rows are
+    # openai-completions only, so no Claude 5.x OpenRouter rows are mirrored yet.
     _m(
         "openrouter",
         "openai/gpt-5.1-codex",
@@ -350,8 +682,10 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-completions",
         base_url="https://openrouter.ai/api/v1",
         reasoning=True,
-        context_window=256_000,
-        max_tokens=32_768,
+        image=True,
+        cost=(0.65, 3.41, 0.15, 0.0),
+        context_window=262_144,
+        max_tokens=235_929,
     ),
     _m(
         "openrouter",
@@ -370,9 +704,34 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "Gemini 3.1 Pro (preview)",
         "google-generative-ai",
         reasoning=True,
+        thinking=_GEMINI_3_PRO,
         image=True,
-        cost=(1.25, 10.0, 0.0, 0.0),
-        context_window=1_000_000,
+        cost=(2.0, 12.0, 0.2, 0.0),
+        context_window=1_048_576,
+        max_tokens=65_536,
+    ),
+    _m(
+        "google",
+        "gemini-3.5-flash",
+        "Gemini 3.5 Flash",
+        "google-generative-ai",
+        reasoning=True,
+        thinking=_GEMINI_3_FLASH,
+        image=True,
+        cost=(1.5, 9.0, 0.15, 0.0),
+        context_window=1_048_576,
+        max_tokens=65_536,
+    ),
+    _m(
+        "google",
+        "gemini-3.1-flash-lite",
+        "Gemini 3.1 Flash Lite",
+        "google-generative-ai",
+        reasoning=True,
+        thinking=_GEMINI_3_FLASH,
+        image=True,
+        cost=(0.25, 1.5, 0.025, 0.0),
+        context_window=1_048_576,
         max_tokens=65_536,
     ),
     _m(
@@ -396,14 +755,41 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=8_192,
     ),
     # ---- google-vertex (google-vertex) --------------------------------------
+    # Pi ships no Claude rows on Vertex, so none are mirrored here.
     _m(
         "google-vertex",
         "gemini-3.1-pro-preview",
         "Vertex: Gemini 3.1 Pro (preview)",
         "google-vertex",
         reasoning=True,
+        thinking=_GEMINI_3_PRO,
         image=True,
-        context_window=1_000_000,
+        cost=(2.0, 12.0, 0.2, 0.0),
+        context_window=1_048_576,
+        max_tokens=65_536,
+    ),
+    _m(
+        "google-vertex",
+        "gemini-3.5-flash",
+        "Vertex: Gemini 3.5 Flash",
+        "google-vertex",
+        reasoning=True,
+        thinking=_GEMINI_3_FLASH,
+        image=True,
+        cost=(1.5, 9.0, 0.15, 0.0),
+        context_window=1_048_576,
+        max_tokens=65_536,
+    ),
+    _m(
+        "google-vertex",
+        "gemini-3.1-flash-lite",
+        "Vertex: Gemini 3.1 Flash Lite",
+        "google-vertex",
+        reasoning=True,
+        thinking=_GEMINI_3_FLASH,
+        image=True,
+        cost=(0.25, 1.5, 0.025, 0.0),
+        context_window=1_048_576,
         max_tokens=65_536,
     ),
     _m(
@@ -454,16 +840,90 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=32_768,
     ),
     # ---- amazon-bedrock (amazon-bedrock) ------------------------------------
+    # Pi's `us.` inference-profile rows (US pricing). Pi merges {xhigh, max}
+    # into the opus-5/sonnet-5 rows and {off: null, xhigh, max} into fable-5.
     _m(
         "amazon-bedrock",
         "us.anthropic.claude-opus-4-6-v1",
         "Bedrock: Claude Opus 4.6",
         "amazon-bedrock",
         reasoning=True,
+        thinking=_CLAUDE_MAX_ONLY,
         image=True,
-        cost=(5.0, 25.0, 0.5, 6.25),
+        cost=(5.5, 27.5, 0.55, 6.875),
         context_window=1_000_000,
         max_tokens=128_000,
+    ),
+    _m(
+        "amazon-bedrock",
+        "us.anthropic.claude-opus-5-5",
+        "Bedrock: Claude Opus 5.5 (US)",
+        "amazon-bedrock",
+        reasoning=True,
+        thinking=_CLAUDE_XHIGH_MAX,
+        image=True,
+        cost=(4.4, 22.0, 0.22, 5.5),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "amazon-bedrock",
+        "us.anthropic.claude-opus-5",
+        "Bedrock: Claude Opus 5 (US)",
+        "amazon-bedrock",
+        reasoning=True,
+        thinking=_CLAUDE_XHIGH_MAX,
+        image=True,
+        cost=(5.5, 27.5, 0.55, 6.875),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "amazon-bedrock",
+        "us.anthropic.claude-sonnet-5",
+        "Bedrock: Claude Sonnet 5 (US)",
+        "amazon-bedrock",
+        reasoning=True,
+        thinking=_CLAUDE_XHIGH_MAX,
+        image=True,
+        cost=(2.2, 11.0, 0.22, 2.75),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "amazon-bedrock",
+        "us.anthropic.claude-fable-5",
+        "Bedrock: Claude Fable 5 (US)",
+        "amazon-bedrock",
+        reasoning=True,
+        thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
+        image=True,
+        cost=(11.0, 55.0, 1.1, 13.75),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "amazon-bedrock",
+        "us.anthropic.claude-opus-4-8",
+        "Bedrock: Claude Opus 4.8 (US)",
+        "amazon-bedrock",
+        reasoning=True,
+        thinking=_CLAUDE_XHIGH_MAX,
+        image=True,
+        cost=(5.5, 27.5, 0.55, 6.875),
+        context_window=1_000_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "amazon-bedrock",
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "Bedrock: Claude Haiku 4.5 (US)",
+        "amazon-bedrock",
+        reasoning=True,
+        image=True,
+        cost=(1.1, 5.5, 0.11, 1.375),
+        context_window=200_000,
+        max_tokens=64_000,
     ),
     _m(
         "amazon-bedrock",
@@ -492,9 +952,11 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "Azure: GPT-5.4",
         "azure-openai-responses",
         reasoning=True,
-        thinking=_REASONING_LEVELS,
+        # Pi: {off: null, xhigh: "xhigh"} — thinking cannot be switched off.
+        thinking={"off": None, **_ORDINARY_IDENTITY, "xhigh": "xhigh"},
         image=True,
-        context_window=400_000,
+        cost=(2.5, 15.0, 0.25, 0.0),
+        context_window=1_050_000,
         max_tokens=128_000,
     ),
     _m(
@@ -524,8 +986,19 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "Cloudflare: Kimi K2.6",
         "cloudflare-workers-ai",
         reasoning=True,
-        context_window=256_000,
-        max_tokens=32_768,
+        thinking={
+            "off": "none",
+            "minimal": None,
+            "low": None,
+            "medium": None,
+            "high": "high",
+            "xhigh": None,
+            "max": None,
+        },
+        image=True,
+        cost=(0.95, 4.0, 0.16, 0.0),
+        context_window=262_144,
+        max_tokens=256_000,
     ),
     _m(
         "cloudflare",

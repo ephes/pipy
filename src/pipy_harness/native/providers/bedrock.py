@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 from collections.abc import Mapping
@@ -44,7 +45,6 @@ from pipy_harness.native.providers.anthropic_messages import (
     ANTHROPIC_DEFAULT_THINKING_BUDGET,
     ANTHROPIC_THINKING_BUDGETS,
     ANTHROPIC_THINKING_DISPLAY_DEFAULT,
-    supports_adaptive_thinking,
 )
 from pipy_harness.native.providers.anthropic_messages_wire import (
     messages_payload,
@@ -61,6 +61,31 @@ BEDROCK_SIGV4_ALGORITHM = "AWS4-HMAC-SHA256"
 # Headers SigV4 owns; a custom header must never collide with these when merged
 # into the signed request (Pi filters the same set before signing).
 _BEDROCK_RESERVED_HEADERS = frozenset({"authorization", "host"})
+# Pi's bedrock runtime adaptive-thinking list (bedrock-converse-stream.ts:764-775),
+# matched on the lowered id and on its ``[\s_.:]+ -> -`` normalized form. Unlike
+# the anthropic-messages generator predicate it has no dotted or Mythos forms.
+BEDROCK_ADAPTIVE_MODEL_MARKERS = (
+    "opus-4-6",
+    "opus-4-7",
+    "opus-4-8",
+    "opus-5",
+    "sonnet-4-6",
+    "sonnet-5",
+    "fable-5",
+)
+_BEDROCK_ID_SEPARATORS = re.compile(r"[\s_.:]+")
+
+
+def bedrock_supports_adaptive_thinking(model_id: str) -> bool:
+    """Pi's bedrock ``supportsAdaptiveThinking`` over the model id candidates."""
+
+    lowered = model_id.lower()
+    candidates = (lowered, _BEDROCK_ID_SEPARATORS.sub("-", lowered))
+    return any(
+        marker in candidate
+        for candidate in candidates
+        for marker in BEDROCK_ADAPTIVE_MODEL_MARKERS
+    )
 
 
 def _apply_bedrock_thinking(
@@ -79,7 +104,7 @@ def _apply_bedrock_thinking(
         if _is_gov_cloud_bedrock_target(model_id, region)
         else {"display": ANTHROPIC_THINKING_DISPLAY_DEFAULT}
     )
-    if supports_adaptive_thinking(model_id):
+    if bedrock_supports_adaptive_thinking(model_id):
         body["thinking"] = {"type": "adaptive", **display}
         body["output_config"] = {
             "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(reasoning_effort, reasoning_effort)
@@ -240,7 +265,8 @@ class AmazonBedrockProvider:
         # Bedrock Claude speaks the Anthropic body (InvokeModel carries the raw
         # Anthropic request), so thinking is placed at the body top level. Pi
         # uses adaptive thinking (``type: adaptive`` + ``output_config.effort``)
-        # for the adaptive-capable Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6)
+        # for the adaptive-capable Claude models (Opus 4.6+, Opus 5.x, Sonnet
+        # 4.6/5.x, Fable 5; ``BEDROCK_ADAPTIVE_MODEL_MARKERS``)
         # and the ``budget_tokens`` path otherwise; we mirror that split.
         # ``display`` is forced to "summarized" on both paths (Pi
         # amazon-bedrock.ts:954, :957, :974-978) so the adaptive models — whose

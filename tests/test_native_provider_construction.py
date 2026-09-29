@@ -1386,19 +1386,54 @@ def test_anthropic_catalog_construction(tmp_path):
 
 
 def test_anthropic_adaptive_thinking_construction(tmp_path):
-    # claude-opus-4-8 is an adaptive Claude model (compat.forceAdaptiveThinking),
+    # claude-opus-4-8 carries compat.forceAdaptiveThinking (Pi's runtime gate),
     # so it uses the adaptive thinking + output_config.effort shape, not budget.
     resolved = _resolve(
-        _anthropic_spec(model_id="claude-opus-4-8"),
+        _anthropic_spec(
+            model_id="claude-opus-4-8", compat={"forceAdaptiveThinking": True}
+        ),
         tmp_path,
         {"ANTHROPIC_API_KEY": "ak"},
         thinking_level="high",
     )
+    assert resolved.force_adaptive_thinking is True
     http = CapturingHTTPClient()
     build_provider(resolved, http_client=http).complete(_request(tmp_path))
     sent = http.requests[-1]
     assert sent["body"]["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert sent["body"]["output_config"] == {"effort": "high"}
+
+
+def test_anthropic_adaptive_gate_is_the_explicit_compat_flag(tmp_path):
+    # Pi's anthropic-messages runtime switches to adaptive thinking only on
+    # compat.forceAdaptiveThinking === true: an unflagged custom id that merely
+    # contains an adaptive marker stays on the budget path, and an explicit
+    # flag on any id takes the adaptive path.
+    cases = (
+        (_anthropic_spec(model_id="my-opus-5"), False),
+        (
+            _anthropic_spec(
+                model_id="custom-claude",
+                compat={"forceAdaptiveThinking": True},
+            ),
+            True,
+        ),
+        (
+            _anthropic_spec(
+                model_id="claude-opus-4-8", compat={"forceAdaptiveThinking": False}
+            ),
+            False,
+        ),
+    )
+    for spec, adaptive in cases:
+        resolved = _resolve(
+            spec, tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="high"
+        )
+        http = CapturingHTTPClient()
+        build_provider(resolved, http_client=http).complete(_request(tmp_path))
+        thinking = http.requests[-1]["body"]["thinking"]
+        assert (thinking["type"] == "adaptive") is adaptive, spec.model_id
+        assert ("budget_tokens" in thinking) is (not adaptive)
 
 
 def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):

@@ -77,7 +77,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "openrouter",
             NativeProviderSpec(
                 provider_name="openrouter",
-                default_model="openai/gpt-5.1-codex",
+                default_model="moonshotai/kimi-k2.6",
                 availability="env:OPENROUTER_API_KEY",
                 unavailable_message=(
                     "pipy: openrouter is unavailable because OPENROUTER_API_KEY is not set."
@@ -89,7 +89,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "anthropic",
             NativeProviderSpec(
                 provider_name="anthropic",
-                default_model="claude-3-5-sonnet-20241022",
+                default_model="claude-opus-4-8",
                 availability="env:ANTHROPIC_API_KEY",
                 unavailable_message=(
                     "pipy: anthropic is unavailable because ANTHROPIC_API_KEY is not set."
@@ -101,7 +101,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "google",
             NativeProviderSpec(
                 provider_name="google",
-                default_model="gemini-2.0-flash-exp",
+                default_model="gemini-3.1-pro-preview",
                 availability="env-any:GOOGLE_API_KEY,GEMINI_API_KEY",
                 unavailable_message=(
                     "pipy: google is unavailable because GOOGLE_API_KEY or "
@@ -114,7 +114,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "mistral",
             NativeProviderSpec(
                 provider_name="mistral",
-                default_model="mistral-large-latest",
+                default_model="devstral-medium-latest",
                 availability="env:MISTRAL_API_KEY",
                 unavailable_message=(
                     "pipy: mistral is unavailable because MISTRAL_API_KEY is not set."
@@ -126,7 +126,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "amazon-bedrock",
             NativeProviderSpec(
                 provider_name="amazon-bedrock",
-                default_model="anthropic.claude-3-5-sonnet-20240620-v1:0",
+                default_model="us.anthropic.claude-opus-4-6-v1",
                 availability="env-all:AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY",
                 unavailable_message=(
                     "pipy: amazon-bedrock is unavailable because AWS_ACCESS_KEY_ID "
@@ -139,7 +139,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "openai-completions",
             NativeProviderSpec(
                 provider_name="openai-completions",
-                default_model="gpt-4o-mini",
+                default_model="gpt-5.5",
                 availability="env:OPENAI_API_KEY",
                 unavailable_message=(
                     "pipy: openai-completions is unavailable because "
@@ -152,7 +152,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "azure-openai",
             NativeProviderSpec(
                 provider_name="azure-openai",
-                default_model="gpt-4o",
+                default_model="gpt-5.4",
                 availability="env-azure-openai",
                 unavailable_message=(
                     "pipy: azure-openai is unavailable because none of "
@@ -166,7 +166,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "cloudflare",
             NativeProviderSpec(
                 provider_name="cloudflare",
-                default_model="@cf/meta/llama-3.1-8b-instruct",
+                default_model="@cf/moonshotai/kimi-k2.6",
                 availability="env-all:CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_API_TOKEN",
                 unavailable_message=(
                     "pipy: cloudflare is unavailable because CLOUDFLARE_ACCOUNT_ID "
@@ -179,7 +179,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "google-vertex",
             NativeProviderSpec(
                 provider_name="google-vertex",
-                default_model="gemini-2.0-flash-001",
+                default_model="gemini-3.1-pro-preview",
                 availability=(
                     "env-google-vertex:GOOGLE_ACCESS_TOKEN,"
                     "GOOGLE_CLOUD_PROJECT,GOOGLE_PROJECT_ID"

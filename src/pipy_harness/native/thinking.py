@@ -8,13 +8,21 @@ model maps a requested level to its provider-specific reasoning value through
 extended levels ``xhigh`` and ``max`` are only honoured when the model maps them.
 
 ``available_thinking_levels`` / ``clamp_thinking_level`` port Pi's
-``getSupportedThinkingLevels`` / ``clampThinkingLevel``; ``resolve_codex_effort``
-is the Codex-scoped clamp-then-map used at the REPL provider boundary.
+``getSupportedThinkingLevels`` / ``clampThinkingLevel``;
+``resolve_responses_reasoning`` is the Responses-family (OpenAI, Azure, Codex)
+clamp-then-map, including Pi's ``map.off ?? "none"`` off-state.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pipy_harness.native.catalog import THINKING_LEVELS, NativeModelSpec
+
+# Pi ``DEFAULT_THINKING_LEVEL`` (coding-agent/src/core/defaults.ts:3): the
+# startup level when neither ``--thinking`` nor the settings
+# ``defaultThinkingLevel`` names one.
+DEFAULT_THINKING_LEVEL = "medium"
 
 # Standard levels passed through for a reasoning model that declares no explicit
 # thinking_level_map. xhigh and max are intentionally excluded: each is only
@@ -81,19 +89,21 @@ def map_thinking_level(model: NativeModelSpec, level: str | None) -> str | None:
 def available_thinking_levels(model: NativeModelSpec) -> list[str]:
     """Ordered levels the model offers (Pi's ``getSupportedThinkingLevels``).
 
-    Mirrors Pi ``models.ts:410-419``: a non-reasoning model offers only ``off``;
-    a reasoning model always offers ``off`` plus each ordinary level
+    Mirrors Pi ``models.ts:1211-1220``: a non-reasoning model offers only
+    ``off``; a reasoning model offers ``off`` and each ordinary level
     (``minimal|low|medium|high``) unless the map explicitly removes it with a
-    ``None`` value, and offers ``xhigh``/``max`` only when the map assigns them a
-    concrete value. Ordinary levels are identity-available even when unmapped, so
-    a partial map (e.g. ``{"xhigh": "xhigh"}``) still offers the ordinary tier.
+    ``None`` value (``off: None`` means thinking cannot be switched off, e.g.
+    Claude Fable 5 or GPT-6 Astra), and offers ``xhigh``/``max`` only when the
+    map assigns them a concrete value. Ordinary levels are identity-available
+    even when unmapped, so a partial map (e.g. ``{"xhigh": "xhigh"}``) still
+    offers the ordinary tier.
     """
 
     if not model.reasoning:
         return ["off"]
     level_map = model.thinking_level_map or {}
-    levels = ["off"]
-    for level in _EXTENDED_ORDER[1:]:
+    levels: list[str] = []
+    for level in _EXTENDED_ORDER:
         mapped = level_map.get(level, _UNSET)
         if mapped is None:
             continue
@@ -101,6 +111,25 @@ def available_thinking_levels(model: NativeModelSpec) -> list[str]:
             continue
         levels.append(level)
     return levels
+
+
+def next_thinking_level(levels: Sequence[str], current: str | None) -> str:
+    """Next Shift+Tab level after ``current`` in the ordered ``levels`` cycle.
+
+    A current level the model does not offer (e.g. a stored ``max`` after a
+    switch, or ``off`` on an off-less row such as Claude Fable 5) takes Pi
+    ``cycleThinkingLevel``'s index -1 path (``agent-session.ts:2552-2561``) to
+    ``levels[0]``. pipy's unset level (``None``; Pi always has a level) counts as
+    ``off`` when the model offers it.
+    """
+
+    if current in levels:
+        index = levels.index(current)
+    elif current is None and "off" in levels:
+        index = levels.index("off")
+    else:
+        index = -1
+    return levels[(index + 1) % len(levels)]
 
 
 def clamp_thinking_level(model: NativeModelSpec, level: str) -> str:
@@ -126,21 +155,46 @@ def clamp_thinking_level(model: NativeModelSpec, level: str) -> str:
     return available[0] if available else "off"
 
 
-def resolve_codex_effort(model: NativeModelSpec, level: str | None) -> str | None:
-    """Codex-scoped clamp-then-map for the ``reasoning.effort`` request field.
+def responses_off_effort(model: NativeModelSpec) -> str | None:
+    """Pi's Responses-family off-state effort (``map.off ?? "none"``).
 
-    Omits effort (returns ``None``) only when no level is selected or the level
-    is ``off``; any other stored level is first clamped to what the model offers
-    (matching Pi's per-request ``clampThinkingLevel`` in
-    ``openai-codex-responses.ts:468``) and then mapped, using the level's map
-    value when present and identity otherwise (``codex-responses.ts:521``). The
-    ``None``/``off`` guard runs before ``clamp_thinking_level``.
+    ``None`` means the model marks ``off`` unsupported (``off: None`` in the
+    map), so Pi's ``map.off !== null`` gate sends no ``reasoning`` field. Key
+    membership is checked first so a missing ``off`` (default ``"none"``) is not
+    conflated with an explicit ``None``.
     """
 
-    if not level or level == "off":
-        return None
-    clamped = clamp_thinking_level(model, level)
+    level_map = model.thinking_level_map or {}
+    if "off" in level_map:
+        return level_map["off"]
+    return "none"
+
+
+def resolve_responses_reasoning(
+    model: NativeModelSpec, level: str | None
+) -> tuple[str | None, bool]:
+    """Clamp-then-map a level for the Responses families; return ``(effort, off)``.
+
+    Ports the shared shape of Pi's ``openai-responses.ts:231-232,343-357``,
+    ``azure-openai-responses.ts:182-183,330-344`` and
+    ``openai-codex-responses.ts:514-515,582-597``: an on-state level is clamped
+    to what the model offers (Pi ``clampThinkingLevel``) and sends
+    ``map[level] ?? level``; ``off`` (Pi passes ``reasoning: undefined``) sends
+    the off-state effort from :func:`responses_off_effort` (``off`` is
+    ``True``).
+
+    pipy-owned rule for an unset level (``None``): the request carries no
+    thinking field at all (``(None, False)``), preserving the provider default.
+    Pi never has an unset level; startup seeds ``medium``. A non-reasoning model
+    also returns ``(None, False)`` — Pi gates both states on ``model.reasoning``.
+    """
+
+    if not level or not model.reasoning:
+        return None, False
+    # Pi passes ``reasoning: undefined`` for ``off``, so the adapters take the
+    # off-state without clamping; only an on-state level is clamped.
+    clamped = "off" if level == "off" else clamp_thinking_level(model, level)
     if clamped == "off":
-        return None
+        return responses_off_effort(model), True
     mapped = (model.thinking_level_map or {}).get(clamped)
-    return mapped if mapped is not None else clamped
+    return (mapped if mapped is not None else clamped), False

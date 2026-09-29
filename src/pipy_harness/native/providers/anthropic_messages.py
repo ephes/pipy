@@ -50,21 +50,37 @@ ANTHROPIC_DEFAULT_THINKING_BUDGET = 16384
 # summary like the older Claude 4 models (anthropic.ts:219-222, :954, :969-973).
 ANTHROPIC_THINKING_DISPLAY_DEFAULT = "summarized"
 # Claude model families that take adaptive thinking (``type: adaptive`` +
-# ``output_config.effort``) rather than the ``budget_tokens`` path. These are the
-# anthropic provider models Pi marks ``compat.forceAdaptiveThinking: true``
-# (models.generated.ts) and the same set the bedrock adapter matches
-# (Pi: supportsAdaptiveThinking). Shared with the ``providers.bedrock`` adapter.
-ANTHROPIC_ADAPTIVE_MODEL_MARKERS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6")
+# ``output_config.effort``) rather than the ``budget_tokens`` path. This mirrors
+# Pi's generator predicate ``isAnthropicAdaptiveThinkingModel``
+# (generate-models.ts:607-624), which sets ``compat.forceAdaptiveThinking`` on
+# the built-in rows. Catalog construction passes that compat flag explicitly
+# (Pi's runtime gate); the markers only decide for a directly constructed
+# adapter. Bedrock uses its own runtime list (``providers.bedrock``).
+ANTHROPIC_ADAPTIVE_MODEL_MARKERS = (
+    "opus-4-6",
+    "opus-4.6",
+    "opus-4-7",
+    "opus-4.7",
+    "opus-4-8",
+    "opus-4.8",
+    "opus-5",
+    "opus.5",
+    "sonnet-4-6",
+    "sonnet-4.6",
+    "sonnet-5",
+    "sonnet.5",
+    "fable-5",
+    "mythos-5",
+)
 # Adaptive effort accepts low/medium/high/xhigh/max; minimal clamps to low
-# (Pi: mapThinkingLevelToEffort). Other levels pass through unchanged.
+# (Pi: mapThinkingLevelToEffort). Other levels, including ``max``, pass through.
 ANTHROPIC_ADAPTIVE_EFFORT = {"minimal": "low"}
 
 
 def supports_adaptive_thinking(model_id: str) -> bool:
-    """Whether ``model_id`` takes adaptive thinking rather than the budget path.
+    """Whether ``model_id`` matches Pi's adaptive-thinking Claude families.
 
-    Substring match on the lowered id against the adaptive Claude families
-    (Pi: ``supportsAdaptiveThinking`` / ``compat.forceAdaptiveThinking``).
+    Substring match on the lowered id (Pi: ``isAnthropicAdaptiveThinkingModel``).
     """
 
     lowered = model_id.lower()
@@ -74,14 +90,14 @@ def supports_adaptive_thinking(model_id: str) -> bool:
 def _apply_anthropic_thinking(
     body: dict[str, Any],
     *,
-    model_id: str,
+    adaptive: bool,
     reasoning_effort: str | None,
     thinking_disabled: bool,
 ) -> None:
     """Mutate ``body`` with Anthropic's model-specific thinking wire shape."""
 
     if reasoning_effort is not None:
-        if supports_adaptive_thinking(model_id):
+        if adaptive:
             body["thinking"] = {
                 "type": "adaptive",
                 "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
@@ -115,6 +131,7 @@ def _build_anthropic_request_body(
     deferred_tools: tuple[ToolDefinition, ...],
     reasoning_effort: str | None,
     thinking_disabled: bool,
+    adaptive: bool,
 ) -> dict[str, Any]:
     """Build the Messages body, including Anthropic-specific thinking shapes."""
 
@@ -143,7 +160,7 @@ def _build_anthropic_request_body(
 
     _apply_anthropic_thinking(
         body,
-        model_id=model_id,
+        adaptive=adaptive,
         reasoning_effort=reasoning_effort,
         thinking_disabled=thinking_disabled,
     )
@@ -197,6 +214,10 @@ class AnthropicProvider:
     # in that case rather than omitting the key; mutually exclusive with
     # ``reasoning_effort`` (see provider_construction.resolve_construction).
     thinking_disabled: bool = False
+    # Pi's ``compat.forceAdaptiveThinking`` gate, resolved by catalog
+    # construction (always a bool there). ``None`` — only for a directly
+    # constructed adapter — falls back to the id-marker predicate.
+    force_adaptive_thinking: bool | None = None
     supports_tool_references: bool = False
 
     @property
@@ -249,12 +270,18 @@ class AnthropicProvider:
             immediate_tools = deferred_tools
             deferred_tools = ()
         # Anthropic-native thinking. Pi switches the adaptive Claude models
-        # (Opus 4.6/4.7/4.8, Sonnet 4.6 — compat.forceAdaptiveThinking) to the
-        # adaptive shape (``type: adaptive`` + ``output_config.effort``) and uses
-        # the ``type: enabled``/``budget_tokens`` path for older reasoning models;
-        # we mirror that split. ``display`` is forced to "summarized" on both
-        # paths, matching Pi (anthropic.ts:954, :969-973), so the adaptive models
-        # (API default "omitted") still return a thinking summary.
+        # (``compat.forceAdaptiveThinking``: Opus 4.6+, Opus/Sonnet 5.x, Sonnet
+        # 4.6, Fable/Mythos 5) to the adaptive shape (``type: adaptive`` +
+        # ``output_config.effort``) and uses the ``type: enabled``/
+        # ``budget_tokens`` path for older reasoning models; we mirror that
+        # split. ``display`` is forced to "summarized" on both paths, matching Pi
+        # (anthropic.ts:954, :969-973), so the adaptive models (API default
+        # "omitted") still return a thinking summary.
+        adaptive = (
+            self.force_adaptive_thinking
+            if self.force_adaptive_thinking is not None
+            else supports_adaptive_thinking(self.model_id)
+        )
         body = _build_anthropic_request_body(
             request,
             model_id=self.model_id,
@@ -263,6 +290,7 @@ class AnthropicProvider:
             deferred_tools=deferred_tools,
             reasoning_effort=self.reasoning_effort,
             thinking_disabled=self.thinking_disabled,
+            adaptive=adaptive,
         )
         headers = {
             "anthropic-version": self.anthropic_version,

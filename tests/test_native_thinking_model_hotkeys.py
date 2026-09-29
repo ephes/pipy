@@ -105,13 +105,14 @@ def _cycle(session, state, tree, count) -> list[str | None]:
 
 class TestThinkingCycle:
     def test_cycles_through_pi_levels(self, tmp_path: Path) -> None:
-        # gpt-5.5 maps xhigh, so the model-aware cycle now includes it (Pi's
-        # getSupportedThinkingLevels), then wraps back to off.
+        # Pi's openai gpt-5.5 row maps xhigh and maps minimal/max to null, so
+        # the model-aware cycle (Pi's getSupportedThinkingLevels) skips minimal,
+        # includes xhigh, then wraps back to off.
         state = _state(tmp_path, "gpt-5.5")
         session = _session(state)
         tree = _tree(tmp_path)
-        seen = _cycle(session, state, tree, 6)
-        assert seen == ["minimal", "low", "medium", "high", "xhigh", "off"]
+        seen = _cycle(session, state, tree, 5)
+        assert seen == ["low", "medium", "high", "xhigh", "off"]
 
     def test_sol_cycle_reaches_xhigh_then_max(self, tmp_path: Path) -> None:
         state = _codex_state(tmp_path, "gpt-5.6-sol")
@@ -121,12 +122,14 @@ class TestThinkingCycle:
         assert seen == ["minimal", "low", "medium", "high", "xhigh", "max", "off"]
 
     def test_model_without_extended_levels_stops_at_high(self, tmp_path: Path) -> None:
-        # gpt-5.1-codex maps only the ordinary tier — no xhigh/max appended.
+        # gpt-5.1-codex maps only the ordinary tier — no xhigh/max appended —
+        # and maps off to None, so (Pi getSupportedThinkingLevels) off is not
+        # offered either and the cycle wraps high -> minimal.
         state = _codex_state(tmp_path, "gpt-5.1-codex")
         session = _session(state)
         tree = _tree(tmp_path)
-        seen = _cycle(session, state, tree, 6)
-        assert seen == ["minimal", "low", "medium", "high", "off", "minimal"]
+        seen = _cycle(session, state, tree, 5)
+        assert seen == ["minimal", "low", "medium", "high", "minimal"]
 
     def test_appends_thinking_level_change_entry(self, tmp_path: Path) -> None:
         state = _state(tmp_path, "gpt-5.5")
@@ -144,7 +147,7 @@ class TestThinkingCycle:
             if getattr(entry, "type", "") == "thinking_level_change"
         ]
         assert entries
-        assert getattr(entries[-1], "thinking_level", None) == "minimal"
+        assert getattr(entries[-1], "thinking_level", None) == "low"
 
     def test_non_reasoning_model_reports_unsupported(self, tmp_path: Path) -> None:
         state = _state(tmp_path, "gpt-4o")  # gpt-4o has reasoning=False

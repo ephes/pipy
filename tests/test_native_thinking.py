@@ -7,7 +7,9 @@ from pipy_harness.native.thinking import (
     available_thinking_levels,
     clamp_thinking_level,
     map_thinking_level,
-    resolve_codex_effort,
+    next_thinking_level,
+    resolve_responses_reasoning,
+    responses_off_effort,
     supported_thinking_levels,
     validate_thinking_level,
 )
@@ -73,8 +75,8 @@ def test_supported_levels_derived_from_map():
 
 # ---- available_thinking_levels / clamp (Pi getSupportedThinkingLevels) -------
 
+# Pi's Codex Sol row has no ``off`` key (off-state sends "none").
 _SOL_MAP = {
-    "off": None,
     "minimal": "low",
     "low": "low",
     "medium": "medium",
@@ -83,7 +85,6 @@ _SOL_MAP = {
     "max": "max",
 }
 _XHIGH_MAP = {
-    "off": None,
     "minimal": "minimal",
     "low": "low",
     "medium": "medium",
@@ -132,15 +133,66 @@ def test_clamp_walks_forward_then_backward():
     )
     assert clamp_thinking_level(ordinary, "xhigh") == "high"
     assert clamp_thinking_level(ordinary, "max") == "high"
-    assert clamp_thinking_level(ordinary, "off") == "off"
+    # ``off: None`` removes ``off`` (Pi getSupportedThinkingLevels), so a stored
+    # ``off`` clamps forward to the first offered level.
+    assert clamp_thinking_level(ordinary, "off") == "minimal"
     assert clamp_thinking_level(ordinary, "low") == "low"
 
 
-def test_resolve_codex_effort_clamp_then_map():
+def test_resolve_responses_reasoning_clamp_then_map():
     sol = _model(True, _SOL_MAP)
-    assert resolve_codex_effort(sol, "max") == "max"
-    assert resolve_codex_effort(sol, "minimal") == "low"  # non-identity Pi map
-    assert resolve_codex_effort(sol, "off") is None
-    assert resolve_codex_effort(sol, None) is None
+    assert resolve_responses_reasoning(sol, "max") == ("max", False)
+    # non-identity Pi map
+    assert resolve_responses_reasoning(sol, "minimal") == ("low", False)
+    # off-state: no ``off`` key -> Pi's ``map.off ?? "none"``
+    assert resolve_responses_reasoning(sol, "off") == ("none", True)
+    # unset keeps the provider default (no thinking field)
+    assert resolve_responses_reasoning(sol, None) == (None, False)
     # stored max on an xhigh-only model clamps to xhigh (Pi request-path clamp)
-    assert resolve_codex_effort(_model(True, _XHIGH_MAP), "max") == "xhigh"
+    assert resolve_responses_reasoning(_model(True, _XHIGH_MAP), "max") == (
+        "xhigh",
+        False,
+    )
+    # a non-reasoning model never gets a thinking field
+    assert resolve_responses_reasoning(_model(False, None), "high") == (None, False)
+    assert resolve_responses_reasoning(_model(False, None), "off") == (None, False)
+
+
+def test_responses_off_effort_distinguishes_missing_string_and_null_off():
+    assert responses_off_effort(_model(True, {"high": "high"})) == "none"
+    assert responses_off_effort(_model(True, {"off": "minimal"})) == "minimal"
+    assert responses_off_effort(_model(True, {"off": None})) is None
+
+
+def test_responses_reasoning_off_on_off_null_row_is_omitted():
+    astra = _model(True, {"off": None, "minimal": None, "low": "low", "max": "max"})
+    assert resolve_responses_reasoning(astra, "off") == (None, True)
+    # minimal: null clamps forward to low (Pi clampThinkingLevel)
+    assert resolve_responses_reasoning(astra, "minimal") == ("low", False)
+
+
+def test_available_levels_drop_off_when_mapped_to_none():
+    fable = _model(True, {"off": None, "xhigh": "xhigh", "max": "max"})
+    assert available_thinking_levels(fable) == [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert clamp_thinking_level(fable, "off") == "minimal"
+
+
+def test_next_thinking_level_cycles_like_pi():
+    with_off = ["off", "minimal", "low"]
+    assert next_thinking_level(with_off, "low") == "off"
+    assert next_thinking_level(with_off, None) == "minimal"
+    # a stored level the model does not offer (e.g. max after a switch) takes
+    # Pi's index -1 path to levels[0]
+    assert next_thinking_level(with_off, "max") == "off"
+    off_less = ["minimal", "low", "high"]
+    # Pi index -1 path: a current level the model does not offer -> levels[0]
+    assert next_thinking_level(off_less, "off") == "minimal"
+    assert next_thinking_level(off_less, None) == "minimal"
+    assert next_thinking_level(off_less, "high") == "minimal"

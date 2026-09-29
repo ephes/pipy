@@ -2979,22 +2979,23 @@ def test_pty_thinking_and_model_cycle_hotkeys(
 
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
-        # Shift+Tab cycles the thinking level off -> minimal (no provider turn).
-        minimal_start = len(output_bytes(err_chunks))
-        os.write(in_master, b"\x1b[Z")
-        assert (
-            wait_for_input_ready_after(
-                err_chunks, "thinking level: minimal", after=minimal_start
-            )
-            is not None
-        ), f"{label}: shift+tab did not return to ready input"
-        assert provider.calls == 0, f"{label}: thinking cycle ran a provider turn"
-        # Shift+Tab again -> low; the footer effort label tracks the runtime level.
+        # Shift+Tab cycles the thinking level off -> low (no provider turn);
+        # Pi's openai gpt-5.5 row maps minimal to null, so minimal is skipped.
         low_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\x1b[Z")
         assert (
             wait_for_input_ready_after(
                 err_chunks, "thinking level: low", after=low_start
+            )
+            is not None
+        ), f"{label}: shift+tab did not return to ready input"
+        assert provider.calls == 0, f"{label}: thinking cycle ran a provider turn"
+        # Shift+Tab again -> medium; the footer effort label tracks the level.
+        medium_start = len(output_bytes(err_chunks))
+        os.write(in_master, b"\x1b[Z")
+        assert (
+            wait_for_input_ready_after(
+                err_chunks, "thinking level: medium", after=medium_start
             )
             is not None
         ), f"{label}: second shift+tab did not return to ready input"

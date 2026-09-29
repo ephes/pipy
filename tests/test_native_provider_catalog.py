@@ -61,11 +61,14 @@ def test_gpt_5_6_sol_row_pinned():
     assert sol.display_name == "GPT-5.6 Sol (Codex/ChatGPT)"
     assert sol.reasoning is True
     assert "image" in sol.input
-    assert sol.context_window == 372_000
+    # Pi 35f12c8c7 corrected the Codex Sol context window to 272K.
+    assert sol.context_window == 272_000
     assert sol.max_tokens == 128_000
-    # `max` is available and `minimal` maps to `low` (Pi's Sol row).
+    # `max` is available and `minimal` maps to `low` (Pi's Sol row); no `off`
+    # key, so the off-state sends Pi's default "none".
     assert sol.thinking_level_map.get("max") == "max"
     assert sol.thinking_level_map.get("minimal") == "low"
+    assert "off" not in sol.thinking_level_map
     # GPT-5.5 stays the Codex default; no bare gpt-5.6 alias is added.
     assert default_model_per_provider["openai-codex"] == "gpt-5.5"
     assert catalog.find("openai-codex", "gpt-5.6") is None
@@ -76,9 +79,19 @@ def test_responses_tool_search_compat_matches_pi_rows() -> None:
     supported = {
         ("openai", "gpt-5.4"),
         ("openai", "gpt-5.5"),
-        ("openai-codex", "gpt-5.4"),
+        ("openai", "gpt-5.6-sol"),
+        ("openai", "gpt-5.6-terra"),
+        ("openai", "gpt-5.6-luna"),
+        ("openai", "gpt-6-sol"),
+        ("openai", "gpt-6-luna"),
+        ("openai", "gpt-6-astra"),
         ("openai-codex", "gpt-5.5"),
         ("openai-codex", "gpt-5.6-sol"),
+        ("openai-codex", "gpt-5.6-terra"),
+        ("openai-codex", "gpt-5.6-luna"),
+        ("openai-codex", "gpt-6-sol"),
+        ("openai-codex", "gpt-6-luna"),
+        ("openai-codex", "gpt-6-astra"),
     }
     for provider in ("openai", "openai-codex"):
         for row in catalog.models_for(provider):

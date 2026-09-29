@@ -8,6 +8,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The built-in catalog now carries Pi's current frontier rows. Costs, context
+  windows, max tokens and thinking maps come from Pi's generator at
+  `4df157433`. The new rows are:
+  - Anthropic: Claude Opus/Sonnet 5.5, Opus/Sonnet 5, Fable 5/5.1, Opus 4.8 and
+    Haiku 4.5.
+  - OpenAI and Codex: GPT-6 Sol/Luna/Astra and GPT-5.6 Terra/Luna, plus
+    GPT-5.6 Sol on OpenAI.
+  - Google and Vertex: Gemini 3.5 Flash and 3.1 Flash Lite.
+  - Bedrock: `us.` mirrors of Claude 5.x, Fable 5, Opus 4.8 and Haiku 4.5.
+
+  Claude 5.x and Fable use adaptive thinking, and `max` reaches
+  `output_config.effort`. OpenRouter Claude rows are not mirrored yet, because
+  Pi routes them through an Anthropic-Messages transport that pipy lacks.
+
 - Terminal `/import` now stages its permissive copy through the existing
   presentation path, then adopts that durable copy through the native transition
   owner. The owner validates the current terminal lease before the switch hook,
@@ -324,6 +338,34 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Provider defaults now mirror Pi's `defaultModelPerProvider`:
+
+  | Provider | Default |
+  |---|---|
+  | anthropic | `claude-opus-4-8` |
+  | google and google-vertex | `gemini-3.1-pro-preview` |
+  | amazon-bedrock | `us.anthropic.claude-opus-4-6-v1` |
+  | azure-openai | `gpt-5.4` |
+  | openrouter | `moonshotai/kimi-k2.6` |
+  | cloudflare | `@cf/moonshotai/kimi-k2.6` |
+  | mistral | `devstral-medium-latest` |
+  | openai-completions | `gpt-5.5` |
+
+- Thinking now follows Pi's model rules:
+  - A new session starts at the settings `defaultThinkingLevel`, or `medium`
+    when that is unset, clamped to the startup model. Before, it started
+    unset. A model switch clamps the carried level to the new model.
+  - A level mapped to `null` is not offered. That includes `off` on models
+    that cannot switch thinking off.
+  - OpenAI Responses, Azure and Codex clamp an on-state level. An explicit
+    `off` sends `reasoning.effort: "none"` (or the row's own off value).
+  - Gemini clamps a level before mapping it.
+  - Anthropic uses adaptive thinking only for rows with
+    `compat.forceAdaptiveThinking: true`. Rows that cannot switch thinking off
+    never get `thinking:{type:"disabled"}`.
+- Existing catalog rows that Pi still ships now carry Pi's costs, context
+  windows and thinking maps. The retired Codex GPT-5.4 row is removed.
+
 - Custom commands, prompt templates, and extension commands can no longer be
   advertised in slash discovery or registered by an extension when their name
   collides with any built-in command. The reserved-name set now covers every
@@ -393,6 +435,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `pipy repl "<word>"` or `pipy -p "<word>"` to send it as a prompt instead.
 
 ### Fixed
+
+- Codex GPT-5.6 Sol now reports Pi's 272K context window, in the catalog
+  and in the footer meter. It previously reported 372K. The footer meter now
+  reads every built-in row's context window, formatted like Pi's footer.
+  Claude Sonnet 4.5/5.x show `1.0M`; the old hardcoded value was `200k`.
+- Shift+Tab no longer fails on a model that does not offer `off`.
 
 - Cross-provider product-session reopens now project each durable tool-call and
   result pair to matching target-safe provider wire IDs while retaining raw

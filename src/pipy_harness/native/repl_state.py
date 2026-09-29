@@ -502,7 +502,7 @@ class NativeReplProviderState:
         expected: NativeModelMutationState,
         reference: str,
         *,
-        clamp_thinking: bool = False,
+        clamp_thinking: bool = True,
     ) -> tuple[PreparedNativeModelMutation | None, str]:
         """Resolve and construct a model mutation without changing live state.
 
@@ -531,7 +531,11 @@ class NativeReplProviderState:
                 if selected_thinking is None
                 else selected_thinking
             )
-            if clamp_thinking:
+            # Pi ``setModel`` re-applies the carried level through
+            # ``setThinkingLevel``, which clamps it to the new model
+            # (agent-session.ts:2388-2405, 2523-2525). An explicit ``:level``
+            # suffix keeps pipy's existing pass-through.
+            if clamp_thinking and selected_thinking is None:
                 thinking_level = self.clamp_thinking_level(selection, thinking_level)
             provider = self._provider_for_prepared_selection(
                 selection, thinking_level=thinking_level
@@ -679,8 +683,9 @@ class NativeReplProviderState:
                 "medium",
                 "high",
             )
-            current = self.thinking_level if self.thinking_level in levels else "off"
-            next_level = levels[(levels.index(current) + 1) % len(levels)]
+            from pipy_harness.native.thinking import next_thinking_level
+
+            next_level = next_thinking_level(levels, self.thinking_level)
             self.thinking_level = next_level
             return next_level
 
