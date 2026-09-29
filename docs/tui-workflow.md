@@ -272,7 +272,7 @@ splicing a candidate at a stale offset.
 **Pipy target** (extends `repl_input.py` editor + `tui.py` live region, reusing
 `file_references.py`): add a pipy-owned autocomplete provider that detects an
 `@`-prefixed token at the cursor and offers a scored list of workspace-relative
-paths. Because pipy is stdlib-only and must not require `fd`, the candidate walk
+paths. Because pipy adds no dependency for this and must not require `fd`, the candidate walk
 uses `os.scandir`/`os.walk` with a bounded breadth (depth and entry caps) and a
 default-deny of `.git` and other ignored roots, matching the existing
 `ReadTool`/`file_references` path policy. Ranking mirrors Pi's `scoreEntry`:

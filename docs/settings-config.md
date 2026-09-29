@@ -214,7 +214,7 @@ errors).
   fields/nested keys, re-serialize). Pi guards writes with `proper-lockfile`
   (retrying ~10× with ~20ms backoff on `ELOCKED`); it does **not** use an
   atomic temp-rename or `chmod 0600` for `settings.json`.
-- pipy is stdlib-only, so it implements the lock with a sidecar lock file plus
+- pipy adds no locking dependency, so it implements the lock with a sidecar lock file plus
   bounded retry. pipy **may additionally choose** atomic temp-sibling-write +
   `chmod 0600` owner-private replacement, reusing the
   `PromptHistoryStore`/`NativeDefaultsStore` pattern — this is a pipy hardening

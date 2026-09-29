@@ -4,10 +4,14 @@ Python slop fork experiments for a coding-agent harness inspired by Pi and
 clean architecture.
 
 Pipy's product runtime is `pipy-native`: a Python runtime that owns provider
-access, tool boundaries, session semantics, and privacy-conscious archive
-metadata. Mentions of Codex, Claude Code, or Pi below refer to metadata
-capture or subprocess wrapping for external tools — they are not supported
-product runtime backends.
+access, tools, and the native session tree. The session tree is a private,
+full-content, append-only JSONL tree and the product's source of truth for
+resume, branching, compaction and export (see
+[`docs/session-tree.md`](docs/session-tree.md)). A separate, optional
+`pipy-session` archive records only summary-safe workflow metadata for learning
+and review; it is not the product session store. Mentions of Codex, Claude
+Code, or Pi below refer to metadata capture or subprocess wrapping for external
+tools — they are not supported product runtime backends.
 
 New users should start with [`docs/quickstart.md`](docs/quickstart.md) and
 [`docs/usage.md`](docs/usage.md). For the design rationale, runtime diagrams,
@@ -535,7 +539,9 @@ These surfaces are specified in `docs/tui-workflow.md` and gated by
 
 ### What pipy-native records — and doesn't
 
-By default the harness stores only safe lifecycle metadata: agent, adapter,
+Interactive product sessions keep the full conversation in the private native
+session tree under `~/.local/state/pipy/native-sessions/`. The workflow archive
+stores only safe lifecycle metadata: agent, adapter,
 provider/model labels, run id, workspace basename + path hash, status, exit
 code, normalized usage counters (`input_tokens`, `output_tokens`,
 `total_tokens`, `cached_tokens`, `reasoning_tokens`), provider storage
@@ -543,7 +549,7 @@ booleans, safe tool-intent labels, approval/sandbox policy labels, and
 verification status. `--record-files` additionally records changed paths
 from `git status --porcelain`, redacting assignment-style secret values.
 
-It does **not** store raw prompts, model output, provider responses,
+The archive does **not** store raw prompts, model output, provider responses,
 provider-native tool-call payloads, function arguments, response ids that
 could reveal payloads, tool results, stdout, stderr, diffs, file contents,
 secrets, credentials, tokens, private keys, or sensitive personal data.

@@ -169,8 +169,8 @@ Non-interactively:
   session file (or active branch of one) to HTML and exit, matching Pi's
   `--export`.
 
-For distribution and self-update, a stdlib-only `uv`/pip/pipx-installed pipy
-can:
+For distribution and self-update, a `uv`/pip/pipx-installed pipy (whose only
+runtime dependency is `websockets`) can:
 
 - check for a newer published version (opt-out via env),
 - print install-method-aware upgrade instructions, and
@@ -358,9 +358,9 @@ Pi's `handleShareCommand`:
 
 ### Pipy stdlib adaptation
 
-Pipy is stdlib-only and does not depend on the `gh` binary, so it deliberately
-diverges on transport while matching the user-visible outcome (secret gist
-created, share URL printed):
+Pipy adds no runtime dependency for sharing and does not depend on the `gh`
+binary, so it deliberately diverges on transport while matching the
+user-visible outcome (secret gist created, share URL printed):
 
 1. **Auth resolution.** Resolve a GitHub token without ever exporting or logging
    it:
@@ -548,8 +548,8 @@ here.
 
 ### Install documentation
 
-Add install docs to `README.md` and a quickstart, covering stdlib-only,
-dependency-light installs:
+Add install docs to `README.md` and a quickstart, covering
+dependency-light installs (`websockets` is the only runtime dependency):
 
 ```sh
 # Recommended from a local checkout during development
