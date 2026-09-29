@@ -19,8 +19,79 @@ temporary per-run catalog rows and construct through their registered
 fully wired for current provider sources (only documented adapter follow-ons
 remain — see below).
 
+The 2026-09-29 model-currency refresh against Pi `4df157433` makes the
+built-in rows, defaults and thinking maps current. Every value comes from Pi's
+generator (`packages/ai/scripts/generate-models.ts` run against models.dev).
+
+- **New rows.**
+  - anthropic: Claude Opus/Sonnet 5.5, Opus/Sonnet 5, Fable 5/5.1, Opus 4.8
+    and Haiku 4.5.
+  - openai and openai-codex: GPT-6 Sol/Luna/Astra and GPT-5.6 Terra/Luna. The
+    OpenAI Responses provider also gets GPT-5.6 Sol.
+  - google and google-vertex: Gemini 3.5 Flash and 3.1 Flash Lite.
+  - amazon-bedrock: Bedrock `us.` mirrors of the Claude 5.x, Fable 5, Opus 4.8
+    and Haiku 4.5 rows.
+- **Corrected rows.** Existing rows Pi still ships (openai and Codex GPT-5.5,
+  GPT-5.4, Opus 4.7, Sonnet 4.5, Gemini 3.1 Pro, and others) now carry Pi's
+  cost, context window and thinking map. Codex GPT-5.6 Sol is back to Pi's 272K
+  context (Pi `35f12c8c7`), and the footer meter follows. The retired Codex
+  GPT-5.4 row is gone (Pi `2e6fe2f98`).
+- **Defaults.** Every provider default now mirrors Pi's
+  `defaultModelPerProvider`:
+
+  | Provider | Default |
+  |---|---|
+  | anthropic | `claude-opus-4-8` |
+  | google and google-vertex | `gemini-3.1-pro-preview` |
+  | amazon-bedrock | `us.anthropic.claude-opus-4-6-v1` |
+  | azure-openai | `gpt-5.4` |
+  | openrouter | `moonshotai/kimi-k2.6` |
+  | cloudflare | `@cf/moonshotai/kimi-k2.6` |
+  | mistral | `devstral-medium-latest` |
+  | openai-completions | `gpt-5.5` |
+
+  `openai-completions` is a pipy-only provider name, so it takes Pi's `openai`
+  default.
+- **Thinking maps follow Pi's `null` semantics.** A level mapped to `null` is
+  not offered, and that now includes `off`. Claude Fable 5, Opus 5 and Opus or
+  Sonnet 5.5, GPT-6 Astra, Azure GPT-5.4 and Gemini 3.x cannot switch thinking
+  off. Shift+Tab skips unavailable levels, as in Pi.
+- **OpenAI Responses, Azure and Codex.** An on-state level is clamped and then
+  mapped, as Pi does at request time. An explicit `off` sends Pi's off-state
+  `reasoning: {effort: map.off ?? "none"}` without a summary. It sends no
+  `reasoning` field when the row maps `off` to `null`.
+- **Google and Vertex** clamp a level before mapping it.
+- **Anthropic adaptive thinking** follows Pi's runtime gate: explicit
+  `compat.forceAdaptiveThinking: true`. Built-in adaptive rows carry that flag,
+  so a `models.json` row needs it to use the adaptive path. `max` reaches
+  `output_config.effort`. The explicit `thinking:{type:"disabled"}` is skipped
+  for rows that map `off` to `null`.
+- **Bedrock** uses Pi's runtime adaptive list: Opus 4.6+, Opus 5, Sonnet 4.6
+  and 5, and Fable 5.
+- **Startup thinking level.** The initial level is `--thinking` ?? settings
+  `defaultThinkingLevel` ?? `medium`, as in Pi. It is clamped to the startup
+  model, so a fresh session on the anthropic default gets medium adaptive
+  thinking. A model switch clamps the carried level to the new model, as Pi
+  `setModel` does through `setThinkingLevel`. An explicit `:level` suffix keeps
+  pipy's pass-through.
+- **Footer context meter.** The meter reads the built-in row's context window
+  and formats it like Pi's footer (`272k`, `1.0M`).
+
+Known deviations, owned by later slices:
+
+- **OpenRouter Claude rows.** Pi routes them through `anthropic-messages` over
+  OpenRouter; pipy has no such transport.
+- **Anthropic mid-conversation managed effort.** On Pi rows with
+  `supportsMidConvoEffort`, Pi sends `configuration_update` system messages.
+- **No clamp on an explicit `/model provider/model:level` suffix.** Pi clamps
+  it, while pipy passes it through.
+- **The Responses on-state keeps pipy's `{effort}` shape.** Pi adds
+  `summary`/`include`.
+- **Prompt caching and pricing tiers are not carried.** This covers prompt
+  caching metadata, long-context pricing tiers and refusal fallback models.
+
 The 2026-07-14 refresh against Pi `0.80.6` shipped GPT-5.6 Sol
-(`openai-codex/gpt-5.6-sol`, 372K context, image input) plus model-aware `max`
+(`openai-codex/gpt-5.6-sol`, image input) plus model-aware `max`
 thinking: the vocabulary is now `off|minimal|low|medium|high|xhigh|max`, the
 Codex request clamps an unsupported stored level to the nearest supported one and
 emits it as `reasoning.effort` (Pi's per-request `clampThinkingLevel`), and
@@ -62,9 +133,11 @@ openai-completions) construct from the catalog via `native/provider_construction
   `providerOptions.gateway` (gated on `only`/`order`) reach the request body for
   the completions family via `extra_body`.
 - **Thinking** (`native/thinking.py`): seven-level validation + per-model mapping
-  (`off|minimal|low|medium|high|xhigh|max`), with a Codex-scoped clamp
-  (`clamp_thinking_level`/`resolve_codex_effort`) mirroring Pi's request-path
-  `clampThinkingLevel`;
+  (`off|minimal|low|medium|high|xhigh|max`), with Pi's
+  `getSupportedThinkingLevels`/`clampThinkingLevel` (`available_thinking_levels`/
+  `clamp_thinking_level`, where a `null` map entry, including `off`, removes the
+  level) and a Responses-family clamp-then-map plus off-state
+  (`resolve_responses_reasoning`) shared by OpenAI, Azure and Codex;
   the mapped value reaches the request as `reasoning_effort` (OpenAI-style) or
   nested `reasoning.effort` (OpenRouter) for the completions family.
 - **Auth** (`native/auth_store.py`): owner-only auth store, `resolve_config_value`
@@ -154,8 +227,9 @@ Tier 3 catalog construction (shipped 2026-06-03):
   provider_name + merged headers, plus thinking for bedrock (Bedrock Claude
   speaks the Anthropic body, so thinking is placed at the body top level:
   adaptive thinking — `thinking:{type:"adaptive"}` + `output_config.effort` — for
-  the adaptive Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6, per Pi's
-  `supportsAdaptiveThinking`), and the `thinking.budget_tokens` path otherwise;
+  the adaptive Claude models (Opus 4.6/4.7/4.8, Opus 5.x, Sonnet 4.6/5.x,
+  Fable 5, per Pi's bedrock runtime `supportsAdaptiveThinking` list), and the
+  `thinking.budget_tokens` path otherwise;
   both paths force `display:"summarized"` except on GovCloud targets).
   Custom bedrock headers are merged into the SigV4-signed request with the
   reserved `authorization`/`host`/`x-amz-*` set dropped so they cannot collide
@@ -199,14 +273,17 @@ Remaining adapter/product follow-ons:
   conformance item 22 (22c/22e). Native service-account JWT signing for the ADC
   path remains a future extension.
 - Anthropic-messages adaptive thinking has shipped: the `anthropic-messages`
-  adapter now switches the adaptive Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6,
-  per Pi's `compat.forceAdaptiveThinking`) to the adaptive
-  `thinking: {type: "adaptive"}` + `output_config.effort` shape, and keeps the
-  `thinking.budget_tokens` path for older reasoning Claude models. Both paths
-  send `display: "summarized"` (Pi forces this; the adaptive models' API default
-  is `"omitted"`). The adaptive model markers, the `minimal -> low` effort clamp,
-  and `supports_adaptive_thinking` are shared with the bedrock adapter from
-  `providers/anthropic_messages`. The bedrock adapter now also forces
+  adapter switches rows with `compat.forceAdaptiveThinking: true` (Pi's runtime
+  gate; the built-in Opus 4.7+/5.x, Sonnet 5.x and Fable 5 rows carry it) to the
+  adaptive `thinking: {type: "adaptive"}` + `output_config.effort` shape (`max`
+  passes through), and keeps the `thinking.budget_tokens` path for other
+  reasoning Claude models, including an unflagged custom `models.json` id. Both
+  paths send `display: "summarized"` (Pi forces this; the adaptive models' API
+  default is `"omitted"`). The id markers (Pi's generator predicate
+  `isAnthropicAdaptiveThinkingModel`) decide only for a directly constructed
+  adapter. The `minimal -> low` effort clamp is shared with the bedrock adapter,
+  which matches Pi's own bedrock runtime marker list
+  (`BEDROCK_ADAPTIVE_MODEL_MARKERS`). The bedrock adapter now also forces
   `display: "summarized"` on both its adaptive and budget thinking paths,
   omitting it only on GovCloud targets (configured region `us-gov-*`, or a model
   id starting `us-gov.` / `arn:aws-us-gov:`, whose Converse schema rejects the
@@ -223,7 +300,9 @@ Remaining adapter/product follow-ons:
   level, mutually exclusive with `reasoning_effort`) into the adapter; an
   unsupported thinking level on a reasoning model stays out of the disabled
   branch (Pi treats that as still-thinking-and-clamp), and non-reasoning models
-  still omit `thinking` entirely. The **bedrock** adapter is intentionally **not**
+  still omit `thinking` entirely. A row that maps `off` to `null` (Fable 5,
+  Opus 5, Opus/Sonnet 5.5) never gets the disabled shape (Pi's
+  `map.off !== null` gate). The **bedrock** adapter is intentionally **not**
   changed: Pi's `buildAdditionalModelRequestFields` returns `undefined` (omits the
   thinking fields) when reasoning is off/unset or the model is non-reasoning
   (amazon-bedrock.ts:943-949) — it has no disabled shape — and pipy's bedrock
@@ -566,8 +645,10 @@ interface Model<TApi> {
 ```
 
 `defaultModelPerProvider` (model-resolver.ts) maps each known provider to its
-default model id (e.g. `anthropic -> claude-opus-4-7`, `openai-codex ->
-gpt-5.5`, `openrouter -> moonshotai/kimi-k2.6`).
+default model id (e.g. `anthropic -> claude-opus-4-8`, `openai-codex ->
+gpt-5.5`, `openrouter -> moonshotai/kimi-k2.6` at Pi `4df157433`). pipy's
+`default_model_per_provider` and the provider registry defaults mirror it
+exactly; `tests/test_native_model_currency.py` pins both.
 
 Pipy target:
 

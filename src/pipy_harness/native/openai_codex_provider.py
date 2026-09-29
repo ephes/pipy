@@ -827,6 +827,10 @@ class OpenAICodexResponsesProvider:
     # the REPL provider boundary from the current model + thinking level (clamped
     # and mapped); ``None`` omits ``effort`` and keeps the Pi-forced summary only.
     reasoning_effort: str | None = None
+    # ``True`` when the stored level resolved to Pi's off-state: then
+    # ``reasoning_effort`` is the off effort (``"none"`` or the row's
+    # ``map.off``) sent without a summary, and ``None`` omits ``reasoning``.
+    reasoning_off: bool = False
     retry_policy: "RetryPolicy" = field(
         default_factory=lambda: RetryPolicy(
             max_attempts=4,
@@ -1175,6 +1179,27 @@ def _codex_completion_configuration(
     )
 
 
+def _codex_reasoning_field(
+    provider: OpenAICodexResponsesProvider,
+) -> dict[str, str] | None:
+    """Codex ``reasoning`` field for the on-, off- and unset thinking states.
+
+    Pi ``openai-codex-responses.ts:582-597``: an on-state effort sends
+    ``{effort, summary: "auto"}``; the off-state sends ``{effort: map.off ??
+    "none"}`` with no summary, or omits the field when the model maps ``off``
+    to ``null``. An unset level (pipy-only; Pi always has one) keeps the
+    Pi-forced summary with no effort, the pre-existing provider-default shape.
+    """
+
+    if provider.reasoning_off:
+        if provider.reasoning_effort is None:
+            return None
+        return {"effort": provider.reasoning_effort}
+    if provider.reasoning_effort is not None:
+        return {"summary": "auto", "effort": provider.reasoning_effort}
+    return {"summary": "auto"}
+
+
 def _codex_request_body(
     provider: OpenAICodexResponsesProvider,
     request: ProviderRequest,
@@ -1194,14 +1219,12 @@ def _codex_request_body(
         "stream": True,
         "text": {"verbosity": "low"},
         "include": ["reasoning.encrypted_content"],
-        "reasoning": (
-            {"summary": "auto", "effort": provider.reasoning_effort}
-            if provider.reasoning_effort is not None
-            else {"summary": "auto"}
-        ),
+        "reasoning": _codex_reasoning_field(provider),
         "tool_choice": "auto",
         "parallel_tool_calls": True,
     }
+    if body["reasoning"] is None:
+        del body["reasoning"]
     if immediate_tools:
         body["tools"] = [serialize_tool_for_responses(tool) for tool in immediate_tools]
     return body

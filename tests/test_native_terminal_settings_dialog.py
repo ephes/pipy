@@ -508,11 +508,12 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
     assert ui.components.transcript.tools_expanded is True
     assert ui.components.transcript.thinking_hidden is True
     assert settings.get_hide_thinking_block() is True
-    assert state.current_thinking_level() == "minimal"
+    # Pi's openai gpt-5.5 row maps minimal to null: the cycle after off is low.
+    assert state.current_thinking_level() == "low"
     thinking_entries = [
         entry for entry in tree.entries if isinstance(entry, ThinkingLevelChangeEntry)
     ]
-    assert [entry.thinking_level for entry in thinking_entries] == ["minimal"]
+    assert [entry.thinking_level for entry in thinking_entries] == ["low"]
     assert not any(isinstance(entry, ModelChangeEntry) for entry in tree.entries)
     # Characterized gap: the dialog currently updates only the history cache;
     # the settings source-of-truth remains unchanged.

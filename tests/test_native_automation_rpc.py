@@ -443,10 +443,12 @@ def test_cycle_thinking_level_refreshes_live_provider_binding(
             lambda record: record.get("type") == "thinking_level_changed"
         )
         assert adapter.provider_state is not None
-        assert adapter.provider_state.current_thinking_level() == "minimal"
+        # Pi's openai gpt-5.5 row maps minimal to null, so the cycle after
+        # off is low.
+        assert adapter.provider_state.current_thinking_level() == "low"
         assert (
             getattr(client.adapter._current_provider(), "reasoning_effort", None)
-            == "minimal"
+            == "low"
         )
     finally:
         client.close()

@@ -180,9 +180,10 @@ def test_construct_codex_tool_search_is_model_specific(tmp_path: Path) -> None:
 
 def test_thinking_levels_reflect_catalog_row(tmp_path: Path) -> None:
     runtime = ModelRuntime(catalog=_catalog(tmp_path, env={"OPENAI_API_KEY": "sk"}))
-    # gpt-5.5 maps xhigh -> the cycle includes it (Pi's getSupportedThinkingLevels).
+    # Pi's gpt-5.5 maps xhigh and maps minimal/max to null -> the cycle
+    # (Pi's getSupportedThinkingLevels) includes xhigh and skips minimal.
     levels = runtime.thinking_levels(NativeModelSelection("openai", "gpt-5.5"))
-    assert levels == ["off", "minimal", "low", "medium", "high", "xhigh"]
+    assert levels == ["off", "low", "medium", "high", "xhigh"]
 
 
 def test_thinking_levels_fallback_when_spec_absent(tmp_path: Path) -> None:

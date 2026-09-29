@@ -484,14 +484,14 @@ def test_auto_default_priority_preserves_hosted_provider_preference(
             "ANTHROPIC_API_KEY": "anthropic-key",
         },
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
-    ) == NativeModelSelection("anthropic", "claude-3-5-sonnet-20241022")
+    ) == NativeModelSelection("anthropic", "claude-opus-4-8")
     assert auto_default_selection(
         env={
             "OPENROUTER_API_KEY": "openrouter-key",
             "GEMINI_API_KEY": "gemini-key",
         },
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
-    ) == NativeModelSelection("google", "gemini-2.0-flash-exp")
+    ) == NativeModelSelection("google", "gemini-3.1-pro-preview")
 
 
 def test_catalog_backed_model_options_and_select(tmp_path, monkeypatch):
@@ -954,9 +954,13 @@ def test_codex_provider_clamps_unsupported_max_to_xhigh(tmp_path):
     assert repl_state.current_provider().reasoning_effort == "xhigh"
 
 
-def test_codex_provider_omits_effort_when_off(tmp_path):
+def test_codex_provider_sends_pi_off_state_effort_when_off(tmp_path):
+    # Pi openai-codex-responses.ts:595-597: the off-state sends
+    # reasoning.effort = map.off ?? "none" (Sol has no ``off`` key).
     repl_state, _ = _codex_repl_state(tmp_path, "gpt-5.6-sol", "off")
-    assert repl_state.current_provider().reasoning_effort is None
+    provider = repl_state.current_provider()
+    assert provider.reasoning_effort == "none"
+    assert provider.reasoning_off is True
 
 
 def test_codex_provider_omits_effort_when_no_level(tmp_path):

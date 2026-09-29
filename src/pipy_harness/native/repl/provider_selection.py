@@ -585,10 +585,9 @@ class ProviderMutationEffects:
         levels = tuple(state.model_runtime.thinking_levels(snapshot.selection))
         if len(levels) <= 1:
             return None
-        current = (
-            snapshot.thinking_level if snapshot.thinking_level in levels else "off"
-        )
-        level = levels[(levels.index(current) + 1) % len(levels)]
+        from pipy_harness.native.thinking import next_thinking_level
+
+        level = next_thinking_level(levels, snapshot.thinking_level)
         return self._rpc_set_thinking_level(level, commit_if_true_idle)
 
     def extension_set_active_tools(
@@ -707,7 +706,7 @@ class ProviderMutationEffects:
         expected_binding: CodingProviderBinding,
         reference: str,
         *,
-        clamp_thinking: bool = False,
+        clamp_thinking: bool = True,
     ) -> tuple[_PreparedModelMutation | None, str]:
         """Complete every fallible model/provider preparation while unlocked."""
 

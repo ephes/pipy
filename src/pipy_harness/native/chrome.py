@@ -15,6 +15,7 @@ fallback SGR codes preserve the same intent.
 
 from __future__ import annotations
 
+import functools
 import os
 import re as _re
 import shutil
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TextIO
 
 from pipy_harness.native.repl_state import (
+    NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
 )
@@ -332,28 +334,61 @@ class _ContextBudget:
     budget_label: str
 
 
-_CODEX_GPT_5_5_BUDGET = _ContextBudget(token_budget=272_000, budget_label="272k")
-_CODEX_GPT_5_6_SOL_BUDGET = _ContextBudget(token_budget=372_000, budget_label="372k")
 _DEFAULT_CONTEXT_BUDGET = _ContextBudget(token_budget=128_000, budget_label="128k")
 
 
-def _context_budget_for(provider_name: str, model_id: str) -> _ContextBudget:
-    """Return the rough context-window budget label for the bottom status.
+def _format_footer_tokens(count: int) -> str:
+    """Pi footer ``formatTokens`` (footer.ts:25-31): 272000 -> 272k, 1e6 -> 1.0M."""
 
-    The mapping deliberately covers the providers/models that pipy is
-    tested against today. Unknown selections fall back to the safe
-    128k default so the meter still renders. Switching to authoritative
-    provider usage telemetry is a separate follow-up.
+    if count < 1_000:
+        return str(count)
+    if count < 10_000:
+        return f"{count / 1_000:.1f}k"
+    if count < 1_000_000:
+        return f"{round(count / 1_000)}k"
+    if count < 10_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    return f"{round(count / 1_000_000)}M"
+
+
+@functools.lru_cache(maxsize=1)
+def _builtin_context_windows() -> dict[tuple[str, str], int]:
+    from pipy_harness.native.catalog import build_builtin_catalog
+
+    return {
+        (row.provider_name, row.model_id): row.context_window
+        for row in build_builtin_catalog().get_all()
+    }
+
+
+def _context_budget_for(
+    provider_name: str,
+    model_id: str,
+    *,
+    declared_window: int | None = None,
+) -> _ContextBudget:
+    """Return the context-window budget and label for the bottom status.
+
+    Like Pi's footer (``state.model.contextWindow``), the denominator is the
+    active model's declared context window: ``declared_window`` is the resolved
+    catalog row the session uses (built-in plus ``models.json`` overrides). A
+    caller without a resolved row falls back to the built-in row, so a catalog
+    refresh (e.g. Codex GPT-5.6 Sol at 272K, Claude 5.x at 1M) still reaches the
+    meter. A selection with neither falls back to the safe 128k default so the
+    meter still renders; authoritative provider usage telemetry is a separate
+    follow-up.
     """
 
-    if provider_name == "openai-codex":
-        if model_id == "gpt-5.6-sol":
-            return _CODEX_GPT_5_6_SOL_BUDGET
-        if model_id.startswith("gpt-5"):
-            return _CODEX_GPT_5_5_BUDGET
-    if provider_name in {"anthropic"} and "sonnet" in model_id.lower():
-        return _ContextBudget(token_budget=200_000, budget_label="200k")
-    return _DEFAULT_CONTEXT_BUDGET
+    window = (
+        declared_window
+        if declared_window is not None
+        else _builtin_context_windows().get((provider_name, model_id))
+    )
+    if window is None or window <= 0:
+        return _DEFAULT_CONTEXT_BUDGET
+    return _ContextBudget(
+        token_budget=window, budget_label=_format_footer_tokens(window)
+    )
 
 
 def _effort_label_for(provider_name: str, model_id: str) -> str:
@@ -463,6 +498,17 @@ class _ChromeFooterEffects:
     footer: FooterComponent | None
     repl_runtime: _ReplRuntime
 
+    def _declared_context_window(self, provider_name: str, model_id: str) -> int | None:
+        """The resolved catalog row's declared window (models.json aware)."""
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return None
+        spec = state.model_runtime.resolve_spec(
+            NativeModelSelection(provider_name, model_id)
+        )
+        return spec.declared_context_window if spec is not None else None
+
     def _effort_label(self, provider_name: str, model_id: str) -> str:
         """Prefer the concrete provider state's live runtime thinking level."""
 
@@ -488,7 +534,11 @@ class _ChromeFooterEffects:
         usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> str:
         plan_label = "sub" if provider_name == "openai-codex" else "api"
-        budget = _context_budget_for(provider_name, model_id)
+        budget = _context_budget_for(
+            provider_name,
+            model_id,
+            declared_window=self._declared_context_window(provider_name, model_id),
+        )
         used_pct = self._context_used_pct(
             budget=budget,
             usage_snapshot=usage_snapshot,

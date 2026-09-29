@@ -45,9 +45,35 @@ Startup defaults to the deterministic fake provider so a checkout can smoke-test
 without network access. Choose a real provider at startup with:
 
 ```sh
-pipy --native-provider anthropic --native-model claude-3-5-sonnet-20241022
-pipy -p --native-provider openai --native-model gpt-4o-mini "summarize this repo"
+pipy --native-provider anthropic --native-model claude-sonnet-5-5
+pipy -p --native-provider openai --native-model gpt-6-sol "summarize this repo"
 ```
+
+With only `--native-provider`, pipy uses that provider's default model, which
+mirrors Pi's `defaultModelPerProvider`:
+
+| Provider | Default |
+|---|---|
+| anthropic | `claude-opus-4-8` |
+| openai and openai-codex | `gpt-5.5` |
+| google and google-vertex | `gemini-3.1-pro-preview` |
+| amazon-bedrock | `us.anthropic.claude-opus-4-6-v1` |
+| azure-openai | `gpt-5.4` |
+| openrouter | `moonshotai/kimi-k2.6` |
+| cloudflare | `@cf/moonshotai/kimi-k2.6` |
+| mistral | `devstral-medium-latest` |
+| openai-completions | `gpt-5.5` |
+
+The built-in catalog tracks Pi's current rows:
+
+| Provider | Models |
+|---|---|
+| Anthropic | Claude Opus/Sonnet 5.5, Opus/Sonnet 5, Fable 5/5.1, Opus 4.8/4.7, Sonnet 4.5, Haiku 4.5 |
+| OpenAI and Codex | GPT-6 Sol/Luna/Astra, GPT-5.6 Sol/Terra/Luna, GPT-5.5 |
+| Gemini | 3.1 Pro, 3.5 Flash, 3.1 Flash Lite |
+| Bedrock | `us.` Claude mirrors |
+
+`pipy --list-models` shows the full table.
 
 Inside the product TUI, use `/model` to open the provider/model selector or
 `/model provider/model` to switch directly. Unavailable rows stay visible with a
@@ -197,12 +223,25 @@ example. The convenience environment shim `PIPY_DS4_BASE_URL` and
 ## Thinking, images, and current limits
 
 The model table's `thinking` and `images` columns are capability metadata from
-the catalog. `--thinking off|minimal|low|medium|high|xhigh|max` stores the
-selected thinking level in local provider-selection state and the catalog
-construction layer maps shipped adapter families where supported. The two
-extended levels `xhigh` and `max` are honoured only by models that map them
-(e.g. `openai-codex/gpt-5.6-sol` maps both); Shift+Tab cycling and the Codex
-request-path clamp both follow that per-model support. Some provider-specific
+the catalog. `--thinking off|minimal|low|medium|high|xhigh|max` sets the level
+that the catalog construction layer maps to each adapter family.
+
+Without `--thinking`, a session starts at the settings `defaultThinkingLevel`,
+or at `medium` if that is unset, as in Pi. The level is clamped to what the
+startup model supports, and again on every model switch.
+
+Which levels a model offers follows Pi:
+
+- `xhigh` and `max` are offered only by models that map them. For example,
+  `openai-codex/gpt-6-sol` and `anthropic/claude-opus-5-5` map both.
+- A level a model maps to `null` is not offered. On models that cannot switch
+  thinking off, that includes `off`. Examples are Claude Fable 5, Claude
+  Opus/Sonnet 5.5, GPT-6 Astra and Gemini 3.x.
+
+Shift+Tab cycling and the OpenAI/Azure/Codex/Gemini request-path clamp follow
+this per-model support. On OpenAI Responses, Azure and Codex, `off` sends Pi's
+explicit `reasoning.effort: "none"` (or the row's own off value). No
+`reasoning` field is sent when the model cannot switch thinking off. Some provider-specific
 request shapes remain follow-up work; when a row or adapter cannot apply a
 level, pipy falls back safely rather than inventing unsupported parameters.
 
