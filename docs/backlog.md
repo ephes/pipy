@@ -150,7 +150,7 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - Reasoning text, tool-result details and durations are not stored, so
     restored history has no thinking blocks, extension result details or
     `Took Ns`.
-- **DF1-F4, retry UX:** fixed on `fix/f4-retry-visibility` (plan:
+- **DF1-F4b, what F4 left of retries:** F4 is merged (plan:
   `docs/parity-loop/plans/f4-retry-visibility.md`). Every provider is retried
   with Pi's classifier, also after partial output. The TUI shows `Error: ...`
   and `Retrying (n/3) in Ns... (escape to cancel)`. Codex `error` /
@@ -251,10 +251,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   advertisement and Pi's `<tools>`/`<rules>`/`<cwd>` prompt sections.
 - **Timing display:** response time and tok/s (tau `7b96883`) and tau's
   reactive model/thinking preview stay pipy product decisions; Pi has neither.
-- **Repo hygiene (owner):** the fully merged remote branches
-  `feat/catalog-non-completions`, `feat/extension-api` and
-  `feat/tui-interaction-comfort` can be deleted; four local stashes from
-  2026-07-01 to 2026-08-02 wait for an owner decision.
+- **Repo hygiene:** done 2026-09-29. The three merged remote branches were
+  deleted; the four stashes are kept as local `archive/stash-*` branches.
 
 ## Deferred and watch list
 
