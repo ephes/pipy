@@ -738,7 +738,10 @@ built-in). `thinkingLevelMap` and `compat` are deep-merged.
   (`openai`|`openrouter`|`together`|`deepseek`|`zai`|`qwen`|`qwen-chat-template`|`ant-ling`),
   `cacheControlFormat` (`anthropic`), `openRouterRouting`,
   `vercelGatewayRouting`, `supportsStrictMode`, `supportsLongCacheRetention`.
-- OpenAI Responses compat: `sendSessionIdHeader`, `supportsLongCacheRetention`.
+- OpenAI Responses compat: `sessionAffinityFormat`
+  (`openai`|`openai-nosession`|`openrouter`), `supportsLongCacheRetention`,
+  `supportsExplicitPromptCacheMode` (all read by the openai-responses adapter;
+  see [providers.md](providers.md#openai-prompt-caching)).
 - Anthropic Messages compat: `supportsEagerToolInputStreaming`,
   `supportsLongCacheRetention`, `sendSessionAffinityHeaders`,
   `supportsCacheControlOnTools`, `forceAdaptiveThinking`,

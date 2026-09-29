@@ -375,6 +375,10 @@ class _RequestPreparationEffects:
             messages=active_input.request_messages(context.messages),
             available_tools=available_tools,
             attachments=(accepted_turn.turn_attachments if turn_index == 0 else ()),
+            # Pi passes the current session's id on every agent turn for
+            # prompt-cache affinity; read per request so /new, /resume and
+            # /fork switch it.
+            session_id=scope.ctl.session_tree.session_id,
         )
 
 

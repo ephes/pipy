@@ -43,6 +43,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `output_config.effort`. OpenRouter Claude rows are not mirrored yet, because
   Pi routes them through an Anthropic-Messages transport that pipy lacks.
 
+- OpenAI prompt caching now follows Pi (`4df157433`), so consecutive turns in
+  one session can reuse the provider's prompt cache:
+  - OpenAI-Codex sends the session id (cut to 64 characters) as the body
+    `prompt_cache_key` and as the `session-id` and `x-client-request-id`
+    headers, on SSE and WebSocket. Before, the WebSocket used a fresh id per
+    attempt and SSE sent none.
+  - OpenAI Responses sends the key plus Pi's affinity headers (`session_id` and
+    `x-client-request-id`, or `x-session-id` for OpenRouter).
+    `PIPY_CACHE_RETENTION=long` (Pi's `PI_CACHE_RETENTION`) asks for 24-hour
+    retention, or a 30-minute `prompt_cache_options` TTL on GPT-5.6 and later.
+  - Azure OpenAI sends the key.
+  - Compaction and branch summaries send no cache key and use a fresh routing
+    id, as in Pi. Azure is the exception: Pi sends it that routing id as the
+    key.
+
 - Terminal `/import` now stages its permissive copy through the existing
   presentation path, then adopts that durable copy through the native transition
   owner. The owner validates the current terminal lease before the switch hook,

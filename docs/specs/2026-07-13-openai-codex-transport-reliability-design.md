@@ -277,10 +277,11 @@ adds its existing `responses=experimental` beta and Accept/content-type headers.
 WebSocket sends bearer auth, account ID, `originator: pipy`, user agent,
 `session-id`, `x-client-request-id`, and
 `OpenAI-Beta: responses_websockets=2026-02-06`; it omits HTTP Accept and
-content-type. Because `ProviderRequest` has no provider-visible session ID and
-this design does not cache WS connections, both correlation headers use one
-fresh opaque ID from an injectable request-ID factory for each provider call.
-This matches Pi's no-session fallback. Tests assert those header names and
+content-type. This design does not cache WS connections. Both correlation
+headers carry the request's cache session id when it has one (added by PC1,
+2026-09-29; see `docs/providers.md`). Otherwise they carry one fresh opaque ID
+from an injectable request-ID factory per provider call, which is Pi's
+no-session fallback. Tests assert those header names and
 request correlation while replacing auth values with sentinels; payload and
 auth values never reach diagnostics.
 

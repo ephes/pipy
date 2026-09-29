@@ -116,7 +116,19 @@ class ResolvedConstruction:
     # Only openai-responses reads it from the resolved value; Codex resolves it
     # from ``spec`` directly in :func:`build_openai_codex_provider`.
     supports_tool_search: bool = False
+    # Pi ``OpenAIResponsesCompat`` prompt-cache bits for openai-responses only:
+    # the affinity header format plus long/explicit retention support.
+    responses_prompt_cache: ResponsesPromptCacheCompat | None = None
     error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResponsesPromptCacheCompat:
+    """Pi ``getCompat`` prompt-cache fields (``openai-responses.ts:68-80``)."""
+
+    session_affinity_format: str = "openai"
+    supports_long_cache_retention: bool = True
+    supports_explicit_prompt_cache_mode: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +234,11 @@ def resolve_construction(
     supports_tool_search = (
         resolve_openai_tool_search(spec) if spec.api == "openai-responses" else False
     )
+    responses_prompt_cache = (
+        resolve_responses_prompt_cache(spec, base_url)
+        if spec.api == "openai-responses"
+        else None
+    )
 
     return ResolvedConstruction(
         provider_name=spec.provider_name,
@@ -237,6 +254,7 @@ def resolve_construction(
         force_adaptive_thinking=_resolve_anthropic_adaptive_thinking(spec),
         supports_tool_references=supports_tool_references,
         supports_tool_search=supports_tool_search,
+        responses_prompt_cache=responses_prompt_cache,
     )
 
 
@@ -465,6 +483,41 @@ def resolve_openai_tool_search(spec: NativeModelSpec) -> bool:
     compat = spec.compat if isinstance(spec.compat, Mapping) else {}
     explicit = compat.get("supportsToolSearch")
     return explicit if isinstance(explicit, bool) else False
+
+
+def resolve_responses_prompt_cache(
+    spec: NativeModelSpec, base_url: str | None
+) -> ResponsesPromptCacheCompat:
+    """Resolve Pi's openai-responses prompt-cache compat bits independently.
+
+    Each explicit ``compat`` value wins; otherwise Pi's defaults apply:
+    ``sessionAffinityFormat`` is ``openrouter`` for the openrouter provider or
+    an ``openrouter.ai`` base URL, else ``openai``; long retention defaults to
+    supported; explicit cache mode defaults to off (Pi's generator turns it on
+    for OpenAI rows that bill cache writes).
+    """
+
+    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
+    explicit_format = compat.get("sessionAffinityFormat")
+    if isinstance(explicit_format, str):
+        # Pi takes any explicit value verbatim; an unknown one falls through
+        # to the adapter's ``x-client-request-id``-only branch.
+        affinity_format = explicit_format
+    elif spec.provider_name == "openrouter" or "openrouter.ai" in (base_url or ""):
+        affinity_format = "openrouter"
+    else:
+        affinity_format = "openai"
+    long_retention = compat.get("supportsLongCacheRetention")
+    explicit_mode = compat.get("supportsExplicitPromptCacheMode")
+    return ResponsesPromptCacheCompat(
+        session_affinity_format=affinity_format,
+        supports_long_cache_retention=(
+            long_retention if isinstance(long_retention, bool) else True
+        ),
+        supports_explicit_prompt_cache_mode=(
+            explicit_mode if isinstance(explicit_mode, bool) else False
+        ),
+    )
 
 
 _ENV_PLACEHOLDER = re.compile(r"\{([A-Z_][A-Z0-9_]*)\}")
@@ -868,6 +921,7 @@ def _build_catalog_provider(
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
             supports_tool_search=resolved.supports_tool_search,
+            **_responses_prompt_cache_kwargs(resolved.responses_prompt_cache),
             **http_kwargs,
         )
 
@@ -882,6 +936,19 @@ def _build_catalog_provider(
         reasoning_effort=resolved.reasoning_effort,
         **http_kwargs,
     )
+
+
+def _responses_prompt_cache_kwargs(
+    compat: ResponsesPromptCacheCompat | None,
+) -> dict[str, Any]:
+    resolved = compat if compat is not None else ResponsesPromptCacheCompat()
+    return {
+        "session_affinity_format": resolved.session_affinity_format,
+        "supports_long_cache_retention": resolved.supports_long_cache_retention,
+        "supports_explicit_prompt_cache_mode": (
+            resolved.supports_explicit_prompt_cache_mode
+        ),
+    }
 
 
 def _build_iam_provider(

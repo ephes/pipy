@@ -62,6 +62,9 @@ from pipy_harness.native.provider import (
     StreamChunkSink,
     apply_provider_headers,
 )
+from pipy_harness.native.providers.openai_prompt_cache import (
+    clamp_openai_prompt_cache_key,
+)
 from pipy_harness.native.retry import (
     DEFAULT_RETRIABLE_STATUSES,
     RetryPolicy,
@@ -1097,8 +1100,8 @@ class StreamProgress:
 @dataclass(frozen=True, slots=True)
 class _OpenAICodexCompletionConfiguration:
     body: Mapping[str, Any]
-    base_headers: Mapping[str, str]
     sse_headers: Mapping[str, str]
+    websocket_headers: Mapping[str, str]
     http_client: SseHTTPClient
 
 
@@ -1153,7 +1156,8 @@ def _codex_completion_configuration(
     request: ProviderRequest,
     credentials: OpenAICodexCredentials,
 ) -> _OpenAICodexCompletionConfiguration:
-    body = _codex_request_body(provider, request)
+    codex_session_id = _codex_session_id(request)
+    body = _codex_request_body(provider, request, codex_session_id)
     extension_headers = apply_provider_headers(request, {})
     base_headers = {
         **extension_headers,
@@ -1168,15 +1172,39 @@ def _codex_completion_configuration(
         "Content-Type": "application/json",
         "OpenAI-Beta": "responses=experimental",
     }
+    if codex_session_id:
+        sse_headers["session-id"] = codex_session_id
+        sse_headers["x-client-request-id"] = codex_session_id
+    # Pi derives the WebSocket request id once per call: the cache session id
+    # when there is one, else a fresh opaque id (``openai-codex-responses.ts:282``).
+    websocket_request_id = codex_session_id or provider.request_id_factory()
+    websocket_headers = {
+        **base_headers,
+        "OpenAI-Beta": "responses_websockets=2026-02-06",
+        "session-id": websocket_request_id,
+        "x-client-request-id": websocket_request_id,
+    }
     http_client: SseHTTPClient = provider.http_client
     if type(http_client) is UrllibSseHTTPClient:
         http_client = UrllibSseHTTPClient(retry_clock=provider.retry_clock)
     return _OpenAICodexCompletionConfiguration(
         body=body,
-        base_headers=base_headers,
         sse_headers=sse_headers,
+        websocket_headers=websocket_headers,
         http_client=http_client,
     )
+
+
+def _codex_session_id(request: ProviderRequest) -> str | None:
+    """Pi ``codexSessionId``: the clamped session id unless retention is none.
+
+    Codex reads only an explicit ``cacheRetention === "none"``; it has no env
+    retention lookup (``openai-codex-responses.ts:275-276``).
+    """
+
+    if request.cache_retention == "none":
+        return None
+    return clamp_openai_prompt_cache_key(request.session_id)
 
 
 def _codex_reasoning_field(
@@ -1203,6 +1231,7 @@ def _codex_reasoning_field(
 def _codex_request_body(
     provider: OpenAICodexResponsesProvider,
     request: ProviderRequest,
+    codex_session_id: str | None = None,
 ) -> dict[str, Any]:
     immediate_tools, deferred_tools = split_deferred_tools(
         request,
@@ -1219,10 +1248,13 @@ def _codex_request_body(
         "stream": True,
         "text": {"verbosity": "low"},
         "include": ["reasoning.encrypted_content"],
+        "prompt_cache_key": codex_session_id,
         "reasoning": _codex_reasoning_field(provider),
         "tool_choice": "auto",
         "parallel_tool_calls": True,
     }
+    if body["prompt_cache_key"] is None:
+        del body["prompt_cache_key"]
     if body["reasoning"] is None:
         del body["reasoning"]
     if immediate_tools:
@@ -1300,17 +1332,10 @@ class _OpenAICodexAttemptRunner:
         )
 
     def _websocket_attempt(self) -> ParsedOpenAICodexResponse:
-        request_id = self.provider.request_id_factory()
-        websocket_headers = {
-            **self.configuration.base_headers,
-            "OpenAI-Beta": "responses_websockets=2026-02-06",
-            "session-id": request_id,
-            "x-client-request-id": request_id,
-        }
         self.transport_count += 1
         events = self.provider.websocket_client.post_events(
             self.provider.websocket_endpoint,
-            headers=websocket_headers,
+            headers=self.configuration.websocket_headers,
             body=self.configuration.body,
             connect_timeout_seconds=self.provider.websocket_connect_timeout_seconds,
             idle_timeout_seconds=self.provider.timeout_seconds,

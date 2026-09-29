@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -106,7 +107,13 @@ def build_summary_request(
     user_prompt: str,
     header_callback: ProviderHeaderCallback | None,
 ) -> ProviderRequest:
-    """Construct the existing bounded branch-summary request without tools."""
+    """Construct one bounded private summary request without tools.
+
+    Pi ``completeSummarization`` forces ``cacheRetention: "none"`` so one-off
+    summaries write no prompt cache, and gives each call a fresh routing id
+    (neither compaction nor branch summaries pass the session id). The id is
+    fixed here, so provider retries and reissues of this request reuse it.
+    """
 
     return ProviderRequest(
         system_prompt=instruction,
@@ -117,6 +124,8 @@ def build_summary_request(
         messages=messages,
         available_tools=(),
         provider_header_callback=header_callback,
+        session_id=uuid.uuid4().hex,
+        cache_retention="none",
     )
 
 

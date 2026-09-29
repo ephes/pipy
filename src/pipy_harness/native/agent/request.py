@@ -249,6 +249,10 @@ def _validate_schema_children(schema: Mapping[str, object]) -> None:
         _validate_schema_semantics(items)
 
 
+# The values of ``models.CacheRetention`` (Pi ``CacheRetention``).
+_CACHE_RETENTION_VALUES = frozenset({"none", "short", "long"})
+
+
 def _validate_provider_request_values(request: ProviderRequest) -> None:
     for field_name in (
         "system_prompt",
@@ -273,6 +277,13 @@ def _validate_provider_request_values(request: ProviderRequest) -> None:
         request.provider_header_callback
     ):
         raise TypeError("ProviderRequest.provider_header_callback must be callable")
+    if request.session_id is not None and type(request.session_id) is not str:
+        raise TypeError("ProviderRequest.session_id must be an exact string or None")
+    if request.cache_retention is not None and (
+        type(request.cache_retention) is not str
+        or request.cache_retention not in _CACHE_RETENTION_VALUES
+    ):
+        raise TypeError("ProviderRequest.cache_retention must be none/short/long")
 
 
 def _validate_tool_definitions(

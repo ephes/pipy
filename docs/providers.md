@@ -157,6 +157,32 @@ failures, remember SSE fallback for later `auto` calls, and never fall back
 after provider progress. Long-lived WebSocket reuse/continuation caching remains
 out of scope.
 
+### OpenAI prompt caching
+
+pipy mirrors Pi's prompt-cache affinity for the OpenAI families, so turns in
+one session land on the same provider cache:
+
+- **OpenAI-Codex** sends the current session id, cut to 64 characters, as the
+  body `prompt_cache_key` and as the `session-id` and `x-client-request-id`
+  headers. SSE and WebSocket both send it. The WebSocket uses a fresh id per
+  call when there is no cache session.
+- **OpenAI Responses** sends the same key and Pi's affinity headers with the
+  full session id. The headers are `session_id` and `x-client-request-id`, or
+  `x-session-id` for OpenRouter. A row's `compat.sessionAffinityFormat`
+  (`openai`, `openai-nosession`, `openrouter`) overrides the choice.
+  `PIPY_CACHE_RETENTION=long` (Pi's `PI_CACHE_RETENTION`) requests long
+  retention: `prompt_cache_retention: "24h"`, or `prompt_cache_options.ttl:
+  "30m"` on rows with `compat.supportsExplicitPromptCacheMode` (the built-in
+  GPT-5.6 and GPT-6 rows). `compat.supportsLongCacheRetention: false` turns it
+  off.
+- **Azure OpenAI** sends the key only.
+
+Compaction and branch summaries are private one-off calls. As in Pi, they use a
+fresh routing id and cache retention `none`: no key and no affinity headers,
+plus `prompt_cache_options: {mode: "explicit"}` on explicit-mode rows. Azure
+ignores retention, so it still gets the routing id as its key. Extension
+`ctx.complete` calls send no session id.
+
 ### Azure OpenAI configuration
 
 The `azure-openai` provider resolves its endpoint and deployment from these env

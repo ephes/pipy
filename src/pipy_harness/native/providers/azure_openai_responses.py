@@ -37,6 +37,9 @@ from pipy_harness.native.http import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.providers.openai_prompt_cache import (
+    clamp_openai_prompt_cache_key,
+)
 from pipy_harness.native.providers.openai_responses_wire import (
     parse_response,
     responses_input,
@@ -292,6 +295,12 @@ class AzureOpenAIResponsesProvider:
             ),
             "store": False,
         }
+        # Pi sends the clamped session id as ``prompt_cache_key`` and, unlike
+        # the other Responses paths, ignores cache retention here
+        # (``azure-openai-responses.ts:308``).
+        prompt_cache_key = clamp_openai_prompt_cache_key(request.session_id)
+        if prompt_cache_key is not None:
+            body["prompt_cache_key"] = prompt_cache_key
         if request.available_tools:
             body["tools"] = [
                 serialize_tool_for_responses(tool) for tool in request.available_tools
