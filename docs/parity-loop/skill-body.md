@@ -333,6 +333,37 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    fatal returns and unexpected exceptions as separate tests: the former still
    emits `agent_end` before settlement, while the latter settles without an
    invented `agent_end`; these are distinct control-flow edges.
+   For a catalog/model-data slice, take Pi-exact row values from Pi's generated
+   catalog, not from reading `generate-models.ts` overrides by hand or from the
+   installed `pi` release (which may predate the reference commit). The catalog
+   JSON under `packages/ai/src/providers/data/` is gitignored build output, so
+   regenerate it into scratch from `~/src/pi-mono/packages/ai` with
+   `node scripts/generate-models.ts --strict --json-only --json-output <scratch-dir>`
+   (a live models.dev fetch) and give the reviewer a filtered extract of the
+   touched rows as evidence. When a catalog refresh adds explicit `null`
+   thinking-map entries (e.g. `off: null`, `minimal: null`), it makes Pi
+   SESSION-level behavior reachable, not just request shape: Pi seeds
+   `DEFAULT_THINKING_LEVEL` (`medium`) at startup and clamps the carried level on
+   `setModel` via `setThinkingLevel`, while its adapters never clamp an `off`
+   (`agent.ts` passes `reasoning: undefined`). Pin the startup default and the
+   model-switch clamp in the plan beside the request-shape rules, with tests for
+   both.
+   For a resource-discovery slice (skills, prompts, themes, extensions, context
+   files), pin every Pi helper the walk calls, not only the top-level collector —
+   e.g. `collectSkillEntries` also applies `addIgnoreRules`/`prefixIgnorePattern`
+   — and enumerate every consumer of any shared root resolver the slice changes
+   (e.g. `resolve_global_resource_root` also feeds `models.json` lookup), so a
+   root change cannot silently move an unrelated resource. When the slice starts
+   loading a new real-world file shape (e.g. `SKILL.md` from `.agents/skills`),
+   check that pipy's stdlib parsers handle that shape's common syntax before
+   coding, and add fixtures for it: pipy's frontmatter parser once read only
+   single-line values, so YAML block scalars (`description: >-`, with an optional
+   trailing comment) cost two code-review rounds.
+   For any provider request-shape slice, also pin caller-side request options
+   (such as `sessionId` and `cacheRetention`) per call site, not only the adapter
+   body: Pi's compaction and branch-summary calls pass no `sessionId`, so they get
+   a fresh routing id rather than the session's. Verify these per caller in the Pi
+   source instead of trusting a backlog or audit summary.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/specs/`). `git add` it, then run the different-family
@@ -349,6 +380,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    constructs diff-local when practical, for example by placing new constants
    beside an existing same-kind construct that uses the same imports or helper
    dependencies, so the hunk itself refutes import/context false positives.
+   **Pass Pi sources as evidence.** A reviewer that works in a repo copy (e.g. the
+   `codex-review-loop` harness) cannot read `~/src/pi-mono`. Pass the touched Pi
+   files — the adapter plus relevant caller excerpts such as compaction,
+   `agent-session`, or generator rules — with `--evidence-file` (repeatable) on
+   BOTH the plan review and every code-review round. With the full Pi sources as
+   evidence, PC1's plan and code reviews each closed CLEAN in round 1.
    *Done-when:* CLEAN verdict (or the Operator-override stop above).
 4. **Write the implementation plan.** Turn the reviewed design into an ordered,
    testable task breakdown, written to a file. *Done-when:* numbered plan with
