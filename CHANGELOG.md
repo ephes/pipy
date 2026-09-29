@@ -15,6 +15,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `· default`. Enter applies the level for this session. The new
   `app.thinking.save` binding (Ctrl+S, rebindable) also saves it as
   `defaultThinkingLevel`.
+- `just catalog-drift` compares the built-in model catalog with Pi's
+  generated catalog and reports rows or values that differ. This covers
+  context window, max tokens, cost, thinking maps, API family, base URL and the
+  compat flags pipy reads. Intentional differences are listed in
+  `scripts/catalog_drift_allowlist.json`. It is a manual check, not part of
+  `just check`. See `docs/provider-catalog.md` (Catalog drift check).
 - Context files now load the way Pi loads them (Pi `4df157433`). In each
   directory pipy takes the first file that exists from `AGENTS.override.md`,
   `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, then `CLAUDE.MD`. It stops ignoring
@@ -404,6 +410,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Built-in rows the first catalog drift check flagged now carry Pi's values
+  (Pi `4df157433`):
+  - Mistral Large, Devstral Medium and Mistral Small: cost, context window and
+    max tokens;
+  - Gemini 2.5 Pro on Google and Vertex: cost and context window;
+  - OpenRouter GPT-5.1 Codex: cost and thinking map;
+  - `openai-completions/gpt-4.1`: context window.
+
+  Mistral Small is now a reasoning model. It offers `high`, and off sends
+  `reasoning_effort: "none"`. Mistral `reasoning_effort` now follows Pi: a
+  level is clamped to the model's levels before it is mapped. OpenRouter GPT-5.1
+  Codex offers low, medium and high, and thinking cannot be switched off.
 - Skills, prompt templates, custom commands, global extensions and
   `models.json` now use the same global config root as settings and context
   files: `PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when it

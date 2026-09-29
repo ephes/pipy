@@ -296,12 +296,16 @@ def _resolve_family_thinking(
     - anthropic-messages emits ``thinking:{type:"disabled"}`` only when the row
       does not mark ``off`` unsupported (Pi's ``map.off !== null`` gate,
       ``anthropic-messages.ts:1187``).
+    - mistral follows Pi's ``reasoning_effort`` resolution for rows with a
+      thinking map (:func:`_resolve_mistral_reasoning`).
     - every other family keeps the existing format-driven resolution.
     """
 
     if spec.api in _RESPONSES_FAMILIES:
         effort, _off_state = resolve_responses_reasoning(spec, thinking_level)
         return effort, False
+    if spec.api == "mistral" and (not spec.reasoning or spec.thinking_level_map):
+        return _resolve_mistral_reasoning(spec, thinking_level), False
     if (
         spec.api in _GOOGLE_FAMILIES
         and spec.reasoning
@@ -313,6 +317,31 @@ def _resolve_family_thinking(
     if spec.api == "anthropic-messages" and disabled and _off_unsupported(spec):
         disabled = False
     return effort, disabled
+
+
+def _resolve_mistral_reasoning(
+    spec: NativeModelSpec, thinking_level: str | None
+) -> str | None:
+    """Pi's Mistral ``reasoning_effort`` (``mistral-conversations.ts:199-207``).
+
+    A non-reasoning row sends nothing. A reasoning row with a thinking map
+    clamps an on-state level (Pi ``clampThinkingLevel``) and sends
+    ``map[level] ?? "high"``; off or unset sends ``map.off``, and a missing or
+    ``None`` ``off`` sends nothing. The caller keeps pipy's raw-level path for a
+    reasoning row without a map, where Pi sends ``prompt_mode: "reasoning"``
+    instead (not ported).
+    """
+
+    if not spec.reasoning:
+        return None
+    level_map = spec.thinking_level_map
+    level = thinking_level
+    if level and level != "off":
+        level = clamp_thinking_level(spec, level)
+    if level and level != "off":
+        mapped = level_map.get(level)
+        return mapped if mapped is not None else "high"
+    return level_map.get("off")
 
 
 def _off_unsupported(spec: NativeModelSpec) -> bool:

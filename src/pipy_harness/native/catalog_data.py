@@ -653,7 +653,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-completions",
         image=True,
         cost=(2.0, 8.0, 0.5, 0.0),
-        context_window=1_000_000,
+        context_window=1_047_576,
         max_tokens=32_768,
     ),
     # ---- openrouter (openai-completions) ------------------------------------
@@ -667,7 +667,19 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-completions",
         base_url="https://openrouter.ai/api/v1",
         reasoning=True,
+        # Pi (OpenRouter reasoning options): low/medium/high only; thinking
+        # cannot be switched off.
+        thinking={
+            "off": None,
+            "minimal": None,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": None,
+            "max": None,
+        },
         image=True,
+        cost=(1.25, 10.0, 0.13, 0.0),
         context_window=400_000,
         max_tokens=128_000,
     ),
@@ -748,8 +760,8 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "google-generative-ai",
         reasoning=True,
         image=True,
-        cost=(1.25, 10.0, 0.0, 0.0),
-        context_window=1_000_000,
+        cost=(1.25, 10.0, 0.125, 0.0),
+        context_window=1_048_576,
         max_tokens=65_536,
     ),
     _m(
@@ -806,7 +818,8 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "google-vertex",
         reasoning=True,
         image=True,
-        context_window=1_000_000,
+        cost=(1.25, 10.0, 0.125, 0.0),
+        context_window=1_048_576,
         max_tokens=65_536,
     ),
     _m(
@@ -819,32 +832,46 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=8_192,
     ),
     # ---- mistral (mistral) ---------------------------------------------------
+    # Pi marks mistral-large and mistral-small as image-capable. pipy's Chat
+    # Completions wire has no image serialization, so these rows stay text-only.
     _m(
         "mistral",
         "mistral-large-latest",
         "Mistral Large (latest)",
         "mistral",
-        cost=(2.0, 6.0, 0.0, 0.0),
-        context_window=131_072,
-        max_tokens=32_768,
+        cost=(0.5, 1.5, 0.05, 0.0),
+        context_window=262_144,
+        max_tokens=262_144,
     ),
     _m(
         "mistral",
         "devstral-medium-latest",
         "Devstral Medium (latest)",
         "mistral",
-        cost=(0.4, 2.0, 0.0, 0.0),
-        context_window=131_072,
-        max_tokens=32_768,
+        cost=(0.4, 2.0, 0.04, 0.0),
+        context_window=262_144,
+        max_tokens=262_144,
     ),
     _m(
         "mistral",
         "mistral-small-latest",
         "Mistral Small (latest)",
         "mistral",
-        cost=(0.2, 0.6, 0.0, 0.0),
-        context_window=131_072,
-        max_tokens=32_768,
+        reasoning=True,
+        # Pi: reasoning_effort "high" when thinking and "none" when off; the
+        # other levels are not offered.
+        thinking={
+            "off": "none",
+            "minimal": None,
+            "low": None,
+            "medium": None,
+            "high": "high",
+            "xhigh": None,
+            "max": None,
+        },
+        cost=(0.15, 0.6, 0.015, 0.0),
+        context_window=256_000,
+        max_tokens=256_000,
     ),
     # ---- amazon-bedrock (amazon-bedrock) ------------------------------------
     # Pi's `us.` inference-profile rows (US pricing). Pi merges {xhigh, max}

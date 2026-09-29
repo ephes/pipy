@@ -1618,6 +1618,75 @@ def test_mistral_catalog_construction(tmp_path):
     assert sent["headers"]["Authorization"] == "Bearer mk"
 
 
+# Pi mistral-conversations.ts:199-207: clamp, then ``map[level] ?? "high"``;
+# off/unset sends ``map.off ?? undefined``.
+_MISTRAL_SMALL_MAP = {
+    "off": "none",
+    "minimal": None,
+    "low": None,
+    "medium": None,
+    "high": "high",
+    "xhigh": None,
+    "max": None,
+}
+
+
+@pytest.mark.parametrize(
+    ("level_map", "level", "expected"),
+    [
+        (_MISTRAL_SMALL_MAP, "high", "high"),
+        (_MISTRAL_SMALL_MAP, "medium", "high"),  # clamped forward to high
+        (_MISTRAL_SMALL_MAP, "max", "high"),  # clamped back to high
+        (_MISTRAL_SMALL_MAP, "off", "none"),
+        (_MISTRAL_SMALL_MAP, None, "none"),
+        # An identity-available ordinary level with no map entry sends "high".
+        ({"off": "none", "xhigh": "xhigh"}, "low", "high"),
+        ({"off": "none", "xhigh": "xhigh"}, "xhigh", "xhigh"),
+        # A missing or null ``off`` sends nothing.
+        ({"high": "high"}, "off", None),
+        ({"off": None, "high": "high"}, None, None),
+    ],
+)
+def test_mistral_reasoning_effort_follows_pi(tmp_path, level_map, level, expected):
+    spec = _mistral_spec(reasoning=True, thinking_level_map=level_map)
+    resolved = _resolve(spec, tmp_path, {"MISTRAL_API_KEY": "mk"}, thinking_level=level)
+    assert resolved.reasoning_effort == expected
+    assert resolved.thinking_disabled is False
+
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    body = http.requests[-1]["body"]
+    if expected is None:
+        assert "reasoning_effort" not in body
+    else:
+        assert body["reasoning_effort"] == expected
+
+
+def test_mistral_non_reasoning_row_with_a_map_sends_no_effort(tmp_path):
+    spec = _mistral_spec(thinking_level_map={"high": "high", "off": "none"})
+    for level in ("high", "off", None):
+        resolved = _resolve(
+            spec, tmp_path, {"MISTRAL_API_KEY": "mk"}, thinking_level=level
+        )
+        assert resolved.reasoning_effort is None
+
+
+def test_builtin_mistral_small_sends_pi_effort(tmp_path):
+    from pipy_harness.native.catalog import build_builtin_catalog
+
+    spec = build_builtin_catalog().find("mistral", "mistral-small-latest")
+    assert spec is not None
+    env = {"MISTRAL_API_KEY": "mk"}
+    assert _resolve(spec, tmp_path, env, thinking_level="medium").reasoning_effort == (
+        "high"
+    )
+    assert _resolve(spec, tmp_path, env, thinking_level="off").reasoning_effort == (
+        "none"
+    )
+
+
 def test_tier1_auth_failure_fails_closed(tmp_path):
     # authHeader set with no resolvable key -> fail-closed provider, not None.
     resolved = _resolve(

@@ -256,17 +256,34 @@ The pyproject is still at `0.1.0`, the repo has no tags, and CHANGELOG
 
 Choosing a PyPI name and adding a SHA-pinned publish workflow can follow.
 
-### 8. MC5 — Catalog sync and drift check (M)
+### 8. MC5 — Catalog sync and drift check (done 2026-09-29)
 
-Pi generates its catalog from models.dev (`packages/ai/scripts/generate-models.ts`)
-plus a remote overlay (`7fd564cbb`). tau generates from models.dev (`3c6cf16`).
-Pipy's `scripts/parity_checks/provider_catalog_conformance.py` checks structure
-only.
+Landed on branch `feat/mc5-catalog-sync`. The plan is in
+`docs/specs/2026-09-29-mc5-catalog-sync-plan.md` and the user docs in
+`docs/provider-catalog.md` (Catalog drift check).
 
-- Add a sync script that emits pipy's supported API families from models.dev or
-  Pi's generator output, keeping `catalog_data.py` as the correction layer.
-- Add a `just` check that flags drift from Pi for supported providers.
-- `models.json` (`models_json.py`) remains the user override path.
+- `just catalog-drift` (`scripts/catalog_drift.py`) reads Pi's generated
+  catalog JSON and compares each shared row's values, thinking map and the
+  compat keys pipy reads. It also lists pipy-only rows and Pi rows pipy does
+  not carry. It is manual and is not part of `just check` or CI.
+- `catalog_data.py` stays the curated layer. A generated file would need the
+  same overrides: provider renames, pipy adapter families, base-URL
+  conventions and legacy rows.
+- Intentional differences are listed in `scripts/catalog_drift_allowlist.json`
+  as `deviation` entries. Known drift waiting for a refresh is listed as
+  `pending`. A stale entry fails the check.
+- The first run found drift that MC1 had missed: the Mistral rows, Gemini 2.5
+  Pro, OpenRouter GPT-5.1 Codex and `openai-completions/gpt-4.1`. It is fixed,
+  so the pending list is empty. Mistral `reasoning_effort` now follows Pi's
+  clamp-then-map. models.dev is not read directly: it lacks Pi's generator
+  corrections.
+
+Deviations kept as follow-ons, not queued separately yet:
+
+- Mistral rows stay text-only, because the Chat Completions wire has no image
+  serialization. A reasoning Mistral row without a map sends the raw level
+  where Pi sends `prompt_mode: "reasoning"`.
+- Display names are not compared.
 
 ### 9. PR1/PR2 — xai and github-copilot providers (S–M)
 
