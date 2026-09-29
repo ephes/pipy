@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import AgentEvent
 from pipy_harness.native.agent.history import AgentHistoryCompaction
-from pipy_harness.native.agent.messages import AgentMessage, AgentUserMessage
+from pipy_harness.native.agent.messages import (
+    AgentMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.native.agent.request import validate_frozen_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.coding.state import CodingProviderBinding, CodingRunContext
@@ -98,6 +102,29 @@ def compound_compaction_cuts(
     )
 
 
+SUMMARY_TOOL_RESULT_MAX_CHARS = 2000
+"""Pi ``TOOL_RESULT_MAX_CHARS`` (``core/compaction/utils.ts``)."""
+
+
+def truncate_for_summary(text: str, max_chars: int) -> str:
+    """Pi ``truncateForSummary``: keep the head and append a truncation marker."""
+
+    if len(text) <= max_chars:
+        return text
+    return (
+        f"{text[:max_chars]}\n\n[... {len(text) - max_chars} more characters truncated]"
+    )
+
+
+def _summary_message(message: AgentMessage) -> AgentMessage:
+    if not isinstance(message, AgentToolResultMessage):
+        return message
+    content = truncate_for_summary(message.content.value, SUMMARY_TOOL_RESULT_MAX_CHARS)
+    if content == message.content.value:
+        return message
+    return replace(message, content=ProductContent(content))
+
+
 def build_summary_request(
     *,
     binding: CodingProviderBinding,
@@ -113,6 +140,11 @@ def build_summary_request(
     summaries write no prompt cache, and gives each call a fresh routing id
     (neither compaction nor branch summaries pass the session id). The id is
     fixed here, so provider retries and reissues of this request reuse it.
+
+    Like Pi ``serializeConversation``, each tool result is cut to its first
+    2000 characters: the summary does not need full tool output, and an
+    oversized result must not make the summary request itself too large to
+    send (DF1-F5).
     """
 
     return ProviderRequest(
@@ -121,7 +153,7 @@ def build_summary_request(
         provider_name=binding.provider_name,
         model_id=binding.model_id,
         cwd=cwd,
-        messages=messages,
+        messages=tuple(_summary_message(message) for message in messages),
         available_tools=(),
         provider_header_callback=header_callback,
         session_id=uuid.uuid4().hex,

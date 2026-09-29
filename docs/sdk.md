@@ -122,10 +122,11 @@ is supplied. Invalid policy and final estimated overflow refuse recoverably; lat
 settings changes apply to the next request preparation. Estimates are not
 guaranteed fit.
 
-A persistent tree cannot compact to a newly accepted first-iteration anchor before
-that user has a durable origin; it refuses that summary attempt and may refuse the
-ordinary request, then persists the accepted user once during normal settlement.
-See [Compaction](compaction.md) for this boundary. Public compact/model/context
+On a persistent tree, a first-iteration cut that keeps only the newly accepted
+prompt writes a compaction entry that keeps no earlier entry (Pi's
+`firstKeptEntryId ?? id`); normal settlement then persists the accepted user once,
+after it. Other cuts without a durable origin still refuse. See
+[Compaction](compaction.md) for this boundary. Public compact/model/context
 controls remain unavailable. Correct injected settings for a later submission, or
 close and create a new session when explicit context replacement is needed.
 Request-preparation refusals do not trigger provider retry. The separate

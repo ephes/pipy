@@ -600,7 +600,9 @@ Rules to match Pi:
   settings but are not user/assistant text.
 - `compaction` contributes its summary first, then keeps only messages from
   `firstKeptEntryId` through the compaction boundary and all later active-branch
-  messages.
+  messages. A `firstKeptEntryId` equal to the entry's own `id` keeps no earlier
+  message (Pi's `appendCompaction(summary, null)`); fork and clone rewrite it to
+  the copy's own id.
 
 When `retainedUserEntryId` is present, reconstruction instead retains that exact
 actual user message once plus the suffix beginning at `firstKeptEntryId`.
@@ -637,7 +639,8 @@ the branch summary while preserving current-run counters; a new run restores
 summary context with fresh counters.
 
 Before that acceptance, semantic compaction summarizes the previous summary and
-exact removed messages through the run's canonical provider executor. Tree
+the removed messages (each tool result cut to 2000 characters, as in Pi) through
+the run's canonical provider executor. Tree
 mutation/navigation and active-pointer epochs join the guarded state/generation
 snapshot: equal writes, restored leaves and refused publication windows invalidate
 pending summaries. Failed, cancelled or stale generation appends no compaction

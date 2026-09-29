@@ -778,51 +778,58 @@ def _retained_context_entries(
         strict_compaction_ancestry=strict_compaction_ancestry,
     )
     for entry in path[first_anchored:]:
-        if not isinstance(entry, CompactionEntry):
+        if isinstance(entry, CompactionEntry):
+            effective = _apply_effective_compaction(effective, entry)
+        else:
             effective.append(entry)
-            continue
-        boundary = next(
-            (
-                i
-                for i, candidate in enumerate(effective)
-                if candidate.id == entry.first_kept_entry_id
-            ),
-            None,
-        )
-        if entry.retained_user_entry_id is None:
-            if boundary is None:
-                raise ValueError(
-                    "compaction boundary unavailable after anchored compaction"
-                )
-            effective = effective[boundary:]
-            continue
-        anchor = next(
-            (
-                i
-                for i, candidate in enumerate(effective)
-                if candidate.id == entry.retained_user_entry_id
-            ),
-            None,
-        )
-        if anchor is None or boundary is None:
-            raise ValueError(
-                "anchored compaction references unavailable effective ancestor"
-            )
-        anchor_entry = effective[anchor]
-        if (
-            not isinstance(anchor_entry, MessageEntry)
-            or type(anchor_entry.message) is not AgentUserMessage
-        ):
-            raise ValueError(
-                "anchored compaction user must be an actual user message entry"
-            )
-        if anchor >= boundary:
-            raise ValueError(
-                "anchored compaction user must precede its distinct suffix"
-            )
-        _validate_anchored_cycle_cut(effective, anchor, boundary)
-        effective = [anchor_entry, *effective[boundary:]]
     return effective
+
+
+def _apply_effective_compaction(
+    effective: list[SessionEntry], entry: CompactionEntry
+) -> list[SessionEntry]:
+    """Apply one compaction to the effective entries of an anchored path."""
+
+    if entry.retained_user_entry_id is None and entry.first_kept_entry_id == entry.id:
+        return []
+    boundary = next(
+        (
+            i
+            for i, candidate in enumerate(effective)
+            if candidate.id == entry.first_kept_entry_id
+        ),
+        None,
+    )
+    if entry.retained_user_entry_id is None:
+        if boundary is None:
+            raise ValueError(
+                "compaction boundary unavailable after anchored compaction"
+            )
+        return effective[boundary:]
+    anchor = next(
+        (
+            i
+            for i, candidate in enumerate(effective)
+            if candidate.id == entry.retained_user_entry_id
+        ),
+        None,
+    )
+    if anchor is None or boundary is None:
+        raise ValueError(
+            "anchored compaction references unavailable effective ancestor"
+        )
+    anchor_entry = effective[anchor]
+    if (
+        not isinstance(anchor_entry, MessageEntry)
+        or type(anchor_entry.message) is not AgentUserMessage
+    ):
+        raise ValueError(
+            "anchored compaction user must be an actual user message entry"
+        )
+    if anchor >= boundary:
+        raise ValueError("anchored compaction user must precede its distinct suffix")
+    _validate_anchored_cycle_cut(effective, anchor, boundary)
+    return [anchor_entry, *effective[boundary:]]
 
 
 def _legacy_retained_context_entries(
@@ -841,13 +848,16 @@ def _legacy_retained_context_entries(
         ),
         -1,
     )
-    found_first_kept = False
+    # A self reference (Pi ``firstKeptEntryId ?? id``) keeps no earlier entry.
+    keeps_no_prior_entries = compaction.first_kept_entry_id == compaction.id
+    found_first_kept = keeps_no_prior_entries
     retained: list[SessionEntry] = []
-    for entry in path[:compaction_idx]:
-        if entry.id == compaction.first_kept_entry_id:
-            found_first_kept = True
-        if found_first_kept:
-            retained.append(entry)
+    if not keeps_no_prior_entries:
+        for entry in path[:compaction_idx]:
+            if entry.id == compaction.first_kept_entry_id:
+                found_first_kept = True
+            if found_first_kept:
+                retained.append(entry)
     if strict_compaction_ancestry and not found_first_kept:
         raise ValueError("compaction first kept entry is not available on its ancestry")
     retained.extend(path[compaction_idx + 1 :])
@@ -901,9 +911,12 @@ def _new_entry_id(existing: dict[str, SessionEntry]) -> str:
 
 def _remap_compaction_references(
     entry: CompactionEntry, id_map: dict[str, str] | None
-) -> tuple[str, str | None]:
+) -> tuple[str | None, str | None]:
     first_kept = entry.first_kept_entry_id
     retained_user = entry.retained_user_entry_id
+    if retained_user is None and first_kept == entry.id:
+        # Pi clone keeps a self reference; the copy refers to its own new id.
+        return None, None
     if id_map is None:
         if retained_user is not None:
             raise ValueError("anchored compaction reference map is required")
@@ -1599,19 +1612,29 @@ class NativeSessionTree:
         self,
         *,
         summary: str,
-        first_kept_entry_id: str,
+        first_kept_entry_id: str | None,
         tokens_before: int,
         retained_user_entry_id: str | None = None,
     ) -> CompactionEntry:
+        """Append a compaction; ``None`` keeps no earlier entry.
+
+        Like Pi ``appendCompaction`` (``firstKeptEntryId ?? id``), a missing
+        first kept entry stores the compaction's own id: nothing before it is
+        retained, and every later entry is.
+        """
+
         if retained_user_entry_id is not None:
             _require_exact_entry_id(first_kept_entry_id, "first_kept_entry_id")
             _require_exact_entry_id(retained_user_entry_id, "retained_user_entry_id")
+        entry_id = self._next_id()
         entry = CompactionEntry(
-            id=self._next_id(),
+            id=entry_id,
             parent_id=self.leaf_id,
             timestamp=_now_iso(),
             summary=summary,
-            first_kept_entry_id=first_kept_entry_id,
+            first_kept_entry_id=(
+                entry_id if first_kept_entry_id is None else first_kept_entry_id
+            ),
             tokens_before=tokens_before,
             retained_user_entry_id=retained_user_entry_id,
         )

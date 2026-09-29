@@ -2325,18 +2325,23 @@ Manual compaction
 and unknown-limit legacy retention stay unchanged. `keepRecentTokens` remains
 reported but inactive for D3a; do not claim token-target retention is implemented.
 
-D3a3 preserves D1's unresolved durable-origin refusal. On the first provider
+D3a3 preserved D1's unresolved durable-origin refusal. On the first provider
 iteration of a persistent session, the newly accepted user is not yet a tree entry:
-canonical turn-start settlement follows preparation. A latest-one-group cut to
-that anchor therefore refuses before generation, without moving publication or
-inventing an entry. Final hooks may still make the ordinary request fit; otherwise
-recoverable refusal settles and persists that user once. Later iterations can use
-the real origin. Manual recovery and this observed boundary are documented in
-[Compaction](compaction.md); within-run representation changes remain D3b.
+canonical turn-start settlement follows preparation. DF1-F5 found that this
+refusal wedges a session: after an oversized turn, every next prompt's cut keeps
+only that prompt and refuses again. A latest-one-group cut that keeps exactly the
+accepted user now follows Pi's `appendCompaction(summary, null)`: the durable
+entry stores its own id as `firstKeptEntryId` and keeps no earlier entry, and
+turn-start, refusal or cancellation settlement persists the user once, after it.
+Final hooks may still make the ordinary request fit; otherwise recoverable refusal
+settles. Other unresolved origins still refuse. Later iterations can use the real
+origin. See [Compaction](compaction.md); within-run representation changes remain
+D3b.
 
 Preflight the exact auxiliary semantic request (prior summary, optional labelled
-retained task orientation, exact removed messages, final instruction and
-output reserve) before canonical provider execution.
+retained task orientation, removed messages with each tool result cut to 2000
+characters as in Pi's `serializeConversation`, final instruction and output
+reserve) before canonical provider execution.
 Oversized summary input refuses that attempt without publication or multi-pass
 summarization. Keep D1 cancellation, generation/context freshness, canonical
 execution and state-first accepted persistence. Summary failure is distinct from
@@ -2755,7 +2760,9 @@ origin lookup, guarded together with history by the state's existing mutex.
 contains the retained canonical history, the exact in-memory prompt suffix, the
 durable private summary, the dropped-group count, and the pre-compaction
 measure, plus the first retained entry ID resolved before acceptance (`None` only
-for explicitly non-durable unmapped context). These are product-session values by classification; they are never
+for explicitly non-durable unmapped context, or with `keeps_no_prior_entries` when
+an automatic cut keeps only the not-yet-persisted accepted prompt; the durable
+entry then stores its own id, like Pi's `firstKeptEntryId ?? id`). These are product-session values by classification; they are never
 metadata-safe archive DTOs and are not exposed through generic serializers or
 the workflow projection.
 
@@ -2769,7 +2776,8 @@ The coordinator preserves the existing blocking order:
    across snapshot, pure whole-group cut, structural boundary resolution and
    live acceptance. The narrow coordinator acceptance/persistence seam releases
    the session mutex before the callback while retaining outer tree ordering.
-   An unresolved durable origin refuses before live mutation. A second cut may
+   An unresolved durable origin refuses before live mutation, except the
+   `keeps_no_prior_entries` cut above. A second cut may
    retain an entry preceding the previous compaction; persistence consumes the
    pre-resolved ID rather than recounting users after that compaction.
 3. A session command performs its concrete tree create/open/move/fork/import

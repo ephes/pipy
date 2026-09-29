@@ -6,6 +6,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- A turn whose tool result alone overflows the context window no longer wedges
+  the session (DF1-F5). That turn is still refused, as in Pi, but the next
+  prompt now compacts it away. Two changes follow Pi (`4df157433`):
+  - Compaction and branch-summary requests cut each tool result to its first
+    2000 characters plus `[... N more characters truncated]` (Pi
+    `serializeConversation`), so the summary request no longer fails its own
+    size check.
+  - In a persistent session, an automatic cut that keeps only the new prompt
+    writes a compaction entry whose `firstKeptEntryId` is its own id (Pi
+    `appendCompaction(summary, null)`) instead of refusing with `retained
+    history has no durable origin`. Reopen, fork and clone honor it.
+  A removed range that is still too large after truncation (for example a huge
+  paste) stays refused until `/new`, as in Pi.
+
 ## [0.2.0] - 2026-09-29
 
 ### Highlights
