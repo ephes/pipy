@@ -7,13 +7,15 @@ appendix while preserving the user's literal prompt text.
 
 Design boundaries:
 
-- It reuses the existing bounded :class:`ReadTool` read/read-root policy
-  (workspace-relative and ``--read-root`` reference roots, ``.git``/``.gitignore``
-  defenses, binary/oversized/secret-shaped/UTF-8 checks). No new reader and no
-  new path policy are introduced here; every read goes through ``ReadTool``.
-- Failures fail closed: a missing, ignored, binary, oversized, secret-shaped,
-  or out-of-workspace reference loads no content. One bad reference never
-  blocks a good one and never leaks unsafe content into the prompt.
+- It reuses :class:`ReadTool`, which follows Pi's ``read``: the
+  workspace/``--read-root`` path policy with ``.git``/``.gitignore`` refusal,
+  and output truncated to 2000 lines or 50 KB with a continuation notice.
+  Like Pi, it has no size cap and no binary, non-UTF-8 or secret-shaped
+  refusal. No new reader and no new path policy are introduced here; every
+  read goes through ``ReadTool``.
+- Failures fail closed: a missing, ignored, image or out-of-workspace
+  reference, or one past the total context budget, loads no content. One bad
+  reference never blocks a good one.
 - Only safe counters cross the archive boundary via :meth:`safe_metadata`.
   Raw paths, file contents, and secrets stay out of the metadata-first archive.
 """
@@ -188,9 +190,9 @@ def resolve_file_references(
 ) -> FileReferenceResolution:
     """Resolve every ``@file`` reference in ``text`` through the bounded reader.
 
-    Reuses :class:`ReadTool` for the read so workspace/read-root policy, size
-    bounds, and secret/binary defenses match the model-driven ``read`` tool and
-    the explicit ``/read`` boundary. Returns a :class:`FileReferenceResolution`
+    Reuses :class:`ReadTool` for the read, so the workspace/read-root policy
+    and Pi's 2000-line / 50 KB truncation match the model-driven ``read``
+    tool. Returns a :class:`FileReferenceResolution`
     carrying per-reference outcomes, over-budget count, and safe counters.
     """
 

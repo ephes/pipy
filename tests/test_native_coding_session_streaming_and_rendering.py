@@ -243,7 +243,9 @@ def test_renderer_renders_pi_shape_tool_call_header():
     )
 
     rendered = err.getvalue()
-    assert "read docs/backlog.md:1-200" in rendered
+    # Pi shows no line range when neither offset nor limit is given.
+    assert "read docs/backlog.md" in rendered
+    assert "backlog.md:" not in rendered
     assert "line one" in rendered
     assert "line two" in rendered
     assert "Took 0.1s" in rendered
@@ -405,10 +407,29 @@ def test_renderer_renders_read_resource_for_absolute_path():
     )
 
     rendered = err.getvalue()
-    assert "read resource /Users/x/src/pi-mono/AGENTS.md:1-200" in rendered
+    assert "read resource /Users/x/src/pi-mono/AGENTS.md" in rendered
+    assert "AGENTS.md:" not in rendered
     assert (
         "(ctrl+o to expand)" not in rendered.split("read resource")[1].splitlines()[0]
     )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "label"),
+    [
+        ({"path": "a.txt", "offset": 5, "limit": 10}, "read a.txt:5-14"),
+        ({"path": "a.txt", "offset": 5}, "read a.txt:5"),
+        ({"path": "a.txt", "limit": 10}, "read a.txt:1-10"),
+        ({"path": "a.txt", "offset": None, "limit": None}, "read a.txt"),
+        ({"path": "a.txt", "offset": 1, "limit": 0}, "read a.txt:1"),
+    ],
+)
+def test_read_call_label_ports_pi_line_range(
+    arguments: dict[str, object], label: str
+) -> None:
+    range_label = _ToolLoopRenderer._read_range_label(arguments)
+
+    assert f"read {arguments['path']}{range_label}" == label
 
 
 def test_renderer_renders_read_relative_without_resource_prefix():
@@ -427,7 +448,7 @@ def test_renderer_renders_read_relative_without_resource_prefix():
     )
 
     rendered = err.getvalue()
-    assert "read docs/backlog.md:1-200" in rendered
+    assert "read docs/backlog.md" in rendered
     assert "read resource" not in rendered
 
 
@@ -535,7 +556,8 @@ def test_renderer_argument_preview_handles_invalid_json():
     rendered = err.getvalue()
     # read uses the path argument when JSON parses; when it does not, the
     # path falls back to an empty string and we still emit a header.
-    assert "read :1-200" in rendered
+    assert "read " in rendered
+    assert ":1-200" not in rendered
 
 
 # ---------------------- streaming integration with tool loop ---------------
@@ -869,7 +891,9 @@ def test_reference_root_preserves_git_default_deny(tmp_path: Path):
     assert "ignored or under .git" in result.output_text
 
 
-def test_reference_root_preserves_secret_content_check(tmp_path: Path):
+def test_reference_root_read_returns_secret_shaped_content_like_pi(tmp_path: Path):
+    # READ1: Pi's read has no content filter, so a secret-shaped file under a
+    # reference root reads like any other file.
     from pipy_harness.native.tools.read import ReadTool
 
     ref_root = tmp_path / "sibling"
@@ -892,5 +916,5 @@ def test_reference_root_preserves_secret_content_check(tmp_path: Path):
     )
     result = tool.invoke(request, context)
 
-    assert result.is_error is True
-    assert "secret-looking" in result.output_text
+    assert result.is_error is False
+    assert result.output_text == "api_key=AKIAIOSFODNN7EXAMPLE\n"

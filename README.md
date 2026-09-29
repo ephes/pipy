@@ -500,11 +500,11 @@ dependency.
 
 A genuine user prompt that names workspace files with `@path` (one or more
 references) loads bounded UTF-8 excerpts for those files into the next provider
-request (including the product TUI). The references resolve through the same
-bounded reader as the model-selected `read` tool, so missing, ignored,
-binary, oversized, secret-shaped, and out-of-workspace paths fail closed with
-safe local diagnostics; the user's literal prompt text is preserved and only
-safe counters reach the session archive.
+request (including the product TUI). The references resolve through the
+model-selected `read` tool, so each loads at most 2000 lines or 50 KB with
+Pi's continuation notice, and missing, ignored, image and out-of-workspace
+paths fail closed with safe local diagnostics; the user's literal prompt text
+is preserved and only safe counters reach the session archive.
 
 A prompt may also attach images with `@image:<path>` (one or more references).
 Multimodal-capable adapters (Anthropic, OpenAI Responses, Google Gemini)

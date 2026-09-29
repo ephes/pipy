@@ -1423,16 +1423,18 @@ Boundaries:
   text and bare `@` are not treated as references), de-duplicated in first-seen
   order, and capped per turn (`MAX_FILE_REFERENCES_PER_TURN`) with a bounded
   total context budget.
-- Each reference resolves through the existing bounded `read` tool policy
-  (`pipy_harness.native.file_references` calls `ReadTool`), reusing the
-  workspace resolution plus the `.git`/`.gitignore`, binary, oversized,
-  non-UTF-8, and secret-shaped defenses. No new reader or path policy is
+- Each reference resolves through the `read` tool
+  (`pipy_harness.native.file_references` calls `ReadTool`), reusing its
+  workspace resolution and `.git`/`.gitignore` refusal and Pi's `read` output:
+  the first 2000 lines or 50 KB, with a `[Showing lines …]` notice when the
+  file is longer. Since READ1 there is no size cap and no binary, non-UTF-8 or
+  secret-shaped refusal, as in Pi. No new reader or path policy is
   introduced. The tool-loop REPL passes its `--read-root` reference roots, so
   absolute references under a configured read-root resolve there.
-- Failures fail closed: missing, ignored, binary, oversized, secret-shaped, and
-  out-of-workspace references load no content and produce a safe local
-  diagnostic. One bad reference never blocks a good one and never leaks unsafe
-  content into the prompt.
+- Failures fail closed: missing, ignored, image and out-of-workspace
+  references, and references past the total context budget, load no content
+  and produce a safe local diagnostic. One bad reference never blocks a good
+  one.
 - The user's literal prompt text is preserved verbatim; bounded excerpts are
   appended as a clearly labeled read-only context block.
 - Only safe counters (`file_reference_count`, `file_reference_loaded_count`,

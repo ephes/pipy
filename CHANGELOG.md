@@ -426,6 +426,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The `read` tool now follows Pi's `read` (`4df157433`). It takes optional
+  1-indexed `offset` and `limit` parameters, returns up to 2000 lines or
+  50 KB, and ends a cut result with Pi's notice, such as
+  `[Showing lines 1-512 of 901 (50.0KB limit). Use offset=513 to continue.]`
+  or `[4 more lines in file. Use offset=7 to continue.]`. Before, it
+  stopped at 200 lines / 8 KB without saying so: on a 901-line CSV the model
+  took row 198 for the last row, and automatic compaction kept that wrong
+  fact (DF1). A first line over 50 KB points at a `sed | head -c` command,
+  and the tool-row header shows the requested range (`read a.csv:513`).
+  - Files over 256 KB, non-UTF-8 and binary files, and files with
+    secret-shaped content now read like any other file (invalid bytes become
+    U+FFFD), as in Pi. `@file` references read through the same tool, so
+    they change the same way.
+  - Not ported: images (jpg, png, gif, webp, bmp) return an error rather
+    than an attachment (READ-IMG), and paths still follow pipy's
+    workspace/read-root policy with `.git`, `.gitignore` and generated-file
+    refusals (READ2). `offset`/`limit` are integers (Pi: numbers).
 - Switching the model (`/model`, Ctrl+P, RPC `set_model`, extension
   `setModel`) now keeps the conversation, as Pi `setModel` does. The next
   request replays the same history to the new model. Before, the switch

@@ -11,8 +11,8 @@ Status: sole active task index, rewritten 2026-09-29.
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
 - **Remaining queue:** DF1 is partially done (openai-codex live; see its
-  row in [Done](#done-2026-09-29)). The queue is now RL1 (release 0.2.0), and
-  READ1 below is the most important follow-on DF1 found.
+  row in [Done](#done-2026-09-29)). READ1, the most important follow-on DF1
+  found, is done. The queue is now RL1 (release 0.2.0).
 - **Tests:** `uv run --frozen pytest --co` collects 6,576 tests on
   `chore/df1-dogfooding` (6,571 on `chore/dh1-hygiene`).
 - **Not verified live.** openai-codex has live evidence for `gpt-6-sol` at
@@ -111,6 +111,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | COST1 | Catalog-cost pricing for every model (Pi `calculateCost`) | `23fdc99b` |
 | DH1 | Pi comparison gates run on `node` again and fail when Pi is missing; explicit `fake-native-bootstrap` REPL crash fixed; docs re-baselined | `chore/dh1-hygiene` |
 | DF1 (partial) | Live smoke and dogfooding on openai-codex, recorded in [the acceptance note](acceptance/2026-09-29-df1-dogfooding.md). Five bugs were fixed: a model switch kept no history, edit/write diffs corrupted the TUI, Escape froze the frame for about 3 s on the WebSocket close, tool rows showed argument dumps, and a refused switch changed the footer's thinking level. Gaps: no live evidence for other families (no credentials), automatic compaction can stop a session (DF1-F5), and follow-ons below | `chore/df1-dogfooding` |
+| READ1 | `read` follows Pi: `offset`/`limit`, 2000 lines / 50 KB, `[Showing lines …] Use offset=N to continue` notices; no size cap or content refusal. Follow-ons READ2, READ-IMG, TOOLS1 | `fix/read1-read-tool` |
 
 ## Follow-ons
 
@@ -118,13 +119,28 @@ Open deviations collected from the done slices, not yet queued. Take one when
 a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
-- **READ1 (DF1-F1, next):** the `read` tool silently cuts files at 200 lines
-  or 8 KB. It has no `offset`/`limit` and no `[Showing lines …]` continuation
-  notice. It also refuses files over 256 KB and any file with secret-shaped
-  content. Pi's `read` (`core/tools/read.ts`) takes `offset`/`limit`, reads
-  2000 lines / 50 KB and tells the model how to continue. To reproduce, ask
-  for the last row of a 901-line CSV: the model reports row 198, and a
-  compaction summary kept that wrong fact.
+- **READ2, read path policy:** `read` still resolves paths
+  through pipy's shared `resolve_tool_path`: workspace plus `--read-root`
+  roots, with `.git` and `.gitignore` paths refused, and so are generated
+  directories (`node_modules`, `build`, `dist`, `.venv`, `.pipy`, …) and
+  suffixes (`.lock`, `.map`, `.min.js`, `.d.ts`, images, archives). Pi's `resolveReadPath`
+  (`core/tools/path-utils.ts`) reads any path, expands `~`, strips a leading
+  `@`, normalizes unicode spaces and tries the macOS screenshot, NFD and
+  curly-quote variants. No security boundary needs the restriction (`bash`
+  reads anything). The same resolver serves `ls`/`grep`/`find`, `@file` and
+  `@image:`, so the slice decides each consumer.
+- **READ-IMG, images from `read`:** Pi's `read` returns jpg/png/gif/webp/bmp
+  files as image attachments (resized). pipy tool results are text-only, so
+  `read` returns an error for images. Porting needs image content in tool
+  results across the provider adapters, the session tree and replay.
+- **TOOLS1, `bash`/`grep`/`find`/`ls` output limits:** none is silent, but
+  each differs from Pi. `bash` keeps the last 16 KB and appends
+  `(output truncated)`; Pi keeps the last 2000 lines / 50 KB, saves the full
+  output to a temp file and says `[Showing lines X-Y of N. Full output: …]`.
+  `grep` (literal only, 100 results), `find` (200) and `ls` (200, `path`
+  required) append `... (truncated)`; Pi's take a `limit` (100, 1000, 500),
+  cap output at 50 KB and say `[N … limit reached. Use limit=2N for more…]`.
+  Pi's `grep` also takes `glob`/`ignoreCase`/`literal`/`context` and regex.
 - **DF1-F2, rendering resumed history:** `-r`, `/resume`, `/tree` navigation
   and `/fork` leave the transcript empty, although the provider context is
   restored. Pi renders the branch's conversation.
