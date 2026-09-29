@@ -103,6 +103,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | DF1 (partial) | Live smoke and dogfooding on openai-codex, recorded in [the acceptance note](acceptance/2026-09-29-df1-dogfooding.md). Five bugs were fixed: a model switch kept no history, edit/write diffs corrupted the TUI, Escape froze the frame for about 3 s on the WebSocket close, tool rows showed argument dumps, and a refused switch changed the footer's thinking level. Gaps: no live evidence for other families (no credentials), automatic compaction can stop a session (DF1-F5), and follow-ons below | `chore/df1-dogfooding` |
 | READ1 | `read` follows Pi: `offset`/`limit`, 2000 lines / 50 KB, `[Showing lines …] Use offset=N to continue` notices; no size cap or content refusal. Follow-ons READ2, READ-IMG, TOOLS1 | `fix/read1-read-tool` |
 | RL1 | Release 0.2.0: version bump, CHANGELOG `[0.2.0] - 2026-09-29` with highlights, the wheel ships `CHANGELOG.md`, README/quickstart checkout-install note (no PyPI package). The release tag is applied on `main` after the merge | `release/0.2.0` |
+| TOOLS1 | `bash`, `grep`, `find` and `ls` follow Pi's output handling: `bash` keeps the last 2000 lines / 50 KB and names a full-output temp file; `grep` (regex, `glob`, `ignoreCase`, `literal`, `context`), `find` (fd glob rules) and `ls` take a `limit` and end cut output with Pi's `limit=2N` / `50.0KB limit reached` notices. `grep` uses `rg` or a Python fallback; `find` walks in Python. Follow-on TOOLS2 | `feat/tools1-tool-output-parity` |
 | DF1-F5 | An oversized turn no longer wedges the session. Summary requests cut each tool result to 2000 characters (Pi `serializeConversation`), and a persistent session's automatic cut that keeps only the new prompt writes a compaction entry that keeps no earlier entry (Pi `firstKeptEntryId ?? id`). The oversized turn is still refused (as in Pi); the next prompt recovers. Follow-on F5b | `fix/f5-oversized-turn` |
 | DF1-F2/F3 | Resume shows and restores the session ([plan](specs/2026-09-29-f2-f3-resume-restore-plan.md)). Startup `-r`/`--continue`/`--session`, `/resume`, `/tree` navigation, `/fork`, `/clone`, `/new` and `/import` redraw the transcript from `build_context_entries()` (Pi `renderInitialMessages`), clearing the scrollback like Pi; `[compaction]`/`[branch]` rows and plain tool results follow Ctrl+O. A new branch records `model_change` and `thinking_level_change` with its first message, every model switch records `model_change` (and a clamped level), and opening a session restores its model and thinking level unless the CLI pins them (Pi `core/sdk.ts:194-263`). Deviations: model restore needs a `model_change` (pipy assistant messages name no model); a runtime fallback keeps the live model; `/new` keeps the live model and level. Follow-on DF1-F2b | `fix/f2-f3-resume-restore` |
 
@@ -126,14 +127,15 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   files as image attachments (resized). pipy tool results are text-only, so
   `read` returns an error for images. Porting needs image content in tool
   results across the provider adapters, the session tree and replay.
-- **TOOLS1, `bash`/`grep`/`find`/`ls` output limits:** none is silent, but
-  each differs from Pi. `bash` keeps the last 16 KB and appends
-  `(output truncated)`; Pi keeps the last 2000 lines / 50 KB, saves the full
-  output to a temp file and says `[Showing lines X-Y of N. Full output: …]`.
-  `grep` (literal only, 100 results), `find` (200) and `ls` (200, `path`
-  required) append `... (truncated)`; Pi's take a `limit` (100, 1000, 500),
-  cap output at 50 KB and say `[N … limit reached. Use limit=2N for more…]`.
-  Pi's `grep` also takes `glob`/`ignoreCase`/`literal`/`context` and regex.
+- **TOOLS2, what TOOLS1 left of the tool output:** `bash` still frames its
+  result as `exit code: N` + `[output]` and treats a non-zero exit as a normal
+  result; Pi appends `Command exited with code N` and marks it an error, with
+  `Command timed out after N seconds` / `Command aborted`. The `!`/`!!`
+  shortcut keeps a 16 KB tail where Pi's `bash-executor.ts` uses
+  `truncateTail` plus a temp file. Tool-row headers keep `grep "p" path`
+  where Pi shows `/p/ in path (glob) limit N`. `ls` sorts by code point where
+  Pi uses `localeCompare`. The bash temp file sits outside `read`'s path
+  policy until READ2.
 - **DF1-F2b, restored-history rendering gaps** (left by F2/F3, see the Done
   table):
   - Rows drawn by an extension tool's `render_call`/`render_result` keep the

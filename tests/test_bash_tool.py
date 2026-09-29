@@ -10,8 +10,10 @@ also pin the move to genuine shell parity.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -24,7 +26,13 @@ from pipy_harness.native.tools.base import (
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tools.bash import BashTool, _stream_output
+from pipy_harness.native.tools.bash import (
+    BashTool,
+    _ByteTail,
+    _stream_output,
+    run_local_command,
+)
+from pipy_harness.native.tools.output_accumulator import OutputAccumulator
 
 
 def _ctx(
@@ -120,15 +128,88 @@ def test_runs_in_the_workspace_root(tmp_path: Path) -> None:
     assert str(tmp_path.resolve()) in result.output_text
 
 
+def _notice_path(output_text: str) -> Path:
+    match = re.search(r"Full output: (\S+)\]$", output_text)
+    assert match is not None, output_text[-300:]
+    return Path(match.group(1))
+
+
 def test_bounds_large_output(tmp_path: Path) -> None:
-    tool = BashTool(max_output_bytes=256)
-    result = tool.invoke(
-        _request({"command": "for i in $(seq 1 5000); do echo line $i; done"}),
+    # Pi truncateTail: the last 2000 lines, and the full output in a temp file
+    # that the notice names.
+    result = BashTool().invoke(
+        _request({"command": "seq 1 5000"}),
         _ctx(tmp_path),
     )
     assert result.is_error is False
-    assert "(output truncated)" in result.output_text
-    assert len(result.output_text.encode("utf-8")) < 2000
+    body = result.output_text.split("[output]\n", 1)[1]
+    kept, notice = body.rsplit("\n\n", 1)
+    assert kept.splitlines() == [str(n) for n in range(3001, 5001)]
+    full = _notice_path(result.output_text)
+    assert notice == f"[Showing lines 3001-5000 of 5000. Full output: {full}]"
+    assert full.name.startswith("pipy-bash-") and full.suffix == ".log"
+    assert full.read_text() == "".join(f"{n}\n" for n in range(1, 5001))
+    assert full.stat().st_mode & 0o777 == 0o600
+    full.unlink()
+
+
+def test_byte_limit_notice(tmp_path: Path) -> None:
+    # 1500 lines of 100 bytes: under the line limit, over 50 KB.
+    result = BashTool().invoke(
+        _request({"command": "for i in $(seq 1 1500); do printf '%099d\\n' $i; done"}),
+        _ctx(tmp_path),
+    )
+    body = result.output_text.split("[output]\n", 1)[1]
+    kept, notice = body.rsplit("\n\n", 1)
+    # 512 lines of 100 bytes minus the final newline fit in 51200 bytes.
+    assert len(kept.splitlines()) == 512
+    full = _notice_path(result.output_text)
+    assert notice == (
+        f"[Showing lines 989-1500 of 1500 (50.0KB limit). Full output: {full}]"
+    )
+    full.unlink()
+
+
+def test_partial_last_line_notice(tmp_path: Path) -> None:
+    result = BashTool().invoke(
+        _request({"command": "head -c 60000 /dev/zero | tr '\\0' x"}),
+        _ctx(tmp_path),
+    )
+    body = result.output_text.split("[output]\n", 1)[1]
+    kept, notice = body.rsplit("\n\n", 1)
+    assert kept == "x" * 51200
+    full = _notice_path(result.output_text)
+    assert notice == (
+        f"[Showing last 50.0KB of line 1 (line is 58.6KB). Full output: {full}]"
+    )
+    full.unlink()
+
+
+def test_small_output_writes_no_temp_file(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    result = BashTool().invoke(_request({"command": "seq 1 2000"}), _ctx(tmp_path))
+    assert "Full output" not in result.output_text
+    assert list((tmp_path / "tmp").iterdir()) == []
+
+
+def test_schema_and_description_match_pi() -> None:
+    definition = BashTool().definition
+    assert definition.description == (
+        "Execute a bash command in the current working directory. Returns stdout "
+        "and stderr. Output is truncated to last 2000 lines or 50KB (whichever is "
+        "hit first). If truncated, full output is saved to a temp file. "
+        "Optionally provide a timeout in seconds."
+    )
+    properties = definition.input_schema["properties"]
+    assert properties["command"] == {
+        "type": "string",
+        "description": "Shell command to execute",
+    }
+    assert properties["timeout"]["description"] == (
+        "Timeout in seconds (optional, no default timeout)"
+    )
+    assert definition.input_schema["required"] == ["command"]
 
 
 def test_times_out(tmp_path: Path) -> None:
@@ -216,16 +297,45 @@ def test_cancellation_observed_when_stdout_closed_early(tmp_path: Path) -> None:
 def test_high_volume_output_is_bounded_not_accumulated(tmp_path: Path) -> None:
     # A noisy producer must not be retained in full; the returned result keeps
     # only a bounded tail (memory stays bounded during capture).
-    tool = BashTool(max_output_bytes=1024)
-    result = tool.invoke(
-        _request({"command": "for i in $(seq 1 200000); do echo line $i; done"}),
+    result = BashTool().invoke(
+        _request({"command": "seq 1 200000 | sed 's/^/line /'"}),
         _ctx(tmp_path),
     )
     assert result.is_error is False
-    assert "(output truncated)" in result.output_text
-    assert len(result.output_text.encode("utf-8")) < 4096
+    assert "[Showing lines 198001-200000 of 200000. Full output:" in result.output_text
+    assert len(result.output_text.encode("utf-8")) < 60 * 1024
     # The tail is retained, so the last lines are present.
     assert "line 200000" in result.output_text
+    _notice_path(result.output_text).unlink()
+
+
+def test_accumulator_rolling_tail_counts_the_whole_stream() -> None:
+    accumulator = OutputAccumulator(max_lines=3, max_bytes=64)
+    for n in range(1, 1001):
+        accumulator.append(f"row {n}\n".encode())
+    accumulator.finish()
+    snapshot = accumulator.snapshot(persist_if_truncated=True)
+    accumulator.close_temp_file()
+    assert snapshot.content == "row 998\nrow 999\nrow 1000"
+    assert snapshot.truncation.total_lines == 1000
+    assert snapshot.truncation.truncated_by == "lines"
+    assert snapshot.full_output_path is not None
+    full = Path(snapshot.full_output_path)
+    assert full.read_bytes() == b"".join(f"row {n}\n".encode() for n in range(1, 1001))
+    full.unlink()
+
+
+def test_accumulator_decodes_split_utf8_and_counts_open_line() -> None:
+    accumulator = OutputAccumulator()
+    for chunk in (b"a\n\xc3", b"\xa9b"):
+        accumulator.append(chunk)
+    accumulator.finish()
+    snapshot = accumulator.snapshot()
+    assert snapshot.content == "a\néb"
+    assert snapshot.truncation.total_lines == 2
+    assert snapshot.truncation.truncated is False
+    assert snapshot.full_output_path is None
+    assert accumulator.last_line_bytes == 3
 
 
 def test_no_sink_still_returns_full_output(tmp_path: Path) -> None:
@@ -244,15 +354,48 @@ def test_stream_flushes_incomplete_utf8_and_closes_stdout() -> None:
         stdout=subprocess.PIPE,
     )
     streamed: list[str] = []
+    store = _ByteTail(16)
 
     outcome = _stream_output(
         proc,
         sink=streamed.append,
         timeout=None,
-        max_output_bytes=16,
+        store=store,
     )
 
-    assert outcome == ("\ufffd", False, False, False)
+    assert outcome == (False, False)
+    assert store.output() == "\ufffd"
     assert streamed == ["\ufffd"]
     assert proc.stdout is not None and proc.stdout.closed
     assert proc.returncode == 0
+
+
+def test_local_shell_shortcut_keeps_its_16kb_tail(tmp_path: Path) -> None:
+    # The `!` shortcut is out of TOOLS1's scope (TOOLS2): it keeps 16 KB.
+    result = run_local_command("seq 1 20000", workspace_root=tmp_path)
+    assert result.truncated is True
+    assert len(result.output.encode()) == 16 * 1024
+    assert result.output.endswith("20000\n")
+
+
+def test_accumulator_drops_a_temp_file_it_could_not_write() -> None:
+    accumulator = OutputAccumulator(max_lines=2, max_bytes=1024)
+    accumulator.append(b"1\n2\n3\n")
+    path = accumulator.snapshot(persist_if_truncated=True).full_output_path
+    assert path is not None and Path(path).exists()
+
+    class _Full:
+        def write(self, _data: bytes) -> None:
+            raise OSError("disk full")
+
+        def close(self) -> None:
+            pass
+
+    accumulator._temp_file = _Full()  # type: ignore[assignment]
+    accumulator.append(b"4\n")
+    accumulator.finish()
+    snapshot = accumulator.snapshot(persist_if_truncated=True)
+    # A partial file is never named as the full output.
+    assert snapshot.full_output_path is None
+    assert not Path(path).exists()
+    assert snapshot.content == "3\n4"

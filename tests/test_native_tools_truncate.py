@@ -8,14 +8,68 @@ from pipy_harness.native.tools.image_mime import detect_supported_image_mime_typ
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
+    GREP_MAX_LINE_LENGTH,
     format_size,
     truncate_head,
+    truncate_line,
+    truncate_tail,
 )
 
 
 def test_defaults_match_pi():
     assert DEFAULT_MAX_LINES == 2000
     assert DEFAULT_MAX_BYTES == 50 * 1024
+    assert GREP_MAX_LINE_LENGTH == 500
+
+
+def test_truncate_tail_is_a_no_op_within_limits():
+    result = truncate_tail("a\nb\n", max_lines=2, max_bytes=10)
+
+    assert result.truncated is False
+    assert result.content == "a\nb\n"
+    assert result.total_lines == 2
+    assert result.output_lines == 2
+
+
+def test_truncate_tail_keeps_the_last_lines():
+    result = truncate_tail("1\n2\n3\n4\n5\n", max_lines=2, max_bytes=100)
+
+    assert result.truncated is True
+    assert result.truncated_by == "lines"
+    assert result.content == "4\n5"
+    assert result.total_lines == 5
+    assert result.output_lines == 2
+    assert result.last_line_partial is False
+
+
+def test_truncate_tail_byte_limit():
+    # "ccc" (3) + "\n" + "dd" (2) = 6 bytes fit; "bbb" would need 4 more.
+    result = truncate_tail("aaa\nbbb\nccc\ndd", max_lines=10, max_bytes=7)
+
+    assert result.truncated_by == "bytes"
+    assert result.content == "ccc\ndd"
+    assert result.output_bytes == 6
+
+
+def test_truncate_tail_keeps_the_end_of_an_oversized_last_line():
+    # "é" is two bytes; a cut in its middle advances to the next character.
+    result = truncate_tail("x\n" + "a" + "é" * 5, max_lines=10, max_bytes=4)
+
+    assert result.last_line_partial is True
+    assert result.truncated_by == "bytes"
+    assert result.content == "éé"
+    assert result.output_lines == 1
+    assert result.output_bytes == 4
+
+    odd = truncate_tail("é" * 5, max_lines=10, max_bytes=5)
+    assert odd.content == "éé"
+
+
+def test_truncate_line():
+    assert truncate_line("abc", 3) == ("abc", False)
+    assert truncate_line("abcd", 3) == ("abc... [truncated]", True)
+    long_line = "x" * 501
+    assert truncate_line(long_line) == ("x" * 500 + "... [truncated]", True)
 
 
 @pytest.mark.parametrize(

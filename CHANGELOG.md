@@ -6,6 +6,28 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Changed
+
+- The `bash`, `grep`, `find` and `ls` tools handle long output the way Pi's
+  do (TOOLS1, Pi `4df157433`), and take Pi's parameters and descriptions:
+  - `bash` keeps the last 2000 lines or 50 KB (was 16 KB), saves the full
+    output to a temp file (`pipy-bash-<id>.log` in the system temp directory)
+    and ends with `[Showing lines X-Y of N. Full output: <path>]`. `read`
+    cannot open that file yet (READ2); the model pages it with `bash`.
+  - `grep` takes a regex (or `literal`), `glob`, `ignoreCase`, `context` and
+    `limit` (default 100). Rows are `path:N: text` relative to the search
+    path, with `path-N- text` context lines; long lines are cut to 500
+    characters. It uses `rg` when installed, else a Python search with the
+    same rules. It no longer skips control-character or secret-shaped files.
+  - `find` matches like `fd --glob`: a pattern without `/` matches names at
+    any depth, smart case, directories end in `/`; `limit` defaults to 1000.
+  - `ls` takes an optional `path` and `limit` (default 500) and lists names
+    sorted case-insensitively, with `/` after directories.
+  - Every cut ends with Pi's notice, such as `[100 matches limit reached. Use
+    limit=200 for more, or refine pattern]` or `[50.0KB limit reached]`,
+    instead of `... (truncated)`. Empty results read `No matches found`,
+    `No files found matching pattern` or `(empty directory)`.
+
 ### Fixed
 
 - A turn whose tool result alone overflows the context window no longer wedges
