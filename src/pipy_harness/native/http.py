@@ -416,7 +416,9 @@ def extract_anthropic_usage(value: Any) -> dict[str, int | float]:
 
     Reads the normalized usage keys directly, maps Anthropic's
     ``cache_creation_input_tokens``/``cache_read_input_tokens`` counters onto the
-    normalized cache-write/cached keys, and synthesizes ``total_tokens`` from
+    normalized cache-write/cached keys, maps the 1h part of the write
+    (``cache_creation.ephemeral_1h_input_tokens``) onto
+    ``cache_write_1h_tokens``, and synthesizes ``total_tokens`` from
     input + output + cache reads + cache writes when the provider omits it (both
     Claude on the Anthropic API and on Bedrock report cache reads/writes
     separately from fresh input tokens).
@@ -436,6 +438,13 @@ def extract_anthropic_usage(value: Any) -> dict[str, int | float]:
         item = value.get(provider_key)
         if item is not None and usage.get(normalized_key) is None:
             usage[normalized_key] = item
+    # Pi ``cacheWrite1h``: ``cache_creation.ephemeral_1h_input_tokens``.
+    cache_creation = value.get("cache_creation")
+    if (
+        isinstance(cache_creation, Mapping)
+        and usage.get("cache_write_1h_tokens") is None
+    ):
+        usage["cache_write_1h_tokens"] = cache_creation.get("ephemeral_1h_input_tokens")
     if usage.get("total_tokens") is None:
         input_tokens = _usage_int(usage.get("input_tokens"))
         output_tokens = _usage_int(usage.get("output_tokens"))

@@ -12,6 +12,9 @@ envelope). This module owns the byte-identical translation in both directions:
 - :func:`envelope_to_message` translates one ``AgentMessage`` envelope.
 - :func:`convert_tool_result` turns one tool-result envelope into a
   ``tool_result`` block (plus any deferred ``tool_reference`` siblings).
+- :func:`anthropic_cache_control`, :func:`system_blocks` and
+  :func:`apply_last_user_cache_breakpoint` place Pi's prompt-cache markers
+  (each adapter decides where they apply).
 - :func:`parse_response` / :func:`extract_final_text` /
   :func:`extract_tool_calls` turn a success body into a
   :class:`ParsedAnthropicMessagesResponse`.
@@ -50,7 +53,11 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
 )
 from pipy_harness.native.http import ProviderHTTPError, extract_anthropic_usage
-from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.models import (
+    CacheRetention,
+    ProviderRequest,
+    ProviderToolCall,
+)
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 
 
@@ -62,6 +69,80 @@ class ParsedAnthropicMessagesResponse:
     usage: dict[str, int | float]
     stop_reason: str
     tool_calls: tuple[ProviderToolCall, ...] = ()
+
+
+# Last-block types Pi's Anthropic adapter marks with the conversation
+# breakpoint (``anthropic-messages.ts:1407-1432``). ``tool_addition``/
+# ``tool_removal`` belong to Pi's native tool changes, which pipy lacks.
+ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES = frozenset({"text", "image", "tool_result"})
+
+
+def anthropic_cache_control(
+    retention: CacheRetention, *, long_ttl: bool
+) -> dict[str, str] | None:
+    """Pi ``getCacheControl``: ``None`` for retention ``none``.
+
+    Otherwise an ephemeral marker; ``ttl: "1h"`` only for ``long`` retention
+    when ``long_ttl`` allows it. Short retention sends no ``ttl`` (the API's
+    5-minute default).
+    """
+
+    if retention == "none":
+        return None
+    if retention == "long" and long_ttl:
+        return {"type": "ephemeral", "ttl": "1h"}
+    return {"type": "ephemeral"}
+
+
+def system_blocks(
+    system_prompt: str, cache_control: Mapping[str, str] | None
+) -> list[dict[str, object]] | None:
+    """The system prompt as one text block, or ``None`` when it is empty.
+
+    Pi sends ``system`` only for non-empty text, always as a block list, with
+    the cache marker on that block when caching is on.
+    """
+
+    if not system_prompt:
+        return None
+    block: dict[str, object] = {"type": "text", "text": system_prompt}
+    if cache_control is not None:
+        block["cache_control"] = dict(cache_control)
+    return [block]
+
+
+def apply_last_user_cache_breakpoint(
+    items: list[dict[str, object]],
+    cache_control: Mapping[str, str] | None,
+    *,
+    eligible_types: frozenset[str] | None,
+) -> None:
+    """Mark the last block of the last message when that message is a user turn.
+
+    ``eligible_types`` limits which last-block types take the marker (Pi's
+    Anthropic rule); ``None`` accepts any block (Pi's Bedrock cache point is
+    appended whatever the last block is). An assistant last message gets none.
+    """
+
+    if cache_control is None or not items:
+        return
+    last = items[-1]
+    if last.get("role") != "user":
+        return
+    content = last.get("content")
+    if isinstance(content, str):
+        last["content"] = [
+            {"type": "text", "text": content, "cache_control": dict(cache_control)}
+        ]
+        return
+    if not isinstance(content, list) or not content:
+        return
+    block = content[-1]
+    if not isinstance(block, dict):
+        return
+    if eligible_types is not None and block.get("type") not in eligible_types:
+        return
+    block["cache_control"] = dict(cache_control)
 
 
 def messages_payload(

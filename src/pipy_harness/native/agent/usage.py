@@ -19,6 +19,9 @@ class AgentProviderUsageSample:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     total_tokens: int = 0
+    # Pi ``Usage.cacheWrite1h``: the 1h-retention part of ``cache_write_tokens``.
+    # Priced at 2x base input; not accumulated as its own counter.
+    cache_write_1h_tokens: int = 0
 
     def __post_init__(self) -> None:
         for field_name in self.__dataclass_fields__:
@@ -45,6 +48,7 @@ class AgentProviderUsageSample:
             cache_read_tokens=_coerce_int(usage.get("cached_tokens")),
             cache_write_tokens=_coerce_int(usage.get("cache_write_tokens")),
             total_tokens=_coerce_int(usage.get("total_tokens")),
+            cache_write_1h_tokens=_coerce_int(usage.get("cache_write_1h_tokens")),
         )
 
     @property
@@ -233,6 +237,7 @@ class AgentUsageAccumulator:
                 reasoning_tokens=reasoning_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_write_tokens=cache_write_tokens,
+                cache_write_1h_tokens=sample.cache_write_1h_tokens,
             )
 
     def agent_usage(self) -> AgentUsage:
@@ -360,11 +365,17 @@ def _turn_cost(
     reasoning_tokens: int,
     cache_read_tokens: int,
     cache_write_tokens: int,
+    cache_write_1h_tokens: int = 0,
 ) -> float:
+    """One turn's cost; Pi ``calculateCost`` prices 1h cache writes at 2x input."""
+
+    long_write = min(cache_write_1h_tokens, cache_write_tokens)
+    short_write = cache_write_tokens - long_write
     return (
         input_tokens * pricing.input_per_million
         + output_tokens * pricing.output_per_million
         + reasoning_tokens * pricing.reasoning_per_million
         + cache_read_tokens * pricing.cache_read_per_million
-        + cache_write_tokens * pricing.cache_write_per_million
+        + short_write * pricing.cache_write_per_million
+        + long_write * pricing.input_per_million * 2
     ) / 1_000_000.0

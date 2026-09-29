@@ -163,18 +163,43 @@ Deviations kept as follow-ons, not queued separately yet:
   SSE-fallback memory (pipy remembers the fallback per provider instance).
 - Routing ids are uuid4 hex, not uuidv7.
 
-### 5. PC2 — Anthropic `cache_control` and retention (M)
+### 5. PC2 — Anthropic `cache_control` and retention (done 2026-09-29)
 
-- **Current state.** Pipy sends no `cache_control` today. It already parses
-  cache-read and cache-write usage (`http.py:403`), has a
-  `NativeModelCost.cache_write` field (`catalog.py:45`), and renders `CH%` in
-  the footer (`chrome.py:651`).
-- **Work.**
-  - Add Pi-style breakpoints in `providers/anthropic_messages_wire.py`, plus
-    Bedrock/Vertex where supported (Pi `api/anthropic-messages.ts:1091`).
-  - Add a `cacheRetention` setting (5m/1h) and a 1h cache-write cost.
-- **Follow-on.** Pi prompt cache warming (`c596d09d9`).
-- **Tau reference:** `src/tau_ai/anthropic.py` and `dev-notes/prompt-caching.md`.
+Landed on branch `feat/pc2-anthropic-cache-control`. Anthropic Messages and
+Bedrock now follow Pi `4df157433`; the plan is in
+`docs/specs/2026-09-29-pc2-anthropic-cache-control-plan.md` and the user docs
+in `docs/providers.md` (Anthropic prompt caching).
+
+- Anthropic marks the system block, the last immediate tool and the last block
+  of a trailing user turn. Bedrock marks the system block and the last user
+  block, but not tools, and only for Pi's cache-capable Claude ids (or with
+  `AWS_BEDROCK_FORCE_CACHE=1`).
+- Retention reuses PC1's `PIPY_CACHE_RETENTION` and request field. `long`
+  sends `ttl: "1h"`; `short` sends no ttl; summaries send `none`. Pi has no
+  settings.json key for this, so the backlog's "`cacheRetention` setting" is
+  the env var.
+- `cache_creation.ephemeral_1h_input_tokens` becomes `cache_write_1h_tokens`,
+  priced at 2x input like Pi's `calculateCost`. Pi has no separate 1h price
+  in the catalog, so `NativeModelCost` is unchanged.
+- models.json compat `supportsLongCacheRetention`,
+  `supportsCacheControlOnTools`, `sendSessionAffinityHeaders` and
+  `sessionAffinityFormat` resolve per flag as in Pi.
+- Neither Pi nor pipy has a Vertex-Anthropic transport.
+- Live: skipped. No Anthropic, Bedrock or Vertex credentials were available.
+  The evidence is exact request-shape tests and updated golden fixtures.
+
+Deviations kept as follow-ons, not queued separately yet:
+
+- Session cost is priced only from `repl/turn_leaves.py` `PRICING_TABLE`
+  (Codex gpt-5). Catalog-cost pricing for every row (Pi `calculateCost`) would
+  make the 1h split visible for Claude.
+- Pi's native tool changes and `__pi_deferred_placeholder__` keep the tool
+  prefix stable when a deferred tool loads. pipy's `tool_reference` path does
+  not, so the first activation misses the cache once.
+- The Bedrock cache gate reads the model id only (Pi also reads `model.name`).
+  Bedrock uses InvokeModel, so Converse cache points become `cache_control`.
+- Pi prompt-cache warming (`c596d09d9`). tau's second breakpoint at the
+  previous request boundary was not adopted, because Pi does not have it.
 
 ### 6. UX1 — `/thinking` selector and truthful footer labels (S–M)
 

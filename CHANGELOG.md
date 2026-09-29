@@ -58,6 +58,26 @@ entries oldest-first, and a version bump shows the new entries at startup.
     id, as in Pi. Azure is the exception: Pi sends it that routing id as the
     key.
 
+- Anthropic prompt caching now follows Pi (`4df157433`). Before, pipy sent no
+  `cache_control`, so Claude never reused a cached prefix.
+  - Anthropic Messages marks the system prompt, the last tool, and the last
+    block of a trailing user message with `cache_control: {type: "ephemeral"}`.
+    The system prompt is now sent as a text block, and omitted when empty.
+  - Bedrock Claude marks the system prompt and the last user block, but not
+    tools. Only Pi's cache-capable Claude families get the markers:
+    3.5 Haiku, 3.7 Sonnet, 4.x and 5.x. `AWS_BEDROCK_FORCE_CACHE=1` turns them
+    on for ids that do not name Claude, such as application inference
+    profiles.
+  - `PIPY_CACHE_RETENTION=long` asks for the 1-hour TTL (`ttl: "1h"`).
+    Compaction and branch summaries send no markers.
+  - The 1-hour part of a cache write is read from the usage
+    (`cache_creation.ephemeral_1h_input_tokens`) and priced at twice the input
+    rate, as in Pi.
+  - models.json `compat.supportsLongCacheRetention`,
+    `compat.supportsCacheControlOnTools`, `compat.sendSessionAffinityHeaders`
+    and `compat.sessionAffinityFormat` work as in Pi. An OpenRouter Anthropic
+    endpoint gets the `x-session-id` header.
+
 - Terminal `/import` now stages its permissive copy through the existing
   presentation path, then adopts that durable copy through the native transition
   owner. The owner validates the current terminal lease before the switch hook,

@@ -15,6 +15,9 @@ NORMALIZED_PROVIDER_USAGE_KEYS: tuple[str, ...] = (
     "cached_tokens",
     "cache_write_tokens",
     "reasoning_tokens",
+    # Pi ``Usage.cacheWrite1h``: the part of ``cache_write_tokens`` written
+    # with 1h retention (Anthropic reports the split).
+    "cache_write_1h_tokens",
 )
 
 

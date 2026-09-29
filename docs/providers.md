@@ -183,6 +183,36 @@ plus `prompt_cache_options: {mode: "explicit"}` on explicit-mode rows. Azure
 ignores retention, so it still gets the routing id as its key. Extension
 `ctx.complete` calls send no session id.
 
+### Anthropic prompt caching
+
+pipy places Pi's Anthropic prompt-cache breakpoints, so a session's growing
+prefix is read from the cache on the next turn:
+
+- **Anthropic Messages** marks three places with
+  `cache_control: {type: "ephemeral"}`. They are the system prompt (sent as one
+  text block, and omitted when empty), the last tool, and the last block of the
+  conversation when the last message is a user turn (text, image or
+  `tool_result`). Deferred (`defer_loading`) tools never get a marker; the last
+  immediate tool does.
+- **Amazon Bedrock** marks the system prompt and the last block of a trailing
+  user message, not tools. It does so only for the Claude families Pi caches:
+  3.5 Haiku, 3.7 Sonnet, 4.x and 5.x. Set `AWS_BEDROCK_FORCE_CACHE=1` for model
+  ids that do not name Claude, such as application inference profiles.
+- `PIPY_CACHE_RETENTION=long` (Pi's `PI_CACHE_RETENTION`) adds `ttl: "1h"`.
+  The default is the provider's 5-minute cache. Compaction and branch summaries
+  use retention `none` and send no markers.
+- The usage split `cache_creation.ephemeral_1h_input_tokens` is kept as
+  `cache_write_1h_tokens`. Session cost prices it at twice the input rate, as
+  in Pi. Only models in pipy's pricing table get a cost today, and no Claude
+  model is in it yet.
+- models.json rows can set Pi's compat flags:
+  - `supportsLongCacheRetention: false` drops the 1h TTL.
+  - `supportsCacheControlOnTools: false` drops the tool marker.
+  - `sendSessionAffinityHeaders` sends the session id as `x-session-affinity`,
+    or as `x-session-id` when `sessionAffinityFormat` is `openrouter`. Both are
+    on by default for OpenRouter endpoints. Model headers override the
+    affinity header.
+
 ### Azure OpenAI configuration
 
 The `azure-openai` provider resolves its endpoint and deployment from these env

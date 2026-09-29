@@ -24,12 +24,17 @@ from pipy_harness.native.http import (
 from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
 )
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import CacheRetention, ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.anthropic_messages_wire import (
+    ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES,
+    anthropic_cache_control,
+    apply_last_user_cache_breakpoint,
     messages_payload,
     parse_response,
+    system_blocks,
 )
+from pipy_harness.native.providers.openai_prompt_cache import resolve_cache_retention
 from pipy_harness.native.tools.base import ToolDefinition
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
@@ -132,26 +137,42 @@ def _build_anthropic_request_body(
     reasoning_effort: str | None,
     thinking_disabled: bool,
     adaptive: bool,
+    cache_control: Mapping[str, str] | None = None,
+    cache_control_on_tools: bool = True,
 ) -> dict[str, Any]:
-    """Build the Messages body, including Anthropic-specific thinking shapes."""
+    """Build the Messages body, including Anthropic-specific thinking shapes.
+
+    ``cache_control`` places Pi's prompt-cache breakpoints
+    (``anthropic-messages.ts:1086-1145``, ``:1407-1432``): on the system block,
+    on the last immediate tool (never a ``defer_loading`` one; skipped when
+    ``cache_control_on_tools`` is off), and on the last block of a trailing
+    user message. That is at most three of Anthropic's four breakpoints.
+    """
 
     deferred_tool_names = frozenset(tool.name for tool in deferred_tools)
-    body: dict[str, Any] = {
-        "model": model_id,
-        "max_tokens": max_tokens,
-        "system": request.system_prompt,
-        "messages": messages_payload(
-            request,
-            parse_error_class=AnthropicResponseParseError,
-            deferred_tool_names=deferred_tool_names,
-            attach_images=True,
-            coalesce_tool_results=True,
-        ),
-    }
+    messages = messages_payload(
+        request,
+        parse_error_class=AnthropicResponseParseError,
+        deferred_tool_names=deferred_tool_names,
+        attach_images=True,
+        coalesce_tool_results=True,
+    )
+    apply_last_user_cache_breakpoint(
+        messages,
+        cache_control,
+        eligible_types=ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES,
+    )
+    body: dict[str, Any] = {"model": model_id, "max_tokens": max_tokens}
+    system = system_blocks(request.system_prompt, cache_control)
+    if system is not None:
+        body["system"] = system
+    body["messages"] = messages
     if request.available_tools:
         serialized_tools = [
             serialize_tool_for_anthropic(tool) for tool in immediate_tools
         ]
+        if serialized_tools and cache_control is not None and cache_control_on_tools:
+            serialized_tools[-1]["cache_control"] = dict(cache_control)
         for tool in deferred_tools:
             serialized = serialize_tool_for_anthropic(tool)
             serialized["defer_loading"] = True
@@ -219,6 +240,14 @@ class AnthropicProvider:
     # constructed adapter — falls back to the id-marker predicate.
     force_adaptive_thinking: bool | None = None
     supports_tool_references: bool = False
+    # Pi ``AnthropicMessagesCompat`` prompt-cache bits, resolved per flag by
+    # catalog construction (``anthropic-messages.ts:207-213``): long (1h)
+    # retention and tool breakpoints default on; session-affinity headers
+    # default on only for OpenRouter endpoints (``None`` -> that default).
+    supports_long_cache_retention: bool = True
+    supports_cache_control_on_tools: bool = True
+    send_session_affinity_headers: bool | None = None
+    session_affinity_format: str | None = None
 
     @property
     def name(self) -> str:
@@ -277,6 +306,7 @@ class AnthropicProvider:
         # split. ``display`` is forced to "summarized" on both paths, matching Pi
         # (anthropic.ts:954, :969-973), so the adaptive models (API default
         # "omitted") still return a thinking summary.
+        retention = resolve_cache_retention(request.cache_retention)
         adaptive = (
             self.force_adaptive_thinking
             if self.force_adaptive_thinking is not None
@@ -291,11 +321,18 @@ class AnthropicProvider:
             reasoning_effort=self.reasoning_effort,
             thinking_disabled=self.thinking_disabled,
             adaptive=adaptive,
+            cache_control=anthropic_cache_control(
+                retention, long_ttl=self.supports_long_cache_retention
+            ),
+            cache_control_on_tools=self.supports_cache_control_on_tools,
         )
         headers = {
             "anthropic-version": self.anthropic_version,
             "Content-Type": "application/json",
         }
+        # Pi merges the affinity header before the model and request headers,
+        # so both can override it (``anthropic-messages.ts:971-983``).
+        headers.update(self._session_affinity_headers(request, retention))
         # Merged models.json/model headers (may include an explicit Authorization).
         for header_name, header_value in self.extra_headers.items():
             headers[header_name] = header_value
@@ -347,6 +384,38 @@ class AnthropicProvider:
             },
             tool_calls=result.tool_calls,
         )
+
+    def _session_affinity_headers(
+        self, request: ProviderRequest, retention: CacheRetention
+    ) -> dict[str, str]:
+        """Pi ``createClient`` session-affinity header for the API-key path.
+
+        Sent only with a session id, retention other than ``none`` and
+        ``sendSessionAffinityHeaders`` (default: OpenRouter endpoints).
+        """
+
+        session_id = request.session_id if retention != "none" else None
+        if not session_id:
+            return {}
+        is_openrouter = (
+            self.provider_name == "openrouter" or "openrouter.ai" in self.endpoint
+        )
+        send = (
+            self.send_session_affinity_headers
+            if self.send_session_affinity_headers is not None
+            else is_openrouter
+        )
+        if not send:
+            return {}
+        affinity_format = (
+            self.session_affinity_format
+            if self.session_affinity_format is not None
+            else ("openrouter" if is_openrouter else None)
+        )
+        header = (
+            "x-session-id" if affinity_format == "openrouter" else "x-session-affinity"
+        )
+        return {header: session_id}
 
 
 class AnthropicProviderError(ProviderHTTPError):

@@ -119,6 +119,8 @@ class ResolvedConstruction:
     # Pi ``OpenAIResponsesCompat`` prompt-cache bits for openai-responses only:
     # the affinity header format plus long/explicit retention support.
     responses_prompt_cache: ResponsesPromptCacheCompat | None = None
+    # Pi ``AnthropicMessagesCompat`` prompt-cache bits for anthropic-messages.
+    anthropic_prompt_cache: AnthropicPromptCacheCompat | None = None
     error: str | None = None
 
 
@@ -129,6 +131,16 @@ class ResponsesPromptCacheCompat:
     session_affinity_format: str = "openai"
     supports_long_cache_retention: bool = True
     supports_explicit_prompt_cache_mode: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AnthropicPromptCacheCompat:
+    """Pi ``getAnthropicCompat`` prompt-cache fields (``anthropic-messages.ts:207-213``)."""
+
+    supports_long_cache_retention: bool = True
+    supports_cache_control_on_tools: bool = True
+    send_session_affinity_headers: bool = False
+    session_affinity_format: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +251,11 @@ def resolve_construction(
         if spec.api == "openai-responses"
         else None
     )
+    anthropic_prompt_cache = (
+        resolve_anthropic_prompt_cache(spec, base_url)
+        if spec.api == "anthropic-messages"
+        else None
+    )
 
     return ResolvedConstruction(
         provider_name=spec.provider_name,
@@ -255,6 +272,7 @@ def resolve_construction(
         supports_tool_references=supports_tool_references,
         supports_tool_search=supports_tool_search,
         responses_prompt_cache=responses_prompt_cache,
+        anthropic_prompt_cache=anthropic_prompt_cache,
     )
 
 
@@ -516,6 +534,41 @@ def resolve_responses_prompt_cache(
         ),
         supports_explicit_prompt_cache_mode=(
             explicit_mode if isinstance(explicit_mode, bool) else False
+        ),
+    )
+
+
+def resolve_anthropic_prompt_cache(
+    spec: NativeModelSpec, base_url: str | None
+) -> AnthropicPromptCacheCompat:
+    """Resolve Pi's anthropic-messages prompt-cache compat bits independently.
+
+    Each explicit ``compat`` value wins; otherwise Pi's defaults apply: long
+    retention and tool breakpoints are supported, and session-affinity headers
+    (format ``openrouter``) are sent only for the openrouter provider or an
+    ``openrouter.ai`` base URL.
+    """
+
+    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
+    is_openrouter = spec.provider_name == "openrouter" or "openrouter.ai" in (
+        base_url or ""
+    )
+    long_retention = compat.get("supportsLongCacheRetention")
+    tools = compat.get("supportsCacheControlOnTools")
+    send = compat.get("sendSessionAffinityHeaders")
+    explicit_format = compat.get("sessionAffinityFormat")
+    return AnthropicPromptCacheCompat(
+        supports_long_cache_retention=(
+            long_retention if isinstance(long_retention, bool) else True
+        ),
+        supports_cache_control_on_tools=tools if isinstance(tools, bool) else True,
+        send_session_affinity_headers=(
+            send if isinstance(send, bool) else is_openrouter
+        ),
+        session_affinity_format=(
+            explicit_format
+            if isinstance(explicit_format, str)
+            else ("openrouter" if is_openrouter else None)
         ),
     )
 
@@ -905,6 +958,7 @@ def _build_catalog_provider(
             thinking_disabled=resolved.thinking_disabled,
             force_adaptive_thinking=resolved.force_adaptive_thinking,
             supports_tool_references=resolved.supports_tool_references,
+            **_anthropic_prompt_cache_kwargs(resolved.anthropic_prompt_cache),
             **http_kwargs,
         )
 
@@ -948,6 +1002,19 @@ def _responses_prompt_cache_kwargs(
         "supports_explicit_prompt_cache_mode": (
             resolved.supports_explicit_prompt_cache_mode
         ),
+    }
+
+
+def _anthropic_prompt_cache_kwargs(
+    compat: AnthropicPromptCacheCompat | None,
+) -> dict[str, Any]:
+    if compat is None:
+        return {}
+    return {
+        "supports_long_cache_retention": compat.supports_long_cache_retention,
+        "supports_cache_control_on_tools": compat.supports_cache_control_on_tools,
+        "send_session_affinity_headers": compat.send_session_affinity_headers,
+        "session_affinity_format": compat.session_affinity_format,
     }
 
 
