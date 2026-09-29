@@ -133,12 +133,13 @@ Request-preparation refusals do not trigger provider retry. The separate
 one-shot CLI runtime keeps its existing behavior.
 
 Each ordinary product provider request captures the current retry settings once.
-The prepared OpenAI-Codex capability may retry an explicitly transient,
-no-progress failure within that request while reusing its body and headers;
-completed tools and accepted input are not replayed. Settings changes apply to
-the next provider request. Cancellation covers retry backoff and provider phases,
-and stale context blocks reissue through the existing fatal cleanup. Injected
-providers without the prepared capability remain single-call. Auxiliary summaries
+Like Pi's agent-level auto-retry, any provider may retry a failure that Pi's
+classifier treats as transient (see [Retries](providers.md#retries)), also after
+partial output; the prepared OpenAI-Codex capability reuses its body and headers,
+and other providers are called again with the same request. Completed tools and
+accepted input are not replayed. Settings changes apply to the next provider
+request. Cancellation covers retry backoff and provider phases, and stale
+context blocks reissue through the existing fatal cleanup. Auxiliary summaries
 used by semantic compaction capture the same policy and prepared capability while
 keeping retry events, deltas, and usage private; their original cut and context
 witness gate every reissue and final acceptance. Branch summaries retain their
@@ -1037,7 +1038,8 @@ only path that installs an exact active capability. It is installed before the
 matching `auto_retry_start`, remains active across delay, guarded reissue
 admission, and the reissued provider phase, and is retired atomically when the
 result becomes fixed. Private semantic-compaction and branch-summary execution
-do not install it. Providers without the prepared capability never install it.
+do not install it. Since DF1-F4 every provider's ordinary request can install
+it, because every provider is retried.
 
 The capability reuses the accepted turn's ordered cancellation mechanism; it is
 not a second run abort latch. Exactly one side wins a race between retry abort and
@@ -1050,9 +1052,10 @@ paired on every callback, admission, provider, cancellation, and cleanup exit.
 No control/settings/queue/coding lock spans callbacks, wake signaling, provider
 I/O, or JSONL output.
 
-RPC continues to project the D4a event sequence: each reissue has one
-`auto_retry_start` and one `auto_retry_end`, with no intermediate turn or agent
-end. Command responses remain correlated, but `abort_retry` response order is not
+RPC projects Pi's retry sequence: each reissue has one `auto_retry_start`, and
+the sequence has one `auto_retry_end` (DF1-F4; an intermediate failed reissue
+retires its capability without an end event), with no intermediate turn or
+agent end. Command responses remain correlated, but `abort_retry` response order is not
 a synchronization guarantee for asynchronous events. `get_state` adds no retry
 activity field. Generic `abort`, queue ownership, eligibility, attempt counters,
 provider transport fallback, summary privacy, the one-shot CLI runtime, and the

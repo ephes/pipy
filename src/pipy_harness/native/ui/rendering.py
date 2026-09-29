@@ -17,10 +17,12 @@ from pipy_harness.native.ui.state import (
     CancelAssistantMessage,
     CompleteAssistantMessage,
     FailAssistantMessage,
+    FinishRetry,
     RenderBufferedAssistantText,
     RenderDecision,
     RenderToolCall,
     RenderToolResult,
+    ScheduleRetry,
     StartAssistantMessage,
     StreamAssistantReasoning,
     StreamAssistantText,
@@ -65,6 +67,23 @@ class AgentEventRenderer(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
+class RetryEventRenderer(Protocol):
+    """Optional renderer verbs for Pi's ``auto_retry_start``/``auto_retry_end``.
+
+    Both product renderers implement them; a renderer without them simply does
+    not show retries.
+    """
+
+    def schedule_retry(
+        self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str
+    ) -> None: ...
+
+    def finish_retry(
+        self, *, succeeded: bool, attempt: int, final_error: str | None
+    ) -> None: ...
+
+
 class RenderingAgentEventAdapter:
     """Project canonical deltas, messages, and tool events onto a renderer."""
 
@@ -82,6 +101,8 @@ class RenderingAgentEventAdapter:
     def _apply(self, decision: RenderDecision) -> None:
         if isinstance(decision, (RenderToolCall, StreamToolOutput, RenderToolResult)):
             self._apply_tool_decision(decision)
+        elif isinstance(decision, (ScheduleRetry, FinishRetry)):
+            self._apply_retry_decision(decision)
         else:
             self._apply_assistant_decision(decision)
 
@@ -116,6 +137,24 @@ class RenderingAgentEventAdapter:
             renderer.cancel_assistant_message(decision.reason)
         else:
             assert_never(decision)
+
+    def _apply_retry_decision(self, decision: ScheduleRetry | FinishRetry) -> None:
+        renderer = self._renderer
+        if not isinstance(renderer, RetryEventRenderer):
+            return
+        if isinstance(decision, ScheduleRetry):
+            renderer.schedule_retry(
+                attempt=decision.attempt,
+                max_attempts=decision.max_attempts,
+                delay_ms=decision.delay_ms,
+                error_message=decision.error_message,
+            )
+        else:
+            renderer.finish_retry(
+                succeeded=decision.succeeded,
+                attempt=decision.attempt,
+                final_error=decision.final_error,
+            )
 
     def _apply_tool_decision(
         self, decision: RenderToolCall | StreamToolOutput | RenderToolResult

@@ -18,8 +18,9 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
    `[... N more characters truncated]`; other messages are sent unchanged.
    Branch summaries use the same rule. The request has no tools or attachments
    and excludes request-only overlays. Its text is private and does not stream
-   into the transcript. A prepared provider may retry an explicitly transient,
-   no-progress failure using the retry policy captured for this summary operation;
+   into the transcript. A prepared provider may retry a failure Pi's classifier
+   treats as transient (see [Retries](providers.md#retries)) using the retry
+   policy captured for this summary operation;
    the cut, request, headers, and budget preflight are not repeated.
 4. After checking that the captured context is still current, it replaces the
    older groups with the combined summary in the system prompt.

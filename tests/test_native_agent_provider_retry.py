@@ -158,9 +158,10 @@ def test_prepared_request_and_handle_are_reused_and_trace_balances(
         ProviderAttemptAllowance(3, 3),
     ]
     assert admissions == [caller, caller]
+    # Pi emits one auto_retry_start per retry and one auto_retry_end per
+    # sequence: the failed second attempt is followed by another start.
     assert [type(event) for event in sink.events] == [
         RetryScheduled,
-        RetryCompleted,
         RetryScheduled,
         RetryCompleted,
     ]
@@ -169,9 +170,9 @@ def test_prepared_request_and_handle_are_reused_and_trace_balances(
         for event in sink.events
         if isinstance(event, RetryScheduled)
     ] == [(1, 2, 10), (2, 2, 20)]
-    assert [
-        event.succeeded for event in sink.events if isinstance(event, RetryCompleted)
-    ] == [False, True]
+    end = sink.events[-1]
+    assert isinstance(end, RetryCompleted)
+    assert (end.attempt, end.succeeded, end.failure) == (2, True, None)
 
 
 def test_admission_runs_after_delay_and_rejection_closes_trace(tmp_path: Path) -> None:
@@ -210,17 +211,40 @@ def test_admission_runs_after_delay_and_rejection_closes_trace(tmp_path: Path) -
     [
         _failure(metadata=None),
         _failure(metadata={"retryable": 1, "progress": "none"}),
-        _failure(metadata={"retryable": True, "progress": "unknown"}),
-        _failure(final_text="partial"),
-        _failure(usage={}),
+        _failure(metadata={"retryable": False}),
         _result(
             HarnessStatus.SUCCEEDED, metadata={"retryable": True, "progress": "none"}
         ),
+        # Pi never retries quota/billing exhaustion or a context overflow,
+        # even when the text also carries retry-pattern digits.
+        _failure(error_message="429 insufficient_quota"),
+        _failure(
+            metadata={"retryable": True},
+            error_message="Codex error: 50000 tokens exceeds the context window",
+        ),
     ],
 )
-def test_eligibility_is_conservative(result: ProviderResult) -> None:
-    assert not is_managed_retry_eligible(result, observed_delta=False)
-    assert not is_managed_retry_eligible(_failure(), observed_delta=True)
+def test_eligibility_rejects_non_transient_failures(result: ProviderResult) -> None:
+    assert not is_managed_retry_eligible(result)
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        # Pi has no progress condition: partial output does not block a retry.
+        _failure(metadata={"retryable": True, "progress": "event"}),
+        _failure(final_text="partial"),
+        _failure(usage={}),
+        # Pi's text classifier over the message and the lifted API labels.
+        _failure(metadata=None, error_message="HTTP status 503."),
+        _failure(
+            metadata={"http_status": 529, "api_error_type": "overloaded_error"},
+            error_message="Anthropic API request failed with HTTP status 529.",
+        ),
+    ],
+)
+def test_eligibility_follows_pi_classification(result: ProviderResult) -> None:
+    assert is_managed_retry_eligible(result)
 
 
 def test_delay_uses_larger_server_hint_and_policy_cap() -> None:
@@ -328,7 +352,9 @@ def test_retry_callback_failure_prevents_another_attempt(
             before_reissue=lambda: None,
         )
 
-    expected_attempts = 1 if fail_on is RetryScheduled else 2
+    # The only published end is the sequence's final one (after the third,
+    # successful attempt); a failing start stops before any reissue.
+    expected_attempts = 1 if fail_on is RetryScheduled else 3
     assert len(provider.allowances) == expected_attempts
 
 
@@ -357,33 +383,120 @@ def test_managed_policy_rejects_malformed_values(
         ProviderManagedRetryPolicy(**values)  # type: ignore[arg-type]
 
 
-def test_unsupported_provider_keeps_one_ordinary_call_with_policy(
+@dataclass
+class _OrdinaryProvider:
+    """A provider without prepared attempts, as every non-Codex adapter."""
+
+    results: list[ProviderResult]
+    name: str = "fixture"
+    model_id: str = "model"
+    supports_tool_calls: bool = True
+    calls: list[tuple[ProviderRequest, dict[str, object]]] = field(default_factory=list)
+
+    def complete(self, request: ProviderRequest, **kwargs: object) -> ProviderResult:
+        self.calls.append((request, kwargs))
+        return self.results[len(self.calls) - 1]
+
+
+def _overloaded() -> ProviderResult:
+    return _failure(
+        metadata={"http_status": 529, "api_error_type": "overloaded_error"},
+        error_type="AnthropicHTTPStatusError",
+        error_message="Anthropic API request failed with HTTP status 529.",
+    )
+
+
+@pytest.mark.parametrize("interruptible", [False, True])
+def test_ordinary_provider_is_reissued_like_pi(
+    tmp_path: Path, interruptible: bool
+) -> None:
+    provider = _OrdinaryProvider(
+        [_overloaded(), _overloaded(), _result(HarnessStatus.SUCCEEDED, text="ok")]
+    )
+    sink = _Sink()
+    request = _request(tmp_path)
+
+    def waiter(
+        done: threading.Event, cancel: threading.Event
+    ) -> ProviderTurnInterruption:
+        del cancel
+        assert done.wait(5)
+        return ProviderTurnInterruption.SETTLED
+
+    outcome = ProviderTurnExecutor(retry_sleep=lambda _delay: None).complete(
+        provider,
+        request,
+        sink,
+        turn_index=0,
+        waiter=waiter if interruptible else None,
+        retry_policy=ProviderManagedRetryPolicy(4, 0.01, 1.0, 2.0, 0.0),
+        before_reissue=lambda: None,
+    )
+
+    assert outcome.result is not None and outcome.result.final_text == "ok"
+    assert len(provider.calls) == 3
+    assert all(call[0] is request for call in provider.calls)
+    assert [type(event) for event in sink.events] == [
+        RetryScheduled,
+        RetryScheduled,
+        RetryCompleted,
+    ]
+    first = sink.events[0]
+    assert isinstance(first, RetryScheduled)
+    assert (first.attempt, first.max_attempts, first.delay_ms) == (1, 3, 10)
+    assert first.failure.message.value == (
+        "Anthropic API request failed with HTTP status 529."
+    )
+    end = sink.events[-1]
+    assert isinstance(end, RetryCompleted) and end.succeeded and end.attempt == 2
+
+
+def test_ordinary_provider_exhaustion_ends_once_with_final_error(
     tmp_path: Path,
 ) -> None:
-    @dataclass
-    class _OrdinaryProvider:
-        name: str = "fixture"
-        model_id: str = "model"
-        supports_tool_calls: bool = True
-        calls: int = 0
+    provider = _OrdinaryProvider([_overloaded() for _ in range(4)])
+    sink = _Sink()
+    outcome = ProviderTurnExecutor(retry_sleep=lambda _delay: None).complete(
+        provider,
+        _request(tmp_path),
+        sink,
+        turn_index=0,
+        retry_policy=ProviderManagedRetryPolicy(4, 0.01, 1.0, 2.0, 0.0),
+        before_reissue=lambda: None,
+    )
+    assert outcome.result is not None and outcome.result.status is HarnessStatus.FAILED
+    assert len(provider.calls) == 4
+    assert [type(event) for event in sink.events] == [
+        RetryScheduled,
+        RetryScheduled,
+        RetryScheduled,
+        RetryCompleted,
+    ]
+    end = sink.events[-1]
+    assert isinstance(end, RetryCompleted) and not end.succeeded
+    assert end.attempt == 3
+    assert end.failure is not None
+    assert end.failure.message.value.endswith("HTTP status 529.")
 
-        def complete(
-            self, request: ProviderRequest, **_kwargs: object
-        ) -> ProviderResult:
-            self.calls += 1
-            return _failure()
 
-    provider = _OrdinaryProvider()
+def test_ordinary_provider_non_retryable_failure_is_single_call(
+    tmp_path: Path,
+) -> None:
+    provider = _OrdinaryProvider(
+        [_failure(metadata={"http_status": 400}, error_message="HTTP status 400.")]
+    )
+    sink = _Sink()
     outcome = ProviderTurnExecutor().complete(
         provider,
         _request(tmp_path),
-        _Sink(),
+        sink,
         turn_index=0,
         retry_policy=_policy(3),
         before_reissue=lambda: None,
     )
     assert outcome.result is not None and outcome.result.status is HarnessStatus.FAILED
-    assert provider.calls == 1
+    assert len(provider.calls) == 1
+    assert sink.events == []
 
 
 @pytest.mark.parametrize(
@@ -624,7 +737,7 @@ def test_cancelled_abandoned_reissue_cannot_publish_late_delta_or_retry(
     assert [type(event) for event in sink.events] == [RetryScheduled, RetryCompleted]
 
 
-def test_observed_delta_contradicts_no_progress_and_prevents_retry(
+def test_mid_stream_failure_is_retried_like_pi(
     tmp_path: Path,
 ) -> None:
     @dataclass
@@ -645,12 +758,20 @@ def test_observed_delta_contradicts_no_progress_and_prevents_retry(
                 ) -> ProviderResult:
                     provider.allowances.append(allowance)
                     assert stream_sink is not None
-                    stream_sink("progress")
-                    return _failure()
+                    stream_sink(f"partial {allowance.attempt}")
+                    return provider.results[allowance.attempt - 1]  # type: ignore[return-value]
 
             return _Handle()
 
-    provider = _DeltaProvider([_failure()])
+    # A stream `error` event after text already streamed (Pi retries it: the
+    # failed message is dropped and the request runs again).
+    mid_stream = _failure(
+        metadata={"progress": "event", "retryable": False},
+        error_message="Codex error: server_is_overloaded",
+    )
+    provider = _DeltaProvider(
+        [mid_stream, _result(HarnessStatus.SUCCEEDED, text="partial 2")]
+    )
     sink = _Sink()
     outcome = ProviderTurnExecutor(retry_sleep=lambda _delay: None).complete(
         provider,
@@ -660,9 +781,15 @@ def test_observed_delta_contradicts_no_progress_and_prevents_retry(
         retry_policy=_policy(3),
         before_reissue=lambda: None,
     )
-    assert outcome.result is not None and outcome.result.status is HarnessStatus.FAILED
-    assert len(provider.allowances) == 1
-    assert not any(isinstance(event, RetryScheduled) for event in sink.events)
+    assert outcome.result is not None and outcome.result.final_text == "partial 2"
+    assert len(provider.allowances) == 2
+    kinds = [type(event).__name__ for event in sink.events]
+    assert kinds == [
+        "AssistantTextDelta",
+        "RetryScheduled",
+        "AssistantTextDelta",
+        "RetryCompleted",
+    ]
 
 
 def test_exhaustion_uses_exact_logical_attempt_limit(tmp_path: Path) -> None:
@@ -678,9 +805,8 @@ def test_exhaustion_uses_exact_logical_attempt_limit(tmp_path: Path) -> None:
     )
     assert outcome.result is not None and outcome.result.status is HarnessStatus.FAILED
     assert [allowance.attempt for allowance in provider.allowances] == [1, 2, 3]
-    assert [
-        event.succeeded for event in sink.events if isinstance(event, RetryCompleted)
-    ] == [False, False]
+    ends = [event for event in sink.events if isinstance(event, RetryCompleted)]
+    assert [(end.attempt, end.succeeded) for end in ends] == [(2, False)]
 
 
 @pytest.mark.parametrize("max_attempts", [1, 2])
@@ -925,7 +1051,7 @@ def test_interruptible_reissue_worker_exception_closes_retry(
 def test_completed_non_retryable_failure_reports_truthful_retryability(
     tmp_path: Path,
 ) -> None:
-    final = _failure(metadata={"retryable": True, "progress": "event"})
+    final = _failure(metadata={"retryable": False, "progress": "event"})
     provider = _PreparedProvider([_failure(), final])
     sink = _Sink()
     outcome = ProviderTurnExecutor(retry_sleep=lambda _delay: None).complete(

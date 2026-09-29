@@ -575,10 +575,11 @@ is forward-compatible and Pi-written files do not lose data.
   exponential backoff 2s/4s/8s), and `retry.provider.{timeoutMs, maxRetries,
   maxRetryDelayMs(60000)}`. These feed pipy's retry policy
   (`pipy_harness.native.retry`). Each ordinary product request captures the
-  resolved policy once. Ordinary requests, semantic-compaction summaries, and
-  `/tree` branch summaries using prepared OpenAI-Codex execution use it for
-  bounded logical attempts and retry
-  only when the failed attempt reports no progress, payload, or usage. Settings
+  resolved policy once. Ordinary requests to every provider, and
+  semantic-compaction summaries and `/tree` branch summaries using prepared
+  OpenAI-Codex execution, use it for bounded logical attempts and retry when
+  Pi's classifier treats the failure as transient, also after partial output
+  (see [Retries](providers.md#retries)). Settings
   changes during backoff affect the next request, not the active retry sequence.
   Migrated legacy `retry.maxDelayMs` →
   `retry.provider.maxRetryDelayMs` (Pi `migrateSettings`).
@@ -609,8 +610,9 @@ runtime has no matching surface yet) is:
     `Retry-After` can raise (never bypass) the captured delay cap. Retry lifecycle
     event `attempt` and `maxAttempts` count reissues and exclude the initial
     attempt; provider metadata counts total logical attempts including it.
-    `openai`, `openrouter`, and injected providers without the prepared
-    capability remain single-call even when retry is enabled.
+    Providers without the prepared capability are retried by calling them again
+    with the same request (DF1-F4, Pi's agent-level retry); ordinary turn
+    retries use no jitter, so the announced delay is `baseDelayMs * 2^(n-1)`.
   - `compaction.enabled` — gates automatic semantic generation; `/compact` remains
     available regardless, and known oversized ordinary requests still refuse.
   - `compaction.reserveTokens` and pipy-only `compaction.contextWindow` — estimate

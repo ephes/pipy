@@ -56,9 +56,9 @@ def test_usage_publisher_absorbs_before_exact_event_and_tracks_current_target() 
     second = AgentUsageAccumulator()
     current = {"usage": first}
 
-    def absorb(sample: AgentProviderUsageSample) -> None:
+    def absorb(sample: AgentProviderUsageSample, counts_for_context: bool) -> None:
         trace.append(("absorb", sample))
-        current["usage"].absorb(sample)
+        current["usage"].absorb(sample, counts_for_context=counts_for_context)
 
     event_sink = _EventSink(trace)
     publisher = NativeAgentUsagePublisher(absorb, event_sink)
@@ -83,10 +83,28 @@ def test_usage_publisher_absorbs_before_exact_event_and_tracks_current_target() 
     assert isinstance(publisher, AgentUsagePublisher)
 
 
+def test_usage_publisher_forwards_that_a_failed_response_skips_context() -> None:
+    received: list[tuple[AgentProviderUsageSample, bool]] = []
+    publisher = NativeAgentUsagePublisher(
+        lambda sample, counts: received.append((sample, counts)), _EventSink([])
+    )
+    publication = _publication()
+    failed = AgentUsagePublication(
+        publication.sample,
+        publication.cumulative_usage,
+        publication.context_tokens,
+        counts_for_context=False,
+    )
+    publisher.publish(publication)
+    publisher.publish(failed)
+    assert received == [(publication.sample, True), (publication.sample, False)]
+
+
 def test_usage_publisher_stops_before_event_when_absorb_fails() -> None:
     trace: list[object] = []
 
-    def fail(sample: AgentProviderUsageSample) -> None:
+    def fail(sample: AgentProviderUsageSample, counts_for_context: bool) -> None:
+        del counts_for_context
         trace.append(("absorb", sample))
         raise RuntimeError("absorb failed")
 
@@ -102,7 +120,7 @@ def test_usage_publisher_propagates_event_backpressure_failure_after_absorb() ->
     samples: list[AgentProviderUsageSample] = []
     event_failure = RuntimeError("sink blocked")
     publisher = NativeAgentUsagePublisher(
-        lambda sample: samples.append(sample),
+        lambda sample, _counts_for_context: samples.append(sample),
         _EventSink(trace, failure=event_failure),
     )
 
@@ -157,7 +175,7 @@ def test_queue_port_rejects_untyped_callback_result() -> None:
     [
         (
             lambda: NativeAgentUsagePublisher(
-                cast(Callable[[AgentProviderUsageSample], None], None),
+                cast(Callable[[AgentProviderUsageSample, bool], None], None),
                 _EventSink([]),
             ),
             "absorb_usage",

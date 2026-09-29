@@ -86,9 +86,13 @@ class _FailOnceProvider:
                 error_message=(
                     "OpenAI Codex stream was interrupted before completion."
                 ),
+                # Final after the provider's own attempts: not flagged or
+                # worded as transient, so the agent's Pi-style auto-retry
+                # (DF1-F4) leaves it to surface.
                 metadata={
                     "phase": "stream",
-                    "retryable": True,
+                    "exhausted": True,
+                    "retryable": False,
                     "transport": "sse",
                 },
             )

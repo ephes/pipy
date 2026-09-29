@@ -18,8 +18,12 @@ class AgentUsagePublication:
     sample: AgentProviderUsageSample
     cumulative_usage: AgentUsage
     context_tokens: int
+    # False for a failed response: Pi never takes context usage from an error.
+    counts_for_context: bool = True
 
     def __post_init__(self) -> None:
+        if type(self.counts_for_context) is not bool:
+            raise TypeError("AgentUsagePublication.counts_for_context must be a bool")
         if not isinstance(self.sample, AgentProviderUsageSample):
             raise TypeError(
                 "AgentUsagePublication.sample must be AgentProviderUsageSample"

@@ -20,7 +20,9 @@ class NativeAgentUsagePublisher:
 
     def __init__(
         self,
-        absorb_usage: Callable[[AgentProviderUsageSample], None],
+        # ``absorb_usage(sample, counts_for_context)``: a failed response's
+        # tokens count, but Pi never takes the context value from an error.
+        absorb_usage: Callable[[AgentProviderUsageSample, bool], None],
         event_sink: AgentEventSink,
     ) -> None:
         if not callable(absorb_usage):
@@ -33,7 +35,7 @@ class NativeAgentUsagePublisher:
     def publish(self, publication: AgentUsagePublication) -> None:
         if not isinstance(publication, AgentUsagePublication):
             raise TypeError("publication must be AgentUsagePublication")
-        self._absorb_usage(publication.sample)
+        self._absorb_usage(publication.sample, publication.counts_for_context)
         self._event_sink.emit(
             UsageUpdated(publication.cumulative_usage, publication.context_tokens)
         )

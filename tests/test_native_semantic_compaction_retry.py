@@ -344,10 +344,31 @@ def test_projected_manual_persistence_result_survives_failing_lifecycle(
         _transient(metadata={"retryable": True, "progress": "accepted"}),
     ],
 )
-def test_progress_payload_or_usage_prevents_private_summary_retry(
+def test_progress_payload_or_usage_does_not_block_private_summary_retry(
     tmp_path: Path, blocked: ProviderResult
 ) -> None:
-    effects, provider = _prepared_fixture(tmp_path, [blocked, _result("unused")])
+    # Pi retries a transient summary failure whatever it produced first
+    # (``retryAssistantCall`` + ``isRetryableAssistantError``).
+    effects, provider = _prepared_fixture(tmp_path, [blocked, _result("summary")])
+    effects.settings.set_value("retry.maxRetries", 3)
+    effects.settings.set_value("retry.baseDelayMs", 1)
+
+    outcome = effects.compact_context("manual")
+
+    assert outcome.notice.startswith("pipy: compacted conversation context")
+    assert [(item.attempt, item.max_attempts) for item in provider.allowances] == [
+        (1, 4),
+        (2, 4),
+    ]
+
+
+def test_non_transient_failure_prevents_private_summary_retry(
+    tmp_path: Path,
+) -> None:
+    effects, provider = _prepared_fixture(
+        tmp_path,
+        [_transient(metadata={"retryable": False}), _result("unused")],
+    )
     effects.settings.set_value("retry.maxRetries", 3)
     before = _published(effects)
 

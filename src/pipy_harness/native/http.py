@@ -537,6 +537,13 @@ class ProviderHTTPError(Exception):
         )
 
 
+def _transport_retry_metadata(exc: BaseException) -> dict[str, Any]:
+    """``{"retryable": bool}`` for a recognized network failure, else empty."""
+
+    retryable = transport_exception_retryable(exc)
+    return {} if retryable is None else {"retryable": retryable}
+
+
 @dataclass(frozen=True, slots=True)
 class UrllibJsonHTTPClient:
     """Standard-library JSON client shared by the plain-JSON provider adapters.
@@ -586,7 +593,20 @@ class UrllibJsonHTTPClient:
                 else "request failed"
             )
             raise self.transport_error_class(
-                f"{self.provider_label} request failed: {reason}"
+                f"{self.provider_label} request failed: {reason}",
+                metadata=_transport_retry_metadata(exc),
+            ) from exc
+        except (OSError, http.client.HTTPException) as exc:
+            # A connection reset or timeout while reading the response. Pi's
+            # retry classifier matches Node's text for these; pipy carries the
+            # structured transport classification instead.
+            retryable = transport_exception_retryable(exc)
+            if retryable is None:
+                raise
+            reason = sanitize_text(str(exc)) or type(exc).__name__
+            raise self.transport_error_class(
+                f"{self.provider_label} request failed: {reason}",
+                metadata={"retryable": retryable},
             ) from exc
 
         return JsonResponse(

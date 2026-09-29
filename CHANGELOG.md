@@ -30,6 +30,28 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Provider retries are visible and follow Pi's agent-level auto-retry
+  (DF1-F4, Pi `4df157433`):
+  - The TUI shows the failed attempt as `Error: <message>` and replaces
+    `Working...` with `Retrying (1/3) in 2s... (escape to cancel)`, counting
+    down. Escape cancels the retry. Exhausted retries end with `Retry failed
+    after 3 attempts: <error>`.
+  - Every provider is retried, not only OpenAI-Codex. Pi's classifier decides
+    (overloaded such as a 529 `overloaded_error`, rate limits, 5xx, network,
+    timeouts, early stream ends, "you can retry your request"). Quota, billing
+    and context-overflow errors are never retried.
+  - A failure after partial output is retried too, and the new answer replaces
+    the partial one. Backoff is exactly `retry.baseDelayMs * 2^(n-1)`, with no
+    jitter.
+  - A Codex stream `error` event now reads `Codex error: <message or code>`,
+    and `response.failed` reads the server's message, so the classifier sees
+    their text. A mid-stream `server_is_overloaded` is retried.
+  - JSON and RPC emit `auto_retry_start` for each retry and one
+    `auto_retry_end` per sequence (it was one per attempt). A cancelled retry
+    reads `Retry cancelled`. The retried attempt's `message_update` text starts
+    over.
+  - After a failed turn the footer context no longer jumps (e.g. 0.6% to
+    7.2%). It keeps the last successful response's usage, as in Pi.
 - A turn whose tool result alone overflows the context window no longer wedges
   the session (DF1-F5). That turn is still refused, as in Pi, but the next
   prompt now compacts it away. Two changes follow Pi (`4df157433`):

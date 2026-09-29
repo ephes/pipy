@@ -153,6 +153,8 @@ class TranscriptComponent:
         self.reasoning_text = ""
         self.tool_output_text = ""
         self.working_text = ""
+        # The retry loader (Pi ``RetryStatusIndicator``) uses a warning spinner.
+        self.working_warning = False
         self.thinking_hidden = False
         self.hidden_thinking_label = DEFAULT_HIDDEN_THINKING_LABEL
         self.tools_expanded = False
@@ -215,9 +217,10 @@ class TranscriptComponent:
             self.working_text = ""
         self._repaint()
 
-    def set_working(self, text: str) -> None:
+    def set_working(self, text: str, *, warning: bool = False) -> None:
         with self._paint_lock:
             self.working_text = text
+            self.working_warning = warning
         self._repaint()
 
     def clear_working(self) -> None:
@@ -261,6 +264,15 @@ class TranscriptComponent:
         self._repaint()
 
     def show_operation_aborted(self) -> None:
+        self.add_error("Operation aborted")
+
+    def add_error(self, text: str) -> None:
+        """Settle any partial assistant output, then show an error line.
+
+        Pi renders an ended or failed assistant message as its partial content
+        followed by the error-coloured reason.
+        """
+
         with self._paint_lock:
             self.working_text = ""
             self._settle_reasoning_locked()
@@ -271,9 +283,10 @@ class TranscriptComponent:
                     )
                 )
                 self.assistant_text = ""
-            self.history_blocks.append(
-                HistoryBlockTuple("error", ("Operation aborted",))
-            )
+            safe_lines = tuple(
+                sanitize_label_text(line) for line in str(text).splitlines()
+            ) or ("",)
+            self.history_blocks.append(HistoryBlockTuple("error", safe_lines))
         self._repaint()
 
     def append_reasoning(self, chunk: str) -> None:

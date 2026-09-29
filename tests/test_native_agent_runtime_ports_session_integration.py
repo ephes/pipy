@@ -521,7 +521,7 @@ def test_product_session_usage_port_preserves_run_and_session_scopes(
     class RecordingUsagePublisher:
         def __init__(
             self,
-            absorb_usage: Callable[[AgentProviderUsageSample], None],
+            absorb_usage: Callable[[AgentProviderUsageSample, bool], None],
             event_sink: AgentEventSink,
         ) -> None:
             self._delegate = original(absorb_usage, event_sink)
@@ -578,9 +578,11 @@ def test_product_session_usage_port_preserves_run_and_session_scopes(
     )
 
     _assert_usage_publications(publications)
+    # The failed response's tokens count toward usage, but Pi never takes the
+    # context value from an error, so the footer keeps the last success's 4.
     assert footers[-2:] == [
         (AgentUsage(input_tokens=5, output_tokens=2), 4),
-        (AgentUsage(input_tokens=12, output_tokens=4), 9),
+        (AgentUsage(input_tokens=12, output_tokens=4), 4),
     ]
     for publication in publications:
         publish_index = trace.index(("publish", publication))

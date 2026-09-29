@@ -149,10 +149,20 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - Reasoning text, tool-result details and durations are not stored, so
     restored history has no thinking blocks, extension result details or
     `Took Ns`.
-- **DF1-F4, retry UX:** provider retries are silent, with up to about 14 s of
-  `Working...` (Pi shows `Retrying (n/3) in Ns`). A Codex stream `error` event
-  with an unknown status is not retried. After a failed turn the footer
-  context jumped from 0.6% to 7.2% until the next success.
+- **DF1-F4, retry UX:** fixed on `fix/f4-retry-visibility` (plan:
+  `docs/parity-loop/plans/f4-retry-visibility.md`). Every provider is retried
+  with Pi's classifier, also after partial output. The TUI shows `Error: ...`
+  and `Retrying (n/3) in Ns... (escape to cancel)`. Codex `error` /
+  `response.failed` events carry Pi's text and are classified by it. A failed
+  turn keeps the last successful footer context. Remaining differences from
+  Pi:
+  - The retry stays inside one assistant message, so there is no
+    `message_end` / `agent_end(willRetry)` for the failed attempt and it is not
+    persisted. F6 overlaps here.
+  - Escape during the backoff ends as an operator abort (an extra `Operation
+    aborted` line).
+  - There is no chars/4 trailing estimate on top of the last usage.
+  - Compaction and branch-summary retries are still private.
 - **DF1-F5b, summary input still too large:** tool-result truncation (F5)
   does not bound the whole summary request. A removed range with a huge pasted
   user message, large tool-call arguments or many results still fails the

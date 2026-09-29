@@ -148,10 +148,11 @@ def test_exhausted_branch_summary_retry_publishes_nothing(tmp_path: Path) -> Non
     ("max_retries", "failure"),
     [
         (0, _transient()),
-        (3, _transient(final_text="provider made progress")),
+        # Pi's classifier: a failure neither flagged nor worded as transient.
+        (3, _transient(metadata={"retryable": False, "progress": "event"})),
     ],
 )
-def test_branch_summary_disabled_or_progress_failure_does_not_retry(
+def test_branch_summary_disabled_or_non_retryable_failure_does_not_retry(
     tmp_path: Path, max_retries: int, failure: ProviderResult
 ) -> None:
     settings = _settings(tmp_path, max_retries=max_retries)

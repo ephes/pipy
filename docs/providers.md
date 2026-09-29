@@ -183,19 +183,58 @@ Recognized connection/header failures and interrupted reads become sanitized
 provider failures. They do not expose raw socket messages, response bodies,
 prompts, auth values, or tool payloads. Cancellation remains a distinct abort,
 and an exhausted failure returns control to the REPL so a later prompt can run.
-The provider owns a bounded request-plus-stream attempt loop. Transient HTTP,
-connection, header, and stream failures are retried only before the first
-accepted provider event; after any metadata, reasoning, text, or tool event,
-the turn fails without replay so visible output and tool work cannot be
-duplicated. Backoff is cancellation-aware and honors bounded `retry-after-ms`
-and `Retry-After` delays. `retry.provider.maxRetries` overrides the global
-retry count; `retry.enabled=false` makes exactly one outer attempt. There is no
-higher-level automatic turn replay. OpenAI-Codex now honors `transport: auto`,
+Inside an agent turn, retries follow Pi's agent-level auto-retry, which applies
+to every provider, not only OpenAI-Codex (see [Retries](#retries) below). A
+stream `error` event reads `Codex error: <message or code>` and a
+`response.failed` terminal reads its `response.error.message` (else `Codex
+response failed`), as in Pi, so the retry classifier can see the server's
+wording. Called directly, outside the agent's managed retry, the provider
+keeps its own bounded request-plus-stream attempt loop: transient
+HTTP, connection, header, and stream failures are retried only before the
+first accepted provider event. Backoff is cancellation-aware and honors
+bounded `retry-after-ms` and `Retry-After` delays. `retry.provider.maxRetries`
+overrides the global retry count; `retry.enabled=false` makes exactly one
+attempt. OpenAI-Codex now honors `transport: auto`,
 `sse`, and `websocket`: `auto` and explicit `websocket` try the Responses
 WebSocket path first, fall back to SSE only on recognized pre-event transport
 failures, remember SSE fallback for later `auto` calls, and never fall back
 after provider progress. Long-lived WebSocket reuse/continuation caching remains
 out of scope.
+
+### Retries
+
+Like Pi's agent-level auto-retry, a failed provider request in a turn is
+retried for **every** provider when `retry.enabled` is on (the default):
+
+- **What is retried:** Pi's `isRetryableAssistantError` patterns over the
+  error message plus the API error labels pipy lifts from the error body:
+  overloaded (e.g. an Anthropic 529 `overloaded_error`), rate limits, HTTP
+  429/500/502/503/504/520/524, service unavailable, server/internal errors,
+  network, connection, socket and timeout failures, closed WebSockets, early
+  stream ends, and "you can retry your request". Failures a provider marks as
+  transient are retried too. Quota or billing exhaustion (`insufficient_quota`,
+  `billing`, ...) and context-overflow errors (Pi's `isContextOverflow`
+  patterns) are never retried.
+- **Mid-stream errors:** as in Pi, a failure after text already streamed is
+  retried; the retried request starts over and its answer replaces the
+  partial one. Tools only run after a successful response, so nothing runs
+  twice.
+- **Backoff:** `retry.maxRetries` retries (default 3) after
+  `retry.baseDelayMs * 2^(n-1)` (default 2 s, 4 s, 8 s), capped by
+  `retry.provider.maxRetryDelayMs`, without jitter. A longer server
+  `retry-after` is honored (Pi's agent retry ignores it).
+- **Display:** the TUI shows the failed attempt's `Error: <message>` and
+  replaces `Working...` with `Retrying (1/3) in 2s... (escape to cancel)`,
+  counting down. Escape during the wait cancels the retry, which reads
+  `Retry failed after 1 attempts: Retry cancelled`; exhausted retries read
+  `Retry failed after 3 attempts: <error>`. JSON and RPC modes emit
+  `auto_retry_start` per retry and one `auto_retry_end` per sequence.
+
+Differences from Pi: the retry happens inside one assistant message, so JSON
+and RPC do not see Pi's `message_end` / `agent_end` for the failed attempt, and
+the failed attempt is not stored in the session. Escape during the wait also
+shows `Operation aborted`. Compaction and branch summaries keep their own
+private retries.
 
 ### OpenAI prompt caching
 

@@ -88,7 +88,7 @@ from pipy_harness.native.image_attachment import (
     resolve_image_attachments,
 )
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.provider import PreparedProviderPort, ProviderPort
+from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.repl.loop_scope import (
     AgentTurnStatusPresentationAdapter,
@@ -401,21 +401,20 @@ class _ProviderTurnCompletion:
             context = scope.coding_state.capture_run_context()
             configured_policy = retry_policy_from_settings(scope.settings)
         provider_for_turn = context.binding.provider
-        retry_policy = None
-        before_reissue = None
 
         def _before_reissue() -> None:
             scope.coding_state.validate_run_context(context)
 
-        if isinstance(provider_for_turn, PreparedProviderPort):
-            retry_policy = ProviderManagedRetryPolicy(
-                max_attempts=configured_policy.max_attempts,
-                initial_delay_seconds=configured_policy.initial_delay_seconds,
-                max_delay_seconds=configured_policy.max_delay_seconds,
-                multiplier=configured_policy.multiplier,
-                jitter_seconds=configured_policy.jitter_seconds,
-            )
-            before_reissue = _before_reissue
+        # Pi retries every provider at the agent level, with a jitter-free
+        # ``baseDelayMs * 2^(n-1)`` backoff; the announced delay is the wait.
+        retry_policy = ProviderManagedRetryPolicy(
+            max_attempts=configured_policy.max_attempts,
+            initial_delay_seconds=configured_policy.initial_delay_seconds,
+            max_delay_seconds=configured_policy.max_delay_seconds,
+            multiplier=configured_policy.multiplier,
+            jitter_seconds=0.0,
+        )
+        before_reissue = _before_reissue
         waiter: ProviderTurnWaiter | None = None
         if scope.terminal_ui is not None:
             waiter = partial(wait_for_provider_interrupt, scope.terminal_ui)

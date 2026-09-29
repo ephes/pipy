@@ -75,6 +75,10 @@ class AutomationAgentEventAdapter:
         if isinstance(event, (ToolCallStarted, ToolCallUpdated, ToolCallCompleted)):
             return self._project_tool_execution(event)
         if isinstance(event, (RetryScheduled, RetryCompleted)):
+            if isinstance(event, RetryScheduled):
+                # The retried attempt starts over: its partial message must
+                # not carry the failed attempt's text.
+                self._partial_text = ""
             return self._project_retry(event)
         if isinstance(
             event,

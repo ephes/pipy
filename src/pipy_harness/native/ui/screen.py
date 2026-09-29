@@ -75,6 +75,7 @@ class TranscriptFrameSource(Protocol):
     reasoning_text: str
     tool_output_text: str
     working_text: str
+    working_warning: bool
     thinking_hidden: bool
     hidden_thinking_label: str
     tools_expanded: bool
@@ -541,6 +542,7 @@ class Screen:
             ),
             overlay=overlay,
             cursor_visible=self._overlays.active is None,
+            working_warning=transcript.working_warning,
         )
 
     def read_driver_key(self, key: str | None) -> str | None:

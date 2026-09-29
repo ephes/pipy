@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
@@ -30,6 +31,7 @@ from pipy_harness.native.extension_types import (
 from pipy_harness.native.extension_ui import coerce_tool_render_lines
 from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.session_tree_commands import sanitize_label_text
 
 
 class _PaletteToolRenderTheme:
@@ -498,6 +500,40 @@ class _ToolLoopRenderer:
         elif reason is AgentCancellationReason.OPERATOR_ABORT:
             print("Operation aborted", file=self._error_stream)
         self._stream_active = False
+
+    def schedule_retry(
+        self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str
+    ) -> None:
+        """Pi ``auto_retry_start`` as two plain lines (no live countdown here)."""
+
+        self._finish_provider_turn(stream_ended_with_newline=False)
+        self._write_retry_line(f"Error: {error_message or 'Unknown error'}")
+        self._write_retry_line(
+            f"Retrying ({attempt}/{max_attempts}) in "
+            f"{math.ceil(max(0, delay_ms) / 1000)}s..."
+        )
+        self.begin_provider_turn()
+        self.show_working()
+
+    def finish_retry(
+        self, *, succeeded: bool, attempt: int, final_error: str | None
+    ) -> None:
+        """Pi ``auto_retry_end``: only a final failure is shown."""
+
+        if succeeded:
+            return
+        self._clear_working()
+        self._write_retry_line(
+            f"Retry failed after {attempt} attempts: {final_error or 'Unknown error'}"
+        )
+
+    def _write_retry_line(self, text: str) -> None:
+        try:
+            with self._terminal_lock:
+                self._error_stream.write(f"{sanitize_label_text(text)}\n")
+                self._error_stream.flush()
+        except (ValueError, OSError):
+            pass
 
     def _handle_stream_chunk(self, chunk: str) -> None:
         if not chunk:

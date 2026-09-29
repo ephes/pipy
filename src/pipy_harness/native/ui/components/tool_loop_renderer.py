@@ -21,8 +21,11 @@ way every other transcript write does.
 
 from __future__ import annotations
 
+import math
 import threading
+import time
 from collections.abc import Callable, Mapping, MutableMapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, TypedDict
 
 from pipy_harness.native.agent import (
@@ -57,6 +60,16 @@ class _PendingToolRender(TypedDict):
     tool: "ExtensionTool"
 
 
+@dataclass(frozen=True, slots=True)
+class _RetryCountdown:
+    """One scheduled retry: its Pi label and the monotonic end of the backoff."""
+
+    attempt: int
+    max_attempts: int
+    deadline: float
+    cancel_key: str
+
+
 def _forward_legacy_render_details(ctx: ToolRenderContext, details: object) -> None:
     """Preserve opaque values manually inserted into the internal reader sink."""
 
@@ -82,10 +95,16 @@ class TuiToolLoopRenderer:
         render_inputs: ScreenRenderInputs,
         tool_renderers: Mapping[str, ExtensionTool] | None = None,
         render_details_sink: ToolRenderDetailsSink | None = None,
+        interrupt_key_text: Callable[[], str] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._transcript = transcript
         self._chrome = chrome
         self._render_inputs = render_inputs
+        # Pi ``keyText("app.interrupt")`` in the retry loader's cancel hint.
+        self._interrupt_key_text = interrupt_key_text or (lambda: "escape")
+        self._clock = clock
+        self._retry: _RetryCountdown | None = None
         self._streamed_any = False
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
@@ -106,6 +125,8 @@ class TuiToolLoopRenderer:
             chrome=self._chrome,
             render_inputs=self._render_inputs,
             tool_renderers=self._tool_renderers,
+            interrupt_key_text=self._interrupt_key_text,
+            clock=self._clock,
         )
 
     @property
@@ -132,6 +153,7 @@ class TuiToolLoopRenderer:
         self.show_working()
 
     def begin_provider_turn(self) -> None:
+        self._retry = None
         self._stop_working(clear=True)
         self._streamed_any = False
         self._transcript.begin_assistant_turn()
@@ -150,9 +172,30 @@ class TuiToolLoopRenderer:
         )
         return eff_frames, eff_interval
 
+    def _working_row(self) -> tuple[str, bool] | None:
+        """The live row text and whether it is Pi's warning retry loader.
+
+        While a retry backoff runs, Pi's ``RetryStatusIndicator`` replaces the
+        working loader, counting whole seconds down; the retried request starts
+        when it reaches zero, so the normal working row returns then.
+        """
+
+        retry = self._retry
+        if retry is not None:
+            remaining = retry.deadline - self._clock()
+            if remaining > 0:
+                return (
+                    f"Retrying ({retry.attempt}/{retry.max_attempts}) in "
+                    f"{math.ceil(remaining)}s... ({retry.cancel_key} to cancel)",
+                    True,
+                )
+        if not self._chrome.working_visible:
+            return None
+        return (self._chrome.working_message or "Working...", False)
+
     def show_working(self) -> None:
         self._stop_working(clear=True)
-        if not self._chrome.working_visible:
+        if not self._chrome.working_visible and self._retry is None:
             return
         stop_event = threading.Event()
         self._stop_working_event = stop_event
@@ -161,13 +204,18 @@ class TuiToolLoopRenderer:
             frames, interval = self._effective_spinner()
             frame_index = 0
             while not stop_event.is_set():
-                glyph = frames[frame_index % len(frames)]
-                message = self._chrome.working_message or "Working..."
-                # An empty glyph hides the spinner: show the message with no
-                # leading space/prefix.
-                self._transcript.set_working(
-                    message if glyph == "" else f"{glyph} {message}"
-                )
+                row = self._working_row()
+                if row is None:
+                    self._transcript.clear_working()
+                else:
+                    message, warning = row
+                    glyph = frames[frame_index % len(frames)]
+                    # An empty glyph hides the spinner: show the message with
+                    # no leading space/prefix.
+                    self._transcript.set_working(
+                        message if glyph == "" else f"{glyph} {message}",
+                        warning=warning,
+                    )
                 frame_index += 1
                 stop_event.wait(interval)
 
@@ -184,6 +232,7 @@ class TuiToolLoopRenderer:
         self._finish_provider_turn()
 
     def _finish_provider_turn(self) -> None:
+        self._retry = None
         self._stop_working(clear=True)
         self._transcript.settle_assistant()
 
@@ -191,9 +240,41 @@ class TuiToolLoopRenderer:
         self._finish_provider_turn()
 
     def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
+        self._retry = None
         self._stop_working(clear=True)
         if reason is AgentCancellationReason.OPERATOR_ABORT:
             self._transcript.show_operation_aborted()
+
+    def schedule_retry(
+        self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str
+    ) -> None:
+        """Pi ``auto_retry_start``: the failed attempt, then the retry loader."""
+
+        self._stop_working(clear=True)
+        self._transcript.add_error(f"Error: {error_message or 'Unknown error'}")
+        self._streamed_any = False
+        # An immutable snapshot, replaced whole: the spinner thread reads the
+        # reference once per frame and never sees a half-updated countdown.
+        self._retry = _RetryCountdown(
+            attempt,
+            max_attempts,
+            self._clock() + max(0, delay_ms) / 1000.0,
+            self._interrupt_key_text(),
+        )
+        self.show_working()
+
+    def finish_retry(
+        self, *, succeeded: bool, attempt: int, final_error: str | None
+    ) -> None:
+        """Pi ``auto_retry_end``: drop the loader; show a final failure."""
+
+        self._retry = None
+        if not succeeded:
+            self._stop_working(clear=True)
+            self._transcript.add_error(
+                f"Retry failed after {attempt} attempts: "
+                f"{final_error or 'Unknown error'}"
+            )
 
     def render_user_message(self, text: str) -> None:
         self._transcript.submit_user_message(text)

@@ -128,6 +128,11 @@ class ChromeStyle:
             text, self.palette.error_truecolor, self.palette.error_fallback
         )
 
+    def warning(self, text: str) -> str:
+        return self._wrap(
+            text, self.palette.warning_truecolor, self.palette.warning_fallback
+        )
+
     def separator(self, text: str) -> str:
         return self._wrap(
             text, self.palette.separator_truecolor, self.palette.separator_fallback
