@@ -82,7 +82,8 @@ Known deviations, owned by later slices:
 - **OpenRouter Claude rows.** Pi routes them through `anthropic-messages` over
   OpenRouter; pipy has no such transport.
 - **Anthropic mid-conversation managed effort.** On Pi rows with
-  `supportsMidConvoEffort`, Pi sends `configuration_update` system messages.
+  `supportsMidConvoEffort`, Pi sends `configuration_update` system messages
+  (backlog SYS1b).
 - **No clamp on an explicit `/model provider/model:level` suffix.** Pi clamps
   it, while pipy passes it through.
 - **The Responses on-state keeps pipy's `{effort}` shape.** Pi adds

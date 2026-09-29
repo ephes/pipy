@@ -178,9 +178,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
                 "/name conformance-tree",
                 "ROOT",
                 "MAIN",
-                "/tree select 3",
+                "/tree select 4",  # 1 is the leading [system] entry
                 "ALT",
-                "/tree select 4",
+                "/tree select 5",
                 "CONT",
                 "/session",
                 "/exit",
@@ -369,7 +369,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     _drive(
         bs_tree,
         bs_cwd,
-        "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "ALT", "/exit", ""]),
+        "\n".join(["ROOT", "MAIN", "/tree select 2 summarize", "ALT", "/exit", ""]),
     )
     bs_reopened = NativeSessionTree.open(bs_tree.path)
     has_summary = any(e.type == "branch_summary" for e in bs_reopened.get_entries())

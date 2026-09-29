@@ -117,12 +117,98 @@ class AgentToolResultMessage:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class AgentToolDeclaration:
+    """One tool as a system message declares it to the model.
+
+    Pi ``toToolDeclaration`` (``packages/ai/src/utils/transcript.ts``): the
+    name, description and JSON-schema parameters, without executable fields.
+    ``parameters_json`` holds the schema as JSON text so two declarations are
+    equal exactly when Pi's ``declarationsEqual`` JSON comparison says so.
+    """
+
+    name: str
+    description: str
+    parameters_json: str
+
+    def __post_init__(self) -> None:
+        require_non_empty_string(self.name, "AgentToolDeclaration.name")
+        if type(self.description) is not str:
+            raise TypeError("AgentToolDeclaration.description must be a string")
+        require_non_empty_string(
+            self.parameters_json, "AgentToolDeclaration.parameters_json"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AgentSystemMessage:
+    """Prompt and tool state recorded in the transcript (Pi ``SystemMessage``).
+
+    Pi ``9e05370b2``: the leading system message declares the prompt sections
+    and every tool; later ones patch sections by name (``None`` removes one)
+    and list tool additions and removals. Replaying them in order yields the
+    current prompt and tools (``native/agent/system_messages.py``).
+
+    A system message is transcript state only (:data:`AgentTranscriptMessage`).
+    It is emitted, returned in the run result and persisted, but it never
+    enters provider history (:data:`AgentMessage`): pipy sends the replayed
+    prompt out of band, like Pi's ``collapseSystemMessages`` for models
+    without mid-conversation system messages.
+    """
+
+    content: ProductContent = ProductContent("")
+    sections: tuple[tuple[str, str | None], ...] = ()
+    tools_added: tuple[AgentToolDeclaration, ...] = ()
+    tools_removed: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.content, ProductContent):
+            raise TypeError("AgentSystemMessage.content must be ProductContent")
+        if not isinstance(self.sections, tuple):
+            raise TypeError("AgentSystemMessage.sections must be a tuple")
+        names: set[str] = set()
+        for index, section in enumerate(self.sections):
+            if not isinstance(section, tuple) or len(section) != 2:
+                raise TypeError(
+                    f"AgentSystemMessage.sections[{index}] must be a (name, text) pair"
+                )
+            name, text = section
+            require_non_empty_string(name, f"AgentSystemMessage.sections[{index}]")
+            if name in names:
+                raise ValueError(f"AgentSystemMessage section {name!r} is repeated")
+            names.add(name)
+            if text is not None and type(text) is not str:
+                raise TypeError(
+                    f"AgentSystemMessage section {name!r} must be a string or None"
+                )
+        if not isinstance(self.tools_added, tuple) or any(
+            not isinstance(tool, AgentToolDeclaration) for tool in self.tools_added
+        ):
+            raise TypeError(
+                "AgentSystemMessage.tools_added must be a tuple of AgentToolDeclaration"
+            )
+        if not isinstance(self.tools_removed, tuple):
+            raise TypeError("AgentSystemMessage.tools_removed must be a tuple")
+        for index, name in enumerate(self.tools_removed):
+            require_non_empty_string(name, f"AgentSystemMessage.tools_removed[{index}]")
+
+
 AgentMessage = AgentUserMessage | AgentAssistantMessage | AgentToolResultMessage
-"""Closed message union understood by the canonical agent loop."""
+"""Closed union of provider-history messages understood by the agent loop."""
+
+AgentTranscriptMessage = AgentSystemMessage | AgentMessage
+"""A message as the transcript records it: provider history plus system state.
+
+Lifecycle events, run results and the session tree carry this union (Pi's
+``Message`` includes ``SystemMessage``); provider history stays
+:data:`AgentMessage`.
+"""
 
 _AGENT_MESSAGE_TYPES = (
     AgentUserMessage,
     AgentAssistantMessage,
     AgentToolResultMessage,
 )
+
+_AGENT_TRANSCRIPT_MESSAGE_TYPES = (AgentSystemMessage, *_AGENT_MESSAGE_TYPES)
 """Runtime counterpart of ``AgentMessage`` for fail-closed validation."""

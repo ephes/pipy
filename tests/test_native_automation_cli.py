@@ -70,7 +70,10 @@ def test_cli_mode_json_emits_header_and_events(
     assert types.count("agent_settled") == 1
     assert records[-1] == {"type": "agent_settled"}
     assert "message_update" in types
-    message_end = next(r for r in records if r["type"] == "message_end")
+    message_ends = [r for r in records if r["type"] == "message_end"]
+    # Pi `9e05370b2`: the leading system message comes first.
+    assert message_ends[0]["message"]["role"] == "system"
+    message_end = message_ends[1]
     text = "".join(
         b["text"] for b in message_end["message"]["content"] if b.get("type") == "text"
     )

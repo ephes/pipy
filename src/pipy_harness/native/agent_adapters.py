@@ -15,11 +15,11 @@ from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentEvent,
     AgentEventSink,
-    AgentMessage,
     AgentRunCompleted,
     AgentRunResult,
     AgentRunStarted,
-    AgentToolResultMessage,
+    AgentSystemMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
     AssistantTextDelta,
     FollowUpConsumed,
@@ -57,7 +57,7 @@ class SynchronousAgentEventComposite:
 class AppendProductMessage:
     """One current native-session append implied by a canonical event."""
 
-    message: AgentUserMessage | AgentAssistantMessage | AgentToolResultMessage
+    message: AgentTranscriptMessage
 
 
 @runtime_checkable
@@ -100,7 +100,7 @@ class ProductSessionEventProjection:
 
     def _project_message(self, event: MessageCompleted) -> None:
         message = event.message
-        if isinstance(message, AgentUserMessage):
+        if isinstance(message, (AgentSystemMessage, AgentUserMessage)):
             self._append(message)
             return
         if not isinstance(message, AgentAssistantMessage):
@@ -117,7 +117,7 @@ class ProductSessionEventProjection:
 
     def _append(
         self,
-        message: AgentUserMessage | AgentAssistantMessage | AgentToolResultMessage,
+        message: AgentTranscriptMessage,
     ) -> None:
         if self._sink is not None:
             self._sink.append(AppendProductMessage(message))
@@ -140,7 +140,9 @@ class NativeProductSessionActionSink:
 
     __slots__ = ("_append_message",)
 
-    def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
+    def __init__(
+        self, append_message: Callable[[AgentTranscriptMessage], object]
+    ) -> None:
         if not callable(append_message):
             raise TypeError("append_message must be callable")
         self._append_message = append_message

@@ -238,6 +238,8 @@ def test_json_refusal_keeps_envelopes_without_assistant_lifecycle(
     assert [r["type"] for r in final] == (
         [
             "turn_start",
+            "message_start",  # leading system message (Pi `9e05370b2`)
+            "message_end",
             "message_start",
             "message_end",
             "turn_end",

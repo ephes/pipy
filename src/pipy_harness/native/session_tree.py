@@ -42,12 +42,19 @@ from typing import Any, ClassVar, Concatenate, ParamSpec, TypeVar, cast
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
     ProductContent,
 )
 from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
+from pipy_harness.native.agent.system_messages import (
+    current_system_message,
+    system_message_from_json,
+    system_message_to_json,
+)
 
 CURRENT_SESSION_VERSION = 1
 
@@ -164,7 +171,7 @@ class _UnresolvedToolResultMessage:
     added_tool_names: tuple[str, ...] = ()
 
 
-_StoredMessage = AgentMessage | _UnresolvedToolResultMessage
+_StoredMessage = AgentTranscriptMessage | _UnresolvedToolResultMessage
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +213,9 @@ class CompactionEntry:
     first_kept_entry_id: str
     tokens_before: int
     retained_user_entry_id: str | None = None
+    # Pi ``CompactionEntry.systemMessage``: the replayed prompt and tool
+    # state at the boundary; absent on entries written before SYS1.
+    system_message: AgentSystemMessage | None = None
     type: str = "compaction"
 
 
@@ -281,6 +291,9 @@ _SessionEntryT = TypeVar("_SessionEntryT", bound=SessionEntry)
 
 
 def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
+    if isinstance(message, AgentSystemMessage):
+        # Pi field names (``sections``, ``toolsAdded``, ``toolsRemoved``).
+        return system_message_to_json(message)
     if isinstance(message, AgentUserMessage):
         return {"role": "user", "content": message.content.value}
     if isinstance(message, AgentAssistantMessage):
@@ -352,6 +365,8 @@ def _message_from_json(
     by_id: dict[str, SessionEntry],
 ) -> _StoredMessage:
     role = body.get("role")
+    if role == "system":
+        return system_message_from_json(body)
     if role == "user":
         return AgentUserMessage(content=ProductContent(str(body.get("content", ""))))
     if role == "assistant":
@@ -450,6 +465,8 @@ def _compaction_json_fields(entry: CompactionEntry) -> dict[str, Any]:
     }
     if entry.retained_user_entry_id is not None:
         fields["retainedUserEntryId"] = entry.retained_user_entry_id
+    if entry.system_message is not None:
+        fields["systemMessage"] = system_message_to_json(entry.system_message)
     return fields
 
 
@@ -531,6 +548,7 @@ def _decode_entry_from_json(
             first_kept_entry_id=str(body["firstKeptEntryId"]),
             tokens_before=int(body.get("tokensBefore", 0)),
             retained_user_entry_id=body.get("retainedUserEntryId"),
+            system_message=_compaction_checkpoint_from_json(body.get("systemMessage")),
         )
     if entry_type == "branch_summary":
         return BranchSummaryEntry(
@@ -578,6 +596,17 @@ def _decode_entry_from_json(
     return None
 
 
+def _compaction_checkpoint_from_json(value: object) -> AgentSystemMessage | None:
+    """Lenient load: an unreadable checkpoint is dropped, not the compaction."""
+
+    if not isinstance(value, dict):
+        return None
+    try:
+        return system_message_from_json(value)
+    except ValueError:
+        return None
+
+
 def _require_exact_entry_id(value: object, field_name: str) -> str:
     if type(value) is not str:
         raise TypeError(f"{field_name} must be an exact string")
@@ -593,9 +622,12 @@ def _require_exact_entry_id(value: object, field_name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class SessionContext:
-    """Provider-visible context rebuilt from the active branch."""
+    """Transcript context rebuilt from the active branch (Pi ``buildSessionContext``).
 
-    messages: tuple[AgentMessage, ...]
+    Includes system messages; provider history is ``build_coding_context``.
+    """
+
+    messages: tuple[AgentTranscriptMessage, ...]
     thinking_level: str
     model: tuple[str, str] | None  # (provider, model_id)
 
@@ -700,7 +732,9 @@ def build_context_entries(
         by_id = {entry.id: entry for entry in entries}
     path = _active_branch_path(leaf_id, by_id)
     _, _, compaction = _reconstruct_context_settings(path)
-    retained = _retained_context_entries(path, compaction)
+    retained = _without_replaced_system_entries(
+        path, compaction, _retained_context_entries(path, compaction)
+    )
     return [compaction, *retained] if compaction is not None else retained
 
 
@@ -751,16 +785,54 @@ def _project_context_entry(entry: SessionEntry) -> AgentMessage | None:
 
 def _project_context_messages(
     path: list[SessionEntry], compaction: CompactionEntry | None
-) -> list[AgentMessage]:
-    messages: list[AgentMessage] = (
-        [_compaction_summary_message(compaction.summary)] if compaction else []
-    )
-    messages.extend(
-        message
-        for entry in _retained_context_entries(path, compaction)
-        if (message := _project_context_entry(entry)) is not None
-    )
+) -> list[AgentTranscriptMessage]:
+    """Pi ``buildSessionContext``: the transcript, system messages included.
+
+    A compaction contributes its system checkpoint (when it has one) and its
+    summary; system messages it retained from before the boundary are
+    replaced by that checkpoint (Pi ``session-manager.ts`` ``:506``).
+    """
+
+    messages: list[AgentTranscriptMessage] = []
+    if compaction is not None:
+        if compaction.system_message is not None:
+            messages.append(compaction.system_message)
+        messages.append(_compaction_summary_message(compaction.summary))
+    for entry in _without_replaced_system_entries(
+        path, compaction, _retained_context_entries(path, compaction)
+    ):
+        if isinstance(entry, MessageEntry) and isinstance(
+            entry.message, AgentSystemMessage
+        ):
+            messages.append(entry.message)
+        elif (message := _project_context_entry(entry)) is not None:
+            messages.append(message)
     return messages
+
+
+def _without_replaced_system_entries(
+    path: list[SessionEntry],
+    compaction: CompactionEntry | None,
+    retained: list[SessionEntry],
+) -> list[SessionEntry]:
+    """Drop system message entries that precede the latest compaction."""
+
+    if compaction is None:
+        return retained
+    before: set[str] = set()
+    for entry in path:
+        if entry.id == compaction.id:
+            break
+        before.add(entry.id)
+    return [
+        entry
+        for entry in retained
+        if not (
+            entry.id in before
+            and isinstance(entry, MessageEntry)
+            and isinstance(entry.message, AgentSystemMessage)
+        )
+    ]
 
 
 def _retained_context_entries(
@@ -1083,7 +1155,50 @@ def _strict_tool_message_from_json(message: dict[str, Any]) -> None:
         raise ValueError("native session tool result is invalid")
 
 
+def _strict_system_message_from_json(message: dict[str, Any]) -> None:
+    """Pi ``SystemMessage``: exact field types, no defaults invented."""
+
+    invalid = ValueError("native session system message is invalid")
+    content = message.get("content", "")
+    if not isinstance(content, str) and not (
+        isinstance(content, list)
+        and all(
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and type(block.get("text")) is str
+            for block in content
+        )
+    ):
+        raise invalid
+    sections = message.get("sections", {})
+    if not isinstance(sections, dict) or any(
+        type(name) is not str or (text is not None and type(text) is not str)
+        for name, text in sections.items()
+    ):
+        raise invalid
+    added = message.get("toolsAdded", [])
+    if not isinstance(added, list) or any(
+        not isinstance(tool, dict)
+        or type(tool.get("name")) is not str
+        or type(tool.get("description")) is not str
+        or not isinstance(tool.get("parameters"), dict)
+        for tool in added
+    ):
+        raise invalid
+    removed = message.get("toolsRemoved", [])
+    if not isinstance(removed, list) or any(
+        not isinstance(tool, dict) or type(tool.get("name")) is not str
+        for tool in removed
+    ):
+        raise invalid
+    try:
+        system_message_from_json(message)
+    except ValueError as error:
+        raise invalid from error
+
+
 _STRICT_MESSAGE_VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "system": _strict_system_message_from_json,
     "user": _strict_user_message_from_json,
     "assistant": _strict_assistant_message_from_json,
     "tool": _strict_tool_message_from_json,
@@ -1121,6 +1236,11 @@ def _strict_compaction_entry_from_json(body: dict[str, Any]) -> None:
     retained_user = body.get("retainedUserEntryId")
     if retained_user is not None and type(retained_user) is not str:
         raise ValueError("native session compaction entry is invalid")
+    checkpoint = body.get("systemMessage")
+    if checkpoint is not None:
+        if not isinstance(checkpoint, dict) or checkpoint.get("role") != "system":
+            raise ValueError("native session compaction entry is invalid")
+        _strict_system_message_from_json(checkpoint)
 
 
 def _strict_branch_summary_entry_from_json(body: dict[str, Any]) -> None:
@@ -1583,7 +1703,7 @@ class NativeSessionTree:
         return _new_entry_id(self.by_id)
 
     @_guarded_tree_api
-    def append_message(self, message: AgentMessage) -> MessageEntry:
+    def append_message(self, message: AgentTranscriptMessage) -> MessageEntry:
         return self._append_stored_message(message)
 
     @_guarded_tree_api
@@ -1657,6 +1777,9 @@ class NativeSessionTree:
             ),
             tokens_before=tokens_before,
             retained_user_entry_id=retained_user_entry_id,
+            # Pi ``appendCompaction``: the complete prompt and tool state at
+            # this boundary, replayed from the branch it compacts.
+            system_message=current_system_message(self.build_context().messages),
         )
         branch = self.get_branch()
         contains_anchor = any(

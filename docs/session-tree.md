@@ -554,13 +554,27 @@ Every non-header entry has:
 Minimum entry types:
 
 - `message`: provider-visible messages, including user, assistant, tool result,
-  and pipy tool/batch records needed to rebuild context.
+  and pipy tool/batch records needed to rebuild context, plus Pi's system
+  messages (`9e05370b2`, SYS1a). A system message stores the prompt and tool
+  declarations with Pi's field names. The first run of a session writes the
+  whole state; later runs write only changes, as `sections` patches (`null`
+  removes one) and `toolsAdded`/`toolsRemoved`. Replaying them in order yields
+  the current prompt and tools. pipy's prompt is the single `preamble` section:
+
+  ```json
+  {"type":"message","id":"a0b1c2d3","parentId":"…","timestamp":"…","message":{"role":"system","content":"","sections":{"preamble":"You are pipy-native, …"},"toolsAdded":[{"name":"read","description":"…","parameters":{"type":"object"}}]}}
+  ```
+
+  A session written before SYS1 has no system message. Its next run writes
+  the whole state as a later system message, which replays the same way.
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.
 - `compaction`: in-place context compaction summary with `firstKeptEntryId`,
-  `tokensBefore`, and optional `retainedUserEntryId` for a noncontiguous
-  retained user plus suffix.
+  `tokensBefore`, optional `retainedUserEntryId` for a noncontiguous retained
+  user plus suffix, and optional `systemMessage`: the replayed prompt and tool
+  state at the boundary (Pi `CompactionEntry.systemMessage`). It is absent on
+  older entries and when the branch has no system state.
 - `branch_summary`: summary created while leaving a branch through `/tree`.
 - `label`: user label for any entry, with undefined/empty label clearing it.
 - `session_info`: display name.
@@ -608,6 +622,16 @@ Rules to match Pi:
   messages. A `firstKeptEntryId` equal to the entry's own `id` keeps no earlier
   message (Pi's `appendCompaction(summary, null)`); fork and clone rewrite it to
   the copy's own id.
+- System messages (Pi `buildSessionContext`) are part of `build_context()`,
+  which RPC `get_messages` serves. A compaction contributes its `systemMessage`
+  checkpoint before its summary, and the retained entries before the
+  compaction lose their system messages, because the checkpoint already
+  replays them (Pi `session-manager.ts:506`). The transcript render
+  (`build_context_entries()`) drops them the same way and draws nothing for a
+  system message; `/tree` shows it as `[system]`. `build_coding_context()`
+  never contains one: provider history is user, assistant and tool messages,
+  and the prompt travels as the request's system prompt (Pi's collapse path
+  for models without mid-conversation system messages).
 
 When `retainedUserEntryId` is present, reconstruction instead retains that exact
 actual user message once plus the suffix beginning at `firstKeptEntryId`.

@@ -11,7 +11,10 @@ from pipy_harness.native.agent._validation import (
     require_non_empty_string,
 )
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.messages import _AGENT_MESSAGE_TYPES, AgentMessage
+from pipy_harness.native.agent.messages import (
+    _AGENT_TRANSCRIPT_MESSAGE_TYPES,
+    AgentTranscriptMessage,
+)
 
 
 class AgentRunOutcome(StrEnum):
@@ -92,7 +95,7 @@ class AgentRunResult:
     """Immutable terminal state returned by the reusable agent boundary."""
 
     outcome: AgentRunOutcome
-    messages: tuple[AgentMessage, ...]
+    messages: tuple[AgentTranscriptMessage, ...]
     usage: AgentUsage = AgentUsage()
     failure: AgentFailure | None = None
     will_retry: bool = False
@@ -112,7 +115,8 @@ def _validate_agent_run_result_fields(result: AgentRunResult) -> None:
     if not isinstance(result.messages, tuple):
         raise TypeError("AgentRunResult.messages must be a tuple")
     if any(
-        not isinstance(message, _AGENT_MESSAGE_TYPES) for message in result.messages
+        not isinstance(message, _AGENT_TRANSCRIPT_MESSAGE_TYPES)
+        for message in result.messages
     ):
         raise TypeError("AgentRunResult.messages contains an unsupported message")
     if not isinstance(result.usage, AgentUsage):

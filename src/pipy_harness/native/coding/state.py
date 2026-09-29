@@ -390,6 +390,16 @@ class CodingSessionState:
             ):
                 raise CodingContextChangedError()
 
+    def require_current_run(self) -> None:
+        """Refuse publication from a run whose binding or context changed.
+
+        The same stale-run guard :meth:`append_message` applies, for
+        transcript-only publications (system messages) that do not append.
+        """
+
+        with self._state_lock:
+            self._require_run_context_locked()
+
     def _require_run_context_locked(self) -> None:
         witness = self._run_witness
         if witness is not None and (

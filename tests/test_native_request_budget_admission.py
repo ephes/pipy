@@ -14,6 +14,7 @@ from test_product_session_api import Sink
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
     ProductContent,
@@ -238,7 +239,8 @@ def test_first_iteration_cut_keeping_only_the_prompt_uses_a_self_boundary(
         assert "no durable origin" not in "".join(diagnostics)
         assert "compacted conversation context" in "".join(diagnostics)
         user = AgentUserMessage(ProductContent(prompt))
-        assert result.messages[0] == user
+        history = result.messages
+        assert history[0] == user
         assert len(provider.requests) == (2 if outcome == "admitted" else 1)
         (compaction,) = [
             e for e in tree.get_entries() if isinstance(e, CompactionEntry)
@@ -246,22 +248,26 @@ def test_first_iteration_cut_keeping_only_the_prompt_uses_a_self_boundary(
         assert compaction.first_kept_entry_id == compaction.id
         branch = tree.get_branch()
         position = branch.index(compaction)
-        assert [type(e).__name__ for e in branch[position + 1 :]][:1] == [
-            "MessageEntry"
+        assert [type(e).__name__ for e in branch[position + 1 :]][:2] == [
+            "MessageEntry",
+            "MessageEntry",
         ]
-        assert branch[position + 1].message == user
+        # The run's leading system message (Pi `9e05370b2`) precedes the user;
+        # it is transcript state and not part of the coding history below.
+        assert isinstance(branch[position + 1].message, AgentSystemMessage)
+        assert branch[position + 2].message == user
         live = tree.build_coding_context()
-        assert live.messages == result.messages
+        assert live.messages == history
         assert live.prior_summary
         reopened = NativeSessionTree.open(tree.path).build_coding_context()
-        assert reopened.messages == result.messages
+        assert reopened.messages == history
         assert reopened.prior_summary == live.prior_summary
         forked = NativeSessionTree.fork_from(
             tree.path, tmp_path, session_dir=tmp_path / "forks"
         )
         (copy,) = [e for e in forked.get_entries() if isinstance(e, CompactionEntry)]
         assert copy.first_kept_entry_id == copy.id != compaction.id
-        assert forked.build_coding_context().messages == result.messages
+        assert forked.build_coding_context().messages == history
         monkeypatch.undo()
         settings.set_value("compaction.contextWindow", ceiling + 10000)
         assert session.submit("next").preparation_failure is None

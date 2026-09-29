@@ -32,9 +32,12 @@ follow-ons are listed in [backlog.md](backlog.md).
 - **COST1:** every model is priced from its catalog cost with Pi's
   `calculateCost`; the footer shows `$cost` and `(sub)`.
 - **PR1 / PR2:** the `xai` and `github-copilot` providers.
-- **Not yet ported:** Pi's mid-conversation system messages (`9e05370b2`,
-  backlog SYS1). `automation_pi_comparison.py` fails on that difference (see
-  [automation-rpc.md](automation-rpc.md#pi-comparison-harness)).
+- **SYS1a:** Pi's system messages (`9e05370b2`) are in the transcript: events,
+  `agent_end.messages`, the session tree and the compaction checkpoint
+  ([automation-rpc.md](automation-rpc.md#system-messages)).
+  `automation_pi_comparison.py` passes. Providers still receive the prompt
+  out of band, as Pi does for models without mid-conversation system messages
+  (backlog SYS1b).
 
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare

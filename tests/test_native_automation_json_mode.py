@@ -91,6 +91,8 @@ def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:
         "message_start",
         "message_end",
         "message_start",
+        "message_end",
+        "message_start",
         "message_update",
         "message_update",
         "message_end",
@@ -98,6 +100,26 @@ def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:
         "agent_end",
         "agent_settled",
     ]
+
+    # Pi `9e05370b2`: the first run opens with the leading system message
+    # (prompt as the `preamble` section, every tool declared), before the user
+    # message, and `agent_end.messages` starts with it.
+    system = records[3]["message"]
+    assert records[3]["type"] == "message_start"
+    assert records[4] == {"type": "message_end", "message": system}
+    assert system["role"] == "system"
+    assert system["content"] == ""
+    assert list(system["sections"]) == ["preamble"]
+    assert system["sections"]["preamble"].startswith("You are pipy-native")
+    assert [tool["name"] for tool in system["toolsAdded"]]
+    assert all(
+        set(tool) == {"name", "description", "parameters"}
+        for tool in system["toolsAdded"]
+    )
+    assert records[5]["message"]["role"] == "user"
+    agent_end = next(r for r in records if r["type"] == "agent_end")
+    assert [m["role"] for m in agent_end["messages"]] == ["system", "user", "assistant"]
+    assert agent_end["messages"][0] == system
 
     # Full-content surface: the assistant text appears in its message_end.
     message_end = next(

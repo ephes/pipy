@@ -16,6 +16,7 @@ from pathlib import Path
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
     ProductContent,
@@ -495,6 +496,8 @@ def _entry_preview(tree: NativeSessionTree, entry: SessionEntry) -> str:
 
 def _message_entry_preview(entry: MessageEntry) -> str:
     message = entry.message
+    if isinstance(message, AgentSystemMessage):
+        return "[system]"  # Pi tree-selector: role-only, like other roles
     if isinstance(message, AgentUserMessage):
         return f"user: {_truncate(message.content.value)}"
     if isinstance(message, AgentAssistantMessage):

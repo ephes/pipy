@@ -19,6 +19,7 @@ from pipy_harness.native.agent import (
     AgentRunStarted,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentTurnOutcome,
     AgentUsage,
     AgentUserMessage,
@@ -548,7 +549,7 @@ class _ProductActionCollector:
 
 
 def _assert_product_message_identities(
-    actual: Sequence[AgentMessage], expected: Sequence[AgentMessage]
+    actual: Sequence[AgentTranscriptMessage], expected: Sequence[AgentTranscriptMessage]
 ) -> None:
     assert all(
         actual_message is expected_message
@@ -756,8 +757,8 @@ def test_product_projection_with_default_sink_stays_inert_across_a_full_stream()
 
 
 def test_native_product_action_sink_forwards_each_append_to_current_callback() -> None:
-    first: list[AgentMessage] = []
-    second: list[AgentMessage] = []
+    first: list[AgentTranscriptMessage] = []
+    second: list[AgentTranscriptMessage] = []
     current = {"messages": first}
     sink = NativeProductSessionActionSink(
         lambda message: current["messages"].append(message)
@@ -775,9 +776,11 @@ def test_native_product_action_sink_forwards_each_append_to_current_callback() -
 
 def test_native_product_action_sink_rejects_non_action_and_propagates_failure() -> None:
     with pytest.raises(TypeError, match="append_message must be callable"):
-        NativeProductSessionActionSink(cast(Callable[[AgentMessage], object], None))
+        NativeProductSessionActionSink(
+            cast(Callable[[AgentTranscriptMessage], object], None)
+        )
 
-    recorded: list[AgentMessage] = []
+    recorded: list[AgentTranscriptMessage] = []
     sink = NativeProductSessionActionSink(recorded.append)
     with pytest.raises(TypeError, match="must be an AppendProductMessage"):
         sink.append(cast(AppendProductMessage, object()))
@@ -785,7 +788,7 @@ def test_native_product_action_sink_rejects_non_action_and_propagates_failure() 
 
     failure = RuntimeError("append failed")
 
-    def fail(message: AgentMessage) -> object:
+    def fail(message: AgentTranscriptMessage) -> object:
         del message
         raise failure
 

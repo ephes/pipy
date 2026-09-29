@@ -15,7 +15,11 @@ import pytest
 from session_generation_test_support import build_test_projection
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.agent import AgentUserMessage, ProductContent
+from pipy_harness.native.agent import (
+    AgentSystemMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.agent.events import (
     AgentRunCompleted,
     AgentRunStarted,
@@ -1632,7 +1636,9 @@ def test_retained_model_control_stops_stale_coding_run_publication(
         owner = owners[0]
         assert cast(Any, owner.ctl.coding_effects.lock)._is_owned()
         assert not cast(Any, owner.coding_state.state_lock)._is_owned()
-        assert owner.coding_state.messages[-1] is message
+        # A system message is transcript state and never joins live history.
+        live = owner.coding_state.messages
+        assert (live[-1] is message) is not isinstance(message, AgentSystemMessage)
         append_checks.append(message)
         return original_append(tree, message)
 
@@ -1705,10 +1711,12 @@ def test_retained_model_control_stops_stale_coding_run_publication(
             "run-start": 0,
             "after-mirror": 0,
             "request-hooks": 0,
+            # A stale leading system message is refused like any append.
             "turn-start": 0,
-            "later-turn": 3,
-            "provider-return": 1,
-            "run-finish": 2,
+            # Each count includes the run's leading system message.
+            "later-turn": 4,
+            "provider-return": 2,
+            "run-finish": 3,
         }[boundary]
     )
 
