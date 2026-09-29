@@ -43,6 +43,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
     history has no durable origin`. Reopen, fork and clone honor it.
   A removed range that is still too large after truncation (for example a huge
   paste) stays refused until `/new`, as in Pi.
+- `--mode rpc` no longer stops running turns after a `follow_up` arrives
+  before an idle `steer` has started. The session worker could exit, so later
+  prompts were accepted but never ran, `compact` never answered, `get_state`
+  kept reporting `isStreaming: true` and `new_session` or `cycle_model`
+  answered `session is not idle`. It depended on timing and also affected
+  0.2.0.
 
 ### Fixed
 

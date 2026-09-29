@@ -682,9 +682,81 @@ def test_post_end_queue_update_precedes_promoted_agent_start(client) -> None:
 def test_wake_channel_carries_only_wake_and_eof() -> None:
     channel = _WakeChannel()
     channel.wake()
-    assert channel.readline() == ""
+    assert channel.readline() == "\n"
     channel.signal_eof()
     assert channel.readline() == ""
+    # EOF is sticky: a repeated read after EOF must not block.
+    assert channel.readline() == ""
+
+
+def test_redundant_wake_for_already_claimed_successor_is_not_eof(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A follow_up admitted before the worker claims an idle steer must not
+    retire the worker.
+
+    Both admissions see the same unclaimed reservation and each wakes the
+    worker; the steer run's ``agent_end`` then promotes the follow-up and wakes
+    again. One wake is therefore redundant and arrives when no reservation is
+    pending. It must be ignored, not read as EOF: otherwise the worker exits,
+    the session never runs again and ``compact`` is admitted but never answered.
+    The worker's first claim is held open explicitly so the interleaving is
+    deterministic.
+    """
+
+    entered = threading.Event()
+    release = threading.Event()
+    armed = threading.Event()
+    original = _NativeSessionControlBridge.attach_selected_claim
+
+    def gated_attach(self: _NativeSessionControlBridge, reservation: Any) -> Any:
+        if armed.is_set():
+            armed.clear()
+            entered.set()
+            if not release.wait(timeout=5.0):
+                raise AssertionError("test did not release the gated claim")
+        return original(self, reservation)
+
+    monkeypatch.setattr(
+        _NativeSessionControlBridge, "attach_selected_claim", gated_attach
+    )
+    client = _RpcClient(tmp_path)
+    try:
+        client.send({"id": "p", "type": "prompt", "message": "ROOT"})
+        client.wait_for(lambda r: r.get("type") == "agent_settled")
+
+        armed.set()
+        client.send({"id": "s", "type": "steer", "message": "STEER"})
+        assert entered.wait(timeout=5.0), "worker never selected the steer"
+        # The steer reservation is still unclaimed: this admission wakes again.
+        client.send({"id": "f", "type": "follow_up", "message": "FOLLOW"})
+        client.wait_for(lambda r: r.get("id") == "f")
+        release.set()
+
+        # The steer run, then the promoted follow-up run, then one idle boundary.
+        client.wait_for(lambda r: r.get("type") == "agent_end")
+        client.wait_for(lambda r: r.get("type") == "agent_end")
+        client.wait_for(lambda r: r.get("type") == "agent_settled")
+
+        # The worker survived the redundant wake: a new prompt still runs...
+        client.send({"id": "p2", "type": "prompt", "message": "AFTER"})
+        records = client.collect_until(lambda r: r.get("type") == "agent_end")
+        assert any(
+            r["type"] == "message_end"
+            and r["message"]["role"] == "assistant"
+            and r["message"]["content"] == [{"type": "text", "text": "SEEN:AFTER"}]
+            for r in records
+        )
+        client.wait_for(lambda r: r.get("type") == "agent_settled")
+        # ...and a worker-owned manual compaction is answered.
+        client.send({"id": "c", "type": "compact"})
+        client.wait_for(lambda r: r.get("id") == "c" and r.get("command") == "compact")
+        client.send({"id": "g", "type": "get_state"})
+        state = client.wait_for(lambda r: r.get("id") == "g")
+        assert state["data"]["isStreaming"] is False
+    finally:
+        release.set()
+        client.close()
 
 
 def test_startup_failure_rejects_all_provisional_control_commands(

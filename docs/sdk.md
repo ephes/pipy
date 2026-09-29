@@ -826,6 +826,11 @@ RPC deletes its `_turn_active`, `_steering`, `_follow_up`, `_abort` and
 reservation helpers together with every reader. `get_state` and `queue_update`
 project detached native snapshots. Its input channel becomes wake/EOF-only;
 framing, correlation, the JSONL writer and direct-bash state stay transport-owned.
+A wake and EOF are distinct channel values, and a wake is only a hint: two
+admissions that observe the same unclaimed reservation both wake, and run-end
+promotion wakes for its successor, so a wake that finds no reservation is
+redundant and the worker keeps waiting. Only explicit EOF (or bridge
+retirement) ends worker input.
 EOF stops intake, waits for native active/pending work using the existing bounded
 drain, signals channel EOF once, and preserves current worker/bash joins. This
 slice introduces no public close/seal policy.

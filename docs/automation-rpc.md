@@ -683,7 +683,11 @@ authority for active/reserved state, steering/follow-up payloads, pending counts
 exact claims, promotion and accepted cancellation. The channel then carries
 only wake/EOF coordination; it may carry one immutable claimed-run capability
 through worker delivery, but it cannot retain another payload queue or rebuild
-content/kind from line framing.
+content/kind from line framing. A redundant wake (for example a `follow_up`
+admitted before the worker claimed an idle `steer`, followed by run-end
+promotion of that follow-up) finds no reservation and is ignored; only channel
+EOF ends the worker, so the session keeps accepting runs and `compact` after
+such an interleaving.
 
 One outer admission/publication gate serializes RPC control commands with the
 run-end and true-idle protocol boundaries. The fixed lock order is that gate,

@@ -40,6 +40,8 @@ from pipy_harness.native.automation.jsonl import (
 )
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.coding.session_controller import (
+    _NATIVE_CONTROL_EOF,
+    _NATIVE_CONTROL_WAKE,
     _NativeControlReady,
     _NativeControlSnapshot,
     _NativeSessionControlBridge,
@@ -221,8 +223,11 @@ _KNOWN_COMMANDS = frozenset(
 class _WakeChannel:
     """Blocking wake/EOF transport for the native control bridge.
 
-    This channel owns no prompt content or queue classification.  A wake is an
-    empty line; the bridge resolves the matching native reservation separately.
+    This channel owns no prompt content or queue classification.  A wake is a
+    bare newline and EOF is the empty string, so the bridge can tell a
+    redundant wake (no reservation left to select) from end of input; the
+    bridge resolves the matching native reservation separately. EOF is sticky:
+    every read after it returns EOF immediately.
     """
 
     def __init__(self) -> None:
@@ -238,7 +243,10 @@ class _WakeChannel:
             self._q.put(True)
 
     def readline(self, *_args: Any) -> str:
-        return "" if self._q.get() else ""
+        if self._q.get():
+            self._q.put(True)
+            return _NATIVE_CONTROL_EOF
+        return _NATIVE_CONTROL_WAKE
 
 
 class _NullEventSink:

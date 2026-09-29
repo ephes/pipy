@@ -77,6 +77,14 @@ _NativeControlSnapshot = _input_queue._NativeControlSnapshot
 _NativeRunClaim = _input_queue._NativeRunClaim
 _NativeSessionControl = _input_queue._NativeSessionControl
 
+# Wake/EOF reader protocol for the native control bridge: a wake is one bare
+# newline and EOF is the empty string. A wake is only a hint to re-examine the
+# native reservation, so a redundant wake (its reservation already selected
+# through an earlier wake or direct promotion) is harmless; only EOF ends the
+# worker's input.
+_NATIVE_CONTROL_WAKE = "\n"
+_NATIVE_CONTROL_EOF = ""
+
 _NOT_HANDLED_COMMAND_NOTICE = (
     "supported local commands are /hotkeys, /reload, "
     "/changelog, /model, /thinking, /scoped-models, /settings, /trust, "
@@ -242,26 +250,33 @@ class _NativeSessionControlBridge:
             self._transition_settle = settle
 
     def readline(self, *_args: object) -> str:
-        """Wait for a wake, then select one exact native reservation."""
+        """Wait for a wake, then select one exact native reservation.
+
+        Wakes and reservations are not paired one-to-one: two admissions that
+        observe the same unclaimed reservation each wake the worker, and run-end
+        promotion wakes again for its successor. A wake that finds no
+        reservation is therefore redundant and the worker keeps waiting; only
+        the reader's explicit EOF (or bridge retirement) returns EOF here.
+        """
 
         reader = self._wake_reader
         if reader is None:
             raise RuntimeError("native control bridge wake reader is not bound")
         wait_for_wake = True
+        eof = False
         for _ in iter(lambda: True, False):
-            if wait_for_wake:
-                wake = reader()
-                if wake:
-                    raise RuntimeError(
-                        "native control wake reader returned payload content"
-                    )
+            if wait_for_wake and self._read_wake(reader):
+                eof = True
             with self._outcome_lock:
                 if self._retired:
                     return ""
             ready = self._ready()
             reservation = ready.control.snapshot().reservation
             if reservation is None:
-                return ""
+                if eof:
+                    return ""
+                wait_for_wake = True
+                continue
             claim = self.attach_selected_claim(reservation)
             if claim is None:
                 continue
@@ -269,16 +284,11 @@ class _NativeSessionControlBridge:
                 claim.manual_compaction is not None
                 or reservation.manual_compaction is not None
             ):
-                handler = self._manual_handler
-                if handler is None:
-                    raise RuntimeError("native manual compaction handler is not bound")
-                publish = handler(claim, claim.manual_compaction)
-                snapshot = self.consume_attached_agent_end_and_publish(publish)
                 # A prompt admitted behind compaction is promoted under the
                 # same settlement gate. Consume it directly on this worker;
                 # enqueueing another wake here would leave stale transport work
                 # after the successor has already been selected.
-                wait_for_wake = snapshot.reservation is None
+                wait_for_wake = not self._run_manual_compaction_claim(claim)
                 continue
             queued = (
                 None
@@ -288,6 +298,27 @@ class _NativeSessionControlBridge:
             self._pending_selected = (claim.content, queued)
             return ""
         raise AssertionError("infinite native control drain terminated")
+
+    @staticmethod
+    def _read_wake(reader: Callable[[], str]) -> bool:
+        """Block for one wake/EOF value; return ``True`` only for EOF."""
+
+        wake = reader()
+        if wake == _NATIVE_CONTROL_EOF:
+            return True
+        if wake != _NATIVE_CONTROL_WAKE:
+            raise RuntimeError("native control wake reader returned payload content")
+        return False
+
+    def _run_manual_compaction_claim(self, claim: _NativeRunClaim) -> bool:
+        """Run one claimed manual compaction; return whether a successor waits."""
+
+        handler = self._manual_handler
+        if handler is None:
+            raise RuntimeError("native manual compaction handler is not bound")
+        publish = handler(claim, claim.manual_compaction)
+        snapshot = self.consume_attached_agent_end_and_publish(publish)
+        return snapshot.reservation is not None
 
     def take_next(self) -> AgentQueuedInput | None:
         """Active-loop polling cannot consume a transport-owned reservation."""
