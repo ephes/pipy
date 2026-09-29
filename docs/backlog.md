@@ -103,6 +103,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | DF1 (partial) | Live smoke and dogfooding on openai-codex, recorded in [the acceptance note](acceptance/2026-09-29-df1-dogfooding.md). Five bugs were fixed: a model switch kept no history, edit/write diffs corrupted the TUI, Escape froze the frame for about 3 s on the WebSocket close, tool rows showed argument dumps, and a refused switch changed the footer's thinking level. Gaps: no live evidence for other families (no credentials), automatic compaction can stop a session (DF1-F5), and follow-ons below | `chore/df1-dogfooding` |
 | READ1 | `read` follows Pi: `offset`/`limit`, 2000 lines / 50 KB, `[Showing lines …] Use offset=N to continue` notices; no size cap or content refusal. Follow-ons READ2, READ-IMG, TOOLS1 | `fix/read1-read-tool` |
 | RL1 | Release 0.2.0: version bump, CHANGELOG `[0.2.0] - 2026-09-29` with highlights, the wheel ships `CHANGELOG.md`, README/quickstart checkout-install note (no PyPI package). The release tag is applied on `main` after the merge | `release/0.2.0` |
+| DF1-F5 | An oversized turn no longer wedges the session. Summary requests cut each tool result to 2000 characters (Pi `serializeConversation`), and a persistent session's automatic cut that keeps only the new prompt writes a compaction entry that keeps no earlier entry (Pi `firstKeptEntryId ?? id`). The oversized turn is still refused (as in Pi); the next prompt recovers. Follow-on F5b | `fix/f5-oversized-turn` |
 
 ## Follow-ons
 
@@ -144,11 +145,13 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   `Working...` (Pi shows `Retrying (n/3) in Ns`). A Codex stream `error` event
   with an unknown status is not retried. After a failed turn the footer
   context jumped from 0.6% to 7.2% until the next success.
-- **DF1-F5, a session can stop on compaction:** if the latest user group alone
-  exceeds the window, automatic compaction keeps it, the request is refused,
-  and `/compact` reports `nothing to compact yet`. Only `/new` recovers. Pi
-  splits the turn. To reproduce: set `compaction.contextWindow: 12000` and
-  `reserveTokens: 3000`, then `cat` a 24 KB file through `bash`.
+- **DF1-F5b, summary input still too large:** tool-result truncation (F5)
+  does not bound the whole summary request. A removed range with a huge pasted
+  user message, large tool-call arguments or many results still fails the
+  summary preflight on every later prompt, and only `/new` recovers. Pi has the
+  same limit (its summary request fails at the provider). A fix beyond Pi would
+  need a multi-pass or drop-without-summary path; Pi's token-based cut
+  (`keepRecentTokens`, still inactive in pipy) would at least shrink the range.
 - **DF1-F6, aborted turns:** an aborted turn persists no assistant message,
   so partial text is lost and consecutive user messages are left behind. Pi
   persists the aborted assistant message.

@@ -252,6 +252,7 @@ class _CompactionWork:
     generation: SessionGenerationSnapshot
     publication_epoch: int
     retry_policy: ProviderManagedRetryPolicy | None
+    keeps_no_prior_entries: bool = False
 
 
 class _StaleCompactionRetry(RuntimeError):
@@ -1231,6 +1232,7 @@ class ProviderMutationEffects:
                             measure_before=work.cut.bytes_before,
                             first_kept_entry_id=work.first_kept_entry_id,
                             retained_user_entry_id=work.retained_user_entry_id,
+                            keeps_no_prior_entries=work.keeps_no_prior_entries,
                         )
                         self.product_session.accept_compaction(action)
         if stale_after_provider:
@@ -1413,6 +1415,32 @@ class ProviderMutationEffects:
         if not cut.changed:
             return CodingCompactionOutcome("pipy: nothing to compact yet.")
         tree = self.ctl.session_tree
+        origins = self._resolve_durable_origins(tree, cut, automatic_context)
+        if isinstance(origins, CodingCompactionOutcome):
+            return origins
+        first_kept, retained_user, keeps_no_prior_entries = origins
+        return _CompactionWork(
+            context,
+            cut,
+            first_kept,
+            retained_user,
+            tree,
+            tree.mutation_epoch,
+            self.ctl.tree_pointer_epoch,
+            self.ctl.generation_ref.snapshot(),
+            self.ctl.generation_ref.publication_epoch,
+            None,
+            keeps_no_prior_entries,
+        )
+
+    def _resolve_durable_origins(
+        self,
+        tree: NativeSessionTree,
+        cut: AgentHistoryCompaction,
+        automatic_context: AutomaticCompactionContext | None,
+    ) -> tuple[str | None, str | None, bool] | CodingCompactionOutcome:
+        """Resolve the cut's durable entry ids, or refuse an unresolvable cut."""
+
         projection = tree.build_coding_context()
         durable_boundary = cut.retained_suffix_boundary or cut.messages[0]
         first_kept = self.product_session.resolve_entry_id(
@@ -1421,10 +1449,13 @@ class ProviderMutationEffects:
                 messages=projection.messages, entry_ids=projection.entry_ids
             ),
         )
+        keeps_no_prior_entries = False
         if first_kept is None and tree.persist:
-            return CodingCompactionOutcome(
-                "pipy: compact refused: retained history has no durable origin."
-            )
+            if not self._retains_only_unpersisted_accepted_user(cut, automatic_context):
+                return CodingCompactionOutcome(
+                    "pipy: compact refused: retained history has no durable origin."
+                )
+            keeps_no_prior_entries = True
         retained_user = None
         if cut.retained_user_anchor is not None:
             retained_user = self.product_session.resolve_entry_id(
@@ -1447,17 +1478,26 @@ class ProviderMutationEffects:
                 return CodingCompactionOutcome(
                     "pipy: compact refused: retained cut has invalid durable origins."
                 )
-        return _CompactionWork(
-            context,
-            cut,
-            first_kept,
-            retained_user,
-            tree,
-            tree.mutation_epoch,
-            self.ctl.tree_pointer_epoch,
-            self.ctl.generation_ref.snapshot(),
-            self.ctl.generation_ref.publication_epoch,
-            None,
+        return first_kept, retained_user, keeps_no_prior_entries
+
+    @staticmethod
+    def _retains_only_unpersisted_accepted_user(
+        cut: AgentHistoryCompaction,
+        automatic: AutomaticCompactionContext | None,
+    ) -> bool:
+        """Whether the cut keeps only this run's not-yet-persisted prompt.
+
+        The accepted user entry is written at turn-start settlement, after
+        request preparation, so it lands after the compaction entry. Like Pi's
+        ``appendCompaction(summary, null)``, the entry then keeps no earlier
+        entry (DF1-F5); every other unresolved boundary is still refused.
+        """
+
+        return (
+            automatic is not None
+            and cut.retained_user_anchor is None
+            and len(cut.messages) == 1
+            and cut.messages[0] is automatic.active_input.accepted_message
         )
 
     @staticmethod
@@ -1569,7 +1609,7 @@ class ProviderMutationEffects:
     def append_durable_compaction(self, action: CodingProductSessionCompaction) -> None:
         """Persist the exact boundary resolved before live state acceptance."""
 
-        if action.first_kept_entry_id is None:
+        if action.first_kept_entry_id is None and not action.keeps_no_prior_entries:
             return
         fields: dict[str, str] = {}
         if action.retained_user_entry_id is not None:

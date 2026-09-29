@@ -32,7 +32,11 @@ from pipy_harness.native.agent.request import (
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent_loop_policy import NativeAgentProviderRequestPolicy
 from pipy_harness.native.cancellation import ProviderCancelledError
-from pipy_harness.native.coding.compaction import compaction_request
+from pipy_harness.native.coding.compaction import (
+    SUMMARY_TOOL_RESULT_MAX_CHARS,
+    compaction_request,
+    truncate_for_summary,
+)
 from pipy_harness.native.coding.request_budget import estimate_request
 from pipy_harness.native.coding.state import CodingContextChangedError
 from pipy_harness.native.models import ProviderRequest
@@ -184,33 +188,83 @@ def test_known_limit_replaces_count_trigger_but_unknown_keeps_it(tmp_path, monke
         assert len(ordinary_users) == (25 if known else 2)
 
 
-def test_first_iteration_durable_anchor_refusal_settles_user_and_can_recover(tmp_path):
+@pytest.mark.parametrize("outcome", ["admitted", "refused", "cancelled"])
+def test_first_iteration_cut_keeping_only_the_prompt_uses_a_self_boundary(
+    tmp_path, monkeypatch, outcome
+):
+    """Pi ``appendCompaction(summary, null)`` stores the compaction's own id.
+
+    The first iteration's cut keeps only the new prompt, whose entry is
+    written after preparation. The compaction entry keeps no earlier entry,
+    and the prompt lands after it however the request then settles.
+    """
+
     prompt = "continue " + "latest facts " * 100
     ceiling = _size(_measure(tmp_path, tree=_tree(tmp_path), prompt=prompt)) - 1
     provider = _RecordingToolProvider()
     tree = _tree(tmp_path)
     settings = _settings(tmp_path, contextWindow=ceiling)
-    before = tree.build_coding_context().messages
     diagnostics = []
+    sessions = []
+    sink = Sink()
+    if outcome != "admitted":
+        original = NativeAgentProviderRequestPolicy.prepare
+
+        def prepare(self, policy_input):
+            snapshot = original(self, policy_input)
+            if outcome == "cancelled":
+                sessions[0].cancel()
+            return snapshot_provider_request(
+                snapshot.request, system_prompt="large " * 10000
+            )
+
+        monkeypatch.setattr(NativeAgentProviderRequestPolicy, "prepare", prepare)
     with create_product_session(
         workspace=tmp_path,
         provider=provider,
         tools={},
         settings=settings,
         tree=tree,
+        observer=sink,
         load_context_files=False,
         diagnostic_sink=diagnostics.append,
     ) as session:
+        sessions.append(session)
         result = session.submit(prompt)
-        assert result.preparation_failure is not None
-        assert provider.requests == []
-        assert "retained history has no durable origin" in "".join(diagnostics)
-        assert not any(isinstance(e, CompactionEntry) for e in tree.get_entries())
-        assert result.messages == (*before, AgentUserMessage(ProductContent(prompt)))
-        assert tree.build_coding_context().messages == result.messages
+        assert (result.preparation_failure is None) == (outcome != "refused")
+        assert any(isinstance(e, RunCancelled) for e in sink.events) == (
+            outcome == "cancelled"
+        )
+        assert "no durable origin" not in "".join(diagnostics)
+        assert "compacted conversation context" in "".join(diagnostics)
+        user = AgentUserMessage(ProductContent(prompt))
+        assert result.messages[0] == user
+        assert len(provider.requests) == (2 if outcome == "admitted" else 1)
+        (compaction,) = [
+            e for e in tree.get_entries() if isinstance(e, CompactionEntry)
+        ]
+        assert compaction.first_kept_entry_id == compaction.id
+        branch = tree.get_branch()
+        position = branch.index(compaction)
+        assert [type(e).__name__ for e in branch[position + 1 :]][:1] == [
+            "MessageEntry"
+        ]
+        assert branch[position + 1].message == user
+        live = tree.build_coding_context()
+        assert live.messages == result.messages
+        assert live.prior_summary
+        reopened = NativeSessionTree.open(tree.path).build_coding_context()
+        assert reopened.messages == result.messages
+        assert reopened.prior_summary == live.prior_summary
+        forked = NativeSessionTree.fork_from(
+            tree.path, tmp_path, session_dir=tmp_path / "forks"
+        )
+        (copy,) = [e for e in forked.get_entries() if isinstance(e, CompactionEntry)]
+        assert copy.first_kept_entry_id == copy.id != compaction.id
+        assert forked.build_coding_context().messages == result.messages
+        monkeypatch.undo()
         settings.set_value("compaction.contextWindow", ceiling + 10000)
         assert session.submit("next").preparation_failure is None
-    assert len(provider.requests) == 1
 
 
 @pytest.mark.parametrize("known", [True, False])
@@ -405,9 +459,18 @@ def test_known_limit_compacts_older_cycle_and_keeps_canonical_run_results(
     summary = summaries[0]
     completed = [e.result for e in sink.events if isinstance(e, ToolCallCompleted)]
     assert len(completed) == 2
+    # Pi serializeConversation: the summary sees each result cut to 2000 chars.
     assert [m for m in summary.messages if isinstance(m, AgentToolResultMessage)] == [
-        completed[0]
+        replace(
+            completed[0],
+            content=ProductContent(
+                truncate_for_summary(
+                    completed[0].content.value, SUMMARY_TOOL_RESULT_MAX_CHARS
+                )
+            ),
+        )
     ]
+    assert len(completed[0].content.value) > SUMMARY_TOOL_RESULT_MAX_CHARS
     assert (
         sum(
             isinstance(m, AgentUserMessage)
@@ -636,12 +699,12 @@ def test_hooks_once_can_narrow_after_refused_summary_attempt(
         result = session.submit("continue")
         assert result.preparation_failure is None
         assert len(result.messages) == 8
-    reason = (
-        "retained history has no durable origin"
-        if persist
-        else "estimated summary request exceeds the context window"
+    # A persistent first iteration reaches the same summary preflight: its cut
+    # keeps only the unpersisted prompt (Pi `appendCompaction(summary, null)`).
+    assert "estimated summary request exceeds the context window" in "".join(
+        diagnostics
     )
-    assert reason in "".join(diagnostics)
+    assert "no durable origin" not in "".join(diagnostics)
     assert calls == [True] and len(provider.requests) == 1
     assert not any(isinstance(e, CompactionEntry) for e in tree.get_entries())
     assert len(provider.requests[0].messages) == 1

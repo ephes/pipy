@@ -39,6 +39,10 @@ class CodingProductSessionCompaction:
     measure_before: int
     first_kept_entry_id: str | None = None
     retained_user_entry_id: str | None = None
+    # Pi ``appendCompaction(summary, null)``: the durable entry keeps no
+    # earlier entry because the only retained message (the run's accepted
+    # user) is persisted after it.
+    keeps_no_prior_entries: bool = False
 
     def __post_init__(self) -> None:
         _require_compaction(self)
@@ -265,6 +269,13 @@ def _require_compaction(action: object) -> None:
         _require_entry_id(action.retained_user_entry_id)
         if action.first_kept_entry_id is None:
             raise ValueError("anchored compaction requires first_kept_entry_id")
+    if type(action.keeps_no_prior_entries) is not bool:
+        raise TypeError("keeps_no_prior_entries must be an exact bool")
+    if action.keeps_no_prior_entries and (
+        action.first_kept_entry_id is not None
+        or action.retained_user_entry_id is not None
+    ):
+        raise ValueError("keeps_no_prior_entries excludes durable entry ids")
 
 
 def _require_entry_id(entry_id: object) -> None:

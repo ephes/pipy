@@ -103,7 +103,9 @@ a `/tree` branch the first request hit `CH91.4%`.
    (`compacted conversation context (auto; dropped 4 earlier exchange(s), kept 1)`),
    and the summary was accurate. The single retained turn was still over the
    window, so every later prompt was refused: `/compact` said
-   `nothing to compact yet`, and only `/new` recovered. See F5.
+   `nothing to compact yet`, and only `/new` recovered. See F5, fixed on
+   `fix/f5-oversized-turn`: the oversized turn is still refused, and the next
+   prompt now compacts it away and is answered.
 9. **Retry after provider failure.** One injected 503 was retried silently
    and the answer arrived. Four 503s (all attempts) waited 2, 4 and 8 s under
    `Working...` with no retry notice, then showed
@@ -203,7 +205,8 @@ These are recorded with their repro steps in
   0.6% to 7.2% until the next success.
 - **F5 Compaction can wedge the session.** When the latest turn alone
   exceeds the window, every prompt is refused and `/compact` has nothing to
-  do. Pi splits the turn.
+  do. Fixed by DF1-F5 (see the backlog's Done table); the remaining
+  too-large-summary case is follow-on F5b.
 - **F6 Aborted turns persist no assistant message.** An aborted turn leaves
   consecutive user messages and drops the partial text. Pi persists the
   aborted assistant message.

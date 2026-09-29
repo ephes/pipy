@@ -11,9 +11,12 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
    tool results are not orphaned from the assistant calls that produced them.
 2. It keeps recent user-turn groups, or the accepted user and newest complete
    tool cycle under known-limit pressure, verbatim for the next provider request.
-3. It asks the current provider to summarize the exact removed messages together
+3. It asks the current provider to summarize the removed messages together
    with any previous summary, preserving goals, constraints, decisions, files,
-   verified results and unfinished work. The request has no tools or attachments
+   verified results and unfinished work. Like Pi's `serializeConversation`, each
+   tool result in the summary input is cut to its first 2000 characters plus
+   `[... N more characters truncated]`; other messages are sent unchanged.
+   Branch summaries use the same rule. The request has no tools or attachments
    and excludes request-only overlays. Its text is private and does not stream
    into the transcript. A prepared provider may retry an explicitly transient,
    no-progress failure using the retry policy captured for this summary operation;
@@ -21,8 +24,11 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
 4. After checking that the captured context is still current, it replaces the
    older groups with the combined summary in the system prompt.
 5. It appends a `compaction` entry to the native session JSONL file using the
-   exact first retained entry resolved before generation or live acceptance. A
-   durable session refuses a cut whose retained entry cannot be resolved.
+   exact first retained entry resolved before generation or live acceptance.
+   When an automatic cut keeps only the new prompt, whose entry is written after
+   the compaction, the entry stores its own id as the first kept entry (Pi's
+   `firstKeptEntryId ?? id`): nothing before it is kept. Otherwise a durable
+   session refuses a cut whose retained entry cannot be resolved.
    If that mismatch persists, the automatic threshold check can report the
    refusal again on later requests; it leaves live context unchanged.
 
@@ -112,8 +118,8 @@ used. Defaults/placeholders/fallback copies do not establish model capacity.
 `keepRecentTokens` remains reported but inactive.
 
 Both manual and automatic summaries preflight the exact auxiliary request: prior
-summary, optional labelled retained task orientation, exact removed messages,
-final instruction and reserve. An oversized auxiliary
+summary, optional labelled retained task orientation, the removed messages (tool
+results truncated as above), final instruction and reserve. An oversized auxiliary
 request publishes nothing. Ordinary hooks still run once and can narrow the final
 request enough to fit; summary refusal alone is not a failed agent run. The exact
 frozen ordinary request is checked after those hooks and before renderer/provider
@@ -124,11 +130,22 @@ acceptance still escapes unchanged, without rollback or automatic recovery.
 
 A persistent session's first provider iteration has a specific boundary: its new
 accepted user anchor is not persisted until canonical turn-start settlement after
-preparation. A latest-group cut pointing at that anchor refuses its missing durable
-origin. The final request can still be admitted if hooks narrow it enough; otherwise
-it refuses, and ordinary refusal settlement persists the accepted user once. No
-entry is invented and retention does not silently grow to two groups. Later
-provider iterations can summarize to that same anchor once it has a real origin.
+preparation. A latest-group cut that keeps only that anchor writes a compaction
+entry whose first kept entry is the compaction itself, as Pi's
+`appendCompaction(summary, null)` does. Turn-start, refusal or cancellation
+settlement then persists the accepted user once, after that entry, so reopened
+context is the summary followed by the prompt. Any other cut whose boundary has no
+durable origin still refuses. Later provider iterations can summarize to that same
+anchor once it has a real origin.
+
+When one tool result alone overflows the window, that turn is refused: the newest
+cycle is always kept verbatim (Pi also fails such a turn after one
+compact-and-retry attempt). The next prompt recovers: its automatic compaction
+summarizes the oversized turn away, with the result truncated in the summary
+input, and admits the new request. This does not help when the summary input is
+still too large after truncation, for example a huge pasted user message, large
+tool-call arguments or many results: the summary preflight refuses on every later
+prompt, as Pi's provider-side summary would fail, and `/new` is the way out.
 
 After refusal, reduce input/tool context or correct the context limit/reserve. In
 the interactive session, bare `/compact` can summarize already persisted groups
@@ -145,7 +162,8 @@ policy capture and cancellation precedence.
 ## Durable session behavior
 
 When compaction changes history, pipy appends a `compaction` tree entry with the
-summary and the first retained entry ID. An optional retained-user entry ID
+summary and the first retained entry ID; an ID equal to the entry's own ID keeps
+no earlier entry and survives fork and clone as the copy's own ID. An optional retained-user entry ID
 represents a safe noncontiguous user-plus-tool-cycle suffix. Anchored records are
 validated against the effective historical branch, reconstructed chronologically,
 and remapped strictly on fork; later cuts cannot restore content already removed.
@@ -210,6 +228,10 @@ and tool hooks continue to deny `set_model` by returning `False`.
   failure notice. Retry policy and auxiliary attempt accounting remain later work.
 - The terminal currently shows no working indicator during summary generation;
   Escape and Ctrl-C still cancel it.
+- A removed range whose summary input is still over the window after tool-result
+  truncation (a large paste, large tool-call arguments, many results) cannot be
+  summarized, so later prompts stay refused until `/new`. Pi has the same limit;
+  its summary request fails at the provider instead of in a local preflight.
 - Semantic summaries are lossy provider output. Synthetic tests cover the supplied
   facts and request/reopen continuity; live-provider summary quality remains unverified.
 - `/compact <custom instructions>` is not accepted yet; use bare `/compact`.
@@ -245,7 +267,8 @@ Broader branch-navigation changes are outside this slice.
 For the historical D1 whole-group slice, the summary input contained the previous
 summary and exact dropped conversation prefix. Current selection supplies the
 cut's exact immutable removed tuple, including noncontiguous anchored cuts, plus
-the retained user separately as labelled task orientation. Do not recompute
+the retained user separately as labelled task orientation; `build_summary_request`
+then cuts each tool result to 2000 characters (Pi `serializeConversation`). Do not recompute
 user-group boundaries in the coding layer. Instructions preserve goals, decisions, constraints, relevant files,
 verified results, and unfinished work, distinguishing facts from unresolved
 questions. Conversation content is data to summarize. Retained groups remain
