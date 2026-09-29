@@ -266,6 +266,11 @@ class CodingSessionAdapter:
         if request.command:
             raise ValueError("pipy-native repl does not accept a command after --")
 
+        # The adapter's resolved selection is the only source of truth. The raw
+        # CLI flags on the request are pre-resolution: the REPL upgrades an
+        # explicit ``fake``/``fake-native-bootstrap`` to ``fake-tools``, so
+        # preferring the flags would stamp every provider request with a model
+        # the bound provider does not serve.
         selection = self._current_selection()
         return PreparedRun(
             command=(),
@@ -273,8 +278,8 @@ class CodingSessionAdapter:
             adapter=self.name,
             command_executable=self.name,
             goal=request.goal or "Native tool-loop REPL",
-            native_provider=request.native_provider or selection.provider_name,
-            native_model=request.native_model or selection.model_id,
+            native_provider=selection.provider_name,
+            native_model=selection.model_id,
         )
 
     def run(

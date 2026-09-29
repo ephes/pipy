@@ -1222,13 +1222,23 @@ the streaming-delta granularity and asserts the two agree on:
   rebuilds the same user+assistant conversation the event stream describes).
 
 The Pi side is driven through Pi's real `AgentSession` with the faux `streamFn`
-via `scripts/parity_checks/pi_faux_event_driver.mts` (run with the local Pi
-checkout's own `tsx`, so it is offline and deterministic); set `PI_MONO_DIR` to
-the checkout (default `/Users/jochen/src/pi-mono`). When the Pi checkout/deps/
-node are unavailable, the harness reports the Pi leg as **skipped with the
-reason** rather than silently passing. Exact byte-for-byte JSON matching with Pi
+via `scripts/parity_checks/pi_faux_event_driver.mts`, run from source with
+`node` and pi-mono's source resolver as pi-mono runs its own TypeScript (Node
+22.19 or later), so it is offline and deterministic. Set `PI_MONO_DIR` to the
+checkout (default `/Users/jochen/src/pi-mono`). When the Pi checkout, deps or
+node are unavailable, the harness reports `passed: false` with the reason and
+exits 2; it never reads as passing. Exact byte-for-byte JSON matching with Pi
 is **not** the gate; structural/semantic equivalence is, and the deterministic
 pipy conformance via `automation_rpc_conformance.py --json` is the hard gate.
+
+Known red (2026-09-29, Pi `4df157433`): Pi's mid-conversation system messages
+(`9e05370b2`) put the system prompt into the transcript as a `role: "system"`
+message with structured `sections`. Pi's event stream therefore opens with
+`message_start:system`/`message_end:system`, and `agent_end.messages` starts
+with that message. pipy keeps the system prompt out of the transcript, so
+`event_order_and_discriminators_match` and `agent_end_semantics_match` fail
+until that feature is ported (backlog SYS1). The other
+checks pass.
 
 Before treating the track as complete, run:
 

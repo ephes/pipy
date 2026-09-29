@@ -16,8 +16,8 @@ and asserts the two implementations agree on the observable session semantics:
   stream describes.
 
 Pi side: `pi_faux_event_driver.mts` drives Pi's real `AgentSession` with the
-faux `streamFn` via the local Pi checkout's own `tsx` (so it is offline and
-deterministic). pipy side: the real `pipy repl --mode json` CLI with the
+faux `streamFn`, run from source with `node` the way pi-mono runs its own
+TypeScript (see `_pi_reference.py`), so it is offline and deterministic. pipy side: the real `pipy repl --mode json` CLI with the
 deterministic tool-capable fake provider (`--native-model fake-tools`).
 
 Run:
@@ -25,13 +25,11 @@ Run:
     uv run python scripts/parity_checks/automation_pi_comparison.py --json
 
 Set `PI_MONO_DIR` to the Pi checkout (default `/Users/jochen/src/pi-mono`). When
-Pi cannot be driven in this environment (checkout/deps/node missing), the Pi leg
-is reported as skipped with the reason rather than silently passing; the
-deterministic pipy conformance gate (`automation_rpc_conformance.py`) remains
-the hard gate per `docs/automation-rpc.md`.
+Pi cannot be driven in this environment (checkout, deps or node >= 22.19
+missing), the comparison reports `passed: false` with the reason and exits 2.
 
-Exits 0 when every executed check passes (and Pi-skip is not a failure), 1
-otherwise. No real network/AI calls.
+Exits 0 when the comparison ran and every check passed, 1 on a mismatch or a
+Pi driver failure, and 2 when the Pi reference is unavailable. No real network/AI calls.
 """
 
 from __future__ import annotations
@@ -44,6 +42,14 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from _pi_reference import (
+    EXIT_PI_UNAVAILABLE,
+    UNAVAILABLE_BANNER,
+    pi_mono_dir,
+    pi_unavailable_reason,
+    run_pi_driver,
+)
 
 _BOOT = "import sys; from pipy_harness.cli import main; sys.exit(main(sys.argv[1:]))"
 
@@ -58,42 +64,13 @@ class Check:
     detail: str
 
 
-def _pi_mono_dir() -> Path:
-    return Path(os.environ.get("PI_MONO_DIR", "/Users/jochen/src/pi-mono"))
-
-
-def _pi_available(pi_dir: Path) -> tuple[bool, str]:
-    if not pi_dir.is_dir():
-        return False, f"pi-mono not found at {pi_dir}"
-    tsx = pi_dir / "node_modules" / ".bin" / "tsx"
-    if not tsx.exists():
-        return False, f"pi-mono deps not installed (no {tsx})"
-    harness = pi_dir / "packages" / "coding-agent" / "test" / "test-harness.ts"
-    if not harness.exists():
-        return False, f"pi test harness missing ({harness})"
-    return True, "available"
+_HARNESS = Path("packages", "coding-agent", "test", "test-harness.ts")
 
 
 def _drive_pi(pi_dir: Path) -> list[dict]:
     driver = Path(__file__).with_name("pi_faux_event_driver.mts")
-    tsx = pi_dir / "node_modules" / ".bin" / "tsx"
-    env = dict(os.environ)
-    env["PI_MONO_DIR"] = str(pi_dir)
-    proc = subprocess.run(
-        [str(tsx), str(driver), _PROMPT, _REPLY],
-        cwd=str(pi_dir),  # anchor module resolution at the Pi checkout
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        timeout=120.0,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"pi driver exit {proc.returncode}: {proc.stderr.decode('utf-8')[:400]}"
-        )
-    return [
-        json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line
-    ]
+    stdout = run_pi_driver(pi_dir, driver, [_PROMPT, _REPLY])
+    return [json.loads(line) for line in stdout.splitlines() if line]
 
 
 def _drive_pipy(sessions_root: Path | None) -> tuple[list[dict], Path]:
@@ -271,15 +248,17 @@ def _check_durable_tree_reconstruction(
 
 
 def run_checks() -> tuple[list[Check], bool]:
-    pi_dir = _pi_mono_dir()
-    available, reason = _pi_available(pi_dir)
-    if not available:
-        return (
-            [Check("pi_reference_available", False, f"skipped: {reason}")],
-            True,  # skipped, not a hard failure
-        )
+    pi_dir = pi_mono_dir()
+    reason = pi_unavailable_reason(pi_dir, _HARNESS)
+    if reason is not None:
+        return [Check("pi_reference_available", False, f"not run: {reason}")], True
 
-    pi_events = _drive_pi(pi_dir)
+    try:
+        pi_events = _drive_pi(pi_dir)
+    except RuntimeError as exc:
+        # Pi passed the availability check but its driver failed: a real
+        # failure (driver/API drift), reported like any other failed check.
+        return [Check("pi_driver_error", False, f"pi driver failed: {exc}")], False
     pipy_events, _, pipy_rc = _drive_pipy(sessions_root=None)
     checks = _run_comparison(pi_events, pipy_events)
 
@@ -312,9 +291,9 @@ def main(argv: list[str] | None = None) -> int:
 
     checks, skipped = run_checks()
     all_passed = all(c.passed for c in checks)
-    # A skipped Pi leg is NOT a pass: report passed=false so it cannot be read as
-    # a green comparison. It is non-gating (exit 0) so non-Pi environments are not
-    # blocked; a real Pi-vs-pipy mismatch is a hard failure (exit 1).
+    # A Pi leg that did not run is NOT a pass: report passed=false and exit
+    # non-zero (EXIT_PI_UNAVAILABLE) so it cannot be read as a green comparison.
+    # A real Pi-vs-pipy mismatch exits 1.
     passed = all_passed and not skipped
     if args.json:
         report = {
@@ -329,10 +308,12 @@ def main(argv: list[str] | None = None) -> int:
         for c in checks:
             print(f"[{'PASS' if c.passed else 'FAIL'}] {c.name}: {c.detail}")
         if skipped:
-            print("SKIPPED (Pi reference unavailable) — comparison did not run")
+            print(UNAVAILABLE_BANNER)
         else:
             print("ALL PASS" if passed else "FAILURES PRESENT")
-    return 0 if (all_passed or skipped) else 1
+    if skipped:
+        return EXIT_PI_UNAVAILABLE
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

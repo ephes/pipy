@@ -1098,11 +1098,14 @@ just check
 
 `session_tree_pi_comparison.py` drives the SAME canonical tree workflow
 (root → MAIN → branch → ALT → name → fork) against Pi's real `SessionManager`
-(via the Pi checkout's own `tsx`) and pipy's native tree, normalizes volatile
-ids/timestamps/paths, and asserts the two agree on session name, sibling branch
-chains, active ALT/MAIN leaf chains, fork-parent + active-branch carry, and
-durable reopen reconstruction. The pipy leg is a hard gate (it asserts the
-on-disk product files); the Pi leg skips with a reason when Pi cannot be driven.
+(run from source with `node` and pi-mono's source resolver, as pi-mono runs
+its own TypeScript; Node 22.19 or later) and pipy's native tree, normalizes
+volatile ids/timestamps/paths, and asserts the two agree on session name,
+sibling branch chains, active ALT/MAIN leaf chains, fork-parent + active-branch
+carry, and durable reopen reconstruction. The pipy leg is a hard gate (it
+asserts the on-disk product files). When Pi cannot be driven, the script still
+runs the pipy leg but reports `passed: false` with the reason and exits 2: a
+comparison that did not run never reads as passing.
 
 Update `docs/session-storage.md`, `docs/harness-spec.md`, `docs/pi-parity.md`,
 `README.md`, and this spec to match shipped behavior, and get an independent
