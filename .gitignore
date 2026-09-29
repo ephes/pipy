@@ -4,6 +4,7 @@ docs/parity-loop/runs/*
 !docs/parity-loop/runs/.gitkeep
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+.claude/worktrees/
 .envrc
 .direnv/
 .venv/
