@@ -773,6 +773,9 @@ class NativeReplProviderState:
     def provider_available(self, provider_name: str) -> bool:
         return self._catalog.provider_available(provider_name)
 
+    def is_using_subscription(self, provider_name: str) -> bool:
+        return self._catalog.is_using_subscription(provider_name)
+
     def model_options(self) -> list[NativeModelOption]:
         state = self._catalog
         options: list[NativeModelOption] = []

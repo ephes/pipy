@@ -1049,6 +1049,17 @@ class NativeRpcServer:
             if block.get("type") == "toolCall"
         )
         tree_path = getattr(self._tree, "path", None)
+        # Pi SessionStats tokens/cost. pipy's totals are the live session
+        # accumulator (the footer's), which a model bind replaces; Pi sums
+        # persisted per-message usage over the whole session file.
+        snapshot = self._configuration_port().usage_snapshot()
+        usage = snapshot.usage
+        tokens = {
+            "input": snapshot.uncached_input_tokens,
+            "output": usage.output_tokens,
+            "cacheRead": usage.cache_read_tokens,
+            "cacheWrite": usage.cache_write_tokens,
+        }
         self._respond(
             cid,
             "get_session_stats",
@@ -1060,14 +1071,8 @@ class NativeRpcServer:
                 "toolCalls": tool_calls,
                 "toolResults": tool_results,
                 "totalMessages": len(serialized),
-                "tokens": {
-                    "input": 0,
-                    "output": 0,
-                    "cacheRead": 0,
-                    "cacheWrite": 0,
-                    "total": 0,
-                },
-                "cost": 0,
+                "tokens": {**tokens, "total": sum(tokens.values())},
+                "cost": usage.cost_usd,
             },
         )
 

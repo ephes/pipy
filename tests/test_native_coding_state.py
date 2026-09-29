@@ -949,7 +949,6 @@ def test_usage_and_unresolved_provider_failure_are_typed_state() -> None:
         AgentTokenPricing(
             input_per_million=1.0,
             output_per_million=2.0,
-            reasoning_per_million=3.0,
         )
     )
     state = _state(accumulator=accumulator)
@@ -971,12 +970,14 @@ def test_usage_and_unresolved_provider_failure_are_typed_state() -> None:
         input_tokens=1_000_000,
         output_tokens=500_000,
         reasoning_tokens=100_000,
-        cost_usd=2.3,
+        # Reasoning is part of output and has no rate of its own (Pi).
+        cost_usd=2.0,
     )
     assert usage_snapshot == CodingSessionUsageSnapshot(
         usage=failed.usage,
         last_total_tokens=1_600_000,
         cache_hit_percent=0.0,
+        uncached_input_tokens=1_000_000,
     )
     assert failed.provider_failure is failure
 

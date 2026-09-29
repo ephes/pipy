@@ -41,15 +41,11 @@ from pipy_harness.native.provider import (
 )
 from pipy_harness.native.providers.chat_completions_wire import (
     chat_messages,
+    extract_chat_completions_usage,
     parse_response,
 )
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("prompt_tokens", "input_tokens"),
-    ("completion_tokens", "output_tokens"),
-    ("total_tokens", "total_tokens"),
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +217,7 @@ class OpenAIChatCompletionsProvider:
                 parse_error_class=OpenAICompletionsResponseParseError,
                 response_label="OpenAI",
                 tool_call_provider_prefix="openai-completions",
-                usage_fields=OPENAI_COMPLETIONS_USAGE_FIELDS,
+                extract_usage=extract_chat_completions_usage,
             )
         except OpenAICompletionsProviderError as exc:
             return failed_provider_result(

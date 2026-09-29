@@ -446,7 +446,9 @@ which is in-scope full-content for this surface).
 `SessionStats` (`get_session_stats`): `sessionFile`, `sessionId`,
 `userMessages`, `assistantMessages`, `toolCalls`, `toolResults`,
 `totalMessages`, `tokens: { input, output, cacheRead, cacheWrite, total }`,
-`cost`, `contextUsage?`.
+`cost`, `contextUsage?`. pipy fills `tokens` and `cost` from the live session
+usage (COST1): `input` is uncached input and `cost` uses the row's catalog
+rates. pipy omits `contextUsage`.
 
 `BashResult` (`bash`): `output: string` (combined stdout+stderr, possibly
 truncated), `exitCode: number | undefined`, `cancelled: boolean`,

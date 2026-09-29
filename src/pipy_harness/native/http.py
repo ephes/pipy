@@ -380,22 +380,6 @@ def decode_json_object(
     return decoded
 
 
-def extract_usage_from_fields(
-    value: Any,
-    fields: tuple[tuple[str, str], ...],
-) -> dict[str, int | float]:
-    """Extract usage counters from a response using a ``(provider_key, normalized_key)`` map."""
-
-    from pipy_harness.native.usage import normalize_provider_usage
-
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for provider_key, normalized_key in fields:
-        usage[normalized_key] = value.get(provider_key)
-    return normalize_provider_usage(usage)
-
-
 # Anthropic reports cache counters under distinct keys; both the Anthropic
 # Messages adapter and the Bedrock InvokeModel adapter (Claude on Bedrock speaks
 # the same body/response shape) map them onto the normalized cache keys.
@@ -464,10 +448,10 @@ def extract_responses_usage(
 ) -> dict[str, int | float]:
     """Extract Responses-style usage: identity-mapped normalized keys plus nested details.
 
-    The Responses/``generateContent`` usage payloads carry the normalized usage
-    keys directly and stash cached/reasoning counters in nested detail objects
-    (``(details_key, usage_key)`` in ``nested_fields``). Flat Chat-Completions
-    usage uses :func:`extract_usage_from_fields` instead.
+    The Responses usage payloads carry the normalized usage keys directly and
+    stash cached/cache-write/reasoning counters in nested detail objects
+    (``(details_key, usage_key)`` in ``nested_fields``). Chat Completions and
+    Gemini usage have their own Pi-shaped extractors in their wire modules.
     """
 
     from pipy_harness.native.usage import (

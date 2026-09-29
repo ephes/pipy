@@ -451,6 +451,35 @@ class ProviderCatalogState:
             models_json_config=self._models_json_auth(provider),
         )
 
+    def is_using_subscription(self, provider: str) -> bool:
+        """Pi ``ModelRuntime.isUsingSubscription`` (``model-runtime.ts:534-540``).
+
+        True when the provider's stored credential is OAuth and the provider's
+        OAuth definition is a subscription. Pi marks every built-in OAuth
+        provider pipy has (anthropic, github-copilot, openai-codex) as a
+        subscription; an extension provider declares ``oauth.is_subscription``.
+        pipy's Codex login lives in its own OAuth file.
+        """
+
+        from pipy_harness.native.oauth_providers import get_oauth_provider_ids
+
+        auth_store = self.auth_store
+        extension_provider = self.extension_provider_for(provider)
+        if extension_provider is not None:
+            oauth = extension_provider.provider.oauth
+            if oauth is None or not oauth.is_subscription or auth_store is None:
+                return False
+            cred = auth_store.get(extension_provider.provider.name)
+            return bool(cred and cred.get("type") == "oauth")
+        if provider not in get_oauth_provider_ids():
+            return False
+        if provider == "openai-codex" and self._openai_codex_logged_in():
+            return True
+        if auth_store is None:
+            return False
+        cred = auth_store.get(provider)
+        return bool(cred and cred.get("type") == "oauth")
+
     def availability_reason(self, provider: str) -> str | None:
         if self.provider_available(provider):
             return None

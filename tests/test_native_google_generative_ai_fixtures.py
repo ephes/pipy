@@ -35,7 +35,6 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.providers.google_generative_ai import (
-    GOOGLE_USAGE_FIELDS,
     GoogleGenerativeAIProvider,
     GoogleHTTPStatusError,
     JsonResponse,
@@ -186,8 +185,8 @@ def test_google_success_response_parses_from_golden(tmp_path: Path) -> None:
     parsed = _load("parsed_result.json")
     assert result.final_text == parsed["final_text"]
     assert result.final_text == "config.toml sets port 8080."
-    # GOOGLE_USAGE_FIELDS remap the promptTokenCount/candidatesTokenCount/
-    # totalTokenCount usage metadata onto the normalized token keys.
+    # extract_gemini_usage maps promptTokenCount/candidatesTokenCount/
+    # totalTokenCount onto the normalized token keys (no thoughts or cache here).
     assert result.usage == parsed["usage"]
     assert result.usage == {
         "input_tokens": 31,
@@ -199,11 +198,6 @@ def test_google_success_response_parses_from_golden(tmp_path: Path) -> None:
         "provider_response_store_requested": False,
         "finish_reason": "STOP",
     }
-    assert GOOGLE_USAGE_FIELDS == (
-        ("promptTokenCount", "input_tokens"),
-        ("candidatesTokenCount", "output_tokens"),
-        ("totalTokenCount", "total_tokens"),
-    )
 
 
 def test_google_error_metadata_matches_golden(tmp_path: Path) -> None:

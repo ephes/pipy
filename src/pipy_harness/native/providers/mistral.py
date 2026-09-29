@@ -27,15 +27,11 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
     chat_messages,
+    extract_mistral_usage,
     parse_response,
 )
 
 MISTRAL_CHAT_COMPLETIONS_URL = "https://api.mistral.ai/v1/chat/completions"
-MISTRAL_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("prompt_tokens", "input_tokens"),
-    ("completion_tokens", "output_tokens"),
-    ("total_tokens", "total_tokens"),
-)
 
 
 def mistral_http_client() -> UrllibJsonHTTPClient:
@@ -154,7 +150,7 @@ class MistralProvider:
                 parse_error_class=MistralResponseParseError,
                 response_label="Mistral",
                 tool_call_provider_prefix="mistral",
-                usage_fields=MISTRAL_USAGE_FIELDS,
+                extract_usage=extract_mistral_usage,
             )
         except MistralProviderError as exc:
             return failed_provider_result(

@@ -7,14 +7,15 @@ and response translation shared by the canonical OpenAI Chat Completions adapter
 `CloudflareWorkersAIProvider`). Each adapter keeps its own auth/URL logic,
 provider dataclass, and sanitized error hierarchy; only the per-provider
 parse-error class, the human-readable response label used in parse errors, the
-tool-call provider prefix, and the usage-field remap vary and are passed in as
-arguments here. No wire shape, tool-call id, usage key, or event ordering is
+tool-call provider prefix, and the usage extractor (Pi's OpenAI-compatible or
+Mistral cache-counter reading) vary and are passed in as arguments here. No wire shape, tool-call id, usage key, or event ordering is
 decided anywhere else.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,8 +26,9 @@ from pipy_harness.native._provider_helpers import (
     extract_text_content,
     safe_response_label,
 )
-from pipy_harness.native.http import ProviderHTTPError, extract_usage_from_fields
+from pipy_harness.native.http import ProviderHTTPError
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.usage import normalize_provider_usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,14 +67,15 @@ def parse_response(
     parse_error_class: type[ProviderHTTPError],
     response_label: str,
     tool_call_provider_prefix: str,
-    usage_fields: tuple[tuple[str, str], ...],
+    extract_usage: Callable[[Any], dict[str, int | float]],
 ) -> ParsedChatCompletion:
     """Parse a Chat Completions response body into a shared parsed result.
 
     ``parse_error_class`` is the adapter's sanitized parse-error type,
     ``response_label`` is the human-readable provider name used in parse error
     messages, ``tool_call_provider_prefix`` prefixes synthesized tool-call ids,
-    and ``usage_fields`` is the adapter's usage-key remap.
+    and ``extract_usage`` normalizes the ``usage`` object
+    (:func:`extract_chat_completions_usage` or :func:`extract_mistral_usage`).
     """
 
     error = body.get("error")
@@ -127,8 +130,93 @@ def parse_response(
 
     return ParsedChatCompletion(
         final_text=final_text,
-        usage=extract_usage_from_fields(body.get("usage"), usage_fields),
+        usage=extract_usage(body.get("usage")),
         response_object=response_object,
         finish_reason=finish_reason,
         tool_calls=tool_calls,
+    )
+
+
+def extract_chat_completions_usage(value: Any) -> dict[str, int | float]:
+    """Normalize OpenAI-compatible ``usage`` as Pi's ``parseChunkUsage`` reads it.
+
+    Cache reads come from ``prompt_tokens_details.cached_tokens``, then
+    DeepSeek's ``prompt_cache_hit_tokens``, then a top-level ``cached_tokens``;
+    cache writes from ``prompt_tokens_details.cache_write_tokens``; reasoning
+    from ``completion_tokens_details.reasoning_tokens`` (already inside
+    ``completion_tokens``). Cache counters sit inside ``prompt_tokens``.
+    """
+
+    if not isinstance(value, Mapping):
+        return {}
+    prompt_details = value.get("prompt_tokens_details")
+    prompt_details = prompt_details if isinstance(prompt_details, Mapping) else {}
+    completion_details = value.get("completion_tokens_details")
+    completion_details = (
+        completion_details if isinstance(completion_details, Mapping) else {}
+    )
+    cached = prompt_details.get("cached_tokens")
+    if cached is None:
+        cached = value.get("prompt_cache_hit_tokens")
+    if cached is None:
+        cached = value.get("cached_tokens")
+    reasoning = completion_details.get("reasoning_tokens")
+    if reasoning is None:
+        # pipy keeps a top-level reasoning counter some OpenRouter-compatible
+        # hosts send. Pi does not read it; it is display-only and never priced.
+        reasoning = value.get("reasoning_tokens")
+    return normalize_provider_usage(
+        {
+            "input_tokens": value.get("prompt_tokens"),
+            "output_tokens": value.get("completion_tokens"),
+            "total_tokens": value.get("total_tokens"),
+            "cached_tokens": cached,
+            "cache_write_tokens": prompt_details.get("cache_write_tokens"),
+            "reasoning_tokens": reasoning,
+        }
+    )
+
+
+def extract_mistral_usage(value: Any) -> dict[str, int | float]:
+    """Normalize Mistral ``usage`` as Pi's ``getMistralCachedPromptTokens`` does.
+
+    The cache read is the first present of the prompt-details cached counters
+    or ``num_cached_tokens``, clamped to ``[0, prompt_tokens]``.
+    """
+
+    if not isinstance(value, Mapping):
+        return {}
+    cached: Any = None
+    # Pi's order, camelCase (Mistral SDK) and snake_case (REST) alike.
+    for details_key, cached_key in (
+        ("promptTokensDetails", "cachedTokens"),
+        ("prompt_tokens_details", "cached_tokens"),
+        ("promptTokenDetails", "cachedTokens"),
+        ("prompt_token_details", "cached_tokens"),
+    ):
+        details = value.get(details_key)
+        if isinstance(details, Mapping) and details.get(cached_key) is not None:
+            cached = details.get(cached_key)
+            break
+    if cached is None:
+        cached = value.get("numCachedTokens")
+    if cached is None:
+        cached = value.get("num_cached_tokens")
+    prompt = value.get("prompt_tokens")
+    if isinstance(cached, float) and not math.isfinite(cached):
+        cached = None  # Pi discards a non-finite count
+    if (
+        isinstance(cached, int | float)
+        and not isinstance(cached, bool)
+        and isinstance(prompt, int)
+        and not isinstance(prompt, bool)
+    ):
+        cached = min(prompt, max(0, int(cached)))
+    return normalize_provider_usage(
+        {
+            "input_tokens": prompt,
+            "output_tokens": value.get("completion_tokens"),
+            "total_tokens": value.get("total_tokens"),
+            "cached_tokens": cached,
+        }
     )

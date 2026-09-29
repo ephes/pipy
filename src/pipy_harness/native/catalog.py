@@ -33,16 +33,30 @@ THINKING_LEVELS: tuple[str, ...] = (
 
 
 @dataclass(frozen=True, slots=True)
+class NativeModelCostTier:
+    """Pi ``ModelCostTier``: rates once a request's input exceeds a threshold."""
+
+    input_tokens_above: float
+    input: float = 0.0
+    output: float = 0.0
+    cache_read: float = 0.0
+    cache_write: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class NativeModelCost:
     """Per-million-token cost metadata for a catalog row.
 
-    Mirrors Pi's ``cost: { input, output, cacheRead, cacheWrite }``.
+    Mirrors Pi's ``cost: { input, output, cacheRead, cacheWrite, tiers? }``.
+    ``tiers`` are request-wide: the highest threshold the whole prompt exceeds
+    prices the full request (Pi ``calculateCost``).
     """
 
     input: float = 0.0
     output: float = 0.0
     cache_read: float = 0.0
     cache_write: float = 0.0
+    tiers: tuple[NativeModelCostTier, ...] = ()
 
 
 class ContextWindowSource(StrEnum):

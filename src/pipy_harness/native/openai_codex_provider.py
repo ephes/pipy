@@ -118,6 +118,8 @@ OPENAI_CODEX_TERMINAL_API_LABELS = frozenset(
 MAX_RETRY_AFTER_SECONDS = 120.0
 OPENAI_CODEX_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
+    # Pi ``openai-responses-shared.ts``: ``input_tokens_details.cache_write_tokens``.
+    ("input_tokens_details", "cache_write_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
 )
 

@@ -707,7 +707,7 @@ def _phase_f2_run_and_settle(
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,
-        pricing_lookup=pricing_for,
+        pricing_lookup=partial(pricing_for, scope.provider_state),
         accepted_queued_input=accepted.turn_input.queued_input,
     )
     scope.ctl.extension_in_agent_turn = False

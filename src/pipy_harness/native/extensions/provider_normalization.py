@@ -77,6 +77,7 @@ def _normalize_provider_oauth(oauth: object) -> ExtensionOAuthConfig | None:
         or not callable(refresh_token)
         or not callable(get_api_key)
         or (modify_models is not None and not callable(modify_models))
+        or type(oauth.is_subscription) is not bool
     ):
         raise _ActivationError(REASON_INVALID_PROVIDER)
     return replace(oauth, name=oauth_name)

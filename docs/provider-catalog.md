@@ -87,8 +87,10 @@ Known deviations, owned by later slices:
   it, while pipy passes it through.
 - **The Responses on-state keeps pipy's `{effort}` shape.** Pi adds
   `summary`/`include`.
-- **Prompt caching and pricing tiers are not carried.** This covers prompt
-  caching metadata, long-context pricing tiers and refusal fallback models.
+- **Prompt caching metadata, built-in pricing tiers and refusal fallback
+  models are not carried.** `NativeModelCost.tiers` and `models.json`
+  `cost.tiers` exist and price sessions (COST1), but the built-in rows have no
+  tier data until the catalog sync (MC5) brings Pi's.
 
 ### Catalog drift check
 
@@ -764,7 +766,7 @@ Pipy target:
   `display_name`, `api` (the adapter family: `openai-responses`,
   `openai-completions`, `anthropic-messages`, etc.), `base_url`, `reasoning`,
   `thinking_level_map`, `input` (`("text",)` / `("text","image")`),
-  `cost` (`input`/`output`/`cache_read`/`cache_write`), `context_window`,
+  `cost` (`input`/`output`/`cache_read`/`cache_write`/`tiers`), `context_window`,
   `max_tokens`, optional `headers`, optional `compat`.
 - Keep provider-level metadata (availability rule, `supports_tool_calls`,
   `auto_default`, `requires_model_for_run`, OAuth capability) on a
@@ -832,7 +834,17 @@ Top level is `{ "providers": { "<name>": ProviderConfig, ... } }`. Each
 
 `ModelOverride` (built-in override): every field optional and merged onto the
 built-in row. `cost` is a partial merge (each sub-field falls back to the
-built-in). `thinkingLevelMap` and `compat` are deep-merged.
+built-in); `cost.tiers`, when present, replaces the row's tiers wholesale (Pi
+`override.cost.tiers ?? model.cost.tiers`). `thinkingLevelMap` and `compat` are
+deep-merged.
+
+`cost` (custom model, all four rates required) and override `cost` may carry
+`tiers`: an array of `{inputTokensAbove, input, output, cacheRead, cacheWrite}`
+with every field required. Cost rates and tier numbers must be finite and
+nonnegative: pipy reports anything else as a `models.json` error at load (Pi's
+schema only requires numbers), because the session could not price it. The
+session is priced from the resolved row with Pi's `calculateCost`; see
+[Providers: Session cost](providers.md#session-cost).
 
 `compat` is a union of three shapes mirroring Pi:
 

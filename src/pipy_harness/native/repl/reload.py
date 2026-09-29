@@ -300,7 +300,7 @@ class ReloadCommandEffects:
                     message,
                 ),
                 usage_prototype=lambda item: _agent_usage.AgentUsageAccumulator(
-                    pricing_for(item.provider_name, item.model_id)
+                    pricing_for(provider_state, item.provider_name, item.model_id)
                 ),
                 empty_history=CodingReloadHistoryValue(()),
                 candidate_session_start=partial(

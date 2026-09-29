@@ -60,32 +60,79 @@ class AgentProviderUsageSample:
         return self.input_tokens + self.output_tokens + self.reasoning_tokens
 
 
-@dataclass(frozen=True, slots=True)
-class AgentTokenPricing:
-    """Per-million-token rates injected by the product composition layer."""
+_PRICING_RATE_FIELDS: tuple[str, ...] = (
+    "input_per_million",
+    "output_per_million",
+    "cache_read_per_million",
+    "cache_write_per_million",
+)
 
+
+def _normalize_rates(
+    owner: object, type_name: str, field_names: tuple[str, ...]
+) -> None:
+    for field_name in field_names:
+        value = getattr(owner, field_name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError(f"{type_name}.{field_name} must be numeric")
+        if not isfinite(value) or value < 0:
+            raise ValueError(f"{type_name}.{field_name} must be finite and nonnegative")
+        object.__setattr__(owner, field_name, float(value))
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTokenPricingTier:
+    """Pi ``ModelCostTier``: rates for requests whose input exceeds a threshold."""
+
+    input_tokens_above: float
     input_per_million: float
     output_per_million: float
-    reasoning_per_million: float
     cache_read_per_million: float = 0.0
     cache_write_per_million: float = 0.0
 
     def __post_init__(self) -> None:
-        for field_name in (
-            "input_per_million",
-            "output_per_million",
-            "reasoning_per_million",
-            "cache_read_per_million",
-            "cache_write_per_million",
+        _normalize_rates(
+            self,
+            "AgentTokenPricingTier",
+            ("input_tokens_above", *_PRICING_RATE_FIELDS),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTokenPricing:
+    """Per-million-token rates injected by the product composition layer.
+
+    Mirrors Pi ``ModelCost``: four base rates plus optional request-wide
+    ``tiers``. Reasoning has no rate of its own; it is part of output.
+    """
+
+    input_per_million: float
+    output_per_million: float
+    cache_read_per_million: float = 0.0
+    cache_write_per_million: float = 0.0
+    tiers: tuple[AgentTokenPricingTier, ...] = ()
+
+    def __post_init__(self) -> None:
+        _normalize_rates(self, "AgentTokenPricing", _PRICING_RATE_FIELDS)
+        if not isinstance(self.tiers, tuple) or any(
+            type(tier) is not AgentTokenPricingTier for tier in self.tiers
         ):
-            value = getattr(self, field_name)
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise TypeError(f"AgentTokenPricing.{field_name} must be numeric")
-            if not isfinite(value) or value < 0:
-                raise ValueError(
-                    f"AgentTokenPricing.{field_name} must be finite and nonnegative"
-                )
-            object.__setattr__(self, field_name, float(value))
+            raise TypeError(
+                "AgentTokenPricing.tiers must be a tuple of AgentTokenPricingTier"
+            )
+
+    def rates_for(
+        self, prompt_tokens: int
+    ) -> AgentTokenPricing | AgentTokenPricingTier:
+        """Pi ``calculateCost`` tier choice: the highest threshold exceeded."""
+
+        rates: AgentTokenPricing | AgentTokenPricingTier = self
+        matched = -1.0
+        for tier in self.tiers:
+            if prompt_tokens > tier.input_tokens_above > matched:
+                rates = tier
+                matched = tier.input_tokens_above
+        return rates
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +144,7 @@ class AgentUsageAccumulatorValue:
     reasoning_tokens: int
     cache_read_tokens: int
     cache_write_tokens: int
+    uncached_input_tokens: int
     separate_cache_read_tokens: int
     separate_cache_write_tokens: int
     last_total_tokens: int
@@ -110,6 +158,7 @@ class AgentUsageAccumulatorValue:
             "reasoning_tokens",
             "cache_read_tokens",
             "cache_write_tokens",
+            "uncached_input_tokens",
             "separate_cache_read_tokens",
             "separate_cache_write_tokens",
             "last_total_tokens",
@@ -166,6 +215,7 @@ class AgentUsageAccumulator:
         "reasoning_tokens",
         "cache_read_tokens",
         "cache_write_tokens",
+        "uncached_input_tokens",
         "separate_cache_read_tokens",
         "separate_cache_write_tokens",
         "last_total_tokens",
@@ -182,6 +232,7 @@ class AgentUsageAccumulator:
         self.reasoning_tokens = 0
         self.cache_read_tokens = 0
         self.cache_write_tokens = 0
+        self.uncached_input_tokens = 0
         self.separate_cache_read_tokens = 0
         self.separate_cache_write_tokens = 0
         self.last_total_tokens = 0
@@ -218,23 +269,29 @@ class AgentUsageAccumulator:
         self.reasoning_tokens += reasoning_tokens
         self.cache_read_tokens += cache_read_tokens
         self.cache_write_tokens += cache_write_tokens
-        if _cache_counters_are_separate(
+        separate = _cache_counters_are_separate(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            reasoning_tokens=reasoning_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
             total_tokens=total_tokens,
-        ):
+        )
+        if separate:
             self.separate_cache_read_tokens += cache_read_tokens
             self.separate_cache_write_tokens += cache_write_tokens
+        # Pi ``Usage.input``: prompt tokens not served from or written to cache.
+        uncached_input_tokens = (
+            input_tokens
+            if separate
+            else max(0, input_tokens - cache_read_tokens - cache_write_tokens)
+        )
+        self.uncached_input_tokens += uncached_input_tokens
         self.last_total_tokens = sample.effective_total_tokens
         if self._pricing is not None:
             self.cost_usd += _turn_cost(
                 self._pricing,
-                input_tokens=input_tokens,
+                uncached_input_tokens=uncached_input_tokens,
                 output_tokens=output_tokens,
-                reasoning_tokens=reasoning_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_write_tokens=cache_write_tokens,
                 cache_write_1h_tokens=sample.cache_write_1h_tokens,
@@ -302,6 +359,7 @@ class AgentUsageAccumulator:
             reasoning_tokens=self.reasoning_tokens,
             cache_read_tokens=self.cache_read_tokens,
             cache_write_tokens=self.cache_write_tokens,
+            uncached_input_tokens=self.uncached_input_tokens,
             separate_cache_read_tokens=self.separate_cache_read_tokens,
             separate_cache_write_tokens=self.separate_cache_write_tokens,
             last_total_tokens=self.last_total_tokens,
@@ -317,6 +375,7 @@ def _usage_value_is_cleared(value: AgentUsageAccumulatorValue) -> bool:
         and value.reasoning_tokens == 0
         and value.cache_read_tokens == 0
         and value.cache_write_tokens == 0
+        and value.uncached_input_tokens == 0
         and value.separate_cache_read_tokens == 0
         and value.separate_cache_write_tokens == 0
         and value.last_total_tokens == 0
@@ -338,21 +397,23 @@ def _cache_counters_are_separate(
     *,
     input_tokens: int,
     output_tokens: int,
-    reasoning_tokens: int,
     cache_read_tokens: int,
     cache_write_tokens: int,
     total_tokens: int,
 ) -> bool:
+    """Whether the sample reports cache tokens beside, not inside, input.
+
+    Anthropic-style totals count the cache counters once beside input; OpenAI-
+    and Gemini-style totals include them in input. Reasoning is part of output
+    for every adapter, so it is not added again here.
+    """
+
     if cache_read_tokens <= 0 and cache_write_tokens <= 0:
         return False
     if total_tokens <= 0:
         return False
     minimum_total_if_separate = (
-        input_tokens
-        + output_tokens
-        + reasoning_tokens
-        + cache_read_tokens
-        + cache_write_tokens
+        input_tokens + output_tokens + cache_read_tokens + cache_write_tokens
     )
     return total_tokens >= minimum_total_if_separate
 
@@ -360,22 +421,27 @@ def _cache_counters_are_separate(
 def _turn_cost(
     pricing: AgentTokenPricing,
     *,
-    input_tokens: int,
+    uncached_input_tokens: int,
     output_tokens: int,
-    reasoning_tokens: int,
     cache_read_tokens: int,
     cache_write_tokens: int,
     cache_write_1h_tokens: int = 0,
 ) -> float:
-    """One turn's cost; Pi ``calculateCost`` prices 1h cache writes at 2x input."""
+    """One turn's cost with Pi ``calculateCost`` semantics.
 
+    The tier is chosen by the whole prompt (uncached input plus cache reads and
+    writes); 1h cache writes cost twice the tier's input rate.
+    """
+
+    rates = pricing.rates_for(
+        uncached_input_tokens + cache_read_tokens + cache_write_tokens
+    )
     long_write = min(cache_write_1h_tokens, cache_write_tokens)
     short_write = cache_write_tokens - long_write
     return (
-        input_tokens * pricing.input_per_million
-        + output_tokens * pricing.output_per_million
-        + reasoning_tokens * pricing.reasoning_per_million
-        + cache_read_tokens * pricing.cache_read_per_million
-        + short_write * pricing.cache_write_per_million
-        + long_write * pricing.input_per_million * 2
+        uncached_input_tokens * rates.input_per_million
+        + output_tokens * rates.output_per_million
+        + cache_read_tokens * rates.cache_read_per_million
+        + short_write * rates.cache_write_per_million
+        + long_write * rates.input_per_million * 2
     ) / 1_000_000.0

@@ -68,6 +68,7 @@ from pipy_harness.native.coding.state import (
     CodingModelMutation,
     CodingProviderBinding,
     CodingSessionState,
+    CodingSessionUsageSnapshot,
 )
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_types import ExtensionModelRuntimeControl
@@ -185,6 +186,11 @@ class RpcProviderConfigurationPort:
 
     def available_models(self) -> tuple[NativeModelSelection, ...]:
         return self._effects._rpc_available_models()
+
+    def usage_snapshot(self) -> CodingSessionUsageSnapshot:
+        """The live session usage the footer shows, as an immutable value."""
+
+        return self._effects.coding_state.usage_snapshot()
 
     def set_model(self, selection: NativeModelSelection) -> RpcConfigurationResult:
         return self._effects._rpc_set_model(selection, self._commit_if_true_idle)
@@ -793,7 +799,7 @@ class ProviderMutationEffects:
             provider_name=replacement.provider_name,
             model_id=replacement.model_id,
             usage_accumulator=AgentUsageAccumulator(
-                pricing_for(replacement.provider_name, replacement.model_id)
+                pricing_for(state, replacement.provider_name, replacement.model_id)
             ),
         )
         return _PreparedModelMutation(state, selection, coding), message
@@ -943,7 +949,7 @@ class ProviderMutationEffects:
             provider_name=selection.provider_name,
             model_id=selection.model_id,
             usage_accumulator=AgentUsageAccumulator(
-                pricing_for(selection.provider_name, selection.model_id)
+                pricing_for(state, selection.provider_name, selection.model_id)
             ),
         )
         self.refresh_footer_text()
@@ -1030,7 +1036,7 @@ class ProviderMutationEffects:
             provider_name=fallback.provider_name,
             model_id=fallback.model_id,
             usage_accumulator=AgentUsageAccumulator(
-                pricing_for(fallback.provider_name, fallback.model_id)
+                pricing_for(state, fallback.provider_name, fallback.model_id)
             ),
         )
         emit_diagnostic(

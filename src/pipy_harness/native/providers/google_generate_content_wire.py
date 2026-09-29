@@ -13,7 +13,8 @@ the byte-identical translation in both directions:
 - :func:`serialize_tool_for_gemini` turns one ``ToolDefinition`` into the Gemini
   function-declaration shape.
 - :func:`parse_response` / :func:`extract_final_text` / :func:`extract_tool_calls`
-  turn a success body into a :class:`ParsedGeminiResponse`.
+  turn a success body into a :class:`ParsedGeminiResponse`;
+  :func:`extract_gemini_usage` normalizes ``usageMetadata`` as Pi does.
 
 The two adapters differ only where they genuinely differ, threaded through as
 parameters here:
@@ -21,7 +22,6 @@ parameters here:
 - the per-provider parse-error class (``parse_error_class``);
 - the human-readable response label used in parse-error messages
   (``response_label``, e.g. ``"Google"`` vs ``"Google Vertex AI"``);
-- the ``usageMetadata`` remap tuple (``usage_fields``);
 - the tool-call provider prefix used to synthesize a correlation id
   (``tool_call_provider_prefix``, e.g. ``"google"`` vs ``"google-vertex"``); and
 - the Google-only ``inlineData`` image attachment (``attach_images``). The
@@ -45,10 +45,11 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.http import ProviderHTTPError, extract_usage_from_fields
+from pipy_harness.native.http import ProviderHTTPError
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.base import materialize_tool_input_schema
+from pipy_harness.native.usage import normalize_provider_usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +191,6 @@ def parse_response(
     *,
     parse_error_class: type[ProviderHTTPError],
     response_label: str,
-    usage_fields: tuple[tuple[str, str], ...],
     tool_call_provider_prefix: str,
 ) -> ParsedGeminiResponse:
     """Parse a Gemini ``generateContent`` success body into a result."""
@@ -230,10 +230,40 @@ def parse_response(
 
     return ParsedGeminiResponse(
         final_text=final_text,
-        usage=extract_usage_from_fields(body.get("usageMetadata"), usage_fields),
+        usage=extract_gemini_usage(body.get("usageMetadata")),
         finish_reason=finish_reason,
         tool_calls=tool_calls,
     )
+
+
+def extract_gemini_usage(value: Any) -> dict[str, int | float]:
+    """Normalize ``usageMetadata`` the way Pi's Google adapters count it.
+
+    Pi (``google-generative-ai.ts`` / ``google-vertex.ts``): output is
+    ``candidatesTokenCount + thoughtsTokenCount``, reasoning is the thoughts,
+    and ``cachedContentTokenCount`` is a cache read inside ``promptTokenCount``
+    (the accumulator subtracts it to price uncached input).
+    """
+
+    if not isinstance(value, Mapping):
+        return {}
+    candidates = _usage_count(value.get("candidatesTokenCount"))
+    thoughts = _usage_count(value.get("thoughtsTokenCount"))
+    usage: dict[str, Any] = {
+        "input_tokens": value.get("promptTokenCount"),
+        "total_tokens": value.get("totalTokenCount"),
+        "cached_tokens": value.get("cachedContentTokenCount"),
+        "reasoning_tokens": value.get("thoughtsTokenCount"),
+    }
+    if candidates is not None or thoughts is not None:
+        usage["output_tokens"] = (candidates or 0) + (thoughts or 0)
+    return normalize_provider_usage(usage)
+
+
+def _usage_count(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
 
 
 def extract_final_text(parts: Any) -> str | None:

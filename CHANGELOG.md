@@ -445,6 +445,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `reasoning_effort: "none"`. Mistral `reasoning_effort` now follows Pi: a
   level is clamped to the model's levels before it is mapped. OpenRouter GPT-5.1
   Codex offers low, medium and high, and thinking cannot be switched off.
+- Session cost now comes from the selected model's catalog row, priced with
+  Pi's `calculateCost` (`4df157433`), so Claude and every other priced model
+  show a cost. Before, only Codex `gpt-5*` had a hard-coded price. `models.json`
+  `cost` overrides apply, and `cost.tiers` (Pi's request-wide long-context
+  rates) is accepted on custom models and overrides; built-in rows get tier
+  data with the catalog sync. Cached input is no longer charged at the full
+  input rate, and reasoning tokens are no longer charged on top of output.
+  Gemini thinking tokens now count as output, and cache reads are read from
+  Gemini, Chat Completions (OpenAI-compatible, OpenRouter, Cloudflare), Mistral
+  and Responses cache-write counters the way Pi reads them.
+- The footer cost follows Pi: `$0.123` when there is a cost, nothing at zero,
+  and `$0.123 (sub)` on a subscription login (OpenAI Codex, Anthropic or
+  GitHub Copilot OAuth, or an extension OAuth provider declaring
+  `is_subscription=True`). The `(api)` label is gone. RPC `get_session_stats`
+  reports the same token totals and cost instead of zeros.
 - Skills, prompt templates, custom commands, global extensions and
   `models.json` now use the same global config root as settings and context
   files: `PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when it

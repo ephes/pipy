@@ -79,11 +79,6 @@ _PLACEHOLDER_API_KEY_RE = re.compile(r"^<[^>]+>$")
 # patterns (which rely on the module's ``import re``) live together.
 _GEMINI3_PRO_RE = re.compile(r"gemini-3(?:\.\d+)?-pro")
 _GEMINI3_FLASH_RE = re.compile(r"gemini-3(?:\.\d+)?-flash")
-GOOGLE_VERTEX_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("promptTokenCount", "input_tokens"),
-    ("candidatesTokenCount", "output_tokens"),
-    ("totalTokenCount", "total_tokens"),
-)
 
 # Per-model thinking shape, ported from Pi's ``google-vertex.ts``. Vertex injects
 # ``generationConfig.thinkingConfig`` per model family: a ``thinkingLevel`` enum
@@ -454,7 +449,6 @@ class GoogleVertexProvider:
                 response.body,
                 parse_error_class=GoogleVertexResponseParseError,
                 response_label="Google Vertex AI",
-                usage_fields=GOOGLE_VERTEX_USAGE_FIELDS,
                 tool_call_provider_prefix="google-vertex",
             )
         except GoogleVertexProviderError as exc:

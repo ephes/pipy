@@ -444,9 +444,10 @@ class BottomStatusFields:
     """Inputs for the persistent bottom status line.
 
     Mirrors the Pi terminal bottom-row content: cwd above, then a
-    single status line with cost (or placeholder), plan/subscription
-    tag, context usage meter, provider, model, and reasoning effort.
-    All fields are pre-sanitized strings so callers control formatting.
+    single status line with the session cost (Pi ``footer.ts:189-196``: shown
+    when non-zero or on a subscription, marked `` (sub)`` then), context usage
+    meter, provider, model, and reasoning effort. String fields are
+    pre-sanitized so callers control formatting.
 
     ``attention`` is an optional short tag (e.g. ``"proposal ready"``)
     appended after the model/effort so user-state signals stay visible
@@ -454,8 +455,8 @@ class BottomStatusFields:
     """
 
     cwd_label: str
-    cost_label: str
-    plan_label: str
+    cost_usd: float
+    using_subscription: bool
     context_used_pct: float
     context_budget_label: str
     context_budget_suffix: str
@@ -521,6 +522,19 @@ class _ChromeFooterEffects:
             level=None,
         )
 
+    def _using_subscription(self, provider_name: str) -> bool:
+        """Pi footer ``usingSubscription``: kimi-coding or a subscription login.
+
+        A state without a catalog (an injected provider) has no stored login.
+        """
+
+        if provider_name == "kimi-coding":
+            return True
+        state = self.provider_state
+        if isinstance(state, NativeReplProviderState):
+            return state.is_using_subscription(provider_name)
+        return False
+
     def _footer_text(
         self,
         *,
@@ -532,7 +546,6 @@ class _ChromeFooterEffects:
         error_stream: TextIO | None = None,
         usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> str:
-        plan_label = "sub" if provider_name == "openai-codex" else "api"
         budget = _context_budget_for(
             provider_name,
             model_id,
@@ -547,12 +560,8 @@ class _ChromeFooterEffects:
         usage = usage_snapshot.usage if usage_snapshot is not None else None
         fields = BottomStatusFields(
             cwd_label="",
-            cost_label=(
-                f"${usage_snapshot.usage.cost_usd:.3f}"
-                if usage_snapshot is not None
-                else "$0.000"
-            ),
-            plan_label=plan_label,
+            cost_usd=(usage.cost_usd if usage is not None else 0.0),
+            using_subscription=self._using_subscription(provider_name),
             context_used_pct=used_pct,
             context_budget_label=budget.budget_label,
             context_budget_suffix="auto",
@@ -677,10 +686,11 @@ class _ChromeFooterEffects:
 def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
     """Render the Pi-shape bottom status line within `width` columns.
 
-    Layout: `[↑in ↓out ]$cost (plan) used%/budget (suffix)` left-aligned,
+    Layout: `[↑in ↓out ][$cost[ (sub)] ]used%/budget (suffix)` left-aligned,
     `(provider) model[ • thinking]` right-aligned with padding in between; the
     thinking segment is omitted when ``effort_label`` is empty (a non-reasoning
-    model, as in Pi's footer).
+    model, as in Pi's footer). The cost segment appears, as in Pi, only when the
+    cost is non-zero or the provider is used through a subscription.
     """
 
     tokens_prefix = ""
@@ -701,8 +711,12 @@ def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
         if fields.cache_hit_percent is not None:
             parts.append(f"CH{min(max(fields.cache_hit_percent, 0.0), 100.0):.1f}%")
         tokens_prefix = " ".join(parts) + " "
+    cost_prefix = ""
+    if fields.cost_usd or fields.using_subscription:
+        sub = " (sub)" if fields.using_subscription else ""
+        cost_prefix = f"${fields.cost_usd:.3f}{sub} "
     left = (
-        f"{tokens_prefix}{fields.cost_label} ({fields.plan_label}) "
+        f"{tokens_prefix}{cost_prefix}"
         f"{fields.context_used_pct:.1f}%/{fields.context_budget_label}"
     )
     if fields.context_budget_suffix:

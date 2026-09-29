@@ -243,8 +243,7 @@ prefix is read from the cache on the next turn:
   use retention `none` and send no markers.
 - The usage split `cache_creation.ephemeral_1h_input_tokens` is kept as
   `cache_write_1h_tokens`. Session cost prices it at twice the input rate, as
-  in Pi. Only models in pipy's pricing table get a cost today, and no Claude
-  model is in it yet.
+  in Pi (see [Session cost](#session-cost)).
 - models.json rows can set Pi's compat flags:
   - `supportsLongCacheRetention: false` drops the 1h TTL.
   - `supportsCacheControlOnTools: false` drops the tool marker.
@@ -349,6 +348,35 @@ level, pipy falls back safely rather than inventing unsupported parameters.
 
 Images are accepted only for rows marked `images yes`; attach files using the
 current image/file-reference workflows described in [Using pipy](usage.md).
+
+## Session cost
+
+Every turn is priced from the selected model's catalog row, with Pi's
+`calculateCost`. That includes rows changed by `models.json` `cost` overrides
+and custom models (which cost nothing unless they set `cost`).
+
+- Rates are dollars per million tokens for uncached input, output, cache reads
+  and cache writes. Reasoning tokens are part of output. 1h cache writes cost
+  twice the input rate.
+- Uncached input is the prompt minus cache reads and writes. Anthropic and
+  Bedrock report those separately. OpenAI, Codex, Azure, Chat Completions,
+  OpenRouter, Mistral and Gemini count them inside the prompt, and pipy
+  subtracts them as Pi does. Gemini thinking tokens count as output.
+- `cost.tiers` (`inputTokensAbove` plus the four rates) price the whole request
+  at the highest threshold its prompt exceeds. `models.json` can set tiers on a
+  custom model or in `modelOverrides`, where they replace the row's tiers.
+  Built-in rows carry no tiers yet, so a long-context request on a tiered Pi
+  model (such as Codex `gpt-5.5` above 272k) is priced at base rates.
+- The footer shows the cost as `$0.123`, and hides it at zero. On a
+  subscription login (OpenAI Codex, Anthropic or GitHub Copilot OAuth, or an
+  extension OAuth provider with `is_subscription=True`) it always shows the
+  cost marked `$0.123 (sub)`. That is the API-equivalent price, not a bill.
+- RPC `get_session_stats` returns the same totals: `tokens.input` is uncached
+  input, `total` sums input, output and both cache counters, and `cost` is the
+  dollar total.
+- The totals cover the live session since the model was last selected. A
+  model switch or re-login starts them at zero, and a resumed session starts at
+  zero, because pipy does not yet store usage per message (Pi does).
 
 ## Follow-ons
 

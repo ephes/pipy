@@ -28,8 +28,8 @@ def test_codex_rows_use_pi_272k_status_budget() -> None:
 def test_format_bottom_status_line_aligns_left_and_right() -> None:
     fields = chrome.BottomStatusFields(
         cwd_label="",
-        cost_label="$0.000",
-        plan_label="sub",
+        cost_usd=0.0,
+        using_subscription=True,
         context_used_pct=0.0,
         context_budget_label="272k",
         context_budget_suffix="auto",
@@ -46,8 +46,8 @@ def test_format_bottom_status_line_aligns_left_and_right() -> None:
 def test_format_bottom_status_line_appends_attention_after_effort() -> None:
     fields = chrome.BottomStatusFields(
         cwd_label="",
-        cost_label="$0.000",
-        plan_label="api",
+        cost_usd=0.0,
+        using_subscription=False,
         context_used_pct=0.0,
         context_budget_label="4k",
         context_budget_suffix="bytes",
@@ -60,7 +60,9 @@ def test_format_bottom_status_line_appends_attention_after_effort() -> None:
     assert line.endswith(
         "(fake) fake-native-bootstrap • default · proposal ready · verify ready"
     )
-    assert "$0.000 (api) 0.0%/4k (bytes)" in line
+    # Pi omits the cost segment at zero cost without a subscription.
+    assert line.startswith("0.0%/4k (bytes)")
+    assert "$" not in line
 
 
 def test_format_bottom_status_line_width_matches_separator_at_terminal_width() -> None:
@@ -71,8 +73,8 @@ def test_format_bottom_status_line_width_matches_separator_at_terminal_width() -
 
     fields = chrome.BottomStatusFields(
         cwd_label="",
-        cost_label="$0.000",
-        plan_label="sub",
+        cost_usd=0.0,
+        using_subscription=True,
         context_used_pct=0.0,
         context_budget_label="10",
         context_budget_suffix="tools",
@@ -90,8 +92,8 @@ def test_format_bottom_status_line_width_matches_separator_at_terminal_width() -
 def test_format_bottom_status_line_emits_token_arrows_after_a_turn() -> None:
     fields = chrome.BottomStatusFields(
         cwd_label="",
-        cost_label="$0.012",
-        plan_label="sub",
+        cost_usd=0.012,
+        using_subscription=True,
         context_used_pct=0.6,
         context_budget_label="272k",
         context_budget_suffix="auto",
@@ -110,8 +112,8 @@ def test_format_bottom_status_line_emits_token_arrows_after_a_turn() -> None:
 def test_format_bottom_status_line_uses_pi_cache_labels() -> None:
     fields = chrome.BottomStatusFields(
         cwd_label="",
-        cost_label="$3.157",
-        plan_label="sub",
+        cost_usd=3.157,
+        using_subscription=True,
         context_used_pct=40.8,
         context_budget_label="272k",
         context_budget_suffix="auto",
