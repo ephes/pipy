@@ -15,9 +15,9 @@ Status: sole active task index, rewritten 2026-09-29.
 - **Not verified live.** All D0–D8 evidence comes from deterministic and
   fake-transport tests. Nobody has observed credentialed provider runs, live
   semantic-summary quality, or cross-provider answer quality. DF1 owns that.
-- **Biggest user-facing gap: model currency.** The hand-maintained catalog stops
-  at claude-opus-4-7, gpt-5.6-sol and gemini-3.1-pro-preview. Several provider
-  defaults point at retired models. See MC1.
+- **Model currency: done (MC1, 2026-09-29).** The catalog, provider defaults
+  and thinking maps mirror Pi `4df157433`. Codex gpt-6-sol was smoke-tested
+  live; Anthropic 5.x is covered by fake-transport tests only.
 
 This document owns direction, order and task IDs. A queue item is a bounded
 work order. It does not override a current runtime contract (see
@@ -74,41 +74,18 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 Take items in order unless one is blocked. Effort: S ≈ one focused slice,
 M ≈ two or three slices.
 
-### 1. MC1 — Current models and thinking maps (S–M, in progress 2026-09-29)
+### 1. MC1 — Current models and thinking maps (done 2026-09-29)
 
-Refresh the built-in catalog and thinking behavior in one slice, because new
-Claude rows without the thinking fix would take the wrong `budget_tokens` path.
+Landed via merge of `feat/model-currency` (`23eb706`). Rows, defaults and
+thinking maps come from Pi's generator at `4df157433`; plan and deviations in
+`docs/specs/2026-09-29-model-currency-plan.md` and `docs/provider-catalog.md`.
+Remaining follow-ons, not queued separately yet:
 
-- **Rows.** Add these, taking IDs, cost, context and thinking maps from Pi's
-  `packages/ai/scripts/generate-models.ts` and models.dev rather than from tau:
-  - Claude opus/sonnet 5.5, opus/sonnet 5, fable-5, opus-4-8 and haiku-4-5.
-  - gpt-6 sol/luna/astra and gpt-5.6 terra/luna on openai and openai-codex.
-  - gemini-3.5-flash and 3.1-flash-lite.
-  - The Claude rows mirrored onto openrouter, bedrock and vertex where Pi has
-    them.
-- **Removals and fixes.**
-  - Fix the codex gpt-5.6-sol context from 372k to 272k (Pi `35f12c8c7`) in
-    `catalog_data.py` and `chrome.py:335`.
-  - Remove codex gpt-5.4 (Pi `2e6fe2f98`).
-  - Drop the retired claude-3-5 and gpt-4o rows.
-- **Defaults.** Mirror every provider default from Pi's
-  `coding-agent/src/core/model-resolver.ts:21` (`defaultModelPerProvider`) into
-  both `catalog.py:163` and `provider_registry.py`.
-  - These are stale today: anthropic (`claude-3-5-sonnet-20241022`), google
-    (`gemini-2.0-flash-exp`), google-vertex, amazon-bedrock, azure-openai
-    (`gpt-4o`), openrouter, mistral and openai-completions/cloudflare.
-  - For providers Pi does not key the same way, pick a current row.
-  - Add a test that every default names a current row.
-- **Thinking.**
-  - Extend `ANTHROPIC_ADAPTIVE_MODEL_MARKERS` (`providers/anthropic_messages.py:57`,
-    reused by `providers/bedrock.py`), or honor a
-    `compat["forceAdaptiveThinking"]` flag, for opus-5, sonnet-5 and fable-5.
-  - Pass `max` through the effort field.
-  - Use Pi-exact maps: fable `off: null` with `{xhigh, max}` only; gpt-6
-    sol/luna `off: "none"`; astra `off: null`; `minimal` unsupported on all
-    gpt-6 rows.
-  - Add one conformance test per family.
-- **Docs.** `docs/provider-catalog.md`, `docs/providers.md` and `CHANGELOG.md`.
+- Live Anthropic 5.x smoke (no credentials during the slice) — part of DF1.
+- Legacy rows (Claude 3.5, gpt-5.1-codex, Gemini 2.x) kept; prune later.
+- Mid-conversation effort `configuration_update`, OpenAI `summary`/`include`
+  on thinking requests, and `/model x:level` clamping remain Pi deviations.
+- OpenRouter Claude rows need an Anthropic-Messages-over-OpenRouter transport.
 
 ### 2. CTX1 — Pi context-file and skill discovery (S)
 
@@ -318,6 +295,7 @@ instructions do not override this index.
   | D6 reopen/transitions/SDK retirement | `6e38076`, `b370a8a`, `b275c82` |
   | D7 RPC bash | `66189ed` |
   | D8 replay | `73f4aef` |
+  | MC1 model currency | `23eb706` |
 
 - **Older programs.** The architecture migration, quality, transactional
   reload, comparative remediation and god-file decomposition programs are
