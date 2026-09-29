@@ -20,6 +20,10 @@ credentials and without touching `~/.pipy`.
   `modelOverrides.fake-native-bootstrap.reasoning=true` in the isolated
   `models.json`.
 - The fake providers never emit tool calls.
+- `fake/fake-tools` (`AutomationFakeProvider`) waits for the turn's cancel
+  token when a prompt starts with `BLOCK`; `STREAMBLOCK` first streams
+  `PARTIAL:streamed-before-abort`, so Escape leaves an aborted turn with
+  partial text to check live and after `pipy -r`.
 
 ## Local completions stub (tool calls, usage, cost)
 

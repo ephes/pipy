@@ -222,6 +222,8 @@ def test_tool_loop_exposes_one_mode_neutral_canonical_trace(tmp_path: Path) -> N
     assert [type(event).__name__ for event in canonical.events] == [
         "AgentRunStarted",
         "TurnStarted",
+        "MessageStarted",  # leading system message
+        "MessageCompleted",
         "MessageStarted",
         "MessageCompleted",
         "MessageStarted",
@@ -241,6 +243,8 @@ def test_tool_loop_exposes_one_mode_neutral_canonical_trace(tmp_path: Path) -> N
     assert _event_trace(automation.events) == [
         "agent_start",
         "turn_start",
+        "message_start:system",
+        "message_end:system",
         "message_start:user",
         "message_end:user",
         "message_start:assistant",
@@ -313,6 +317,8 @@ def test_tool_loop_order_contract(
     expected = [
         "agent_start",
         "turn_start",
+        "message_start:system",
+        "message_end:system",
         "message_start:user",
         "message_end:user",
         "message_start:assistant",
@@ -354,6 +360,8 @@ def test_json_mode_preserves_real_loop_order_with_mode_boundaries(
     assert _event_trace(records[1:]) == [
         "agent_start",
         "turn_start",
+        "message_start:system",
+        "message_end:system",
         "message_start:user",
         "message_end:user",
         "message_start:assistant",
@@ -463,6 +471,8 @@ def test_rpc_abort_reaches_provider_and_closes_the_event_lifecycle(
     assert _event_trace(events) == [
         "agent_start",
         "turn_start",
+        "message_start:system",
+        "message_end:system",
         "message_start:user",
         "message_end:user",
         "message_start:assistant",

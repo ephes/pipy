@@ -267,10 +267,10 @@ class TranscriptComponent:
         self.add_error("Operation aborted")
 
     def add_error(self, text: str) -> None:
-        """Settle any partial assistant output, then show an error line.
+        """Settle any partial assistant text, then show ``text`` as an error.
 
-        Pi renders an ended or failed assistant message as its partial content
-        followed by the error-coloured reason.
+        Pi's assistant component draws an aborted or failed turn's marker
+        (``Operation aborted``, ``Error: …``) after its partial content.
         """
 
         with self._paint_lock:

@@ -231,9 +231,11 @@ retried for **every** provider when `retry.enabled` is on (the default):
   `auto_retry_start` per retry and one `auto_retry_end` per sequence.
 
 Differences from Pi: the retry happens inside one assistant message, so JSON
-and RPC do not see Pi's `message_end` / `agent_end` for the failed attempt, and
-the failed attempt is not stored in the session. Escape during the wait also
-shows `Operation aborted`. Compaction and branch summaries keep their own
+and RPC do not see Pi's `message_end` / `agent_end` for a retried attempt, and
+a retried attempt is not stored in the session. The turn stores one assistant
+message: the successful answer, an `error` message with the last attempt's
+partial text when retries run out, or an empty `aborted` message when the
+wait is cancelled. Escape during the wait also shows `Operation aborted`. Compaction and branch summaries keep their own
 private retries.
 
 ### OpenAI prompt caching

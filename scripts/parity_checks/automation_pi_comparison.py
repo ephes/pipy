@@ -10,10 +10,13 @@ and asserts the two implementations agree on the observable session semantics:
   as one group (pipy emits the `text_delta` subset it produces; Pi additionally
   frames `text_start`/`text_end` — a documented, allowed divergence);
 - the assistant's final text and the concatenation of its streamed text deltas;
-- `agent_end` semantics (`willRetry` and the run's message roles);
+- `agent_end` semantics (`willRetry` and the run's message roles, which start
+  with Pi's leading system message since `9e05370b2`);
+- the leading system message's shape (empty `content`, `sections` starting
+  with `preamble`, `toolsAdded` declarations);
 - durable session-tree reconstruction: pipy's native session tree (the product
-  source of truth) rebuilds the same user+assistant conversation the event
-  stream describes.
+  source of truth) rebuilds the same system+user+assistant transcript the
+  event stream describes.
 
 Pi side: `pi_faux_event_driver.mts` drives Pi's real `AgentSession` with the
 faux `streamFn`, run from source with `node` the way pi-mono runs its own
@@ -203,12 +206,45 @@ def _run_comparison(pi_events: list[dict], pipy_events: list[dict]) -> list[Chec
             "agent_end_semantics_match",
             pi_end.get("willRetry") == pipy_end.get("willRetry") is False
             and pi_roles == pipy_roles
-            and pi_roles == ["user", "assistant"],
+            and pi_roles == ["system", "user", "assistant"],
             f"pi(willRetry={pi_end.get('willRetry')},roles={pi_roles}) "
             f"pipy(willRetry={pipy_end.get('willRetry')},roles={pipy_roles})",
         )
     )
+
+    pi_shape = _system_message_shape(pi_end)
+    pipy_shape = _system_message_shape(pipy_end)
+    checks.append(
+        Check(
+            "leading_system_message_shape_matches",
+            pi_shape == pipy_shape and pi_shape.get("tools_have_declarations") is True,
+            f"pi={pi_shape} pipy={pipy_shape}",
+        )
+    )
     return checks
+
+
+def _system_message_shape(agent_end: dict) -> dict:
+    """The leading system message's Pi discriminators (pipy has no timestamp).
+
+    Pi `9e05370b2`: empty `content`, the prompt as named `sections` starting
+    with `preamble`, and every tool as a `{name, description, parameters}`
+    declaration in `toolsAdded`. Prompt text and tool sets differ by design.
+    """
+
+    messages = agent_end.get("messages", [])
+    if not messages or messages[0].get("role") != "system":
+        return {}
+    message = messages[0]
+    sections = message.get("sections") or {}
+    tools = message.get("toolsAdded") or []
+    return {
+        "content": message.get("content"),
+        "first_section": next(iter(sections), None),
+        "tools_have_declarations": bool(tools)
+        and all({"name", "description", "parameters"} <= set(tool) for tool in tools),
+        "has_tools_removed": "toolsRemoved" in message,
+    }
 
 
 def _check_durable_tree_reconstruction(
@@ -216,7 +252,11 @@ def _check_durable_tree_reconstruction(
 ) -> Check:
     """pipy's native session tree rebuilds the same conversation as the events."""
 
-    from pipy_harness.native.agent import AgentAssistantMessage, AgentUserMessage
+    from pipy_harness.native.agent import (
+        AgentAssistantMessage,
+        AgentSystemMessage,
+        AgentUserMessage,
+    )
     from pipy_harness.native.session_tree import NativeSessionTree
 
     session_files = sorted(sessions_root.glob("**/*.jsonl"))
@@ -235,9 +275,10 @@ def _check_durable_tree_reconstruction(
     end = _agent_end(events)
     event_roles = [m.get("role") for m in end.get("messages", [])]
     ok = (
-        roles == ["AgentUserMessage", "AgentAssistantMessage"]
-        and isinstance(messages[0], AgentUserMessage)
-        and event_roles == ["user", "assistant"]
+        roles == ["AgentSystemMessage", "AgentUserMessage", "AgentAssistantMessage"]
+        and isinstance(messages[0], AgentSystemMessage)
+        and isinstance(messages[1], AgentUserMessage)
+        and event_roles == ["system", "user", "assistant"]
         and assistant_texts == [_REPLY]
     )
     return Check(

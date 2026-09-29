@@ -152,7 +152,7 @@ Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
 | `agent_end` | `messages: Message[]`, `willRetry: boolean` | Run settled. `messages` enumerates the canonical messages appended during this accepted run even when retained provider context was reduced. pipy's session form adds `willRetry` (Pi's `AgentSessionEvent` overrides `agent_end` to add it). |
 | `turn_start` | (none) | One model/tool-loop turn starts. |
 | `turn_end` | `message: Message`, `toolResults: ToolResultMessage[]` | One turn ends (assistant message + any tool results). |
-| `message_start` | `message: Message` | A user/assistant/tool-result message begins. |
+| `message_start` | `message: Message` | A system/user/assistant/tool-result message begins. |
 | `message_update` | `message: Message`, `assistantMessageEvent: AssistantMessageEvent` | Streaming delta for an assistant message (assistant only). |
 | `message_end` | `message: Message` | A message is finalized. |
 | `tool_execution_start` | `toolCallId: string`, `toolName: string`, `args: object` | A tool call begins executing. |
@@ -187,7 +187,8 @@ tool-call deltas are emitted where the pipy provider/tool-loop produces them and
 are otherwise omitted, never faked.
 
 Message content shapes (carried inside the `message`/`messages`/`toolResults`
-fields) follow Pi's `UserMessage`, `AssistantMessage`, `ToolResultMessage`, and
+fields) follow Pi's `SystemMessage` (see [System messages](#system-messages)),
+`UserMessage`, `AssistantMessage`, `ToolResultMessage`, and
 the coding-agent extended messages `BashExecutionMessage`, `CustomMessage`,
 `BranchSummaryMessage`, `CompactionSummaryMessage`. Pipy reuses its native
 message/tool dataclasses serialized to the same role/content discriminators;
@@ -202,11 +203,13 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"session","version":1,"id":"...","timestamp":"...","cwd":"..."}
 {"type":"agent_start"}
 {"type":"turn_start"}
+{"type":"message_start","message":{"role":"system","content":"","sections":{"preamble":"..."},"toolsAdded":[...]}}
+{"type":"message_end","message":{"role":"system","content":"","sections":{"preamble":"..."},"toolsAdded":[...]}}
 {"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
 {"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
-{"type":"message_start","message":{"role":"assistant","content":[]}}
+{"type":"message_start","message":{"role":"assistant","content":[],"stopReason":"stop"}}
 {"type":"message_update","message":{...},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"SEEN:ROOT","partial":{...}}}
-{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}],"stopReason":"stop"}}
 {"type":"turn_end","message":{...},"toolResults":[]}
 {"type":"agent_end","messages":[...],"willRetry":false}
 {"type":"agent_settled"}
@@ -221,6 +224,41 @@ steering/follow-up queue, the driver synthesizes the settle line directly (see
 `run_json_mode`), just as the RPC server synthesizes its own queue-aware
 `agent_settled`; the canonical automation projection never emits one, so there
 is no double emit in either mode.
+
+### System messages
+
+Pi `9e05370b2` records the system prompt and the tool declarations in the
+transcript. pipy does the same (SYS1a):
+
+```json
+{"role":"system","content":"","sections":{"preamble":"<pipy system prompt>"},"toolsAdded":[{"name":"read","description":"…","parameters":{…}}]}
+```
+
+- **When.** The first run of a session emits one with the whole prompt and
+  every tool the model can call. It comes right after `turn_start`, before the
+  user message, and it opens `agent_end.messages`. A later run emits one only
+  when something changed:
+  - its `sections` patch the named sections (`null` removes one);
+  - `toolsAdded`/`toolsRemoved` list the tool delta (a changed definition is
+    removed and added).
+  A tool change inside a run (for example a tool loaded by another tool)
+  emits a tools-only system message after that turn's `turn_start`. Fields
+  that would be empty are omitted, and pipy messages carry no `timestamp`.
+- **Sections.** pipy's prompt is one string, so it is the single untagged Pi
+  `preamble` section. Pi's tagged `tools`/`rules`/`docs`/`cwd` sections are a
+  backlog follow-on.
+- **Declarations.** They are the tools the session can execute. A
+  `before_provider_request` hook that narrows a request's tools, or replaces
+  its system prompt, changes that request only, like Pi's request-time
+  projections.
+- **Provider requests are unchanged.** pipy sends the replayed prompt as the
+  system prompt and never sends later system messages. This is what Pi does
+  for models without `supportsMidConvoSystemMessages`. Per-model mid-conversation
+  serialization is backlog SYS1b.
+- **RPC.** `get_messages` returns the stored system messages (after a
+  compaction, its checkpoint first). `get_session_stats.totalMessages` counts
+  them too; like every pipy stats counter, it counts the active context rather
+  than Pi's stored entries (backlog USAGE1).
 
 ## (b) `--mode rpc`: Headless Stdin/Stdout JSONL Protocol
 
@@ -627,7 +665,12 @@ While a `prompt` run is in flight:
 - `follow_up` enqueues a message to run after the current run settles, subject
   to `followUpMode`; also observable via `queue_update`.
 - `abort` cancels the active run; the run emits its terminating `message_end` /
-  `turn_end` / `agent_end` events and the `abort` response resolves.
+  `turn_end` / `agent_end` events and the `abort` response resolves. As in Pi,
+  the terminating assistant message keeps the text streamed so far and carries
+  `"stopReason":"aborted"`; a provider failure ends with `"stopReason":"error"`
+  and `errorMessage`. Every assistant message carries `stopReason` (`stop`,
+  `toolUse`, `aborted` or `error`). The stopped message is stored in the
+  session and returned by `get_messages`, but never sent to a provider again.
 - `prompt` itself may carry `streamingBehavior: "steer" | "followUp"` so a
   prompt sent during an active run is treated as a steer or follow-up.
 
@@ -1228,9 +1271,14 @@ the streaming-delta granularity and asserts the two agree on:
   one group — pipy emits the `text_delta` subset its provider produces while Pi
   also frames `text_start`/`text_end`, a documented, allowed divergence;
 - the assistant's final text and the concatenation of its streamed deltas;
-- `agent_end` semantics (`willRetry` and the run's message roles);
+- `agent_end` semantics (`willRetry` and the run's message roles, which start
+  with the leading system message);
+- the leading system message's shape: empty `content`, `sections` starting
+  with `preamble`, and `toolsAdded` declarations. The prompt text and tool set
+  differ by design;
 - durable session-tree reconstruction on the pipy side (the native session tree
-  rebuilds the same user+assistant conversation the event stream describes).
+  rebuilds the same system+user+assistant transcript the event stream
+  describes).
 
 The Pi side is driven through Pi's real `AgentSession` with the faux `streamFn`
 via `scripts/parity_checks/pi_faux_event_driver.mts`, run from source with
@@ -1242,14 +1290,11 @@ exits 2; it never reads as passing. Exact byte-for-byte JSON matching with Pi
 is **not** the gate; structural/semantic equivalence is, and the deterministic
 pipy conformance via `automation_rpc_conformance.py --json` is the hard gate.
 
-Known red (2026-09-29, Pi `4df157433`): Pi's mid-conversation system messages
-(`9e05370b2`) put the system prompt into the transcript as a `role: "system"`
-message with structured `sections`. Pi's event stream therefore opens with
-`message_start:system`/`message_end:system`, and `agent_end.messages` starts
-with that message. pipy keeps the system prompt out of the transcript, so
-`event_order_and_discriminators_match` and `agent_end_semantics_match` fail
-until that feature is ported (backlog SYS1). The other
-checks pass.
+System messages (SYS1a, Pi `9e05370b2`): the first run of a session opens
+with `message_start`/`message_end` for a `role: "system"` message right after
+`turn_start`, and `agent_end.messages` starts with it. See
+[System messages](#system-messages). The comparison passes against Pi
+`4df157433`.
 
 Before treating the track as complete, run:
 

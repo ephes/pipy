@@ -11,7 +11,11 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyDecision,
     validate_agent_tool_policy_decision,
 )
-from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
+from pipy_harness.native.agent.messages import (
+    AgentToolCall,
+    AgentToolResultMessage,
+    provider_replay_messages,
+)
 from pipy_harness.native.agent.request import (
     AgentProviderRequestSnapshot,
     validate_product_content,
@@ -38,7 +42,13 @@ def materialize_provider_request(
         )
         for definition in snapshot.request.available_tools
     )
-    request = replace(snapshot.request, available_tools=tools)
+    # Every provider adapter receives history through here: drop aborted and
+    # failed assistant turns like Pi's per-provider ``transformMessages``.
+    request = replace(
+        snapshot.request,
+        available_tools=tools,
+        messages=provider_replay_messages(snapshot.request.messages),
+    )
     if type(request) is not ProviderRequest:
         raise TypeError("provider projection must produce an exact ProviderRequest")
     return request

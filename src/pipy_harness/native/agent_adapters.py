@@ -15,11 +15,11 @@ from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentEvent,
     AgentEventSink,
-    AgentMessage,
     AgentRunCompleted,
     AgentRunResult,
     AgentRunStarted,
-    AgentToolResultMessage,
+    AgentSystemMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
     AssistantTextDelta,
     FollowUpConsumed,
@@ -57,7 +57,7 @@ class SynchronousAgentEventComposite:
 class AppendProductMessage:
     """One current native-session append implied by a canonical event."""
 
-    message: AgentUserMessage | AgentAssistantMessage | AgentToolResultMessage
+    message: AgentTranscriptMessage
 
 
 @runtime_checkable
@@ -100,14 +100,18 @@ class ProductSessionEventProjection:
 
     def _project_message(self, event: MessageCompleted) -> None:
         message = event.message
-        if isinstance(message, AgentUserMessage):
+        if isinstance(message, (AgentSystemMessage, AgentUserMessage)):
             self._append(message)
             return
         if not isinstance(message, AgentAssistantMessage):
             return
         if self._suppress_next_assistant:
             self._suppress_next_assistant = False
-            return
+            # An aborted or failed turn is persisted with its stop reason
+            # (Pi appends every message_end); only a synthetic balance-only
+            # completion carries none.
+            if message.stop_reason is None:
+                return
         self._append(message)
 
     def _append_skipped_results(self, event: TurnCompleted) -> None:
@@ -117,7 +121,7 @@ class ProductSessionEventProjection:
 
     def _append(
         self,
-        message: AgentUserMessage | AgentAssistantMessage | AgentToolResultMessage,
+        message: AgentTranscriptMessage,
     ) -> None:
         if self._sink is not None:
             self._sink.append(AppendProductMessage(message))
@@ -140,7 +144,9 @@ class NativeProductSessionActionSink:
 
     __slots__ = ("_append_message",)
 
-    def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
+    def __init__(
+        self, append_message: Callable[[AgentTranscriptMessage], object]
+    ) -> None:
         if not callable(append_message):
             raise TypeError("append_message must be callable")
         self._append_message = append_message

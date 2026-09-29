@@ -190,6 +190,7 @@ class FakeNativeProvider:
 
 AUTOMATION_FAKE_MODEL_ID = "fake-tools"
 AUTOMATION_FAKE_BLOCK_SENTINEL = "BLOCK"
+AUTOMATION_FAKE_STREAM_BLOCK_SENTINEL = "STREAMBLOCK"
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +207,9 @@ class AutomationFakeProvider:
     When the latest user message begins with ``BLOCK`` the turn waits on the
     active-turn cancel token instead of replying, so the RPC mid-turn
     ``steer``/``abort`` checks can interrupt a genuinely in-flight turn at the
-    provider boundary. No auth/credential material is ever produced.
+    provider boundary. ``STREAMBLOCK`` first streams a partial answer and then
+    waits the same way, so an abort keeps partial text (DF1-F6 PTY evidence).
+    No auth/credential material is ever produced.
     """
 
     model_id: str = AUTOMATION_FAKE_MODEL_ID
@@ -243,6 +246,16 @@ class AutomationFakeProvider:
             cancel_token.raise_if_cancelled()
         started_at = datetime.now(UTC)
         user_text = self._latest_user_text(request).strip()
+        if (
+            user_text.startswith(AUTOMATION_FAKE_STREAM_BLOCK_SENTINEL)
+            and cancel_token is not None
+        ):
+            # Stream a partial answer first, so an abort has text to keep.
+            if stream_sink is not None:
+                stream_sink("PARTIAL:streamed-before-abort")
+            if cancel_token.event.wait(timeout=self.block_timeout_seconds):
+                self._cancel_observed[0] = True
+                raise ProviderCancelledError("automation fake turn cancelled")
         if (
             user_text.startswith(AUTOMATION_FAKE_BLOCK_SENTINEL)
             and cancel_token is not None

@@ -26,9 +26,14 @@ from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentStopReason,
+    AgentSystemMessage,
     AgentToolCall,
+    AgentToolDeclaration,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
+    provider_replay_messages,
 )
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.results import (
@@ -52,8 +57,12 @@ __all__ = [
     "AgentRunOutcome",
     "AgentRunResult",
     "AgentRunStarted",
+    "AgentStopReason",
+    "AgentSystemMessage",
     "AgentToolCall",
+    "AgentToolDeclaration",
     "AgentToolResultMessage",
+    "AgentTranscriptMessage",
     "AgentTurnOutcome",
     "AgentUsage",
     "AgentUserMessage",
@@ -74,4 +83,5 @@ __all__ = [
     "TurnCompleted",
     "TurnStarted",
     "UsageUpdated",
+    "provider_replay_messages",
 ]

@@ -16,6 +16,7 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentStopReason,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
@@ -389,6 +390,16 @@ class CodingSessionState:
                 or self._context_epoch != context.context_epoch
             ):
                 raise CodingContextChangedError()
+
+    def require_current_run(self) -> None:
+        """Refuse publication from a run whose binding or context changed.
+
+        The same stale-run guard :meth:`append_message` applies, for
+        transcript-only publications (system messages) that do not append.
+        """
+
+        with self._state_lock:
+            self._require_run_context_locked()
 
     def _require_run_context_locked(self) -> None:
         witness = self._run_witness
@@ -1073,6 +1084,12 @@ def _require_assistant_message(
         raise TypeError(f"{field_name}.tool_calls must be an exact tuple")
     for index, call in enumerate(message.tool_calls):
         _require_tool_call(call, f"{field_name}.tool_calls[{index}]")
+    if message.stop_reason is not None and type(message.stop_reason) is not (
+        AgentStopReason
+    ):
+        raise TypeError(f"{field_name}.stop_reason must be an AgentStopReason")
+    if message.error_message is not None and type(message.error_message) is not str:
+        raise TypeError(f"{field_name}.error_message must be an exact string")
 
 
 def _require_tool_result_message(

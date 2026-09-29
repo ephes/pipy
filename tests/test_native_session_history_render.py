@@ -19,6 +19,8 @@ from typing import Any, cast
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentCancellationReason,
+    AgentStopReason,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
@@ -511,3 +513,75 @@ def test_compaction_entry_type_is_rendered_not_projected(tmp_path: Path) -> None
     assert isinstance(tree.build_context_entries()[0], CompactionEntry)
     # The provider projection still carries the summary separately.
     assert tree.build_coding_context().prior_summary == "s"
+
+
+# -- aborted and failed turns (DF1-F6) ----------------------------------------
+
+
+def test_restored_aborted_turn_matches_the_live_abort_rows(tmp_path: Path) -> None:
+    """Pi draws the partial text, then ``Operation aborted`` (error color)."""
+
+    def drive(renderer: TuiToolLoopRenderer) -> None:
+        renderer.render_user_message("write a poem")
+        renderer.start_assistant_message()
+        renderer.stream_sink("Roses are")
+        renderer.cancel_assistant_message(AgentCancellationReason.OPERATOR_ABORT)
+
+    live = _live_rows(tmp_path / "live", drive)
+
+    terminal = _Terminal(tmp_path / "restored")
+    terminal.tree.append_message(_user("write a poem"))
+    terminal.tree.append_message(
+        AgentAssistantMessage(
+            ProductContent("Roses are"), stop_reason=AgentStopReason.ABORTED
+        )
+    )
+    terminal.history.render_active_branch()
+
+    assert terminal.rows() == live
+    assert live == [
+        ("user", ("write a poem",)),
+        ("assistant", ("Roses are",)),
+        ("error", ("Operation aborted",)),
+    ]
+
+
+def test_restored_stopped_turn_markers_follow_pi(tmp_path: Path) -> None:
+    terminal = _Terminal(tmp_path)
+    terminal.tree.append_message(_user("one"))
+    terminal.tree.append_message(
+        AgentAssistantMessage(ProductContent(""), stop_reason=AgentStopReason.ABORTED)
+    )
+    terminal.tree.append_message(_user("two"))
+    terminal.tree.append_message(
+        AgentAssistantMessage(
+            ProductContent("half"),
+            stop_reason=AgentStopReason.ERROR,
+            error_message="rate limited",
+        )
+    )
+    terminal.tree.append_message(_user("three"))
+    terminal.tree.append_message(
+        AgentAssistantMessage(ProductContent(""), stop_reason=AgentStopReason.ERROR)
+    )
+    terminal.tree.append_message(_user("four"))
+    terminal.tree.append_message(
+        AgentAssistantMessage(
+            ProductContent(""),
+            stop_reason=AgentStopReason.ABORTED,
+            error_message="Request was aborted",
+        )
+    )
+    terminal.history.render_active_branch()
+
+    assert terminal.rows() == [
+        ("user", ("one",)),
+        ("error", ("Operation aborted",)),
+        ("user", ("two",)),
+        ("assistant", ("half",)),
+        ("error", ("Error: rate limited",)),
+        ("user", ("three",)),
+        ("error", ("Error: Unknown error",)),
+        ("user", ("four",)),
+        ("error", ("Operation aborted",)),
+    ]

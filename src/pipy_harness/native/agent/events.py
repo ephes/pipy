@@ -11,11 +11,11 @@ from pipy_harness.native.agent._validation import (
 )
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import (
-    _AGENT_MESSAGE_TYPES,
+    _AGENT_TRANSCRIPT_MESSAGE_TYPES,
     AgentAssistantMessage,
-    AgentMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
 )
 from pipy_harness.native.agent.results import (
     AgentCancellationReason,
@@ -50,12 +50,12 @@ class MessageStarted:
     """
 
     turn_index: int
-    message: AgentMessage
+    message: AgentTranscriptMessage
 
     def __post_init__(self) -> None:
         require_non_negative_int(self.turn_index, "MessageStarted.turn_index")
-        if not isinstance(self.message, _AGENT_MESSAGE_TYPES):
-            raise TypeError("MessageStarted.message must be AgentMessage")
+        if not isinstance(self.message, _AGENT_TRANSCRIPT_MESSAGE_TYPES):
+            raise TypeError("MessageStarted.message must be AgentTranscriptMessage")
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,12 +89,12 @@ class MessageCompleted:
     """A fully assembled message completed its public lifecycle."""
 
     turn_index: int
-    message: AgentMessage
+    message: AgentTranscriptMessage
 
     def __post_init__(self) -> None:
         require_non_negative_int(self.turn_index, "MessageCompleted.turn_index")
-        if not isinstance(self.message, _AGENT_MESSAGE_TYPES):
-            raise TypeError("MessageCompleted.message must be AgentMessage")
+        if not isinstance(self.message, _AGENT_TRANSCRIPT_MESSAGE_TYPES):
+            raise TypeError("MessageCompleted.message must be AgentTranscriptMessage")
 
 
 @dataclass(frozen=True, slots=True)

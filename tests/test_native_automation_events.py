@@ -105,11 +105,14 @@ def test_emits_canonical_no_tool_event_sequence(tmp_path: Path) -> None:
     _drive(session, "ROOT", tmp_path)
 
     types = [event["type"] for event in sink.events]
-    # Matches Pi's grammar: agent_start, turn_start, the user message_start/
-    # message_end pair, then the streamed assistant message, turn_end, agent_end.
+    # Matches Pi's grammar: agent_start, turn_start, the leading system and the
+    # user message_start/message_end pairs, then the streamed assistant
+    # message, turn_end, agent_end.
     assert types == [
         "agent_start",
         "turn_start",
+        "message_start",
+        "message_end",
         "message_start",
         "message_end",
         "message_start",
@@ -119,11 +122,12 @@ def test_emits_canonical_no_tool_event_sequence(tmp_path: Path) -> None:
         "turn_end",
         "agent_end",
     ]
-    # First message lifecycle is the user message; second is the assistant.
+    # System (Pi `9e05370b2`), then user, then assistant.
     message_starts = [e for e in sink.events if e["type"] == "message_start"]
-    assert message_starts[0]["message"]["role"] == "user"
-    assert message_starts[0]["message"]["content"] == [{"type": "text", "text": "ROOT"}]
-    assert message_starts[1]["message"]["role"] == "assistant"
+    assert message_starts[0]["message"]["role"] == "system"
+    assert message_starts[1]["message"]["role"] == "user"
+    assert message_starts[1]["message"]["content"] == [{"type": "text", "text": "ROOT"}]
+    assert message_starts[2]["message"]["role"] == "assistant"
 
 
 def test_text_deltas_concatenate_to_final_message(tmp_path: Path) -> None:
@@ -171,7 +175,12 @@ def test_message_start_has_empty_assistant_content(tmp_path: Path) -> None:
         for e in sink.events
         if e["type"] == "message_start" and e["message"]["role"] == "assistant"
     )
-    assert message_start["message"] == {"role": "assistant", "content": []}
+    # Pi's partial assistant starts with stopReason "stop".
+    assert message_start["message"] == {
+        "role": "assistant",
+        "content": [],
+        "stopReason": "stop",
+    }
 
 
 def test_agent_end_carries_messages_and_will_retry_false(tmp_path: Path) -> None:

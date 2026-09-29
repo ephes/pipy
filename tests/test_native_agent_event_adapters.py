@@ -19,6 +19,7 @@ from pipy_harness.native.agent import (
     AgentRunStarted,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentTurnOutcome,
     AgentUsage,
     AgentUserMessage,
@@ -329,13 +330,14 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
     assert sink.events == [
         {
             "type": "message_start",
-            "message": {"role": "assistant", "content": []},
+            "message": {"role": "assistant", "content": [], "stopReason": "stop"},
         },
         {
             "type": "message_update",
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "first"}],
+                "stopReason": "stop",
             },
             "assistantMessageEvent": {
                 "type": "text_delta",
@@ -344,6 +346,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
                 "partial": {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "first"}],
+                    "stopReason": "stop",
                 },
             },
         },
@@ -352,6 +355,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "first second"}],
+                "stopReason": "stop",
             },
             "assistantMessageEvent": {
                 "type": "text_delta",
@@ -360,6 +364,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
                 "partial": {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "first second"}],
+                    "stopReason": "stop",
                 },
             },
         },
@@ -472,6 +477,7 @@ def test_automation_projection_preserves_lifecycle_retry_and_terminal_shapes() -
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "answer"}],
+                "stopReason": "stop",
             },
             "toolResults": [],
         },
@@ -485,6 +491,7 @@ def test_automation_projection_preserves_lifecycle_retry_and_terminal_shapes() -
                 {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "answer"}],
+                    "stopReason": "stop",
                 },
             ],
             "willRetry": False,
@@ -548,7 +555,7 @@ class _ProductActionCollector:
 
 
 def _assert_product_message_identities(
-    actual: Sequence[AgentMessage], expected: Sequence[AgentMessage]
+    actual: Sequence[AgentTranscriptMessage], expected: Sequence[AgentTranscriptMessage]
 ) -> None:
     assert all(
         actual_message is expected_message
@@ -756,8 +763,8 @@ def test_product_projection_with_default_sink_stays_inert_across_a_full_stream()
 
 
 def test_native_product_action_sink_forwards_each_append_to_current_callback() -> None:
-    first: list[AgentMessage] = []
-    second: list[AgentMessage] = []
+    first: list[AgentTranscriptMessage] = []
+    second: list[AgentTranscriptMessage] = []
     current = {"messages": first}
     sink = NativeProductSessionActionSink(
         lambda message: current["messages"].append(message)
@@ -775,9 +782,11 @@ def test_native_product_action_sink_forwards_each_append_to_current_callback() -
 
 def test_native_product_action_sink_rejects_non_action_and_propagates_failure() -> None:
     with pytest.raises(TypeError, match="append_message must be callable"):
-        NativeProductSessionActionSink(cast(Callable[[AgentMessage], object], None))
+        NativeProductSessionActionSink(
+            cast(Callable[[AgentTranscriptMessage], object], None)
+        )
 
-    recorded: list[AgentMessage] = []
+    recorded: list[AgentTranscriptMessage] = []
     sink = NativeProductSessionActionSink(recorded.append)
     with pytest.raises(TypeError, match="must be an AppendProductMessage"):
         sink.append(cast(AppendProductMessage, object()))
@@ -785,7 +794,7 @@ def test_native_product_action_sink_rejects_non_action_and_propagates_failure() 
 
     failure = RuntimeError("append failed")
 
-    def fail(message: AgentMessage) -> object:
+    def fail(message: AgentTranscriptMessage) -> object:
         del message
         raise failure
 

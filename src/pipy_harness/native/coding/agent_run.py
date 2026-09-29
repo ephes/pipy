@@ -51,6 +51,7 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputPort,
     AgentUsagePublisher,
 )
+from pipy_harness.native.agent.system_messages import AgentSystemPromptInput
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
     ToolInterruptWaiter,
@@ -250,6 +251,7 @@ class CodingAgentRunCoordinator:
         *,
         pricing_lookup: Callable[[str, str], AgentTokenPricing | None],
         accepted_queued_input: AgentQueuedInput | None,
+        system_prompt: AgentSystemPromptInput | None = None,
     ) -> AgentLoopOutcome:
         agent_loop = AgentLoop(
             request_source=self._request_source,
@@ -274,6 +276,7 @@ class CodingAgentRunCoordinator:
                     initial_tool_state,
                     pricing=pricing,
                     accepted_queued_input=accepted_queued_input,
+                    system_prompt=system_prompt,
                 )
             )
             self._coding_state.mirror_history(outcome.final_history)

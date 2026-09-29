@@ -23,9 +23,8 @@ Status: sole active task index, rewritten 2026-09-29.
   the two models (DF1). Anthropic 5.x, xAI, Copilot, Bedrock and Google have no
   credentials here. They and cross-provider answer quality are still covered by
   fake-transport tests only.
-- **Pi comparison gates:** `session_tree_pi_comparison.py` passes against Pi.
-  `automation_pi_comparison.py` fails on Pi's mid-conversation system messages
-  (SYS1 below); every other check passes.
+- **Pi comparison gates:** `session_tree_pi_comparison.py` and
+  `automation_pi_comparison.py` pass against Pi (the latter since SYS1a).
 
 This document owns direction, order and task IDs. A queue item is a bounded
 work order. It does not override a current runtime contract (see
@@ -106,6 +105,8 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | TOOLS1 | `bash`, `grep`, `find` and `ls` follow Pi's output handling: `bash` keeps the last 2000 lines / 50 KB and names a full-output temp file; `grep` (regex, `glob`, `ignoreCase`, `literal`, `context`), `find` (fd glob rules) and `ls` take a `limit` and end cut output with Pi's `limit=2N` / `50.0KB limit reached` notices. `grep` uses `rg` or a Python fallback; `find` walks in Python. Follow-on TOOLS2 | `feat/tools1-tool-output-parity` |
 | DF1-F5 | An oversized turn no longer wedges the session. Summary requests cut each tool result to 2000 characters (Pi `serializeConversation`), and a persistent session's automatic cut that keeps only the new prompt writes a compaction entry that keeps no earlier entry (Pi `firstKeptEntryId ?? id`). The oversized turn is still refused (as in Pi); the next prompt recovers. Follow-on F5b | `fix/f5-oversized-turn` |
 | DF1-F2/F3 | Resume shows and restores the session ([plan](specs/2026-09-29-f2-f3-resume-restore-plan.md)). Startup `-r`/`--continue`/`--session`, `/resume`, `/tree` navigation, `/fork`, `/clone`, `/new` and `/import` redraw the transcript from `build_context_entries()` (Pi `renderInitialMessages`), clearing the scrollback like Pi; `[compaction]`/`[branch]` rows and plain tool results follow Ctrl+O. A new branch records `model_change` and `thinking_level_change` with its first message, every model switch records `model_change` (and a clamped level), and opening a session restores its model and thinking level unless the CLI pins them (Pi `core/sdk.ts:194-263`). Deviations: model restore needs a `model_change` (pipy assistant messages name no model); a runtime fallback keeps the live model; `/new` keeps the live model and level. Follow-on DF1-F2b | `fix/f2-f3-resume-restore` |
+| SYS1a | Pi system messages in the transcript ([plan](specs/2026-09-29-sys1-system-messages-plan.md)). The first run records `role: "system"` with the prompt as the `preamble` section and every tool in `toolsAdded`; later runs and in-run tool changes record only changes. JSON/RPC events, `agent_end.messages`, `get_messages`, the session file and the compaction checkpoint (`systemMessage`) carry it; the TUI draws nothing, `/tree` shows `[system]`. Provider requests are unchanged (Pi's collapse path). `automation_pi_comparison.py` is green. Remainder: SYS1b | `feat/sys1-system-messages` |
+| DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Deviations: no partial thinking or tool calls stored; follow-on DF1-F6b | `fix/f6-aborted-turn` |
 
 ## Follow-ons
 
@@ -157,8 +158,10 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   turn keeps the last successful footer context. Remaining differences from
   Pi:
   - The retry stays inside one assistant message, so there is no
-    `message_end` / `agent_end(willRetry)` for the failed attempt and it is not
-    persisted. F6 overlaps here.
+    `message_end` / `agent_end(willRetry)` for a retried attempt and it is not
+    persisted. With F6, the turn stores one message: the success, one
+    `error` message after the last failed attempt, or one `aborted` message
+    when the wait is cancelled.
   - Escape during the backoff ends as an operator abort (an extra `Operation
     aborted` line).
   - There is no chars/4 trailing estimate on top of the last usage.
@@ -170,9 +173,16 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   same limit (its summary request fails at the provider). A fix beyond Pi would
   need a multi-pass or drop-without-summary path; Pi's token-based cut
   (`keepRecentTokens`, still inactive in pipy) would at least shrink the range.
-- **DF1-F6, aborted turns:** an aborted turn persists no assistant message,
-  so partial text is lost and consecutive user messages are left behind. Pi
-  persists the aborted assistant message.
+- **DF1-F6b, what F6 left of stopped turns** (see the F6 Done row):
+  - A live provider failure still prints
+    `pipy: provider failure during turn: …`; Pi draws `Error: <message>`
+    after the partial text, which pipy now shows only on resume.
+  - Steering and local-command interruptions draw no live
+    `Operation aborted` row (resume shows it for every aborted turn).
+  - An abort during tool execution ends the run after the interrupted tool
+    results; Pi's loop then records an empty aborted assistant.
+  - Compaction and branch summaries drop a stopped turn's partial text; Pi
+    serializes it into the summary input as `[Assistant]: …`.
 - **DF1-F7, TUI polish:**
   - Notices print `pipy  pipy: …`.
   - Non-bash tool rows keep the `$ ` prompt. Pi shows `edit path`,
@@ -191,10 +201,24 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **USAGE1:** per-message usage in JSON/RPC messages and the session tree,
   resumed-session totals, Pi's `/session` Cost section, totals across a model
   switch, and Pi's footer token semantics (uncached `↑`, latest-message `CH`).
-- **SYS1:** Pi's mid-conversation system messages (`9e05370b2`): the system
-  prompt as a transcript message with sections and tool declarations. This
-  keeps `automation_pi_comparison.py` red. It also carries mid-conversation
-  effort updates (`4e69b0c28`).
+- **SYS1b, system messages to providers:** SYS1a (see Done) records Pi's
+  system messages in the transcript but still sends every model the prompt
+  out of band (Pi's collapse path). Still to port from Pi `9e05370b2`:
+  - the compat flags `supportsMidConvoSystemMessages`,
+    `supportsMidConvoToolAdditions` and `supportsMidConvoToolChanges`, and
+    per-adapter serialization of later system messages (Anthropic
+    `tool_addition`/`tool_removal`, OpenAI Responses/Codex developer messages
+    and `additional_tools`, Chat Completions, Google, Bedrock, Mistral);
+  - Anthropic mid-conversation effort (`supportsMidConvoEffort`,
+    `output_config` system messages, `4e69b0c28`);
+  - replacing `AgentToolResultMessage.added_tool_names` deferred-tool loads
+    with transcript `toolsAdded` (Pi removed `addedToolNames`);
+  - restoring the active tool set from the transcript on resume
+    (`_restoreToolsFromTranscript`);
+  - Pi's tagged prompt sections (`tools`/`rules`/`docs`/`addendum`/
+    `project_context`/`skills`/`cwd`) in place of pipy's single `preamble`;
+  - `get_session_stats` counting stored message entries as Pi does (all pipy
+    counters count the active context; see USAGE1).
 - **Thinking and model switches:** an extension `setThinkingLevel` does not
   rebuild the provider; `/model x:level` clamping; no fuzzy
   search in selectors or `/thinking` completion; the 128k context fallback for

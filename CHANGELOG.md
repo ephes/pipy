@@ -6,6 +6,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- An aborted or failed turn is no longer lost (DF1-F6, Pi `4df157433`). The
+  assistant message is kept with the text streamed so far and a stop reason
+  (`aborted`, or `error` with its message), stored in the session and shown
+  again on resume as the partial text followed by `Operation aborted` or
+  `Error: <message>`. As in Pi, it is never sent to a provider again: every
+  request (and the compaction summary request) skips it, so the next prompt
+  continues from the last complete turn. `--mode json`/`--mode rpc` assistant
+  messages now carry `stopReason` (`stop`, `toolUse`, `aborted`, `error`) and
+  `errorMessage`; `/tree` shows a stopped turn without text as
+  `assistant: (aborted)`. The fake `fake-tools` model streams a partial
+  answer before waiting when a prompt starts with `STREAMBLOCK`.
+
 ### Changed
 
 - The `bash`, `grep`, `find` and `ls` tools handle long output the way Pi's
@@ -27,6 +41,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
     limit=200 for more, or refine pattern]` or `[50.0KB limit reached]`,
     instead of `... (truncated)`. Empty results read `No matches found`,
     `No files found matching pattern` or `(empty directory)`.
+
+### Changed
+
+- The system prompt and tool declarations are now part of the transcript, as
+  in Pi (`9e05370b2`, SYS1a). The first run of a session records a
+  `role: "system"` message:
+  - its only section, `preamble`, holds pipy's prompt;
+  - `toolsAdded` lists every tool the model can call.
+  Later runs record one only when the prompt or the tools change (section
+  patches, `toolsAdded`/`toolsRemoved`), and so does a tool change inside a
+  run. `--mode json` and `--mode rpc` emit it as
+  `message_start`/`message_end` after `turn_start` and before the user
+  message, and `agent_end.messages` starts with it. RPC `get_messages`
+  returns it. The session file stores it as a `message` entry. A compaction
+  entry stores the replayed state as `systemMessage` and replaces earlier
+  system messages with it. The TUI draws nothing for it, and `/tree` shows
+  `[system]`. Provider requests are unchanged: pipy sends the prompt out of
+  band and never sends later system messages, which is what Pi does for
+  models without mid-conversation system messages. `automation_pi_comparison.py`
+  passes against Pi `4df157433` again. Per-model mid-conversation
+  serialization and Anthropic mid-conversation effort are backlog SYS1b.
 
 ### Fixed
 

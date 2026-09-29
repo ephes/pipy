@@ -16,6 +16,8 @@ from pathlib import Path
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentStopReason,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
     ProductContent,
@@ -495,16 +497,31 @@ def _entry_preview(tree: NativeSessionTree, entry: SessionEntry) -> str:
 
 def _message_entry_preview(entry: MessageEntry) -> str:
     message = entry.message
+    if isinstance(message, AgentSystemMessage):
+        return "[system]"  # Pi tree-selector: role-only, like other roles
     if isinstance(message, AgentUserMessage):
         return f"user: {_truncate(message.content.value)}"
     if isinstance(message, AgentAssistantMessage):
-        text = message.content.value or "(tool call)"
-        return f"assistant: {_truncate(text)}"
+        return f"assistant: {_assistant_preview(message)}"
     if isinstance(message, AgentToolResultMessage):
         return f"tool: {_truncate(message.content.value)}"
     if isinstance(message, _UnresolvedToolResultMessage):
         return f"tool: {_truncate(message.content)}"
     return entry.type
+
+
+def _assistant_preview(message: AgentAssistantMessage) -> str:
+    # Pi tree-selector: a stopped turn without text shows `(aborted)` or
+    # its error message.
+    if message.content.value:
+        return _truncate(message.content.value)
+    if message.stop_reason is AgentStopReason.ABORTED:
+        return "(aborted)"
+    if message.error_message:
+        return _truncate(message.error_message, 80)
+    if message.stop_reason is not None:
+        return "(no content)"
+    return "(tool call)"
 
 
 def _metadata_entry_preview(entry: SessionEntry) -> str:

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.native import extension_hooks as _extension_hooks
-from pipy_harness.native.agent import AgentFailure, AgentMessage
+from pipy_harness.native.agent import AgentFailure, AgentTranscriptMessage
 from pipy_harness.native.agent.loop_policy import AgentToolPolicyState
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
@@ -303,7 +303,7 @@ class ReplLoopScope:
     ]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
     cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"]
-    append_agent_message: Callable[[AgentMessage], None]
+    append_agent_message: Callable[[AgentTranscriptMessage], None]
     drain_extension_outboxes: Callable[[], None]
     active_provider_header_callback: Callable[
         [], Callable[[MutableMapping[str, str | None]], None] | None

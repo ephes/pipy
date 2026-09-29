@@ -17,10 +17,12 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
     AssistantTextDelta,
@@ -28,7 +30,7 @@ from pipy_harness.native.agent.events import (
     RetryCompleted,
     RetryScheduled,
 )
-from pipy_harness.native.agent.messages import AgentAssistantMessage
+from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentStopReason
 from pipy_harness.native.agent.provider_retry import (
     ProviderManagedRetryPolicy,
     is_context_overflow_error_text,
@@ -42,10 +44,13 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 from pipy_harness.native.chrome import ChromeStyle
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.frame_renderer import FrameLine, style_line
-from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
+from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
@@ -403,6 +408,7 @@ def test_automation_partial_restarts_after_a_scheduled_retry() -> None:
     assert emitted[3]["message"] == {
         "role": "assistant",
         "content": [{"type": "text", "text": "Full"}],
+        "stopReason": "stop",
     }
     assert emitted[4] == {"type": "auto_retry_end", "success": True, "attempt": 1}
 
@@ -445,3 +451,139 @@ def test_footer_context_does_not_jump_after_a_failed_turn(tmp_path: Path) -> Non
         user_turn_count=5,
     )
     assert pct == pytest.approx(100.0 * 1632 / budget.token_budget)
+
+
+# -- stored messages with F6's stopped assistants ------------------------------
+
+
+class _StreamingScriptProvider:
+    """An ordinary (non-prepared) provider streaming a partial per attempt."""
+
+    name = "anthropic"
+    model_id = "claude-test"
+    supports_tool_calls = True
+
+    def __init__(self, outcomes: list[str]) -> None:
+        self.outcomes = outcomes
+        self.calls = 0
+
+    def complete(self, request: ProviderRequest, **kwargs: object) -> ProviderResult:
+        self.calls += 1
+        outcome = self.outcomes[self.calls - 1]
+        stream_sink = kwargs.get("stream_sink")
+        now = datetime.now(UTC)
+        if outcome == "ok":
+            if callable(stream_sink):
+                stream_sink("final answer")
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=request.provider_name,
+                model_id=request.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="final answer",
+            )
+        if callable(stream_sink):
+            stream_sink(f"partial {self.calls}")
+        return ProviderResult(
+            status=HarnessStatus.FAILED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            error_type="AnthropicHTTPStatusError",
+            error_message="Anthropic API request failed with HTTP status 529.",
+            metadata={"http_status": 529, "api_error_type": "overloaded_error"},
+        )
+
+
+def _retry_settings(tmp_path: Path, base_delay_ms: int) -> SettingsManager:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "retry": {
+                    "enabled": True,
+                    "maxRetries": 2,
+                    "baseDelayMs": base_delay_ms,
+                    "provider": {"maxRetryDelayMs": base_delay_ms * 4},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return SettingsManager(global_path=path)
+
+
+def _stored_assistants(
+    tmp_path: Path,
+    provider: _StreamingScriptProvider,
+    *,
+    base_delay_ms: int,
+    abort_on_retry: bool = False,
+) -> list[AgentAssistantMessage]:
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    abort = threading.Event()
+
+    class _AbortOnRetry:
+        def emit(self, event: object) -> None:
+            if abort_on_retry and isinstance(event, RetryScheduled):
+                abort.set()
+
+    CodingSession(
+        provider=provider,  # type: ignore[arg-type]
+        settings_manager=_retry_settings(tmp_path, base_delay_ms),
+        native_session=tree,
+        agent_event_sink=_AbortOnRetry(),  # type: ignore[arg-type]
+        abort_event=abort if abort_on_retry else None,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    return [
+        entry.message
+        for entry in tree.get_entries()
+        if isinstance(entry, MessageEntry)
+        and isinstance(entry.message, AgentAssistantMessage)
+    ]
+
+
+def test_retried_then_successful_turn_stores_only_the_success(tmp_path: Path) -> None:
+    provider = _StreamingScriptProvider(["fail", "fail", "ok"])
+    stored = _stored_assistants(tmp_path, provider, base_delay_ms=1)
+
+    assert provider.calls == 3
+    assert [(m.content.value, m.stop_reason) for m in stored] == [
+        ("final answer", None)
+    ]
+
+
+def test_finally_failed_retry_stores_one_error_message(tmp_path: Path) -> None:
+    provider = _StreamingScriptProvider(["fail", "fail", "fail"])
+    stored = _stored_assistants(tmp_path, provider, base_delay_ms=1)
+
+    assert provider.calls == 3
+    assert len(stored) == 1
+    # Only the last attempt's partial survives; earlier ones were retried.
+    assert stored[0].content.value == "partial 3"
+    assert stored[0].stop_reason is AgentStopReason.ERROR
+    assert stored[0].error_message == (
+        "Anthropic API request failed with HTTP status 529."
+    )
+
+
+def test_abort_during_the_retry_wait_stores_one_aborted_message(
+    tmp_path: Path,
+) -> None:
+    provider = _StreamingScriptProvider(["fail", "ok"])
+    stored = _stored_assistants(
+        tmp_path, provider, base_delay_ms=5000, abort_on_retry=True
+    )
+
+    assert provider.calls == 1
+    assert len(stored) == 1
+    # The scheduled retry already discarded the failed attempt's partial.
+    assert stored[0].content.value == ""
+    assert stored[0].stop_reason is AgentStopReason.ABORTED

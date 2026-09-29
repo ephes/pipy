@@ -17,7 +17,10 @@ from pipy_harness.native.agent import (
     AgentEventSink,
     AgentMessage,
     AgentRunStarted,
+    AgentStopReason,
+    AgentSystemMessage,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUsage,
     AgentUserMessage,
     FollowUpConsumed,
@@ -360,7 +363,9 @@ def test_registered_eof_wake_runs_exact_queued_input_before_shutdown(
     assert input_stream.classified
 
 
-def _message_event_index(trace: list[tuple[str, object]], message: AgentMessage) -> int:
+def _message_event_index(
+    trace: list[tuple[str, object]], message: AgentTranscriptMessage
+) -> int:
     for index, (kind, item) in enumerate(trace):
         if kind != "event":
             continue
@@ -371,7 +376,9 @@ def _message_event_index(trace: list[tuple[str, object]], message: AgentMessage)
     raise AssertionError("canonical completion event did not carry effect identity")
 
 
-def _effect_index(trace: list[tuple[str, object]], message: AgentMessage) -> int:
+def _effect_index(
+    trace: list[tuple[str, object]], message: AgentTranscriptMessage
+) -> int:
     return next(
         index
         for index, (kind, item) in enumerate(trace)
@@ -404,7 +411,9 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
     original = loop_module.NativeProductSessionActionSink
 
     class RecordingActionSink:
-        def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
+        def __init__(
+            self, append_message: Callable[[AgentTranscriptMessage], object]
+        ) -> None:
             self._delegate = original(append_message)
 
         def append(self, action: AppendProductMessage) -> None:
@@ -435,7 +444,7 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
     effects = [item for kind, item in trace if kind == "effect"]
     persisted = list(tree.build_context().messages)
     assert effects == persisted
-    assert len({id(message) for message in effects}) == len(effects) == 4
+    assert len({id(message) for message in effects}) == len(effects) == 5
     event_messages = [
         event.message
         for event in canonical.events
@@ -450,7 +459,8 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
         for message in effects
     )
 
-    user, assistant_with_call, tool_result, final_assistant = effects
+    system, user, assistant_with_call, tool_result, final_assistant = effects
+    assert isinstance(system, AgentSystemMessage)
     assert isinstance(user, AgentUserMessage)
     assert isinstance(assistant_with_call, AgentAssistantMessage)
     assert isinstance(tool_result, AgentToolResultMessage)
@@ -460,12 +470,12 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
     # projection (composite position before the caller's `agent_event_sink`),
     # so the durable append is recorded ahead of the same event on the caller
     # sink for every message, including the accepted user turn.
-    for message in (user, assistant_with_call, tool_result, final_assistant):
+    for message in (system, user, assistant_with_call, tool_result, final_assistant):
         assert _effect_index(trace, message) < _message_event_index(trace, message)
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
+def test_projection_action_sink_persists_stopped_failure_and_cancel_assistant(
     cancelled: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.repl.wiring as loop_module
@@ -474,7 +484,9 @@ def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
     original = loop_module.NativeProductSessionActionSink
 
     class RecordingActionSink:
-        def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
+        def __init__(
+            self, append_message: Callable[[AgentTranscriptMessage], object]
+        ) -> None:
             self._delegate = original(append_message)
 
         def append(self, action: AppendProductMessage) -> None:
@@ -496,12 +508,19 @@ def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
         "prompt\n",
     )
 
-    assert len(effects) == 1
-    assert isinstance(effects[0], AgentUserMessage)
+    # Pi persists every message_end, so the aborted or failed turn is stored
+    # with its stop reason (DF1-F6) and is the event's exact message.
+    assert len(effects) == 3
+    assert isinstance(effects[0], AgentSystemMessage)
+    assert isinstance(effects[1], AgentUserMessage)
+    stopped = effects[2]
+    assert isinstance(stopped, AgentAssistantMessage)
+    assert stopped.content == ProductContent("")
+    assert stopped.stop_reason is (
+        AgentStopReason.ABORTED if cancelled else AgentStopReason.ERROR
+    )
     assert any(
-        isinstance(event, MessageCompleted)
-        and isinstance(event.message, AgentAssistantMessage)
-        and event.message.content == ProductContent("")
+        isinstance(event, MessageCompleted) and event.message is stopped
         for event in canonical.events
     )
     terminal_type = RunCancelled if cancelled else ProviderFailed
@@ -832,13 +851,21 @@ def test_product_persistence_failure_observes_state_first_append(
         provider=provider, native_session=tree, agent_event_sink=canonical
     )
     observed: list[AgentMessage] = []
+    persisted_system: list[AgentSystemMessage] = []
+    append_message = tree.append_message
 
-    def fail_persistence(message: AgentMessage) -> None:
+    def fail_persistence(message: AgentTranscriptMessage) -> None:
+        if isinstance(message, AgentSystemMessage):
+            # Transcript state: persisted without joining live history.
+            assert all(m is not message for m in session._coding_state.messages)
+            persisted_system.append(message)
+            append_message(message)
+            return
         observed.append(message)
         # State-first ordering: the live coding-state mirror already carries the
         # appended message (as its last entry) before the durable tree write.
         assert session._coding_state.messages[-1] is message
-        assert tree.build_context().messages == ()
+        assert tree.build_context().messages == tuple(persisted_system)
         raise RuntimeError("product persistence refused append")
 
     monkeypatch.setattr(tree, "append_message", fail_persistence)
@@ -854,7 +881,8 @@ def test_product_persistence_failure_observes_state_first_append(
     # surfaced before any provider request.
     assert len(observed) == 1
     assert session._coding_state.messages[-1] is observed[0]
-    assert tree.build_context().messages == ()
+    assert tree.build_context().messages == tuple(persisted_system)
+    assert len(persisted_system) == 1
     assert provider.requests == []
     # Relocating persistence to the event-driven projection (which sits before
     # the caller's `agent_event_sink` in the fixed composite and fires at
@@ -865,6 +893,8 @@ def test_product_persistence_failure_observes_state_first_append(
     assert [type(event) for event in canonical.events] == [
         AgentRunStarted,
         TurnStarted,
+        MessageStarted,  # the leading system message persists normally
+        MessageCompleted,
         MessageStarted,
     ]
     last_started = canonical.events[-1]

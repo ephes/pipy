@@ -554,13 +554,27 @@ Every non-header entry has:
 Minimum entry types:
 
 - `message`: provider-visible messages, including user, assistant, tool result,
-  and pipy tool/batch records needed to rebuild context.
+  and pipy tool/batch records needed to rebuild context, plus Pi's system
+  messages (`9e05370b2`, SYS1a). A system message stores the prompt and tool
+  declarations with Pi's field names. The first run of a session writes the
+  whole state; later runs write only changes, as `sections` patches (`null`
+  removes one) and `toolsAdded`/`toolsRemoved`. Replaying them in order yields
+  the current prompt and tools. pipy's prompt is the single `preamble` section:
+
+  ```json
+  {"type":"message","id":"a0b1c2d3","parentId":"…","timestamp":"…","message":{"role":"system","content":"","sections":{"preamble":"You are pipy-native, …"},"toolsAdded":[{"name":"read","description":"…","parameters":{"type":"object"}}]}}
+  ```
+
+  A session written before SYS1 has no system message. Its next run writes
+  the whole state as a later system message, which replays the same way.
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.
 - `compaction`: in-place context compaction summary with `firstKeptEntryId`,
-  `tokensBefore`, and optional `retainedUserEntryId` for a noncontiguous
-  retained user plus suffix.
+  `tokensBefore`, optional `retainedUserEntryId` for a noncontiguous retained
+  user plus suffix, and optional `systemMessage`: the replayed prompt and tool
+  state at the boundary (Pi `CompactionEntry.systemMessage`). It is absent on
+  older entries and when the branch has no system state.
 - `branch_summary`: summary created while leaving a branch through `/tree`.
 - `label`: user label for any entry, with undefined/empty label clearing it.
 - `session_info`: display name.
@@ -608,6 +622,25 @@ Rules to match Pi:
   messages. A `firstKeptEntryId` equal to the entry's own `id` keeps no earlier
   message (Pi's `appendCompaction(summary, null)`); fork and clone rewrite it to
   the copy's own id.
+- An aborted or failed provider turn (Escape, steering, a provider error) is
+  stored as an assistant message with `"stop_reason": "aborted"` or
+  `"error"`, the text streamed so far, no tool calls, and for an error
+  `"error_message"` (Pi `stopReason`/`errorMessage`, DF1-F6). Both keys are
+  written only for such a turn. The message stays in `build_context()` and
+  the coding history, but no provider request replays it: the one request
+  funnel (`materialize_provider_request`) and the compaction summary request
+  drop it, like Pi's `transformMessages`. `/tree` shows a stopped turn without
+  text as `assistant: (aborted)` or `assistant: <error message>`.
+- System messages (Pi `buildSessionContext`) are part of `build_context()`,
+  which RPC `get_messages` serves. A compaction contributes its `systemMessage`
+  checkpoint before its summary, and the retained entries before the
+  compaction lose their system messages, because the checkpoint already
+  replays them (Pi `session-manager.ts:506`). The transcript render
+  (`build_context_entries()`) drops them the same way and draws nothing for a
+  system message; `/tree` shows it as `[system]`. `build_coding_context()`
+  never contains one: provider history is user, assistant and tool messages,
+  and the prompt travels as the request's system prompt (Pi's collapse path
+  for models without mid-conversation system messages).
 
 When `retainedUserEntryId` is present, reconstruction instead retains that exact
 actual user message once plus the suffix beginning at `firstKeptEntryId`.
@@ -729,6 +762,9 @@ the latest compaction entry, then the entries its cut keeps):
 - user and assistant messages; each tool call as its call row followed by its
   result, drawn by the same renderer as a live turn (a successful `read` shows
   only its call row; a call without a result shows only its call row);
+- an aborted turn as its partial text, then an `Operation aborted` error row;
+  a failed turn as its partial text, then `Error: <message>` (Pi
+  `AssistantMessageComponent`);
 - a `!` shell record as its `$ command` and status/output rows;
 - `[compaction]` and `[branch]` rows, collapsed as
   `Compacted from N tokens (ctrl+o to expand)` and

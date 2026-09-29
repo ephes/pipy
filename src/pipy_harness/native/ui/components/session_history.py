@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentStopReason,
     AgentToolResultMessage,
     AgentUserMessage,
 )
@@ -184,12 +185,25 @@ def _render_message(
             is_error=record.is_error,
         )
     elif isinstance(message, AgentAssistantMessage):
-        _render_assistant(message, renderer, results)
+        _render_assistant(message, renderer, scratch, results)
+
+
+def stopped_assistant_marker(message: AgentAssistantMessage) -> str | None:
+    """Pi ``AssistantMessageComponent``'s line after an aborted/failed turn."""
+
+    if message.stop_reason is AgentStopReason.ABORTED:
+        if message.error_message and message.error_message != "Request was aborted":
+            return message.error_message
+        return "Operation aborted"
+    if message.stop_reason is AgentStopReason.ERROR:
+        return f"Error: {message.error_message or 'Unknown error'}"
+    return None
 
 
 def _render_assistant(
     message: AgentAssistantMessage,
     renderer: TuiToolLoopRenderer,
+    scratch: TranscriptComponent,
     results: dict[str, AgentToolResultMessage],
 ) -> None:
     has_tool_calls = bool(message.tool_calls)
@@ -197,6 +211,10 @@ def _render_assistant(
         renderer.render_buffered_assistant_text(
             message.content.value, has_tool_calls=has_tool_calls
         )
+    marker = stopped_assistant_marker(message)
+    if marker is not None:
+        scratch.add_error(marker)
+        return
     renderer.complete_assistant_message(has_tool_calls=has_tool_calls)
     for call in message.tool_calls:
         renderer.render_tool_call(call)

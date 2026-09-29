@@ -17,11 +17,13 @@ from typing import Any
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentMessage,
+    AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.system_messages import system_message_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
@@ -60,21 +62,35 @@ def assistant_content_blocks(
     return blocks
 
 
-def serialize_message(message: AgentMessage) -> dict[str, Any]:
+def assistant_stop_reason(message: AgentAssistantMessage) -> str:
+    """Pi ``stopReason``: ``aborted``/``error`` when set, else how it ended."""
+
+    if message.stop_reason is not None:
+        return message.stop_reason.value
+    return "toolUse" if message.tool_calls else "stop"
+
+
+def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
     """Map one native loop message to its Pi-shaped JSON object."""
 
+    if isinstance(message, AgentSystemMessage):
+        return system_message_to_json(message)
     if isinstance(message, AgentUserMessage):
         return {
             "role": "user",
             "content": [{"type": "text", "text": message.content.value}],
         }
     if isinstance(message, AgentAssistantMessage):
-        return {
+        assistant: dict[str, Any] = {
             "role": "assistant",
             "content": assistant_content_blocks(
                 message.content.value, message.tool_calls
             ),
+            "stopReason": assistant_stop_reason(message),
         }
+        if message.error_message is not None:
+            assistant["errorMessage"] = message.error_message
+        return assistant
     if isinstance(message, AgentToolResultMessage):
         return {
             "role": "toolResult",

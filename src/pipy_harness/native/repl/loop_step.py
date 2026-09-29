@@ -37,6 +37,7 @@ from pipy_harness.native.agent.request import (
 )
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.runtime_ports import AgentQueuedInput
+from pipy_harness.native.agent.system_messages import system_prompt_input
 from pipy_harness.native.agent_loop_policy import materialize_provider_request
 from pipy_harness.native.chrome import print_input_separator
 from pipy_harness.native.coding.accepted_input import (
@@ -703,11 +704,19 @@ def _phase_f2_run_and_settle(
 ) -> LoopStepSignal:
     scope = accepted.turn_input.turn.scope
     scope.ctl.agent_settled_pending = True
+    with scope.ctl.session_tree_section() as tree:
+        transcript = tree.build_context().messages
+    # pipy's composed prompt is one untagged Pi `preamble` section; Pi's
+    # tagged sections are a separate follow-on (docs/backlog.md).
+    system_prompt = system_prompt_input(
+        transcript, (("preamble", accepted.accepted_turn.agent_system_prompt),)
+    )
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,
         pricing_lookup=partial(pricing_for, scope.provider_state),
         accepted_queued_input=accepted.turn_input.queued_input,
+        system_prompt=system_prompt,
     )
     scope.ctl.extension_in_agent_turn = False
     if not outcome.terminate_session:

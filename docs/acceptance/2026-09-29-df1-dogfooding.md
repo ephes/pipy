@@ -213,7 +213,8 @@ These are recorded with their repro steps in
   too-large-summary case is follow-on F5b.
 - **F6 Aborted turns persist no assistant message.** An aborted turn leaves
   consecutive user messages and drops the partial text. Pi persists the
-  aborted assistant message.
+  aborted assistant message. Fixed by DF1-F6 (see the backlog's Done table);
+  the remaining differences are follow-on F6b.
 - **F7 TUI polish.**
   - Notices read `pipy  pipy: …`.
   - Non-bash tool rows keep the `$ ` prompt (`$ edit path`, `$ find …`);
