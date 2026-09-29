@@ -119,8 +119,9 @@ deviation, and `--json` prints the report as JSON.
 
 - **Compared fields.** For every row both catalogs carry, the check compares
   `api`, `reasoning`, `input`, `cost`, `contextWindow`, `maxTokens`,
-  `thinkingLevelMap`, `baseUrl`, and every compat key pipy's request
-  construction reads. Display names are not compared.
+  `thinkingLevelMap`, `baseUrl`, the row's static `headers` (Copilot's editor
+  headers), and every compat key pipy's request construction reads. Display
+  names and cost tiers are not compared.
 - **Thinking maps.** Maps are compared by what each side offers and sends per
   level. Pi treats an unmapped ordinary level as identity. pipy reads map keys,
   so a partial pipy map that forgets an identity level shows up as drift.
@@ -207,8 +208,45 @@ openai-completions) construct from the catalog via `native/provider_construction
   completions family the resolved api key + merged headers reach the real call
   (`--api-key` wins), and a catalog-wired auth failure fails closed.
 - **OAuth** (`native/oauth_providers.py`): stdlib registry for Anthropic
-  (5-min expiry margin), GitHub Copilot (proxy-ep rewrite + per-model policy
-  enable), and OpenAI Codex (no margin), with injectable HTTP.
+  (5-min expiry margin), GitHub Copilot (device-code login, token exchange,
+  model list + policy enable, per-request `proxy-ep` base URL,
+  `availableModelIds` filtering), and OpenAI Codex (no margin), with injectable
+  HTTP. `OAuthCredentialCache` refreshes the Copilot token per request (see
+  xai and GitHub Copilot below).
+- **xai and GitHub Copilot** (backlog PR1/PR2, Pi `4df157433`; plan
+  `docs/specs/2026-09-29-pr1-pr2-xai-copilot-plan.md`): Pi's 4 xai rows
+  (`openai-responses`, `https://api.x.ai/v1`, `XAI_API_KEY`, default
+  `grok-4.7`) and 33 github-copilot rows (10 `anthropic-messages`, 6
+  `openai-completions`, 17 `openai-responses`, Copilot editor headers, default
+  `gpt-5.4`), all with Pi's generated values. Request shapes:
+  - the Responses adapter ports Pi `buildParams`: an on-state effort sends
+    `reasoning.summary: "auto"` and `include: ["reasoning.encrypted_content"]`
+    for every `openai-responses` row; xai sends the `include` on every
+    reasoning request, off-state included; Copilot sends no off-state
+    `reasoning`, even when `map.off` is a string;
+  - all three adapters add Pi's Copilot headers after the row headers:
+    `X-Initiator` (`agent` when the last message is not a user message),
+    `Openai-Intent: conversation-edits`, and `Copilot-Vision-Request: true` when
+    the adapter sends an image (the Chat Completions adapter sends none);
+  - the Anthropic adapter authenticates Copilot with `Authorization: Bearer`,
+    never `x-api-key`, and sends no session-affinity header;
+  - the Chat Completions default ("openai" format) branch sends
+    `reasoning_effort` only when `compat.supportsReasoningEffort` resolves
+    true, as in Pi, so Copilot's Gemini/Kimi rows send none.
+  Auth: `/login github-copilot` runs the device flow and stores the credential
+  (`refresh` = GitHub token, `access` = Copilot token, `expires`,
+  `enterpriseUrl`, `availableModelIds`); `COPILOT_GITHUB_TOKEN` is sent as-is
+  to the default endpoint. `ModelRuntime.construct` (owner thread) snapshots
+  the stored credential and binds a `PerRequestOAuthProvider`. Each
+  `complete()` asks the lock-protected `OAuthCredentialCache` for a credential
+  valid for five more minutes and rebuilds the adapter with that token and its
+  base URL, regenerating an `authHeader` `Authorization` header. It never reads
+  the `AuthStore`. `get_available()`, the `/model` options and direct
+  `/model <ref>` selection filter Copilot rows by the newest known
+  `availableModelIds` (reason `not-in-account`). Deviations: the refreshed token is kept in memory, not
+  persisted (Pi persists under a file lock); the 429 retry does not read
+  `Retry-After`; Pi's xAI OAuth login and cost tiers are not ported; Copilot
+  no longer uses a load-time `modify_models` base-URL rewrite (Pi removed it).
 - **ds4 reframe** (`native/ds4.py` + `docs/examples/ds4.models.json`): ds4 is a
   `models.json` custom provider; the `PIPY_DS4_BASE_URL`/`PIPY_DS4_API_KEY`
   env shim synthesizes the same entry.
@@ -994,10 +1032,14 @@ never archived). The built-in OAuth registry
   token exchange at `platform.claude.com/v1/oauth/token`, refresh support,
   expiry stored with a 5-minute safety margin (anthropic.ts).
 - GitHub Copilot: device-code flow against `github.com` (or an enterprise
-  domain), then a Copilot token exchange; `modifyModels` rewrites the Copilot
-  rows' `baseUrl` from the token's `proxy-ep=...` claim; login enables each
-  Copilot model via the `/models/<id>/policy` endpoint; Copilot editor headers
-  are required.
+  domain), then a Copilot token exchange; the model list
+  (`/models`, `X-GitHub-Api-Version: 2026-06-01`) yields `availableModelIds`,
+  and login enables each still-unconfigured model via the
+  `/models/<id>/policy` endpoint; `toAuth` derives each request's base URL from
+  the token's `proxy-ep=...` claim (else `copilot-api.<enterprise>`, else the
+  individual endpoint); `filterModels` limits available rows to
+  `availableModelIds`; Copilot editor headers are required. (Pi `4df157433`
+  no longer uses `modifyModels` for Copilot.)
 - OpenAI Codex (ChatGPT): PKCE flow (already implemented in pipy as a separate
   provider with its own auth state). Unlike Anthropic/Copilot, Codex stores
   expiry as `Date.now() + expires_in*1000` with no 5-minute safety margin
@@ -1018,7 +1060,7 @@ Pipy target:
   callback server + stdlib `json`/`base64`/`hashlib` for PKCE/JWT-claim
   extraction), modeled on the Pi flows above. Anthropic uses a local callback
   server with manual-paste fallback; GitHub Copilot uses device-code +
-  per-model policy enable + `proxy-ep` base-URL rewrite.
+  per-model policy enable + a per-request `proxy-ep` base URL.
 - Resolve per-request auth/headers with Pi's priority order (the auth-store
   path first, then the registry-level `models.json` key): runtime `--api-key`
   -> stored api_key -> stored OAuth (refresh on expiry, owner-only file, lock to
@@ -1216,7 +1258,7 @@ request paths.
    `AuthStatus` with source labels, availability gate extended to consult it.
 7. OAuth subscription providers: stdlib OAuth registry with Anthropic
    (callback-server PKCE + manual paste), GitHub Copilot (device-code +
-   per-model policy enable + `proxy-ep` base-URL rewrite), and the existing
+   per-model policy enable + per-request `proxy-ep` base URL), and the existing
    OpenAI Codex flow; `/login`/`/logout`/`pipy auth` for all three; refresh on
    expiry under a lock.
 8. `--list-models [search]`: sorted, fuzzy-filtered table with capability

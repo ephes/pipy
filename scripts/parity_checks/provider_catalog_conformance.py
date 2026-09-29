@@ -1438,7 +1438,8 @@ def _check_tier1_construction(checks, tmp: Path):
         )
     )
 
-    # 20b: openai-responses -> Authorization Bearer + reasoning.effort, /responses.
+    # 20b: openai-responses -> Authorization Bearer + reasoning.effort (+ Pi's
+    # on-state summary/include), /responses.
     r_path = tmp / "tier1_responses.json"
     r_path.write_text(
         json.dumps(
@@ -1479,7 +1480,8 @@ def _check_tier1_construction(checks, tmp: Path):
         r_sent["url"] == "https://oai.example/v1/responses"
         and r_sent["body"]["model"] == "o-pro"
         and r_sent["headers"]["Authorization"] == "Bearer ork"
-        and r_sent["body"]["reasoning"] == {"effort": "high"}
+        and r_sent["body"]["reasoning"] == {"effort": "high", "summary": "auto"}
+        and r_sent["body"]["include"] == ["reasoning.encrypted_content"]
         and r_resolved.supports_tool_search is True
     )
     checks.append(

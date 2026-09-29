@@ -91,6 +91,34 @@ def apply_provider_headers(
     }
 
 
+COPILOT_PROVIDER_NAME = "github-copilot"
+
+
+def copilot_dynamic_headers(
+    request: ProviderRequest, *, images_sent: bool
+) -> dict[str, str]:
+    """Pi ``buildCopilotDynamicHeaders`` (``api/github-copilot-headers.ts``).
+
+    ``X-Initiator`` is ``agent`` when the last message is not a user message
+    (a follow-up after assistant/tool messages) and ``user`` otherwise; a
+    request with no message envelope is a single user turn. Pi sets
+    ``Copilot-Vision-Request`` when a user or tool-result message carries an
+    image; in pipy only the current turn's attachments carry images, so the
+    adapter passes whether it actually sends them.
+    """
+
+    from pipy_harness.native.agent.messages import AgentUserMessage
+
+    last = request.messages[-1] if request.messages else None
+    initiator = (
+        "user" if last is None or isinstance(last, AgentUserMessage) else "agent"
+    )
+    headers = {"X-Initiator": initiator, "Openai-Intent": "conversation-edits"}
+    if images_sent:
+        headers["Copilot-Vision-Request"] = "true"
+    return headers
+
+
 @runtime_checkable
 class ProviderPort(Protocol):
     """Minimal provider boundary used by the native runtime bootstrap."""

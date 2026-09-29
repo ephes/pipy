@@ -19,9 +19,13 @@ from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.oauth_providers import GitHubCopilotOAuthProvider
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     default_openai_codex_auth_path,
+)
+from pipy_harness.native.provider import (
+    COPILOT_PROVIDER_NAME as GITHUB_COPILOT_PROVIDER,
 )
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.provider_construction import ConstructionOptions
@@ -295,6 +299,7 @@ class ModelRuntime:
         """
 
         from pipy_harness.native.provider_construction import (
+            PerRequestOAuthProvider,
             build_builtin_provider,
             build_provider,
             resolve_construction,
@@ -325,14 +330,34 @@ class ModelRuntime:
                 )
             return cast(ProviderPort, build_result.port)
         assert state.auth_store is not None
+        models_json_auth = state._models_json_auth(spec.provider_name)
+        # A per-request OAuth provider (github-copilot) binds a detached
+        # snapshot of its stored credential here, on the owner thread; the
+        # turn refreshes it through the lock-protected cache, never the store.
+        snapshot = state.per_request_oauth_credential(spec.provider_name)
         resolved = resolve_construction(
             spec,
             store=state.auth_store,
             env=state._env(),
             runtime_api_key=state.runtime_api_key,
-            models_json_auth=state._models_json_auth(spec.provider_name),
+            models_json_auth=models_json_auth,
             thinking_level=thinking_level,
+            oauth_credential=(
+                state.oauth_credentials.current(spec.provider_name, snapshot)
+                if snapshot is not None
+                else None
+            ),
         )
+        if snapshot is not None and resolved.ok:
+            return PerRequestOAuthProvider(
+                resolved=resolved,
+                spec=spec,
+                credential=snapshot,
+                credentials=state.oauth_credentials,
+                thinking_level=thinking_level,
+                options=options,
+                auth_header=bool(models_json_auth and models_json_auth.auth_header),
+            )
         return build_provider(
             resolved, spec=spec, thinking_level=thinking_level, options=options
         )
@@ -411,6 +436,9 @@ class NativeReplProviderState:
     construction_options: ConstructionOptions = ConstructionOptions()
     defaults_store: NativeDefaultsStore | None = None
     auth_manager_factory: Callable[[], OpenAICodexAuthManager] = OpenAICodexAuthManager
+    copilot_oauth_factory: Callable[[], GitHubCopilotOAuthProvider] = (
+        GitHubCopilotOAuthProvider
+    )
     persist_defaults: bool = True
     # Set by a selection change, drained by `flush_pending_default`
     # after the selection is live. Never written to disk inline.
@@ -749,8 +777,8 @@ class NativeReplProviderState:
         state = self._catalog
         options: list[NativeModelOption] = []
         for row in state.get_all():
-            available = state.provider_available(row.provider_name)
-            reason = None if available else state.availability_reason(row.provider_name)
+            reason = state.model_availability_reason(row)
+            available = reason is None
             options.append(
                 NativeModelOption(
                     NativeModelSelection(row.provider_name, row.model_id),
@@ -866,6 +894,16 @@ class NativeReplProviderState:
                     "selection unchanged."
                 ),
             )
+        if state.model_availability_reason(model) is not None:
+            # Pi ``filterModels``: the Copilot login does not offer this model.
+            return (
+                None,
+                None,
+                (
+                    f"pipy: {model.reference} is not available for this "
+                    f"{model.provider_name} account; selection unchanged."
+                ),
+            )
 
         selection = NativeModelSelection(model.provider_name, model.model_id)
         notes: list[str] = []
@@ -899,6 +937,10 @@ class NativeReplProviderState:
                 return self._extension_oauth_login(
                     registered, input_stream=input_stream, output_stream=output_stream
                 )
+            if provider == GITHUB_COPILOT_PROVIDER:
+                return self._copilot_login(
+                    input_stream=input_stream, output_stream=output_stream
+                )
         return False, "pipy: unsupported login provider."
 
     def logout(self, provider_name: str) -> tuple[bool, str]:
@@ -922,7 +964,64 @@ class NativeReplProviderState:
             registered = catalog.extension_oauth_provider_for(provider)
             if registered is not None:
                 return self._extension_oauth_logout(registered)
+            if provider == GITHUB_COPILOT_PROVIDER:
+                return self._stored_oauth_logout(provider)
         return False, "pipy: unsupported logout provider."
+
+    def _copilot_login(
+        self, *, input_stream: TextIO, output_stream: TextIO
+    ) -> tuple[bool, str]:
+        """Pi's GitHub Copilot device-code login through line-based callbacks.
+
+        Prompts for an optional GitHub Enterprise domain, prints the device
+        URL and user code (no browser is opened), then stores the Copilot
+        credential in the auth store. The token itself is never printed.
+        """
+
+        from pipy_harness.native.oauth_providers import OAuthError
+
+        callbacks = _ExtensionOAuthCallbacks(
+            input_stream=input_stream, output_stream=output_stream
+        )
+
+        def notify(event: Mapping[str, object]) -> None:
+            if event.get("type") == "device_code":
+                callbacks.on_device_code(event)
+                print("Waiting for authentication...", file=output_stream)
+            else:
+                message = sanitize_text(str(event.get("message", ""))).strip()
+                if message:
+                    print(message, file=output_stream)
+
+        try:
+            credentials = self.copilot_oauth_factory().login(
+                prompt=callbacks.on_prompt, notify=notify
+            )
+        except OAuthError as err:
+            return (
+                False,
+                f"pipy: github-copilot login failed: {sanitize_text(str(err))}",
+            )
+        catalog = self._catalog
+        assert catalog is not None
+        store = catalog.auth_store
+        assert store is not None
+        store.set(GITHUB_COPILOT_PROVIDER, credentials)
+        return True, "pipy: github-copilot OAuth login stored."
+
+    def _stored_oauth_logout(self, provider_name: str) -> tuple[bool, str]:
+        catalog = self._catalog
+        assert catalog is not None
+        store = catalog.auth_store
+        assert store is not None
+        removed = store.remove(provider_name)
+        with self._state_lock:
+            selected_provider = self.selection.provider_name
+        if selected_provider == provider_name:
+            self.reset_to_first_available_model(require_tool_calls=False)
+        if removed:
+            return True, f"pipy: {provider_name} OAuth credentials removed."
+        return True, f"pipy: no {provider_name} OAuth credentials were stored."
 
     def _extension_oauth_login(
         self,
@@ -1122,6 +1221,8 @@ AUTO_DEFAULT_PROVIDER_PRIORITY: tuple[str, ...] = (
     "azure-openai",
     "cloudflare",
     "google-vertex",
+    "github-copilot",
+    "xai",
     "openai-completions",
 )
 """Order in which the REPL chooses a real provider for the default session.

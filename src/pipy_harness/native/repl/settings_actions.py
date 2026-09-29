@@ -72,7 +72,7 @@ def tool_loop_settings_overlay_lines(
     if isinstance(state, NativeReplProviderState):
         lines.append(
             "  read-only view; use /model to switch provider/model and "
-            "/login or /logout to manage openai-codex OAuth."
+            "/login or /logout to manage openai-codex or github-copilot OAuth."
         )
     else:
         lines.append(

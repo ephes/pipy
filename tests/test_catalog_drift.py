@@ -153,6 +153,22 @@ def test_value_drift_carries_both_values_and_a_proposal() -> None:
     assert findings["cost"].proposal == "cost=(1.0, 2.0, 0.125, 0.0)"
 
 
+def test_row_headers_are_compared() -> None:
+    # Pi rows can carry static request headers (Copilot's editor headers).
+    headers = {"Editor-Version": "vscode/1.107.0"}
+    pi_model = _pi("openai", "m", headers=headers)
+
+    assert (
+        catalog_drift.compare(
+            [_row("openai", "m", headers=headers)], {"openai": {"m": pi_model}}
+        )
+        == []
+    )
+    findings = catalog_drift.compare([_row("openai", "m")], {"openai": {"m": pi_model}})
+    assert [(f.field, f.pipy, f.pi) for f in findings] == [("headers", {}, headers)]
+    assert findings[0].proposal == f"headers={headers!r}"
+
+
 def test_input_capabilities_compare_order_independently() -> None:
     row = _row("openai", "m", input=("text", "image"))
     pi_model = _pi("openai", "m", input=["image", "text"])

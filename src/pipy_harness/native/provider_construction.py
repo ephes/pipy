@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from pipy_harness.native.auth_store import (
@@ -65,7 +65,16 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.oauth_providers import (
+    OAuthCredentialCache,
+    OAuthError,
+    get_oauth_provider,
+)
+from pipy_harness.native.provider import (
+    COPILOT_PROVIDER_NAME,
+    ProviderPort,
+    StreamChunkSink,
+)
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.routing import model_request_routing
 from pipy_harness.native.settings import (
@@ -100,6 +109,11 @@ class ResolvedConstruction:
     headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     body_extra: Mapping[str, object] = field(default_factory=dict)
     reasoning_effort: str | None = None
+    # openai-responses only (Pi ``buildParams``, ``openai-responses.ts:343-358``):
+    # ``"auto"`` with an on-state effort, and whether to request the encrypted
+    # reasoning item (on-state, or any reasoning request to xai).
+    reasoning_summary: str | None = None
+    include_encrypted_reasoning: bool = False
     # ``True`` when the model is reasoning-capable but the request resolves
     # thinking to off/unset. Only the anthropic-messages adapter consumes this,
     # to emit Pi's explicit ``thinking:{type:"disabled"}`` shape. Mutually
@@ -174,8 +188,15 @@ def resolve_construction(
     runtime_api_key: str | None,
     models_json_auth: ProviderAuthRequestConfig | None,
     thinking_level: str | None,
+    oauth_credential: Mapping[str, object] | None = None,
 ) -> ResolvedConstruction:
-    """Resolve auth + headers + routing + thinking for a catalog model."""
+    """Resolve auth + headers + routing + thinking for a catalog model.
+
+    ``oauth_credential`` is a detached OAuth credential for a provider whose
+    request auth pipy derives per request (github-copilot). When given, and no
+    runtime key overrides it, its token is the API key and its base URL wins
+    over the row's (Pi ``toAuth`` + ``models.ts:857``).
+    """
 
     # ``base_url`` may carry ``{ENV_VAR}`` placeholders (Cloudflare embeds the
     # account id this way). Substitute them from the environment, failing closed
@@ -191,11 +212,17 @@ def resolve_construction(
             error=base_url_error,
         )
 
+    oauth = _oauth_request_auth(spec.provider_name, oauth_credential, runtime_api_key)
+    if oauth is not None:
+        base_url = oauth.base_url
     auth = resolve_request_auth(
         spec.provider_name,
         store=store,
         env=env,
-        runtime_api_key=runtime_api_key,
+        # A per-request OAuth token is the stored credential's key; with no
+        # runtime key it outranks every other source, so it takes that slot
+        # (``authHeader`` still applies to it, as in Pi).
+        runtime_api_key=oauth.api_key if oauth is not None else runtime_api_key,
         models_json_config=models_json_auth,
         model_headers=spec.headers,
         env_for_headers=env,
@@ -251,6 +278,11 @@ def resolve_construction(
         if spec.api == "openai-responses"
         else None
     )
+    reasoning_summary, include_encrypted_reasoning = (
+        _responses_reasoning_extras(spec, thinking_level)
+        if spec.api == "openai-responses"
+        else (None, False)
+    )
     anthropic_prompt_cache = (
         resolve_anthropic_prompt_cache(spec, base_url)
         if spec.api == "anthropic-messages"
@@ -267,6 +299,8 @@ def resolve_construction(
         headers=headers,
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
+        reasoning_summary=reasoning_summary,
+        include_encrypted_reasoning=include_encrypted_reasoning,
         thinking_disabled=thinking_disabled,
         force_adaptive_thinking=_resolve_anthropic_adaptive_thinking(spec),
         supports_tool_references=supports_tool_references,
@@ -277,6 +311,49 @@ def resolve_construction(
 
 
 _RESPONSES_FAMILIES = frozenset({"openai-responses", "azure-openai-responses"})
+
+
+@dataclass(frozen=True, slots=True)
+class _OAuthRequestAuth:
+    api_key: str = field(repr=False)
+    base_url: str
+
+
+def _oauth_request_auth(
+    provider_name: str,
+    credential: Mapping[str, object] | None,
+    runtime_api_key: str | None,
+) -> _OAuthRequestAuth | None:
+    """Pi ``toAuth`` for a per-request OAuth credential (runtime key wins)."""
+
+    if credential is None or runtime_api_key:
+        return None
+    provider = get_oauth_provider(provider_name)
+    request_base_url = getattr(provider, "request_base_url", None)
+    if provider is None or not callable(request_base_url):
+        return None
+    return _OAuthRequestAuth(
+        api_key=provider.get_api_key(credential),
+        base_url=str(request_base_url(credential)),
+    )
+
+
+def _responses_reasoning_extras(
+    spec: NativeModelSpec, thinking_level: str | None
+) -> tuple[str | None, bool]:
+    """Pi ``buildParams`` ``reasoning.summary`` + ``include`` (openai-responses).
+
+    An on-state effort sends ``summary: "auto"`` and requests the encrypted
+    reasoning item; xai requests it on every reasoning request, including the
+    off-state (``openai-responses.ts:343-358``).
+    """
+
+    effort, off_state = resolve_responses_reasoning(spec, thinking_level)
+    on_state = effort is not None and not off_state
+    include = on_state or (spec.provider_name == "xai" and bool(spec.reasoning))
+    return ("auto" if on_state else None), include
+
+
 _GOOGLE_FAMILIES = frozenset({"google-generative-ai", "google-vertex"})
 
 
@@ -302,7 +379,11 @@ def _resolve_family_thinking(
     """
 
     if spec.api in _RESPONSES_FAMILIES:
-        effort, _off_state = resolve_responses_reasoning(spec, thinking_level)
+        effort, off_state = resolve_responses_reasoning(spec, thinking_level)
+        if off_state and spec.provider_name == COPILOT_PROVIDER_NAME:
+            # Pi skips the Responses off-state for Copilot even when
+            # ``map.off`` is a string (``openai-responses.ts:353``).
+            return None, False
         return effort, False
     if spec.api == "mistral" and (not spec.reasoning or spec.thinking_level_map):
         return _resolve_mistral_reasoning(spec, thinking_level), False
@@ -394,6 +475,11 @@ def _resolve_request_thinking(
     state = _ThinkingState(spec, thinking_level, value, thinking_off)
     handler = _THINKING_HANDLERS.get(_resolve_thinking_format(spec))
     if handler is None:
+        if spec.api == "openai-completions" and not _supports_reasoning_effort(spec):
+            # Pi's OpenAI-style default branch sends ``reasoning_effort`` only
+            # when ``compat.supportsReasoningEffort`` (openai-completions.ts:
+            # 964-972), e.g. never for Copilot's Gemini/Kimi rows.
+            return None, thinking_off
         return value, thinking_off
     return handler(state, body_extra), thinking_off
 
@@ -1003,6 +1089,8 @@ def _build_catalog_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            reasoning_summary=resolved.reasoning_summary,
+            include_encrypted_reasoning=resolved.include_encrypted_reasoning,
             supports_tool_search=resolved.supports_tool_search,
             **_responses_prompt_cache_kwargs(resolved.responses_prompt_cache),
             **http_kwargs,
@@ -1177,6 +1265,88 @@ def build_builtin_provider(
 
         return Ds4ChatCompletionsProvider(model_id=selection.model_id)
     raise ValueError(f"unsupported native provider: {selection.provider_name}")
+
+
+@dataclass(frozen=True, slots=True)
+class PerRequestOAuthProvider:
+    """Catalog provider whose OAuth token is refreshed before every request.
+
+    Pi resolves auth per request (``auth/resolve.ts``); pipy binds a provider
+    across turns, and a Copilot token lives about 30 minutes. This wrapper
+    keeps the owner-thread :class:`ResolvedConstruction` plus a detached
+    snapshot of the stored credential. ``complete`` may run on a worker thread,
+    so it never reads the ``AuthStore`` or re-runs :func:`resolve_construction`:
+    it asks the lock-protected ``credentials`` cache for a fresh credential and
+    rebuilds the adapter with that token and its base URL. ``auth_header``
+    records models.json ``authHeader: true``, whose generated
+    ``Authorization`` header is regenerated from the fresh token.
+    """
+
+    resolved: ResolvedConstruction
+    spec: NativeModelSpec
+    credential: Mapping[str, object] = field(repr=False)
+    credentials: OAuthCredentialCache = field(repr=False)
+    thinking_level: str | None = None
+    options: ConstructionOptions | None = None
+    auth_header: bool = False
+    http_client: JsonHTTPClient | None = field(default=None, repr=False)
+    supports_tool_calls: bool = True
+
+    @property
+    def name(self) -> str:
+        return self.resolved.provider_name
+
+    @property
+    def model_id(self) -> str:
+        return self.resolved.model_id
+
+    def _fresh_construction(self) -> ResolvedConstruction | str:
+        try:
+            fresh = self.credentials.fresh(self.resolved.provider_name, self.credential)
+        except OAuthError:
+            return f"OAuth refresh failed for {self.resolved.provider_name}."
+        oauth = _oauth_request_auth(self.resolved.provider_name, fresh, None)
+        if oauth is None:
+            return f"No OAuth provider for {self.resolved.provider_name}."
+        headers = dict(self.resolved.headers)
+        if self.auth_header:
+            headers["Authorization"] = f"Bearer {oauth.api_key}"
+        return replace(
+            self.resolved,
+            api_key=oauth.api_key,
+            base_url=oauth.base_url,
+            headers=headers,
+        )
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        resolved: ResolvedConstruction | str = self.resolved
+        if self.resolved.ok:
+            resolved = self._fresh_construction()
+        if isinstance(resolved, str):
+            provider: ProviderPort = _FailedAuthProvider(
+                provider_name=self.name, model_id=self.model_id, error=resolved
+            )
+        else:
+            provider = build_provider(
+                resolved,
+                spec=self.spec,
+                thinking_level=self.thinking_level,
+                options=self.options,
+                http_client=self.http_client,
+            )
+        return provider.complete(
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
 
 
 @dataclass(frozen=True, slots=True)

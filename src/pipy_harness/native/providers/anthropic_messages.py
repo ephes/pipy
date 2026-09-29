@@ -25,7 +25,12 @@ from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
 )
 from pipy_harness.native.models import CacheRetention, ProviderRequest, ProviderResult
-from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.provider import (
+    COPILOT_PROVIDER_NAME,
+    StreamChunkSink,
+    apply_provider_headers,
+    copilot_dynamic_headers,
+)
 from pipy_harness.native.providers.anthropic_messages_wire import (
     ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES,
     anthropic_cache_control,
@@ -326,20 +331,9 @@ class AnthropicProvider:
             ),
             cache_control_on_tools=self.supports_cache_control_on_tools,
         )
-        headers = {
-            "anthropic-version": self.anthropic_version,
-            "Content-Type": "application/json",
-        }
-        # Pi merges the affinity header before the model and request headers,
-        # so both can override it (``anthropic-messages.ts:971-983``).
-        headers.update(self._session_affinity_headers(request, retention))
-        # Merged models.json/model headers (may include an explicit Authorization).
-        for header_name, header_value in self.extra_headers.items():
-            headers[header_name] = header_value
-        # Apply the native ``x-api-key`` only when no explicit Authorization
-        # header is present, so an explicit models.json auth header wins.
-        if self.api_key and not has_explicit_authorization:
-            headers["x-api-key"] = self.api_key
+        headers = self._request_headers(
+            request, retention, has_explicit_authorization=has_explicit_authorization
+        )
         headers = apply_provider_headers(request, headers)
 
         try:
@@ -384,6 +378,42 @@ class AnthropicProvider:
             },
             tool_calls=result.tool_calls,
         )
+
+    def _request_headers(
+        self,
+        request: ProviderRequest,
+        retention: CacheRetention,
+        *,
+        has_explicit_authorization: bool,
+    ) -> dict[str, str]:
+        headers = {
+            "anthropic-version": self.anthropic_version,
+            "Content-Type": "application/json",
+        }
+        copilot = self.provider_name == COPILOT_PROVIDER_NAME
+        # Pi merges the affinity header before the model and request headers,
+        # so both can override it (``anthropic-messages.ts:971-983``). Pi's
+        # Copilot client branch sends no affinity header.
+        if not copilot:
+            headers.update(self._session_affinity_headers(request, retention))
+        # Merged models.json/model headers (may include an explicit Authorization).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        if copilot:
+            # Pi ``createClient`` Copilot branch: model headers, then the
+            # per-request Copilot headers; this adapter sends attachments.
+            headers.update(
+                copilot_dynamic_headers(request, images_sent=bool(request.attachments))
+            )
+        # Apply the native credential only when no explicit Authorization
+        # header is present, so an explicit models.json auth header wins.
+        # Copilot authenticates with a Bearer token, never ``x-api-key``.
+        if self.api_key and not has_explicit_authorization:
+            if copilot:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            else:
+                headers["x-api-key"] = self.api_key
+        return headers
 
     def _session_affinity_headers(
         self, request: ProviderRequest, retention: CacheRetention

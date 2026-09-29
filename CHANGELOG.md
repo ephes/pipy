@@ -8,6 +8,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- New `xai` and `github-copilot` providers, following Pi (`4df157433`).
+  `xai` serves Pi's Grok 4.3 to 4.7 rows over the OpenAI Responses API with
+  `XAI_API_KEY` (default `grok-4.7`). `github-copilot` serves Pi's 33 Copilot
+  rows (Claude, GPT, Grok, Gemini, Kimi, MAI), each on the API family Copilot
+  uses for it (default `gpt-5.4`). See `docs/providers.md` (GitHub Copilot).
+  - `/login github-copilot` runs GitHub's device-code login, including GitHub
+    Enterprise domains. It lists the account's models and enables the ones
+    whose policy is unconfigured. `/logout github-copilot` removes the
+    credential. `COPILOT_GITHUB_TOKEN` also works.
+  - Requests go to the endpoint named in the Copilot token and refresh the
+    token when it has less than five minutes left. They carry Copilot's editor
+    headers plus `X-Initiator`, `Openai-Intent` and, when an image is sent,
+    `Copilot-Vision-Request`. Claude models use Bearer auth. After a login,
+    model lists show only the account's models.
+  - Not ported: Pi's xAI OAuth login, and cost tiers. A refreshed Copilot
+    token is kept in memory rather than written back to the auth store.
 - `/thinking` sets the thinking level for the current session, as in Pi
   (`4df157433`). `/thinking <level>` takes any level the model offers, in any
   case. A bare `/thinking` opens a selector of the model's levels with Pi's
@@ -410,6 +426,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- OpenAI Responses requests with a thinking level now send Pi's
+  `reasoning.summary: "auto"` and ask for the encrypted reasoning item
+  (`include: ["reasoning.encrypted_content"]`). This applies to every
+  `openai-responses` row (OpenAI, xAI, Copilot, custom); Azure and Codex are
+  unchanged. Chat Completions rows whose `compat.supportsReasoningEffort`
+  resolves false no longer send `reasoning_effort`, as in Pi.
+- `just catalog-drift` also compares each row's static request headers.
 - Built-in rows the first catalog drift check flagged now carry Pi's values
   (Pi `4df157433`):
   - Mistral Large, Devstral Medium and Mistral Small: cost, context window and

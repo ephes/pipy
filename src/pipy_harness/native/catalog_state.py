@@ -37,6 +37,11 @@ from pipy_harness.native.models_json import (
     _ModelRowsModifier,
     default_models_json_path,
 )
+from pipy_harness.native.oauth_providers import (
+    PER_REQUEST_OAUTH_PROVIDERS,
+    GitHubCopilotOAuthProvider,
+    OAuthCredentialCache,
+)
 
 if TYPE_CHECKING:
     from pipy_harness.native.oauth_providers import _OAuthModelModifierProvider
@@ -164,6 +169,12 @@ class ProviderCatalogState:
     )
 
     catalog: ModelCatalog = field(init=False)
+    # Refreshed per-request OAuth credentials (github-copilot). Holds no
+    # ``AuthStore`` reference and owns its own lock, so a provider turn on a
+    # worker thread can refresh without touching the single-thread store.
+    oauth_credentials: OAuthCredentialCache = field(
+        init=False, default_factory=OAuthCredentialCache
+    )
     _extension_provider_map: Mapping[str, RegisteredProvider] = field(
         init=False, default_factory=dict
     )
@@ -444,7 +455,7 @@ class ProviderCatalogState:
         if self.provider_available(provider):
             return None
         if (
-            provider == "openai-codex"
+            provider in ("openai-codex", "github-copilot")
             or self.extension_oauth_provider_for(provider) is not None
         ):
             return "login-required"
@@ -462,7 +473,59 @@ class ProviderCatalogState:
         )
 
     def get_available(self) -> list[NativeModelSpec]:
-        return [r for r in self.get_all() if self.provider_available(r.provider_name)]
+        rows = [r for r in self.get_all() if self.provider_available(r.provider_name)]
+        return self._filter_copilot_models(rows)
+
+    def model_availability_reason(self, row: NativeModelSpec) -> str | None:
+        """Why ``row`` cannot be selected, or ``None`` when it is available.
+
+        Provider auth first (:meth:`availability_reason`), then Pi's
+        ``filterModels``: a Copilot row outside the login's
+        ``availableModelIds`` is ``not-in-account``.
+        """
+
+        reason = self.availability_reason(row.provider_name)
+        if reason is not None:
+            return reason
+        if not self._filter_copilot_models([row]):
+            return "not-in-account"
+        return None
+
+    def per_request_oauth_credential(self, provider: str) -> dict[str, object] | None:
+        """Detached stored OAuth credential for a per-request OAuth provider.
+
+        Owner-thread only (reads the ``AuthStore``). ``None`` when a runtime
+        ``--api-key`` overrides stored auth, as in Pi's resolution order.
+        """
+
+        if provider not in PER_REQUEST_OAUTH_PROVIDERS or self.runtime_api_key:
+            return None
+        return self._stored_oauth_credential(provider)
+
+    def _stored_oauth_credential(self, provider: str) -> dict[str, object] | None:
+        if self.extension_provider_for(provider) is not None:
+            return None
+        auth_store = self.auth_store
+        credential = auth_store.get(provider) if auth_store is not None else None
+        if not credential or credential.get("type") != "oauth":
+            return None
+        return credential
+
+    def _filter_copilot_models(
+        self, rows: list[NativeModelSpec]
+    ) -> list[NativeModelSpec]:
+        """Pi ``filterModels``: an OAuth login limits Copilot to its models.
+
+        Uses the newest known credential (a refresh replaces
+        ``availableModelIds``) for the stored refresh token.
+        """
+
+        provider = GitHubCopilotOAuthProvider.id
+        stored = self._stored_oauth_credential(provider)
+        if stored is None:
+            return rows
+        credential = self.oauth_credentials.current(provider, stored)
+        return GitHubCopilotOAuthProvider().filter_models(rows, credential)
 
     def _openai_codex_logged_in(self) -> bool:
         if self.openai_codex_auth_path is None:

@@ -1290,8 +1290,14 @@ def test_registry_carries_the_exact_advertised_descriptions() -> None:
     assert builtin_command_description("/copy") == (
         "Copy the last answer to the clipboard (local)"
     )
-    assert builtin_command_description("/login") == "Log in (openai-codex OAuth)"
-    assert builtin_command_description("/logout") == "Log out (openai-codex OAuth)"
+    assert (
+        builtin_command_description("/login")
+        == "Log in (openai-codex or github-copilot OAuth)"
+    )
+    assert (
+        builtin_command_description("/logout")
+        == "Log out (openai-codex or github-copilot OAuth)"
+    )
     assert builtin_command_description("/model") == "Select provider/model"
     assert builtin_command_description("/scoped-models") == (
         "View/set the Ctrl+P model cycle set"

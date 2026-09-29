@@ -94,6 +94,7 @@ _API_KEY_ENV_VARS: dict[str, tuple[str, ...]] = {
     "azure-openai": ("AZURE_OPENAI_API_KEY",),
     "cloudflare": ("CLOUDFLARE_API_KEY",),
     "github-copilot": ("COPILOT_GITHUB_TOKEN",),
+    "xai": ("XAI_API_KEY",),
     "google-vertex": ("GOOGLE_CLOUD_API_KEY",),
 }
 

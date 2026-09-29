@@ -916,7 +916,7 @@ class ProviderMutationEffects:
                         )
             except Exception as exc:  # noqa: BLE001 - report, never crash REPL
                 message = (
-                    "pipy: openai-codex login failed with "
+                    f"pipy: {provider_name} login failed with "
                     f"{type(exc).__name__}: {sanitize_text(str(exc))}"
                 )
         else:
@@ -924,7 +924,7 @@ class ProviderMutationEffects:
                 _ok, message = state.logout(provider_name)
             except Exception as exc:  # noqa: BLE001 - report, never crash REPL
                 message = (
-                    "pipy: openai-codex logout failed with "
+                    f"pipy: {provider_name} logout failed with "
                     f"{type(exc).__name__}: {sanitize_text(str(exc))}"
                 )
         # Clear context and rebind the live provider regardless of outcome,

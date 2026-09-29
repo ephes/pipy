@@ -99,30 +99,53 @@ def test_copilot_base_url_from_proxy_ep_converts_proxy_to_api():
     )
 
 
-def test_copilot_modify_models_rewrites_base_url():
+def test_copilot_request_base_url_follows_pi_to_auth():
+    # Pi ``toAuth``: token proxy-ep, else enterprise, else the default.
+    provider = GitHubCopilotOAuthProvider()
+    assert (
+        provider.request_base_url({"access": "tid=x;proxy-ep=proxy.example.com;"})
+        == "https://api.example.com"
+    )
+    assert (
+        provider.request_base_url({"access": "opaque", "enterpriseUrl": "ghe.acme.io"})
+        == "https://copilot-api.ghe.acme.io"
+    )
+    assert (
+        provider.request_base_url({"access": "opaque"})
+        == "https://api.individual.githubcopilot.com"
+    )
+    # Pi removed the load-time modifyModels rewrite for Copilot.
+    assert not hasattr(provider, "modify_models")
+
+
+def test_copilot_filter_models_keeps_available_ids_only():
     provider = GitHubCopilotOAuthProvider()
     rows = [
         NativeModelSpec(
             provider_name="github-copilot",
-            model_id="gpt-5.4",
-            display_name="x",
-            api="openai-completions",
-            base_url="https://old",
-        ),
+            model_id=model_id,
+            display_name=model_id,
+            api="openai-responses",
+        )
+        for model_id in ("gpt-5.4", "grok-4.7")
+    ] + [
         NativeModelSpec(
             provider_name="anthropic",
             model_id="claude",
-            display_name="y",
+            display_name="claude",
             api="anthropic-messages",
-            base_url="https://api.anthropic.com",
-        ),
+        )
     ]
-    cred = {"type": "oauth", "access": "tid=x;proxy-ep=proxy.example.com;"}
-    out = provider.modify_models(rows, cred)
-    copilot = next(r for r in out if r.provider_name == "github-copilot")
-    other = next(r for r in out if r.provider_name == "anthropic")
-    assert copilot.base_url == "https://api.example.com"
-    assert other.base_url == "https://api.anthropic.com"  # untouched
+    cred = {"type": "oauth", "access": "a", "availableModelIds": ["gpt-5.4"]}
+    kept = [r.reference for r in provider.filter_models(rows, cred)]
+    assert kept == ["github-copilot/gpt-5.4", "anthropic/claude"]
+    # No list (or a malformed one) leaves the rows alone, as in Pi.
+    assert provider.filter_models(rows, {"type": "oauth"}) == rows
+    assert (
+        provider.filter_models(rows, {"type": "oauth", "availableModelIds": [1]})
+        == rows
+    )
+    assert provider.filter_models(rows, None) == rows
 
 
 def test_copilot_enable_model_hits_policy_endpoint():
@@ -143,7 +166,11 @@ def test_copilot_refresh_uses_bearer_and_expires_at_with_margin():
             "copilot_internal/v2/token": (
                 200,
                 json.dumps({"token": "ctok", "expires_at": 2000}),
-            )
+            ),
+            "/models": (
+                200,
+                json.dumps({"data": [{"id": "gpt-5.4", "model_picker_enabled": True}]}),
+            ),
         }
     )
     provider = GitHubCopilotOAuthProvider(
@@ -153,9 +180,16 @@ def test_copilot_refresh_uses_bearer_and_expires_at_with_margin():
     assert cred["access"] == "ctok"
     # expires_at (seconds) * 1000 - 5min margin
     assert cred["expires"] == 2000 * 1000 - 5 * 60 * 1000
-    _, _, meta = transport.calls[-1]
+    # Pi's refresh re-lists the account's models.
+    assert cred["availableModelIds"] == ["gpt-5.4"]
+    _, url, meta = transport.calls[0]
+    assert url == "https://api.github.com/copilot_internal/v2/token"
     assert meta["headers"]["Authorization"] == "Bearer gh-token"
     assert meta["headers"]["Copilot-Integration-Id"] == "vscode-chat"
+    _, url, meta = transport.calls[1]
+    assert url == "https://api.individual.githubcopilot.com/models"
+    assert meta["headers"]["Authorization"] == "Bearer ctok"
+    assert meta["headers"]["X-GitHub-Api-Version"] == "2026-06-01"
 
 
 def test_credentials_never_serialize_authorization_url(tmp_path):
