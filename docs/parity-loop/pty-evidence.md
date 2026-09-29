@@ -2,7 +2,8 @@
 
 Reference recipes for the parity loop's Phase 5 (`skill-body.md`): exercise
 UI, cost, tool-call, and session behavior in a real tmux PTY without live
-credentials and without touching `~/.pipy`.
+credentials and without touching `~/.pipy`, plus cheap live-model checks for
+behavior only a real model shows.
 
 ## Isolation
 
@@ -23,7 +24,9 @@ credentials and without touching `~/.pipy`.
 - `fake/fake-tools` (`AutomationFakeProvider`) waits for the turn's cancel
   token when a prompt starts with `BLOCK`; `STREAMBLOCK` first streams
   `PARTIAL:streamed-before-abort`, so Escape leaves an aborted turn with
-  partial text to check live and after `pipy -r`.
+  partial text to check live and after `pipy -r`. Use it for any
+  abort-with-partial-text check: real adapters other than `openai-codex` send
+  `stream: false`, so the completions stub below cannot produce partial text.
 
 ## Local completions stub (tool calls, usage, cost)
 
@@ -37,6 +40,16 @@ non-streaming chat-completions JSON body per request. Script it to:
   provider-level `cost` is ignored) to check a non-zero
   cost point: compare the footer and `--mode rpc` `get_session_stats` against
   the exactly computed value.
+
+## Cheap live-model checks
+
+When a check needs a real model, for example to show that the model follows a
+truncation notice, run `--mode json` with isolated `PIPY_CONFIG_HOME` and
+session directories. Auth stays on the default store. A run costs cents and
+gives a tool-call trace. Models often sidestep the path under test: in TOOLS1
+the model piped `python3 gen.py` through `sed` itself instead of hitting the
+cut. Pin the exact tool call in the prompt, for example "the command string
+must be exactly X; never run it twice".
 
 ## Restored-session evidence (`pipy -r`)
 

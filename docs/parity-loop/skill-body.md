@@ -258,7 +258,7 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    ordinary tier always + `xhigh`/`max` only when mapped, explicit `None` removes a
    level — instead of reusing `supported_thinking_levels`. Corollary: any
    hand-authored catalog row whose Pi map is PARTIAL must spell out the identity
-   ordinary levels, because pipy reads map keys — Pi's Sol map is
+   ordinary levels, because pipy reads map keys — Pi's `gpt-6-sol` map is
    `{xhigh:xhigh, max:max, minimal:low}`, so the pipy row must add
    `low`/`medium`/`high` explicitly (and note `minimal->low` is a non-identity Pi
    mapping worth its own test).
@@ -383,6 +383,21 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      image check. Transcribe Pi arithmetic literally (Python slicing matches
      `Array.prototype.slice` for negative ends), but JS `toFixed` rounds ties up
      (1280 B is `1.3KB`): use `Decimal` `ROUND_HALF_UP` and pin a tie value.
+     For a binary Pi shells out to (rg, fd), measure and pin its rules and keep
+     its resource limits (`docs/parity-loop/porting-notes.md`).
+   - Provider-history filters: grep every `ProviderRequest(` with `messages=`,
+     not only `materialize_provider_request` (compaction's
+     `build_summary_request` bypasses it). A Pi JSON projection field must also
+     reach streamed `message_update` partials (`automation/agent_events.py`).
+   - A transcript-only message kind (Pi system messages) gets its own union
+     beside provider-history `AgentMessage`, so mypy finds every consumer;
+     non-appending publications still need `require_current_run`. If Pi's
+     default `/tree` filter shows it, grep tests and `scripts/parity_checks` for
+     hard-coded `/tree select N`, `/fork N` and Pi role lists first; update them
+     to the new Pi shape, never loosen the check.
+   - Pi error-text classifiers: pipy messages are sanitized, so feed each
+     adapter family's error type/code and transport retryable flags, and port
+     Pi's earlier `isContextOverflow` veto (overflow text `50000` matches `500`).
    - Providers bake some values at construction (e.g.
      `OpenAIResponsesProvider.reasoning_effort`), so a state-only assignment can
      update the footer while requests keep the old value. Route every interactive
@@ -397,13 +412,13 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      path: `get_available()`, the REPL `/model` options (`model_options`), and
      direct `/model <ref>` resolution (`_resolve_model_reference`), each with a
      per-row reason.
-   - Short-lived OAuth tokens (Copilot, ~30 min) expire under a provider bound across
-     turns: plan a
-     per-request auth wrapper that snapshots the credential on the owner thread
-     (`AuthStore` is single-thread), refreshes through a lock-protected cache
-     holding no `AuthStore`, rebuilds the adapter from the owner-thread
-     `ResolvedConstruction` replacing only `api_key`/`base_url`, and regenerates
-     token-derived headers (models.json `authHeader`).
+   - Short-lived OAuth tokens (Copilot, ~30 min) expire under a provider bound
+     across turns: plan a per-request auth wrapper that snapshots the
+     credential on the owner thread (`AuthStore` is single-thread), refreshes
+     through a lock-protected cache holding no `AuthStore`, rebuilds the
+     adapter from the owner-thread `ResolvedConstruction` replacing only
+     `api_key`/`base_url`, and regenerates token-derived headers (models.json
+     `authHeader`).
    - Cost/usage: confirm the price is actually consumed (`repl/turn_leaves.py`
      `pricing_for`) and enumerate every adapter usage extractor against the Pi
      adapter that normalizes it (uncached input = prompt minus inclusive cache
@@ -435,11 +450,10 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    `codex-review-loop` harness) cannot read `~/src/pi-mono`. Pass the touched Pi
    files — the adapter plus relevant caller excerpts such as compaction,
    `agent-session`, or generator rules — with `--evidence-file` (repeatable) on
-   BOTH the plan review and every code-review round. With the full Pi sources as
-   evidence, PC1's plan and code reviews each closed CLEAN in round 1.
-   `codex-review-loop` rejects `--staged-only` with `--baseline-ref`; to re-review
-   a staged plan while unstaged implementation work exists, run `--staged-only`
-   alone (full plan) plus a context file listing the prior findings and repairs.
+   BOTH the plan review and every code-review round. `codex-review-loop` rejects
+   `--staged-only` with `--baseline-ref`; to re-review a staged plan while
+   unstaged implementation work exists, run `--staged-only` alone (full plan)
+   plus a context file listing the prior findings and repairs.
    *Done-when:* CLEAN verdict (or the Operator-override stop above).
 4. **Write the implementation plan.** Turn the reviewed design into an ordered,
    testable task breakdown, written to a file. *Done-when:* numbered plan with
@@ -455,7 +469,8 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    must keep its line count unchanged. Exercise UI, cost, tool-call, and
    restored-session behavior without live credentials in a real tmux PTY using
    `docs/parity-loop/pty-evidence.md` (isolated env, fake-provider limits, local
-   completions stub, `pipy -r` model restore, offline real-Pi comparison).
+   completions stub, `pipy -r` model restore, offline real-Pi comparison, cheap
+   live `--mode json` checks with a pinned tool call).
    *Done-when:* code complete, focused tests written.
 6. **Update docs (part of the change).** Bring docs + release notes + the parity
    docs (`docs/parity-plan.md`, `docs/pi-mono-gap-audit.md`, `docs/backlog.md`)

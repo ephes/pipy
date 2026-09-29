@@ -30,9 +30,10 @@ the plan and code review gates:
 
     time env REVIEWER_AGENT=pi just parity-run-pipy
     time env REVIEWER_AGENT=opus just parity-run-pipy
-    time env REVIEWER_AGENT=pi REVIEWER_MODEL=openai-codex/gpt-5.5 just parity-run-pipy
+    time env REVIEWER_AGENT=pi REVIEWER_MODEL=openai-codex/gpt-6.1-sol just parity-run-pipy
 
-`REVIEWER_AGENT=pi` selects the Pi review harness and `REVIEWER_AGENT=opus`
+`REVIEWER_AGENT=pi` selects the Pi review harness (its `--model` accepts only
+`openai-codex/gpt-6.1-sol`) and `REVIEWER_AGENT=opus`
 selects the Opus review harness. The parity-loop prefers a different-family
 reviewer, but an explicit reviewer selection is also accepted as a
 quota-constrained override when the usual provider is unavailable or quota-bound;
