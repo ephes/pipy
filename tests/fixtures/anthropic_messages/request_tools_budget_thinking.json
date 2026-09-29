@@ -1,7 +1,15 @@
 {
   "model": "claude-sonnet-4-5",
   "max_tokens": 4096,
-  "system": "You are the pipy native assistant.",
+  "system": [
+    {
+      "type": "text",
+      "text": "You are the pipy native assistant.",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    }
+  ],
   "messages": [
     {
       "role": "user",
@@ -35,7 +43,10 @@
         {
           "type": "tool_result",
           "tool_use_id": "toolu_read_1",
-          "content": "port = 8080"
+          "content": "port = 8080",
+          "cache_control": {
+            "type": "ephemeral"
+          }
         }
       ]
     }
@@ -54,6 +65,9 @@
         "required": [
           "path"
         ]
+      },
+      "cache_control": {
+        "type": "ephemeral"
       }
     }
   ],

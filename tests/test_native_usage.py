@@ -34,4 +34,5 @@ def test_normalized_provider_usage_key_order_is_stable():
         "cached_tokens",
         "cache_write_tokens",
         "reasoning_tokens",
+        "cache_write_1h_tokens",
     )

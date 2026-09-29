@@ -148,11 +148,23 @@ def test_success_returns_final_text(tmp_path):
     assert posted["headers"]["Content-Type"] == "application/json"
     assert posted["body"]["model"] == "claude-test"
     assert posted["body"]["max_tokens"] == 4096
-    assert posted["body"]["system"] == "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED"
+    assert posted["body"]["system"] == [
+        {
+            "type": "text",
+            "text": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
     assert posted["body"]["messages"] == [
         {
             "role": "user",
-            "content": [{"type": "text", "text": "SAFE_GOAL_METADATA"}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": "SAFE_GOAL_METADATA",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
         }
     ]
     assert "tools" not in posted["body"]
@@ -249,6 +261,7 @@ def test_tool_result_round_trip(tmp_path):
                     "type": "tool_result",
                     "tool_use_id": "toolu_01ABC",
                     "content": "STATUS=succeeded bytes=120",
+                    "cache_control": {"type": "ephemeral"},
                 }
             ],
         },
@@ -333,6 +346,7 @@ def test_supported_anthropic_defers_tool_at_result_marker(tmp_path: Path) -> Non
             "name": "base_tool",
             "description": "base_tool description",
             "input_schema": {"type": "object", "properties": {}},
+            "cache_control": {"type": "ephemeral"},
         },
         {
             "name": "late_tool",
@@ -349,7 +363,11 @@ def test_supported_anthropic_defers_tool_at_result_marker(tmp_path: Path) -> Non
                 "tool_use_id": "call_base",
                 "content": [{"type": "tool_reference", "tool_name": "late_tool"}],
             },
-            {"type": "text", "text": "loaded late tool"},
+            {
+                "type": "text",
+                "text": "loaded late tool",
+                "cache_control": {"type": "ephemeral"},
+            },
         ],
     }
 
@@ -387,6 +405,7 @@ def test_anthropic_reference_omits_empty_displaced_output(tmp_path: Path) -> Non
                 "type": "tool_result",
                 "tool_use_id": "call_base",
                 "content": [{"type": "tool_reference", "tool_name": "late_tool"}],
+                "cache_control": {"type": "ephemeral"},
             }
         ]
 
@@ -495,7 +514,11 @@ def test_anthropic_groups_consecutive_results_before_displaced_output(
             "tool_use_id": "call_2",
             "content": "second output",
         },
-        {"type": "text", "text": "first output"},
+        {
+            "type": "text",
+            "text": "first output",
+            "cache_control": {"type": "ephemeral"},
+        },
     ]
 
 

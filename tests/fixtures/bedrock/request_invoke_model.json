@@ -1,7 +1,12 @@
 {
   "anthropic_version": "bedrock-2023-05-31",
   "max_tokens": 4096,
-  "system": "You are the pipy native assistant.",
+  "system": [
+    {
+      "type": "text",
+      "text": "You are the pipy native assistant."
+    }
+  ],
   "messages": [
     {
       "role": "user",

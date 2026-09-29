@@ -47,9 +47,13 @@ from pipy_harness.native.providers.anthropic_messages import (
     ANTHROPIC_THINKING_DISPLAY_DEFAULT,
 )
 from pipy_harness.native.providers.anthropic_messages_wire import (
+    anthropic_cache_control,
+    apply_last_user_cache_breakpoint,
     messages_payload,
     parse_response,
+    system_blocks,
 )
+from pipy_harness.native.providers.openai_prompt_cache import resolve_cache_retention
 
 BEDROCK_ENDPOINT_TEMPLATE = (
     "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/invoke"
@@ -86,6 +90,37 @@ def bedrock_supports_adaptive_thinking(model_id: str) -> bool:
         for candidate in candidates
         for marker in BEDROCK_ADAPTIVE_MODEL_MARKERS
     )
+
+
+# Pi's ``AWS_BEDROCK_FORCE_CACHE=1`` escape hatch for application inference
+# profiles whose ARN does not name the Claude model.
+BEDROCK_FORCE_CACHE_ENV = "AWS_BEDROCK_FORCE_CACHE"
+
+
+def bedrock_supports_prompt_caching(
+    model_id: str, env: Mapping[str, str] | None = None
+) -> bool:
+    """Pi's bedrock ``supportsPromptCaching`` (``bedrock-converse-stream.ts:855``).
+
+    Over the lowered id and its ``[\\s_.:]+ -> -`` form: a non-Claude id caches
+    only with ``AWS_BEDROCK_FORCE_CACHE=1``; a Claude id caches for the 5.x
+    (fable/opus/sonnet), 4.x, 3.7 Sonnet and 3.5 Haiku families.
+    """
+
+    lowered = model_id.lower()
+    candidates = (lowered, _BEDROCK_ID_SEPARATORS.sub("-", lowered))
+    if not any("claude" in candidate for candidate in candidates):
+        source = os.environ if env is None else env
+        return source.get(BEDROCK_FORCE_CACHE_ENV) == "1"
+    markers = (
+        "fable-5",
+        "opus-5",
+        "sonnet-5",
+        "-4-",
+        "claude-3-7-sonnet",
+        "claude-3-5-haiku",
+    )
+    return any(marker in candidate for candidate in candidates for marker in markers)
 
 
 def _apply_bedrock_thinking(
@@ -128,17 +163,32 @@ def _build_bedrock_request_body(
     region: str | None,
     reasoning_effort: str | None,
 ) -> dict[str, Any]:
-    """Build the InvokeModel body, including target-specific thinking shapes."""
+    """Build the InvokeModel body, including target-specific thinking shapes.
 
+    Prompt caching follows Pi's Converse cache points
+    (``bedrock-converse-stream.ts:886-905``, ``:1106-1118``), expressed as
+    Anthropic ``cache_control`` on the preceding block: one after the system
+    text and one on the last block of a trailing user message, for Claude
+    models that support caching. Long retention always asks for ``ttl: "1h"``;
+    tools never carry a cache point.
+    """
+
+    retention = resolve_cache_retention(request.cache_retention)
+    cache_control = (
+        anthropic_cache_control(retention, long_ttl=True)
+        if bedrock_supports_prompt_caching(model_id)
+        else None
+    )
+    messages = messages_payload(request, parse_error_class=BedrockResponseParseError)
+    apply_last_user_cache_breakpoint(messages, cache_control, eligible_types=None)
     body: dict[str, Any] = {
         "anthropic_version": anthropic_version,
         "max_tokens": max_tokens,
-        "system": request.system_prompt,
-        "messages": messages_payload(
-            request,
-            parse_error_class=BedrockResponseParseError,
-        ),
     }
+    system = system_blocks(request.system_prompt, cache_control)
+    if system is not None:
+        body["system"] = system
+    body["messages"] = messages
     if request.available_tools:
         body["tools"] = [
             serialize_tool_for_anthropic(tool) for tool in request.available_tools

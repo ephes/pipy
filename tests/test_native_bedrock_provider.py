@@ -187,7 +187,11 @@ def test_success_returns_final_text(tmp_path):
     assert "X-Amz-Security-Token" not in posted["headers"]
     assert posted["body"]["anthropic_version"] == "bedrock-2023-05-31"
     assert posted["body"]["max_tokens"] == 4096
-    assert posted["body"]["system"] == "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED"
+    # Claude 3.5 Sonnet is outside Pi's Bedrock prompt-caching gate, so the
+    # system block carries no cache point.
+    assert posted["body"]["system"] == [
+        {"type": "text", "text": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED"}
+    ]
     assert posted["body"]["messages"] == [
         {"role": "user", "content": [{"type": "text", "text": "SAFE_GOAL_METADATA"}]}
     ]
