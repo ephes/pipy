@@ -6,6 +6,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Added
+
+- GPT-6.1 Sol (`gpt-6.1-sol`) on the `openai`, `openai-codex` and
+  `github-copilot` providers, with Pi's rows (MC6, Pi `12c416e1a`): $2 input,
+  $0.10 cached input, $2.50 cache writes, $10 output, 272K context (1.05M on
+  Copilot) and 128K output. It rejects `reasoning.effort: "none"`, so thinking
+  cannot be switched off: `off` is not offered and no off-state `reasoning`
+  field is sent. A carried `off` clamps to the lowest offered level: `minimal`
+  on Codex (sent as `low`), `low` on OpenAI and Copilot. Levels run up to
+  `max`.
+
+### Changed
+
+- The default `openai-codex` model is now `gpt-6.1-sol` (was `gpt-5.5`), as in
+  Pi (MC6, Pi `12c416e1a`). `--native-provider openai-codex` without
+  `--native-model` starts on it; the other defaults are unchanged.
+
 ### Fixed
 
 - An aborted or failed turn is no longer lost (DF1-F6, Pi `4df157433`). The

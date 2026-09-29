@@ -59,7 +59,8 @@ mirrors Pi's `defaultModelPerProvider`:
 | Provider | Default |
 |---|---|
 | anthropic | `claude-opus-4-8` |
-| openai and openai-codex | `gpt-5.5` |
+| openai | `gpt-5.5` |
+| openai-codex | `gpt-6.1-sol` |
 | google and google-vertex | `gemini-3.1-pro-preview` |
 | amazon-bedrock | `us.anthropic.claude-opus-4-6-v1` |
 | azure-openai | `gpt-5.4` |
@@ -75,11 +76,11 @@ The built-in catalog tracks Pi's current rows:
 | Provider | Models |
 |---|---|
 | Anthropic | Claude Opus/Sonnet 5.5, Opus/Sonnet 5, Fable 5/5.1, Opus 4.8/4.7, Sonnet 4.5, Haiku 4.5 |
-| OpenAI and Codex | GPT-6 Sol/Luna/Astra, GPT-5.6 Sol/Terra/Luna, GPT-5.5 |
+| OpenAI and Codex | GPT-6.1 Sol, GPT-6 Sol/Luna/Astra, GPT-5.6 Sol/Terra/Luna, GPT-5.5 |
 | Gemini | 3.1 Pro, 3.5 Flash, 3.1 Flash Lite |
 | Bedrock | `us.` Claude mirrors |
 | xAI | Grok 4.3, 4.5, 4.6, 4.7 |
-| GitHub Copilot | Pi's 33 Copilot rows (Claude, GPT, Grok, Gemini, Kimi, MAI) |
+| GitHub Copilot | Pi's 34 Copilot rows (Claude, GPT, Grok, Gemini, Kimi, MAI) |
 
 `pipy --list-models` shows the full table.
 
@@ -332,7 +333,9 @@ Which levels a model offers follows Pi:
   `openai-codex/gpt-6-sol` and `anthropic/claude-opus-5-5` map both.
 - A level a model maps to `null` is not offered. On models that cannot switch
   thinking off, that includes `off`. Examples are Claude Fable 5, Claude
-  Opus/Sonnet 5.5, GPT-6 Astra and Gemini 3.x.
+  Opus/Sonnet 5.5, GPT-6 Astra, GPT-6.1 Sol and Gemini 3.x. A carried `off`
+  clamps to the lowest level such a model offers (on GPT-6.1 Sol: `minimal`,
+  sent as `low`, on Codex; `low` on OpenAI and Copilot).
 
 Shift+Tab cycling and the OpenAI/Azure/Codex/Gemini request-path clamp follow
 this per-model support. On OpenAI Responses, Azure and Codex, `off` sends Pi's

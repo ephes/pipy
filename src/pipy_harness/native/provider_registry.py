@@ -52,7 +52,7 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             "openai-codex",
             NativeProviderSpec(
                 provider_name="openai-codex",
-                default_model="gpt-5.5",
+                default_model="gpt-6.1-sol",
                 availability="openai-codex-login",
                 unavailable_message=(
                     "pipy: openai-codex is not logged in. "

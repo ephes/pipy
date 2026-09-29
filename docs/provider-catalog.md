@@ -77,6 +77,28 @@ generator (`packages/ai/scripts/generate-models.ts` run against models.dev).
 - **Footer context meter.** The meter reads the built-in row's context window
   and formats it like Pi's footer (`272k`, `1.0M`).
 
+The MC6 refresh against Pi `1b347794e` adds GPT-6.1 Sol (Pi `12c416e1a`):
+
+- **Rows.** `openai/gpt-6.1-sol`, `openai-codex/gpt-6.1-sol` and
+  `github-copilot/gpt-6.1-sol` carry Pi's generated values: cost 2/10/0.1/2.5,
+  272K context (1.05M on Copilot), 128K output, image input and each
+  provider's compat flags (tool search and explicit prompt-cache mode on
+  OpenAI; tool search on Codex; Copilot's grammar-tools, mid-conversation
+  system message and additional-tools flags). Pi's long-context price tier
+  above 272K input is not carried, like every built-in tier.
+- **Thinking.** The model rejects `reasoning.effort: "none"`, so every row maps
+  `off` to `null`, like GPT-6 Astra: `off` is not offered, no off-state
+  `reasoning` field is sent, and a carried `off` clamps to the lowest offered
+  level. OpenAI and Copilot map `minimal` to `null`, so `off` clamps to `low`;
+  Codex maps `minimal` to `low`, so `off` clamps to `minimal` and sends `low`.
+  All three map `xhigh` and `max`.
+- **Default.** Pi's `defaultModelPerProvider` now makes `gpt-6.1-sol` the
+  `openai-codex` default; pipy's `default_model_per_provider` and the registry
+  follow. The other defaults did not change in Pi's `4df157433..1b347794e`
+  range.
+- Pi also adds the model to `azure-openai-responses`. pipy's `azure-openai`
+  carries only GPT-5.4 and GPT-4o/4o mini there, so it is not added.
+
 Known deviations, owned by later slices:
 
 - **OpenRouter Claude rows.** Pi routes them through `anthropic-messages` over
@@ -154,6 +176,12 @@ now carry Pi's values:
 Pi marks Mistral Large and Small as image-capable. They stay text-only in
 pipy, because its Chat Completions wire has no image serialization.
 
+MC6 ran the check against Pi `1b347794e` (hydrated data generated
+2026-09-29): clean, 97 shared rows. Against data older than Pi `12c416e1a`
+(such as a `4df157433` checkout) the three `gpt-6.1-sol` rows report as
+`pipy-only` until that checkout is refreshed; they are not allowlisted,
+because an entry for them would be stale against current data.
+
 The 2026-07-14 refresh against Pi `0.80.6` shipped GPT-5.6 Sol
 (`openai-codex/gpt-5.6-sol`, image input) plus model-aware `max`
 thinking: the vocabulary is now `off|minimal|low|medium|high|xhigh|max`, the
@@ -219,8 +247,9 @@ openai-completions) construct from the catalog via `native/provider_construction
 - **xai and GitHub Copilot** (backlog PR1/PR2, Pi `4df157433`; plan
   `docs/specs/2026-09-29-pr1-pr2-xai-copilot-plan.md`): Pi's 4 xai rows
   (`openai-responses`, `https://api.x.ai/v1`, `XAI_API_KEY`, default
-  `grok-4.7`) and 33 github-copilot rows (10 `anthropic-messages`, 6
-  `openai-completions`, 17 `openai-responses`, Copilot editor headers, default
+  `grok-4.7`) and 34 github-copilot rows (10 `anthropic-messages`, 6
+  `openai-completions`, 18 `openai-responses` with MC6's GPT-6.1 Sol, Copilot
+  editor headers, default
   `gpt-5.4`), all with Pi's generated values. Request shapes:
   - the Responses adapter ports Pi `buildParams`: an on-state effort sends
     `reasoning.summary: "auto"` and `include: ["reasoning.encrypted_content"]`
@@ -755,7 +784,7 @@ interface Model<TApi> {
 
 `defaultModelPerProvider` (model-resolver.ts) maps each known provider to its
 default model id (e.g. `anthropic -> claude-opus-4-8`, `openai-codex ->
-gpt-5.5`, `openrouter -> moonshotai/kimi-k2.6` at Pi `4df157433`). pipy's
+gpt-6.1-sol`, `openrouter -> moonshotai/kimi-k2.6` at Pi `1b347794e`). pipy's
 `default_model_per_provider` and the provider registry defaults mirror it
 exactly; `tests/test_native_model_currency.py` pins both.
 

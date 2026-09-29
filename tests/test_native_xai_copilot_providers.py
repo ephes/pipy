@@ -224,7 +224,7 @@ def test_catalog_carries_pi_rows_for_both_providers() -> None:
     assert by_api == {
         "anthropic-messages": 10,
         "openai-completions": 6,
-        "openai-responses": 17,
+        "openai-responses": 18,
     }
 
 

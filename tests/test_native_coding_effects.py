@@ -1196,6 +1196,12 @@ def test_rpc_catalog_filters_tool_capability_and_cycles_scoped_or_unscoped(
     assert unscoped_from_filtered_active.result.snapshot.selection != (
         NativeModelSelection("openai", "gpt-4o")
     )
+    # The cycle lands on openai/gpt-6.1-sol, which cannot switch thinking off,
+    # so the level clamps to its lowest effort (Pi clampThinkingLevel).
+    assert (
+        unscoped_from_filtered_active.result.snapshot.selection,
+        unscoped_from_filtered_active.result.snapshot.thinking_level,
+    ) == (NativeModelSelection("openai", "gpt-6.1-sol"), "low")
 
     state.replace_selection(NativeModelSelection("anthropic", "claude-opus-4-7"))
     assert NativeModelSelection("anthropic", "claude-opus-4-7") not in (
@@ -1213,7 +1219,7 @@ def test_rpc_catalog_filters_tool_capability_and_cycles_scoped_or_unscoped(
         scoped.result.snapshot.selection,
         scoped.result.snapshot.thinking_level,
         scoped.is_scoped,
-    ) == (NativeModelSelection("openai", "gpt-5.4"), "off", True)
+    ) == (NativeModelSelection("openai", "gpt-5.4"), "low", True)
 
     enabled[:] = ["acme/rocket-*"]
     state.replace_selection(NativeModelSelection("acme", "outside-catalog"))
