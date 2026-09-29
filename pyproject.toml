@@ -1,6 +1,6 @@
 [project]
 name = "pipy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Native Python coding agent with TUI, providers, tools, extensions, and headless automation."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,6 +27,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pipy_session", "src/pipy_harness"]
+
+# Ship the changelog inside the wheel so `/changelog` and the startup
+# "What's New" notice work in an installed copy: `default_changelog_path()`
+# walks up from `pipy_harness/native/changelog.py` to the first CHANGELOG.md.
+[tool.hatch.build.targets.wheel.force-include]
+"CHANGELOG.md" = "pipy_harness/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

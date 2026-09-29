@@ -21,21 +21,25 @@ setup, architecture boundaries, validation, review, and privacy expectations.
 
 ## Install And Update
 
-For a local checkout install during development:
+The current release is 0.2.0 (see [`CHANGELOG.md`](CHANGELOG.md)). pipy is not
+published on PyPI or any other package index, so install it from a checkout of
+this repository:
 
 ```sh
 uv tool install .
+pipy --version   # pipy 0.2.0
 ```
 
-For a published package, use the published distribution name:
+`uv tool install .` builds the checkout and installs the `pipy` and
+`pipy-session` commands into uv's tool bin directory (`uv tool update-shell`
+adds it to `PATH`). Running it again after `git pull` rebuilds and replaces the
+installed copy. Inside the repository, `uv run pipy` works without installing.
 
-```sh
-uv tool install <published-pipy-distribution>
-pipx install <published-pipy-distribution>
-pip install --user <published-pipy-distribution>
-```
+When a distribution name is published, `uv tool install`, `pipx install` and
+`pip install --user` with that name will work too. Until then, do not guess a
+package name.
 
-Update an installed copy with:
+`pipy update self` plans an update for an installed copy:
 
 ```sh
 pipy update self

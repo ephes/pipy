@@ -12,9 +12,10 @@ Status: sole active task index, rewritten 2026-09-29.
   [Done](#done-2026-09-29).
 - **Remaining queue:** DF1 is partially done (openai-codex live; see its
   row in [Done](#done-2026-09-29)). READ1, the most important follow-on DF1
-  found, is done. The queue is now RL1 (release 0.2.0).
-- **Tests:** `uv run --frozen pytest --co` collects 6,576 tests on
-  `chore/df1-dogfooding` (6,571 on `chore/dh1-hygiene`).
+  found, is done. RL1 prepared release 0.2.0, so the active queue is empty;
+  pick the next item from [Follow-ons](#follow-ons).
+- **Tests:** `uv run --frozen pytest --co` collects 6,614 tests on
+  `release/0.2.0` (6,576 on `chore/df1-dogfooding`).
 - **Not verified live.** openai-codex has live evidence for `gpt-6-sol` at
   off/medium/max and `gpt-6-luna` at low/max: effort values, footer, cache hits,
   a real repository task, steering, cancel, manual and automatic compaction
@@ -78,19 +79,8 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
-Take items in order unless one is blocked. Effort: S ≈ one focused slice,
-M ≈ two or three slices.
-
-### 1. RL1 — Release 0.2.0, talk-minimum (S)
-
-The pyproject is still at `0.1.0`, the repo has no tags, and CHANGELOG
-`[Unreleased]` runs from line 7 to line 1083.
-
-- Split the CHANGELOG into `0.2.0`.
-- Tag the release.
-- Make the README install note accurate for a checkout install.
-
-Choosing a PyPI name and adding a SHA-pinned publish workflow can follow.
+The queue is empty. Promote a follow-on into a numbered item here when a user
+need makes it matter. Effort: S ≈ one focused slice, M ≈ two or three slices.
 
 ## Done (2026-09-29)
 
@@ -112,6 +102,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | DH1 | Pi comparison gates run on `node` again and fail when Pi is missing; explicit `fake-native-bootstrap` REPL crash fixed; docs re-baselined | `chore/dh1-hygiene` |
 | DF1 (partial) | Live smoke and dogfooding on openai-codex, recorded in [the acceptance note](acceptance/2026-09-29-df1-dogfooding.md). Five bugs were fixed: a model switch kept no history, edit/write diffs corrupted the TUI, Escape froze the frame for about 3 s on the WebSocket close, tool rows showed argument dumps, and a refused switch changed the footer's thinking level. Gaps: no live evidence for other families (no credentials), automatic compaction can stop a session (DF1-F5), and follow-ons below | `chore/df1-dogfooding` |
 | READ1 | `read` follows Pi: `offset`/`limit`, 2000 lines / 50 KB, `[Showing lines …] Use offset=N to continue` notices; no size cap or content refusal. Follow-ons READ2, READ-IMG, TOOLS1 | `fix/read1-read-tool` |
+| RL1 | Release 0.2.0: version bump, CHANGELOG `[0.2.0] - 2026-09-29` with highlights, the wheel ships `CHANGELOG.md`, README/quickstart checkout-install note (no PyPI package). The release tag is applied on `main` after the merge | `release/0.2.0` |
 
 ## Follow-ons
 
@@ -173,6 +164,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - The manual compaction summary treated its own instruction as a user
     request.
 
+- **Publishing:** choose and own a PyPI distribution name, then add a
+  publish workflow with SHA-pinned actions. Until then
+  `pipy update self` refuses, and the README documents the checkout install.
 - **USAGE1:** per-message usage in JSON/RPC messages and the session tree,
   resumed-session totals, Pi's `/session` Cost section, totals across a model
   switch, and Pi's footer token semantics (uncached `↑`, latest-message `CH`).
