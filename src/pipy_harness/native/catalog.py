@@ -177,4 +177,6 @@ default_model_per_provider: dict[str, str] = {
     "amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
     "azure-openai": "gpt-5.4",
     "cloudflare": "@cf/moonshotai/kimi-k2.6",
+    "github-copilot": "gpt-5.4",
+    "xai": "grok-4.7",
 }

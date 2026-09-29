@@ -88,6 +88,7 @@ VALUE_FIELDS = (
     "maxTokens",
     "thinkingLevelMap",
     "baseUrl",
+    "headers",
     *(f"compat.{key}" for key in TRACKED_COMPAT),
 )
 ROW_FIELDS = ("pipy-only", "not-carried")
@@ -232,6 +233,7 @@ def pi_values(model: Mapping[str, Any]) -> dict[str, Any]:
         "maxTokens": model.get("maxTokens"),
         "thinkingLevelMap": pi_thinking(model),
         "baseUrl": model.get("baseUrl") or "",
+        "headers": dict(model.get("headers") or {}),
     }
     for key in TRACKED_COMPAT:
         values[f"compat.{key}"] = compat.get(key, ABSENT)
@@ -254,6 +256,7 @@ def pipy_values(row: NativeModelSpec) -> dict[str, Any]:
         "maxTokens": row.max_tokens,
         "thinkingLevelMap": pipy_thinking(row),
         "baseUrl": row.base_url or "",
+        "headers": dict(row.headers or {}),
     }
     for key in TRACKED_COMPAT:
         values[f"compat.{key}"] = compat.get(key, ABSENT)

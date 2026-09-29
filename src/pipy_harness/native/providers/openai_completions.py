@@ -33,7 +33,12 @@ from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.provider import (
+    COPILOT_PROVIDER_NAME,
+    StreamChunkSink,
+    apply_provider_headers,
+    copilot_dynamic_headers,
+)
 from pipy_harness.native.providers.chat_completions_wire import (
     chat_messages,
     parse_response,
@@ -144,6 +149,25 @@ class OpenAIChatCompletionsProvider:
             api_key=api_key,
         )
 
+    def _request_headers(
+        self, request: ProviderRequest, api_key: str | None
+    ) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        # Merged provider/model headers (may include an explicit Authorization).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        # Copilot per-request headers follow the model headers (Pi
+        # ``createClient``). This adapter does not render image attachments, so
+        # it never sends an image and never sets ``Copilot-Vision-Request``.
+        if self.provider_name == COPILOT_PROVIDER_NAME:
+            headers.update(copilot_dynamic_headers(request, images_sent=False))
+        # Apply Bearer api_key only when no Authorization header is already
+        # present, so an explicit models.json Authorization is preserved.
+        has_authorization = any(name.lower() == "authorization" for name in headers)
+        if api_key and not has_authorization:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
     def complete(
         self,
         request: ProviderRequest,
@@ -176,15 +200,7 @@ class OpenAIChatCompletionsProvider:
             body[key] = value
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort
-        headers = {"Content-Type": "application/json"}
-        # Merged provider/model headers (may include an explicit Authorization).
-        for header_name, header_value in self.extra_headers.items():
-            headers[header_name] = header_value
-        # Apply Bearer api_key only when no Authorization header is already
-        # present, so an explicit models.json Authorization is preserved.
-        has_authorization = any(name.lower() == "authorization" for name in headers)
-        if configuration.api_key and not has_authorization:
-            headers["Authorization"] = f"Bearer {configuration.api_key}"
+        headers = self._request_headers(request, configuration.api_key)
         headers = apply_provider_headers(request, headers)
 
         try:

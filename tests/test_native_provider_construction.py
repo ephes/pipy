@@ -1578,8 +1578,10 @@ def test_openai_responses_catalog_construction(tmp_path):
     assert sent["url"] == "https://api.openai.com/v1/responses"
     assert sent["body"]["model"] == "gpt-5.5"
     assert sent["headers"]["Authorization"] == "Bearer ok"
-    # responses thinking is the nested reasoning.effort object
-    assert sent["body"]["reasoning"] == {"effort": "high"}
+    # responses thinking is the nested reasoning.effort object; an on-state
+    # effort also sends Pi's summary "auto" and the encrypted-reasoning include
+    assert sent["body"]["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert sent["body"]["include"] == ["reasoning.encrypted_content"]
 
 
 def test_openai_responses_omits_reasoning_when_unset(tmp_path):

@@ -28,6 +28,10 @@ The built-in catalog includes rows for the implemented adapter families:
 - `openai-codex` — ChatGPT/Codex OAuth-backed responses.
 - `anthropic`, `mistral`, `google`, `google-vertex`, `amazon-bedrock`,
   `azure-openai`, `cloudflare`, and `openrouter`.
+- `xai` — Grok over the OpenAI Responses API.
+- `github-copilot` — GitHub Copilot's Claude, GPT, Grok, Gemini, Kimi and MAI
+  models, each on the API family Copilot serves it with (Anthropic Messages,
+  OpenAI Responses, or Chat Completions).
 
 Package or per-run extensions may add temporary provider rows for the current
 process. `models.json` may also add custom providers and models.
@@ -63,6 +67,8 @@ mirrors Pi's `defaultModelPerProvider`:
 | cloudflare | `@cf/moonshotai/kimi-k2.6` |
 | mistral | `devstral-medium-latest` |
 | openai-completions | `gpt-5.5` |
+| xai | `grok-4.7` |
+| github-copilot | `gpt-5.4` |
 
 The built-in catalog tracks Pi's current rows:
 
@@ -72,6 +78,8 @@ The built-in catalog tracks Pi's current rows:
 | OpenAI and Codex | GPT-6 Sol/Luna/Astra, GPT-5.6 Sol/Terra/Luna, GPT-5.5 |
 | Gemini | 3.1 Pro, 3.5 Flash, 3.1 Flash Lite |
 | Bedrock | `us.` Claude mirrors |
+| xAI | Grok 4.3, 4.5, 4.6, 4.7 |
+| GitHub Copilot | Pi's 33 Copilot rows (Claude, GPT, Grok, Gemini, Kimi, MAI) |
 
 `pipy --list-models` shows the full table.
 
@@ -126,6 +134,38 @@ Common built-in sources:
 | `amazon-bedrock` | AWS environment/profile credentials used by the adapter |
 | `google-vertex` | `GOOGLE_CLOUD_API_KEY` (Vertex Express), or `GOOGLE_ACCESS_TOKEN` + project + location |
 | `openai-codex` | `pipy auth openai-codex login` or `/login openai-codex` |
+| `xai` | `XAI_API_KEY` |
+| `github-copilot` | `/login github-copilot`, or `COPILOT_GITHUB_TOKEN` |
+
+### GitHub Copilot
+
+`/login github-copilot` runs GitHub's device-code login, as Pi does. Pipy asks
+for a GitHub Enterprise URL or domain (leave it blank for github.com), prints
+the verification URL and a user code, and waits while you approve the code in
+a browser. It does not open the browser itself. When you have approved it,
+pipy exchanges the GitHub token for a Copilot token, lists the models your
+account can use, and enables the models whose policy is still unconfigured.
+The credential is stored in the pipy auth store; `/logout github-copilot`
+removes it.
+
+After an OAuth login, only the models your account can use are offered in
+`/model` and the other model lists. Each request uses the Copilot endpoint named
+in the token (for example `api.business.githubcopilot.com`), or
+`copilot-api.<enterprise domain>`. The short-lived Copilot token is refreshed
+before a request when it has less than five minutes left. The refreshed token
+is kept in memory for the running process; the stored GitHub token is what
+survives restarts.
+
+`COPILOT_GITHUB_TOKEN` is sent as-is to the default endpoint
+(`api.individual.githubcopilot.com`), as in Pi.
+
+Every Copilot request carries Copilot's editor headers plus `X-Initiator`
+(`agent` after a tool or assistant turn, else `user`), `Openai-Intent:
+conversation-edits`, and `Copilot-Vision-Request: true` when the request sends
+an image. Claude models authenticate with a Bearer token.
+
+Pipy does not offer Pi's xAI OAuth login (SuperGrok or X Premium); use
+`XAI_API_KEY`.
 
 `--api-key` is a runtime override for catalog-constructed providers and is kept
 out of archives. Prefer environment variables or `models.json` env-name
@@ -298,7 +338,12 @@ Which levels a model offers follows Pi:
 Shift+Tab cycling and the OpenAI/Azure/Codex/Gemini request-path clamp follow
 this per-model support. On OpenAI Responses, Azure and Codex, `off` sends Pi's
 explicit `reasoning.effort: "none"` (or the row's own off value). No
-`reasoning` field is sent when the model cannot switch thinking off. Some provider-specific
+`reasoning` field is sent when the model cannot switch thinking off. On the
+OpenAI Responses API (OpenAI, xAI, Copilot GPT/Grok rows), a thinking level
+also sends `reasoning.summary: "auto"` and asks for the encrypted reasoning
+item (`include: ["reasoning.encrypted_content"]`), as Pi does; xAI asks for it
+even with thinking off. Copilot sends no `reasoning` field when thinking is
+off, and its Gemini/Kimi rows never send `reasoning_effort`. Some provider-specific
 request shapes remain follow-up work; when a row or adapter cannot apply a
 level, pipy falls back safely rather than inventing unsupported parameters.
 
@@ -310,8 +355,9 @@ current image/file-reference workflows described in [Using pipy](usage.md).
 Provider/model parity is mostly wired, but these user-visible improvements are
 still tracked:
 
-- live Anthropic and GitHub Copilot login UX; and
+- live Anthropic login UX; and
 - broader local-provider maturity and benchmarking.
 
 (Shipped: Vertex API-key (Express) auth via `GOOGLE_CLOUD_API_KEY`; the Anthropic
-adaptive-thinking request shape; Azure URL/api-version parity.)
+adaptive-thinking request shape; Azure URL/api-version parity; the `xai` and
+`github-copilot` providers with `/login github-copilot`.)

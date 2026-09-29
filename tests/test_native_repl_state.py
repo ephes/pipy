@@ -475,6 +475,8 @@ def test_auto_default_priority_preserves_hosted_provider_preference(
         "azure-openai",
         "cloudflare",
         "google-vertex",
+        "github-copilot",
+        "xai",
         "openai-completions",
     )
 

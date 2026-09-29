@@ -192,6 +192,34 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
                 supports_tool_calls=True,
             ),
         ),
+        (
+            "github-copilot",
+            NativeProviderSpec(
+                provider_name="github-copilot",
+                default_model="gpt-5.4",
+                # Env probe only; a stored ``/login github-copilot`` credential
+                # is seen by the catalog availability gate (auth store).
+                availability="env:COPILOT_GITHUB_TOKEN",
+                unavailable_message=(
+                    "pipy: github-copilot is unavailable because "
+                    "COPILOT_GITHUB_TOKEN is not set. Run /login github-copilot "
+                    "or set COPILOT_GITHUB_TOKEN."
+                ),
+                supports_tool_calls=True,
+            ),
+        ),
+        (
+            "xai",
+            NativeProviderSpec(
+                provider_name="xai",
+                default_model="grok-4.7",
+                availability="env:XAI_API_KEY",
+                unavailable_message=(
+                    "pipy: xai is unavailable because XAI_API_KEY is not set."
+                ),
+                supports_tool_calls=True,
+            ),
+        ),
     )
 )
 

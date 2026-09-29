@@ -285,13 +285,40 @@ Deviations kept as follow-ons, not queued separately yet:
   where Pi sends `prompt_mode: "reasoning"`.
 - Display names are not compared.
 
-### 9. PR1/PR2 — xai and github-copilot providers (S–M)
+### 9. PR1/PR2 — xai and github-copilot providers (done 2026-09-29)
 
-- **PR1:** register xai (grok-4.7, the Pi default from `1a584a7a5`) on the
-  Responses family with `XAI_API_KEY`.
-- **PR2:** register github-copilot. It needs catalog rows and device login;
-  `GitHubCopilotOAuthProvider` already exists (`oauth_providers.py:206`).
-- Neither provider is in `provider_registry.py` today.
+Landed on branch `feat/pr-xai-copilot`. Both providers follow Pi `4df157433`;
+the plan is in `docs/specs/2026-09-29-pr1-pr2-xai-copilot-plan.md` and the user
+docs in `docs/providers.md` (GitHub Copilot) and `docs/provider-catalog.md`.
+
+- **PR1:** `xai` is registered on the Responses family with `XAI_API_KEY` and
+  default `grok-4.7`. It carries Pi's four Grok rows. Requests ask for the
+  encrypted reasoning item on every reasoning request, as in Pi.
+- **PR2:** `github-copilot` is registered with Pi's 33 rows across Anthropic
+  Messages, Responses and Chat Completions, Copilot's editor headers, and
+  default `gpt-5.4`. `/login github-copilot` runs Pi's device-code flow,
+  including enterprise domains, the model list and policy enabling.
+  `COPILOT_GITHUB_TOKEN` also works. Each request uses the token's `proxy-ep`
+  endpoint and a token refreshed per request. The adapters add Pi's
+  `X-Initiator`/`Openai-Intent`/`Copilot-Vision-Request` headers. Claude rows
+  use Bearer auth, and the model lists follow the account's
+  `availableModelIds`.
+- On the way, the Responses adapter now sends Pi's on-state
+  `reasoning.summary: "auto"` and encrypted-reasoning `include` for every
+  `openai-responses` row, which closes that MC1 follow-on. The Chat
+  Completions default branch honours `compat.supportsReasoningEffort`.
+  `just catalog-drift` also compares row headers, and it is CLEAN with both
+  providers included.
+- Live smoke skipped: no `XAI_API_KEY`, `COPILOT_GITHUB_TOKEN` or stored
+  Copilot login was available.
+
+Deviations kept as follow-ons, not queued separately yet:
+
+- Pi's xAI OAuth login (SuperGrok or X Premium) is not ported.
+- A refreshed Copilot token is kept in memory, not written back to the auth
+  store (Pi persists it under a file lock). The Copilot 429 retry does not read
+  `Retry-After`.
+- Cost tiers (both providers) are not modeled.
 
 ### 10. DH1 — Docs and repo hygiene (S)
 

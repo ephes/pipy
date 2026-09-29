@@ -25,7 +25,12 @@ from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
 )
 from pipy_harness.native.models import CacheRetention, ProviderRequest, ProviderResult
-from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.provider import (
+    COPILOT_PROVIDER_NAME,
+    StreamChunkSink,
+    apply_provider_headers,
+    copilot_dynamic_headers,
+)
 from pipy_harness.native.providers.openai_prompt_cache import (
     clamp_openai_prompt_cache_key,
     resolve_cache_retention,
@@ -80,6 +85,12 @@ class OpenAIResponsesProvider:
     # mapped thinking value, placed in the Responses ``reasoning.effort`` key.
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    # Pi ``buildParams`` (``openai-responses.ts:343-358``): an on-state effort
+    # also sends ``reasoning.summary`` ("auto") and asks for the encrypted
+    # reasoning item; xai asks for it on every reasoning request. Resolved by
+    # catalog construction; a directly constructed adapter sends neither.
+    reasoning_summary: str | None = None
+    include_encrypted_reasoning: bool = False
     supports_tool_search: bool = False
     # Pi ``OpenAIResponsesCompat`` prompt-cache bits, resolved from the catalog
     # row at construction (``openai-responses.ts:68-80``): the session-affinity
@@ -149,19 +160,10 @@ class OpenAIResponsesProvider:
             body["tools"] = [
                 serialize_tool_for_responses(tool) for tool in immediate_tools
             ]
-        # Responses-native thinking: the mapped effort goes in ``reasoning.effort``.
-        if self.reasoning_effort is not None:
-            body["reasoning"] = {"effort": self.reasoning_effort}
-        headers = {"Content-Type": "application/json"}
-        # Merged models.json/model headers (may include an explicit Authorization).
-        for header_name, header_value in self.extra_headers.items():
-            headers[header_name] = header_value
-        # Session-affinity headers follow the model headers; the request-scoped
-        # hook below may still override them, like Pi's ``options.headers``.
-        headers.update(self._session_affinity_headers(request, retention))
-        # Apply ``Bearer api_key`` only when no explicit Authorization is present.
-        if self.api_key and not has_explicit_authorization:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        self._apply_reasoning_fields(body)
+        headers = self._request_headers(
+            request, retention, has_explicit_authorization=has_explicit_authorization
+        )
         headers = apply_provider_headers(request, headers)
 
         try:
@@ -208,6 +210,42 @@ class OpenAIResponsesProvider:
             },
             tool_calls=result.tool_calls,
         )
+
+    def _apply_reasoning_fields(self, body: dict[str, Any]) -> None:
+        """Responses-native thinking: the mapped effort in ``reasoning.effort``."""
+
+        if self.reasoning_effort is not None:
+            reasoning: dict[str, str] = {"effort": self.reasoning_effort}
+            if self.reasoning_summary is not None:
+                reasoning["summary"] = self.reasoning_summary
+            body["reasoning"] = reasoning
+        if self.include_encrypted_reasoning:
+            body["include"] = ["reasoning.encrypted_content"]
+
+    def _request_headers(
+        self,
+        request: ProviderRequest,
+        retention: CacheRetention,
+        *,
+        has_explicit_authorization: bool,
+    ) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        # Merged models.json/model headers (may include an explicit Authorization).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        # Copilot per-request headers follow the model headers (Pi
+        # ``createClient``); this adapter sends the attachments as images.
+        if self.provider_name == COPILOT_PROVIDER_NAME:
+            headers.update(
+                copilot_dynamic_headers(request, images_sent=bool(request.attachments))
+            )
+        # Session-affinity headers follow the model headers; the request-scoped
+        # hook may still override them, like Pi's ``options.headers``.
+        headers.update(self._session_affinity_headers(request, retention))
+        # Apply ``Bearer api_key`` only when no explicit Authorization is present.
+        if self.api_key and not has_explicit_authorization:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
     def _apply_prompt_cache_fields(
         self,

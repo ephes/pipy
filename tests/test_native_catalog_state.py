@@ -82,9 +82,10 @@ def test_stored_api_key_makes_provider_available(tmp_path):
     assert state.provider_available("anthropic")
 
 
-def test_stored_copilot_oauth_rewrites_base_url_via_modify_models(tmp_path):
-    # A github-copilot custom provider + stored OAuth cred → the OAuth
-    # modify_models hook rewrites the row's base URL from the token's proxy-ep.
+def test_stored_copilot_oauth_filters_available_models_not_base_urls(tmp_path):
+    # Pi derives the Copilot base URL per request (``toAuth``), so a stored
+    # OAuth credential no longer rewrites catalog rows at load time. Its
+    # ``availableModelIds`` limit the available Copilot rows (``filterModels``).
     auth_path = tmp_path / "auth.json"
     store = AuthStore(path=auth_path)
     store.set(
@@ -94,38 +95,25 @@ def test_stored_copilot_oauth_rewrites_base_url_via_modify_models(tmp_path):
             "access": "tid=x;proxy-ep=proxy.example.com;",
             "refresh": "r",
             "expires": 9999999999000,
+            "availableModelIds": ["gpt-5.4", "claude-sonnet-5"],
         },
     )
-    models_path = tmp_path / "models.json"
-    models_path.write_text(
-        json.dumps(
-            {
-                "providers": {
-                    "github-copilot": {
-                        "baseUrl": "https://old.example",
-                        "apiKey": "x",
-                        "api": "openai-completions",
-                        "models": [{"id": "gpt-5.4"}],
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
     state = ProviderCatalogState(
-        models_json_path=models_path,
+        models_json_path=tmp_path / "missing-models.json",
         auth_store=store,
         env={},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
     row = state.find("github-copilot", "gpt-5.4")
-    assert row is not None and row.base_url == "https://api.example.com"
-    modifier = state.catalog._oauth_modifiers[0]
-    captured = tuple(cell.cell_contents for cell in modifier.__closure__ or ())
-    assert store not in captured
-    assert any(
-        isinstance(value, dict) and value.get("refresh") == "r" for value in captured
+    assert row is not None
+    assert row.base_url == "https://api.individual.githubcopilot.com"
+    assert state.catalog._oauth_modifiers == ()
+    available = sorted(
+        r.model_id for r in state.get_available() if r.provider_name == "github-copilot"
     )
+    assert available == ["claude-sonnet-5", "gpt-5.4"]
+    # ``get_all`` keeps every row (Pi filters availability, not the catalog).
+    assert state.find("github-copilot", "grok-4.7") is not None
 
 
 def test_detached_provider_overlay_has_no_container_alias_and_publishes_only_assignments(

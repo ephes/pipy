@@ -49,6 +49,8 @@ PI_DEFAULTS = {
     "amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
     "azure-openai": "gpt-5.4",
     "cloudflare": "@cf/moonshotai/kimi-k2.6",
+    "github-copilot": "gpt-5.4",
+    "xai": "grok-4.7",
 }
 
 _ALL = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
@@ -495,11 +497,12 @@ def test_bedrock_adaptive_markers_match_pi_runtime_list() -> None:
         ("openai", "gpt-5.5", "off", {"effort": "none"}),
         # Astra maps off to null: no reasoning field
         ("openai", "gpt-6-astra", "off", None),
-        # minimal: null clamps forward to low (Pi request-time clamp)
-        ("openai", "gpt-6-sol", "minimal", {"effort": "low"}),
-        ("openai", "gpt-6-luna", "max", {"effort": "max"}),
+        # minimal: null clamps forward to low (Pi request-time clamp); an
+        # on-state effort also sends summary "auto" (openai-responses.ts:343-352)
+        ("openai", "gpt-6-sol", "minimal", {"effort": "low", "summary": "auto"}),
+        ("openai", "gpt-6-luna", "max", {"effort": "max", "summary": "auto"}),
         # gpt-5.5 maps max to null: clamps back to xhigh
-        ("openai", "gpt-5.5", "max", {"effort": "xhigh"}),
+        ("openai", "gpt-5.5", "max", {"effort": "xhigh", "summary": "auto"}),
         # unset keeps the provider default
         ("openai", "gpt-6-sol", None, None),
         # Azure gpt-5.4 maps off to null
@@ -516,6 +519,12 @@ def test_responses_thinking_wire(
 ) -> None:
     body = _sent_body(tmp_path, provider, model_id, level)
     assert body.get("reasoning") == reasoning
+    # Pi requests the encrypted reasoning item with every on-state effort on
+    # the Responses API; Azure's adapter is separate and unchanged.
+    on_state = provider == "openai" and reasoning is not None and "summary" in reasoning
+    assert ("include" in body) is on_state
+    if on_state:
+        assert body["include"] == ["reasoning.encrypted_content"]
 
 
 @pytest.mark.parametrize(
