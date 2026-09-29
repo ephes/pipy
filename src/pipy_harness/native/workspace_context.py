@@ -1,60 +1,52 @@
 """Workspace-context instruction discovery for the native pipy runtime.
 
-Slice 2 of the Workspace Context Loading Parity Track. This module is a
-pure, dependency-free pipy-owned slopfork of pi-mono's
-`loadProjectContextFiles` in
-`packages/coding-agent/src/core/resource-loader.ts`. It is not wired into
-provider system prompts or session metadata in this slice; slice 3 wires
-the output into the existing native adapters.
+A pure, dependency-free pipy-owned port of pi-mono's `loadProjectContextFiles`
+in `packages/coding-agent/src/core/resource-loader.ts` (reference
+`4df157433`), plus the `project_context` system-prompt section from
+`core/system-prompt.ts`.
 
 Discovery rules (pinned by `tests/test_native_workspace_context.py`):
 
-- Per-directory candidate precedence (highest first):
-  `AGENTS.md > AGENTS.MD > pipy.md > PIPY.md`
-  (sourced from `INSTRUCTION_CANDIDATE_FILENAMES`; the chrome listing
-  imports the same tuple so the two never drift). The first existing
-  candidate per directory wins; the others are not considered for
-  that directory. Neighbour-tool config (e.g. Claude Code's
-  `CLAUDE.md`, Codex's `.codex/...`) is intentionally not in this
-  list — pipy is a separate product and must not silently compose
-  another agent's prompts into its own system prompt.
-- The global root is resolved through `PIPY_CONFIG_HOME`, then
-  `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` (when present, mirroring
-  the chezmoi-managed pipy-owned home the startup chrome lists),
-  then `~/.config/pipy` as the XDG default. The first existing
-  candidate file in the global root is returned with a
+- Per-directory candidate precedence (highest first) is Pi's
+  `loadContextFileFromDir` list:
+  `AGENTS.override.md > AGENTS.md > AGENTS.MD > CLAUDE.md > CLAUDE.MD`
+  (`INSTRUCTION_CANDIDATE_FILENAMES`). The first existing, readable
+  candidate file per directory is that directory's context file; a
+  directory-shaped candidate or a read failure falls through to the next
+  name, like Pi.
+- The global root (pipy's counterpart of Pi's `agentDir`) is resolved
+  through `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy`
+  (when present), then `~/.config/pipy`. Its context file comes first with a
   `<global>/<name>` path label.
-- The workspace and each parent directory is searched after the global
-  root. The returned tuple lists the root-most ancestor first and the
-  workspace itself last, so more-specific instructions appear later in
-  the composed system prompt and override earlier ones.
-- Results are deduplicated by canonical (`Path.resolve()`) absolute
-  path. The first occurrence wins; later occurrences are dropped
-  silently (the loader does not fall back to other candidates for that
-  directory once the first existing candidate is matched).
-- Missing files never raise. `PermissionError` / `OSError` on a
-  candidate is treated as "not present" and the search continues.
-- A candidate that is a symlink whose resolved real path is not inside
-  the directory it was found in is skipped, and the loader falls
-  through to the next candidate name for the same directory. This
-  closes the `AGENTS.md -> /etc/secrets`-style escape vector without
-  blocking a legitimate `pipy.md` from the same directory.
-- Each file loads at most `per_file_byte_cap` bytes into the prompt. If
-  the file is longer, the loader returns the truncated bytes with a
-  deterministic marker appended and `truncated=True`. `byte_length` and
-  `sha256` always describe the file as it exists on disk, with hashing
-  streamed in bounded chunks so callers can detect changes between runs.
-- The total bytes loaded across all included files is bounded by
-  `total_byte_cap`. Once including the next file would exceed the cap,
-  the loader stops and appends a deterministic synthetic
-  `<workspace-context: total byte cap reached>` entry. The
-  `WorkspaceInstructionDiscovery.total_byte_cap_reached` flag mirrors
-  the same fact for session metadata.
+- The absolute workspace path (not realpath, like Pi's `resolvePath`) and
+  each parent directory up to the filesystem root are searched after the
+  global root. The result lists the root-most ancestor first and the
+  workspace itself last.
+- Linked-worktree shadowing mirrors Pi's `findShadowedContextFile`: when the
+  workspace sits in a linked git worktree nested inside its main worktree,
+  the main worktree's context file with the same basename as the worktree
+  root's own context file is skipped, so one logical repository scope is not
+  applied twice.
+- Dedup: a directory whose context file was already loaded (compared by
+  canonical path) or is the shadowed file contributes nothing; like Pi, the
+  loader does not fall through to another candidate name in that case.
+- Missing files never raise. A leading UTF-8 BOM is stripped from the
+  content, like Pi's `stripBom`.
+- pipy-kept guard (not in Pi): a candidate symlink whose resolved real path
+  is not inside the directory it was found in is treated as absent, so the
+  loader falls through to the next candidate name for that directory.
+- pipy-kept caps (not in Pi): each file loads at most `per_file_byte_cap`
+  bytes (a longer file is truncated with a deterministic marker and
+  `truncated=True`; `byte_length` and `sha256` always describe the file on
+  disk). The total loaded bytes are bounded by `total_byte_cap`; once the
+  next file would exceed it, loading stops and a synthetic
+  `<workspace-context: total byte cap reached>` entry is appended.
 
-No bodies leave the returned tuple; callers compose the in-memory
-content for prompt construction. `pipy_session.recorder` only ever
-records `path_label`, `sha256`, `byte_length`, and `truncated` per
-file plus `total_byte_cap_reached`.
+No bodies leave the returned tuple; callers compose the in-memory content for
+prompt construction. `pipy_session.recorder` only ever records `path_label`,
+`sha256`, `byte_length`, and `truncated` per file plus
+`total_byte_cap_reached`. The absolute path appears only in the provider
+system prompt, as in Pi.
 """
 
 from __future__ import annotations
@@ -67,10 +59,11 @@ from functools import partial
 from pathlib import Path
 
 INSTRUCTION_CANDIDATE_FILENAMES: tuple[str, ...] = (
+    "AGENTS.override.md",
     "AGENTS.md",
     "AGENTS.MD",
-    "pipy.md",
-    "PIPY.md",
+    "CLAUDE.md",
+    "CLAUDE.MD",
 )
 
 DEFAULT_PER_FILE_BYTE_CAP: int = 64 * 1024
@@ -89,31 +82,29 @@ PIPY_CONFIG_HOME_ENV: str = "PIPY_CONFIG_HOME"
 XDG_CONFIG_HOME_ENV: str = "XDG_CONFIG_HOME"
 PIPY_CONFIG_DIR_NAME: str = "pipy"
 
-WORKSPACE_INSTRUCTIONS_PROMPT_HEADER: str = (
-    "## Workspace Instructions\n"
-    "The files below were discovered as workspace context. They are listed\n"
-    "global-first, then ancestor directories from the root-most ancestor down\n"
-    "to the workspace itself last. Treat later files as overriding earlier\n"
-    "ones when guidance conflicts.\n"
-)
-WORKSPACE_INSTRUCTIONS_FILE_HEADER_TEMPLATE: str = (
-    "\n### {path_label} (sha256={sha256_short}, bytes={byte_length}{trunc_suffix})\n\n"
-)
-WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER: str = "\n## End Workspace Instructions\n"
+# Pi `renderProjectContext` + the section tag wrapper in `buildSystemPromptSections`.
+PROJECT_CONTEXT_SECTION_TAG: str = "project_context"
+PROJECT_CONTEXT_INTRO: str = "Project-specific instructions and guidelines:"
+
+_UTF8_BOM: str = "﻿"
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceInstructionFile:
-    """One discovered AGENTS.md / pipy.md instruction file.
+    """One discovered context file (`AGENTS.md`, `CLAUDE.md`, ...).
 
     `path_label` is workspace-relative POSIX for files in or under the
     workspace (for example, `AGENTS.md`), `..`-prefixed relative POSIX for
-    ancestor files (for example, `../AGENTS.md`), and `<global>/<name>`
+    ancestor files (for example, `../CLAUDE.md`), and `<global>/<name>`
     for files under the global root. `sha256` and `byte_length` describe
     the file as it exists on disk; `truncated=True` means `content`
     contains only the first `per_file_byte_cap` bytes plus a marker.
     `content` is utf-8 text decoded with `errors="replace"` so a binary
     or partially invalid file does not crash the loader.
+
+    `absolute_path` is the absolute (not symlink-resolved) path, matching
+    Pi's context-file `path`. It is used only for the provider system
+    prompt and must never enter the archive-safe metadata projection.
     """
 
     path_label: str
@@ -121,6 +112,7 @@ class WorkspaceInstructionFile:
     byte_length: int
     content: str
     truncated: bool
+    absolute_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,14 +161,14 @@ def discover_workspace_instructions(
     per_file_byte_cap: int = DEFAULT_PER_FILE_BYTE_CAP,
     total_byte_cap: int = DEFAULT_TOTAL_BYTE_CAP,
 ) -> WorkspaceInstructionDiscovery:
-    """Discover instruction files in the global root, workspace, and ancestors.
+    """Discover context files in the global root, workspace, and ancestors.
 
     See module docstring for the full set of pinned rules. The returned
-    tuple is ordered: global instruction file first (if any), then
-    ancestor files from the root-most ancestor down to the workspace's
-    direct parent, then the workspace's own instruction file last. A
-    deterministic `<workspace-context: total byte cap reached>` marker
-    is appended when the total byte cap stops further inclusion.
+    tuple is ordered: global context file first (if any), then ancestor
+    files from the root-most ancestor down to the workspace's direct
+    parent, then the workspace's own context file last. A deterministic
+    `<workspace-context: total byte cap reached>` marker is appended when
+    the total byte cap stops further inclusion.
     """
 
     if per_file_byte_cap < 1:
@@ -184,42 +176,71 @@ def discover_workspace_instructions(
     if total_byte_cap < 1:
         raise ValueError(f"total_byte_cap must be >= 1; got {total_byte_cap}")
 
-    resolved_workspace = workspace_root.expanduser().resolve()
+    workspace = Path(os.path.abspath(workspace_root.expanduser()))
+    resolved_workspace = _canonical(workspace)
     seen_paths: set[Path] = set()
     discovered: list[WorkspaceInstructionFile] = []
 
     global_root = resolve_global_instruction_root(env=env, home_dir=home_dir)
     global_entry = _load_first_candidate(
         global_root,
-        seen_paths=seen_paths,
         per_file_byte_cap=per_file_byte_cap,
         path_label_for=_global_path_label,
     )
     if global_entry is not None:
-        discovered.append(global_entry)
+        entry, canonical_path = global_entry
+        discovered.append(entry)
+        seen_paths.add(canonical_path)
 
-    ancestors_root_first: list[WorkspaceInstructionFile] = []
-    current = resolved_workspace
-    while True:
-        entry = _load_first_candidate(
-            current,
+    discovered.extend(
+        _ancestor_context_files(
+            workspace,
+            resolved_workspace=resolved_workspace,
             seen_paths=seen_paths,
+            per_file_byte_cap=per_file_byte_cap,
+        )
+    )
+    return _apply_total_byte_cap(discovered, total_byte_cap)
+
+
+def _ancestor_context_files(
+    workspace: Path,
+    *,
+    resolved_workspace: Path,
+    seen_paths: set[Path],
+    per_file_byte_cap: int,
+) -> list[WorkspaceInstructionFile]:
+    """Walk cwd up to the filesystem root; return files root-most first."""
+
+    shadowed = _find_shadowed_context_file(workspace)
+    ancestors_root_first: list[WorkspaceInstructionFile] = []
+    current = workspace
+    while True:
+        loaded = _load_first_candidate(
+            current,
             per_file_byte_cap=per_file_byte_cap,
             path_label_for=partial(
                 _workspace_path_label,
                 current,
+                workspace=workspace,
                 resolved_workspace=resolved_workspace,
             ),
         )
-        if entry is not None:
-            ancestors_root_first.insert(0, entry)
+        if loaded is not None:
+            entry, canonical_path = loaded
+            if canonical_path != shadowed and canonical_path not in seen_paths:
+                ancestors_root_first.insert(0, entry)
+                seen_paths.add(canonical_path)
         parent = current.parent
         if parent == current:
-            break
+            return ancestors_root_first
         current = parent
 
-    discovered.extend(ancestors_root_first)
 
+def _apply_total_byte_cap(
+    discovered: list[WorkspaceInstructionFile],
+    total_byte_cap: int,
+) -> WorkspaceInstructionDiscovery:
     capped: list[WorkspaceInstructionFile] = []
     total_loaded = 0
     cap_reached = False
@@ -232,14 +253,14 @@ def discover_workspace_instructions(
         total_loaded += content_bytes
 
     if cap_reached:
-        notice = TOTAL_BYTE_CAP_NOTICE
         capped.append(
             WorkspaceInstructionFile(
                 path_label=TOTAL_BYTE_CAP_MARKER_PATH_LABEL,
                 sha256="",
                 byte_length=0,
-                content=notice,
+                content=TOTAL_BYTE_CAP_NOTICE,
                 truncated=True,
+                absolute_path=TOTAL_BYTE_CAP_MARKER_PATH_LABEL,
             )
         )
 
@@ -249,13 +270,26 @@ def discover_workspace_instructions(
     )
 
 
+def _canonical(path: Path) -> Path:
+    """Pi `canonicalizePath`: the realpath, or the path itself on failure."""
+
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
 def _load_first_candidate(
     directory: Path,
     *,
-    seen_paths: set[Path],
     per_file_byte_cap: int,
     path_label_for: Callable[[str], str],
-) -> WorkspaceInstructionFile | None:
+) -> tuple[WorkspaceInstructionFile, Path] | None:
+    """Pi `loadContextFileFromDir` plus pipy's symlink-escape guard.
+
+    Returns the directory's context file and its canonical path, or `None`.
+    """
+
     resolved_dir = _resolve_candidate_directory(directory)
     if resolved_dir is None:
         return None
@@ -264,19 +298,18 @@ def _load_first_candidate(
             directory,
             resolved_dir,
             candidate_name,
-            seen_paths=seen_paths,
         )
         if resolved_candidate is None:
             continue
         entry = _materialize_candidate(
+            directory / candidate_name,
             resolved_candidate,
             candidate_name,
-            seen_paths=seen_paths,
             per_file_byte_cap=per_file_byte_cap,
             path_label_for=path_label_for,
         )
         if entry is not None:
-            return entry
+            return entry, resolved_candidate
     return None
 
 
@@ -296,8 +329,6 @@ def _validated_candidate_path(
     directory: Path,
     resolved_dir: Path,
     candidate_name: str,
-    *,
-    seen_paths: set[Path],
 ) -> Path | None:
     candidate = directory / candidate_name
     try:
@@ -313,16 +344,14 @@ def _validated_candidate_path(
         resolved_candidate.relative_to(resolved_dir)
     except ValueError:
         return None
-    if resolved_candidate in seen_paths:
-        return None
     return resolved_candidate
 
 
 def _materialize_candidate(
+    candidate: Path,
     resolved_candidate: Path,
     candidate_name: str,
     *,
-    seen_paths: set[Path],
     per_file_byte_cap: int,
     path_label_for: Callable[[str], str],
 ) -> WorkspaceInstructionFile | None:
@@ -333,21 +362,19 @@ def _materialize_candidate(
         )
     except OSError:
         return None
-    seen_paths.add(resolved_candidate)
     truncated = byte_length > per_file_byte_cap
+    content = head.decode("utf-8", errors="replace")
+    if content.startswith(_UTF8_BOM):
+        content = content[len(_UTF8_BOM) :]
     if truncated:
-        content = head.decode("utf-8", errors="replace") + (
-            PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
-        )
-    else:
-        content = head.decode("utf-8", errors="replace")
-    path_label = path_label_for(candidate_name)
+        content += PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
     return WorkspaceInstructionFile(
-        path_label=path_label,
+        path_label=path_label_for(candidate_name),
         sha256=sha256,
         byte_length=byte_length,
         content=content,
         truncated=truncated,
+        absolute_path=str(candidate),
     )
 
 
@@ -372,6 +399,99 @@ def _read_capped_bytes(
     return head, byte_length, hasher.hexdigest()
 
 
+# -- linked-worktree shadowing (Pi `findShadowedContextFile`) ---------------
+
+
+@dataclass(frozen=True, slots=True)
+class _GitPaths:
+    repo_dir: Path
+    common_git_dir: Path
+
+
+def _find_git_paths(cwd: Path) -> _GitPaths | None:
+    """Port of Pi `findGitPaths` (`core/footer-data-provider.ts`).
+
+    Walks up from `cwd` to the first `.git` entry. A `.git` file must hold a
+    `gitdir: <path>` pointer (resolved against its directory) whose `HEAD`
+    exists; its `commondir` (when present) names the common git dir. A `.git`
+    directory must contain `HEAD`. Any other shape or error returns `None`.
+    """
+
+    directory = cwd
+    while True:
+        git_path = directory / ".git"
+        if os.path.exists(git_path):
+            try:
+                if git_path.is_file():
+                    decided, found = _git_paths_from_gitdir_file(directory, git_path)
+                    if decided:
+                        return found
+                elif git_path.is_dir():
+                    if not (git_path / "HEAD").exists():
+                        return None
+                    return _GitPaths(repo_dir=directory, common_git_dir=git_path)
+            except (OSError, UnicodeDecodeError):
+                return None
+        parent = directory.parent
+        if parent == directory:
+            return None
+        directory = parent
+
+
+def _git_paths_from_gitdir_file(
+    directory: Path, git_path: Path
+) -> tuple[bool, _GitPaths | None]:
+    """Parse a `.git` file as `(decided, paths)`.
+
+    A file without a `gitdir: ` pointer is undecided, so the walk continues
+    to the parent directory, like Pi.
+    """
+
+    content = git_path.read_text(encoding="utf-8").strip()
+    if not content.startswith("gitdir: "):
+        return False, None
+    git_dir = Path(os.path.normpath(directory / content[len("gitdir: ") :].strip()))
+    if not (git_dir / "HEAD").exists():
+        return True, None
+    common_dir_path = git_dir / "commondir"
+    if common_dir_path.exists():
+        common = common_dir_path.read_text(encoding="utf-8").strip()
+        common_git_dir = Path(os.path.normpath(git_dir / common))
+    else:
+        common_git_dir = git_dir
+    return True, _GitPaths(repo_dir=directory, common_git_dir=common_git_dir)
+
+
+def _find_shadowed_context_file(cwd: Path) -> Path | None:
+    """Return the canonical main-repo context file a nested worktree shadows.
+
+    Port of Pi `findShadowedContextFile`: `None` for an ordinary repo, a
+    sibling worktree (main repo not an ancestor), a bare layout, and a
+    submodule; otherwise the main worktree's file with the same basename as
+    the linked worktree root's own context file.
+    """
+
+    git_paths = _find_git_paths(cwd)
+    if git_paths is None:
+        return None
+    common_git_dir = _canonical(git_paths.common_git_dir)
+    worktree_root = _canonical(git_paths.repo_dir)
+    main_repo_root = common_git_dir.parent
+    if not str(worktree_root).startswith(f"{main_repo_root}{os.sep}"):
+        return None
+    if _canonical(main_repo_root / ".git") != common_git_dir:
+        return None
+    loaded = _load_first_candidate(
+        worktree_root,
+        per_file_byte_cap=1,
+        path_label_for=lambda name: name,
+    )
+    if loaded is None:
+        return None
+    entry, _canonical_path = loaded
+    return _canonical(main_repo_root / Path(entry.absolute_path).name)
+
+
 def _global_path_label(filename: str) -> str:
     return f"{GLOBAL_PATH_LABEL_PREFIX}{filename}"
 
@@ -379,13 +499,20 @@ def _global_path_label(filename: str) -> str:
 def _workspace_path_label(
     directory: Path,
     filename: str,
+    workspace: Path,
     resolved_workspace: Path,
 ) -> str:
-    if directory == resolved_workspace:
+    if directory == workspace:
         return filename
     try:
-        relative = directory.relative_to(resolved_workspace)
+        relative = directory.relative_to(workspace)
         return f"{relative.as_posix()}/{filename}"
+    except ValueError:
+        pass
+    try:
+        steps = workspace.relative_to(directory).parts
+        prefix = "/".join([".."] * len(steps))
+        return f"{prefix}/{filename}"
     except ValueError:
         pass
     try:
@@ -406,10 +533,9 @@ def default_workspace_instruction_loader(
 ) -> WorkspaceInstructionDiscovery:
     """Resolve workspace instructions using the current process environment.
 
-    Reads `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`, then
-    `~/.config/pipy` to find the global root. Production adapters pass this
-    loader; tests pass `empty_workspace_instruction_loader` (or a custom
-    loader scoped to `tmp_path`) for hermeticity.
+    Production adapters pass this loader; tests pass
+    `empty_workspace_instruction_loader` (or a custom loader scoped to
+    `tmp_path`) for hermeticity.
     """
 
     return discover_workspace_instructions(workspace_root)
@@ -423,41 +549,42 @@ def empty_workspace_instruction_loader(
     return WorkspaceInstructionDiscovery(instructions=(), total_byte_cap_reached=False)
 
 
+def render_project_context_section(discovery: WorkspaceInstructionDiscovery) -> str:
+    """Render Pi's tagged `project_context` system-prompt section.
+
+    Mirrors `renderProjectContext` plus the `<name>\\n...\\n</name>` wrapper
+    from Pi's `buildSystemPromptSections`. Returns an empty string when no
+    context file was discovered.
+    """
+
+    if not discovery.instructions:
+        return ""
+    blocks = [PROJECT_CONTEXT_INTRO]
+    for entry in discovery.instructions:
+        path = entry.absolute_path or entry.path_label
+        blocks.append(
+            f'<project_instructions path="{path}">\n{entry.content}\n</project_instructions>'
+        )
+    body = "\n\n".join(blocks)
+    return f"<{PROJECT_CONTEXT_SECTION_TAG}>\n{body}\n</{PROJECT_CONTEXT_SECTION_TAG}>"
+
+
 def compose_system_prompt(
     base_prompt: str,
     discovery: WorkspaceInstructionDiscovery,
 ) -> str:
-    """Compose a system prompt from a base bootstrap and workspace instructions.
+    """Compose a system prompt from a base prompt and discovered context files.
 
-    The base prompt is preserved verbatim. If `discovery.instructions` is
-    empty, the function returns the base unchanged. Otherwise the discovered
-    files are appended in their existing order with a deterministic
-    `## Workspace Instructions` section header and per-file headers carrying
-    the path label, short sha256, and byte length. The composed string is
-    safe to send as a `ProviderRequest.system_prompt`.
+    The base prompt is preserved verbatim when nothing was discovered.
+    Otherwise Pi's `project_context` section is appended after the base,
+    separated by a blank line (Pi joins system-prompt sections with
+    `\\n\\n`).
     """
 
-    if not discovery.instructions:
+    section = render_project_context_section(discovery)
+    if not section:
         return base_prompt
-
-    parts: list[str] = [
-        base_prompt.rstrip(),
-        "\n",
-        WORKSPACE_INSTRUCTIONS_PROMPT_HEADER,
-    ]
-    for entry in discovery.instructions:
-        trunc_suffix = "+truncated" if entry.truncated else ""
-        header = WORKSPACE_INSTRUCTIONS_FILE_HEADER_TEMPLATE.format(
-            path_label=entry.path_label,
-            sha256_short=entry.sha256[:12] if entry.sha256 else "",
-            byte_length=entry.byte_length,
-            trunc_suffix=trunc_suffix,
-        )
-        parts.append(header)
-        parts.append(entry.content.rstrip())
-        parts.append("\n")
-    parts.append(WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER)
-    return "".join(parts)
+    return f"{base_prompt.rstrip()}\n\n{section}"
 
 
 def workspace_instruction_safe_metadata(
@@ -467,8 +594,8 @@ def workspace_instruction_safe_metadata(
 
     The returned dict carries only `path_label`, `sha256`, `byte_length`,
     and `truncated` per discovered file plus a `total_byte_cap_reached`
-    flag. Instruction bodies never leak into this surface. Pinned by the
-    privacy tests in slice 3.
+    flag. Instruction bodies and absolute paths never leak into this
+    surface.
     """
 
     files: list[dict[str, object]] = []

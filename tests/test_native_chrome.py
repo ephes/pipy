@@ -176,24 +176,28 @@ def test_startup_skills_listing_honors_disable_filter(
     assert "hidden" not in skill_names
 
 
-def test_discover_does_not_leak_neighbor_tool_paths(
+def test_context_listing_mirrors_the_pi_candidate_loader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pipy is a separate product — Claude/Codex/Pi configs must not leak."""
-
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "CLAUDE.md").write_text("claude-only", encoding="utf-8")
+    """[Context] lists exactly what the loader composes, formatted like Pi."""
 
     fake_home = tmp_path / "home"
+    workspace = fake_home / "src" / "workspace"
+    workspace.mkdir(parents=True)
+    # Pi candidates: CLAUDE.md loads when it is a directory's only context file.
+    (workspace / "CLAUDE.md").write_text("claude-only", encoding="utf-8")
+    (fake_home / "src" / "AGENTS.override.md").write_text("ancestor", encoding="utf-8")
+    (fake_home / "src" / "AGENTS.md").write_text(
+        "shadowed by override", encoding="utf-8"
+    )
+    # A neighbour tool's config dir is not a context root.
     (fake_home / ".claude").mkdir(parents=True)
     (fake_home / ".claude" / "CLAUDE.md").write_text("claude-home", encoding="utf-8")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
     context_names = chrome.discover_loaded_resource_names(workspace)
 
-    assert "CLAUDE.md" not in context_names
-    assert "~/.claude/CLAUDE.md" not in context_names
+    assert context_names == ("~/src/AGENTS.override.md", "CLAUDE.md")
 
 
 def test_print_startup_chrome_renders_context(

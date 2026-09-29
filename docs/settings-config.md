@@ -136,9 +136,9 @@ Pi reads **only** global `~/.pi/agent/settings.json` and project
 `<cwd>/.pi/settings.json` for settings (`settings-manager.ts`, `config.ts`);
 it does **not** read `.claude/settings.json` for settings. pipy therefore does
 not read `.claude/settings.json` either — the project scope is `.pipy/` only.
-pipy also does not load Claude Code's `CLAUDE.md` as workspace context; the
-context loader is pipy-owned and considers `AGENTS.md`, `AGENTS.MD`, `pipy.md`,
-and `PIPY.md`.
+Context files follow Pi's `loadContextFileFromDir` candidates:
+`AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, then `CLAUDE.MD`
+(see [Context and system prompt files](usage.md#context-and-system-prompt-files)).
 
 Rationale: keeping the global root on the existing `PIPY_CONFIG_HOME` chain
 avoids a second incompatible config root (the extension loader and workspace
@@ -313,7 +313,9 @@ templates, commands, `SYSTEM.md`, and `APPEND_SYSTEM.md`. Standalone
 through project settings. Global
 resources and packages plus explicit `--extension`, `--skill`,
 `--prompt-template`, `--theme`, and system-prompt inputs remain available while
-untrusted; `AGENTS.md` / `pipy.md` context discovery is explicitly exempt.
+untrusted; context-file discovery (`AGENTS.md`, `CLAUDE.md`, ...) is explicitly
+exempt. Project `.agents/skills` in the cwd or any parent directory also needs
+trust (Pi `hasTrustRequiringProjectResources`); `~/.agents/skills` does not.
 Trust is an input-loading guard, not a sandbox: trusted resources and the model's
 tools still run with the pipy process's permissions.
 
@@ -734,7 +736,7 @@ track.
 
 ## Context-File Discovery Toggles
 
-- `--no-context-files` / `-nc`: disable `AGENTS.md` / `pipy.md` discovery and
+- `--no-context-files` / `-nc`: disable `AGENTS.md` / `CLAUDE.md` discovery and
   loading for the run (Pi `args.ts` → `main.ts` `noContextFiles`). pipy wires
   this into `workspace_context.discover_workspace_instructions` so no instruction
   files are read, none are injected into the system prompt, and no
@@ -1065,7 +1067,7 @@ surface works. It must verify:
     / `APPEND_SYSTEM.md` auto-discovery files apply, an unreadable file warns and
     falls back to the literal input (not fail-closed), and the result reaches
     `ProviderRequest.system_prompt`; only safe metadata is archived (no body).
-12. `--no-context-files` disables AGENTS.md / pipy.md discovery and records no
+12. `--no-context-files` disables AGENTS.md / CLAUDE.md discovery and records no
     `workspace_instruction_files` metadata for the run.
 13. Resource enablement: disabling a skill/prompt/theme via `pipy config`
     persists a `-pattern` entry (not a path removal) into the right settings

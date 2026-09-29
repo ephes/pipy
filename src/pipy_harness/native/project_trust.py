@@ -335,19 +335,44 @@ class ProjectTrustStore:
             _write_store(self.path, data)
 
 
-def has_trust_requiring_project_resources(cwd: Path | str) -> bool:
-    config_dir = canonical_project_path(cwd) / ".pipy"
+def has_trust_requiring_project_resources(
+    cwd: Path | str, *, home_dir: Path | None = None
+) -> bool:
+    """Pi `hasTrustRequiringProjectResources`.
+
+    True when a protected `.pipy/` entry exists in cwd, or when
+    `.agents/skills` exists in cwd or any ancestor up to the filesystem root.
+    The user's own `~/.agents/skills` is a trusted user resource and is
+    ignored, even when cwd is `$HOME`.
+    """
+
+    current = canonical_project_path(cwd)
+    config_dir = current / ".pipy"
     for name in PROTECTED_PROJECT_ENTRIES:
-        try:
-            (config_dir / name).stat()
-        except FileNotFoundError:
-            continue
-        except OSError:
-            # A protected source that cannot be inspected must never become
-            # loadable through the no-resource short circuit.
+        if _entry_present(config_dir / name):
             return True
+    home = home_dir if home_dir is not None else Path.home()
+    user_agents_skills = canonical_project_path(home / ".agents" / "skills")
+    while True:
+        agents_skills = current / ".agents" / "skills"
+        if agents_skills != user_agents_skills and _entry_present(agents_skills):
+            return True
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
+def _entry_present(path: Path) -> bool:
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        # A protected source that cannot be inspected must never become
+        # loadable through the no-resource short circuit.
         return True
-    return False
+    return True
 
 
 DefaultProjectTrust = Literal["ask", "always", "never"]

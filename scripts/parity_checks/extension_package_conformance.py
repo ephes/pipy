@@ -562,7 +562,7 @@ def _source_loading_flag_checks(base: Path) -> list[Check]:
     (ws / ".pipy" / "templates").mkdir(parents=True)
     (ws / ".pipy" / "extensions").mkdir(parents=True)
     (ws / ".pipy" / "skills" / "default.md").write_text(
-        "---\nname: default-skill\n---\ndefault\n", encoding="utf-8"
+        "---\nname: default-skill\ndescription: d\n---\ndefault\n", encoding="utf-8"
     )
     (ws / ".pipy" / "templates" / "default.md").write_text(
         "---\nname: default-template\n---\ndefault\n", encoding="utf-8"
@@ -578,7 +578,9 @@ def _source_loading_flag_checks(base: Path) -> list[Check]:
     prompt_dir.mkdir()
     extension_path = explicit_dir / "runtime_ext.py"
     theme_path = explicit_dir / "runtime_theme.toml"
-    skill_path.write_text("---\nname: runtime-skill\n---\nbody\n", encoding="utf-8")
+    skill_path.write_text(
+        "---\nname: runtime-skill\ndescription: d\n---\nbody\n", encoding="utf-8"
+    )
     (prompt_dir / "template.md").write_text(
         "---\nname: runtime-template\n---\nbody\n", encoding="utf-8"
     )

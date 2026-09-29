@@ -61,9 +61,11 @@ def _write_skill(
     *,
     filename: str,
     name: str | None = None,
-    description: str | None = None,
+    description: str | None = "A test skill.",
     body: str = "skill body\n",
 ) -> Path:
+    # Pi drops a skill without a description, so fixtures carry one unless a
+    # test passes `description=None` (or "") on purpose.
     directory.mkdir(parents=True, exist_ok=True)
     parts: list[str] = []
     if name is not None or description is not None:
@@ -336,10 +338,12 @@ def test_frontmatter_parsed_with_name_and_description(tmp_path: Path) -> None:
         description="Explain the highlighted code",
         body="please explain\n",
     )
-    # A file without frontmatter falls back to the filename stem.
-    plain = skills_dir / "plain.md"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    plain.write_text("just a body\n", encoding="utf-8")
+    # A file without a frontmatter name falls back to the filename stem.
+    _write_skill(
+        skills_dir, filename="plain.md", description="Plain", body="just a body\n"
+    )
+    # Pi `loadSkillFromFile` drops a skill without a description.
+    (skills_dir / "undescribed.md").write_text("just a body\n", encoding="utf-8")
 
     skills, _ = _discover(workspace)
     by_name = {skill.name: skill for skill in skills}
@@ -349,9 +353,8 @@ def test_frontmatter_parsed_with_name_and_description(tmp_path: Path) -> None:
     assert "please explain" in explain.body
     assert "---" not in explain.body
     assert "plain" in by_name
-    plain_skill = by_name["plain"]
-    assert plain_skill.description == ""
-    assert "just a body" in plain_skill.body
+    assert "just a body" in by_name["plain"].body
+    assert "undescribed" not in by_name
 
 
 def test_skillfile_exposes_absolute_path(tmp_path: Path) -> None:
@@ -385,6 +388,24 @@ def test_compose_skills_system_block_pi_format_includes_location_and_escapes() -
         absolute_path=Path("/abs/.pipy/skills/x.md"),
     )
     block = compose_skills_system_block([s])
+    # Pi `skills` section: blank-line joined, tag-wrapped, exact header text.
+    assert block == (
+        "\n\n<skills>\n"
+        "The following skills provide specialized instructions for specific tasks.\n"
+        "Use the read tool to load a skill's file when the task matches its description.\n"
+        "When a skill file references a relative path, resolve it against the skill "
+        "directory (parent of SKILL.md / dirname of the path) and use that absolute "
+        "path in tool commands.\n"
+        "\n"
+        "<available_skills>\n"
+        "  <skill>\n"
+        "    <name>x&lt;y</name>\n"
+        "    <description>a &amp; b</description>\n"
+        "    <location>/abs/.pipy/skills/x.md</location>\n"
+        "  </skill>\n"
+        "</available_skills>\n"
+        "</skills>"
+    )
     assert "Use the read tool to load a skill" in block
     assert "<available_skills>" in block and "</available_skills>" in block
     assert "<name>x&lt;y</name>" in block
@@ -420,8 +441,8 @@ def test_compose_skills_system_block_includes_name_description_location(
     assert "<name>lint</name>" in block
     assert "<description>Run linters</description>" in block
     assert f"<location>{lint_path.resolve()}</location>" in block
-    # Bare skill (empty description) still appears with its name + location.
-    assert "<name>bare</name>" in block
+    # Pi drops a skill with an empty description, so it is not advertised.
+    assert "<name>bare</name>" not in block
     # Bodies must NEVER leak into the block.
     assert "real body" not in block
     assert "another body" not in block

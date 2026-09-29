@@ -170,10 +170,37 @@ def test_detector_recognizes_each_protected_entry(tmp_path: Path, entry: str) ->
 def test_detector_ignores_bare_config_and_context_files(tmp_path: Path) -> None:
     (tmp_path / ".pipy").mkdir()
     (tmp_path / "AGENTS.md").write_text("instructions")
-    (tmp_path / "pipy.md").write_text("instructions")
-    (tmp_path / ".agents" / "skills").mkdir(parents=True)
+    (tmp_path / "CLAUDE.md").write_text("instructions")
+    (tmp_path / ".agents").mkdir()
     (tmp_path / ".pipy" / "themes").mkdir()
-    assert not has_trust_requiring_project_resources(tmp_path)
+    assert not has_trust_requiring_project_resources(
+        tmp_path, home_dir=tmp_path / "home"
+    )
+
+
+def test_detector_requires_trust_for_agents_skills_in_cwd_or_any_ancestor(
+    tmp_path: Path,
+) -> None:
+    # Pi `hasTrustRequiringProjectResources` walks to the filesystem root, not
+    # only to the git root.
+    project = tmp_path / "outer" / "repo" / "pkg"
+    project.mkdir(parents=True)
+    (tmp_path / "outer" / "repo" / ".git").mkdir()
+    home = tmp_path / "home"
+    assert not has_trust_requiring_project_resources(project, home_dir=home)
+
+    (tmp_path / "outer" / ".agents" / "skills").mkdir(parents=True)
+    assert has_trust_requiring_project_resources(project, home_dir=home)
+
+
+def test_detector_exempts_the_users_own_agents_skills(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".agents" / "skills").mkdir(parents=True)
+    project = home / "src" / "project"
+    project.mkdir(parents=True)
+
+    assert not has_trust_requiring_project_resources(project, home_dir=home)
+    assert not has_trust_requiring_project_resources(home, home_dir=home)
 
 
 def test_resolver_order_and_no_resource_short_circuit(tmp_path: Path) -> None:

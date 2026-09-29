@@ -168,7 +168,7 @@ row was dropped.
 | C5 | Session catalog (list/search/inspect) | ✅ | `uv run pipy-session list && uv run pipy-session search --help` |
 | C6 | Provider port abstraction | ✅ | `test -f src/pipy_harness/native/provider.py` |
 | C7 | Tool port + registry | ✅ | `grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q 'production_tool_registry' src/pipy_harness/native/coding/session.py` |
-| C8 | Workspace context (AGENTS.md/pipy.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
+| C8 | Workspace context (AGENTS.md/CLAUDE.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
 | C9 | System prompt composition | ✅ | `grep -q 'system_prompt' src/pipy_harness/native/workspace_context.py` |
 | C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/coding/session.py` |
 | C11 | .git default-deny + symlink resolution | ✅ | `grep -q '_resolved_relative_label' src/pipy_harness/native/read_only_tool.py` |

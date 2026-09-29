@@ -37,6 +37,9 @@ def _skills_dir(tmp_path: Path) -> Path:
 
 
 def _write(directory: Path, filename: str, body: str = "real body\n") -> None:
+    # A description is required for a skill to load (Pi `loadSkillFromFile`),
+    # so every fixture has one and only the safety screen can skip it.
+    body = f"---\ndescription: fixture\n---\n{body}"
     (directory / filename).write_text(body, encoding="utf-8")
 
 
@@ -55,7 +58,9 @@ def test_secret_shaped_filename_is_skipped(tmp_path: Path) -> None:
 
 def test_binary_content_is_skipped(tmp_path: Path) -> None:
     skills_dir = _skills_dir(tmp_path)
-    (skills_dir / "binary.md").write_bytes(b"text\x00\x01binary payload\n")
+    (skills_dir / "binary.md").write_bytes(
+        b"---\ndescription: fixture\n---\ntext\x00\x01binary payload\n"
+    )
     _write(skills_dir, "lint.md", "real body\n")
 
     skills, _ = _discover(skills_dir.parent.parent)
@@ -113,9 +118,9 @@ def test_control_character_filename_without_frontmatter_is_skipped(
     tmp_path: Path,
 ) -> None:
     skills_dir = _skills_dir(tmp_path)
-    # No frontmatter, so the name would otherwise fall back to the raw stem.
-    (skills_dir / "\x1b.md").write_text("just a body\n", encoding="utf-8")
-    (skills_dir / "lint.md").write_text("real body\n", encoding="utf-8")
+    # No frontmatter name, so the name would otherwise fall back to the raw stem.
+    _write(skills_dir, "\x1b.md", "just a body\n")
+    _write(skills_dir, "lint.md")
 
     skills, _ = _discover(skills_dir.parent.parent)
 

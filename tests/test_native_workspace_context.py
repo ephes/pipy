@@ -72,89 +72,100 @@ def _discover(
 # -- candidate precedence ----------------------------------------------------
 
 
-def test_per_directory_precedence_AGENTS_md_wins_over_pipy_md(
-    tmp_path: Path,
-) -> None:
+def test_candidate_list_matches_pi_load_context_file_from_dir() -> None:
+    # Pi resource-loader.ts `loadContextFileFromDir` candidates, in order.
+    assert INSTRUCTION_CANDIDATE_FILENAMES == (
+        "AGENTS.override.md",
+        "AGENTS.md",
+        "AGENTS.MD",
+        "CLAUDE.md",
+        "CLAUDE.MD",
+    )
+
+
+def test_agents_override_wins_over_agents_md(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.override.md").write_text("override\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("agents\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text("claude\n", encoding="utf-8")
+
+    result = _discover(tmp_path)
+
+    assert [e.path_label for e in result.instructions] == ["AGENTS.override.md"]
+    assert result.instructions[0].content == "override\n"
+
+
+def test_agents_md_wins_over_claude_md(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text("from-AGENTS.md\n", encoding="utf-8")
-    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text("from-CLAUDE.md\n", encoding="utf-8")
 
     result = _discover(tmp_path)
 
     assert len(result.instructions) == 1
     only = result.instructions[0]
     assert only.path_label == "AGENTS.md"
-    assert "from-AGENTS.md" in only.content
-    assert "from-pipy.md" not in only.content
-
-
-def test_per_directory_precedence_case_variants_when_filesystem_is_case_sensitive(
-    tmp_path: Path,
-) -> None:
-    _case_sensitive_only(tmp_path)
-    (tmp_path / "AGENTS.md").write_text("from-AGENTS.md\n", encoding="utf-8")
-    (tmp_path / "AGENTS.MD").write_text("from-AGENTS.MD\n", encoding="utf-8")
-    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
-    (tmp_path / "PIPY.md").write_text("from-PIPY.md\n", encoding="utf-8")
-
-    result = _discover(tmp_path)
-
-    assert len(result.instructions) == 1
-    only = result.instructions[0]
-    assert only.path_label == "AGENTS.md"
-    assert "from-AGENTS.md" in only.content
-    assert "from-AGENTS.MD" not in only.content
-    assert "from-pipy.md" not in only.content
+    assert only.content == "from-AGENTS.md\n"
 
 
 def test_per_directory_precedence_falls_through_in_declared_order(
     tmp_path: Path,
 ) -> None:
     _case_sensitive_only(tmp_path)
-    expected_payloads = {
-        "AGENTS.md": "from-AGENTS.md\n",
-        "AGENTS.MD": "from-AGENTS.MD\n",
-        "pipy.md": "from-pipy.md\n",
-        "PIPY.md": "from-PIPY.md\n",
-    }
-    assert INSTRUCTION_CANDIDATE_FILENAMES == (
-        "AGENTS.md",
-        "AGENTS.MD",
-        "pipy.md",
-        "PIPY.md",
-    )
-
     for index, candidate in enumerate(INSTRUCTION_CANDIDATE_FILENAMES):
         for present in INSTRUCTION_CANDIDATE_FILENAMES[index:]:
-            (tmp_path / present).write_text(
-                expected_payloads[present], encoding="utf-8"
-            )
+            (tmp_path / present).write_text(f"from-{present}\n", encoding="utf-8")
         result = _discover(tmp_path)
         assert len(result.instructions) == 1
         assert result.instructions[0].path_label == candidate
+        assert result.instructions[0].content == f"from-{candidate}\n"
         for present in INSTRUCTION_CANDIDATE_FILENAMES[index:]:
             (tmp_path / present).unlink()
 
 
-def test_per_directory_falls_through_AGENTS_to_pipy_md_on_any_filesystem(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
-    result = _discover(tmp_path)
-    assert len(result.instructions) == 1
-    assert result.instructions[0].path_label == "pipy.md"
-    assert "from-pipy.md" in result.instructions[0].content
-
-
-def test_claude_md_is_ignored_so_pipy_does_not_leak_neighbor_config(
-    tmp_path: Path,
-) -> None:
-    """Pipy must not load Claude Code's CLAUDE.md into its system prompt."""
-
+def test_claude_md_loads_when_it_is_the_only_context_file(tmp_path: Path) -> None:
     (tmp_path / "CLAUDE.md").write_text("claude-only\n", encoding="utf-8")
+
     result = _discover(tmp_path)
-    labels = [entry.path_label for entry in result.instructions]
-    assert "CLAUDE.md" not in labels
-    assert "claude-only" not in "".join(entry.content for entry in result.instructions)
+
+    assert [e.path_label for e in result.instructions] == ["CLAUDE.md"]
+    assert result.instructions[0].content == "claude-only\n"
+    assert result.instructions[0].absolute_path == str(tmp_path / "CLAUDE.md")
+
+
+def test_claude_md_in_an_ancestor_loads(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo" / "ws"
+    workspace.mkdir(parents=True)
+    (tmp_path / "repo" / "CLAUDE.md").write_text("ancestor\n", encoding="utf-8")
+    (workspace / "AGENTS.md").write_text("workspace\n", encoding="utf-8")
+
+    result = _discover(workspace)
+
+    assert [e.path_label for e in result.instructions] == ["../CLAUDE.md", "AGENTS.md"]
+
+
+def test_pipy_md_is_no_longer_a_context_file(tmp_path: Path) -> None:
+    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
+    (tmp_path / "PIPY.md").write_text("from-PIPY.md\n", encoding="utf-8")
+
+    result = _discover(tmp_path)
+
+    assert result.instructions == ()
+
+
+def test_directory_named_like_a_candidate_falls_through(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").mkdir()
+    (tmp_path / "CLAUDE.md").write_text("claude\n", encoding="utf-8")
+
+    result = _discover(tmp_path)
+
+    assert [e.path_label for e in result.instructions] == ["CLAUDE.md"]
+
+
+def test_leading_bom_is_stripped(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_bytes(b"\xef\xbb\xbfhello\n")
+
+    result = _discover(tmp_path)
+
+    assert result.instructions[0].content == "hello\n"
 
 
 # -- parent walk ordering ----------------------------------------------------
@@ -206,16 +217,12 @@ def test_missing_files_do_not_fail(tmp_path: Path) -> None:
 # -- dedup by canonical path -------------------------------------------------
 
 
-def test_read_failure_falls_through_without_marking_seen_or_labeling(
+def test_read_failure_falls_through_to_next_candidate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        workspace_context,
-        "INSTRUCTION_CANDIDATE_FILENAMES",
-        ("AGENTS.md", "pipy.md"),
-    )
+    # Pi `loadContextFileFromDir` warns on a read error and tries the next name.
     (tmp_path / "AGENTS.md").write_text("unreadable\n", encoding="utf-8")
-    (tmp_path / "pipy.md").write_text("fallback\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text("fallback\n", encoding="utf-8")
     original_read = workspace_context._read_capped_bytes
     read_attempts: list[str] = []
     labels: list[str] = []
@@ -224,7 +231,7 @@ def test_read_failure_falls_through_without_marking_seen_or_labeling(
         path: Path, *, per_file_byte_cap: int
     ) -> tuple[bytes, int, str]:
         read_attempts.append(path.name)
-        if path.name == "AGENTS.md":
+        if path.name.lower() == "agents.md":
             raise OSError("simulated read failure")
         return original_read(path, per_file_byte_cap=per_file_byte_cap)
 
@@ -233,40 +240,34 @@ def test_read_failure_falls_through_without_marking_seen_or_labeling(
         return filename
 
     monkeypatch.setattr(workspace_context, "_read_capped_bytes", fail_first_read)
-    seen_paths: set[Path] = set()
 
-    entry = workspace_context._load_first_candidate(
+    loaded = workspace_context._load_first_candidate(
         tmp_path,
-        seen_paths=seen_paths,
         per_file_byte_cap=DEFAULT_PER_FILE_BYTE_CAP,
         path_label_for=label,
     )
 
-    assert entry is not None
-    assert entry.path_label == "pipy.md"
+    assert loaded is not None
+    entry, canonical_path = loaded
+    assert entry.path_label == "CLAUDE.md"
     assert entry.content == "fallback\n"
-    assert read_attempts == ["AGENTS.md", "pipy.md"]
-    assert labels == ["pipy.md"]
-    assert seen_paths == {(tmp_path / "pipy.md").resolve()}
+    assert read_attempts[-1] == "CLAUDE.md"
+    assert labels == ["CLAUDE.md"]
+    assert canonical_path == (tmp_path / "CLAUDE.md").resolve()
 
 
-def test_seen_candidate_falls_through_to_next_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "pipy_harness.native.workspace_context.INSTRUCTION_CANDIDATE_FILENAMES",
-        ("AGENTS.md", "pipy.md"),
-    )
+def test_already_loaded_directory_file_does_not_fall_through(tmp_path: Path) -> None:
+    # Pi dedups the directory's chosen context file; a seen file makes the
+    # directory contribute nothing rather than falling back to CLAUDE.md.
     workspace = tmp_path / "ws"
     workspace.mkdir()
     (workspace / "AGENTS.md").write_text("global copy\n", encoding="utf-8")
-    (workspace / "pipy.md").write_text("workspace fallback\n", encoding="utf-8")
+    (workspace / "CLAUDE.md").write_text("never reached\n", encoding="utf-8")
 
     result = _discover(workspace, env={PIPY_CONFIG_HOME_ENV: str(workspace)})
 
     labels = [entry.path_label for entry in result.instructions]
-    assert labels == [f"{GLOBAL_PATH_LABEL_PREFIX}AGENTS.md", "pipy.md"]
-    assert result.instructions[-1].content.strip() == "workspace fallback"
+    assert labels == [f"{GLOBAL_PATH_LABEL_PREFIX}AGENTS.md"]
 
 
 def test_dedup_by_canonical_path_via_symlinked_ancestor(tmp_path: Path) -> None:
@@ -328,11 +329,11 @@ def test_symlink_falls_through_to_next_safe_candidate(tmp_path: Path) -> None:
     secret = outside / "secrets.md"
     secret.write_text("never load me\n", encoding="utf-8")
     (workspace / "AGENTS.md").symlink_to(secret)
-    (workspace / "pipy.md").write_text("legitimate\n", encoding="utf-8")
+    (workspace / "CLAUDE.md").write_text("legitimate\n", encoding="utf-8")
 
     result = _discover(workspace)
     workspace_entry = next(
-        entry for entry in result.instructions if entry.path_label == "pipy.md"
+        entry for entry in result.instructions if entry.path_label == "CLAUDE.md"
     )
     assert workspace_entry.content.strip() == "legitimate"
     assert all(
@@ -528,13 +529,13 @@ def test_path_label_ancestor_dotdot_relative(tmp_path: Path) -> None:
     parent = tmp_path / "parent"
     workspace = parent / "ws"
     workspace.mkdir(parents=True)
-    (parent / "pipy.md").write_text("parent-pipy\n", encoding="utf-8")
+    (parent / "CLAUDE.md").write_text("parent-pipy\n", encoding="utf-8")
 
     result = _discover(workspace)
     parent_entry = next(
         e for e in result.instructions if e.content.strip() == "parent-pipy"
     )
-    assert parent_entry.path_label == "../pipy.md"
+    assert parent_entry.path_label == "../CLAUDE.md"
 
 
 def test_path_label_global_prefix(tmp_path: Path) -> None:
@@ -590,3 +591,168 @@ def test_global_first_then_ancestors_then_workspace(tmp_path: Path) -> None:
     parent_index = contents.index("parent")
     global_index = contents.index("global")
     assert global_index < parent_index < workspace_index
+
+
+# -- Pi project_context prompt section ----------------------------------------
+
+
+def test_compose_system_prompt_renders_pi_project_context_section(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    workspace = parent / "ws"
+    workspace.mkdir(parents=True)
+    (parent / "CLAUDE.md").write_text("parent rules\n", encoding="utf-8")
+    (workspace / "AGENTS.md").write_text("ws rules", encoding="utf-8")
+
+    discovery = _discover(workspace)
+    prompt = workspace_context.compose_system_prompt("BASE\n", discovery)
+
+    parent_path = parent / "CLAUDE.md"
+    ws_path = workspace / "AGENTS.md"
+    assert prompt == (
+        "BASE\n\n"
+        "<project_context>\n"
+        "Project-specific instructions and guidelines:\n\n"
+        f'<project_instructions path="{parent_path}">\n'
+        "parent rules\n\n"
+        "</project_instructions>\n\n"
+        f'<project_instructions path="{ws_path}">\n'
+        "ws rules\n"
+        "</project_instructions>\n"
+        "</project_context>"
+    )
+
+
+def test_compose_system_prompt_without_context_returns_base_verbatim() -> None:
+    empty = WorkspaceInstructionDiscovery(instructions=(), total_byte_cap_reached=False)
+    assert workspace_context.compose_system_prompt("BASE\n", empty) == "BASE\n"
+
+
+def test_safe_metadata_never_carries_absolute_paths_or_bodies(tmp_path: Path) -> None:
+    (tmp_path / "CLAUDE.md").write_text("secret body\n", encoding="utf-8")
+
+    discovery = _discover(tmp_path)
+    metadata = workspace_context.workspace_instruction_safe_metadata(discovery)
+
+    serialized = repr(metadata)
+    assert str(tmp_path) not in serialized
+    assert "secret body" not in serialized
+    assert metadata["workspace_instruction_files"] == [
+        {
+            "path_label": "CLAUDE.md",
+            "sha256": hashlib.sha256(b"secret body\n").hexdigest(),
+            "byte_length": len(b"secret body\n"),
+            "truncated": False,
+        }
+    ]
+
+
+# -- linked-worktree shadowing (Pi findShadowedContextFile) -------------------
+
+
+def _make_repo(root: Path) -> Path:
+    git_dir = root / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    return git_dir
+
+
+def _make_linked_worktree(common_git_dir: Path, worktree_root: Path, name: str) -> None:
+    admin = common_git_dir / "worktrees" / name
+    admin.mkdir(parents=True)
+    (admin / "HEAD").write_text("ref: refs/heads/feat\n", encoding="utf-8")
+    (admin / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree_root.mkdir(parents=True, exist_ok=True)
+    (worktree_root / ".git").write_text(f"gitdir: {admin}\n", encoding="utf-8")
+
+
+def test_nested_linked_worktree_shadows_main_repo_same_named_file(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "main"
+    common = _make_repo(main)
+    worktree = main / ".claude" / "worktrees" / "wt"
+    _make_linked_worktree(common, worktree, "wt")
+    (main / "AGENTS.md").write_text("main copy\n", encoding="utf-8")
+    (worktree / "AGENTS.md").write_text("worktree copy\n", encoding="utf-8")
+    cwd = worktree / "src"
+    cwd.mkdir()
+
+    result = _discover(cwd)
+
+    assert [e.content for e in result.instructions] == ["worktree copy\n"]
+
+
+def test_nested_worktree_different_basename_is_not_shadowed(tmp_path: Path) -> None:
+    main = tmp_path / "main"
+    common = _make_repo(main)
+    worktree = main / "wts" / "wt"
+    _make_linked_worktree(common, worktree, "wt")
+    (main / "AGENTS.md").write_text("main agents\n", encoding="utf-8")
+    (worktree / "CLAUDE.md").write_text("worktree claude\n", encoding="utf-8")
+
+    result = _discover(worktree)
+
+    assert [e.content for e in result.instructions] == [
+        "main agents\n",
+        "worktree claude\n",
+    ]
+
+
+def test_sibling_worktree_does_not_shadow(tmp_path: Path) -> None:
+    main = tmp_path / "main"
+    common = _make_repo(main)
+    worktree = tmp_path / "feat"
+    _make_linked_worktree(common, worktree, "feat")
+    (main / "AGENTS.md").write_text("main\n", encoding="utf-8")
+    (worktree / "AGENTS.md").write_text("feat\n", encoding="utf-8")
+
+    assert workspace_context._find_shadowed_context_file(worktree) is None
+    result = _discover(worktree)
+    assert [e.content for e in result.instructions] == ["feat\n"]
+
+
+def test_ordinary_repo_keeps_ancestor_inheritance(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _make_repo(repo)
+    sub = repo / "pkg"
+    sub.mkdir()
+    (repo / "AGENTS.md").write_text("repo\n", encoding="utf-8")
+    (sub / "AGENTS.md").write_text("pkg\n", encoding="utf-8")
+
+    assert workspace_context._find_shadowed_context_file(sub) is None
+    result = _discover(sub)
+    assert [e.content for e in result.instructions] == ["repo\n", "pkg\n"]
+
+
+def test_bare_layout_worktree_does_not_shadow(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    bare = proj / ".bare"
+    bare.mkdir(parents=True)
+    (bare / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    worktree = proj / "main"
+    _make_linked_worktree(bare, worktree, "main")
+    (proj / "AGENTS.md").write_text("proj\n", encoding="utf-8")
+    (worktree / "AGENTS.md").write_text("main worktree\n", encoding="utf-8")
+
+    assert workspace_context._find_shadowed_context_file(worktree) is None
+    result = _discover(worktree)
+    assert [e.content for e in result.instructions] == ["proj\n", "main worktree\n"]
+
+
+def test_submodule_does_not_shadow(tmp_path: Path) -> None:
+    superproject = tmp_path / "super"
+    super_git = _make_repo(superproject)
+    module_git = super_git / "modules" / "sub"
+    module_git.mkdir(parents=True)
+    (module_git / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    submodule = superproject / "sub"
+    submodule.mkdir()
+    (submodule / ".git").write_text("gitdir: ../.git/modules/sub\n", encoding="utf-8")
+    (superproject / "AGENTS.md").write_text("super\n", encoding="utf-8")
+    (submodule / "AGENTS.md").write_text("sub\n", encoding="utf-8")
+
+    assert workspace_context._find_shadowed_context_file(submodule) is None
+    result = _discover(submodule)
+    assert [e.content for e in result.instructions] == ["super\n", "sub\n"]

@@ -2051,7 +2051,9 @@ def test_construction_options_reject_explicit_null_timeouts_before_instantiation
 def _make_skill(cwd, name: str) -> None:
     skills_dir = cwd / ".pipy" / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
-    (skills_dir / f"{name}.md").write_text(f"# {name}\n\nbody\n", encoding="utf-8")
+    (skills_dir / f"{name}.md").write_text(
+        f"---\ndescription: {name} skill\n---\n# {name}\n\nbody\n", encoding="utf-8"
+    )
 
 
 def test_cli_config_disable_then_enable_skill_writes_patterns(

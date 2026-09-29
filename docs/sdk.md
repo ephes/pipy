@@ -499,7 +499,7 @@ event sink prevents construction; constructor failures follow the context event.
 Shared preparation itself creates no workflow record or archive events. D2b uses
 `default_workspace_instruction_loader` by default, matching normal CLI context
 loading; `load_context_files=False` selects `empty_workspace_instruction_loader`,
-matching `--no-context-files`. This switch controls AGENTS.md/pipy.md instruction
+matching `--no-context-files`. This switch controls AGENTS.md/CLAUDE.md context-file
 discovery independently of project trust. Trust continues to gate project
 system-prompt defaults, settings and resources through their existing seams;
 it does not become a new instruction-file filter. The direct adapter's default
