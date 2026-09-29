@@ -13,9 +13,9 @@
  * branch users when the ALT vs MAIN leaf is selected, whether the fork records
  * a parent and carries the ALT chain, and the durable reopen leaf chain.
  *
- * Usage (run with pi-mono's own tsx so workspace deps resolve):
+ * Usage (run from source the way pi-mono runs its TypeScript):
  *   PI_MONO_DIR=/path/to/pi-mono \
- *     "$PI_MONO_DIR/node_modules/.bin/tsx" pi_session_tree_driver.mts <sessionDir> <cwd> <forkCwd>
+ *     node --import "$PI_MONO_DIR/packages/coding-agent/src/experimental/source-resolver.ts" pi_session_tree_driver.mts <sessionDir> <cwd> <forkCwd>
  */
 
 const piMono = process.env.PI_MONO_DIR;

@@ -571,6 +571,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- `pipy repl --native-provider fake --native-model fake-native-bootstrap` no
+  longer ends the first turn with `ProviderResult.model_id must match the
+  request`. The REPL runs any `fake` selection on `fake-tools`, but it stamped
+  requests with the raw `--native-model` flag. The REPL now takes the provider
+  and model only from its resolved selection.
+- The Pi comparison gates (`scripts/parity_checks/automation_pi_comparison.py`
+  and `session_tree_pi_comparison.py`) run again. pi-mono dropped `tsx`, so
+  both drivers now run from source with `node` and pi-mono's source resolver,
+  as pi-mono's own scripts do (Node 22.19 or later). A missing Pi reference
+  now reports `passed: false` and exits 2 instead of passing.
 - Shift+Tab and the `/settings` "cycle thinking level" row now rebuild the
   provider with the new level. Before, the footer showed the new level while
   requests kept the effort the provider was built with.

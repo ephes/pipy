@@ -9,9 +9,9 @@
  * writes each event as one JSON line to stdout — the same vocabulary Pi's
  * `--mode json` emits, sourced from a real agent run rather than a mock.
  *
- * Usage (run with pi-mono's own tsx so the workspace deps resolve):
+ * Usage (run from source the way pi-mono runs its TypeScript):
  *   PI_MONO_DIR=/path/to/pi-mono \
- *     "$PI_MONO_DIR/node_modules/.bin/tsx" pi_faux_event_driver.mts <prompt> <reply>
+ *     node --import "$PI_MONO_DIR/packages/coding-agent/src/experimental/source-resolver.ts" pi_faux_event_driver.mts <prompt> <reply>
  *
  * It imports the test harness dynamically from $PI_MONO_DIR so this file can
  * live in the pipy repo while resolving against the Pi checkout.
@@ -32,14 +32,14 @@ const harnessUrl = new URL(
 ).href;
 
 const { createHarness } = (await import(harnessUrl)) as {
-	createHarness: (options: { responses?: string[] }) => {
+	createHarness: (options: { responses?: string[] }) => Promise<{
 		session: { prompt: (text: string) => Promise<void> };
 		events: unknown[];
 		cleanup: () => void;
-	};
+	}>;
 };
 
-const harness = createHarness({ responses: [reply] });
+const harness = await createHarness({ responses: [reply] });
 try {
 	await harness.session.prompt(prompt);
 	for (const event of harness.events) {
