@@ -52,16 +52,5 @@
   {"kind": "deviation", "match": "azure-openai/*", "field": "not-carried", "reason": "Azure rows are deployment examples; users configure their deployments through models.json."},
   {"kind": "deviation", "match": "cloudflare/*", "field": "not-carried", "reason": "pipy carries a Cloudflare sample (the Pi default Kimi K2.6); other Workers AI models go through models.json."},
   {"kind": "deviation", "match": "mistral/*", "field": "not-carried", "reason": "pipy carries the -latest aliases for large, small and devstral-medium; other Mistral models go through models.json."},
-  {"kind": "deviation", "match": "openrouter/*", "field": "not-carried", "reason": "pipy carries a few OpenRouter routing samples, not the full OpenRouter table."},
-
-  {"kind": "pending", "match": "openai-completions/gpt-4.1", "field": "contextWindow", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "openrouter/openai/gpt-5.1-codex", "field": "cost", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "openrouter/openai/gpt-5.1-codex", "field": "thinkingLevelMap", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "google*/gemini-2.5-pro", "field": "cost", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "google*/gemini-2.5-pro", "field": "contextWindow", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "mistral/*", "field": "cost", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "mistral/*", "field": "contextWindow", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "mistral/*", "field": "maxTokens", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "mistral/mistral-small-latest", "field": "reasoning", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."},
-  {"kind": "pending", "match": "mistral/mistral-small-latest", "field": "thinkingLevelMap", "reason": "Found by MC5 against Pi 4df157433; refreshed in the follow-up commit."}
+  {"kind": "deviation", "match": "openrouter/*", "field": "not-carried", "reason": "pipy carries a few OpenRouter routing samples, not the full OpenRouter table."}
 ]

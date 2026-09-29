@@ -403,6 +403,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Built-in rows the first catalog drift check flagged now carry Pi's values
+  (Pi `4df157433`):
+  - Mistral Large, Devstral Medium and Mistral Small: cost, context window and
+    max tokens;
+  - Gemini 2.5 Pro on Google and Vertex: cost and context window;
+  - OpenRouter GPT-5.1 Codex: cost and thinking map;
+  - `openai-completions/gpt-4.1`: context window.
+
+  Mistral Small is now a reasoning model. It offers `high`, and off sends
+  `reasoning_effort: "none"`. Mistral `reasoning_effort` now follows Pi: a
+  level is clamped to the model's levels before it is mapped. OpenRouter GPT-5.1
+  Codex offers low, medium and high, and thinking cannot be switched off.
 - Skills, prompt templates, custom commands, global extensions and
   `models.json` now use the same global config root as settings and context
   files: `PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when it

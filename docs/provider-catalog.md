@@ -136,6 +136,20 @@ deviation, and `--json` prints the report as JSON.
   drift line shows Pi's value in `_m(...)` keyword form, ready to paste into
   `catalog_data.py`. A missing or unreadable input exits 2.
 
+The first run against Pi `4df157433` found rows MC1 had not refreshed. They
+now carry Pi's values:
+
+- the three Mistral rows: cost, context window and max tokens.
+  `mistral-small-latest` is also now a reasoning row with Pi's map (`high`,
+  and off sends `"none"`);
+- Gemini 2.5 Pro on Google and Vertex: cost and context window;
+- OpenRouter `openai/gpt-5.1-codex`: cost and Pi's map (low, medium or high,
+  and thinking cannot be switched off);
+- `openai-completions/gpt-4.1`: context window.
+
+Pi marks Mistral Large and Small as image-capable. They stay text-only in
+pipy, because its Chat Completions wire has no image serialization.
+
 The 2026-07-14 refresh against Pi `0.80.6` shipped GPT-5.6 Sol
 (`openai-codex/gpt-5.6-sol`, image input) plus model-aware `max`
 thinking: the vocabulary is now `off|minimal|low|medium|high|xhigh|max`, the
@@ -238,6 +252,14 @@ Tier 1 catalog construction (shipped 2026-06-03):
   the adaptive Claude models and `thinking.budget_tokens` via Pi's default
   per-level budgets otherwise, both with `display: "summarized"`; mistral
   `reasoning_effort`). Covered by conformance item 20.
+- Mistral `reasoning_effort` follows Pi (`mistral-conversations.ts:199-207`)
+  for a reasoning row with a thinking map. An on-state level is clamped and
+  sent as `map[level]`, or `"high"` when the map has no value for it. Off or
+  unset sends `map.off`, and nothing when `off` is missing or `null`. A
+  non-reasoning row sends nothing. A reasoning row without a map still sends
+  the raw level, where Pi sends `prompt_mode: "reasoning"`; that is not ported.
+  The built-in `mistral-small-latest` row is the one reasoning Mistral row
+  (`high`, off `none`).
 
 Tier 2 catalog construction (shipped 2026-06-03):
 

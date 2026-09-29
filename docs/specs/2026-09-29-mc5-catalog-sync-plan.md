@@ -1,6 +1,6 @@
 # MC5 — Catalog sync and drift check (plan)
 
-Status: planned (backlog item MC5, 2026-09-29). Pi reference: `~/src/pi-mono`
+Status: implemented (backlog item MC5, 2026-09-29). Pi reference: `~/src/pi-mono`
 at `4df157433`, paths relative to `packages/ai/`. tau reference:
 `~/src/tau/scripts/generate_models.py`.
 
