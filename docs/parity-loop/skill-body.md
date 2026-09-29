@@ -123,7 +123,10 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    later must leave it immediate rather than make it disappear. Pin this invariant
    in the plan and add tests for a missing prerequisite plus multiple ordered load
    markers with overlapping tool names, proving marker order and cross-marker
-   first-load deduplication.
+   first-load deduplication. When placing tool cache breakpoints, name up front
+   how pipy's `tool_reference` deferred path differs from Pi's native-tool-changes
+   path (Pi's `__pi_deferred_placeholder__` keeps the tool prefix stable when a
+   deferred tool loads; pipy's first activation misses the cache once).
    For trust/provenance slices, inventory the concrete loader entry points and
    source shapes before specifying protected-resource detection or prompts.
    Protect only inputs the runtime can actually discover: a resource contributed
@@ -340,7 +343,15 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    regenerate it into scratch from `~/src/pi-mono/packages/ai` with
    `node scripts/generate-models.ts --strict --json-only --json-output <scratch-dir>`
    (a live models.dev fetch) and give the reviewer a filtered extract of the
-   touched rows as evidence. When a catalog refresh adds explicit `null`
+   touched rows as evidence. Run `just catalog-drift --pi-data <scratch-dir>`
+   (the freshly generated catalog, not the default path) before and after
+   editing `catalog_data.py` and expect 0 drift and 0 stale entries; record intentional
+   differences as allowlist deviations with reasons (a hand refresh of only the
+   rows you looked at leaves stale neighbours). A Pi-vs-pipy compat comparison
+   must cover every compat key pipy request construction reads (`grep
+   compat.get`), treat a missing key as distinct from `false` (Pi defaults differ
+   per key; `supportsLongCacheRetention` defaults to true), and normalize
+   order-independent fields such as input capabilities. When a catalog refresh adds explicit `null`
    thinking-map entries (e.g. `off: null`, `minimal: null`), it makes Pi
    SESSION-level behavior reachable, not just request shape: Pi seeds
    `DEFAULT_THINKING_LEVEL` (`medium`) at startup and clamps the carried level on
@@ -364,6 +375,36 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    body: Pi's compaction and branch-summary calls pass no `sessionId`, so they get
    a fresh routing id rather than the session's. Verify these per caller in the Pi
    source instead of trusting a backlog or audit summary.
+   For a slice that changes state feeding a provider or model selector, trace
+   every consumer in the plan, not the first one found:
+   - Providers bake some values at construction (e.g.
+     `OpenAIResponsesProvider.reasoning_effort`), so a state-only assignment can
+     update the footer while requests keep the old value. Route every interactive
+     change through the prepare/commit path that calls
+     `coding_state.refresh_provider`, and test the bound provider's identity and
+     field after the mutation. Derive capabilities from the same row the UI uses
+     (`ModelRuntime.resolve_spec(selection).reasoning`), not from a parallel
+     source such as `model_options`/`supports_thinking`.
+   - A ported availability filter (Pi `filterModels`) applies to every selection
+     path: `get_available()`, the REPL `/model` options (`model_options`), and
+     direct `/model <ref>` resolution (`_resolve_model_reference`), each with a
+     per-row reason.
+   - Short-lived OAuth tokens (Copilot, ~30 min) expire under a provider bound across
+     turns: plan a
+     per-request auth wrapper that snapshots the credential on the owner thread
+     (`AuthStore` is single-thread), refreshes through a lock-protected cache
+     holding no `AuthStore`, rebuilds the adapter from the owner-thread
+     `ResolvedConstruction` replacing only `api_key`/`base_url`, and regenerates
+     token-derived headers (models.json `authHeader`).
+   - Cost/usage: confirm the price is actually consumed (`repl/turn_leaves.py`
+     `pricing_for`) and enumerate every adapter usage extractor against the Pi
+     adapter that normalizes it (uncached input = prompt minus inclusive cache
+     counters, reasoning inside output, Gemini thoughts added to output, cache
+     reads/writes per API) before pricing.
+   - When a previously loaded-but-unused value becomes live input (models.json
+     cost rates), re-check load-time validation against the consumer's
+     invariants (negative, NaN/Infinity, `OverflowError` from `float(int)`) with
+     path-qualified errors.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/specs/`). `git add` it, then run the different-family
@@ -386,13 +427,24 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    `agent-session`, or generator rules — with `--evidence-file` (repeatable) on
    BOTH the plan review and every code-review round. With the full Pi sources as
    evidence, PC1's plan and code reviews each closed CLEAN in round 1.
+   `codex-review-loop` rejects `--staged-only` with `--baseline-ref`; to re-review
+   a staged plan while unstaged implementation work exists, run `--staged-only`
+   alone (full plan) plus a context file listing the prior findings and repairs.
    *Done-when:* CLEAN verdict (or the Operator-override stop above).
 4. **Write the implementation plan.** Turn the reviewed design into an ordered,
    testable task breakdown, written to a file. *Done-when:* numbered plan with
    acceptance criteria per task.
 5. **Implement.** Execute on `main`, TDD where it applies, matching Pi behavior;
-   remove pipy-only accretions per the no-deprecation policy. *Done-when:* code
-   complete, focused tests written.
+   remove pipy-only accretions per the no-deprecation policy. Verify each edit
+   landed (grep/Read) before running gates: some hosts' guards refuse shell edits
+   without applying them. Exercise UI/cost behavior without live credentials via
+   an isolated `PIPY_CONFIG_HOME` in a real tmux PTY: the REPL fake runs as the
+   synthesized row `fake/fake-tools` and reports no usage, so set
+   `modelOverrides.fake-native-bootstrap.reasoning=true` in its `models.json` for
+   thinking UI, and for a non-zero cost point a custom `openai-completions`
+   provider (with `cost`) at a local stdlib HTTP stub returning usage, then check
+   the footer and `--mode rpc` `get_session_stats` against the exactly computed
+   value. *Done-when:* code complete, focused tests written.
 6. **Update docs (part of the change).** Bring docs + release notes + the parity
    docs (`docs/parity-plan.md`, `docs/pi-mono-gap-audit.md`, `docs/backlog.md`)
    in line with the change, *before* the review gate, so the reviewed diff is
