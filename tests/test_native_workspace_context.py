@@ -297,48 +297,39 @@ def test_dedup_by_canonical_path_via_symlinked_ancestor(tmp_path: Path) -> None:
     assert matching[0].content.strip() == "shared"
 
 
-# -- symlink defense ---------------------------------------------------------
+# -- symlinks (followed, like Pi) ---------------------------------------------
 
 
-def test_symlink_resolving_outside_directory_is_skipped(tmp_path: Path) -> None:
+def test_symlink_resolving_outside_directory_is_followed(tmp_path: Path) -> None:
+    # Pi `loadContextFileFromDir` follows a symlinked candidate (statSync).
     workspace = tmp_path / "ws"
-    outside = tmp_path / "outside"
+    outside = tmp_path / "dotfiles"
     outside.mkdir()
     workspace.mkdir()
-    secret = outside / "secrets.md"
-    secret.write_text("never load me\n", encoding="utf-8")
-    (workspace / "AGENTS.md").symlink_to(secret)
+    shared = outside / "AGENTS.md"
+    shared.write_text("shared rules\n", encoding="utf-8")
+    (workspace / "AGENTS.md").symlink_to(shared)
 
     result = _discover(workspace)
 
-    # The unsafe symlink is skipped; the workspace dir contributes no
-    # instruction file.
-    assert all(
-        entry.content.strip() != "never load me" for entry in result.instructions
-    )
-    assert all(entry.path_label != "AGENTS.md" for entry in result.instructions)
+    entry = next(e for e in result.instructions if e.path_label == "AGENTS.md")
+    assert entry.content.strip() == "shared rules"
+    # The prompt path is the path it was found at, like Pi's `filePath`.
+    assert entry.absolute_path == str(workspace / "AGENTS.md")
 
 
-def test_symlink_falls_through_to_next_safe_candidate(tmp_path: Path) -> None:
-    # An unsafe symlink at the highest-precedence slot does not block a lower
-    # candidate from the same directory; the safer fallback wins.
+def test_broken_symlink_falls_through_to_next_candidate(tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
-    outside = tmp_path / "outside"
-    outside.mkdir()
     workspace.mkdir()
-    secret = outside / "secrets.md"
-    secret.write_text("never load me\n", encoding="utf-8")
-    (workspace / "AGENTS.md").symlink_to(secret)
+    (workspace / "AGENTS.md").symlink_to(tmp_path / "missing.md")
     (workspace / "CLAUDE.md").write_text("legitimate\n", encoding="utf-8")
 
     result = _discover(workspace)
+
     workspace_entry = next(
         entry for entry in result.instructions if entry.path_label == "CLAUDE.md"
     )
     assert workspace_entry.content.strip() == "legitimate"
-    assert all(
-        entry.content.strip() != "never load me" for entry in result.instructions
-    )
 
 
 # -- global root resolution --------------------------------------------------

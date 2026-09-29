@@ -179,6 +179,7 @@ Pipy loads custom model configuration from:
 ```text
 ${PIPY_CONFIG_HOME}/models.json
 ${XDG_CONFIG_HOME}/pipy/models.json
+~/.pipy/models.json          (when ~/.pipy exists)
 ~/.config/pipy/models.json
 ```
 

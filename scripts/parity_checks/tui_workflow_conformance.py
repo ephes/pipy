@@ -455,8 +455,10 @@ def run_checks(base: Path) -> list[Check]:
         provider_state=state4,
         native_session=tree4,
     ) as run:
-        run.write(b"\x1b[Z")  # shift+tab -> thinking cycle
-        think_ok = run.wait_for("thinking level: minimal")
+        # shift+tab -> thinking cycle. Pi's gpt-5.5 thinking map has no
+        # `minimal` (catalog refresh 23eb706), so off cycles straight to low.
+        run.write(b"\x1b[Z")
+        think_ok = run.wait_for("thinking level: low")
         run.write(b"\x10")  # ctrl+p -> model cycle
         model_ok = run.wait_for("selected model")
         cycle_no_turn = provider4.calls == 0
@@ -476,7 +478,7 @@ def run_checks(base: Path) -> list[Check]:
     checks.append(
         Check(
             "thinking_cycle_and_tree_entry",
-            think_ok and "minimal" in tree_levels,
+            think_ok and "low" in tree_levels,
             f"cycle={think_ok} tree_levels={tree_levels}",
         )
     )

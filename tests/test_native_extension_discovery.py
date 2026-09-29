@@ -719,3 +719,22 @@ def test_safe_metadata_excludes_source_and_manifest_body(tmp_path: Path) -> None
     }
     # The description text must never reach archive-safe metadata.
     assert "secret words here" not in str(entry)
+
+
+def test_home_pipy_dir_is_scanned_once_when_cwd_is_home(tmp_path: Path) -> None:
+    # An existing `~/.pipy` is the global root; with cwd == $HOME it is also the
+    # project config dir. Its extensions appear once, not as duplicates.
+    home = _make_workspace(tmp_path)
+    _write_single_file(home, "greet")
+
+    trusted = discover_extensions(
+        home, config_home_env={}, home_dir=home, include_workspace_defaults=True
+    )
+    untrusted = discover_extensions(home, config_home_env={}, home_dir=home)
+
+    assert [(d.name, d.source_kind, d.status) for d in trusted] == [
+        ("greet", "workspace", "loadable")
+    ]
+    assert [(d.name, d.source_kind, d.status) for d in untrusted] == [
+        ("greet", "global", "loadable")
+    ]

@@ -19,8 +19,8 @@ Discovery locations mirror the resource stores
   (with an optional `.pipy/extensions/<name>/pipy-extension.toml`).
 - Workspace single-file extension: `.pipy/extensions/<name>.py`.
 - Global extensions under the resolved config root (`PIPY_CONFIG_HOME`
-  then `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`) in the same two
-  shapes.
+  then `${XDG_CONFIG_HOME}/pipy` then `~/.pipy` when present then
+  `~/.config/pipy`) in the same two shapes.
 
 The module reuses the safety primitives pinned by
 `pipy_harness.native._resource_files`: the global-root resolver, the
@@ -266,19 +266,29 @@ def _default_candidate_sources(
     if not include_defaults:
         return []
     sources: list[_CandidateSource] = []
+    workspace_dir = resolved_workspace / WORKSPACE_PIPY_DIR_NAME / EXTENSIONS_SUBDIR
     if include_workspace:
-        workspace_dir = resolved_workspace / WORKSPACE_PIPY_DIR_NAME / EXTENSIONS_SUBDIR
         sources.append(_CandidateSource(workspace_dir, "workspace", resolved_workspace))
-    if include_global:
-        sources.append(
-            _CandidateSource(global_root / EXTENSIONS_SUBDIR, "global", global_root)
-        )
+    global_dir = global_root / EXTENSIONS_SUBDIR
+    # With cwd == $HOME, an existing `~/.pipy` is both the project config dir
+    # and the global root; scan that one directory once, as the project tier.
+    if include_global and not (
+        include_workspace and _same_directory(global_dir, workspace_dir)
+    ):
+        sources.append(_CandidateSource(global_dir, "global", global_root))
     if include_packages:
         sources.extend(
             _CandidateSource(root.path, "package", root.path, tuple(root.filters))
             for root in package_roots
         )
     return sources
+
+
+def _same_directory(left: Path, right: Path) -> bool:
+    try:
+        return left.expanduser().resolve() == right.expanduser().resolve()
+    except OSError:
+        return False
 
 
 def _ordered_candidates(

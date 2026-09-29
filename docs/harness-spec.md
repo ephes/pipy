@@ -546,17 +546,17 @@ Discovery (`pipy_harness.native._resource_files` + the `skills`,
 `prompt_templates`, and `custom_commands` loaders) reads `*.md` files one level
 deep from pipy-owned stores, workspace-first then global: `<workspace>/.pipy/{skills,templates,commands}/`
 then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
-`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy` (mirroring
-`workspace_context`). Results dedupe by canonical path (first wins). Optional
+`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.pipy` when present →
+`~/.config/pipy` (the same resolver as `workspace_context`). Results dedupe by canonical path (first wins). Optional
 `---`-delimited frontmatter declares `name` and `description`; the body is the
 instruction/template text. The per-candidate safety policy skips, silently,
 files whose name looks secret (`capture.looks_sensitive`), whose loaded head
 bytes contain a NUL (binary), or whose bare filename is a generated/`.gitignore`-matched
 artifact (`read_only_tool._is_ignored_or_generated`, applied to the filename so
 the pipy-owned `.pipy/` parent is not itself treated as ignored). Per-file and
-total byte caps bound the body with a deterministic truncation marker; resource
-directories must not be symlinks and resource-file symlinks must resolve inside
-their store.
+total byte caps bound the body with a deterministic truncation marker. Skill
+roots follow symlinks like Pi; the template and command stores must not be
+symlinks and their file symlinks must resolve inside the store.
 
 `dispatch_resource_command` runs **after** the built-in command handlers, so a
 custom command can never shadow a built-in (collisions are dropped from

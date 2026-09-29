@@ -264,7 +264,8 @@ Provider/model catalog (`docs/provider-catalog.md`):
 - The catalog is the pipy-owned analogue of Pi's `ModelRegistry`: a built-in
   table with multiple rows per provider, plus a `models.json` custom-provider /
   override layer loaded from `<config>/models.json` (`PIPY_CONFIG_HOME`, else
-  `${XDG_CONFIG_HOME}/pipy`, else `~/.config/pipy`). The foundation supports
+  `${XDG_CONFIG_HOME}/pipy`, else `~/.pipy` when present, else `~/.config/pipy`).
+  The foundation supports
   comment/trailing-comma stripping, provider/per-model overrides (deep-merged),
   OpenRouter/Vercel routing, per-model thinking, and graceful degradation (a
   malformed `models.json` keeps the built-ins and reports a path-qualified
@@ -463,7 +464,8 @@ by 64 KiB per file and 256 KiB total.
 The product REPL loads three bounded resource kinds from pipy-owned Markdown
 stores, workspace-first then global (`<workspace>/.pipy/{skills,templates,commands}/`
 then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
-`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy`). Each `*.md`
+`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.pipy` when present →
+`~/.config/pipy`). Each `*.md`
 file may carry optional `---` frontmatter with `name` and `description`; the
 body is the instruction/template text.
 

@@ -48,6 +48,7 @@ import subprocess
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.cli import (
@@ -98,12 +99,13 @@ class _CapturingProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
+        now = datetime.now(UTC)
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
             provider_name=self.name,
             model_id=self.model_id,
-            started_at=None,
-            ended_at=None,
+            started_at=now,
+            ended_at=now,
             final_text="OK",
             usage=None,
             metadata=None,

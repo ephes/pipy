@@ -690,7 +690,8 @@ and per-model overrides are deep-merged onto built-ins.
 
 Pipy target: load a pipy-owned `models.json` from the existing config root
 resolution used by skills/templates/commands
-(`PIPY_CONFIG_HOME` -> `${XDG_CONFIG_HOME}/pipy` -> `~/.config/pipy`), at
+(`PIPY_CONFIG_HOME` -> `${XDG_CONFIG_HOME}/pipy` -> `~/.pipy` when present ->
+`~/.config/pipy`), at
 `<config>/models.json` (overridable for tests). Parse with stdlib `json` after a
 comment/trailing-comma strip step that matches Pi's behavior and leaves string
 literals untouched. Validate with a pipy-owned validator (dataclass + explicit

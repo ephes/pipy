@@ -35,6 +35,7 @@ from pipy_harness.native.project_trust import (
     resolve_project_trust,
     resolve_project_trusted,
 )
+from pipy_harness.native.repl.reload import maybe_save_implicit_trust_after_reload
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
@@ -282,14 +283,16 @@ def _reload_persistence_check(root: Path) -> Check:
             tool_registry={},
             auto_trust_on_reload_cwd=cwd,
         )
-        no_resource_guard = not session._maybe_save_implicit_trust_after_reload(
+        no_resource_guard = not maybe_save_implicit_trust_after_reload(
+            session.implicit_trust,
             cwd=cwd,
             settings=settings,
             terminal_ui=None,
             error_stream=io.StringIO(),
         )
         (cwd / ".pipy" / "skills").mkdir(parents=True)
-        saved_new_resource = session._maybe_save_implicit_trust_after_reload(
+        saved_new_resource = maybe_save_implicit_trust_after_reload(
+            session.implicit_trust,
             cwd=cwd,
             settings=settings,
             terminal_ui=None,
@@ -297,7 +300,7 @@ def _reload_persistence_check(root: Path) -> Check:
         )
         store = ProjectTrustStore(config / "trust.json")
         exact_saved = store.get(cwd) is True
-        candidate_consumed = session.auto_trust_on_reload_cwd is None
+        candidate_consumed = session.implicit_trust.cwd is None
 
         inherited_cwd = root / "reload" / "inherited" / "project"
         (inherited_cwd / ".pipy" / "skills").mkdir(parents=True)
@@ -307,7 +310,8 @@ def _reload_persistence_check(root: Path) -> Check:
             tool_registry={},
             auto_trust_on_reload_cwd=inherited_cwd,
         )
-        saved_guard = not inherited_session._maybe_save_implicit_trust_after_reload(
+        saved_guard = not maybe_save_implicit_trust_after_reload(
+            inherited_session.implicit_trust,
             cwd=inherited_cwd,
             settings=SettingsManager.for_workspace(inherited_cwd, project_trusted=True),
             terminal_ui=None,

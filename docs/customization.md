@@ -45,9 +45,16 @@ Skills are searched in that row order, after any `--skill` paths, and the first
 skill with a given name wins. The project rows load only for trusted projects.
 
 The global config root resolves in order: `$PIPY_CONFIG_HOME`, then
-`${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy` (an existing `~/.pipy` is also
-honored as a legacy root). Pipy intentionally uses `.pipy` for project config,
-not Pi's `.pi`.
+`${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when that directory exists, then
+`~/.config/pipy`. Settings, context files, trust, keybindings, resources,
+extensions and `models.json` all use this one root. Pipy intentionally uses
+`.pipy` for project config, not Pi's `.pi`.
+
+Symlinks in skill roots are followed like Pi: a skill directory or file
+symlinked into `~/.pipy/skills/`, `~/.agents/skills/` or a `--skill` path loads
+from wherever it points, and so does one in a trusted project's `.pipy/skills/`
+or `.agents/skills/`. The template and command stores still skip a symlink that
+points outside the store.
 
 Workspace resources are discovered first, then global, then package resources at
 the lowest precedence.

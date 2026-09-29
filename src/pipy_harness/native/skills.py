@@ -22,9 +22,11 @@ roots and below the root of `.agents/skills` roots; `.gitignore`,
 text that the runtime injects as a bounded provider-visible message when
 the user loads the skill through the `/skill <name>` slash command.
 
-This module is a pure, dependency-free pipy-owned helper. It mirrors
-the discovery, byte-cap, safety, and symlink-defense conventions
-pinned by `pipy_harness.native.workspace_context`. No body content is
+Symlinks are followed in every skill root, like Pi (`collectSkillEntries`
+stats through a symlinked file or directory); the project roots only load for
+trusted projects. This module is a pure, dependency-free pipy-owned helper
+that shares the byte-cap and filename-safety conventions of
+`pipy_harness.native.workspace_context`. No body content is
 intended to reach the session JSONL or the Markdown summary; use
 `safe_skill_metadata` to project the dataclass to archive-safe metadata.
 
@@ -129,12 +131,12 @@ def discover_workspace_skills(
     opt in only after resolving project trust; it covers both
     `<workspace>/.pipy/skills/` and the project `.agents/skills/` roots. The
     global dir is resolved through `PIPY_CONFIG_HOME` then
-    `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`, and the `skills` subdir
-    is appended; `~/.agents/skills/` (from `home_dir`) follows it. Files are
-    deduplicated by canonical path and skills by name (first wins). Missing
-    dirs and files never raise. Resource directories must not be symlinks,
-    and resource-file symlinks must stay inside the concrete skills root
-    they were found in.
+    `${XDG_CONFIG_HOME}/pipy` then `~/.pipy` (when present) then
+    `~/.config/pipy`, and the `skills` subdir is appended; `~/.agents/skills/`
+    (from `home_dir`) follows it. Files are deduplicated by canonical path and
+    skills by name (first wins). Missing dirs and files never raise. Symlinked
+    roots, skill directories and skill files are followed wherever they
+    point, like Pi; a symlink cycle is walked once.
 
     Returns `(skills, total_byte_cap_reached)` in the source order listed in
     the module docstring, sorted by path within each source.

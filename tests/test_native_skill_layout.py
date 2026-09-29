@@ -226,22 +226,78 @@ def test_ignore_files_apply_to_the_skill_walk(tmp_path: Path) -> None:
     assert sorted(s.name for s in skills) == ["draft-keep", "keep-me", "kept"]
 
 
-def test_symlinked_skill_directory_escaping_the_root_is_not_loaded(
+def test_symlinked_skill_directory_outside_the_root_is_followed(
     tmp_path: Path,
 ) -> None:
-    # pipy keeps its symlink-containment guard (documented deviation from Pi).
+    # Pi `collectSkillEntries` follows a symlinked directory wherever it points.
     workspace, home, config = _layout(tmp_path)
-    outside = tmp_path / "outside" / "escaped"
+    outside = tmp_path / "outside" / "escaped-target"
     _skill(outside, "SKILL.md")
     root = workspace / ".pipy" / "skills"
     root.mkdir(parents=True)
     (root / "escaped").symlink_to(outside, target_is_directory=True)
+    # A cycle back to the root is walked once, not forever.
     (root / "loop").symlink_to(root, target_is_directory=True)
     _skill(root / "inside", "SKILL.md")
 
     skills = _discover(workspace, home=home, config_home=config)
 
-    assert [s.name for s in skills] == ["inside"]
+    # The skill is named after the link (Pi names it after `dirname(filePath)`).
+    assert [(s.name, s.path_label) for s in skills] == [
+        ("escaped", ".pipy/skills/escaped/SKILL.md"),
+        ("inside", ".pipy/skills/inside/SKILL.md"),
+    ]
+    assert skills[0].absolute_path == (outside / "SKILL.md").resolve()
+
+
+def test_user_pipy_home_skill_symlinks_load(tmp_path: Path) -> None:
+    # The real setup: no PIPY_CONFIG_HOME/XDG, an existing `~/.pipy` is the
+    # global root, and its skills are symlinks into another checkout.
+    workspace, home, _config = _layout(tmp_path)
+    shared = tmp_path / "agent-stuff" / "skills"
+    user_skills = home / ".pipy" / "skills"
+    user_skills.mkdir(parents=True)
+    for name in ("commit-ready", "review-handoff"):
+        _skill(shared / name, "SKILL.md")
+        (user_skills / name).symlink_to(shared / name, target_is_directory=True)
+
+    skills, _ = discover_workspace_skills(workspace, config_home_env={}, home_dir=home)
+
+    assert [(s.name, s.path_label) for s in skills] == [
+        ("commit-ready", "<global>/skills/commit-ready/SKILL.md"),
+        ("review-handoff", "<global>/skills/review-handoff/SKILL.md"),
+    ]
+
+
+def test_symlinked_skill_root_is_followed(tmp_path: Path) -> None:
+    workspace, home, config = _layout(tmp_path)
+    real_root = tmp_path / "dotfiles" / "agents-skills"
+    _skill(real_root / "from-link", "SKILL.md")
+    (home / ".agents").mkdir()
+    (home / ".agents" / "skills").symlink_to(real_root, target_is_directory=True)
+
+    skills = _discover(workspace, home=home, config_home=config)
+
+    assert [(s.name, s.path_label) for s in skills] == [
+        ("from-link", "<user-agents>/skills/from-link/SKILL.md")
+    ]
+
+
+def test_cli_skill_file_symlink_is_followed(tmp_path: Path) -> None:
+    workspace, home, config = _layout(tmp_path)
+    target = _skill(tmp_path / "elsewhere", "real.md", name="cli-linked")
+    link_dir = tmp_path / "links"
+    link_dir.mkdir()
+    (link_dir / "cli.md").symlink_to(target)
+
+    skills, _ = discover_workspace_skills(
+        workspace,
+        config_home_env={PIPY_CONFIG_HOME_ENV: str(config)},
+        home_dir=home,
+        explicit_paths=(link_dir / "cli.md",),
+    )
+
+    assert [s.name for s in skills] == ["cli-linked"]
 
 
 def test_cli_skill_directory_uses_the_pi_layout(tmp_path: Path) -> None:
@@ -367,3 +423,22 @@ def test_block_and_multiline_descriptions_are_parsed(tmp_path: Path) -> None:
         "trailing": "Plain value",
         "quoted": "Keeps # inside quotes",
     }
+
+
+def test_aliased_skill_directory_is_walked_under_each_name(tmp_path: Path) -> None:
+    # Like Pi, ignore rules apply per found-at path: ignoring the skill under
+    # one alias must not hide it under another alias of the same directory.
+    workspace, home, config = _layout(tmp_path)
+    target = tmp_path / "shared" / "tool"
+    _skill(target, "SKILL.md")
+    root = workspace / ".pipy" / "skills"
+    root.mkdir(parents=True)
+    (root / "a").symlink_to(target, target_is_directory=True)
+    (root / "b").symlink_to(target, target_is_directory=True)
+    (root / ".gitignore").write_text("a/SKILL.md\n", encoding="utf-8")
+
+    skills = _discover(workspace, home=home, config_home=config)
+
+    assert [(s.name, s.path_label) for s in skills] == [
+        ("b", ".pipy/skills/b/SKILL.md")
+    ]
