@@ -670,25 +670,6 @@ class NativeReplProviderState:
             self.thinking_level = normalized
             return normalized
 
-    def cycle_thinking_level(self) -> str | None:
-        """Atomically select and assign the next supported reasoning level."""
-
-        with self._state_lock:
-            if not self._supports_thinking_locked():
-                return None
-            levels = tuple(self.model_runtime.thinking_levels(self.selection)) or (
-                "off",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-            )
-            from pipy_harness.native.thinking import next_thinking_level
-
-            next_level = next_thinking_level(levels, self.thinking_level)
-            self.thinking_level = next_level
-            return next_level
-
     def _supports_thinking_locked(self) -> bool:
         return self.supports_thinking(self.selection)
 

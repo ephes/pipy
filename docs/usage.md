@@ -54,6 +54,7 @@ invoked as their own `/<template-name>` commands.
 | --- | --- |
 | `/login`, `/logout` | Manage supported provider credentials |
 | `/model` | Switch provider/model interactively or with `/model provider/model` |
+| `/thinking [level]` | Set the thinking level for this session; bare `/thinking` opens a selector of the model's levels (Ctrl+S there also saves it as the default) |
 | `/scoped-models` | View or change the Ctrl+P model cycle set |
 | `/settings` | Open interactive settings/status controls |
 | `/resume` | Pick or continue a previous native product session |

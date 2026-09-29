@@ -73,6 +73,7 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = project_command_descriptions
         "/login",
         "/logout",
         "/model",
+        "/thinking",
         "/scoped-models",
         _SKILL_ADJUNCT_NAME,
         "/exit",

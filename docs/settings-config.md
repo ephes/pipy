@@ -416,6 +416,8 @@ pipy ships the same default app-binding table Pi defines in
 - `app.exit` = `ctrl+d` — exit when editor empty
 - `app.suspend` = `ctrl+z` (none on Windows) — suspend to background
 - `app.thinking.cycle` = `shift+tab` — cycle thinking level
+- `app.thinking.save` = `ctrl+s` — in the `/thinking` selector, save the
+  highlighted level as `defaultThinkingLevel`
 - `app.model.cycleForward` = `ctrl+p` — next model
 - `app.model.cycleBackward` = `shift+ctrl+p` — previous model
 - `app.model.select` = `ctrl+l` — open model selector

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.overlay_state import ModelSelectorOption, SettingsRow
@@ -46,6 +46,9 @@ from pipy_harness.native.ui.components.custom_editor import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
 )
+
+if TYPE_CHECKING:
+    from pipy_harness.native.repl.provider_selection import RpcConfigurationResult
 
 
 def tool_loop_settings_overlay_lines(
@@ -296,7 +299,7 @@ def drive_settings_dialog(
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
     apply_model_selection: Callable[[str], tuple[bool, str]],
     apply_auth_change: Callable[[str, str], str],
-    cycle_thinking_level: Callable[[], str | None],
+    cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"],
     settings: "SettingsManager",
     error_stream: TextIO,
 ) -> None:
@@ -372,7 +375,7 @@ def _apply_local_settings_action(
     terminal_ui: TerminalUi,
     prompt_history_store: PromptHistoryStore,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
-    cycle_thinking_level: Callable[[], str | None],
+    cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"],
     settings: "SettingsManager",
     error_stream: TextIO,
 ) -> None:

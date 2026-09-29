@@ -616,6 +616,7 @@ def _provider_mutation_fixture(
     persist_defaults: bool = False,
     order_check: bool = False,
     settings: Any = None,
+    selection: NativeModelSelection | None = None,
 ) -> tuple[
     ProviderMutationEffects,
     NativeReplProviderState,
@@ -639,7 +640,7 @@ def _provider_mutation_fixture(
     ctl = _ctl(coordinator, tree)
     ctl.generation_ref = generation_ref
     state = NativeReplProviderState(
-        selection=NativeModelSelection("openai", "gpt-5.5"),
+        selection=selection or NativeModelSelection("openai", "gpt-5.5"),
         model_runtime=ModelRuntime(
             ProviderCatalogState(
                 models_json_path=tmp_path / "models.json",

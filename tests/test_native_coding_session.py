@@ -525,7 +525,9 @@ def test_footer_paths_read_constant_time_state_scalars(
     )
 
     assert footer.startswith(f"{tmp_path}\n$0.000 (api)")
-    assert "(fake) fake-native-bootstrap • default" in footer
+    # Pi footer: a non-reasoning row carries no thinking segment.
+    assert footer.endswith("(fake) fake-native-bootstrap")
+    assert " • " not in footer
 
 
 def test_session_command_family_has_one_narrow_composition_root_executor() -> None:

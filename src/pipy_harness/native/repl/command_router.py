@@ -39,6 +39,7 @@ _PROVIDER_CONFIGURATION_COMMAND_ACTIONS = frozenset(
         CodingCommandAction.SETTINGS,
         CodingCommandAction.TRUST_PROJECT,
         CodingCommandAction.MODEL,
+        CodingCommandAction.THINKING,
         CodingCommandAction.SCOPED_MODELS,
         CodingCommandAction.LOGIN,
         CodingCommandAction.LOGOUT,

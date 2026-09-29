@@ -201,17 +201,49 @@ Deviations kept as follow-ons, not queued separately yet:
 - Pi prompt-cache warming (`c596d09d9`). tau's second breakpoint at the
   previous request boundary was not adopted, because Pi does not have it.
 
-### 6. UX1 — `/thinking` selector and truthful footer labels (S–M)
+### 6. UX1 — `/thinking` selector and truthful footer labels (done 2026-09-29)
 
-- Add Pi's `/thinking` command (`496185f6e`). Its options come from the active
-  row's thinking map. Pipy has only `app.thinking.cycle` (shift+tab,
-  `keybindings.py:99`).
-- Derive the footer context meter and effort label from catalog metadata.
-  `_context_budget_for` and `_effort_label_for` (`chrome.py:340-369`) hard-code
-  codex/sonnet and fall back to 128k and to "high"/"default". Compaction already
-  reads the row's `context_window`
-  (`repl/provider_selection.py:1005`).
-- Show response time and tok/s (tau `7b96883`).
+Landed on branch `feat/ux1-thinking-selector`. `/thinking` and the footer
+thinking segment now follow Pi `4df157433`. The plan is in
+`docs/specs/2026-09-29-ux1-thinking-selector-plan.md`; the user docs are in
+`docs/tui-workflow.md` (Thinking-Level Hotkeys), `docs/usage.md` and
+`docs/keybindings.md`.
+
+- `/thinking <level>` matches the model's available levels case-insensitively
+  and applies the level for the session only. A bare `/thinking` opens Pi's
+  Thinking Level selector: the current level is marked `✓` and the default
+  `· default`. Enter is session-only; `app.thinking.save` (Ctrl+S, rebindable)
+  also writes `defaultThinkingLevel`.
+- **Fixed a stale-provider bug.** Shift+Tab and the `/settings` cycle only
+  assigned the level, so the footer showed the new level while requests kept
+  the old effort. `/thinking`, Shift+Tab, `/settings` and RPC now share one
+  path that rebuilds the provider with the level. `thinking_level_change`
+  entries are appended in commit order, including a level clamped by an RPC
+  model switch.
+- The footer shows `• <level>`, or `• thinking off`, for a reasoning row and no
+  segment for a non-reasoning row. `_effort_label_for` and its hard-coded
+  `high`/`default` labels are gone. The context meter was already correct
+  after MC1.
+- Verified in a real tmux PTY with the fake provider selected explicitly (an
+  isolated `models.json` made the fake row reasoning-capable). No provider turn
+  ran.
+
+Deviations kept as follow-ons, not queued separately yet:
+
+- No fuzzy search in the selector and no `/thinking` argument completion.
+  Pipy's selectors and slash commands have neither yet.
+- An extension `setThinkingLevel` still only assigns the level and does not
+  rebuild the bound provider. It can run mid-turn, where rebinding would break
+  the run witness. Pi reads the level per request; pipy would need per-request
+  effort resolution.
+- The interactive `/model` path appends no `thinking_level_change` when a
+  switch clamps the level (Pi `setModel` → `setThinkingLevel` does).
+- Response time and tok/s (tau `7b96883`) are not adopted: Pi's footer and
+  messages show no timing. The same goes for tau's reactive model/thinking
+  preview (`15ca794`), since Pi applies `/model` and `/thinking` immediately.
+  Both stay pipy product decisions for later.
+- The context meter still falls back to 128k for a selection with no catalog
+  row (bare `ds4`). Pi always has a model row.
 
 ### 7. RL1 — Release 0.2.0, talk-minimum (S)
 

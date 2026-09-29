@@ -14,13 +14,16 @@ already parameters.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.repl_state import NativeReplProviderState
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import HOTKEY_TOGGLE_TOOLS
+
+if TYPE_CHECKING:
+    from pipy_harness.native.repl.provider_selection import RpcConfigurationResult
 
 
 def toggle_view_fold(
@@ -82,35 +85,41 @@ def cycle_thinking_level_action(
     *,
     terminal_ui: TerminalUi | None,
     error_stream: TextIO,
-    cycle_thinking_level: Callable[[], str | None],
+    cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"],
 ) -> None:
     """Cycle the reasoning level (Pi's Shift+Tab ``cycleThinkingLevel``).
 
-    Cycles off→minimal→low→medium→high (wrapping), clamped to whether the
-    active model advertises reasoning support, sets the runtime level on the
-    provider state (so the footer effort label reflects it), appends a
+    Moves to the next level the active model offers (wrapping), rebuilds the
+    bound provider with that level through the shared thinking mutation path
+    (so the footer label and the next request's effort agree), appends a
     ``thinking_level_change`` native-tree entry, and shows a status. Runs no
     provider turn; the new level applies to the next turn.
     """
 
+    transcript = terminal_ui.components.transcript if terminal_ui is not None else None
     state = provider_state
     if not isinstance(state, NativeReplProviderState):
         emit_diagnostic(
-            terminal_ui.components.transcript if terminal_ui is not None else None,
+            transcript,
             error_stream,
             "pipy: thinking-level cycling is unavailable for this REPL state.",
         )
         return
-    next_level = cycle_thinking_level()
-    if next_level is None:
+    result = cycle_thinking_level()
+    if result is None:
         emit_diagnostic(
-            terminal_ui.components.transcript if terminal_ui is not None else None,
+            transcript, error_stream, "pipy: current model does not support thinking."
+        )
+        return
+    if not result.success or result.snapshot is None:
+        emit_diagnostic(
+            transcript,
             error_stream,
-            "pipy: current model does not support thinking.",
+            f"pipy: thinking level unchanged ({result.diagnostic or 'unknown error'}).",
         )
         return
     emit_diagnostic(
-        terminal_ui.components.transcript if terminal_ui is not None else None,
+        transcript,
         error_stream,
-        f"pipy: thinking level: {next_level}",
+        f"pipy: thinking level: {result.snapshot.thinking_level}",
     )

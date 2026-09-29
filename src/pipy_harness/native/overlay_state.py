@@ -120,6 +120,7 @@ class OverlayState:
     model_options: tuple[ModelSelectorOption, ...] = ()
     model_selection: int = 0
     model_title: str | None = None
+    model_hint: str | None = None
 
     settings_rows: tuple[SettingsRow, ...] = ()
     settings_selection: int = 0
@@ -209,9 +210,11 @@ class OverlayState:
         *,
         current_index: int,
         title: str | None,
+        hint: str | None = None,
     ) -> bool:
         self.model_options = tuple(options)
         self.model_title = title
+        self.model_hint = hint
         if not self.model_options:
             return False
         self.model_selection = max(0, min(current_index, len(self.model_options) - 1))
@@ -229,6 +232,7 @@ class OverlayState:
         self.model_options = ()
         self.model_selection = 0
         self.model_title = None
+        self.model_hint = None
 
     def begin_scoped(
         self, rows: Sequence[ScopedModelRow], checked: Iterable[int]

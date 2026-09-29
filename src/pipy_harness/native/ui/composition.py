@@ -45,6 +45,7 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = project_command_completions(
     (
         "/hotkeys",
         "/model",
+        "/thinking",
         "/scoped-models",
         "/settings",
         "/trust",

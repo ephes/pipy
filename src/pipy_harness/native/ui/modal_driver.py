@@ -29,7 +29,10 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionSelectComponent,
 )
 from pipy_harness.native.ui.components.input_editor import InputEditor
-from pipy_harness.native.ui.components.model_selector import ModelSelectorComponent
+from pipy_harness.native.ui.components.model_selector import (
+    ModelSelectorClose,
+    ModelSelectorComponent,
+)
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
 )
@@ -61,7 +64,7 @@ def _drive_result(
 
 
 class TerminalModalDriver:
-    """Own the six screen-driven modals and four extension dialog projections."""
+    """Own the seven screen-driven modals and four extension dialog projections."""
 
     def __init__(
         self,
@@ -98,6 +101,52 @@ class TerminalModalDriver:
             handle_key=lambda key: cast(
                 DriveResult[int | None] | None,
                 _drive_result(selector.handle_key(key), lambda closed: closed.index),
+            ),
+            consume_paste=self._input_editor.consume_paste,
+        )
+        return self._screen.drive(owner)
+
+    def run_thinking_selector(
+        self,
+        options: Sequence[ModelSelectorOption],
+        *,
+        current_index: int = 0,
+    ) -> ModelSelectorClose | None:
+        """Drive Pi's thinking-level selector over the model-selector overlay.
+
+        Enter chooses a row for the session; ``app.thinking.save`` (default
+        ``ctrl+s``) chooses it with ``save=True`` so the caller also persists
+        it as the default; Esc cancels (``None``).
+        """
+
+        save_keys = resolved_key_specs("app.thinking.save", self._keybindings_manager())
+        selector = ModelSelectorComponent(
+            self._overlays,
+            self._screen.paint_lock,
+            self._screen.paint,
+            save_keys=save_keys,
+        )
+        save_hint = "/".join(save_keys) or "ctrl+s"
+        hint = f"↑/↓ move · enter select · {save_hint} set as default · esc cancel"
+        owner: DriveOwner[ModelSelectorClose | None] = DriveOwner(
+            open=lambda: cast(
+                DriveResult[ModelSelectorClose | None] | None,
+                _open_result(
+                    selector.open(
+                        options,
+                        current_index=current_index,
+                        title="Thinking Level",
+                        hint=hint,
+                    ),
+                    None,
+                ),
+            ),
+            handle_key=lambda key: cast(
+                DriveResult[ModelSelectorClose | None] | None,
+                _drive_result(
+                    selector.handle_key(key),
+                    lambda closed: closed if closed.index is not None else None,
+                ),
             ),
             consume_paste=self._input_editor.consume_paste,
         )

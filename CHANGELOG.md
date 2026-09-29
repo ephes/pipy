@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `/thinking` sets the thinking level for the current session, as in Pi
+  (`4df157433`). `/thinking <level>` takes any level the model offers, in any
+  case. A bare `/thinking` opens a selector of the model's levels with Pi's
+  descriptions, the current level marked `✓` and the default marked
+  `· default`. Enter applies the level for this session. The new
+  `app.thinking.save` binding (Ctrl+S, rebindable) also saves it as
+  `defaultThinkingLevel`.
 - Context files now load the way Pi loads them (Pi `4df157433`). In each
   directory pipy takes the first file that exists from `AGENTS.override.md`,
   `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, then `CLAUDE.MD`. It stops ignoring
@@ -507,6 +514,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `pipy repl "<word>"` or `pipy -p "<word>"` to send it as a prompt instead.
 
 ### Fixed
+
+- Shift+Tab and the `/settings` "cycle thinking level" row now rebuild the
+  provider with the new level. Before, the footer showed the new level while
+  requests kept the effort the provider was built with.
+- The footer's thinking segment follows Pi. A reasoning model shows its live
+  level, or `thinking off`; a non-reasoning model shows none. The hard-coded
+  `high` (Codex GPT-5) and `default` labels are gone.
+- Thinking-level changes reach the session file in the order they took effect,
+  including a level clamped by an RPC model switch.
 
 - Seven conformance gates in `scripts/parity_checks/` had gone stale against
   refactors and crashed or failed before checking the product:

@@ -337,6 +337,31 @@ def _builtin_context_windows() -> dict[tuple[str, str], int]:
     }
 
 
+@functools.lru_cache(maxsize=1)
+def _builtin_reasoning_rows() -> frozenset[tuple[str, str]]:
+    from pipy_harness.native.catalog import build_builtin_catalog
+
+    return frozenset(
+        (row.provider_name, row.model_id)
+        for row in build_builtin_catalog().get_all()
+        if row.reasoning
+    )
+
+
+def thinking_footer_label(*, reasoning: bool, level: str | None) -> str:
+    """Pi footer thinking segment (``footer.ts:233-239``).
+
+    A non-reasoning model shows no segment (``""``); a reasoning model shows
+    ``thinking off`` for an off/unset level and the level name otherwise.
+    """
+
+    if not reasoning:
+        return ""
+    if not level or level == "off":
+        return "thinking off"
+    return level
+
+
 def _context_budget_for(
     provider_name: str,
     model_id: str,
@@ -365,19 +390,6 @@ def _context_budget_for(
     return _ContextBudget(
         token_budget=window, budget_label=_format_footer_tokens(window)
     )
-
-
-def _effort_label_for(provider_name: str, model_id: str) -> str:
-    """Return the reasoning-effort label the bottom status surfaces.
-
-    Pi shows ``high`` for the codex GPT-5.x family because those models
-    default to high reasoning effort. Other providers / unknown
-    configurations keep the safe ``default`` label.
-    """
-
-    if provider_name == "openai-codex" and model_id.startswith("gpt-5"):
-        return "high"
-    return "default"
 
 
 def _friendly_cwd_label(cwd: Path) -> str:
@@ -486,17 +498,28 @@ class _ChromeFooterEffects:
         return spec.declared_context_window if spec is not None else None
 
     def _effort_label(self, provider_name: str, model_id: str) -> str:
-        """Prefer the concrete provider state's live runtime thinking level."""
+        """The footer thinking segment from the resolved row and live level.
+
+        Reasoning support comes from the row the session resolves (built-in
+        plus ``models.json``), the level from the live provider state, which is
+        also what the bound provider was constructed with. A state without a
+        catalog (an injected provider) falls back to the built-in row and has
+        no live level, so a reasoning row reads ``thinking off``.
+        """
 
         state = self.provider_state
-        level = (
-            state.current_thinking_level()
-            if isinstance(state, NativeReplProviderState)
-            else None
+        if isinstance(state, NativeReplProviderState):
+            spec = state.model_runtime.resolve_spec(
+                NativeModelSelection(provider_name, model_id)
+            )
+            return thinking_footer_label(
+                reasoning=spec is not None and bool(spec.reasoning),
+                level=state.current_thinking_level(),
+            )
+        return thinking_footer_label(
+            reasoning=(provider_name, model_id) in _builtin_reasoning_rows(),
+            level=None,
         )
-        if isinstance(level, str) and level:
-            return level
-        return _effort_label_for(provider_name, model_id)
 
     def _footer_text(
         self,
@@ -655,7 +678,9 @@ def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
     """Render the Pi-shape bottom status line within `width` columns.
 
     Layout: `[↑in ↓out ]$cost (plan) used%/budget (suffix)` left-aligned,
-    `(provider) model • effort` right-aligned with padding in between.
+    `(provider) model[ • thinking]` right-aligned with padding in between; the
+    thinking segment is omitted when ``effort_label`` is empty (a non-reasoning
+    model, as in Pi's footer).
     """
 
     tokens_prefix = ""
@@ -682,7 +707,9 @@ def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
     )
     if fields.context_budget_suffix:
         left = f"{left} ({fields.context_budget_suffix})"
-    right = f"({fields.provider_name}) {fields.model_id} • {fields.effort_label}"
+    right = f"({fields.provider_name}) {fields.model_id}"
+    if fields.effort_label:
+        right = f"{right} • {fields.effort_label}"
     if fields.attention:
         right = f"{right} · {fields.attention}"
     return _justify_status_line(left, right, max(20, width))

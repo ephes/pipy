@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import AgentFailure, AgentMessage
@@ -76,6 +76,9 @@ from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
+
+if TYPE_CHECKING:
+    from pipy_harness.native.repl.provider_selection import RpcConfigurationResult
 
 
 @dataclass(slots=True)
@@ -299,7 +302,7 @@ class ReplLoopScope:
         CodingCompactionOutcome,
     ]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
-    cycle_thinking_level: Callable[[], str | None]
+    cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"]
     append_agent_message: Callable[[AgentMessage], None]
     drain_extension_outboxes: Callable[[], None]
     active_provider_header_callback: Callable[

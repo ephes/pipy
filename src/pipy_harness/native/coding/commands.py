@@ -26,6 +26,7 @@ class CodingCommandAction(StrEnum):
     COMPACT = "compact"
     SESSION_NAME = "session_name"
     MODEL = "model"
+    THINKING = "thinking"
     SCOPED_MODELS = "scoped_models"
     LOGIN = "login"
     LOGOUT = "logout"
@@ -107,6 +108,7 @@ _USAGE_AWARE_ACTIONS = frozenset(
     }
 )
 _ARGUMENT_ACTIONS = _USAGE_AWARE_ACTIONS | {
+    CodingCommandAction.THINKING,
     CodingCommandAction.SESSION_NAME,
     CodingCommandAction.SESSION_RESUME,
     CodingCommandAction.SESSION_TREE,

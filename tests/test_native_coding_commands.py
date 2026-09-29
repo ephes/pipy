@@ -99,6 +99,29 @@ def test_name_command_returns_exact_stripped_product_argument(
 @pytest.mark.parametrize(
     ("command", "expected_argument"),
     [
+        ("/thinking", ""),
+        ("/thinking high", "high"),
+        ("/thinking   XHigh ", "XHigh"),
+    ],
+)
+def test_thinking_command_carries_a_standard_optional_argument(
+    command: str,
+    expected_argument: str,
+) -> None:
+    outcome = classify_coding_command(ProductContent(command.strip()))
+
+    assert outcome == CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        CodingCommandAction.THINKING,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent(expected_argument),
+    )
+    assert builtin_command_description("/thinking") == "Set thinking level"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_argument"),
+    [
         ("/tree", ""),
         ("/tree select 3", "select 3"),
         (
@@ -1124,6 +1147,7 @@ def test_registry_table_enumerates_every_builtin_exactly_once() -> None:
         "/export",
         "/import",
         "/model",
+        "/thinking",
         "/scoped-models",
         "/login",
         "/logout",

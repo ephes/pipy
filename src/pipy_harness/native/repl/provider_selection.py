@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import TextIO
@@ -109,6 +109,20 @@ def _report_default_persistence(
     return state.flush_pending_default()
 
 
+def _thinking_append_failure(exc: Exception) -> str:
+    return (
+        "pipy: thinking level is active but durable append failed with "
+        f"{sanitize_text(type(exc).__name__)}."
+    )
+
+
+def _commit_now(commit: Callable[[], None]) -> bool:
+    """Commit gate for interactive mutations dispatched between turns."""
+
+    commit()
+    return True
+
+
 def _deny_model_mutation(_generation_id: int, _reference: str) -> bool:
     """Refuse a generation-bound mid-turn model switch."""
 
@@ -179,10 +193,10 @@ class RpcProviderConfigurationPort:
         return self._effects._rpc_cycle_model(self._commit_if_true_idle)
 
     def set_thinking_level(self, level: str) -> RpcConfigurationResult:
-        return self._effects._rpc_set_thinking_level(level, self._commit_if_true_idle)
+        return self._effects._set_thinking_level(level, self._commit_if_true_idle)
 
     def cycle_thinking_level(self) -> RpcConfigurationResult | None:
-        return self._effects._rpc_cycle_thinking_level(self._commit_if_true_idle)
+        return self._effects._cycle_thinking_level(self._commit_if_true_idle)
 
 
 class RpcCompactionPort:
@@ -295,6 +309,12 @@ class ProviderMutationEffects:
     mutation_io_lock: "threading.RLock"
     provider_turn_executor: ProviderTurnExecutor
     abort_event: threading.Event | _AbortCallbackSignal | None
+    # Thinking levels committed but not yet appended to the session tree, in
+    # commit order. Pushed and drained only under ``mutation_io_lock``: a
+    # commit that runs inside the RPC queue gate cannot do file I/O there, so
+    # it records its level here and the caller drains after the gate, which
+    # keeps every transition durable and in the order it went live.
+    pending_thinking_appends: list[str] = field(default_factory=list, repr=False)
 
     def rpc_configuration_port(
         self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
@@ -392,6 +412,15 @@ class ProviderMutationEffects:
                         return
                     state.publish_model_mutation(prepared.selection)
                     self.coding_state.publish_model_mutation(prepared.coding)
+                    replacement_level = (
+                        prepared.selection.replacement.thinking_level or "off"
+                    )
+                    if replacement_level != (
+                        prepared.selection.expected.thinking_level or "off"
+                    ):
+                        # A model switch that clamps the level is a thinking
+                        # transition too; queue it in commit order.
+                        self.pending_thinking_appends.append(replacement_level)
                     committed = True
 
         return commit_if_true_idle(commit), committed
@@ -437,9 +466,7 @@ class ProviderMutationEffects:
                 False, diagnostic="configuration changed during preparation"
             )
         snapshot = self._rpc_snapshot()
-        diagnostics: list[str] = []
-        if snapshot.thinking_level != (expected.thinking_level or "off"):
-            diagnostics.extend(self._rpc_append_thinking(snapshot.thinking_level))
+        diagnostics = self._drain_thinking_appends()
         finish = self._finish_model_mutation(state, message)
         diagnostics.extend(
             line for line in finish.splitlines() if " is active but " in line
@@ -485,18 +512,19 @@ class ProviderMutationEffects:
         )
         return RpcModelCycleResult(result, scoped)
 
-    def _rpc_append_thinking(self, level: str) -> list[str]:
-        """Persist a live thinking transition after releasing the queue gate."""
+    def _drain_thinking_appends(self) -> list[str]:
+        """Append every committed-but-unpersisted level, oldest first."""
 
-        try:
-            with self.mutation_io_lock:
-                self.ctl.session_tree.append_thinking_level_change(level)
-        except Exception as exc:  # noqa: BLE001 - state-first durable outcome
-            return [
-                "pipy: thinking level is active but durable append failed with "
-                f"{sanitize_text(type(exc).__name__)}."
-            ]
-        return []
+        diagnostics: list[str] = []
+        with self.mutation_io_lock:
+            pending = self.pending_thinking_appends
+            while pending:
+                level = pending.pop(0)
+                try:
+                    self.ctl.session_tree.append_thinking_level_change(level)
+                except Exception as exc:  # noqa: BLE001 - state-first durable outcome
+                    diagnostics.append(_thinking_append_failure(exc))
+        return diagnostics
 
     def _rpc_emit_diagnostics(self, diagnostics: Sequence[str]) -> None:
         """Surface bounded post-commit failures without changing live success."""
@@ -508,12 +536,20 @@ class ProviderMutationEffects:
                 diagnostic,
             )
 
-    def _rpc_set_thinking_level(
+    def _set_thinking_level(
         self,
         level: str,
         commit_if_true_idle: Callable[[Callable[[], None]], bool],
     ) -> RpcConfigurationResult:
-        """Refresh the same provider binding for a supported thinking level."""
+        """Refresh the same provider binding for a supported thinking level.
+
+        The one thinking-level mutation path (Pi ``AgentSession.setThinkingLevel``)
+        shared by RPC, the interactive ``/thinking`` command, and the Shift+Tab /
+        ``/settings`` cycle. The replacement provider is constructed off-lock
+        with the new level baked in, then published together with the level
+        only if neither changed meanwhile, so the footer label and the effort
+        the next request sends cannot disagree. A no-op level appends nothing.
+        """
 
         current = self._rpc_snapshot()
         normalized = level.strip().lower()
@@ -550,6 +586,7 @@ class ProviderMutationEffects:
                         return
                     state.publish_thinking_mutation(prepared)
                     self.coding_state.refresh_provider(prepared.provider)
+                    self.pending_thinking_appends.append(prepared.replacement_level)
                     committed = True
 
         if not commit_if_true_idle(commit):
@@ -558,8 +595,10 @@ class ProviderMutationEffects:
             return RpcConfigurationResult(
                 False, diagnostic="configuration changed during preparation"
             )
-        snapshot = self._rpc_snapshot()
-        diagnostics = self._rpc_append_thinking(snapshot.thinking_level)
+        snapshot = RpcConfigurationSnapshot(
+            expected.selection, prepared.replacement_level
+        )
+        diagnostics = self._drain_thinking_appends()
         try:
             self.refresh_footer_text()
         except Exception as exc:  # noqa: BLE001 - presentation is post-commit
@@ -575,20 +614,33 @@ class ProviderMutationEffects:
             diagnostic="\n".join(diagnostics) or None,
         )
 
-    def _rpc_cycle_thinking_level(
+    def _cycle_thinking_level(
         self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
     ) -> RpcConfigurationResult | None:
-        snapshot = self._rpc_snapshot()
+        """Apply the next available level (Pi ``cycleThinkingLevel``).
+
+        ``None`` when the active model does not support thinking (Pi returns
+        ``undefined`` when ``!model.reasoning``); otherwise the outcome of the
+        shared :meth:`_set_thinking_level` path.
+        """
+
         state = self.provider_state
         if not isinstance(state, NativeReplProviderState):
             return None
-        levels = tuple(state.model_runtime.thinking_levels(snapshot.selection))
-        if len(levels) <= 1:
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                value = state.capture_model_mutation_state()
+        # Pi ``supportsThinking`` reads the resolved model's ``reasoning``, the
+        # same row ``thinking_levels`` and the footer label resolve (including a
+        # ``models.json`` override or a synthesized fallback row).
+        spec = state.model_runtime.resolve_spec(value.selection)
+        if spec is None or not spec.reasoning:
             return None
+        levels = tuple(state.model_runtime.thinking_levels(value.selection))
         from pipy_harness.native.thinking import next_thinking_level
 
-        level = next_thinking_level(levels, snapshot.thinking_level)
-        return self._rpc_set_thinking_level(level, commit_if_true_idle)
+        level = next_thinking_level(levels, value.thinking_level)
+        return self._set_thinking_level(level, commit_if_true_idle)
 
     def extension_set_active_tools(
         self, generation_id: int, tool_names: Sequence[str]
@@ -645,24 +697,29 @@ class ProviderMutationEffects:
                     return False
             # The session mutex is released before durable filesystem I/O. The
             # outer coordinator remains held so concurrent commits and JSONL
-            # appends have one order.
+            # appends have one order; levels committed earlier by the shared
+            # path but not yet appended go first.
+            self._rpc_emit_diagnostics(self._drain_thinking_appends())
             self.ctl.session_tree.append_thinking_level_change(normalized)
         self.refresh_footer_text()
         return True
 
-    def cycle_thinking_level(self) -> str | None:
-        """Apply the session-thread cycle through the same ordered commit path."""
+    def set_thinking_level(self, level: str) -> RpcConfigurationResult:
+        """Session-scoped interactive thinking change (``/thinking``).
 
-        next_level: str | None = None
-        with self.mutation_io_lock:
-            with self.ctl.generation_ref.lock:
-                state = self.provider_state
-                if isinstance(state, NativeReplProviderState):
-                    next_level = state.cycle_thinking_level()
-                if next_level is None:
-                    return None
-            self.ctl.session_tree.append_thinking_level_change(next_level)
-        return next_level
+        Runs only from the interactive loop between turns (a slash command
+        submitted mid-turn interrupts the turn first), so it commits directly
+        like the interactive ``/model`` does; the expected-state check inside
+        :meth:`_set_thinking_level` still rejects a level that changed while
+        the replacement provider was constructed.
+        """
+
+        return self._set_thinking_level(level, _commit_now)
+
+    def cycle_thinking_level(self) -> RpcConfigurationResult | None:
+        """Shift+Tab / ``/settings`` cycle through the shared mutation path."""
+
+        return self._cycle_thinking_level(_commit_now)
 
     def _generation_admitted_locked(self, generation_id: int) -> bool:
         """Check terminal, generation identity, and gate under the caller's mutex."""

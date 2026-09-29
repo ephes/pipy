@@ -24,6 +24,18 @@ from pipy_harness.native.catalog import THINKING_LEVELS, NativeModelSpec
 # ``defaultThinkingLevel`` names one.
 DEFAULT_THINKING_LEVEL = "medium"
 
+# Pi ``LEVEL_DESCRIPTIONS`` (thinking-selector.ts), shown beside each level in
+# the ``/thinking`` selector.
+THINKING_LEVEL_DESCRIPTIONS: dict[str, str] = {
+    "off": "No reasoning",
+    "minimal": "Very brief reasoning (~1k tokens)",
+    "low": "Light reasoning (~2k tokens)",
+    "medium": "Moderate reasoning (~8k tokens)",
+    "high": "Deep reasoning (~16k tokens)",
+    "xhigh": "Extra-high reasoning (~32k tokens)",
+    "max": "Maximum reasoning",
+}
+
 # Standard levels passed through for a reasoning model that declares no explicit
 # thinking_level_map. xhigh and max are intentionally excluded: each is only
 # available when a model maps it (Pi's models.ts).
