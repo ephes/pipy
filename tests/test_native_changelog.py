@@ -11,8 +11,10 @@ from pipy_harness.native.changelog import (
     changelog_startup,
     new_entries_since,
     parse_changelog,
+    read_changelog_entries,
     render_changelog,
 )
+from pipy_harness.native.version_check import pipy_version
 
 SAMPLE = """\
 # Changelog
@@ -140,3 +142,12 @@ def test_startup_resumed_session_skips_entirely() -> None:
     )
     assert lines == []
     assert store is None
+
+
+def test_shipped_changelog_newest_release_matches_package_version() -> None:
+    # A release bump must add its CHANGELOG section, and vice versa: the
+    # startup "What's New" notice compares lastChangelogVersion with the
+    # package version and shows the sections newer than the stored one.
+    entries = read_changelog_entries()
+    assert entries, "CHANGELOG.md has no released sections"
+    assert entries[0].version == pipy_version()

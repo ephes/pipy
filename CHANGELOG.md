@@ -6,6 +6,33 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+### Highlights
+
+A curated summary of the largest changes in this release; the full entries
+follow.
+
+- Current model rows from Pi's generator (`4df157433`): Claude Opus/Sonnet 5.5
+  and 5, Fable 5/5.1, Opus 4.8, GPT-6 Sol/Luna/Astra, GPT-5.6 and Gemini 3.5
+  Flash, with Pi's provider defaults and thinking maps.
+- Context files and skills load the way Pi loads them: `AGENTS.md` or
+  `CLAUDE.md` per directory, `.agents/skills/` roots, and symlinks followed.
+- Prompt caching for OpenAI, OpenAI-Codex, Azure, Anthropic and Bedrock, with
+  `PIPY_CACHE_RETENTION=long`.
+- `/thinking` sets the session's thinking level, and the footer shows the live
+  level.
+- Session cost comes from each model's catalog row, priced like Pi's
+  `calculateCost`.
+- New `xai` and `github-copilot` providers, with `/login github-copilot`.
+- `read` pages like Pi's `read`: `offset`/`limit`, 2000 lines or 50 KB per call,
+  and a notice that says where to continue.
+- `just catalog-drift` reports where the built-in catalog differs from Pi's.
+- Fixes from live dogfooding on OpenAI-Codex: a model switch keeps the
+  conversation, `edit`/`write` diffs no longer corrupt the TUI, Escape no longer
+  freezes the frame on a WebSocket stream, and tool rows no longer show argument
+  dumps.
+
 ### Added
 
 - New `xai` and `github-copilot` providers, following Pi (`4df157433`).
@@ -594,6 +621,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An installed copy (`uv tool install .`) now ships `CHANGELOG.md` in the
+  wheel, so `/changelog` and the startup "What's New" notice work outside a
+  checkout. Before, both found no entries.
 - Found by the DF1 live dogfooding run (`docs/acceptance/2026-09-29-df1-dogfooding.md`):
   - The `edit` and `write` diffs no longer corrupt the interactive screen. They
     were written raw to the terminal mid-turn, in raw mode, so the diff

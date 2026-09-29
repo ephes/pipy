@@ -19,11 +19,14 @@ uv run pipy --help
 uv run pipy
 ```
 
-Published distribution packaging is still project-owned and may use a different
-package name. Until an owned distribution name exists, use the checkout install
-above rather than guessing a package name.
+pipy 0.2.0 is not published on PyPI or any other package index. Until an owned
+distribution name exists, use the checkout install above rather than guessing a
+package name.
 
 ### Update
+
+To update a checkout install, run `git pull` and then `uv tool install .`
+again; it rebuilds and replaces the installed copy.
 
 For an installed copy, `pipy update self` plans an update from the detected
 install method (`uv tool`, `pipx`, `pip`, or user `pip`):

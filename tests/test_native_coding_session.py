@@ -95,6 +95,7 @@ from pipy_harness.native.tui import (
     TURN_STEERED,
     TerminalUi,
 )
+from pipy_harness.native.version_check import pipy_version
 
 
 @dataclass(frozen=True, slots=True)
@@ -2086,7 +2087,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
         json.dumps(
             {
                 "enabledModels": ["openai/*"],
-                "lastChangelogVersion": "0.1.0",
+                "lastChangelogVersion": pipy_version(),
             }
         ),
         encoding="utf-8",
@@ -2149,7 +2150,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
     assert manager.get_enabled_models() == ["openai/*"]
     assert json.loads(settings_path.read_text(encoding="utf-8")) == {
         "enabledModels": ["openai/*"],
-        "lastChangelogVersion": "0.1.0",
+        "lastChangelogVersion": pipy_version(),
     }
     assert provider._call_counter[0] == 0
     assert result.user_turn_count == 0
