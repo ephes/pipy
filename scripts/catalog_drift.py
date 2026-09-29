@@ -223,7 +223,7 @@ def pi_values(model: Mapping[str, Any]) -> dict[str, Any]:
     values: dict[str, Any] = {
         "api": model.get("api"),
         "reasoning": bool(model.get("reasoning")),
-        "input": list(model.get("input") or ["text"]),
+        "input": sorted(model.get("input") or ["text"]),
         "cost": [
             float(cost.get(key, 0))
             for key in ("input", "output", "cacheRead", "cacheWrite")
@@ -243,7 +243,7 @@ def pipy_values(row: NativeModelSpec) -> dict[str, Any]:
     values: dict[str, Any] = {
         "api": row.api,
         "reasoning": row.reasoning,
-        "input": list(row.input),
+        "input": sorted(row.input),
         "cost": [
             float(row.cost.input),
             float(row.cost.output),

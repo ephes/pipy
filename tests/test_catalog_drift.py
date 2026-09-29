@@ -153,6 +153,13 @@ def test_value_drift_carries_both_values_and_a_proposal() -> None:
     assert findings["cost"].proposal == "cost=(1.0, 2.0, 0.125, 0.0)"
 
 
+def test_input_capabilities_compare_order_independently() -> None:
+    row = _row("openai", "m", input=("text", "image"))
+    pi_model = _pi("openai", "m", input=["image", "text"])
+
+    assert catalog_drift.compare([row], {"openai": {"m": pi_model}}) == []
+
+
 def test_compat_missing_key_is_distinct_from_false() -> None:
     row = _row("openai", "m")
     pi_model = _pi("openai", "m", compat={"supportsLongCacheRetention": False})
