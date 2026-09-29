@@ -15,6 +15,7 @@ from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunCompleted,
     AgentRunOutcome,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
     MessageCompleted,
@@ -187,7 +188,13 @@ def _seed_tree(tmp_path: Path, *, equal_last_user: bool = False) -> NativeSessio
 
 
 def _contents(messages) -> list[str]:
-    return [message.content.value for message in messages]
+    # The run's leading system message is transcript state (Pi `9e05370b2`),
+    # not part of the anchored/overlay history these tests pin.
+    return [
+        message.content.value
+        for message in messages
+        if not isinstance(message, AgentSystemMessage)
+    ]
 
 
 def _completed(sink: _EventSink) -> list[AgentRunCompleted]:

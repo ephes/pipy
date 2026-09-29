@@ -41,8 +41,11 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolCall,
+    AgentToolDeclaration,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
 )
 from pipy_harness.native.agent.ports import AgentEventSink
@@ -67,6 +70,12 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputPort,
     AgentUsagePublication,
     AgentUsagePublisher,
+)
+from pipy_harness.native.agent.system_messages import (
+    AgentSystemPromptInput,
+    current_tools,
+    declare_tool_changes,
+    tool_declaration,
 )
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
@@ -93,6 +102,9 @@ class AgentLoopRunInput:
     tool_policy_state: AgentToolPolicyState
     pricing: AgentTokenPricing | None = None
     accepted_queued_input: AgentQueuedInput | None = None
+    # Transcript system state for Pi-style system messages; ``None`` records
+    # none (the one-shot bootstrap path and loop-only callers).
+    system_prompt: AgentSystemPromptInput | None = None
 
     def __post_init__(self) -> None:
         _validate_loop_run_input(self)
@@ -123,6 +135,11 @@ def _validate_loop_run_input(run_input: AgentLoopRunInput) -> None:
         run_input.accepted_queued_input,
         "accepted_queued_input",
     )
+    if (
+        run_input.system_prompt is not None
+        and type(run_input.system_prompt) is not AgentSystemPromptInput
+    ):
+        raise TypeError("system_prompt must be an exact AgentSystemPromptInput or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,7 +305,11 @@ class _RunState:
     history: tuple[AgentMessage, ...]
     tool_state: AgentToolPolicyState
     usage: AgentUsageAccumulator
-    appended_messages: list[AgentMessage]
+    appended_messages: list[AgentTranscriptMessage]
+    # ``None`` when the run records no system messages; otherwise the tools
+    # the transcript declares so far and the run's still-unsent section patch.
+    declared_tools: tuple[AgentToolDeclaration, ...] | None = None
+    pending_system: AgentSystemMessage | None = None
     failure: AgentFailure | None = None
     cancellation: AgentCancellationReason | None = None
     provider_status: AgentProviderStatusDecision | None = None
@@ -352,6 +373,9 @@ class AgentLoop:
             AgentUsageAccumulator(run_input.pricing),
             [],
         )
+        if run_input.system_prompt is not None:
+            state.declared_tools = run_input.system_prompt.declared_tools
+            state.pending_system = run_input.system_prompt.pending
         self._events.emit(AgentRunStarted())
         self._emit_consumed_input(run_input)
         self._status.run_entered()
@@ -392,11 +416,12 @@ class AgentLoop:
         active_input: AgentActiveInput,
         turn_index: int,
     ) -> _IterationDisposition:
+        definitions = _validate_tool_definitions(self._tools.definitions())
         preparation = self._request_source.prepare(
             state.history,
             active_input,
             turn_index,
-            _validate_tool_definitions(self._tools.definitions()),
+            definitions,
         )
         _validate_request_preparation(preparation)
         _validate_accepted_message_anchor(
@@ -405,7 +430,11 @@ class AgentLoop:
         )
         _validate_overlay_absent(preparation.history, active_input)
         state.history = preparation.history
-        self._start_turn(turn_index, active_input.accepted_message)
+        self._start_turn(
+            turn_index,
+            active_input.accepted_message,
+            self._system_update(state, definitions, active_input.accepted_message),
+        )
         if preparation.preparation_failure is not None:
             return self._settle_preparation_failure(
                 state, preparation.preparation_failure, turn_index
@@ -439,12 +468,50 @@ class AgentLoop:
             turn_index,
         )
 
+    @staticmethod
+    def _system_update(
+        state: _RunState,
+        definitions: tuple[ToolDefinition, ...],
+        accepted: AgentUserMessage,
+    ) -> AgentSystemMessage | None:
+        """Pi ``declareToolChanges`` over this turn's executable tools.
+
+        The run's pending section patch is sent at the first turn; later
+        turns can only declare tool changes. A system message is transcript
+        state: it joins the run's messages but never ``state.history``.
+        """
+
+        if state.declared_tools is None:
+            return None
+        message = declare_tool_changes(
+            state.declared_tools,
+            state.pending_system,
+            tuple(tool_declaration(definition) for definition in definitions),
+        )
+        state.pending_system = None
+        if message is None:
+            return None
+        state.declared_tools = current_tools(
+            (AgentSystemMessage(tools_added=state.declared_tools), message)
+        )
+        # Pi emits it before the run's first user message and after the
+        # previous turn's tool results otherwise.
+        index = len(state.appended_messages)
+        if state.appended_messages and state.appended_messages[-1] is accepted:
+            index -= 1
+        state.appended_messages.insert(index, message)
+        return message
+
     def _start_turn(
         self,
         turn_index: int,
         accepted_message: AgentUserMessage,
+        system_message: AgentSystemMessage | None = None,
     ) -> None:
         self._events.emit(TurnStarted(turn_index))
+        if system_message is not None:
+            self._events.emit(MessageStarted(turn_index, system_message))
+            self._events.emit(MessageCompleted(turn_index, system_message))
         if turn_index == 0:
             self._events.emit(MessageStarted(turn_index, accepted_message))
             self._events.emit(MessageCompleted(turn_index, accepted_message))

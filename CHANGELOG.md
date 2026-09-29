@@ -28,6 +28,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
     instead of `... (truncated)`. Empty results read `No matches found`,
     `No files found matching pattern` or `(empty directory)`.
 
+### Changed
+
+- The system prompt and tool declarations are now part of the transcript, as
+  in Pi (`9e05370b2`, SYS1a). The first run of a session records a
+  `role: "system"` message:
+  - its only section, `preamble`, holds pipy's prompt;
+  - `toolsAdded` lists every tool the model can call.
+  Later runs record one only when the prompt or the tools change (section
+  patches, `toolsAdded`/`toolsRemoved`), and so does a tool change inside a
+  run. `--mode json` and `--mode rpc` emit it as
+  `message_start`/`message_end` after `turn_start` and before the user
+  message, and `agent_end.messages` starts with it. RPC `get_messages`
+  returns it. The session file stores it as a `message` entry. A compaction
+  entry stores the replayed state as `systemMessage` and replaces earlier
+  system messages with it. The TUI draws nothing for it, and `/tree` shows
+  `[system]`. Provider requests are unchanged: pipy sends the prompt out of
+  band and never sends later system messages, which is what Pi does for
+  models without mid-conversation system messages. `automation_pi_comparison.py`
+  passes against Pi `4df157433` again. Per-model mid-conversation
+  serialization and Anthropic mid-conversation effort are backlog SYS1b.
+
 ### Fixed
 
 - A turn whose tool result alone overflows the context window no longer wedges

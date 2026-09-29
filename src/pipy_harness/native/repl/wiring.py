@@ -22,7 +22,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentEventSink,
-    AgentMessage,
+    AgentTranscriptMessage,
     ProductContent,
 )
 from pipy_harness.native.agent.provider_turn import (
@@ -550,7 +550,7 @@ class _ProductPhase:
     base_system_prompt: str
     ctl: RunControlState
     product_session: CodingProductSessionCoordinator
-    append_agent_message: Callable[[AgentMessage], None]
+    append_agent_message: Callable[[AgentTranscriptMessage], None]
     emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
 
 
@@ -979,7 +979,7 @@ def _compose_emitter(
     inputs: SessionWiringInput,
     *,
     renderer: _ToolLoopRenderer | TuiToolLoopRenderer,
-    append_agent_message: Callable[[AgentMessage], None],
+    append_agent_message: Callable[[AgentTranscriptMessage], None],
     generation_ref: SessionGenerationRef,
     cwd: Path,
     terminal_ui: TerminalUi | None,
@@ -1114,7 +1114,7 @@ def _compose_product_session(
             entry_ids=context.entry_ids,
         )
 
-    def _persist_agent_message(message: AgentMessage) -> None:
+    def _persist_agent_message(message: AgentTranscriptMessage) -> None:
         # Pi writes a new session's model_change and thinking_level_change
         # with its first message (core/sdk.ts:431-437).
         provider_binding.record_session_start()
@@ -1146,7 +1146,7 @@ def _compose_product_session(
     # mutated. base_system_prompt already carries any resume seed block.
     base_system_prompt = system_prompt
 
-    def append_agent_message(message: AgentMessage) -> None:
+    def append_agent_message(message: AgentTranscriptMessage) -> None:
         # Keep guarded live acceptance and its selected-tree append in one
         # mutation order. The coordinator releases the inner state mutex before
         # invoking persistence; no callback or filesystem I/O holds that mutex.

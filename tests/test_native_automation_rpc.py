@@ -10,6 +10,7 @@ and clean EOF shutdown.
 
 from __future__ import annotations
 
+import codecs
 import io
 import json
 import os
@@ -335,11 +336,14 @@ class _RpcClient:
 
     def _read_stdout(self) -> None:
         buf = JsonlLineBuffer()
+        # Byte-wise reads split multi-byte UTF-8 (the system message carries
+        # the prompt text); decode incrementally.
+        decoder = codecs.getincrementaldecoder("utf-8")()
         while True:
             chunk = self._stdout_read.read(1)
             if chunk == b"":
                 break
-            for line in buf.feed(chunk.decode("utf-8")):
+            for line in buf.feed(decoder.decode(chunk)):
                 self._records.put(json.loads(line))
 
     def send(self, command: dict) -> None:
@@ -901,7 +905,15 @@ def test_get_state_and_get_messages(client) -> None:
     client.send({"id": "m", "type": "get_messages"})
     msgs = client.wait_for(lambda r: r.get("id") == "m")
     roles = [m["role"] for m in msgs["data"]["messages"]]
-    assert "user" in roles and "assistant" in roles
+    # Pi `buildSessionContext`: the leading system message is part of it.
+    assert roles == ["system", "user", "assistant"]
+    assert list(msgs["data"]["messages"][0]["sections"]) == ["preamble"]
+    assert data["messageCount"] == 3
+
+    client.send({"id": "stats", "type": "get_session_stats"})
+    stats = client.wait_for(lambda r: r.get("id") == "stats")
+    assert stats["data"]["totalMessages"] == 3
+    assert stats["data"]["userMessages"] == 1
 
 
 def test_manual_compact_uses_native_worker_and_correlates_after_end(client) -> None:

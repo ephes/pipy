@@ -26,6 +26,7 @@ from pipy_harness.native import (
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
     ProductContent,
@@ -291,11 +292,12 @@ def test_canonical_tree_branch_scenario(tmp_path: Path) -> None:
     provider = _SeenProvider()
     session = CodingSession(provider=provider, native_session=tree)
 
-    # default-filter visible order after ROOT/MAIN:
-    #   1 ROOT(user) 2 SEEN:ROOT(asst) 3 MAIN(user) 4 SEEN:ROOT,MAIN(asst)
-    # select 3 -> re-pick MAIN user message, then submit ALT (sibling branch).
-    # After ALT, DFS order adds 5 ALT(user) 6 SEEN:ROOT,ALT(asst).
-    # select 4 -> SEEN:ROOT,MAIN leaf (non-user), then CONT continues MAIN.
+    # default-filter visible order after ROOT/MAIN (Pi shows system entries):
+    #   1 [system] 2 ROOT(user) 3 SEEN:ROOT(asst) 4 MAIN(user)
+    #   5 SEEN:ROOT,MAIN(asst)
+    # select 4 -> re-pick MAIN user message, then submit ALT (sibling branch).
+    # After ALT, DFS order adds 6 ALT(user) 7 SEEN:ROOT,ALT(asst).
+    # select 5 -> SEEN:ROOT,MAIN leaf (non-user), then CONT continues MAIN.
     _run(
         session,
         cwd,
@@ -304,9 +306,9 @@ def test_canonical_tree_branch_scenario(tmp_path: Path) -> None:
                 "/name conformance-tree",
                 "ROOT",
                 "MAIN",
-                "/tree select 3",
-                "ALT",
                 "/tree select 4",
+                "ALT",
+                "/tree select 5",
                 "CONT",
                 "/exit",
                 "",
@@ -1166,7 +1168,8 @@ def test_fork_creates_new_session_file_with_parent(tmp_path: Path) -> None:
     provider = _SeenProvider()
     session = CodingSession(provider=provider, native_session=tree)
 
-    _run(session, cwd, "\n".join(["ROOT", "MAIN", "/fork 1", "/exit", ""]))
+    # Index 1 is the leading [system] entry; 2 is ROOT.
+    _run(session, cwd, "\n".join(["ROOT", "MAIN", "/fork 2", "/exit", ""]))
 
     files = sorted((session_dir).glob("*.jsonl"))
     assert len(files) == 2  # original + forked
@@ -2207,8 +2210,20 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
     branch = tree.get_branch()
     compaction = next(entry for entry in branch if isinstance(entry, CompactionEntry))
     compaction_index = branch.index(compaction)
+    # The run's leading system message is prompt state, not history; the
+    # compaction carries its replay as the checkpoint (Pi `9e05370b2`).
+    system_entries = [
+        entry
+        for entry in branch[:compaction_index]
+        if isinstance(entry, MessageEntry)
+        and isinstance(entry.message, AgentSystemMessage)
+    ]
+    assert len(system_entries) == 1
+    assert compaction.system_message == system_entries[0].message
     messages_before = [
-        entry for entry in branch[:compaction_index] if isinstance(entry, MessageEntry)
+        entry
+        for entry in branch[:compaction_index]
+        if isinstance(entry, MessageEntry) and entry not in system_entries
     ]
     users_before = [
         entry
@@ -2232,6 +2247,7 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
 
     reopened = NativeSessionTree.open(tree.path)
     rebuilt = reopened.build_context().messages
+    assert rebuilt[0] == compaction.system_message
     texts = " ".join(
         m.content.value for m in rebuilt if isinstance(m, AgentUserMessage)
     )

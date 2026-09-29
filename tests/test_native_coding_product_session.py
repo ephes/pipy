@@ -14,6 +14,7 @@ from pipy_harness.native.agent import (
     AgentMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
     ProductContent,
 )
@@ -73,7 +74,7 @@ class _LoadFailurePort:
     def load_active_history(self) -> CodingProductSessionContext:
         raise LookupError("load failed")
 
-    def append_message(self, message: AgentMessage) -> None:
+    def append_message(self, message: AgentTranscriptMessage) -> None:
         del message
 
     def apply_compaction(self, action: CodingProductSessionCompaction) -> None:
@@ -143,7 +144,7 @@ def _callbacks(
         observed.append("load")
         return context or CodingProductSessionContext(())
 
-    def append(message: AgentMessage) -> None:
+    def append(message: AgentTranscriptMessage) -> None:
         assert state.messages[-1] is message
         observed.append("append")
 
@@ -188,7 +189,7 @@ def test_append_callback_failure_propagates_after_state_advances() -> None:
     state = _state()
     message = _messages()[0]
 
-    def fail(message_to_persist: AgentMessage) -> None:
+    def fail(message_to_persist: AgentTranscriptMessage) -> None:
         assert state.messages == (message_to_persist,)
         raise RuntimeError("append failed")
 
@@ -473,7 +474,7 @@ def test_append_rejects_awaitable_return_after_synchronous_state_transition() ->
     state = _state()
     message = _messages()[0]
 
-    def append_returning_awaitable(message_to_persist: AgentMessage) -> None:
+    def append_returning_awaitable(message_to_persist: AgentTranscriptMessage) -> None:
         assert message_to_persist is message
         return cast(None, _UnexpectedReturn())
 

@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from typing import Protocol, cast, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.messages import AgentMessage
+from pipy_harness.native.agent.messages import (
+    AgentMessage,
+    AgentSystemMessage,
+    AgentTranscriptMessage,
+)
 from pipy_harness.native.coding.state import (
     CodingSessionState,
     require_exact_agent_message,
@@ -57,7 +61,7 @@ class CodingProductSessionPort(Protocol):
 
         ...
 
-    def append_message(self, message: AgentMessage) -> None:
+    def append_message(self, message: AgentTranscriptMessage) -> None:
         """Persist one already-applied canonical message transition."""
 
         ...
@@ -73,7 +77,7 @@ class CodingProductSessionCallbacks:
     """Typed callback adapter for existing product-session write owners."""
 
     load_active_history_callback: Callable[[], CodingProductSessionContext]
-    append_message_callback: Callable[[AgentMessage], None]
+    append_message_callback: Callable[[AgentTranscriptMessage], None]
     apply_compaction_callback: Callable[[CodingProductSessionCompaction], None]
 
     def __post_init__(self) -> None:
@@ -92,7 +96,7 @@ class CodingProductSessionCallbacks:
         _require_callback(callback, "load_active_history_callback")
         return callback()
 
-    def append_message(self, message: AgentMessage) -> None:
+    def append_message(self, message: AgentTranscriptMessage) -> None:
         callback = self.append_message_callback
         _require_callback(callback, "append_message_callback")
         result = callback(message)
@@ -124,13 +128,21 @@ class CodingProductSessionCoordinator:
         self._port = port
         self._loaded_context: CodingProductSessionContext | None = None
 
-    def append_message(self, message: AgentMessage) -> None:
-        """Apply a canonical message, then synchronously persist that object."""
+    def append_message(self, message: AgentTranscriptMessage) -> None:
+        """Apply a canonical message, then synchronously persist that object.
 
-        require_exact_agent_message(message, "message")
-        self._state.append_message(message)
+        A system message is transcript state: it is persisted but never joins
+        the live provider history (see ``AgentSystemMessage``).
+        """
+
+        if isinstance(message, AgentSystemMessage):
+            # Same stale-run refusal as a history append.
+            self._state.require_current_run()
+        else:
+            require_exact_agent_message(message, "message")
+            self._state.append_message(message)
         append_message = cast(
-            Callable[[AgentMessage], object], self._port.append_message
+            Callable[[AgentTranscriptMessage], object], self._port.append_message
         )
         result = append_message(message)
         _require_none(result, "port.append_message")

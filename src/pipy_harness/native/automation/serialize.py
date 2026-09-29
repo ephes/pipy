@@ -17,11 +17,13 @@ from typing import Any
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentMessage,
+    AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.system_messages import system_message_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
@@ -60,9 +62,11 @@ def assistant_content_blocks(
     return blocks
 
 
-def serialize_message(message: AgentMessage) -> dict[str, Any]:
+def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
     """Map one native loop message to its Pi-shaped JSON object."""
 
+    if isinstance(message, AgentSystemMessage):
+        return system_message_to_json(message)
     if isinstance(message, AgentUserMessage):
         return {
             "role": "user",

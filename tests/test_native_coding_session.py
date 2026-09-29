@@ -337,6 +337,7 @@ def _assert_usage_trace_order(
         for item in ordered
     ] == [
         "footer",
+        "MessageCompleted",  # first run's leading system message
         "MessageCompleted",  # first run's user message
         "UsageUpdated",
         "MessageCompleted",  # tool-requesting assistant message

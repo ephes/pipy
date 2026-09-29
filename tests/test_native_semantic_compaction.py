@@ -19,6 +19,7 @@ from pipy_harness.native.agent import (
     AgentMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentTranscriptMessage,
     AgentUserMessage,
     ProductContent,
 )
@@ -144,7 +145,7 @@ def _fixture(
             entry_ids=projection.entry_ids,
         )
 
-    def append(message: AgentMessage) -> None:
+    def append(message: AgentTranscriptMessage) -> None:
         tree.append_message(message)
 
     def persist(action: CodingProductSessionCompaction) -> None:
