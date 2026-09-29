@@ -69,6 +69,25 @@ def test_canonical_body_has_no_placeholders() -> None:
     assert not found, f"canonical body contains placeholder tokens: {found}"
 
 
+def test_canonical_body_reference_docs_exist() -> None:
+    text = BODY.read_text(encoding="utf-8")
+    referenced = set(re.findall(r"docs/parity-loop/[\w.-]+\.md", text))
+    assert "docs/parity-loop/porting-notes.md" in referenced
+    missing = sorted(ref for ref in referenced if not (REPO_ROOT / ref).is_file())
+    assert not missing, f"canonical body references missing docs: {missing}"
+
+
+# A new default-filter /tree entry kind shifts hard-coded numeric indices in
+# tests and conformance gates; the body must keep the pre-suite grep warning.
+TREE_INDEX_GUARD_TOKENS = ("/tree select N", "/fork N", "scripts/parity_checks")
+
+
+def test_canonical_body_warns_about_hard_coded_tree_indices() -> None:
+    text = BODY.read_text(encoding="utf-8")
+    missing = [tok for tok in TREE_INDEX_GUARD_TOKENS if tok not in text]
+    assert not missing, f"canonical body lacks tree-index guard tokens: {missing}"
+
+
 def test_planning_docs_use_neutral_repo_owned_paths() -> None:
     text = BODY.read_text(encoding="utf-8")
     assert "docs/specs/" in text
