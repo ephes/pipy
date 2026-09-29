@@ -1235,8 +1235,8 @@ result fixation before the matching end event. The capability covers delay,
 reissue admission, and the reissued provider phase through the accepted turn's
 ordered cancellation path. A losing late abort is a no-op, so it cannot escape
 the retry phase into the surrounding provider turn, a promoted input, or a later
-run. Auxiliary summary retries and non-capable providers never install the
-capability. See the
+run. Auxiliary summary retries never install the capability; since DF1-F4 an
+ordinary request to any provider can. See the
 [D5d SDK contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
 
 Project trust is fail-closed. Final-workspace project settings, packages,

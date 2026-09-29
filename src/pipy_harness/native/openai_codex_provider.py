@@ -1999,10 +1999,38 @@ def _response_error_event(event: Mapping[str, Any]) -> OpenAICodexResponseParseE
     safe_code = _safe_codex_api_label(event.get("code"))
     if safe_code is not None:
         metadata["api_error_code"] = safe_code
-    return OpenAICodexResponseParseError(
-        "OpenAI Codex stream returned an error event.",
-        metadata=metadata,
-    )
+    # Pi ``mapCodexEvents``: ``Codex error: <message || code || event JSON>``,
+    # message/code read from the event or its nested ``error``. The agent
+    # retry classifier decides on this text.
+    nested = event.get("error")
+    nested = nested if isinstance(nested, Mapping) else {}
+    code = event.get("code") if isinstance(event.get("code"), str) else None
+    if code is None and isinstance(nested.get("code"), str):
+        code = nested["code"]
+    message = event.get("message") if isinstance(event.get("message"), str) else None
+    if message is None and isinstance(nested.get("message"), str):
+        message = nested["message"]
+    detail = message or code or json.dumps(event, separators=(",", ":"), default=str)
+    return OpenAICodexResponseParseError(f"Codex error: {detail}", metadata=metadata)
+
+
+def _response_failed_error(
+    response: Mapping[str, Any],
+) -> OpenAICodexResponseParseError:
+    """Pi ``mapCodexEvents``: ``response.error.message || "Codex response failed"``."""
+
+    metadata: dict[str, Any] = {
+        "provider_response_store_requested": False,
+        "response_status": "failed",
+    }
+    error = response.get("error")
+    error = error if isinstance(error, Mapping) else {}
+    safe_code = _safe_codex_api_label(error.get("code"))
+    if safe_code is not None:
+        metadata["api_error_code"] = safe_code
+    message = error.get("message")
+    text = message if isinstance(message, str) and message else "Codex response failed"
+    return OpenAICodexResponseParseError(text, metadata=metadata)
 
 
 def _accumulate_content_event(
@@ -2153,6 +2181,8 @@ def _finalize_response_events(
             },
         )
     response_status, terminal_response = _terminal_response_status(*terminal)
+    if terminal[0] == "response.failed":
+        raise _response_failed_error(terminal_response)
     if response_status != "completed":
         raise OpenAICodexResponseParseError(
             "OpenAI Codex response did not complete successfully.",

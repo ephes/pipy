@@ -853,7 +853,9 @@ class CodingSessionState:
         self._image_attachment_loaded_count += loaded_count
         self._image_attachment_failed_count += failed_count
 
-    def absorb_usage(self, sample: AgentProviderUsageSample) -> None:
+    def absorb_usage(
+        self, sample: AgentProviderUsageSample, *, counts_for_context: bool = True
+    ) -> None:
         if type(sample) is not AgentProviderUsageSample:
             raise TypeError("sample must be an exact AgentProviderUsageSample")
         for field_name in (
@@ -874,7 +876,9 @@ class CodingSessionState:
         )
         with self._state_lock:
             self._require_run_context_locked()
-            self._usage_accumulator.absorb(sample)
+            self._usage_accumulator.absorb(
+                sample, counts_for_context=counts_for_context
+            )
 
     def apply_compaction(
         self,

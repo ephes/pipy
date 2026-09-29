@@ -256,16 +256,51 @@ class _StartGatedProvider:
         reasoning_sink: StreamChunkSink | None = None,
         cancel_token: CancelToken | None = None,
     ) -> PreparedProviderCompletion | None:
+        if not isinstance(self._provider, PreparedProviderPort):
+            # Decline before the gate: the ordinary ``complete`` path (also
+            # used for managed reissue) waits for admission itself and lets
+            # the provider observe a cancelled token.
+            return None
         self._start_event.wait()
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
-        if not isinstance(self._provider, PreparedProviderPort):
-            return None
         return self._provider.prepare_completion(
             request,
             stream_sink=stream_sink,
             reasoning_sink=reasoning_sink,
             cancel_token=cancel_token,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ReissuedCompletion:
+    """Retry handle for a provider without its own prepared attempts.
+
+    Pi retries every provider by rerunning the request from the same context;
+    each logical attempt here is one more ordinary ``complete`` call with the
+    same request, sinks, and cancellation token.
+    """
+
+    provider: ProviderPort
+    request: ProviderRequest
+    stream_sink: StreamChunkSink | None
+    reasoning_sink: StreamChunkSink | None
+    cancel_token: CancelToken | None
+
+    def complete_attempt(self, allowance: ProviderAttemptAllowance) -> ProviderResult:
+        del allowance
+        if self.cancel_token is None:
+            # The synchronous path never passed a token to the first call.
+            return self.provider.complete(
+                self.request,
+                stream_sink=self.stream_sink,
+                reasoning_sink=self.reasoning_sink,
+            )
+        return self.provider.complete(
+            self.request,
+            stream_sink=self.stream_sink,
+            reasoning_sink=self.reasoning_sink,
+            cancel_token=self.cancel_token,
         )
 
 
@@ -538,10 +573,14 @@ class ProviderTurnExecutor:
             event_sink, turn_index, delta_policy, gate
         )
         try:
-            prepared = None
+            prepared: PreparedProviderCompletion | None = None
             if retry_policy is not None and isinstance(provider, PreparedProviderPort):
                 prepared = provider.prepare_completion(
                     request, stream_sink=text_sink, reasoning_sink=reasoning_sink
+                )
+            if prepared is None and retry_policy is not None:
+                prepared = _ReissuedCompletion(
+                    provider, request, text_sink, reasoning_sink, None
                 )
             if prepared is None:
                 result = provider.complete(
@@ -553,7 +592,7 @@ class ProviderTurnExecutor:
                     ProviderAttemptAllowance(1, retry_policy.max_attempts)
                 )
                 result = self._retry_synchronously(
-                    prepared, result, retry_policy, before_reissue, event_sink, gate
+                    prepared, result, retry_policy, before_reissue, event_sink
                 )
         except ProviderCancelledError:
             return ProviderTurnOutcome(
@@ -570,10 +609,9 @@ class ProviderTurnExecutor:
         policy: ProviderManagedRetryPolicy,
         before_reissue: Callable[[], None] | None,
         event_sink: AgentEventSink,
-        gate: _DeltaAdmissionGate,
     ) -> ProviderResult:
         for attempt in range(2, policy.max_attempts + 1):
-            if not is_managed_retry_eligible(result, observed_delta=gate.observed):
+            if not is_managed_retry_eligible(result):
                 break
             ordinal = attempt - 1
             failure = _retry_failure(result)
@@ -606,7 +644,8 @@ class ProviderTurnExecutor:
             except BaseException as exc:
                 event_sink.emit(RetryCompleted(ordinal, False, _exception_failure(exc)))
                 raise
-            event_sink.emit(_retry_completed(ordinal, result, gate.observed))
+            if _retry_sequence_ends(result, attempt, policy):
+                event_sink.emit(_retry_completed(ordinal, result))
         return result
 
     def _complete_interruptibly(
@@ -670,8 +709,15 @@ class ProviderTurnExecutor:
 
         active_retry_lease: _RpcRetryLease | None = None
 
-        def _emit_retry_event(event: RetryScheduled | RetryCompleted) -> bool:
-            """Publish a retry event, retiring the exact RPC phase before end."""
+        def _emit_retry_event(
+            event: RetryScheduled | RetryCompleted, *, publish: bool = True
+        ) -> bool:
+            """Publish a retry event, retiring the exact RPC phase before end.
+
+            ``publish=False`` retires the attempt's RPC phase without an end
+            event, because another retry follows (Pi emits one end per
+            sequence); an abort that won the phase still ends the sequence.
+            """
 
             nonlocal active_retry_lease
             abort_won = False
@@ -682,6 +728,8 @@ class ProviderTurnExecutor:
                     event = RetryCompleted(
                         event.attempt, False, _cancellation_failure()
                     )
+            if not (publish or abort_won):
+                return False
             try:
                 event_sink.emit(event)
             except BaseException:
@@ -710,6 +758,10 @@ class ProviderTurnExecutor:
                             stream_sink=text_sink,
                             reasoning_sink=reasoning_sink,
                             cancel_token=cancel_token,
+                        )
+                    if handle is None and retry_policy is not None:
+                        handle = _ReissuedCompletion(
+                            provider, request, text_sink, reasoning_sink, cancel_token
                         )
                     if handle is None:
                         results.append(
@@ -747,9 +799,7 @@ class ProviderTurnExecutor:
                         retry_policy is None
                         or not prepared
                         or attempt >= retry_policy.max_attempts
-                        or not is_managed_retry_eligible(
-                            results[0], observed_delta=gate.observed
-                        )
+                        or not is_managed_retry_eligible(results[0])
                     )
                 if terminal:
                     order.record_completion()
@@ -803,11 +853,11 @@ class ProviderTurnExecutor:
             retry_policy is not None
             and prepared
             and results
-            and is_managed_retry_eligible(results[0], observed_delta=gate.observed)
+            and is_managed_retry_eligible(results[0])
         ):
             result = results[0]
             for attempt in range(2, retry_policy.max_attempts + 1):
-                if not is_managed_retry_eligible(result, observed_delta=gate.observed):
+                if not is_managed_retry_eligible(result):
                     break
                 ordinal = attempt - 1
                 failure = _retry_failure(result)
@@ -930,7 +980,7 @@ class ProviderTurnExecutor:
                             raise
                         if outcome.result is not None:
                             abort_won = _emit_retry_event(
-                                _retry_completed(ordinal, outcome.result, gate.observed)
+                                _retry_completed(ordinal, outcome.result)
                             )
                             if abort_won:
                                 gate.close()
@@ -982,7 +1032,8 @@ class ProviderTurnExecutor:
                     return outcome
                 result = outcome.result
                 abort_won = _emit_retry_event(
-                    _retry_completed(ordinal, result, gate.observed)
+                    _retry_completed(ordinal, result),
+                    publish=_retry_sequence_ends(result, attempt, retry_policy),
                 )
                 if abort_won:
                     gate.close()
@@ -1035,23 +1086,32 @@ def _retry_failure(result: ProviderResult, *, retryable: bool = True) -> AgentFa
     )
 
 
-def _retry_completed(
-    attempt: int, result: ProviderResult, observed_delta: bool
-) -> RetryCompleted:
+def _retry_sequence_ends(
+    result: ProviderResult, attempt: int, policy: ProviderManagedRetryPolicy
+) -> bool:
+    """Whether this reissued attempt settles the retry sequence.
+
+    Pi emits one ``auto_retry_end`` per sequence: on the first success, a
+    non-retryable failure, or exhaustion. A retryable failure with attempts
+    left is followed by another ``auto_retry_start`` instead.
+    """
+
+    return not (is_managed_retry_eligible(result) and attempt < policy.max_attempts)
+
+
+def _retry_completed(attempt: int, result: ProviderResult) -> RetryCompleted:
     if result.status is HarnessStatus.SUCCEEDED:
         return RetryCompleted(attempt, True)
     return RetryCompleted(
         attempt,
         False,
-        _retry_failure(
-            result,
-            retryable=is_managed_retry_eligible(result, observed_delta=observed_delta),
-        ),
+        _retry_failure(result, retryable=is_managed_retry_eligible(result)),
     )
 
 
 def _cancellation_failure() -> AgentFailure:
-    return AgentFailure("retry_cancelled", ProductContent("Retry was cancelled."))
+    # Pi ``_finishCancelledRetry`` reports ``finalError: "Retry cancelled"``.
+    return AgentFailure("retry_cancelled", ProductContent("Retry cancelled"))
 
 
 def _admission_failure() -> AgentFailure:

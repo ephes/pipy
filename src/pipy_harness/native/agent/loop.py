@@ -604,12 +604,15 @@ class AgentLoop:
 
     def _publish_usage(self, state: _RunState, result: ProviderResult) -> None:
         sample = AgentProviderUsageSample.from_mapping(result.usage)
-        state.usage.absorb(sample)
+        # Pi takes context usage only from a successful response.
+        counts_for_context = result.status is HarnessStatus.SUCCEEDED
+        state.usage.absorb(sample, counts_for_context=counts_for_context)
         self._usage_publisher.publish(
             AgentUsagePublication(
                 sample,
                 state.usage.agent_usage(),
-                state.usage.last_total_tokens,
+                sample.effective_total_tokens,
+                counts_for_context,
             )
         )
 

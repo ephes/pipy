@@ -253,11 +253,19 @@ class AgentUsageAccumulator:
             return None
         return 100.0 * self.cache_read_tokens / denominator
 
-    def absorb(self, sample: AgentProviderUsageSample) -> None:
-        """Accumulate one provider turn without changing its telemetry heuristic."""
+    def absorb(
+        self, sample: AgentProviderUsageSample, *, counts_for_context: bool = True
+    ) -> None:
+        """Accumulate one provider turn without changing its telemetry heuristic.
+
+        ``counts_for_context=False`` (a failed response) still adds the tokens
+        and cost but leaves the context value alone.
+        """
 
         if not isinstance(sample, AgentProviderUsageSample):
             raise TypeError("sample must be AgentProviderUsageSample")
+        if type(counts_for_context) is not bool:
+            raise TypeError("counts_for_context must be a bool")
         input_tokens = sample.input_tokens
         output_tokens = sample.output_tokens
         reasoning_tokens = sample.reasoning_tokens
@@ -286,7 +294,12 @@ class AgentUsageAccumulator:
             else max(0, input_tokens - cache_read_tokens - cache_write_tokens)
         )
         self.uncached_input_tokens += uncached_input_tokens
-        self.last_total_tokens = sample.effective_total_tokens
+        # Pi takes context usage from the last assistant message that is not an
+        # error and whose usage counts (``getAssistantUsage``:
+        # ``calculateContextTokens(usage) > 0``), so a failed or usage-less
+        # response keeps the previous value.
+        if counts_for_context and sample.effective_total_tokens > 0:
+            self.last_total_tokens = sample.effective_total_tokens
         if self._pricing is not None:
             self.cost_usd += _turn_cost(
                 self._pricing,

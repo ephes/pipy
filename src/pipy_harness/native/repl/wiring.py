@@ -964,6 +964,12 @@ def _prepare_startup_extension_consumers(
         )
 
 
+def _interrupt_key_text(keybindings: KeybindingsManager) -> str:
+    """Pi ``keyText("app.interrupt")``: the bound keys joined with ``/``."""
+
+    return "/".join(keybindings.keys_for("app.interrupt")) or "escape"
+
+
 def _raise_unknown_startup_tool_filters(
     tool_capabilities: NativeToolCapabilities,
 ) -> None:
@@ -1063,6 +1069,7 @@ def _compose_product_session(
             chrome=components.chrome.record,
             render_inputs=components.screen.render_inputs,
             render_details_sink=render_details.tui,
+            interrupt_key_text=partial(_interrupt_key_text, startup.keybindings),
         )
     else:
         renderer = _ToolLoopRenderer(
@@ -1194,8 +1201,10 @@ def _compose_runtime_adapters(
     input_stream = inputs.input_stream
     error_stream = inputs.error_stream
 
-    def absorb_session_usage(sample: AgentProviderUsageSample) -> None:
-        coding_state.absorb_usage(sample)
+    def absorb_session_usage(
+        sample: AgentProviderUsageSample, counts_for_context: bool
+    ) -> None:
+        coding_state.absorb_usage(sample, counts_for_context=counts_for_context)
 
     usage_publisher = NativeAgentUsagePublisher(absorb_session_usage, emitter)
 

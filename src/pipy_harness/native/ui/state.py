@@ -19,6 +19,8 @@ from pipy_harness.native.agent.events import (
     MessageCompleted,
     MessageStarted,
     ProviderFailed,
+    RetryCompleted,
+    RetryScheduled,
     RunCancelled,
     ToolCallCompleted,
     ToolCallStarted,
@@ -92,6 +94,29 @@ class CancelAssistantMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduleRetry:
+    """Show a failed attempt and the countdown to its automatic retry.
+
+    Pi renders the failed attempt's ``Error: <message>`` and swaps the working
+    loader for ``Retrying (attempt/max_attempts) in Ns...``.
+    """
+
+    attempt: int
+    max_attempts: int
+    delay_ms: int
+    error_message: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinishRetry:
+    """End the retry sequence; a failure shows Pi's final retry line."""
+
+    succeeded: bool
+    attempt: int
+    final_error: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RenderToolCall:
     """Render a model-requested tool call entering execution."""
 
@@ -122,6 +147,8 @@ RenderDecision = (
     | CompleteAssistantMessage
     | FailAssistantMessage
     | CancelAssistantMessage
+    | ScheduleRetry
+    | FinishRetry
     | RenderToolCall
     | StreamToolOutput
     | RenderToolResult
@@ -172,6 +199,27 @@ def _reduce_assistant_event(state: UiState, event: AgentEvent) -> _Reduction | N
         return (suppressed, ())
     if isinstance(event, MessageCompleted):
         return _reduce_message_completed(state, event)
+    return _reduce_retry_event(state, event)
+
+
+def _reduce_retry_event(state: UiState, event: AgentEvent) -> _Reduction | None:
+    if isinstance(event, RetryScheduled):
+        # The retried attempt starts over, so its text renders as fresh output
+        # (a buffered completion is no longer covered by the failed stream).
+        return (
+            replace(state, assistant_streamed=False),
+            (
+                ScheduleRetry(
+                    event.attempt,
+                    event.max_attempts,
+                    event.delay_ms,
+                    event.failure.message.value,
+                ),
+            ),
+        )
+    if isinstance(event, RetryCompleted):
+        final_error = event.failure.message.value if event.failure is not None else None
+        return (state, (FinishRetry(event.succeeded, event.attempt, final_error),))
     return None
 
 

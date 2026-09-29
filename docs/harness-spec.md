@@ -1606,6 +1606,17 @@ classification.
 
 ### Bounded Request Retry Contract (D4a)
 
+> **Superseded in part by DF1-F4 (Pi's agent-level auto-retry).** Eligibility
+> is now Pi's `isRetryableAssistantError` text classifier (plus pipy's
+> structured `retryable` flag) with a context-overflow veto, and has **no
+> progress, payload, or usage condition**. Every provider is retried: one
+> without the prepared capability is called again with the same request.
+> `RetryCompleted` / `auto_retry_end` is published once per sequence, and
+> the cancelled text is `Retry cancelled`. Ordinary turn retries use no jitter.
+> The statements below about no-progress evidence, Codex-only support, and
+> per-reissue end events describe the original D4a design. See
+> [Retries](providers.md#retries).
+
 This is the implemented request-retry contract. D4a1–D4a2 provide the prepared
 provider and canonical executor seams, and D4a3 activates them for ordinary
 product requests. Each ordinary request still returns one settled provider

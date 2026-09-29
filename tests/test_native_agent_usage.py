@@ -151,15 +151,25 @@ def test_usage_coercion_accepts_int_and_float_but_not_bool_or_non_number() -> No
     assert usage.last_total_tokens == 9
 
 
-def test_empty_missing_and_unrecognized_usage_reset_only_last_total() -> None:
+def test_empty_missing_and_unrecognized_usage_keep_the_last_context_total() -> None:
+    # Pi ``getAssistantUsage`` skips usage whose context tokens are zero.
     usage = AgentUsageAccumulator()
     usage.absorb(_sample(input_tokens=8, output_tokens=2))
     assert usage.last_total_tokens == 10
 
     for payload in (None, {}, {"provider_specific": 99}):
         usage.absorb(AgentProviderUsageSample.from_mapping(payload))
-        assert usage.last_total_tokens == 0
+        assert usage.last_total_tokens == 10
         assert usage.agent_usage() == AgentUsage(input_tokens=8, output_tokens=2)
+
+
+def test_failed_response_usage_counts_cost_but_not_context() -> None:
+    # Pi never takes context usage from an ``error`` assistant message.
+    usage = AgentUsageAccumulator()
+    usage.absorb(_sample(input_tokens=8, output_tokens=2))
+    usage.absorb(_sample(input_tokens=5, output_tokens=1), counts_for_context=False)
+    assert usage.last_total_tokens == 10
+    assert usage.agent_usage() == AgentUsage(input_tokens=13, output_tokens=3)
 
 
 def test_accumulator_accepts_only_typed_samples_without_partial_mutation() -> None:

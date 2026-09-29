@@ -278,16 +278,23 @@ def test_product_retry_caps_server_delay_with_captured_setting(tmp_path: Path) -
         _transient(metadata={"retryable": True, "progress": "accepted"}),
     ],
 )
-def test_partial_progress_payload_or_usage_prevents_product_retry(
+def test_partial_progress_payload_or_usage_does_not_block_product_retry(
     tmp_path: Path, blocked_result: ProviderResult
 ) -> None:
-    provider = _PreparedProductProvider(scripts=[[blocked_result]])
+    # Pi retries a failed assistant message whatever it streamed first.
+    provider = _PreparedProductProvider(
+        scripts=[[blocked_result, _result(HarnessStatus.SUCCEEDED, text="ok")]]
+    )
     _run(tmp_path, provider, _settings(tmp_path, max_retries=3), "one\n/exit\n")
-    assert [(a.attempt, a.max_attempts) for a in provider.allowances] == [(1, 4)]
+    assert [(a.attempt, a.max_attempts) for a in provider.allowances] == [
+        (1, 4),
+        (2, 4),
+    ]
 
 
-def test_non_capable_provider_remains_single_call_when_retry_is_enabled(
-    tmp_path: Path,
+@pytest.mark.parametrize(("enabled", "calls"), [(True, 3), (False, 1)])
+def test_ordinary_provider_is_retried_when_retry_is_enabled(
+    tmp_path: Path, enabled: bool, calls: int
 ) -> None:
     class UnsupportedProvider:
         name = "openai"
@@ -308,8 +315,19 @@ def test_non_capable_provider_remains_single_call_when_retry_is_enabled(
             )
 
     provider = UnsupportedProvider()
-    _run(tmp_path, provider, _settings(tmp_path, max_retries=9), "one\n/exit\n")
-    assert provider.calls == 1
+    sink = _Sink()
+    _run(
+        tmp_path,
+        provider,
+        _settings(tmp_path, enabled=enabled, max_retries=2),
+        "one\n/exit\n",
+        sink=sink,
+    )
+    assert provider.calls == calls
+    scheduled = [event for event in sink.events if isinstance(event, RetryScheduled)]
+    assert [(event.attempt, event.max_attempts) for event in scheduled] == [
+        (attempt, 2) for attempt in range(1, calls)
+    ]
 
 
 def test_cancellation_during_backoff_balances_retry_and_prevents_reissue(

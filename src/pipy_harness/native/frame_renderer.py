@@ -111,6 +111,8 @@ class FrameSnapshot:
     chrome: ChromeSnapshot
     overlay: tuple[FrameLine, ...] | None
     cursor_visible: bool
+    # Pi's retry loader colours its spinner ``warning`` instead of ``accent``.
+    working_warning: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +282,7 @@ def _block_prefix(kind: str) -> str:
         "assistant": " ",
         "reasoning": " ",
         "working": " ",
+        "working_warning": " ",
         "error": " ",
         "tool": " $ ",
         "tool_read": " ",
@@ -309,7 +312,15 @@ def _trailing_block_rows(kind: str) -> tuple[FrameLine, ...]:
         return FrameLine("", "tool_result"), FrameLine("")
     if kind == "tool_result":
         return FrameLine(""), FrameLine("")
-    if kind in {"assistant", "notice", "working", "settings", "custom", "error"}:
+    if kind in {
+        "assistant",
+        "notice",
+        "working",
+        "working_warning",
+        "settings",
+        "custom",
+        "error",
+    }:
         return (FrameLine(""),)
     return ()
 
@@ -324,6 +335,7 @@ def _line_kind_for_block(kind: str) -> str:
         "resource": "resource",
         "normal": "normal",
         "working": "working",
+        "working_warning": "working_warning",
         "error": "error",
         "reasoning": "reasoning",
         "tool": "tool",
@@ -467,7 +479,8 @@ def _transient_lines(snapshot: FrameSnapshot) -> tuple[FrameLine, ...]:
         cap = len(raw) + 1 if snapshot.tools_expanded else _TOOL_STREAM_LIVE_LINES
         blocks.append(FrameBlock("tool_result", raw[-cap:]))
     if snapshot.working_text:
-        blocks.append(FrameBlock("working", (snapshot.working_text,)))
+        kind = "working_warning" if snapshot.working_warning else "working"
+        blocks.append(FrameBlock(kind, (snapshot.working_text,)))
     return tuple(row for block in blocks for row in block_lines(block, snapshot.width))
 
 
@@ -741,6 +754,7 @@ def style_line(line: FrameLine, style: ChromeStyle, width: int) -> str:
     special = {
         "title": _style_title,
         "working": _style_working,
+        "working_warning": _style_working_warning,
         "slash_menu": _style_menu_row,
         "input": _style_input,
     }.get(line.kind)
@@ -797,6 +811,12 @@ def _style_working(line: FrameLine, style: ChromeStyle, width: int) -> str:
     del width
     leading, spinner, rest = _split_working_spinner(line.text.rstrip())
     return f"{style.secondary_dim(leading)}{style.menu_selection(spinner)}{style.secondary_dim(rest)}"
+
+
+def _style_working_warning(line: FrameLine, style: ChromeStyle, width: int) -> str:
+    del width
+    leading, spinner, rest = _split_working_spinner(line.text.rstrip())
+    return f"{style.secondary_dim(leading)}{style.warning(spinner)}{style.secondary_dim(rest)}"
 
 
 def _style_menu_row(line: FrameLine, style: ChromeStyle, width: int) -> str:

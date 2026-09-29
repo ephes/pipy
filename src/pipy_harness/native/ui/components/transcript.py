@@ -153,6 +153,8 @@ class TranscriptComponent:
         self.reasoning_text = ""
         self.tool_output_text = ""
         self.working_text = ""
+        # The retry loader (Pi ``RetryStatusIndicator``) uses a warning spinner.
+        self.working_warning = False
         self.thinking_hidden = False
         self.hidden_thinking_label = DEFAULT_HIDDEN_THINKING_LABEL
         self.tools_expanded = False
@@ -215,9 +217,10 @@ class TranscriptComponent:
             self.working_text = ""
         self._repaint()
 
-    def set_working(self, text: str) -> None:
+    def set_working(self, text: str, *, warning: bool = False) -> None:
         with self._paint_lock:
             self.working_text = text
+            self.working_warning = warning
         self._repaint()
 
     def clear_working(self) -> None:

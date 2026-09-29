@@ -755,7 +755,7 @@ def test_http_error_body_cancel_wins_timeout_close_race(
         {"prompt": "PRIVATE_BODY"},
     ],
 )
-def test_sse_error_event_omits_unknown_or_payload_like_code(
+def test_sse_error_event_keeps_unknown_code_out_of_metadata_labels(
     tmp_path: Path, unsafe_label: object
 ) -> None:
     provider = OpenAICodexResponsesProvider(
@@ -773,7 +773,17 @@ def test_sse_error_event_omits_unknown_or_payload_like_code(
 
     serialized = json.dumps(result.metadata, sort_keys=True)
     assert result.status == HarnessStatus.FAILED
-    assert result.error_message == "OpenAI Codex stream returned an error event."
+    # Pi ``mapCodexEvents``: ``Codex error: <message || code || event JSON>``;
+    # only secret-shaped text is redacted before display.
+    detail = (
+        unsafe_label
+        if isinstance(unsafe_label, str)
+        else json.dumps({"type": "error", "code": unsafe_label}, separators=(",", ":"))
+    )
+    expected = f"Codex error: {detail}"
+    if "sk-proj-" in expected:
+        expected = "[REDACTED]"
+    assert result.error_message == expected
     assert result.metadata == {
         "attempt": 1,
         "exhausted": False,
@@ -784,7 +794,7 @@ def test_sse_error_event_omits_unknown_or_payload_like_code(
         "retryable": False,
     }
     assert str(unsafe_label) not in serialized
-    assert str(unsafe_label) not in (result.error_message or "")
+    assert "TOKEN_SHOULD_NOT_LEAK" not in (result.error_message or "")
 
 
 def test_sse_error_event_keeps_allowlisted_code(tmp_path: Path) -> None:
@@ -813,17 +823,23 @@ def test_sse_error_event_keeps_allowlisted_code(tmp_path: Path) -> None:
     }
 
 
-def test_sse_error_event_code_does_not_leak_through_repl_result_or_stderr(
+def test_sse_error_event_message_reaches_the_repl_failure_like_pi(
     tmp_path: Path,
 ) -> None:
-    unsafe_label = "PROMPT_BODY_MUST_NOT_REACH_DIAGNOSTICS"
     provider = OpenAICodexResponsesProvider(
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=FakeSseHTTPClient(
             SseResponse(
                 status_code=200,
-                body=sse_payload([{"type": "error", "code": unsafe_label}]),
+                body=sse_payload(
+                    [
+                        {
+                            "type": "error",
+                            "error": {"code": "bad_request", "message": "Bad input"},
+                        },
+                    ]
+                ),
             )
         ),
     )
@@ -836,17 +852,143 @@ def test_sse_error_event_code_does_not_leak_through_repl_result_or_stderr(
         error_stream=stderr,
     )
 
-    assert result.provider_failure_message == (
-        "OpenAI Codex stream returned an error event."
+    # The nested error's message wins over its code, as in Pi. A message that
+    # is not worded as transient is not retried.
+    assert result.provider_failure_message == "Codex error: Bad input"
+    assert "Codex error: Bad input" in stderr.getvalue()
+
+
+def test_mid_stream_codex_error_event_is_retried_through_prepared_attempts(
+    tmp_path: Path,
+) -> None:
+    """DF1-F4: an ``error`` event after streamed text retries like Pi."""
+
+    from pipy_harness.native.agent.events import (
+        AssistantTextDelta,
+        RetryCompleted,
+        RetryScheduled,
     )
-    assert unsafe_label not in stderr.getvalue()
-    assert unsafe_label not in json.dumps(
-        {
-            "provider_failure_type": result.provider_failure_type,
-            "provider_failure_message": result.provider_failure_message,
-        },
-        sort_keys=True,
+    from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
+    from pipy_harness.native.agent.provider_turn import ProviderTurnExecutor
+
+    class _SequenceClient(FakeSseHTTPClient):
+        def __init__(self, responses: list[SseResponse]) -> None:
+            super().__init__()
+            self.responses = responses
+
+        def post_sse(self, url: str, **kwargs: Any) -> SseResponse:
+            self.response = self.responses[len(self.requests)]
+            return super().post_sse(url, **kwargs)
+
+    failed = sse_payload(
+        [
+            {"type": "response.output_text.delta", "delta": "Half"},
+            {"type": "error", "code": "server_is_overloaded"},
+        ]
     )
+    client = _SequenceClient(
+        [
+            SseResponse(status_code=200, body=failed),
+            SseResponse(status_code=200, body=sse_payload(_streaming_sse_events())),
+        ]
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+    events: list[object] = []
+
+    class _Sink:
+        def emit(self, event: object) -> None:
+            events.append(event)
+
+    outcome = ProviderTurnExecutor(retry_sleep=lambda _delay: None).complete(
+        provider,
+        provider_request(tmp_path),
+        _Sink(),  # type: ignore[arg-type]
+        turn_index=0,
+        retry_policy=ProviderManagedRetryPolicy(4, 2.0, 60.0, 2.0, 0.0),
+        before_reissue=lambda: None,
+    )
+
+    assert outcome.result is not None
+    assert outcome.result.final_text == "Hello, world!"
+    assert len(client.requests) == 2
+    scheduled = [event for event in events if isinstance(event, RetryScheduled)]
+    assert [(e.attempt, e.max_attempts, e.delay_ms) for e in scheduled] == [
+        (1, 3, 2000)
+    ]
+    assert scheduled[0].failure.message.value == "Codex error: server_is_overloaded"
+    assert isinstance(events[-1], RetryCompleted) and events[-1].succeeded
+    deltas = [e.delta.value for e in events if isinstance(e, AssistantTextDelta)]
+    assert deltas[0] == "Half"
+    assert "".join(deltas[1:]) == "Hello, world!"
+
+
+@pytest.mark.parametrize(
+    ("events", "expected", "retryable_text"),
+    [
+        (
+            [{"type": "error", "code": "server_is_overloaded"}],
+            "Codex error: server_is_overloaded",
+            True,
+        ),
+        (
+            [{"type": "error", "message": "Rate limit reached for requests"}],
+            "Codex error: Rate limit reached for requests",
+            True,
+        ),
+        (
+            [{"type": "error", "code": "insufficient_quota"}],
+            "Codex error: insufficient_quota",
+            False,
+        ),
+        (
+            [
+                {"type": "response.created", "response": {}},
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "error": {
+                            "code": "server_error",
+                            "message": "Processing failed. You can retry your request.",
+                        }
+                    },
+                },
+            ],
+            "Processing failed. You can retry your request.",
+            True,
+        ),
+        (
+            [{"type": "response.failed", "response": {}}],
+            "Codex response failed",
+            False,
+        ),
+    ],
+)
+def test_codex_stream_failures_use_pi_text_and_classification(
+    tmp_path: Path,
+    events: list[Mapping[str, Any]],
+    expected: str,
+    retryable_text: bool,
+) -> None:
+    from pipy_harness.native.agent.provider_retry import is_managed_retry_eligible
+
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=FakeSseHTTPClient(
+            SseResponse(status_code=200, body=sse_payload(events))
+        ),
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.FAILED
+    assert result.error_message == expected
+    assert is_managed_retry_eligible(result) is retryable_text
 
 
 @pytest.mark.parametrize(
@@ -919,8 +1061,12 @@ def test_terminal_non_success_status_is_fixed_and_non_retryable(
 
     result = provider.complete(provider_request(tmp_path))
 
+    # Pi words ``response.failed`` from ``response.error.message`` (fallback
+    # ``Codex response failed``); the other terminals keep pipy's fixed text.
     assert result.error_message == (
-        "OpenAI Codex response did not complete successfully."
+        "Codex response failed"
+        if status == "failed"
+        else "OpenAI Codex response did not complete successfully."
     )
     assert result.metadata is not None
     assert result.metadata["response_status"] == status

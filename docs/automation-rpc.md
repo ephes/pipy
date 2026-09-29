@@ -169,8 +169,8 @@ Session-extension events (Pi `AgentSessionEvent`,
 | `compaction_end` | `reason`, `result: CompactionResult \| undefined`, `aborted: boolean`, `willRetry: boolean`, `errorMessage?: string` | Compaction settled. |
 | `session_info_changed` | `name: string \| undefined` | Session display name set/cleared. |
 | `thinking_level_changed` | `level: ThinkingLevel` | Thinking/reasoning level changed (where the provider supports it). |
-| `auto_retry_start` | `attempt: number`, `maxAttempts: number`, `delayMs: number`, `errorMessage: string` | Auto-retry attempt scheduled. |
-| `auto_retry_end` | `success: boolean`, `attempt: number`, `finalError?: string` | Auto-retry attempt settled. |
+| `auto_retry_start` | `attempt: number`, `maxAttempts: number`, `delayMs: number`, `errorMessage: string` | Auto-retry attempt scheduled (one per retry, before the backoff). |
+| `auto_retry_end` | `success: boolean`, `attempt: number`, `finalError?: string` | Retry sequence settled, once: success, a non-retryable or final failure, or `finalError: "Retry cancelled"`. |
 | `agent_settled` | (none) | The agent run has settled into idle. Emitted on **both `--mode rpc` and `--mode json`** after the run's final `agent_end` (see below); the independently shipped extension hook does not duplicate this protocol event. |
 
 `assistantMessageEvent` sub-union (Pi `AssistantMessageEvent`,
@@ -903,8 +903,13 @@ The detailed ownership, cancellation, privacy, and lock-order rules are in the
 
 ### Retry controls
 
-The current build already projects canonical D4a retry events for eligible
-ordinary prepared OpenAI-Codex requests. D5d adopts the remaining controls without
+The current build projects canonical D4a retry events for every provider's
+retryable turn failures (DF1-F4 widened them from prepared OpenAI-Codex
+requests to Pi's agent-level retry for all providers). As in Pi,
+`auto_retry_start` is emitted once per retry and `auto_retry_end` once per
+sequence; an intermediate failed retry is followed directly by the next
+`auto_retry_start`. A retried attempt restarts the assistant message's
+`message_update` partial text. D5d adopts the remaining controls without
 creating another retry owner. `set_auto_retry` accepts an exact boolean and writes
 the effective `retry.enabled` setting through the precedence-aware settings owner:
 an equal value succeeds without a write, an explicit trusted-project value stays
@@ -914,12 +919,14 @@ policy keeps it; the next capture observes a successful change.
 
 `abort_retry` addresses only the exact active ordinary retry phase. That phase
 starts before `auto_retry_start`, spans backoff, reissue admission, and the
-reissued provider request, and retires atomically with result fixation before
-`auto_retry_end`. If abort wins, the end event is unsuccessful, no later attempt
-starts, and normal cancelled-run events follow. If retirement wins, the command
-is a successful no-op; it cannot cancel the surrounding ordinary provider phase,
-queued/promoted input, or a later run. The command also succeeds as a no-op for
-non-capable providers and when no retry is active. Response correlation does not
+reissued provider request, and retires atomically with result fixation (before
+`auto_retry_end` when the sequence ends there, or before the next
+`auto_retry_start` when another retry follows). If abort wins, the end event is
+unsuccessful (`Retry cancelled`), no later attempt starts, and normal
+cancelled-run events follow. If retirement wins, the command is a successful
+no-op; it cannot cancel the surrounding ordinary provider phase,
+queued/promoted input, or a later run. The command also succeeds as a no-op
+when no retry is active. Response correlation does not
 promise ordering against asynchronous event output. `get_state` has no retry
 activity field. Generic run abort and private semantic/branch-summary retries are
 unchanged. See the
@@ -1039,8 +1046,8 @@ There is no new RPC event envelope or queue owner. RPC retry controls use the
 configured product policy described below.
 
 The selected [D4a retry contract](harness-spec.md#bounded-request-retry-contract-d4a)
-now applies configured retry policy to eligible ordinary prepared OpenAI-Codex
-requests. RPC observes the existing retry lifecycle envelopes within the same
+now applies configured retry policy to every provider's eligible ordinary
+requests (Pi's classifier, DF1-F4). RPC observes the existing retry lifecycle envelopes within the same
 accepted provider iteration, without intermediate `turn_end`/`agent_end` or
 repeating earlier tools. The retry event counters describe reissues and exclude
 the initial attempt and transport fallback. The D5d implementation connects

@@ -342,7 +342,7 @@ def _assert_usage_trace_order(
         "UsageUpdated",
         "MessageCompleted",  # tool-requesting assistant message
         "TurnCompleted",
-        "UsageUpdated",  # missing usage preserves cumulative usage, last total zero
+        "UsageUpdated",  # missing usage keeps cumulative usage and context (Pi)
         "MessageCompleted",  # settling assistant message
         "footer",
         "TurnCompleted",
@@ -357,8 +357,10 @@ def _assert_usage_trace_order(
     ]
     assert [item for item in ordered if isinstance(item, tuple)] == [
         ("footer", AgentUsage(), 0),
-        ("footer", first_run_usage, 0),
-        ("footer", session_usage, 12),
+        # Pi skips zero-usage and failed responses for context usage, so the
+        # tool-requesting response's total (20) stays through both.
+        ("footer", first_run_usage, 20),
+        ("footer", session_usage, 20),
     ]
 
 

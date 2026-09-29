@@ -203,7 +203,10 @@ These are recorded with their repro steps in
   `Working...`), while Pi shows `Retrying (n/3) in Ns`. A stream `error`
   event with an unknown status is not retried, and whether Pi would retry it
   depends on the error text, which was not captured. After a failed turn the footer context jumped from
-  0.6% to 7.2% until the next success.
+  0.6% to 7.2% until the next success. Fixed by DF1-F4: retries show Pi's
+  loader, Codex stream errors carry and are classified by their text, and
+  the footer keeps the last successful context (see the backlog entry for the
+  remaining differences).
 - **F5 Compaction can wedge the session.** When the latest turn alone
   exceeds the window, every prompt is refused and `/compact` has nothing to
   do. Fixed by DF1-F5 (see the backlog's Done table); the remaining
