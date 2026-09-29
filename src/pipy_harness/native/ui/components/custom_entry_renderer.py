@@ -332,14 +332,14 @@ class CustomEntryRenderer:
             renderers,
         )
 
-    def replay_custom_entries_to_terminal(self) -> None:
-        if self.terminal is not None:
-            renderers = self._renderer_projection()
-            for entry in self.ctl.session_tree.get_branch():
-                if isinstance(entry, CustomEntry):
-                    self.add_rendered_custom_entry_to_terminal(entry, renderers)
-                elif isinstance(entry, CustomMessageEntry) and entry.display:
-                    self.add_custom_message_entry_to_terminal(entry, renderers)
+    def renderer_projection(self) -> CustomRendererProjectionSnapshot:
+        """One generation's renderer maps, for rendering several entries alike.
+
+        The active-branch redraw (``SessionHistoryRenderer``) takes one
+        snapshot so a whole branch renders under a single extension generation.
+        """
+
+        return self._renderer_projection()
 
     def redraw_custom_entries_for_active_branch(self) -> None:
         target = self.terminal

@@ -233,7 +233,12 @@ class SessionCommandEffects:
     apply_compaction: Callable[[str], str]
     extension_session_allows: Callable[..., bool]
     rebuild_messages_from_tree: Callable[[], None]
-    redraw_custom_entries_for_active_branch: Callable[[], None]
+    # Pi renderInitialMessages: redraw the transcript from the active branch
+    # after a session switch, fork, new session or tree navigation.
+    render_active_branch: Callable[[], None]
+    # Pi createAgentSession's model/thinking record-or-restore, for the
+    # carriers that replace the tree without the transition coordinator.
+    sync_session_settings: Callable[[], None]
     new_transition: Callable[[], ProductSessionTransitionResult] | None
     resume_transition: Callable[[Path], ProductSessionTransitionResult] | None
     fork_transition: (
@@ -297,6 +302,7 @@ class SessionCommandEffects:
                     self.diag("pipy: new native session is already active.")
                 # The extension gate emits its established detailed refusal.
                 return
+            self.render_active_branch()
             self.diag(
                 "pipy: started a new native session "
                 f"({sanitize_label_text(self.ctl.session_tree.session_id[:8])})."
@@ -315,6 +321,8 @@ class SessionCommandEffects:
                 persist=self.ctl.session_tree.persist,
             )
             self.rebuild_messages_from_tree()
+            self.sync_session_settings()
+            self.render_active_branch()
             self.diag(
                 "pipy: started a new native session "
                 f"({sanitize_label_text(self.ctl.session_tree.session_id[:8])})."
@@ -340,13 +348,32 @@ class SessionCommandEffects:
                 error_stream=self.error_stream,
                 repl_input=self.repl_input,
                 filter_mode=self.ctl.tree_filter_mode,
-                rebuild_messages=self.rebuild_messages_from_tree,
-                branch_summary_selection=self.summarize_branch,
+                rebuild_messages=self._rebuild_and_render,
+                branch_summary_selection=self._summarize_and_render,
             )
             if tree_outcome.filter_mode is not None:
                 self.ctl.tree_filter_mode = tree_outcome.filter_mode
             if tree_outcome.prefill is not None:
                 self.ctl.pending_prefill = tree_outcome.prefill
+
+    def _rebuild_and_render(self) -> None:
+        """Tree navigation: provider history, then the transcript (Pi order).
+
+        Pi's navigation re-renders before its ``Navigated to selected point``
+        status, so the selection notice lands after the redrawn branch. It
+        does not touch the model or thinking level.
+        """
+
+        self.rebuild_messages_from_tree()
+        self.render_active_branch()
+
+    def _summarize_and_render(
+        self, entry: SessionEntry, directive: str
+    ) -> BranchSummarySelectionResult:
+        result = self.summarize_branch(entry, directive)
+        if result.handled and result.accepted:
+            self.render_active_branch()
+        return result
 
     def _execute_resume(self, command_outcome: CodingCommandOutcome) -> None:
         resume_argument = command_outcome.argument
@@ -480,7 +507,7 @@ class SessionCommandEffects:
         if outcome.previous == outcome.active:
             self.diag("pipy: already on the selected native session.")
             return
-        self.redraw_custom_entries_for_active_branch()
+        self.render_active_branch()
         self.diag(
             "pipy: resumed native session "
             f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])} "
@@ -490,7 +517,8 @@ class SessionCommandEffects:
     def _open_session(self, target: Path) -> None:
         self.ctl.session_tree = NativeSessionTree.open(target)
         self.rebuild_messages_from_tree()
-        self.redraw_custom_entries_for_active_branch()
+        self.sync_session_settings()
+        self.render_active_branch()
         self.diag(
             "pipy: resumed native session "
             f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])} "
@@ -550,6 +578,8 @@ class SessionCommandEffects:
             )
             self.ctl.session_tree = forked_tree
             self.rebuild_messages_from_tree()
+            self.sync_session_settings()
+            self.render_active_branch()
             success_text = {
                 CodingCommandAction.SESSION_FORK: "forked into new native session ",
                 CodingCommandAction.SESSION_CLONE: (
@@ -581,6 +611,7 @@ class SessionCommandEffects:
                 self.diag("pipy: new native session is already active.")
             # The extension gate emits its established detailed refusal.
             return
+        self.render_active_branch()
         success_text = {
             CodingCommandAction.SESSION_FORK: "forked into new native session ",
             CodingCommandAction.SESSION_CLONE: "cloned active branch into new native session ",

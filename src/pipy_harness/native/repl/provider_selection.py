@@ -117,6 +117,13 @@ def _thinking_append_failure(exc: Exception) -> str:
     )
 
 
+def _model_append_failure(exc: Exception) -> str:
+    return (
+        "pipy: selected model is active but durable append failed with "
+        f"{sanitize_text(type(exc).__name__)}."
+    )
+
+
 def _commit_now(commit: Callable[[], None]) -> bool:
     """Commit gate for interactive mutations dispatched between turns."""
 
@@ -316,12 +323,15 @@ class ProviderMutationEffects:
     mutation_io_lock: "threading.RLock"
     provider_turn_executor: ProviderTurnExecutor
     abort_event: threading.Event | _AbortCallbackSignal | None
-    # Thinking levels committed but not yet appended to the session tree, in
-    # commit order. Pushed and drained only under ``mutation_io_lock``: a
+    # Session-tree appends committed but not yet written, in commit order: a
+    # thinking level (``thinking_level_change``) or a model selection
+    # (``model_change``). Pushed and drained only under ``mutation_io_lock``: a
     # commit that runs inside the RPC queue gate cannot do file I/O there, so
-    # it records its level here and the caller drains after the gate, which
+    # it records its change here and the caller drains after the gate, which
     # keeps every transition durable and in the order it went live.
-    pending_thinking_appends: list[str] = field(default_factory=list, repr=False)
+    pending_session_appends: list[str | NativeModelSelection] = field(
+        default_factory=list, repr=False
+    )
 
     def rpc_configuration_port(
         self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
@@ -419,6 +429,11 @@ class ProviderMutationEffects:
                         return
                     state.publish_model_mutation(prepared.selection)
                     self.coding_state.publish_model_mutation(prepared.coding)
+                    # Pi setModel appends model_change, then setThinkingLevel
+                    # appends the clamped level when it changed.
+                    self.pending_session_appends.append(
+                        prepared.selection.replacement.selection
+                    )
                     replacement_level = (
                         prepared.selection.replacement.thinking_level or "off"
                     )
@@ -427,7 +442,7 @@ class ProviderMutationEffects:
                     ):
                         # A model switch that clamps the level is a thinking
                         # transition too; queue it in commit order.
-                        self.pending_thinking_appends.append(replacement_level)
+                        self.pending_session_appends.append(replacement_level)
                     committed = True
 
         return commit_if_true_idle(commit), committed
@@ -473,7 +488,7 @@ class ProviderMutationEffects:
                 False, diagnostic="configuration changed during preparation"
             )
         snapshot = self._rpc_snapshot()
-        diagnostics = self._drain_thinking_appends()
+        diagnostics = self._drain_session_appends()
         finish = self._finish_model_mutation(state, message)
         diagnostics.extend(
             line for line in finish.splitlines() if " is active but " in line
@@ -519,18 +534,27 @@ class ProviderMutationEffects:
         )
         return RpcModelCycleResult(result, scoped)
 
-    def _drain_thinking_appends(self) -> list[str]:
-        """Append every committed-but-unpersisted level, oldest first."""
+    def _drain_session_appends(self) -> list[str]:
+        """Append every committed-but-unpersisted change, oldest first."""
 
         diagnostics: list[str] = []
         with self.mutation_io_lock:
-            pending = self.pending_thinking_appends
+            pending = self.pending_session_appends
             while pending:
-                level = pending.pop(0)
+                change = pending.pop(0)
                 try:
-                    self.ctl.session_tree.append_thinking_level_change(level)
+                    if isinstance(change, NativeModelSelection):
+                        self.ctl.session_tree.append_model_change(
+                            change.provider_name, change.model_id
+                        )
+                    else:
+                        self.ctl.session_tree.append_thinking_level_change(change)
                 except Exception as exc:  # noqa: BLE001 - state-first durable outcome
-                    diagnostics.append(_thinking_append_failure(exc))
+                    diagnostics.append(
+                        _model_append_failure(exc)
+                        if isinstance(change, NativeModelSelection)
+                        else _thinking_append_failure(exc)
+                    )
         return diagnostics
 
     def _rpc_emit_diagnostics(self, diagnostics: Sequence[str]) -> None:
@@ -593,7 +617,7 @@ class ProviderMutationEffects:
                         return
                     state.publish_thinking_mutation(prepared)
                     self.coding_state.refresh_provider(prepared.provider)
-                    self.pending_thinking_appends.append(prepared.replacement_level)
+                    self.pending_session_appends.append(prepared.replacement_level)
                     committed = True
 
         if not commit_if_true_idle(commit):
@@ -605,7 +629,7 @@ class ProviderMutationEffects:
         snapshot = RpcConfigurationSnapshot(
             expected.selection, prepared.replacement_level
         )
-        diagnostics = self._drain_thinking_appends()
+        diagnostics = self._drain_session_appends()
         try:
             self.refresh_footer_text()
         except Exception as exc:  # noqa: BLE001 - presentation is post-commit
@@ -686,6 +710,7 @@ class ProviderMutationEffects:
                 return False
             if prepared.coding is None:
                 return False
+            self._rpc_emit_diagnostics(self._drain_session_appends())
             self._finish_model_mutation(prepared.provider_state, _message)
             return True
 
@@ -706,7 +731,7 @@ class ProviderMutationEffects:
             # outer coordinator remains held so concurrent commits and JSONL
             # appends have one order; levels committed earlier by the shared
             # path but not yet appended go first.
-            self._rpc_emit_diagnostics(self._drain_thinking_appends())
+            self._rpc_emit_diagnostics(self._drain_session_appends())
             self.ctl.session_tree.append_thinking_level_change(normalized)
         self.refresh_footer_text()
         return True
@@ -771,11 +796,17 @@ class ProviderMutationEffects:
         reference: str,
         *,
         clamp_thinking: bool = True,
+        thinking_level: str | None = None,
+        persist_default: bool = True,
     ) -> tuple[_PreparedModelMutation | None, str]:
         """Complete every fallible model/provider preparation while unlocked."""
 
         selection, message = state.prepare_model_mutation(
-            expected, reference, clamp_thinking=clamp_thinking
+            expected,
+            reference,
+            clamp_thinking=clamp_thinking,
+            thinking_level=thinking_level,
+            persist_default=persist_default,
         )
         if selection is None:
             return None, message
@@ -810,8 +841,15 @@ class ProviderMutationEffects:
         prepared: _PreparedModelMutation,
         *,
         generation_id: int | None,
+        record: bool = True,
     ) -> bool:
-        """Check all owners, then publish only prepared in-memory values."""
+        """Check all owners, then publish only prepared in-memory values.
+
+        A published switch queues its ``model_change`` (Pi ``setModel``), and
+        a ``thinking_level_change`` when the switch changed the level, in
+        commit order unless ``record`` is false: restoring a session's own
+        model is not a new selection. The caller drains the queue.
+        """
 
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
@@ -837,6 +875,19 @@ class ProviderMutationEffects:
                     return False
                 prepared.provider_state.publish_model_mutation(prepared.selection)
                 self.coding_state.publish_model_mutation(prepared.coding)
+                if record:
+                    self.pending_session_appends.append(
+                        prepared.selection.replacement.selection
+                    )
+                    replacement_level = (
+                        prepared.selection.replacement.thinking_level or "off"
+                    )
+                    if replacement_level != (
+                        prepared.selection.expected.thinking_level or "off"
+                    ):
+                        # Pi setModel -> setThinkingLevel records a clamped
+                        # level too, after the model_change.
+                        self.pending_session_appends.append(replacement_level)
                 return True
 
     def _finish_model_mutation(
@@ -886,7 +937,125 @@ class ProviderMutationEffects:
             )
         if prepared.coding is None:
             return False, message
-        return True, self._finish_model_mutation(state, message)
+        appended = self._drain_session_appends()
+        finished = self._finish_model_mutation(state, message)
+        return True, "\n".join((finished, *appended)) if appended else finished
+
+    def sync_session_settings(self) -> None:
+        """Restore the active tree's model and thinking level.
+
+        Pi runs this in ``createAgentSession`` whenever a runtime is created:
+        at startup and after ``/resume``, ``/fork``, ``/clone``, ``/new``,
+        import and the RPC transitions (``core/sdk.ts:194-263``, ``:427-437``).
+        A session with messages switches to its recorded model (unless the CLI
+        pinned one) and level; the provider is rebuilt off-lock and published
+        through the ordinary commit checks, with no ``model_change`` and no
+        saved default, since reopening a session is not choosing a model. An
+        unrestorable model keeps the live one (Pi warns only at startup). A
+        branch without a thinking entry gets the resulting level recorded; a
+        session without messages records its model and level with its first
+        message (``record_session_start``). Tree navigation does not call this.
+        """
+
+        from pipy_harness.native.session_settings import resolve_session_settings
+        from pipy_harness.native.thinking import DEFAULT_THINKING_LEVEL
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            # An injected static provider has no selectable model or level.
+            return
+        tree = self.ctl.session_tree
+        has_messages = bool(tree.build_context().messages)
+        branch = tree.get_branch()
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                expected = state.capture_model_mutation_state()
+                expected_binding = self.coding_state.provider_binding
+        decision = resolve_session_settings(
+            branch,
+            has_messages=has_messages,
+            cli_selection=state.cli_selection,
+            cli_thinking=state.cli_thinking_level,
+            fallback_selection=expected.selection,
+            current_thinking=expected.thinking_level or "off",
+            default_thinking=(
+                self.settings.get_default_thinking_level() or DEFAULT_THINKING_LEVEL
+            ),
+            usable=state.restorable,
+        )
+        self._restore_session_settings(
+            state,
+            expected,
+            expected_binding,
+            decision.selection,
+            decision.thinking_level,
+        )
+        if not decision.record_thinking:
+            return
+        diagnostics = self._drain_session_appends()
+        with self.mutation_io_lock:
+            try:
+                tree.append_thinking_level_change(
+                    state.current_thinking_level() or "off"
+                )
+            except Exception as exc:  # noqa: BLE001 - state-first durable outcome
+                diagnostics.append(_thinking_append_failure(exc))
+        self._rpc_emit_diagnostics(diagnostics)
+
+    def record_session_start(self) -> None:
+        """Record a new branch's model and level before its first message.
+
+        Pi appends them when it creates a new session and writes them with
+        its first message; see :func:`session_settings.record_session_start`.
+        Called with the tree write lock held, just before the message append.
+        """
+
+        from pipy_harness.native.session_settings import record_session_start
+
+        state = self.provider_state
+        binding = self.coding_state.provider_binding
+        if isinstance(state, NativeReplProviderState):
+            selection = state.current_selection()
+            level = state.current_thinking_level() or "off"
+        else:
+            selection = NativeModelSelection(binding.provider_name, binding.model_id)
+            level = "off"
+        record_session_start(self.ctl.session_tree, selection, level)
+
+    def _restore_session_settings(
+        self,
+        state: NativeReplProviderState,
+        expected: NativeModelMutationState,
+        expected_binding: CodingProviderBinding,
+        selection: NativeModelSelection,
+        level: str,
+    ) -> None:
+        target_level = state.clamp_thinking_level(selection, level)
+        if selection == expected.selection and target_level == (
+            expected.thinking_level or "off"
+        ):
+            return
+        prepared, _message = self._prepare_model_mutation(
+            state,
+            expected,
+            expected_binding,
+            selection.reference,
+            thinking_level=target_level,
+            persist_default=False,
+        )
+        if prepared is None or prepared.coding is None:
+            return
+        if not self._commit_model_mutation(prepared, generation_id=None, record=False):
+            return
+        try:
+            self.refresh_footer_text()
+        except Exception as exc:  # noqa: BLE001 - presentation is post-commit
+            self._rpc_emit_diagnostics(
+                (
+                    "pipy: restored model is active but presentation refresh "
+                    f"failed with {sanitize_text(type(exc).__name__)}.",
+                )
+            )
 
     def apply_auth_change(self, action: str, argument: str) -> str:
         """Run ``/login`` or ``/logout`` through the auth boundary.

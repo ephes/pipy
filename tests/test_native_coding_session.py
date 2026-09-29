@@ -573,7 +573,8 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         "apply_compaction",
         "extension_session_allows",
         "rebuild_messages_from_tree",
-        "redraw_custom_entries_for_active_branch",
+        "render_active_branch",
+        "sync_session_settings",
         "new_transition",
         "resume_transition",
         "fork_transition",
@@ -2185,7 +2186,7 @@ def test_model_change_constructs_a_distinct_usage_accumulator(
     assert seen == []
 
 
-def test_model_command_does_not_append_deferred_model_change_entry(
+def test_model_command_appends_model_change_entry(
     tmp_path: Path,
 ) -> None:
     seen: list[tuple[str, str]] = []
@@ -2205,7 +2206,12 @@ def test_model_command_does_not_append_deferred_model_change_entry(
     )
 
     assert state.current_selection().reference == "anthropic/custom-sonnet"
-    assert not any(isinstance(entry, ModelChangeEntry) for entry in tree.get_branch())
+    # Pi AgentSession.setModel appends model_change so a resume restores it.
+    assert [
+        (entry.provider, entry.model_id)
+        for entry in tree.get_branch()
+        if isinstance(entry, ModelChangeEntry)
+    ] == [("anthropic", "custom-sonnet")]
 
 
 def test_model_command_does_not_dispatch_deferred_extension_model_select(
@@ -2798,7 +2804,9 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     first_custom_index = next(
         i for i, (kind, _) in enumerate(history) if kind.startswith("custom")
     )
-    assert notice_index < first_custom_index
+    # The opened branch renders first (Pi renderInitialMessages); the resume
+    # banner follows it like Pi's startup statuses.
+    assert first_custom_index < notice_index
     assert any(kind == "custom_message_custom" for kind, _ in history)
     assert "PLAIN:ROOT" in committed_frame
     assert "RICH:ACTIVE" in committed_frame

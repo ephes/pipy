@@ -412,12 +412,11 @@ Add a pipy-owned scoped-model set, backed by the non-secret local settings store
 so cycling can be narrowed to a curated subset; when no scope is configured,
 cycle the full available list. On each cycle pipy reuses `select_model` (rebind
 provider, keep in-memory context, rebind usage meter, refresh footer/status
-label, persist the non-secret default). The native-tree schema supports
-`model_change`, but the current `/model` and cycling composition path does not
-append that entry. Pi also emits `model_select`, but current pipy selection and
-cycling do not dispatch that extension hook. Both compatibility corrections are
-tracked explicitly in `docs/backlog.md` and are not folded into the Phase 3.1d
-ownership extraction. A single-entry scope or single-available list shows the
+label, persist the non-secret default). Each switch appends a `model_change`
+native-tree entry (Pi `AgentSession.setModel`), so a resume restores the model
+(see `docs/session-tree.md`, Restored history, model and thinking). Pi also
+emits `model_select`, but current pipy selection and cycling do not dispatch
+that extension hook. A single-entry scope or single-available list shows the
 corresponding status and does nothing else. Cycling runs no provider turn. A
 full `/scoped-models` selector overlay is part of the richer-overlays
 subsection; cycling works against the configured scope without it.
@@ -493,13 +492,14 @@ still owns, not a mutation of bytes already in the host terminal's scrollback.
 Add two pipy-owned view flags on `TerminalUi`:
 
 - `tools_expanded` (toggled by `ctrl+o`): when collapsed (default), tool-result
-  blocks render the existing bounded preview; when expanded, they render the
-  full retained tool output up to the existing output bound. The flag governs
-  how newly committed and live tool blocks render, and triggers a coherent
-  repaint of the live region; already-scrolled-off blocks keep whatever form
-  they were committed with (documented inline limitation versus Pi's full
-  retro-rebuild, which pipy intentionally does not do to preserve native
-  scrollback).
+  blocks render the existing bounded preview (the last five lines behind
+  `... (N earlier lines, ctrl+o to expand)`); when expanded, they render the
+  full retained tool output up to the existing output bound. Plain tool results
+  (live and restored), `[compaction]`/`[branch]` summary rows and rich
+  extension message/entry rows keep their inputs, so a toggle re-renders them
+  in place and redraws the frame, like Pi's `setExpanded` on every component.
+  Rows drawn by an extension tool's `render_call`/`render_result` keep the form
+  they were committed with (DF1-F2b in `docs/backlog.md`).
 - `thinking_hidden` (toggled by `ctrl+t`): hides or shows reasoning/thinking
   blocks for subsequent and live rendering, persisted in the non-secret local
   settings store, with a `Thinking blocks: hidden|visible` status.

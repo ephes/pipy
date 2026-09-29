@@ -444,6 +444,11 @@ class NativeReplProviderState:
     # after the selection is live. Never written to disk inline.
     pending_default: NativeModelSelection | None = None
     thinking_level: str | None = None
+    # The model and level the CLI pinned (``--native-provider``/``--native-model``,
+    # ``--thinking``). Pi reapplies them whenever a runtime is created, so they
+    # win over a session's recorded model and level on every resume or fork.
+    cli_selection: NativeModelSelection | None = None
+    cli_thinking_level: str | None = None
     _state_lock: threading.RLock = field(
         default_factory=threading.RLock, init=False, repr=False, compare=False
     )
@@ -531,6 +536,8 @@ class NativeReplProviderState:
         reference: str,
         *,
         clamp_thinking: bool = True,
+        thinking_level: str | None = None,
+        persist_default: bool = True,
     ) -> tuple[PreparedNativeModelMutation | None, str]:
         """Resolve and construct a model mutation without changing live state.
 
@@ -539,6 +546,10 @@ class NativeReplProviderState:
         provider construction all run here, outside the session mutex. Provider
         failures are reduced to a type-only diagnostic so credentials and
         extension-owned detail cannot escape.
+
+        ``thinking_level`` replaces the carried level (a session restore sets
+        the session's level); ``persist_default=False`` queues no default,
+        because restoring a session's model is not choosing a new default.
         """
 
         if type(expected) is not NativeModelMutationState:
@@ -554,10 +565,11 @@ class NativeReplProviderState:
             )
             if selection is None:
                 return None, message
+            carried_level = (
+                expected.thinking_level if thinking_level is None else thinking_level
+            )
             thinking_level = (
-                expected.thinking_level
-                if selected_thinking is None
-                else selected_thinking
+                carried_level if selected_thinking is None else selected_thinking
             )
             # Pi ``setModel`` re-applies the carried level through
             # ``setThinkingLevel``, which clamps it to the new model
@@ -577,7 +589,9 @@ class NativeReplProviderState:
             )
         pending_default = (
             selection
-            if self.persist_defaults and self.defaults_store is not None
+            if persist_default
+            and self.persist_defaults
+            and self.defaults_store is not None
             else None
         )
         prepared = PreparedNativeModelMutation(
@@ -777,6 +791,25 @@ class NativeReplProviderState:
 
     def provider_available(self, provider_name: str) -> bool:
         return self._catalog.provider_available(provider_name)
+
+    def restorable(self, selection: NativeModelSelection) -> bool:
+        """Whether a session's recorded model can be restored.
+
+        Pi restores a model when ``getModel(provider, id)`` finds it and its
+        provider has configured auth (``core/sdk.ts:209-216``); pipy also
+        requires the model to be offered to the account (``filterModels``).
+        A model id pipy serves through a row synthesized from its provider's
+        catalog base (the REPL's ``fake/fake-tools``, a custom id on a known
+        provider) resolves like it does for ``/model``.
+        """
+
+        state = self._catalog
+        if self.model_runtime.resolve_spec(selection) is None:
+            return False
+        if not state.provider_available(selection.provider_name):
+            return False
+        row = state.find(selection.provider_name, selection.model_id)
+        return row is None or state.model_availability_reason(row) is None
 
     def is_using_subscription(self, provider_name: str) -> bool:
         return self._catalog.is_using_subscription(provider_name)

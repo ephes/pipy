@@ -195,9 +195,10 @@ These are recorded with their repro steps in
   ("last row has ID 00198"). Fixed by READ1 (see the backlog's Done table).
 - **F2 Resumed conversations are not rendered.** `-r`, `/resume`, `/tree`
   navigation and `/fork` leave the transcript empty; Pi renders the branch.
+  Fixed by DF1-F2/F3 (see the backlog's Done table).
 - **F3 Resume does not restore model or thinking level.** Pi restores the
   session's thinking level, and its model when the CLI gives none
-  (`sdk.ts:197-245`).
+  (`sdk.ts:197-245`). Fixed by DF1-F2/F3.
 - **F4 Retry UX.** Provider retries are silent (up to about 14 s of
   `Working...`), while Pi shows `Retrying (n/3) in Ns`. A stream `error`
   event with an unknown status is not retried, and whether Pi would retry it

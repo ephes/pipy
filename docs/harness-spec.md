@@ -2883,7 +2883,8 @@ The extraction deletes the four superseded late branches but intentionally
 adds neither a native-tree `model_change` write nor an extension `model_select`
 dispatch, matching the characterized current path. It also adds no catalog
 refresh or auth-message correction. Those are separate behavior changes, not
-typed command ownership.
+typed command ownership. (DF1-F3 later added the `model_change` write; see
+`docs/session-tree.md`.)
 
 Slice 3.1d.3a adds the exact payload-free `NEW_SESSION` action for `/new` with
 the standard footer. The direct classifier accepts only already-stripped

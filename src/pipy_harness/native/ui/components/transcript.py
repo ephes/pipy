@@ -13,12 +13,16 @@ Every verb applies its whole transition in ONE :class:`PaintLock` section --
 mutating painters share that reentrant lock, so a concurrent frame never
 observes a half-applied commit (an assistant buffer cleared but its history
 block not yet appended). Repainting happens *outside* the lock through the
-injected ``repaint`` callable. Two verbs replace committed rows wholesale
-(:meth:`redraw_custom_entries`, :meth:`rerender_custom_messages`); those call
-the injected ``reset_scrollback`` callable instead -- the screen-owned
-full-redraw that clears inline-scrollback bookkeeping stays on the screen and
-is the component's only effectful port besides repainting. The retained rich-
-row rerender uses the same screen-owned render-input record as other renderers.
+injected ``repaint`` callable. Verbs that replace committed rows wholesale
+(:meth:`redraw_custom_entries`, :meth:`rerender_custom_messages`) call the
+injected ``reset_scrollback`` callable instead -- the screen-owned full redraw
+that clears inline-scrollback bookkeeping stays on the screen.
+:meth:`replace_conversation` (a session switch, fork or tree navigation)
+calls ``replace_scrollback``, the screen's full redraw that also clears the
+terminal scrollback. These are the component's only effectful ports besides
+repainting. The retained-row rerender (rich custom rows, summary rows, plain
+tool results) uses the same screen-owned render-input record as other
+renderers.
 
 Two verbs deliberately do not repaint: :meth:`discard_working_text` and
 :meth:`reset_hidden_thinking_label` run inside a caller's enclosing lock
@@ -78,6 +82,44 @@ class CustomMessageRenderState:
     entry_renderers: Mapping[str, RegisteredEntryRenderer] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SummaryRenderState:
+    """A collapsible Pi summary row: ``[compaction]`` or ``[branch]``."""
+
+    collapsed: tuple[str, ...]
+    expanded: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultRenderState:
+    """A plain tool result whose preview follows the Ctrl+O flag."""
+
+    lines: tuple[str, ...]
+    is_error: bool
+    duration_seconds: float | None
+
+
+# Pi's collapsed tool-result preview keeps the last lines of the output.
+TOOL_RESULT_PREVIEW_LINES = 5
+
+
+def _tool_result_lines(
+    state: ToolResultRenderState, *, expanded: bool
+) -> tuple[str, ...]:
+    lines = list(state.lines) or [""]
+    if not expanded and len(lines) > TOOL_RESULT_PREVIEW_LINES:
+        earlier = len(lines) - TOOL_RESULT_PREVIEW_LINES
+        lines = [
+            f"... ({earlier} earlier lines, ctrl+o to expand)",
+            *lines[-TOOL_RESULT_PREVIEW_LINES:],
+        ]
+    if state.is_error:
+        lines.append("[error] tool reported a failure")
+    if state.duration_seconds is not None:
+        lines.extend(("", f"Took {state.duration_seconds:.1f}s"))
+    return tuple(lines)
+
+
 def _compact_read_header(header: str) -> str:
     return re.sub(r":\d+-\d+(?:\s+\(ctrl\+o to expand\))?$", "", header)
 
@@ -92,12 +134,21 @@ class TranscriptComponent:
         *,
         reset_scrollback: Callable[[], None],
         render_inputs: ScreenRenderInputs,
+        replace_scrollback: Callable[[], None] | None = None,
     ) -> None:
         self._paint_lock = paint_lock
         self._repaint = repaint
         self._reset_scrollback = reset_scrollback
+        # The full redraw that also clears the terminal scrollback, used when
+        # a session replacement swaps the whole conversation (Pi's clearing
+        # full render). Defaults to the plain full redraw.
+        self._replace_scrollback = replace_scrollback or reset_scrollback
         self._render_inputs = render_inputs
         self.history_blocks: list[HistoryBlock] = []
+        # Rows seeded by ``seed_history`` (the startup header and resource
+        # listing). A conversation replacement keeps them, like Pi keeps its
+        # header containers while it clears the chat container.
+        self.startup_block_count = 0
         self.assistant_text = ""
         self.reasoning_text = ""
         self.tool_output_text = ""
@@ -118,6 +169,32 @@ class TranscriptComponent:
         with self._paint_lock:
             if not self.history_blocks:
                 self.history_blocks.extend(blocks)
+                self.startup_block_count = len(self.history_blocks)
+
+    def replace_conversation(self, blocks: Iterable[HistoryBlock]) -> None:
+        """Replace every row after the startup rows with ``blocks``.
+
+        Pi clears its chat container and renders the active branch again after
+        a session switch, fork or tree navigation. When nothing follows the
+        startup rows yet (the startup render) the rows are appended and
+        painted like any other commit; otherwise the screen and the terminal
+        scrollback are redrawn from the replaced rows.
+        """
+
+        replacement = list(blocks)
+        with self._paint_lock:
+            boundary = min(self.startup_block_count, len(self.history_blocks))
+            replaced_rows = len(self.history_blocks) > boundary
+            self.assistant_text = ""
+            self.reasoning_text = ""
+            self.tool_output_text = ""
+            self.working_text = ""
+            self.deferred_reasoning.clear()
+            self.history_blocks = [*self.history_blocks[:boundary], *replacement]
+        if replaced_rows:
+            self._replace_scrollback()
+        else:
+            self._repaint()
 
     # -- user / assistant / reasoning stream ---------------------------------
 
@@ -352,6 +429,50 @@ class TranscriptComponent:
                 rendered.extend(("", f"Took {duration_seconds:.1f}s"))
             self.history_blocks.append(
                 HistoryBlockTuple("tool_result", tuple(rendered or [""]))
+            )
+        self._repaint()
+
+    def add_collapsible_tool_result(
+        self,
+        *,
+        lines: Iterable[str],
+        is_error: bool,
+        duration_seconds: float | None = None,
+    ) -> None:
+        """Commit a tool result whose preview follows the Ctrl+O flag.
+
+        Collapsed, the row keeps the last few lines behind an
+        ``... (N earlier lines, ctrl+o to expand)`` marker; expanded, it shows
+        every line. The full lines are retained so a later Ctrl+O re-renders
+        the row, like Pi's ``ToolExecutionComponent.setExpanded``.
+        """
+
+        state = ToolResultRenderState(tuple(lines), bool(is_error), duration_seconds)
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self.tool_output_text = ""
+            self.history_blocks.append(
+                HistoryBlockTuple(
+                    "tool_result",
+                    _tool_result_lines(state, expanded=self.tools_expanded),
+                    state,
+                )
+            )
+        self._repaint()
+
+    def add_summary(self, *, collapsed: Iterable[str], expanded: Iterable[str]) -> None:
+        """Commit a collapsible compaction or branch summary row."""
+
+        state = SummaryRenderState(tuple(collapsed), tuple(expanded))
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self.working_text = ""
+            self.history_blocks.append(
+                HistoryBlockTuple(
+                    "custom",
+                    state.expanded if self.tools_expanded else state.collapsed,
+                    state,
+                )
             )
         self._repaint()
 
@@ -607,10 +728,21 @@ class TranscriptComponent:
         rebuilt: list[HistoryBlock] = []
         for block in self.history_blocks:
             kind, lines = block
-            state = cast(CustomMessageRenderState | None, getattr(block, "state", None))
+            state = getattr(block, "state", None)
+            if isinstance(state, SummaryRenderState):
+                next_lines = state.expanded if self.tools_expanded else state.collapsed
+                changed = changed or next_lines != lines
+                rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
+                continue
+            if isinstance(state, ToolResultRenderState):
+                next_lines = _tool_result_lines(state, expanded=self.tools_expanded)
+                changed = changed or next_lines != lines
+                rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
+                continue
             if state is None:
                 rebuilt.append(HistoryBlockTuple(kind, lines, state))
                 continue
+            state = cast(CustomMessageRenderState, state)
             next_block = self._rerendered_block(state, width=width, theme=theme)
             changed = changed or next_block[:2] != (kind, lines)
             rebuilt.append(next_block)

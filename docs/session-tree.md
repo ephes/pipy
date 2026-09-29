@@ -178,15 +178,17 @@ native session" diagnostic and the standard footer. A different target retains t
 existing `session_before_switch` gate and its bounded denial diagnostic. The
 native coordinator then claims the canonical candidate before reading it,
 strict-loads it, and requires its stored absolute cwd to resolve to the fixed
-terminal workspace. Terminal adoption does not select a new workspace or
-provider and does not reconstruct provider/model settings from the target.
+terminal workspace. Terminal adoption does not select a new workspace. Since
+DF1-F3 it restores the target's model and thinking level (see
+[Restored history, model and thinking](#restored-history-model-and-thinking)).
 
 Successful adoption orders effects as follows: terminal resolution; extension
 gate; candidate claim; strict load and workspace validation while claimed;
 guarded `RunControlState.session_tree` publication; slot publication and old
-claim release; one `CodingProductSessionCoordinator` history rebuild; extension
-input clear; one terminal custom-entry redraw; one sanitized resumed-session
-diagnostic; then the existing standard footer. Tree publication remains
+claim release; one `CodingProductSessionCoordinator` history rebuild; the
+model/thinking restore; extension input clear; one active-branch transcript
+redraw; one sanitized resumed-session diagnostic; then the existing standard
+footer. Tree publication remains
 state-first and does not add `session_start`, `session_shutdown`, provider/tool
 execution, workflow-archive output, or a second lifecycle generation.
 
@@ -279,9 +281,10 @@ fork and clone refuse an absent current leaf, aligning the terminal with the
 public product contract and Pi's empty-clone behavior. Once selected, success
 orders the fork gate, `NativeSessionTree.fork_from_snapshot` of the guarded
 active in-memory tree, child canonical claim, guarded tree publication, slot
-publication and source-claim release, one history rebuild, one extension-input
-clear, the existing command-specific sanitized diagnostic, and one footer.
-There is no custom-entry redraw or provider/tool call.
+publication and source-claim release, one history rebuild, the model/thinking
+restore, one extension-input clear, one active-branch transcript redraw, the
+existing command-specific sanitized diagnostic, and one footer. There is no
+provider/tool call.
 
 Recoverable terminal presentation is explicit. An ephemeral source refuses
 before reference resolution with the existing `pipy: /fork requires a
@@ -566,11 +569,13 @@ Minimum entry types:
   `packages/coding-agent/src/core/agent-session.ts:511-516`). pipy should
   support them once its extension API lands.
 
-The schema and parser support `model_change`, but the current product `/model`
-and model-cycle composition path does not append that entry. This pre-existing
-implementation/specification gap is tracked as a dedicated compatibility
-correction in `docs/backlog.md`; the Phase 3.1d command-ownership extraction
-preserves it rather than silently changing persisted JSONL or resume behavior.
+A new branch records `model_change` and `thinking_level_change` just before its
+first message (Pi appends both when it creates a session and writes them with
+its first message). Every model switch (`/model`, the selectors, Ctrl+P
+cycling, RPC `set_model`/`cycle_model`, extension `setModel`) appends
+`model_change`, like Pi `AgentSession.setModel`, followed by a
+`thinking_level_change` when the switch clamped the level. Thinking changes
+append `thinking_level_change` only when the level changes.
 
 The in-memory session manager keeps:
 
@@ -707,6 +712,63 @@ The current in-memory compaction implementation can remain as the first
 provider-history reducer, but once native tree storage lands, `/compact` must
 append a real `compaction` entry so resumed/tree-navigation sessions rebuild the
 same context.
+
+## Restored history, model and thinking
+
+Status: **shipped** (DF1-F2, DF1-F3; Pi `4df157433`).
+
+**Transcript.** Pi's `renderInitialMessages` (`interactive-mode.ts:4084`)
+renders the active branch at startup and after every session replacement and
+tree navigation. pipy's `SessionHistoryRenderer`
+(`ui/components/session_history.py`) does the same at startup (`-r`,
+`--continue`, `--session`, `--fork`), after `/resume`, `/new`, `/fork`,
+`/clone`, `/import`, a `/tree` selection and an accepted branch summary. It
+renders `NativeSessionTree.build_context_entries()` (Pi `buildContextEntries`:
+the latest compaction entry, then the entries its cut keeps):
+
+- user and assistant messages; each tool call as its call row followed by its
+  result, drawn by the same renderer as a live turn (a successful `read` shows
+  only its call row; a call without a result shows only its call row);
+- a `!` shell record as its `$ command` and status/output rows;
+- `[compaction]` and `[branch]` rows, collapsed as
+  `Compacted from N tokens (ctrl+o to expand)` and
+  `Branch summary (ctrl+o to expand)`, expanded by Ctrl+O;
+- extension `custom` entries and displayed `custom_message` entries through
+  their renderers;
+- nothing for model, thinking, label and session-info entries.
+
+The rows replace everything after the startup header. At startup they are
+appended; otherwise the screen and the terminal scrollback are cleared and
+redrawn (Pi's clearing full render, `\x1b[2J\x1b[H\x1b[3J`). Plain tool
+results keep their full lines, so Ctrl+O expands and collapses live and
+restored results alike.
+
+Not restored, because pipy does not store them: reasoning text, tool-result
+details and durations, aborted-turn markers (DF1-F6) and Pi's skill-invocation
+block. Extension-rendered tool rows keep the expansion they were drawn with
+(DF1-F2b).
+
+**Model and thinking.** Pi `createAgentSession` (`core/sdk.ts:194-263`)
+restores an opened session's settings every time a runtime is created. pipy
+does it at startup (`cli._restore_startup_session_settings`, before the first
+provider is built) and after every session replacement, including the RPC
+transitions (`ProviderMutationEffects.sync_session_settings`):
+
+- a session with messages switches to the branch's last `model_change`, unless
+  `--native-provider`/`--native-model` pinned a model. A model that is unknown,
+  has no auth or is not offered to the account is not restored: startup prints
+  `pipy: Could not restore model P/M. Using X/Y` and keeps its startup
+  selection; a runtime switch keeps the live model silently, as Pi does;
+- the thinking level is `--thinking` if given, else the branch's last
+  `thinking_level_change`, else the settings `defaultThinkingLevel` or
+  `medium`, clamped to the model. A branch without a thinking entry gets one;
+- restoring appends no `model_change` and saves no default model;
+- `/tree` navigation changes neither.
+
+pipy assistant messages do not name the model that answered, so sessions
+written before this change (which have no `model_change`) restore only their
+thinking level. `/new` keeps the live model and level unless the CLI pinned
+them (Pi re-resolves the settings defaults for a new session too).
 
 ## `/resume` Picker Behavior
 

@@ -368,9 +368,13 @@ class Screen:
             footer_lines=self._overlay_footer(),
         )
 
-    def force_full_redraw(self) -> None:
+    def force_full_redraw(self, *, clear_scrollback: bool = False) -> None:
+        # ``clear_scrollback`` also erases the terminal scrollback (Pi's
+        # clearing full render, ``\x1b[2J\x1b[H\x1b[3J``) so a replaced
+        # conversation does not linger above the redrawn one.
+        clear = "\x1b[2J\x1b[H\x1b[3J" if clear_scrollback else "\x1b[2J\x1b[H"
         with self._paint_lock:
-            if not self._driver.write_deferred("\x1b[2J\x1b[H"):
+            if not self._driver.write_deferred(clear):
                 return
             self._reset_live_state()
             # Keep the deferred clear, reset, and reentrant paint in one

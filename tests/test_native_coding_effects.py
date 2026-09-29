@@ -1082,7 +1082,12 @@ def test_rpc_model_resets_usage_but_retains_history_like_thinking_refresh(
     assert coding.messages[0] is message
     assert coding._usage_accumulator is not old_usage
     assert coding.usage_snapshot().usage.input_tokens == 0
-    assert tuple(tree.get_entries()) == durable_before
+    # The durable tree only gains the switch's model_change (Pi setModel).
+    appended = tuple(tree.get_entries())[len(durable_before) :]
+    assert tuple(tree.get_entries())[: len(durable_before)] == durable_before
+    assert [(entry.type, getattr(entry, "model_id", None)) for entry in appended] == [
+        ("model_change", "gpt-5.4")
+    ]
 
     coding.append_message(message)
     coding.absorb_usage(AgentProviderUsageSample(input_tokens=11, total_tokens=11))

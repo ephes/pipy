@@ -73,7 +73,6 @@ class TuiToolLoopRenderer:
     _SPINNER_INTERVAL_SECONDS: ClassVar[float] = (
         _ToolLoopRenderer._SPINNER_INTERVAL_SECONDS
     )
-    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = 5
 
     def __init__(
         self,
@@ -94,6 +93,20 @@ class TuiToolLoopRenderer:
         self._tool_renderers = dict(tool_renderers or {})
         self._render_details_sink = render_details_sink
         self._pending_render: _PendingToolRender | None = None
+
+    def detached(self, transcript: TranscriptComponent) -> "TuiToolLoopRenderer":
+        """A renderer with this one's tool renderers that writes to ``transcript``.
+
+        Restored history is replayed through the same verbs as live turns, into
+        a scratch transcript, without touching this renderer's in-flight state.
+        """
+
+        return TuiToolLoopRenderer(
+            transcript=transcript,
+            chrome=self._chrome,
+            render_inputs=self._render_inputs,
+            tool_renderers=self._tool_renderers,
+        )
 
     @property
     def streamed_any(self) -> bool:
@@ -258,22 +271,11 @@ class TuiToolLoopRenderer:
         if self._last_tool_name == "read" and not is_error:
             return
         lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
-        # Ctrl+O tool-output expansion: when expanded, commit the full retained
-        # (already tool-bounded) output instead of the 5-line collapsed preview.
-        if self._render_inputs.expanded():
-            rendered = lines
-        else:
-            preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
-            earlier = len(lines) - len(preview_lines)
-            if earlier > 0:
-                rendered = [
-                    f"... ({earlier} earlier lines, ctrl+o to expand)",
-                    *lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :],
-                ]
-            else:
-                rendered = preview_lines
-        self._transcript.add_tool_result(
-            lines=rendered,
+        # Ctrl+O tool-output expansion: the transcript keeps the full (already
+        # tool-bounded) output and shows it, or the collapsed preview, for the
+        # current flag, re-rendering the row when the flag changes.
+        self._transcript.add_collapsible_tool_result(
+            lines=lines,
             is_error=is_error,
             duration_seconds=duration_seconds,
         )
