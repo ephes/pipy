@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import threading
 import time
@@ -410,6 +411,105 @@ def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
     assert frame[-1].startswith("model")
 
 
+def test_tui_edit_diff_renders_as_a_transcript_row_not_raw_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DF1: the `edit` diff went raw to the error stream mid-turn.
+
+    The terminal is in raw mode during a turn, so the bare-LF diff smeared
+    across the live editor/footer rows. In the TUI it must be committed through
+    the transcript instead.
+    """
+
+    from pipy_harness.native.coding.session import production_tool_registry
+    from pipy_harness.native.models import ProviderToolCall
+
+    (tmp_path / "notes.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+    call = ProviderToolCall(
+        provider_correlation_id="call-1",
+        tool_name="edit",
+        arguments_json=json.dumps(
+            {"path": "notes.txt", "old_string": "beta", "new_string": "gamma"}
+        ),
+    )
+    replies = [(call,), ()]
+
+    class _EditingProvider:
+        name = "stub-tool"
+        model_id = "stub-model"
+        supports_tool_calls = True
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: object = None,
+            reasoning_sink: object = None,
+            cancel_token: object = None,
+        ) -> ProviderResult:
+            del request, stream_sink, reasoning_sink, cancel_token
+            now = datetime.now(UTC)
+            tool_calls = replies.pop(0)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name="stub-tool",
+                model_id="stub-model",
+                started_at=now,
+                ended_at=now,
+                final_text=None if tool_calls else "done",
+                tool_calls=tool_calls,
+            )
+
+    ui = _ui(tmp_path)
+    prompts = ["change beta", ""]
+    monkeypatch.setattr(
+        TerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: prompts.pop(0),
+    )
+    from pipy_harness.native.tui import TURN_SETTLED
+
+    monkeypatch.setattr(
+        TerminalUi,
+        "wait_for_active_turn_interrupt",
+        lambda self, done_event, abort_event, **kwargs: (
+            done_event.wait(5),
+            TURN_SETTLED,
+        )[1],
+    )
+    monkeypatch.setattr(
+        CodingSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
+    )
+    session = CodingSession(
+        provider=_EditingProvider(),
+        tool_registry=production_tool_registry(),
+    )
+    error_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "alpha\ngamma\n"
+    assert "+++ b/notes.txt" not in error_stream.getvalue()
+    diff_blocks = [
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "tool_result" and "+++ b/notes.txt" in lines
+    ]
+    assert len(diff_blocks) == 1
+    assert "-beta" in diff_blocks[0]
+    assert "+gamma" in diff_blocks[0]
+
+
 def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
     ui = _ui(tmp_path)
 
@@ -591,6 +691,51 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
     assert ":1-5" not in frame
     assert "line one" not in frame
     assert "Took 0.2s" not in frame
+
+
+def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
+    tmp_path: Path,
+) -> None:
+    """DF1: headers read `$ bash(command=..., timeout=120)` and `$ edit(...)`."""
+
+    ui = _ui(tmp_path)
+    renderer = TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+    )
+    calls = (
+        ("bash", {"command": "python3 -m unittest", "timeout": 120}),
+        ("bash", {"command": "ls tests"}),
+        ("edit", {"path": "core.py", "old_string": "a", "new_string": "b"}),
+        ("write", {"path": "new.py", "content": "x = 1\n"}),
+    )
+    for index, (tool_name, arguments) in enumerate(calls):
+        renderer.render_tool_call(
+            AgentToolCall(
+                provider_correlation_id=f"call-{index}",
+                tool_name=tool_name,
+                arguments_json=ProductContent(json.dumps(arguments)),
+            )
+        )
+        renderer.render_tool_result(output_text="ok", is_error=False)
+
+    headers = [
+        lines[0]
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "tool"
+    ]
+    assert headers == [
+        "python3 -m unittest (timeout 120s)",
+        "ls tests",
+        "edit core.py",
+        "write new.py",
+    ]
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=40))
+    assert "$ python3 -m unittest (timeout 120s)" in frame
+    assert "bash(" not in frame
+    assert "edit(" not in frame
+    assert "$ $" not in frame
 
 
 def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Path):
@@ -1880,8 +2025,17 @@ def test_model_command_refusal_restores_unavailable_previous_selection(
     assert result.provider_name == "openai"
 
 
-def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "command",
+    [
+        # An explicit level on the refused target.
+        "/model fake/fake-native-bootstrap:high",
+        # No level: the carried level would clamp to the fake model's "off".
+        "/model fake/fake-native-bootstrap",
+    ],
+)
+def test_model_command_refusal_keeps_the_live_thinking_level(
+    tmp_path: Path, command: str
 ) -> None:
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import ModelRuntime
@@ -1911,7 +2065,7 @@ def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
 
     result = session.run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO("/model fake/fake-native-bootstrap:high\n/exit\n"),
+        input_stream=io.StringIO(f"{command}\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=error_stream,
     )
@@ -1919,9 +2073,9 @@ def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
     assert result.status is HarnessStatus.SUCCEEDED
     assert "does not support tool calls" in error_stream.getvalue()
     assert provider_state.current_selection() == previous_selection
-    # Catalog resolution mutates the thinking level before the capability gate;
-    # the current compatibility path restores only provider/model selection.
-    assert provider_state.thinking_level == "high"
+    # The refused target's resolved or clamped level must not leak into the
+    # state: the live provider still sends "low", and the footer must agree.
+    assert provider_state.thinking_level == "low"
     assert seen == []
     assert result.user_turn_count == 0
     assert result.tool_invocation_count == 0

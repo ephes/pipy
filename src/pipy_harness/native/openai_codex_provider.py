@@ -10,6 +10,7 @@ import os
 import random
 import re
 import secrets
+import socket
 import stat
 import threading
 import time
@@ -380,6 +381,32 @@ def _normalize_websocket_handshake_exception(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _WebSocketCanceller:
+    """Closeable the cancel token uses to abort a live WebSocket at once.
+
+    ``CancelToken.cancel`` runs on the UI thread. A plain ``close()`` runs the
+    WebSocket closing handshake and blocks until the server answers or
+    ``close_timeout`` expires; live Codex took about three seconds, with the
+    frame frozen meanwhile. Shutting the socket down first ends the blocked
+    ``recv`` in the worker and the connection's reader thread immediately,
+    so the following ``close()`` has nothing left to wait for (as the HTTP
+    path's ``_ConnectionCloser`` does).
+    """
+
+    websocket: _SyncWebSocket
+
+    def close(self) -> None:
+        sock = getattr(self.websocket, "socket", None)
+        shutdown = getattr(sock, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        self.websocket.close()
+
+
 def _iter_websocket_events(
     websocket: _SyncWebSocket,
     *,
@@ -390,9 +417,10 @@ def _iter_websocket_events(
     connection_closed_ok: type[BaseException],
 ) -> Iterator[Mapping[str, Any]]:
     registered = False
+    canceller = _WebSocketCanceller(websocket)
     try:
         if cancel_token is not None:
-            cancel_token.register(websocket)
+            cancel_token.register(canceller)
             registered = True
             cancel_token.raise_if_cancelled()
         _send_websocket_request(websocket, body=body, cancel_token=cancel_token)
@@ -411,7 +439,7 @@ def _iter_websocket_events(
             yield event
     finally:
         if cancel_token is not None and registered:
-            cancel_token.unregister(websocket)
+            cancel_token.unregister(canceller)
         _safe_close(websocket)
 
 

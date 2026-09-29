@@ -10,13 +10,18 @@ Status: sole active task index, rewritten 2026-09-29.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
-- **Remaining queue:** DF1 (live dogfooding) and RL1 (release 0.2.0).
-- **Tests:** `uv run --frozen pytest --co` collects 6,571 tests on
-  `chore/dh1-hygiene` (6,565 at `23fdc99b`).
-- **Not verified live.** Only openai-codex gpt-6-sol has live evidence (MC1,
-  PC1, COST1). Anthropic 5.x, xAI, Copilot, live semantic-summary quality and
-  cross-provider answer quality are covered by fake-transport tests only. DF1
-  owns that.
+- **Remaining queue:** DF1 is partially done (openai-codex live; see its
+  row in [Done](#done-2026-09-29)). The queue is now RL1 (release 0.2.0), and
+  READ1 below is the most important follow-on DF1 found.
+- **Tests:** `uv run --frozen pytest --co` collects 6,576 tests on
+  `chore/df1-dogfooding` (6,571 on `chore/dh1-hygiene`).
+- **Not verified live.** openai-codex has live evidence for `gpt-6-sol` at
+  off/medium/max and `gpt-6-luna` at low/max: effort values, footer, cache hits,
+  a real repository task, steering, cancel, manual and automatic compaction
+  (semantic summaries were accurate), retry, resume, fork and a switch between
+  the two models (DF1). Anthropic 5.x, xAI, Copilot, Bedrock and Google have no
+  credentials here. They and cross-provider answer quality are still covered by
+  fake-transport tests only.
 - **Pi comparison gates:** `session_tree_pi_comparison.py` passes against Pi.
   `automation_pi_comparison.py` fails on Pi's mid-conversation system messages
   (SYS1 below); every other check passes.
@@ -76,24 +81,7 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 Take items in order unless one is blocked. Effort: S ≈ one focused slice,
 M ≈ two or three slices.
 
-### 1. DF1 — Live smoke and dogfooding acceptance (S–M)
-
-- **Smoke check first.** Send one credentialed request per new family (codex
-  gpt-6-sol, anthropic opus/sonnet 5.5, xai, github-copilot) before claiming
-  support. Fake-transport
-  conformance cannot catch wrong IDs or effort values.
-- **Then a scripted dogfooding run** that covers:
-  - a real repository task and its checks
-  - interrupt/steer
-  - automatic and manual compaction
-  - retry after a provider failure
-  - resume/fork after exit
-  - cancel
-  - a cross-provider switch
-- **Record** a short, dated acceptance note. It covers the "Minimum acceptance"
-  bar below and is also usable as demo material.
-
-### 2. RL1 — Release 0.2.0, talk-minimum (S)
+### 1. RL1 — Release 0.2.0, talk-minimum (S)
 
 The pyproject is still at `0.1.0`, the repo has no tags, and CHANGELOG
 `[Unreleased]` runs from line 7 to line 1083.
@@ -122,11 +110,52 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | PR1/PR2 | `xai` and `github-copilot` providers, `/login github-copilot` | `ca883f31` |
 | COST1 | Catalog-cost pricing for every model (Pi `calculateCost`) | `23fdc99b` |
 | DH1 | Pi comparison gates run on `node` again and fail when Pi is missing; explicit `fake-native-bootstrap` REPL crash fixed; docs re-baselined | `chore/dh1-hygiene` |
+| DF1 (partial) | Live smoke and dogfooding on openai-codex, recorded in [the acceptance note](acceptance/2026-09-29-df1-dogfooding.md). Five bugs were fixed: a model switch kept no history, edit/write diffs corrupted the TUI, Escape froze the frame for about 3 s on the WebSocket close, tool rows showed argument dumps, and a refused switch changed the footer's thinking level. Gaps: no live evidence for other families (no credentials), automatic compaction can stop a session (DF1-F5), and follow-ons below | `chore/df1-dogfooding` |
 
 ## Follow-ons
 
 Open deviations collected from the done slices, not yet queued. Take one when
-DF1 or a user need makes it matter.
+a user need makes it matter. The DF1 items come first; their repro steps are in
+[the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
+
+- **READ1 (DF1-F1, next):** the `read` tool silently cuts files at 200 lines
+  or 8 KB. It has no `offset`/`limit` and no `[Showing lines …]` continuation
+  notice. It also refuses files over 256 KB and any file with secret-shaped
+  content. Pi's `read` (`core/tools/read.ts`) takes `offset`/`limit`, reads
+  2000 lines / 50 KB and tells the model how to continue. To reproduce, ask
+  for the last row of a 901-line CSV: the model reports row 198, and a
+  compaction summary kept that wrong fact.
+- **DF1-F2, rendering resumed history:** `-r`, `/resume`, `/tree` navigation
+  and `/fork` leave the transcript empty, although the provider context is
+  restored. Pi renders the branch's conversation.
+- **DF1-F3, restoring session state on resume:** a resumed session starts at
+  the default thinking level, not its last `thinking_level_change`. With no
+  CLI model, it also does not restore the session's model. Pi does both
+  (`core/sdk.ts:197-245`). To reproduce: run `/thinking low`, exit, then
+  `pipy -r` shows `medium`.
+- **DF1-F4, retry UX:** provider retries are silent, with up to about 14 s of
+  `Working...` (Pi shows `Retrying (n/3) in Ns`). A Codex stream `error` event
+  with an unknown status is not retried. After a failed turn the footer
+  context jumped from 0.6% to 7.2% until the next success.
+- **DF1-F5, a session can stop on compaction:** if the latest user group alone
+  exceeds the window, automatic compaction keeps it, the request is refused,
+  and `/compact` reports `nothing to compact yet`. Only `/new` recovers. Pi
+  splits the turn. To reproduce: set `compaction.contextWindow: 12000` and
+  `reserveTokens: 3000`, then `cat` a 24 KB file through `bash`.
+- **DF1-F6, aborted turns:** an aborted turn persists no assistant message,
+  so partial text is lost and consecutive user messages are left behind. Pi
+  persists the aborted assistant message.
+- **DF1-F7, TUI polish:**
+  - Notices print `pipy  pipy: …`.
+  - Non-bash tool rows keep the `$ ` prompt. Pi shows `edit path`,
+    `find X in Y` and `grep /X/ in Y`.
+  - `/model gpt-6-luna` resolves to the unauthenticated `openai` row.
+  - The `/model` selector lists unavailable models; Pi lists only models with
+    configured auth.
+  - Startup leaves a stale editor frame in scrollback.
+  - `-p` prints the startup chrome to stderr.
+  - The manual compaction summary treated its own instruction as a user
+    request.
 
 - **USAGE1:** per-message usage in JSON/RPC messages and the session tree,
   resumed-session totals, Pi's `/session` Cost section, totals across a model
@@ -200,8 +229,9 @@ Daily-use acceptance means:
 
 A provider failure must leave a usable session, and an extension must be
 addable through the documented APIs. Automated assertions cover lifecycle and
-request content. Semantic summary quality and UX need live dogfooding (DF1).
-Tests alone are not a daily-usability claim.
+request content. Semantic summary quality and UX need live dogfooding. DF1
+covered this on openai-codex; the other families still need it. Tests alone are
+not a daily-usability claim.
 
 The following stay as they are:
 

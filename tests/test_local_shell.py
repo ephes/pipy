@@ -6,7 +6,7 @@ import io
 import threading
 import time
 from pathlib import Path
-from typing import TextIO, cast
+from typing import Any, TextIO, cast
 
 import pytest
 
@@ -88,3 +88,31 @@ def test_successful_command_records_zero_exit(tmp_path: Path) -> None:
     assert context is not None
     assert "exit code: 0" in context
     assert "hi" in context
+
+
+class _RecordingTranscript:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def add_tool_call(self, header: str) -> None:
+        self.calls.append(header)
+
+    def append_tool_output(self, chunk: str) -> None:
+        del chunk
+
+    def add_tool_result(self, *, lines: object, is_error: bool) -> None:
+        del lines, is_error
+
+
+def test_transcript_row_carries_the_bare_command(tmp_path: Path) -> None:
+    # DF1: the transcript's tool-call row renders its own `$ ` prompt, so a
+    # pre-prefixed header showed `$ $ ls tests`.
+    transcript = _RecordingTranscript()
+    run_local_shell_shortcut(
+        "!echo hi",
+        terminal_ui=None,
+        transcript=cast(Any, transcript),
+        error_stream=cast(TextIO, io.StringIO()),
+        cwd=tmp_path,
+    )
+    assert transcript.calls == ["echo hi"]

@@ -102,7 +102,8 @@ def run_local_shell_shortcut(
     exclude_from_context = decision.exclude_from_context
 
     if transcript is not None:
-        transcript.add_tool_call(f"$ {command}")
+        # The transcript's tool-call row already renders the `$ ` prompt.
+        transcript.add_tool_call(command)
         sink: Callable[[str], None] = transcript.append_tool_output
     else:
         print(f"$ {command}", file=error_stream)

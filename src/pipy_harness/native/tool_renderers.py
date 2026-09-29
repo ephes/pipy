@@ -1095,6 +1095,20 @@ def _plain_tool_call_header(call: AgentToolCall) -> str:
         root = path if isinstance(path, str) else "."
         if isinstance(pattern, str):
             return f'{call.tool_name} "{pattern}" {root}'
+    # The row renders behind a `$ ` prompt, so `bash` shows its command line,
+    # as Pi does, instead of an argument dump (`$ bash(command=...)`).
+    command = data.get("command")
+    if call.tool_name == "bash" and isinstance(command, str):
+        timeout = data.get("timeout")
+        if (
+            isinstance(timeout, int | float)
+            and not isinstance(timeout, bool)
+            and timeout
+        ):
+            return f"{command} (timeout {timeout:g}s)"
+        return command
+    if call.tool_name in {"write", "edit"} and isinstance(path, str):
+        return f"{call.tool_name} {path}"
     preview = _argument_preview(data)
     return f"{call.tool_name}({preview})"
 

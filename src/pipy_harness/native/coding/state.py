@@ -86,7 +86,7 @@ class CodingContextChangedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class CodingModelMutation:
-    """Prepared provider/history/usage replacement for one model switch."""
+    """Prepared provider/usage replacement for one model switch."""
 
     expected_binding: CodingProviderBinding
     replacement_binding: CodingProviderBinding
@@ -618,12 +618,16 @@ class CodingSessionState:
             return self._binding is prepared.expected_binding
 
     def publish_model_mutation(self, prepared: CodingModelMutation) -> None:
-        """Publish the prevalidated binding/history/usage by assignments only."""
+        """Publish the prevalidated binding/usage by assignments only.
+
+        Provider-visible history is retained, matching Pi ``setModel``: the
+        next request replays the same canonical messages to the new model, as
+        a durable reopen under that model would.
+        """
 
         with self._state_lock:
             self._preparation_failure = None
             self._binding = prepared.replacement_binding
-            self._messages = ()
             self._usage_accumulator = prepared.replacement_usage
 
     def prepare_reload_usage_refresh(self) -> agent_usage.AgentUsageRefreshValue:

@@ -115,8 +115,8 @@ first prepare catalog resolution, provider construction, and detached coding
 replacements outside the session mutex. Their commit atomically rechecks the
 creating generation, gate, terminal state, exact selection/default/thinking
 expectation, and coding-binding identity, then assigns only the new selection,
-provider binding, empty history, and cleared usage. Compaction and provider
-failure remain live. Footer presentation and fail-soft default persistence run
+provider binding, and cleared usage. Provider-visible history, compaction and
+provider failure remain live. Footer presentation and fail-soft default persistence run
 after unlock. A stale, gated, terminal, construction-failed, or superseded
 candidate returns `False` without rebinding, painting, or persisting. The
 pre-existing tool-capability-refusal compatibility remains narrower: selection

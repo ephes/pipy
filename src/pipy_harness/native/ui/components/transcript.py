@@ -355,6 +355,24 @@ class TranscriptComponent:
             )
         self._repaint()
 
+    def add_tool_side_output(self, text: str) -> None:
+        """Commit a tool's side output (the `edit`/`write` diff) as a result row.
+
+        Tools report it through `ToolContext.stderr_sink` while they run. The
+        terminal is in raw mode during a turn, so writing it to the error
+        stream would bypass the frame renderer and smear the diff across the
+        live editor and footer rows.
+        """
+
+        lines = tuple(text.splitlines())
+        if not lines:
+            return
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self.tool_output_text = ""
+            self.history_blocks.append(HistoryBlockTuple("tool_result", lines))
+        self._repaint()
+
     def add_tool_call_custom(self, lines: Iterable[str]) -> None:
         """Commit extension-rendered call-row lines (pre-styled, SGR-safe)."""
 

@@ -713,7 +713,7 @@ chooses the highlighted row only when it is selectable, and Esc/Ctrl-C/Ctrl-D
 cancel. The selector runs no provider turn while it is open. On a successful
 choice the session calls `NativeReplProviderState.select_model` (the shared
 provider-state boundary), rebinds the live provider,
-clears the in-memory conversation context, rebinds the usage meter, refreshes
+keeps the in-memory conversation context (Pi `setModel`), rebinds the usage meter, refreshes
 the footer/status model label, and persists the non-secret default; the next
 provider turn is constructed with the new provider/model. Construction and
 catalog spec resolution behind that boundary are owned by `ModelRuntime`
@@ -2720,9 +2720,10 @@ once to seed the persistent coding state and is not retained as a parallel
 field. Later runs reuse the state-owned port directly, including after a setup
 exception; the read-only `provider_port` projection observes that same owner.
 
-Provider/model/auth and reload-fallback rebinds clear provider-visible history
-and install a newly priced usage accumulator without clearing the durable native
-session tree. A same-context extension-provider refresh replaces only the port.
+Model rebinds keep provider-visible history, as Pi `setModel` does, and install
+a newly priced usage accumulator. Auth and reload-fallback rebinds clear
+provider-visible history and install a newly priced usage accumulator. No rebind
+clears the durable native session tree. A same-context extension-provider refresh replaces only the port.
 Session/tree rebuilds replace live history and install the destination's separate
 compaction summary suffix, or clear it for uncompacted/empty destinations. They
 preserve run-lifetime counters and cumulative compaction metrics; startup can
