@@ -16,8 +16,8 @@
     "prompt_tokens": 42,
     "completion_tokens": 8,
     "total_tokens": 50,
-    "cached_tokens": 10,
-    "reasoning_tokens": 4,
+    "prompt_tokens_details": {"cached_tokens": 10},
+    "completion_tokens_details": {"reasoning_tokens": 4},
     "unknown_provider_counter": 99
   }
 }

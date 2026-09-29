@@ -122,10 +122,14 @@ class CodingSessionUsageSnapshot:
     usage: AgentUsage
     last_total_tokens: int
     cache_hit_percent: float | None
+    # Pi ``Usage.input`` summed: prompt tokens neither read from nor written to
+    # the cache (RPC ``get_session_stats`` ``tokens.input``).
+    uncached_input_tokens: int = 0
 
     def __post_init__(self) -> None:
         _require_agent_usage(self.usage, "usage")
         _require_non_negative_int(self.last_total_tokens, "last_total_tokens")
+        _require_non_negative_int(self.uncached_input_tokens, "uncached_input_tokens")
         if self.cache_hit_percent is not None:
             if type(self.cache_hit_percent) is not float:
                 raise TypeError("cache_hit_percent must be an exact float or None")
@@ -508,6 +512,7 @@ class CodingSessionState:
                 usage=self._usage_accumulator.agent_usage(),
                 last_total_tokens=self._usage_accumulator.last_total_tokens,
                 cache_hit_percent=self._usage_accumulator.cache_hit_percent,
+                uncached_input_tokens=self._usage_accumulator.uncached_input_tokens,
             )
 
     def begin_run(

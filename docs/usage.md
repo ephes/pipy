@@ -60,7 +60,7 @@ invoked as their own `/<template-name>` commands.
 | `/resume` | Pick or continue a previous native product session |
 | `/new` | Start a new session |
 | `/name <name>` | Set the session display name |
-| `/session` | Show session file, ID, message count, tokens, and cost/status details |
+| `/session` | Show session name, ID, leaf, message and branch counts, and file (Pi's token and cost breakdown is not ported yet; the footer shows the cost) |
 | `/tree` | Browse the native session tree and continue from a selected point |
 | `/fork` | Create a new session from a previous session/message |
 | `/clone` | Duplicate the current active branch into a new session |

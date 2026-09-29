@@ -880,6 +880,7 @@ class ExtensionOAuthConfig:
     refresh_token: Callable[..., object]
     get_api_key: Callable[..., object]
     modify_models: Callable[..., object] | None = None
+    is_subscription: bool = False
 
 @dataclass(frozen=True)
 class ExtensionProvider:
@@ -891,8 +892,10 @@ class ExtensionProvider:
 ```
 
 `ExtensionOAuthConfig` preserves Pi's `ProviderConfig.oauth` metadata (`name`,
-`login`, `refreshToken`, `getApiKey`, and optional `modifyModels`) using Python
-snake_case. Pipy validates malformed OAuth metadata fail-closed during extension
+`login`, `refreshToken`, `getApiKey`, optional `modifyModels`, and
+`isSubscription`) using Python snake_case. With `is_subscription=True` and a
+stored OAuth login, the footer marks the session cost `(sub)`, as Pi does; a
+non-bool value fails activation. Pipy validates malformed OAuth metadata fail-closed during extension
 activation and preserves the callbacks without invoking them during activation or
 provider construction. Pi derives the OAuth provider id from the registered
 provider name; pipy uses the normalized provider name as that id. For activated

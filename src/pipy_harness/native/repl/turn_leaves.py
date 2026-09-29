@@ -12,9 +12,8 @@ translated, every caller that cancelled a worker waits on this one value. The
 two error helpers are the third: when a turn or a generation unwinds, several
 disposals must all run and the *first* failure is the one that propagates.
 
-Pricing is deliberately approximate and prefix-matched, so a new model in a
-known family (``gpt-5.5`` under ``gpt-5``) keeps rendering a cost instead of
-falling back to zero. `None` disables cost rendering for that selection.
+Pricing comes from the selection's catalog row, as Pi prices each response
+from its model object; a selection with no row prices at zero.
 """
 
 from __future__ import annotations
@@ -30,9 +29,11 @@ from pipy_harness.native.agent.provider_turn import (
     _wait_for_external_abort,
 )
 from pipy_harness.native.agent.tools import ToolExecutionInterruption
-from pipy_harness.native.agent.usage import AgentTokenPricing
+from pipy_harness.native.agent.usage import AgentTokenPricing, AgentTokenPricingTier
+from pipy_harness.native.catalog import NativeModelCost, build_builtin_catalog
 from pipy_harness.native.extension_chrome_state import ExtensionChromeRetirement
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
@@ -52,13 +53,6 @@ CANCEL_JOIN_TIMEOUT_SECONDS = 2.0
 AGENT_HISTORY_KEEP_RECENT_GROUPS = 2
 AGENT_HISTORY_MAX_MESSAGES = 40
 AGENT_HISTORY_MAX_BYTES = 48 * 1024
-
-PRICING_TABLE: dict[tuple[str, str], AgentTokenPricing] = {
-    # OpenAI Codex subscription (GPT-5.x family) — approximate.
-    ("openai-codex", "gpt-5"): AgentTokenPricing(
-        input_per_million=1.25, output_per_million=10.00, reasoning_per_million=10.00
-    ),
-}
 
 
 def finish_chrome_retirement(
@@ -154,20 +148,43 @@ def provider_turn_inputs(
     return provider, partial(_wait_for_external_abort, abort_event, start)
 
 
-def pricing_for(provider_name: str, model_id: str) -> AgentTokenPricing | None:
-    """Return per-million-token pricing for (provider, model), or None.
+def pricing_for(
+    provider_state: object, provider_name: str, model_id: str
+) -> AgentTokenPricing | None:
+    """Price a selection from the catalog row the session resolves for it.
 
-    Falls back to a model-family prefix lookup so e.g. ``gpt-5.5`` reuses
-    the ``gpt-5`` entry. ``None`` disables cost rendering for that
-    selection; the bottom status keeps showing ``$0.000``.
+    Pi prices every response from the request's model object
+    (``calculateCost(model, usage)``), which already carries ``models.json``
+    overrides. A live :class:`NativeReplProviderState` resolves that row
+    (built-in, ``models.json``, or Pi's fallback row); any other state -- an
+    injected or static provider -- uses the built-in row. ``None`` (no row)
+    prices at zero.
     """
 
-    direct = PRICING_TABLE.get((provider_name, model_id))
-    if direct is not None:
-        return direct
-    for (entry_provider, entry_model), price in PRICING_TABLE.items():
-        if entry_provider != provider_name:
-            continue
-        if model_id.startswith(entry_model):
-            return price
-    return None
+    selection = NativeModelSelection(provider_name, model_id)
+    if isinstance(provider_state, NativeReplProviderState):
+        spec = provider_state.model_runtime.resolve_spec(selection)
+    else:
+        spec = build_builtin_catalog().find(provider_name, model_id)
+    return None if spec is None else pricing_from_cost(spec.cost)
+
+
+def pricing_from_cost(cost: NativeModelCost) -> AgentTokenPricing:
+    """Map a row's Pi-shaped ``cost`` onto the agent tier's pricing value."""
+
+    return AgentTokenPricing(
+        input_per_million=cost.input,
+        output_per_million=cost.output,
+        cache_read_per_million=cost.cache_read,
+        cache_write_per_million=cost.cache_write,
+        tiers=tuple(
+            AgentTokenPricingTier(
+                input_tokens_above=tier.input_tokens_above,
+                input_per_million=tier.input,
+                output_per_million=tier.output,
+                cache_read_per_million=tier.cache_read,
+                cache_write_per_million=tier.cache_write,
+            )
+            for tier in cost.tiers
+        ),
+    )

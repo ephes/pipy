@@ -1887,9 +1887,16 @@ and projects immutable canonical `AgentUsage` snapshots. Missing usage resets
 only the last-turn context count, preserving the cumulative counters.
 
 Optional cost accounting receives an `AgentTokenPricing` value at construction.
-That frozen value validates and normalizes five finite, nonnegative per-million
-rates. The product composition root still owns provider/model pricing lookup
-and injects the selected value, so the reusable module has no dependency on a
+That frozen value mirrors Pi `ModelCost`: it validates and normalizes four
+finite, nonnegative per-million rates (input, output, cache read, cache write)
+plus optional request-wide `AgentTokenPricingTier` tiers. Each turn is priced
+with Pi `calculateCost`: uncached input (the prompt minus inclusive cache
+counters), output including reasoning, cache reads, short cache writes, and 1h
+writes at twice the tier's input rate, with the tier chosen by the whole prompt.
+The accumulator also keeps the uncached-input total (Pi `Usage.input`). The
+product composition root (`repl/turn_leaves.py` `pricing_for`) prices the
+selection from its resolved catalog row, including `models.json` overrides,
+and injects the value, so the reusable module has no dependency on a
 pricing catalog, provider selection, terminal/UI, product session, capture,
 workflow archive, or concrete provider. It remains a direct-submodule runtime
 and is not eagerly re-exported from `native.agent`.

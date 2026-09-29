@@ -3553,7 +3553,9 @@ def _install_auth_trace(
 
     def record_footer(self: FooterComponent, text: str) -> None:
         del self
-        assert "$" in text
+        # The usage footer's context meter (a zero-cost API row shows no
+        # cost segment, as in Pi).
+        assert "%/" in text
         trace.append("usage-footer")
 
     @contextmanager

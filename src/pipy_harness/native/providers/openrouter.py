@@ -26,17 +26,11 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
     chat_messages,
+    extract_chat_completions_usage,
     parse_response,
 )
 
 OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("prompt_tokens", "input_tokens"),
-    ("completion_tokens", "output_tokens"),
-    ("total_tokens", "total_tokens"),
-    ("cached_tokens", "cached_tokens"),
-    ("reasoning_tokens", "reasoning_tokens"),
-)
 
 
 def openrouter_http_client() -> UrllibJsonHTTPClient:
@@ -140,7 +134,7 @@ class OpenRouterChatCompletionsProvider:
                 parse_error_class=OpenRouterResponseParseError,
                 response_label="OpenRouter",
                 tool_call_provider_prefix="openrouter",
-                usage_fields=OPENROUTER_USAGE_FIELDS,
+                extract_usage=extract_chat_completions_usage,
             )
         except OpenRouterProviderError as exc:
             return failed_provider_result(

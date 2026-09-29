@@ -41,7 +41,6 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.providers.google_vertex import (
-    GOOGLE_VERTEX_USAGE_FIELDS,
     GoogleVertexHTTPStatusError,
     GoogleVertexProvider,
     JsonResponse,
@@ -225,8 +224,8 @@ def test_vertex_adc_success_response_parses_from_golden(tmp_path: Path) -> None:
     parsed = _load("parsed_result_adc.json")
     assert result.final_text == parsed["final_text"]
     assert result.final_text == "config.toml sets port 8080."
-    # GOOGLE_VERTEX_USAGE_FIELDS remap the promptTokenCount/candidatesTokenCount/
-    # totalTokenCount usage metadata onto the normalized token keys.
+    # extract_gemini_usage maps promptTokenCount/candidatesTokenCount/
+    # totalTokenCount onto the normalized token keys (no thoughts or cache here).
     assert result.usage == parsed["usage"]
     assert result.usage == {
         "input_tokens": 31,
@@ -241,11 +240,6 @@ def test_vertex_adc_success_response_parses_from_golden(tmp_path: Path) -> None:
         "vertex_auth_mode": "adc",
         "google_cloud_location": "us-central1",
     }
-    assert GOOGLE_VERTEX_USAGE_FIELDS == (
-        ("promptTokenCount", "input_tokens"),
-        ("candidatesTokenCount", "output_tokens"),
-        ("totalTokenCount", "total_tokens"),
-    )
 
 
 def test_vertex_express_success_response_parses_from_golden(tmp_path: Path) -> None:

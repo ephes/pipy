@@ -204,8 +204,8 @@ class TestFooterThinkingLabel:
     def test_status_line_omits_empty_thinking_segment(self) -> None:
         fields = BottomStatusFields(
             cwd_label="",
-            cost_label="$0.000",
-            plan_label="api",
+            cost_usd=0.0,
+            using_subscription=False,
             context_used_pct=0.0,
             context_budget_label="128k",
             context_budget_suffix="auto",

@@ -16,6 +16,7 @@ Compat/routing knobs are carried through as plain mappings here; M4 types them.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Callable, Mapping
 from copy import deepcopy
@@ -37,6 +38,7 @@ from pipy_harness.native.catalog import (
     ContextWindowSource,
     NativeCatalog,
     NativeModelCost,
+    NativeModelCostTier,
     NativeModelSpec,
     build_builtin_catalog,
 )
@@ -110,6 +112,9 @@ class ModelOverride:
     # input/output/cache_read/cache_write). An explicit ``0`` is preserved so it
     # can override a non-zero built-in (Pi merges with ``??``, not truthiness).
     cost: Mapping[str, float] | None = None
+    # ``cost.tiers`` replaces the row's tiers wholesale when present
+    # (Pi ``override.cost.tiers ?? model.cost.tiers``).
+    cost_tiers: tuple[NativeModelCostTier, ...] | None = None
     context_window: int | None = None
     max_tokens: int | None = None
     headers: Mapping[str, str] | None = None
@@ -170,6 +175,28 @@ def _type_error(path: str, expected: str) -> str:
     return f"  - {dotted}: expected {expected}"
 
 
+_COST_NUMBER = "finite nonnegative number"
+
+
+def _cost_number(raw: object) -> float | None:
+    """A cost rate or tier threshold the session can price with, else ``None``.
+
+    Pi's schema only says ``number``; pipy also rejects negative and non-finite
+    values here, because pricing validates them and would otherwise fail when
+    the model is selected rather than when ``models.json`` loads.
+    """
+
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    try:
+        number = float(raw)
+    except OverflowError:  # an integer too large for a float
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return number
+
+
 def _coerce_cost_fields(
     value: object, path: str, errors: list[str]
 ) -> dict[str, float]:
@@ -187,19 +214,68 @@ def _coerce_cost_fields(
         ("cacheWrite", "cache_write"),
     ):
         if key in values:
-            raw = values[key]
-            if not isinstance(raw, (int, float)) or isinstance(raw, bool):
-                errors.append(_type_error(f"{path}/{key}", "number"))
+            number = _cost_number(values[key])
+            if number is None:
+                errors.append(_type_error(f"{path}/{key}", _COST_NUMBER))
             else:
-                nums[attr] = float(raw)
+                nums[attr] = number
     return nums
+
+
+def _coerce_cost_tiers(
+    value: object, path: str, errors: list[str]
+) -> tuple[NativeModelCostTier, ...] | None:
+    """``cost.tiers``: each tier needs a threshold and all four rates (Pi schema)."""
+
+    values = _object_list(value)
+    if values is None:
+        errors.append(_type_error(path, "array"))
+        return None
+    required = ("inputTokensAbove", "input", "output", "cacheRead", "cacheWrite")
+    tiers: list[NativeModelCostTier] = []
+    for index, item in enumerate(values):
+        item_path = f"{path}/{index}"
+        tier = _string_object_dict(item)
+        if tier is None:
+            errors.append(_type_error(item_path, "object"))
+            return None
+        numbers: list[float] = []
+        for key in required:
+            number = _cost_number(tier.get(key))
+            if number is None:
+                errors.append(_type_error(f"{item_path}/{key}", _COST_NUMBER))
+                return None
+            numbers.append(number)
+        above, input_rate, output_rate, cache_read, cache_write = numbers
+        tiers.append(
+            NativeModelCostTier(
+                input_tokens_above=above,
+                input=input_rate,
+                output=output_rate,
+                cache_read=cache_read,
+                cache_write=cache_write,
+            )
+        )
+    return tuple(tiers)
+
+
+def _coerce_optional_cost_tiers(
+    value: object, path: str, errors: list[str]
+) -> tuple[NativeModelCostTier, ...] | None:
+    """The ``tiers`` of a cost object, or ``None`` when absent."""
+
+    values = _string_object_dict(value)
+    if values is None or "tiers" not in values:
+        return None
+    return _coerce_cost_tiers(values["tiers"], f"{path}/tiers", errors)
 
 
 def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost | None:
     """Full cost object for a custom model (missing sub-fields default to 0)."""
 
     fields = _coerce_cost_fields(value, path, errors)
-    return NativeModelCost(**fields)
+    tiers = _coerce_optional_cost_tiers(value, path, errors)
+    return NativeModelCost(**fields, tiers=tiers or ())
 
 
 def _coerce_input(
@@ -293,6 +369,11 @@ def _coerce_model_override(
         if "cost" in values
         else None
     )
+    cost_tiers = (
+        _coerce_optional_cost_tiers(values["cost"], f"{path}/cost", errors)
+        if "cost" in values
+        else None
+    )
     input_ = (
         _coerce_input(values["input"], f"{path}/input", errors)
         if "input" in values
@@ -306,6 +387,7 @@ def _coerce_model_override(
         ),
         input=input_,
         cost=cost,
+        cost_tiers=cost_tiers,
         context_window=_opt_int(
             values, "contextWindow", f"{path}/contextWindow", errors
         ),
@@ -608,6 +690,9 @@ def _apply_model_override(
 
     cost = row.cost
     if override.cost is not None:
+        tiers = (
+            override.cost_tiers if override.cost_tiers is not None else row.cost.tiers
+        )
         # Partial merge: each present sub-field (incl. explicit 0) wins; absent
         # sub-fields fall back to the built-in row's value.
         cost = NativeModelCost(
@@ -615,6 +700,7 @@ def _apply_model_override(
             output=override.cost.get("output", row.cost.output),
             cache_read=override.cost.get("cache_read", row.cost.cache_read),
             cache_write=override.cost.get("cache_write", row.cost.cache_write),
+            tiers=tiers,
         )
 
     return replace(

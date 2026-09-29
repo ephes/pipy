@@ -675,7 +675,7 @@ def _prepare_startup(
         provider_name=initial_provider_name,
         model_id=initial_model_id,
         usage_accumulator=AgentUsageAccumulator(
-            pricing_for(initial_provider_name, initial_model_id)
+            pricing_for(inputs.provider_state, initial_provider_name, initial_model_id)
         ),
     )
 

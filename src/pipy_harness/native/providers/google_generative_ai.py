@@ -29,11 +29,6 @@ from pipy_harness.native.providers.google_generate_content_wire import (
 )
 
 GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-GOOGLE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("promptTokenCount", "input_tokens"),
-    ("candidatesTokenCount", "output_tokens"),
-    ("totalTokenCount", "total_tokens"),
-)
 
 # Per-model thinking shape, ported from Pi's ``google.ts``. Pi injects
 # ``generationConfig.thinkingConfig`` differently per model family: a
@@ -281,7 +276,6 @@ class GoogleGenerativeAIProvider:
                 response.body,
                 parse_error_class=GoogleResponseParseError,
                 response_label="Google",
-                usage_fields=GOOGLE_USAGE_FIELDS,
                 tool_call_provider_prefix="google",
             )
         except GoogleProviderError as exc:

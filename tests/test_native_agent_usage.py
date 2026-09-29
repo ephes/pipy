@@ -14,6 +14,7 @@ from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentTokenPricing,
+    AgentTokenPricingTier,
     AgentUsageAccumulator,
     AgentUsageAccumulatorValue,
     AgentUsageFallbackValue,
@@ -21,15 +22,23 @@ from pipy_harness.native.agent.usage import (
     AgentUsageReloadValue,
 )
 
+_RATE_FIELDS = (
+    "input_per_million",
+    "output_per_million",
+    "cache_read_per_million",
+    "cache_write_per_million",
+)
 
-def _pricing() -> AgentTokenPricing:
-    return AgentTokenPricing(
-        input_per_million=1,
-        output_per_million=2,
-        reasoning_per_million=3,
-        cache_read_per_million=4,
-        cache_write_per_million=5,
-    )
+
+def _pricing(**overrides: object) -> AgentTokenPricing:
+    values: dict[str, object] = {
+        "input_per_million": 1,
+        "output_per_million": 2,
+        "cache_read_per_million": 4,
+        "cache_write_per_million": 5,
+        **overrides,
+    }
+    return AgentTokenPricing(**values)  # type: ignore[arg-type]
 
 
 def _sample(**usage: object) -> AgentProviderUsageSample:
@@ -71,43 +80,57 @@ def test_provider_usage_sample_preserves_mapping_coercion_and_effective_total() 
 
 
 def test_token_pricing_is_normalized_immutable_and_has_zero_cache_defaults() -> None:
-    pricing = AgentTokenPricing(
-        input_per_million=1,
-        output_per_million=2.5,
-        reasoning_per_million=3,
-    )
+    pricing = AgentTokenPricing(input_per_million=1, output_per_million=2.5)
 
-    assert pricing == AgentTokenPricing(1.0, 2.5, 3.0, 0.0, 0.0)
+    assert pricing == AgentTokenPricing(1.0, 2.5, 0.0, 0.0, ())
     assert all(
-        isinstance(value, float)
-        for value in (
-            pricing.input_per_million,
-            pricing.output_per_million,
-            pricing.reasoning_per_million,
-            pricing.cache_read_per_million,
-            pricing.cache_write_per_million,
-        )
+        isinstance(getattr(pricing, field_name), float) for field_name in _RATE_FIELDS
     )
+    assert pricing.tiers == ()
+    assert "reasoning_per_million" not in AgentTokenPricing.__dataclass_fields__
     with pytest.raises(FrozenInstanceError):
         setattr(pricing, "input_per_million", 99.0)
 
 
-@pytest.mark.parametrize("field_name", AgentTokenPricing.__dataclass_fields__)
+@pytest.mark.parametrize("field_name", _RATE_FIELDS)
 @pytest.mark.parametrize("invalid", [True, "1"])
 def test_token_pricing_rejects_non_numeric_fields(
     field_name: str, invalid: object
 ) -> None:
     with pytest.raises(TypeError, match="must be numeric"):
-        replace(_pricing(), **{field_name: cast(float, invalid)})
+        _pricing(**{field_name: invalid})
+    with pytest.raises(TypeError, match="must be numeric"):
+        replace(_tier(), **{field_name: cast(float, invalid)})
 
 
-@pytest.mark.parametrize("field_name", AgentTokenPricing.__dataclass_fields__)
+@pytest.mark.parametrize("field_name", _RATE_FIELDS)
 @pytest.mark.parametrize("invalid", [-0.1, float("nan"), float("inf")])
 def test_token_pricing_rejects_negative_or_nonfinite_fields(
     field_name: str, invalid: float
 ) -> None:
     with pytest.raises(ValueError, match="finite and nonnegative"):
-        replace(_pricing(), **{field_name: invalid})
+        _pricing(**{field_name: invalid})
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        replace(_tier(), **{field_name: invalid})
+
+
+def test_token_pricing_tiers_must_be_a_tuple_of_tiers() -> None:
+    with pytest.raises(TypeError, match="tuple of AgentTokenPricingTier"):
+        _pricing(tiers=[_tier()])
+    with pytest.raises(TypeError, match="tuple of AgentTokenPricingTier"):
+        _pricing(tiers=({"input_tokens_above": 1},))
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        replace(_tier(), input_tokens_above=-1)
+
+
+def _tier(above: float = 100, input_rate: float = 10) -> AgentTokenPricingTier:
+    return AgentTokenPricingTier(
+        input_tokens_above=above,
+        input_per_million=input_rate,
+        output_per_million=20,
+        cache_read_per_million=40,
+        cache_write_per_million=50,
+    )
 
 
 def test_usage_coercion_accepts_int_and_float_but_not_bool_or_non_number() -> None:
@@ -242,20 +265,124 @@ def test_separate_cache_counters_use_anthropic_style_denominator(
 
 
 def test_injected_token_pricing_accumulates_each_counter_cost() -> None:
+    """Anthropic-style sample: cache counters sit beside input in the total."""
+
     usage = AgentUsageAccumulator(pricing=_pricing())
 
     usage.absorb(
         _sample(
             input_tokens=1_000_000,
             output_tokens=1_000_000,
-            reasoning_tokens=1_000_000,
             cached_tokens=1_000_000,
             cache_write_tokens=1_000_000,
+            total_tokens=4_000_000,
         )
     )
 
-    assert usage.cost_usd == 15.0
-    assert usage.agent_usage().cost_usd == 15.0
+    # 1 input + 2 output + 4 cache read + 5 cache write.
+    assert usage.cost_usd == 12.0
+    assert usage.agent_usage().cost_usd == 12.0
+    assert usage.uncached_input_tokens == 1_000_000
+
+
+def test_inclusive_cache_counters_are_not_charged_twice() -> None:
+    """OpenAI-style sample: input_tokens already contains the cache counters.
+
+    Pi subtracts cache reads and writes from input before pricing
+    (``openai-responses-shared.ts``); reasoning is part of output and has no
+    rate of its own.
+    """
+
+    usage = AgentUsageAccumulator(pricing=_pricing())
+
+    usage.absorb(
+        _sample(
+            input_tokens=3_000_000,
+            output_tokens=1_000_000,
+            reasoning_tokens=600_000,
+            cached_tokens=1_500_000,
+            cache_write_tokens=500_000,
+            total_tokens=4_000_000,
+        )
+    )
+
+    assert usage.uncached_input_tokens == 1_000_000
+    # 1M uncached * 1 + 1M output * 2 + 1.5M read * 4 + 0.5M write * 5.
+    assert usage.cost_usd == pytest.approx(1.0 + 2.0 + 6.0 + 2.5)
+
+
+def test_separate_cache_sample_with_reasoning_stays_separate() -> None:
+    """Reasoning is inside output, so it must not push a sample to inclusive."""
+
+    usage = AgentUsageAccumulator(pricing=_pricing())
+
+    usage.absorb(
+        _sample(
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+            reasoning_tokens=500_000,
+            cached_tokens=1_000_000,
+            total_tokens=3_000_000,
+        )
+    )
+
+    assert usage.uncached_input_tokens == 1_000_000
+    assert usage.separate_cache_read_tokens == 1_000_000
+    assert usage.cost_usd == pytest.approx(1.0 + 2.0 + 4.0)
+
+
+def test_missing_total_counts_cache_as_inside_input() -> None:
+    usage = AgentUsageAccumulator(pricing=_pricing())
+
+    usage.absorb(_sample(input_tokens=500, output_tokens=0, cached_tokens=800))
+
+    assert usage.uncached_input_tokens == 0
+    assert usage.cost_usd == pytest.approx(800 * 4 / 1_000_000)
+
+
+@pytest.mark.parametrize(
+    ("prompt_tokens", "expected_input_rate"),
+    [(100, 1.0), (101, 10.0), (1_001, 30.0)],
+)
+def test_tiers_price_the_whole_request_at_the_highest_exceeded_threshold(
+    prompt_tokens: int, expected_input_rate: float
+) -> None:
+    """Pi ``calculateCost``: strict ``>`` on input+cacheRead+cacheWrite."""
+
+    pricing = _pricing(tiers=(_tier(1_000, 30), _tier(100, 10)))
+    usage = AgentUsageAccumulator(pricing=pricing)
+    cached = prompt_tokens // 2
+
+    usage.absorb(
+        _sample(
+            input_tokens=prompt_tokens - cached,
+            cached_tokens=cached,
+            total_tokens=prompt_tokens,
+        )
+    )
+
+    read_rate = 4.0 if expected_input_rate == 1.0 else 40.0
+    expected = (
+        (prompt_tokens - cached) * expected_input_rate + cached * read_rate
+    ) / 1_000_000
+    assert usage.cost_usd == pytest.approx(expected)
+
+
+def test_one_hour_cache_writes_use_the_tier_input_rate() -> None:
+    pricing = _pricing(tiers=(_tier(100, 10),))
+    usage = AgentUsageAccumulator(pricing=pricing)
+
+    usage.absorb(
+        AgentProviderUsageSample(
+            input_tokens=50,
+            cache_write_tokens=100,
+            cache_write_1h_tokens=60,
+            total_tokens=150,
+        )
+    )
+
+    # 50 input * 10 + 40 short writes * 50 + 60 long writes * 2 * 10.
+    assert usage.cost_usd == pytest.approx((500 + 2_000 + 1_200) / 1_000_000)
 
 
 def test_reload_values_are_frozen_detached_and_preserve_exact_refresh_usage() -> None:

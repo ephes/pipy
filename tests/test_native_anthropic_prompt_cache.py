@@ -601,7 +601,6 @@ def test_turn_cost_prices_one_hour_writes_at_twice_input() -> None:
     pricing = AgentTokenPricing(
         input_per_million=3.0,
         output_per_million=15.0,
-        reasoning_per_million=15.0,
         cache_read_per_million=0.3,
         cache_write_per_million=3.75,
     )
@@ -611,6 +610,8 @@ def test_turn_cost_prices_one_hour_writes_at_twice_input() -> None:
             input_tokens=1_000_000,
             cache_write_tokens=3_000_000,
             cache_write_1h_tokens=2_000_000,
+            # extract_anthropic_usage synthesizes input + output + cache.
+            total_tokens=4_000_000,
         )
     )
     # Pi calculateCost: 1M input at 3 + 1M short write at 3.75 + 2M 1h write

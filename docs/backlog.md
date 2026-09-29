@@ -295,6 +295,43 @@ only.
   still run by hand. Wiring them into pytest or CI stays out of scope by owner
   decision.
 
+### 11. COST1 — Catalog-cost pricing for every model (done 2026-09-29)
+
+Landed on branch `feat/cost1-catalog-pricing`. Session cost now follows Pi
+`4df157433` `calculateCost`. The plan is in
+`docs/specs/2026-09-29-cost1-catalog-pricing-plan.md` and the user docs in
+`docs/providers.md` (Session cost).
+
+- `PRICING_TABLE` is gone. Each turn is priced from the resolved row, built-in
+  or `models.json` (overrides, custom models, `cost.tiers`). The price covers
+  uncached input, output with reasoning inside it, cache reads and writes, and
+  1h writes at twice the input rate. Request-wide tiers use the highest
+  threshold the prompt exceeds.
+- The old table charged cached input at the full rate and reasoning twice.
+  Gemini, Chat Completions, Mistral and Responses now report the cache and
+  thinking counters Pi prices.
+- The footer shows `$0.123`, nothing at zero, and `$0.123 (sub)` on a
+  subscription login (Codex, Anthropic or Copilot OAuth, or an extension OAuth
+  provider with `is_subscription`). `(api)` is gone. RPC `get_session_stats`
+  reports Pi's `tokens` and `cost` instead of zeros.
+- Live: a tmux PTY and `--mode rpc` against a local Chat Completions stub
+  (isolated `models.json`, 2k uncached, 10k cached, 800 output) showed `$0.021`
+  and `cost: 0.021`, as computed. One openai-codex gpt-6-sol turn showed
+  `$0.009 (sub)`, which is Pi's rule for a subscription. The fake provider
+  reports no usage, so its footer shows no cost, as Pi's does at zero.
+
+Deviations kept as follow-ons, not queued separately yet:
+
+- **USAGE1:** per-message usage in JSON/RPC messages and the session tree,
+  resumed-session totals, Pi's `/session` Cost section, and totals that survive
+  a model switch (pipy's model switch resets usage by contract).
+- Built-in rows carry no tiers until MC5 syncs them. Until then Codex gpt-5.5
+  above 272k input is priced at base rates.
+- Extension provider rows carry no cost. Pi service-tier pricing and Anthropic
+  fallback-model pricing are absent because pipy lacks both features.
+- `models.json` rejects negative or non-finite cost numbers at load. Pi's
+  schema accepts any number.
+
 ## Deferred and watch list
 
 Revisit these when an active item needs them or the Pi surface stabilizes.

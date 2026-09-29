@@ -953,6 +953,9 @@ class ExtensionOAuthConfig:
     refresh_token: Callable[..., object]
     get_api_key: Callable[..., object]
     modify_models: Callable[..., object] | None = None
+    # Pi ``oauth.isSubscription``: access through this login is subscription
+    # backed, so the footer marks its cost ``(sub)``.
+    is_subscription: bool = False
 
 
 @dataclass(frozen=True, slots=True)

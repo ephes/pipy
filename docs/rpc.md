@@ -66,7 +66,10 @@ Recognized command names do not imply implemented behavior:
   model cycling when effective, and model/thinking no-ops emit no event. An
   injected provider remains a static singleton with `off` thinking.
 - `get_commands` returns an empty command list. `get_session_stats` counts
-  messages and tool calls/results, but token totals and cost are zero placeholders.
+  messages and tool calls/results and reports the live session's Pi-shaped
+  `tokens` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `total`) and
+  catalog-priced `cost`. Those totals restart at a model switch and are not
+  restored for a resumed session (Pi sums persisted per-message usage).
 - The extension-UI channel is unwired: no `extension_ui_request` is emitted,
   and received `extension_ui_response` lines are accepted and ignored.
 - Direct RPC `bash` has a fresh private cancellation event per accepted

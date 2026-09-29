@@ -8,7 +8,11 @@ from types import MappingProxyType
 
 import pytest
 
-from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
+from pipy_harness.native.catalog import (
+    NativeModelCost,
+    NativeModelCostTier,
+    NativeModelSpec,
+)
 from pipy_harness.native.models_json import (
     ModelCatalog,
     ModelDefinition,
@@ -16,6 +20,7 @@ from pipy_harness.native.models_json import (
     ModelsConfig,
     ProviderConfig,
     ProviderRequestConfig,
+    _apply_model_override,
     default_models_json_path,
     strip_json_comments,
 )
@@ -216,6 +221,131 @@ def test_per_model_override_explicit_zero_cost_wins(tmp_path):
     assert row.cost.input == 0.0
     # untouched field falls back to built-in
     assert row.cost.output == 25.0
+
+
+_TIER = {
+    "inputTokensAbove": 200000,
+    "input": 10,
+    "output": 40,
+    "cacheRead": 1,
+    "cacheWrite": 12.5,
+}
+
+
+def test_custom_model_cost_tiers_parse(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "custom": {
+                    "baseUrl": "https://example.invalid/v1",
+                    "api": "openai-completions",
+                    "apiKey": "k",
+                    "models": [
+                        {
+                            "id": "m",
+                            "cost": {
+                                "input": 1,
+                                "output": 2,
+                                "cacheRead": 0.1,
+                                "cacheWrite": 1.25,
+                                "tiers": [_TIER],
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is None
+    row = catalog.find("custom", "m")
+    assert row is not None
+    assert row.cost == NativeModelCost(
+        input=1,
+        output=2,
+        cache_read=0.1,
+        cache_write=1.25,
+        tiers=(NativeModelCostTier(200000, 10, 40, 1, 12.5),),
+    )
+
+
+def test_override_cost_tiers_replace_row_tiers_wholesale():
+    row = NativeModelSpec(
+        "p",
+        "m",
+        "m",
+        "api",
+        cost=NativeModelCost(
+            input=1, tiers=(NativeModelCostTier(100, 2), NativeModelCostTier(200, 3))
+        ),
+    )
+    replaced = _apply_model_override(
+        row,
+        ModelOverride(cost={}, cost_tiers=(NativeModelCostTier(300, 9, 9, 9, 9),)),
+    )
+    assert replaced.cost.tiers == (NativeModelCostTier(300, 9, 9, 9, 9),)
+    kept = _apply_model_override(row, ModelOverride(cost={"input": 5.0}))
+    assert kept.cost.input == 5.0
+    assert kept.cost.tiers == row.cost.tiers
+    cleared = _apply_model_override(row, ModelOverride(cost={}, cost_tiers=()))
+    assert cleared.cost.tiers == ()
+
+
+@pytest.mark.parametrize(
+    ("tiers", "message"),
+    [
+        ("nope", "cost.tiers: expected array"),
+        (["nope"], "cost.tiers.0: expected object"),
+        (
+            [{**_TIER, "cacheWrite": "x"}],
+            "cost.tiers.0.cacheWrite: expected finite nonnegative number",
+        ),
+        ([{**_TIER, "output": -1}], "cost.tiers.0.output: expected finite"),
+        ([{**_TIER, "inputTokensAbove": -5}], "cost.tiers.0.inputTokensAbove"),
+        (
+            [{k: v for k, v in _TIER.items() if k != "inputTokensAbove"}],
+            "inputTokensAbove",
+        ),
+    ],
+)
+def test_invalid_cost_tiers_are_reported(tmp_path, tiers, message):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "modelOverrides": {"claude-opus-4-7": {"cost": {"tiers": tiers}}}
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert message in catalog.error
+
+
+@pytest.mark.parametrize("bad", [-1, 10**400, "NaN", "Infinity"])
+def test_unpriceable_cost_rates_fail_at_load_not_at_selection(tmp_path, bad):
+    path = tmp_path / "models.json"
+    rate = bad if isinstance(bad, int) else f"__{bad}__"
+    _write(
+        path,
+        json.dumps(
+            {
+                "providers": {
+                    "anthropic": {
+                        "modelOverrides": {"claude-opus-4-7": {"cost": {"input": rate}}}
+                    }
+                }
+            }
+        ).replace(f'"__{bad}__"', str(bad)),
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert "cost.input: expected finite nonnegative number" in catalog.error
 
 
 def test_provider_level_baseurl_override_applies_to_builtins(tmp_path):
@@ -647,7 +777,7 @@ def test_model_cost_and_refresh_fields_are_complete_and_immutable(tmp_path):
     # fmt: off
     expected_fields = (
         (ModelDefinition, "id name api base_url reasoning thinking_level_map input cost context_window max_tokens headers compat"),
-        (ModelOverride, "name reasoning thinking_level_map input cost context_window max_tokens headers compat"),
+        (ModelOverride, "name reasoning thinking_level_map input cost cost_tiers context_window max_tokens headers compat"),
         (ProviderConfig, "name base_url api_key api headers auth_header compat models model_overrides"),
         (ProviderRequestConfig, "api_key headers auth_header"),
         (ModelsConfig, "providers"),

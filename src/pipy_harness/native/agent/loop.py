@@ -76,6 +76,7 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentTokenPricing,
+    AgentTokenPricingTier,
     AgentUsageAccumulator,
 )
 from pipy_harness.native.models import ProviderResult, ProviderToolCall
@@ -986,9 +987,18 @@ def _revalidate_pricing(pricing: AgentTokenPricing) -> None:
     AgentTokenPricing(
         input_per_million=pricing.input_per_million,
         output_per_million=pricing.output_per_million,
-        reasoning_per_million=pricing.reasoning_per_million,
         cache_read_per_million=pricing.cache_read_per_million,
         cache_write_per_million=pricing.cache_write_per_million,
+        tiers=tuple(
+            AgentTokenPricingTier(
+                input_tokens_above=tier.input_tokens_above,
+                input_per_million=tier.input_per_million,
+                output_per_million=tier.output_per_million,
+                cache_read_per_million=tier.cache_read_per_million,
+                cache_write_per_million=tier.cache_write_per_million,
+            )
+            for tier in pricing.tiers
+        ),
     )
 
 

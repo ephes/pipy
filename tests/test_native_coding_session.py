@@ -255,8 +255,10 @@ def _capture_usage_construction(
             super().__init__(pricing)
             constructed.append(self)
 
-    def record_pricing(provider_name: str, model_id: str) -> AgentTokenPricing | None:
-        pricing = original_pricing_for(provider_name, model_id)
+    def record_pricing(
+        provider_state: object, provider_name: str, model_id: str
+    ) -> AgentTokenPricing | None:
+        pricing = original_pricing_for(provider_state, provider_name, model_id)
         pricing_lookups.append((provider_name, model_id, pricing))
         return pricing
 
@@ -524,7 +526,9 @@ def test_footer_paths_read_constant_time_state_scalars(
         tool_invocation_count=state.tool_invocation_count,
     )
 
-    assert footer.startswith(f"{tmp_path}\n$0.000 (api)")
+    # Pi footer: no cost segment at zero cost without a subscription.
+    assert footer.startswith(f"{tmp_path}\n0.0%/")
+    assert "$" not in footer and "(api)" not in footer
     # Pi footer: a non-reasoning row carries no thinking segment.
     assert footer.endswith("(fake) fake-native-bootstrap")
     assert " • " not in footer
@@ -1147,9 +1151,21 @@ def test_canonical_usage_order_and_scope_cover_success_and_provider_failure(
     )
 
 
-@pytest.mark.parametrize("model_id", ["gpt-5", "gpt-5.6-sol"])
+@pytest.mark.parametrize(
+    ("model_id", "expected_cost"),
+    [
+        # Catalog rows: 10 input + 2 output (reasoning is part of output).
+        ("gpt-5.6-sol", (10 * 4.0 + 2 * 20.0) / 1_000_000),
+        ("gpt-6-sol", (10 * 2.0 + 2 * 10.0) / 1_000_000),
+        # No catalog row: priced at zero, as with no Pi model cost.
+        ("gpt-5", 0.0),
+    ],
+)
 def test_product_pricing_lookup_is_injected_into_session_and_run_usage(
-    model_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    model_id: str,
+    expected_cost: float,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
     usage = {
@@ -1179,10 +1195,13 @@ def test_product_pricing_lookup_is_injected_into_session_and_run_usage(
     ]
     assert len(constructed) == 2
     assert constructed[0] is not constructed[1]
-    assert all(pricing is not None for _, _, pricing in pricing_lookups)
+    assert all(
+        (pricing is not None) is (expected_cost > 0)
+        for _, _, pricing in pricing_lookups
+    )
     assert [accumulator.agent_usage().cost_usd for accumulator in constructed] == [
-        pytest.approx(0.0000425),
-        pytest.approx(0.0000425),
+        pytest.approx(expected_cost),
+        pytest.approx(expected_cost),
     ]
 
 

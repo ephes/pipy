@@ -38,6 +38,8 @@ from pipy_harness.native.providers.openai_responses_wire import (
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
+    # Pi ``openai-responses-shared.ts``: ``input_tokens_details.cache_write_tokens``.
+    ("input_tokens_details", "cache_write_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
 )
 

@@ -272,7 +272,11 @@ def apply_startup_provider_projection(
                     provider_name=fallback.provider_name,
                     model_id=fallback.model_id,
                     usage_accumulator=AgentUsageAccumulator(
-                        pricing_for(fallback.provider_name, fallback.model_id)
+                        pricing_for(
+                            provider_state,
+                            fallback.provider_name,
+                            fallback.model_id,
+                        )
                     ),
                 )
                 print(

@@ -28,16 +28,12 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
     chat_messages,
+    extract_chat_completions_usage,
     parse_response,
 )
 
 CLOUDFLARE_CHAT_COMPLETIONS_URL_TEMPLATE = (
     "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
-)
-CLOUDFLARE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("prompt_tokens", "input_tokens"),
-    ("completion_tokens", "output_tokens"),
-    ("total_tokens", "total_tokens"),
 )
 
 
@@ -220,7 +216,7 @@ class CloudflareWorkersAIProvider:
                 parse_error_class=CloudflareResponseParseError,
                 response_label="Cloudflare Workers AI",
                 tool_call_provider_prefix="cloudflare",
-                usage_fields=CLOUDFLARE_USAGE_FIELDS,
+                extract_usage=extract_chat_completions_usage,
             )
         except CloudflareProviderError as exc:
             return failed_provider_result(
