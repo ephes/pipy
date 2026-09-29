@@ -1144,6 +1144,7 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
     assert TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS == (
         "/hotkeys",
         "/model",
+        "/thinking",
         "/scoped-models",
         "/settings",
         "/trust",
@@ -1231,10 +1232,10 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Sixteen commands match the bare "/" prefix but the menu windows to the
+    # Seventeen commands match the bare "/" prefix but the menu windows to the
     # autocompleteMaxVisible default (5) rows, so a scroll indicator appears and
     # /logout scrolls behind the "… N more" tail.
-    assert "(1/16)" in rendered
+    assert "(1/17)" in rendered
     assert "  logout" not in rendered
 
 
@@ -1248,8 +1249,8 @@ def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ]
     assert len(menu_rows) == 3
     rendered = "\n".join(line.text for line in frame)
-    # 16 commands match, only 3 shown -> overflow indicator present.
-    assert "(1/16)" in rendered
+    # 17 commands match, only 3 shown -> overflow indicator present.
+    assert "(1/17)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):

@@ -255,6 +255,13 @@ _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (
         description="Select provider/model",
     ),
     BuiltinCommandSpec(
+        "/thinking",
+        BuiltinCommandKind.ACTION,
+        BuiltinArgumentContract.OPTIONAL_ARG,
+        CodingCommandAction.THINKING,
+        description="Set thinking level",
+    ),
+    BuiltinCommandSpec(
         "/scoped-models",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,

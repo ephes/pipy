@@ -97,6 +97,7 @@ APP_KEYBINDINGS: dict[str, KeybindingDefault] = {
     "app.exit": _kb("ctrl+d", "Exit when editor is empty"),
     "app.suspend": _kb("ctrl+z", "Suspend to background"),
     "app.thinking.cycle": _kb("shift+tab", "Cycle thinking level"),
+    "app.thinking.save": _kb("ctrl+s", "Save thinking level"),
     "app.model.cycleForward": _kb("ctrl+p", "Cycle to next model"),
     "app.model.cycleBackward": _kb("shift+ctrl+p", "Cycle to previous model"),
     "app.model.select": _kb("ctrl+l", "Open model selector"),

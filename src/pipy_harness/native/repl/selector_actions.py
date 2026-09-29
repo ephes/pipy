@@ -13,6 +13,7 @@ see why a model is not offered rather than wondering where it went.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
@@ -31,6 +32,7 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.scoped_models import filter_scoped_references
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.startup_selectors import run_project_trust_selector
+from pipy_harness.native.thinking import THINKING_LEVEL_DESCRIPTIONS
 from pipy_harness.native.tui import TerminalUi
 
 
@@ -80,6 +82,37 @@ def handle_trust_command(
         f"{'trusted' if selected.trusted else 'untrusted'}. "
         "Restart pipy for this to take effect."
     )
+
+
+def thinking_selector_rows(
+    levels: Sequence[str],
+    *,
+    current_level: str | None,
+    default_level: str,
+) -> tuple[list[ModelSelectorOption], int]:
+    """Rows for Pi's ``/thinking`` selector and the preselected index.
+
+    One row per level the model offers, in Pi's order: ``✓ <level>`` marks the
+    current level, the description comes from Pi's ``LEVEL_DESCRIPTIONS``, and
+    the settings default carries `` · default``. The current level (an unset
+    level counts as ``off``) is preselected, else the first row.
+    """
+
+    current = current_level or "off"
+    rows: list[ModelSelectorOption] = []
+    for level in levels:
+        marker = "✓ " if level == current else "  "
+        description = THINKING_LEVEL_DESCRIPTIONS.get(level, "")
+        if level == default_level:
+            description = f"{description} · default"
+        rows.append(
+            ModelSelectorOption(
+                label=f"{marker}{level:<10} {description}".rstrip(),
+                selectable=True,
+            )
+        )
+    index = list(levels).index(current) if current in levels else 0
+    return rows, index
 
 
 def open_scoped_models_overlay(

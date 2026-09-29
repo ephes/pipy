@@ -1,7 +1,7 @@
 """Provider, model, auth and view configuration: the commands that change setup.
 
-`/model`, `/scoped-models`, `/login`, `/logout`, `/settings`, `/trust`,
-`/hotkeys`, `/changelog`, `/copy`. What unites them is what they do *not* do:
+`/model`, `/thinking`, `/scoped-models`, `/login`, `/logout`, `/settings`,
+`/trust`, `/hotkeys`, `/changelog`, `/copy`. What unites them is what they do *not* do:
 none runs a provider or tool turn. They change what the next turn will use, or
 they report the current setup, and then the loop continues.
 
@@ -34,6 +34,7 @@ from pipy_harness.native.repl.selector_actions import (
     handle_trust_command,
     model_selector_rows,
     open_scoped_models_overlay,
+    thinking_selector_rows,
 )
 from pipy_harness.native.repl.settings_actions import (
     drive_settings_dialog,
@@ -45,6 +46,7 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.thinking import DEFAULT_THINKING_LEVEL
 from pipy_harness.native.tui import TerminalUi
 
 
@@ -100,6 +102,7 @@ class ProviderConfigurationCommandEffects:
             CodingCommandAction.SETTINGS: self._settings,
             CodingCommandAction.TRUST_PROJECT: self._trust_project,
             CodingCommandAction.MODEL: self._model,
+            CodingCommandAction.THINKING: self._thinking,
             CodingCommandAction.SCOPED_MODELS: self._scoped_models,
             CodingCommandAction.LOGIN: self._auth,
             CodingCommandAction.LOGOUT: self._auth,
@@ -228,6 +231,88 @@ class ProviderConfigurationCommandEffects:
                 provider_state=self.provider_state,
             ):
                 print(overlay_line, file=self.error_stream)
+
+    def _notice(self, message: str) -> None:
+        emit_diagnostic(
+            self.terminal_ui.components.transcript
+            if self.terminal_ui is not None
+            else None,
+            self.error_stream,
+            message,
+        )
+
+    def _thinking(self, command_outcome: CodingCommandOutcome) -> None:
+        """Pi ``/thinking``: a session-scoped level, or the selector.
+
+        ``/thinking <level>`` matches the model's available levels
+        case-insensitively (Pi ``handleThinkingCommand``); a bare ``/thinking``
+        opens the selector, where Enter applies the level for this session and
+        ``app.thinking.save`` also saves it as ``defaultThinkingLevel``.
+        Without a TUI the bare command lists the levels instead.
+        """
+
+        argument = self._argument(command_outcome)
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            self._notice("pipy: /thinking is unavailable for this REPL provider state.")
+            return
+        levels = state.current_thinking_levels()
+        if argument:
+            normalized = argument.strip().lower()
+            level = next(
+                (candidate for candidate in levels if candidate.lower() == normalized),
+                None,
+            )
+            if level is None:
+                self._notice(
+                    f'pipy: Unknown thinking level "{argument}". '
+                    f"Available levels: {', '.join(levels)}."
+                )
+                return
+            self._select_thinking_level(level, persist=False)
+            return
+        current = state.current_thinking_level()
+        if self.terminal_ui is None:
+            self._notice(
+                f"pipy: thinking level: {current or 'off'} "
+                f"(available: {', '.join(levels)})"
+            )
+            return
+        rows, current_index = thinking_selector_rows(
+            levels,
+            current_level=current,
+            default_level=(
+                self.settings.get_default_thinking_level() or DEFAULT_THINKING_LEVEL
+            ),
+        )
+        chosen = self.terminal_ui.components.modals.run_thinking_selector(
+            rows, current_index=current_index
+        )
+        if chosen is None or chosen.index is None:
+            return
+        self._select_thinking_level(levels[chosen.index], persist=chosen.save)
+
+    def _select_thinking_level(self, level: str, *, persist: bool) -> None:
+        """Pi ``selectThinkingLevel``: apply for the session, then persist."""
+
+        result = self.provider_mutation.set_thinking_level(level)
+        if not result.success:
+            self._notice(
+                "pipy: thinking level unchanged "
+                f"({result.diagnostic or 'unknown error'})."
+            )
+            return
+        if not persist:
+            self._notice(f"pipy: thinking level: {level}")
+            return
+        try:
+            self.settings.set_value("defaultThinkingLevel", level)
+        except RuntimeError as exc:
+            self._notice(
+                f"pipy: thinking level: {level} (could not save default: {exc})"
+            )
+            return
+        self._notice(f"pipy: default thinking level: {level}")
 
     def _scoped_models(self, command_outcome: CodingCommandOutcome) -> None:
         # Local-only: view/set/clear the enabledModels patterns constraining

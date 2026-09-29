@@ -79,7 +79,7 @@ _NativeSessionControl = _input_queue._NativeSessionControl
 
 _NOT_HANDLED_COMMAND_NOTICE = (
     "supported local commands are /hotkeys, /reload, "
-    "/changelog, /model, /scoped-models, /settings, /trust, "
+    "/changelog, /model, /thinking, /scoped-models, /settings, /trust, "
     "/login, /logout, /copy, /compact, /export, /import, "
     "/share, /session, /name, "
     "/new, /tree, /resume, /fork, /clone, /skill, "

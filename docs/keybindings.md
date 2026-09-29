@@ -91,6 +91,7 @@ shortcut (`app.message.followUp`), not the configurable newline action.
 | `app.tools.expand` | `ctrl+o` | Toggle tool output |
 | `app.thinking.toggle` | `ctrl+t` | Toggle thinking blocks |
 | `app.thinking.cycle` | `shift+tab` | Cycle thinking level |
+| `app.thinking.save` | `ctrl+s` | In the `/thinking` selector: apply the level and save it as `defaultThinkingLevel` |
 | `app.message.followUp` | `alt+enter` | Queue follow-up message |
 | `app.message.dequeue` | `alt+up` | Restore queued messages |
 

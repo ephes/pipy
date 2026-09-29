@@ -22,14 +22,21 @@ from dataclasses import dataclass
 
 from pipy_harness.native.frame_renderer import FrameLine, clip_text
 from pipy_harness.native.overlay_state import ModelSelectorOption, OverlayState
+from pipy_harness.native.ui.key_specs import matches_key_specs
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 
 @dataclass(frozen=True, slots=True)
 class ModelSelectorClose:
-    """The selector finished: ``index`` is the chosen row, ``None`` a cancel."""
+    """The selector finished: ``index`` is the chosen row, ``None`` a cancel.
+
+    ``save`` is ``True`` when the row was chosen with one of the component's
+    ``save_keys`` (the thinking selector's ``app.thinking.save``) rather than
+    Enter.
+    """
 
     index: int | None
+    save: bool = False
 
 
 class ModelSelectorComponent:
@@ -40,10 +47,13 @@ class ModelSelectorComponent:
         overlays: OverlayState,
         paint_lock: PaintLock,
         repaint: Callable[[], None],
+        *,
+        save_keys: Sequence[str] = (),
     ) -> None:
         self._overlays = overlays
         self._paint_lock = paint_lock
         self._repaint = repaint
+        self._save_keys = tuple(save_keys)
 
     def open(
         self,
@@ -51,12 +61,13 @@ class ModelSelectorComponent:
         *,
         current_index: int,
         title: str | None,
+        hint: str | None = None,
     ) -> bool:
         """Activate the overlay over ``options``; ``False`` on an empty pool."""
 
         with self._paint_lock:
             opened = self._overlays.begin_model(
-                options, current_index=current_index, title=title
+                options, current_index=current_index, title=title, hint=hint
             )
         if opened:
             self._repaint()
@@ -67,9 +78,19 @@ class ModelSelectorComponent:
 
         ``None``/``esc``/``ctrl-c``/``ctrl-d`` cancel, up/down move the
         highlight (wrapping), and ``enter`` chooses the highlighted row when it
-        is selectable. Every other key is ignored and leaves the overlay open.
+        is selectable; a key matching ``save_keys`` (checked first) chooses
+        it with ``save=True``. Every other key is ignored and leaves the overlay open.
         """
 
+        # The save binding wins over every other key, as in Pi's
+        # ``ThinkingSelectorComponent.handleInput``, so a user who rebinds
+        # ``app.thinking.save`` onto Enter or Esc still gets the save action.
+        if (
+            key is not None
+            and self._save_keys
+            and matches_key_specs(key, self._save_keys)
+        ):
+            return self._select(save=True)
         if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
             self._close()
             return ModelSelectorClose(None)
@@ -86,12 +107,12 @@ class ModelSelectorComponent:
         if moved:
             self._repaint()
 
-    def _select(self) -> ModelSelectorClose | None:
+    def _select(self, *, save: bool = False) -> ModelSelectorClose | None:
         index = self._overlays.model_selection
         if not self._overlays.model_options[index].selectable:
             return None
         self._close()
-        return ModelSelectorClose(index)
+        return ModelSelectorClose(index, save=save)
 
     def _close(self) -> None:
         with self._paint_lock:
@@ -120,11 +141,9 @@ def model_selector_region_lines(
         FrameLine(clip_text(footer_lines[1], width), "footer"),
     ]
     heading = overlays.model_title or "Select provider/model"
+    hint = overlays.model_hint or "↑/↓ move · enter select · esc cancel"
     title = FrameLine(
-        clip_text(
-            f" {heading} — ↑/↓ move · enter select · esc cancel",
-            width,
-        ),
+        clip_text(f" {heading} — {hint}", width),
         "selector_title",
     )
     # Reserve the title, the two footer rows, and one row for the optional

@@ -23,7 +23,7 @@ from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsMana
 # Actions a user may rebind through settings. Every other action resolves from
 # `DEFAULT_KEYBINDINGS` alone, so an unrecognized user binding cannot silently
 # take over a key the product owns.
-USER_KEYBINDING_ACTIONS = frozenset({"app.editor.external"})
+USER_KEYBINDING_ACTIONS = frozenset({"app.editor.external", "app.thinking.save"})
 
 
 def canonical_key_spec(key: str) -> str:

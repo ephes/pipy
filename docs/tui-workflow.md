@@ -442,6 +442,37 @@ local status, and appends the `thinking_level_change` entry. Models without
 reasoning support report "does not support thinking" and the level stays `off`.
 The hotkey runs no provider turn; the new level applies to the next turn.
 
+**Pipy behavior (UX1, Pi `4df157433`)**: Shift+Tab, the `/settings` "cycle
+thinking level" row, `/thinking` and RPC `set_thinking_level` all go through one
+mutation path (`ProviderMutationEffects._set_thinking_level`). It builds the
+replacement provider with the new level off-lock, publishes the level and the
+provider together, and appends `thinking_level_change` only when the level
+changes. Before UX1 the Shift+Tab and `/settings` cycle changed only the level
+and the footer, and the next request still sent the effort the provider was
+built with. Committed levels are appended in commit order, including a level
+clamped by an RPC model switch.
+
+`/thinking` follows Pi's `handleThinkingCommand`:
+
+- `/thinking <level>` matches the model's available levels case-insensitively
+  and applies the level for this session only. An unknown level reports
+  `Unknown thinking level "<x>". Available levels: …`.
+- A bare `/thinking` opens the Thinking Level selector. It lists only the levels
+  the model's thinking map offers, each with Pi's description, marks the current
+  level with `✓` and the settings default with `· default`, and preselects the
+  current level. Enter applies the level for the session. `app.thinking.save`
+  (default Ctrl+S, rebindable in `keybindings.json`) applies it and then saves it
+  as `defaultThinkingLevel`. Esc cancels.
+- Without the TUI, a bare `/thinking` prints the current and available levels.
+
+The footer shows the thinking segment as Pi does (`footer.ts`). A reasoning
+model shows `• <level>`, or `• thinking off` when the level is off or unset. A
+non-reasoning model shows no segment. The old hard-coded `high`/`default`
+labels are gone.
+
+Deviations: the selector has no fuzzy search box, and `/thinking` has no
+argument completion. Pipy's selectors and slash commands have neither yet.
+
 ## Output/Thinking Folding (Ctrl+T) And Tool-Output Expansion (Ctrl+O)
 
 **Pi behavior**: `Ctrl+O` (`app.tools.expand`) toggles tool-output expansion —

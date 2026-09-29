@@ -155,8 +155,8 @@ remain Pi-class surfaces that pipy has not yet closed:
   shortcuts, `Shift+Tab` thinking-level and `Ctrl+P`/`Shift+Ctrl+P` model
   cycling, `Ctrl+O`/`Ctrl+T` tool-output/thinking folding, queued
   steering/follow-up during active turns, true provider-request cancellation,
-  the `/scoped-models` + `/hotkeys` overlays and new `/settings` rows, and the
-  terminal-native mouse-selection invariant (the renderer never enables xterm
+  the `/scoped-models` + `/hotkeys` overlays and new `/settings` rows, the
+  `/thinking` command and selector (UX1), and the terminal-native mouse-selection invariant (the renderer never enables xterm
   mouse tracking). Prompt history recall, bracketed paste, undo/redo, resize
   handling, the interactive `/settings` control dialog, and optional persistent
   cross-session prompt history shipped earlier. Remaining UI work is a fuller

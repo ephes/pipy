@@ -34,6 +34,10 @@ from pipy_harness.native.overlay_state import (
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl.provider_selection import (
+    RpcConfigurationResult,
+    RpcConfigurationSnapshot,
+)
 from pipy_harness.native.repl.settings_actions import drive_settings_dialog
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -270,11 +274,22 @@ class _RecordingReplState(NativeReplProviderState):
 
 def _cycle_thinking(
     state: NativeReplProviderState, tree: NativeSessionTree
-) -> str | None:
-    level = state.cycle_thinking_level()
-    if level is not None:
-        tree.append_thinking_level_change(level)
-    return level
+) -> RpcConfigurationResult | None:
+    """Stand-in for ``ProviderMutationEffects.cycle_thinking_level``."""
+
+    from pipy_harness.native.thinking import next_thinking_level
+
+    selection = state.current_selection()
+    if not state.supports_thinking(selection):
+        return None
+    level = next_thinking_level(
+        state.current_thinking_levels(), state.current_thinking_level()
+    )
+    state.assign_thinking_level(level)
+    tree.append_thinking_level_change(level)
+    return RpcConfigurationResult(
+        True, RpcConfigurationSnapshot(selection, level), thinking_changed=True
+    )
 
 
 def _native_state(
