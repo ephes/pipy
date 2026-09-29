@@ -39,6 +39,10 @@ check: lint format-check typecheck test
 parity-score:
     bash scripts/parity_score.sh
 
+# Report built-in catalog drift from Pi's generated catalog (manual; needs pi-mono model data).
+catalog-drift *args:
+    uv run python scripts/catalog_drift.py {{args}}
+
 # Run one bounded unattended parity-loop batch and curate a slice report on success.
 parity-run label="":
     label="{{label}}"; [ -n "$label" ] || label="$(date -u +%Y-%m-%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --run-label "$label" --write-report --curate-report

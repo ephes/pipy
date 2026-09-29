@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `just catalog-drift` compares the built-in model catalog with Pi's
+  generated catalog and reports rows or values that differ. This covers
+  context window, max tokens, cost, thinking maps, API family, base URL and the
+  compat flags pipy reads. Intentional differences are listed in
+  `scripts/catalog_drift_allowlist.json`. It is a manual check, not part of
+  `just check`. See `docs/provider-catalog.md` (Catalog drift check).
 - Context files now load the way Pi loads them (Pi `4df157433`). In each
   directory pipy takes the first file that exists from `AGENTS.override.md`,
   `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, then `CLAUDE.MD`. It stops ignoring

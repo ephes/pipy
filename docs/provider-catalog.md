@@ -90,6 +90,52 @@ Known deviations, owned by later slices:
 - **Prompt caching and pricing tiers are not carried.** This covers prompt
   caching metadata, long-context pricing tiers and refusal fallback models.
 
+### Catalog drift check
+
+`catalog_data.py` stays hand-curated. `just catalog-drift` compares it with
+Pi's generated catalog and reports where they differ. It is a manual check and
+is not part of `just check` or CI.
+
+The table stays curated because pipy carries about 70 of Pi's roughly 870 rows
+for the providers it implements, and its rows follow pipy conventions a
+generator would have to re-apply: provider renames, pipy adapter families
+(Bedrock InvokeModel, Mistral Chat Completions, the Cloudflare adapter),
+base-URL conventions, provider-prefixed display names and spelled-out partial
+thinking maps. The plan is `docs/specs/2026-09-29-mc5-catalog-sync-plan.md`.
+
+Pi's catalog JSON is gitignored build output, so generate it first:
+
+```bash
+# in ~/src/pi-mono (writes packages/ai/src/providers/data, the default input)
+npm run hydrate:model-data
+# or, in ~/src/pi-mono/packages/ai
+node scripts/generate-models.ts --strict --json-only --json-output <dir>
+```
+
+Then run `just catalog-drift` from the pipy checkout, adding
+`--pi-data <dir or models.json>` for a `--json-output` directory. `PI_MONO`
+overrides the default `~/src/pi-mono`. `--verbose` also lists every allowlisted
+deviation, and `--json` prints the report as JSON.
+
+- **Compared fields.** For every row both catalogs carry, the check compares
+  `api`, `reasoning`, `input`, `cost`, `contextWindow`, `maxTokens`,
+  `thinkingLevelMap`, `baseUrl`, and every compat key pipy's request
+  construction reads. Display names are not compared.
+- **Thinking maps.** Maps are compared by what each side offers and sends per
+  level. Pi treats an unmapped ordinary level as identity. pipy reads map keys,
+  so a partial pipy map that forgets an identity level shows up as drift.
+- **Rows on one side only.** A pipy row Pi does not ship is `pipy-only`; a Pi
+  row pipy does not carry is `not-carried`.
+- **Allowlist.** `scripts/catalog_drift_allowlist.json` lists intentional
+  differences. Each entry has a `kind`, a `match` pattern over
+  `provider/model-id`, an optional `except` list, a `field` and a `reason`.
+  `deviation` marks an intentional difference. `pending` marks known drift that
+  is waiting for a refresh; the report lists it in its own section.
+- **Result.** Anything not allowlisted is drift. An allowlist entry that no
+  longer matches anything is stale. Either one makes the check exit 1. Each
+  drift line shows Pi's value in `_m(...)` keyword form, ready to paste into
+  `catalog_data.py`. A missing or unreadable input exits 2.
+
 The 2026-07-14 refresh against Pi `0.80.6` shipped GPT-5.6 Sol
 (`openai-codex/gpt-5.6-sol`, image input) plus model-aware `max`
 thinking: the vocabulary is now `off|minimal|low|medium|high|xhigh|max`, the
