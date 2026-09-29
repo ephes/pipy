@@ -420,6 +420,7 @@ def test_catalog_marks_explicit_cache_mode_like_pi_generator() -> None:
         if row.compat and row.compat.get("supportsExplicitPromptCacheMode")
     }
     assert marked == {
+        "gpt-6.1-sol",
         "gpt-6-sol",
         "gpt-6-luna",
         "gpt-6-astra",

@@ -40,7 +40,7 @@ from pipy_harness.native.thinking import available_thinking_levels
 PI_DEFAULTS = {
     "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.5",
-    "openai-codex": "gpt-5.5",
+    "openai-codex": "gpt-6.1-sol",
     "openai-completions": "gpt-5.5",
     "openrouter": "moonshotai/kimi-k2.6",
     "google": "gemini-3.1-pro-preview",
@@ -97,6 +97,13 @@ PI_ROWS: dict[tuple[str, str], tuple[tuple[float, ...], int, int, list[str]]] = 
         64_000,
         _ALL[:5],
     ),
+    # Pi 12c416e1a: GPT-6.1 Sol rejects reasoning.effort "none" (off: null)
+    ("openai", "gpt-6.1-sol"): (
+        (2, 10, 0.1, 2.5),
+        272_000,
+        128_000,
+        _NO_OFF_NO_MINIMAL,
+    ),
     ("openai", "gpt-6-sol"): (
         (2, 10, 0.2, 2.5),
         272_000,
@@ -145,6 +152,7 @@ PI_ROWS: dict[tuple[str, str], tuple[tuple[float, ...], int, int, list[str]]] = 
         128_000,
         ["off", "low", "medium", "high", "xhigh"],
     ),
+    ("openai-codex", "gpt-6.1-sol"): ((2, 10, 0.1, 2.5), 272_000, 128_000, _NO_OFF),
     ("openai-codex", "gpt-6-sol"): ((2, 10, 0.2, 2.5), 272_000, 128_000, _ALL),
     ("openai-codex", "gpt-6-luna"): ((0.1, 0.5, 0.01, 0.125), 272_000, 128_000, _ALL),
     ("openai-codex", "gpt-6-astra"): ((10, 50, 1, 12.5), 272_000, 128_000, _NO_OFF),
@@ -497,10 +505,13 @@ def test_bedrock_adaptive_markers_match_pi_runtime_list() -> None:
         ("openai", "gpt-5.5", "off", {"effort": "none"}),
         # Astra maps off to null: no reasoning field
         ("openai", "gpt-6-astra", "off", None),
+        ("openai", "gpt-6.1-sol", "off", None),
         # minimal: null clamps forward to low (Pi request-time clamp); an
         # on-state effort also sends summary "auto" (openai-responses.ts:343-352)
         ("openai", "gpt-6-sol", "minimal", {"effort": "low", "summary": "auto"}),
         ("openai", "gpt-6-luna", "max", {"effort": "max", "summary": "auto"}),
+        ("openai", "gpt-6.1-sol", "minimal", {"effort": "low", "summary": "auto"}),
+        ("openai", "gpt-6.1-sol", "max", {"effort": "max", "summary": "auto"}),
         # gpt-5.5 maps max to null: clamps back to xhigh
         ("openai", "gpt-5.5", "max", {"effort": "xhigh", "summary": "auto"}),
         # unset keeps the provider default
@@ -536,9 +547,14 @@ def test_responses_thinking_wire(
         ("gpt-5.6-sol", "off", {"effort": "none"}),
         # Astra maps off to null: the field is omitted
         ("gpt-6-astra", "off", None),
+        # GPT-6.1 Sol rejects "none" (Pi 12c416e1a): the field is omitted
+        ("gpt-6.1-sol", "off", None),
         # Codex GPT-6 maps minimal -> low (non-identity Pi mapping)
         ("gpt-6-sol", "minimal", {"summary": "auto", "effort": "low"}),
         ("gpt-6-astra", "max", {"summary": "auto", "effort": "max"}),
+        ("gpt-6.1-sol", "minimal", {"summary": "auto", "effort": "low"}),
+        ("gpt-6.1-sol", "medium", {"summary": "auto", "effort": "medium"}),
+        ("gpt-6.1-sol", "max", {"summary": "auto", "effort": "max"}),
         # gpt-5.5 has no max: clamps to xhigh
         ("gpt-5.5", "max", {"summary": "auto", "effort": "xhigh"}),
         # unset keeps the pre-existing summary-only shape
@@ -598,7 +614,9 @@ def test_google_thinking_wire(
 # ---- chrome meter ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model_id", ["gpt-5.6-sol", "gpt-6-sol", "gpt-5.5"])
+@pytest.mark.parametrize(
+    "model_id", ["gpt-5.6-sol", "gpt-6-sol", "gpt-6.1-sol", "gpt-5.5"]
+)
 def test_codex_context_meter_is_272k(model_id: str) -> None:
     from pipy_harness.native.chrome import _context_budget_for
 

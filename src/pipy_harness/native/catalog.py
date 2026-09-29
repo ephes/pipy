@@ -182,7 +182,7 @@ default_model_per_provider: dict[str, str] = {
     # default.
     "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.5",
-    "openai-codex": "gpt-5.5",
+    "openai-codex": "gpt-6.1-sol",
     "openai-completions": "gpt-5.5",
     "openrouter": "moonshotai/kimi-k2.6",
     "google": "gemini-3.1-pro-preview",

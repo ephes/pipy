@@ -69,8 +69,9 @@ def test_gpt_5_6_sol_row_pinned():
     assert sol.thinking_level_map.get("max") == "max"
     assert sol.thinking_level_map.get("minimal") == "low"
     assert "off" not in sol.thinking_level_map
-    # GPT-5.5 stays the Codex default; no bare gpt-5.6 alias is added.
-    assert default_model_per_provider["openai-codex"] == "gpt-5.5"
+    # Pi 12c416e1a made GPT-6.1 Sol the Codex default; no bare gpt-5.6 alias
+    # is added.
+    assert default_model_per_provider["openai-codex"] == "gpt-6.1-sol"
     assert catalog.find("openai-codex", "gpt-5.6") is None
 
 
@@ -85,6 +86,7 @@ def test_responses_tool_search_compat_matches_pi_rows() -> None:
         ("openai", "gpt-6-sol"),
         ("openai", "gpt-6-luna"),
         ("openai", "gpt-6-astra"),
+        ("openai", "gpt-6.1-sol"),
         ("openai-codex", "gpt-5.5"),
         ("openai-codex", "gpt-5.6-sol"),
         ("openai-codex", "gpt-5.6-terra"),
@@ -92,6 +94,7 @@ def test_responses_tool_search_compat_matches_pi_rows() -> None:
         ("openai-codex", "gpt-6-sol"),
         ("openai-codex", "gpt-6-luna"),
         ("openai-codex", "gpt-6-astra"),
+        ("openai-codex", "gpt-6.1-sol"),
     }
     for provider in ("openai", "openai-codex"):
         for row in catalog.models_for(provider):

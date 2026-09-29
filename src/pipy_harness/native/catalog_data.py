@@ -168,7 +168,8 @@ _OPENAI_GPT_5_5 = {
     "max": None,
 }
 _OPENAI_GPT_MAX = {**_OPENAI_GPT_5_5, "max": "max"}
-_OPENAI_GPT_6_ASTRA = {**_OPENAI_GPT_MAX, "off": None}
+# GPT-6 Astra and GPT-6.1 Sol reject reasoning.effort "none" (Pi: off: null).
+_OPENAI_GPT_6_NO_OFF = {**_OPENAI_GPT_MAX, "off": None}
 # ---- OpenAI Codex (chatgpt.com) --------------------------------------------
 # Pi merges {minimal: "low"} into every xhigh-capable Codex row
 # (generate-models.ts:1120); no `off` key means the off-state sends "none".
@@ -181,7 +182,7 @@ _CODEX_XHIGH = {
 }
 _CODEX_XHIGH_MAX = {**_CODEX_XHIGH, "max": "max"}
 _CODEX_GPT_6 = {"off": "none", **_CODEX_XHIGH_MAX}
-_CODEX_GPT_6_ASTRA = {**_CODEX_GPT_6, "off": None}
+_CODEX_GPT_6_NO_OFF = {**_CODEX_GPT_6, "off": None}
 # ---- Google Gemini 3.x -----------------------------------------------------
 _GEMINI_3_FLASH = {
     "off": None,
@@ -400,6 +401,19 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     # ---- openai (openai-responses) ------------------------------------------
     _m(
         "openai",
+        "gpt-6.1-sol",
+        "GPT-6.1 Sol",
+        "openai-responses",
+        reasoning=True,
+        thinking=_OPENAI_GPT_6_NO_OFF,
+        image=True,
+        compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
+        cost=(2.0, 10.0, 0.1, 2.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai",
         "gpt-6-sol",
         "GPT-6 Sol",
         "openai-responses",
@@ -430,7 +444,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "GPT-6 Astra",
         "openai-responses",
         reasoning=True,
-        thinking=_OPENAI_GPT_6_ASTRA,
+        thinking=_OPENAI_GPT_6_NO_OFF,
         image=True,
         compat=_OPENAI_TOOLS_EXPLICIT_CACHE,
         cost=(10.0, 50.0, 1.0, 12.5),
@@ -539,6 +553,19 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     # gpt-5.4 rows (2e6fe2f98), so pipy does not carry one.
     _m(
         "openai-codex",
+        "gpt-6.1-sol",
+        "GPT-6.1 Sol (Codex/ChatGPT)",
+        "openai-codex-responses",
+        reasoning=True,
+        thinking=_CODEX_GPT_6_NO_OFF,
+        image=True,
+        compat=_OPENAI_TOOLS,
+        cost=(2.0, 10.0, 0.1, 2.5),
+        context_window=272_000,
+        max_tokens=128_000,
+    ),
+    _m(
+        "openai-codex",
         "gpt-6-sol",
         "GPT-6 Sol (Codex/ChatGPT)",
         "openai-codex-responses",
@@ -569,7 +596,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "GPT-6 Astra (Codex/ChatGPT)",
         "openai-codex-responses",
         reasoning=True,
-        thinking=_CODEX_GPT_6_ASTRA,
+        thinking=_CODEX_GPT_6_NO_OFF,
         image=True,
         compat=_OPENAI_TOOLS,
         cost=(10.0, 50.0, 1.0, 12.5),
@@ -1737,6 +1764,30 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         image=True,
         cost=(2.0, 10.0, 0.2, 2.5),
         context_window=1_000_000,
+        max_tokens=128_000,
+        compat={
+            "supportsOpenAIGrammarTools": True,
+            "supportsMidConvoSystemMessages": True,
+            "supportsAdditionalTools": True,
+        },
+    ),
+    _copilot(
+        "gpt-6.1-sol",
+        "GPT-6.1 Sol",
+        "openai-responses",
+        reasoning=True,
+        thinking={
+            "off": None,
+            "minimal": None,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max",
+        },
+        image=True,
+        cost=(2.0, 10.0, 0.1, 2.5),
+        context_window=1_050_000,
         max_tokens=128_000,
         compat={
             "supportsOpenAIGrammarTools": True,
