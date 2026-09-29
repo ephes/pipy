@@ -126,9 +126,11 @@ class AutomationAgentEventAdapter:
 
     def _project_assistant_delta(self, event: AssistantTextDelta) -> PiAutomationEvent:
         self._partial_text += event.delta.value
+        # Pi's streamed partial carries stopReason "stop" until message_end.
         partial = {
             "role": "assistant",
             "content": [{"type": "text", "text": self._partial_text}],
+            "stopReason": "stop",
         }
         return {
             "type": "message_update",

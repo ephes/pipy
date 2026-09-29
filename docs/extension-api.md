@@ -1342,7 +1342,8 @@ unambiguous for reviewers and future diffs.
 Beyond the first numbered slices, an **interactive command-context block** has also
 landed to support porting Pi's `answer.ts`
 (`docs/examples/extensions/answer.py`): the command/shortcut context now exposes
-`ctx.conversation.last_assistant_message()` (read-only), a read-only
+`ctx.conversation.last_assistant_message()` (read-only; its `complete` is
+false for an aborted or failed turn, Pi `stopReason !== "stop"`), a read-only
 `ctx.session_manager` / `ctx.sessionManager` view over the active native session
 (id/file/dir/cwd/header/entries/labels/branch/tree/name), a bounded one-shot
 `ctx.complete(system_prompt, user_text)` on the active provider, a full-screen

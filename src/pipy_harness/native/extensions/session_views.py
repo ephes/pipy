@@ -38,7 +38,8 @@ class AssistantMessageView:
 
     `text` is the assistant message content. `complete` is True when it was a
     finished text answer — i.e. it carries text and left no tool calls pending
-    (the pipy analog of Pi's `stopReason === "stop"`). A handler that wants the
+    and was not aborted or failed (the pipy analog of Pi's
+    `stopReason === "stop"`). A handler that wants the
     last *complete* answer (e.g. to extract questions from it) checks `complete`
     before using `text`.
     """
@@ -151,7 +152,11 @@ class _ConversationView:
         for message in reversed(self._messages):
             if isinstance(message, AgentAssistantMessage):
                 text = message.content.value
-                complete = bool(text.strip()) and not message.tool_calls
+                complete = (
+                    bool(text.strip())
+                    and not message.tool_calls
+                    and message.stop_reason is None
+                )
                 return AssistantMessageView(text=text, complete=complete)
         return None
 

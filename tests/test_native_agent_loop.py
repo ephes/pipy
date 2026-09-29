@@ -39,6 +39,7 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentStopReason,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
@@ -747,6 +748,9 @@ def test_prepared_history_cut_preserves_prior_appends_for_terminal_outcomes(
 
     outcome = loop.run(_run_input())
 
+    # A failed or cancelled provider turn is kept as a stopped assistant
+    # (Pi stopReason error/aborted); a refused preparation sends nothing.
+    stopped = [] if terminal == "refusal" else [""]
     assert outcome.result.outcome is expected
     assert [message.content.value for message in outcome.result.messages] == [
         "hello",
@@ -754,12 +758,20 @@ def test_prepared_history_cut_preserves_prior_appends_for_terminal_outcomes(
         "tool result",
         "calling again",
         "tool result",
+        *stopped,
     ]
     assert [message.content.value for message in outcome.final_history] == [
         "hello",
         "calling again",
         "tool result",
+        *stopped,
     ]
+    if stopped:
+        last = outcome.final_history[-1]
+        assert isinstance(last, AgentAssistantMessage)
+        assert last.stop_reason is (
+            AgentStopReason.ERROR if terminal == "failure" else AgentStopReason.ABORTED
+        )
     assert provider.calls == (2 if terminal == "refusal" else 3)
     assert len(usage.publications) == (2 if terminal in {"cancel", "refusal"} else 3)
     assert sum(isinstance(event, AgentRunCompleted) for event in events.events) == 1

@@ -261,6 +261,15 @@ class TranscriptComponent:
         self._repaint()
 
     def show_operation_aborted(self) -> None:
+        self.add_error("Operation aborted")
+
+    def add_error(self, text: str) -> None:
+        """Settle any partial assistant text, then show ``text`` as an error.
+
+        Pi's assistant component draws an aborted or failed turn's marker
+        (``Operation aborted``, ``Error: …``) after its partial content.
+        """
+
         with self._paint_lock:
             self.working_text = ""
             self._settle_reasoning_locked()
@@ -271,9 +280,10 @@ class TranscriptComponent:
                     )
                 )
                 self.assistant_text = ""
-            self.history_blocks.append(
-                HistoryBlockTuple("error", ("Operation aborted",))
-            )
+            safe_lines = tuple(
+                sanitize_label_text(line) for line in str(text).splitlines()
+            ) or ("",)
+            self.history_blocks.append(HistoryBlockTuple("error", safe_lines))
         self._repaint()
 
     def append_reasoning(self, chunk: str) -> None:

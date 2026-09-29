@@ -55,6 +55,7 @@ EXPECTED_PUBLIC_EXPORTS = [
     "AgentRunOutcome",
     "AgentRunResult",
     "AgentRunStarted",
+    "AgentStopReason",
     "AgentSystemMessage",
     "AgentToolCall",
     "AgentToolDeclaration",
@@ -80,6 +81,7 @@ EXPECTED_PUBLIC_EXPORTS = [
     "TurnCompleted",
     "TurnStarted",
     "UsageUpdated",
+    "provider_replay_messages",
 ]
 
 

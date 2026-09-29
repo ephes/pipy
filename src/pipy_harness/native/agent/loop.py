@@ -13,12 +13,15 @@ from pipy_harness.native.agent._validation import require_bool
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
+    AgentEvent,
     AgentRunCompleted,
     AgentRunStarted,
+    AssistantTextDelta,
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
     ProviderFailed,
+    RetryScheduled,
     RunCancelled,
     SteeringConsumed,
     ToolCallCompleted,
@@ -41,6 +44,7 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentStopReason,
     AgentSystemMessage,
     AgentToolCall,
     AgentToolDeclaration,
@@ -451,21 +455,25 @@ class AgentLoop:
                 turn_index,
             )
         assert preparation.snapshot is not None
+        partial = _PartialAssistantText(self._events, turn_index)
         completion = self._provider_turn.complete(
             preparation.snapshot,
-            self._events,
+            partial,
             turn_index,
         )
         if type(completion) is not ProviderTurnOutcome:
             raise TypeError("provider turn must return ProviderTurnOutcome")
         if completion.result is None:
-            return self._settle_provider_cancellation(state, completion, turn_index)
+            return self._settle_provider_cancellation(
+                state, completion, turn_index, partial.text
+            )
         return self._settle_provider_result(
             state,
             active_input,
             preparation.snapshot,
             completion.result,
             turn_index,
+            partial.text,
         )
 
     @staticmethod
@@ -538,16 +546,20 @@ class AgentLoop:
         state: _RunState,
         completion: ProviderTurnOutcome,
         turn_index: int,
+        partial_text: str = "",
     ) -> _IterationDisposition:
         reason = completion.cancellation_reason
         assert reason is not None
         state.cancellation = reason
-        empty_assistant = AgentAssistantMessage(ProductContent(""))
+        # Pi keeps the aborted message with its partial content
+        # (agent-loop.ts, stopReason "aborted") and persists it.
+        aborted = _stopped_assistant(partial_text, AgentStopReason.ABORTED)
         self._events.emit(RunCancelled(reason))
         self._status.provider_cancellation_observed(reason)
-        self._events.emit(MessageCompleted(turn_index, empty_assistant))
+        self._events.emit(MessageCompleted(turn_index, aborted))
+        self._append_message(state, aborted)
         self._events.emit(
-            TurnCompleted(turn_index, AgentTurnOutcome.CANCELLED, empty_assistant)
+            TurnCompleted(turn_index, AgentTurnOutcome.CANCELLED, aborted)
         )
         return _IterationDisposition.STOP
 
@@ -558,6 +570,7 @@ class AgentLoop:
         snapshot: AgentProviderRequestSnapshot,
         result: ProviderResult,
         turn_index: int,
+        partial_text: str = "",
     ) -> _IterationDisposition:
         _validate_provider_result(result, snapshot)
         self._status.provider_result_observed(result)
@@ -568,7 +581,12 @@ class AgentLoop:
         )
         state.provider_status = provider_status
         if provider_status.action is AgentProviderStatusAction.FAILED:
-            return self._settle_provider_failure(state, provider_status, turn_index)
+            return self._settle_provider_failure(
+                state,
+                provider_status,
+                turn_index,
+                partial_text or result.final_text or "",
+            )
         self._status.provider_succeeded(provider_status, state.tool_state)
         state.failure = None
         assistant = _assistant_message(result)
@@ -600,17 +618,20 @@ class AgentLoop:
         state: _RunState,
         status: AgentProviderStatusDecision,
         turn_index: int,
+        partial_text: str = "",
     ) -> _IterationDisposition:
         failure = status.failure
         assert failure is not None
         state.failure = failure
-        empty_assistant = AgentAssistantMessage(ProductContent(""))
+        # Pi records a failed turn as stopReason "error" with its message.
+        failed = _stopped_assistant(
+            partial_text, AgentStopReason.ERROR, failure.message.value
+        )
         self._events.emit(ProviderFailed(failure, will_retry=status.will_retry))
         self._status.provider_failed(status, state.tool_state)
-        self._events.emit(MessageCompleted(turn_index, empty_assistant))
-        self._events.emit(
-            TurnCompleted(turn_index, AgentTurnOutcome.FAILED, empty_assistant)
-        )
+        self._events.emit(MessageCompleted(turn_index, failed))
+        self._append_message(state, failed)
+        self._events.emit(TurnCompleted(turn_index, AgentTurnOutcome.FAILED, failed))
         return _IterationDisposition.STOP
 
     def _run_tool_cycle(
@@ -829,6 +850,48 @@ class AgentLoop:
                 cancellation_reason=state.cancellation,
             )
         return AgentRunResult(AgentRunOutcome.SUCCEEDED, messages, usage)
+
+
+class _PartialAssistantText:
+    """Forward provider-turn events and record the text streamed so far.
+
+    This is the content of Pi's partial assistant message: exactly the text
+    deltas the provider turn published. A scheduled retry starts a new
+    attempt, so it discards the failed attempt's text.
+    """
+
+    __slots__ = ("_chunks", "_sink", "_turn_index")
+
+    def __init__(self, sink: AgentEventSink, turn_index: int) -> None:
+        self._sink = sink
+        self._turn_index = turn_index
+        self._chunks: list[str] = []
+
+    def emit(self, event: AgentEvent) -> None:
+        self._sink.emit(event)
+        if isinstance(event, RetryScheduled):
+            self._chunks.clear()
+        elif (
+            isinstance(event, AssistantTextDelta)
+            and event.turn_index == self._turn_index
+        ):
+            self._chunks.append(event.delta.value)
+
+    @property
+    def text(self) -> str:
+        return "".join(self._chunks)
+
+
+def _stopped_assistant(
+    text: str,
+    stop_reason: AgentStopReason,
+    error_message: str | None = None,
+) -> AgentAssistantMessage:
+    return AgentAssistantMessage(
+        ProductContent(text[: AgentAssistantMessage.CONTENT_MAX_LENGTH]),
+        stop_reason=stop_reason,
+        error_message=error_message,
+    )
 
 
 def _assistant_message(result: ProviderResult) -> AgentAssistantMessage:

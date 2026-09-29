@@ -6,6 +6,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- An aborted or failed turn is no longer lost (DF1-F6, Pi `4df157433`). The
+  assistant message is kept with the text streamed so far and a stop reason
+  (`aborted`, or `error` with its message), stored in the session and shown
+  again on resume as the partial text followed by `Operation aborted` or
+  `Error: <message>`. As in Pi, it is never sent to a provider again: every
+  request (and the compaction summary request) skips it, so the next prompt
+  continues from the last complete turn. `--mode json`/`--mode rpc` assistant
+  messages now carry `stopReason` (`stop`, `toolUse`, `aborted`, `error`) and
+  `errorMessage`; `/tree` shows a stopped turn without text as
+  `assistant: (aborted)`. The fake `fake-tools` model streams a partial
+  answer before waiting when a prompt starts with `STREAMBLOCK`.
+
 ### Changed
 
 - The `bash`, `grep`, `find` and `ls` tools handle long output the way Pi's
