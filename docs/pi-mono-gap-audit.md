@@ -1,13 +1,10 @@
 # Pi-Mono Gap Audit
 
-Status: product-gap selection snapshot refreshed 2026-07-29. It is a queue
-input, not authorization to implement a gap inside the architecture closeout.
-
-Current selection note (2026-09-07): the reload and decomposition prerequisites
-below are complete. Use the
-[integrated planning basis](backlog.md) for the
-latest local Pi/tau comparison and proposed priority order. This page retains
-its July reference snapshot; its counts and next-slice pointers are historical.
+Status: **historical.** This is a product-gap snapshot pinned to Pi 0.82.0
+(2026-07-29). It is not a queue input. The [backlog](backlog.md) owns current
+priorities and was re-baselined on 2026-09-29 against pi-mono `4df157433`
+(coding-agent 0.87.1). This page keeps its July evidence; its counts, gap
+statuses and next-slice pointers are not maintained.
 
 Reference: local `/Users/jochen/src/pi-mono` commit
 `7df73a00c6cf85c000bf1ce1594c9284067a92f0`, package version `0.82.0`.
