@@ -413,12 +413,13 @@ def test_cli_config_local_refuses_untrusted_but_global_write_remains_usable(
     global_skills = config / "skills"
     global_skills.mkdir(parents=True)
     (global_skills / "global-review.md").write_text(
-        "# global-review\n\nglobal\n", encoding="utf-8"
+        "---\ndescription: global\n---\n# global-review\n\nglobal\n", encoding="utf-8"
     )
     project_skills = workspace / ".pipy" / "skills"
     project_skills.mkdir()
     (project_skills / "project-review.md").write_text(
-        "# project-review\n\nproject\n", encoding="utf-8"
+        "---\ndescription: project\n---\n# project-review\n\nproject\n",
+        encoding="utf-8",
     )
 
     assert (

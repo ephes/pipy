@@ -1,9 +1,25 @@
 """Workspace skill discovery for the native pipy runtime.
 
-A `skill` is a Markdown file under `<workspace>/.pipy/skills/` or
-`<global-root>/skills/` with optional YAML frontmatter declaring
-`name` and `description`. The body is the skill instruction text
-that the runtime injects as a bounded provider-visible message when
+A `skill` is a Markdown file with YAML frontmatter declaring `name` and a
+required `description` (Pi `loadSkillFromFile` drops a skill without one).
+Discovery mirrors Pi (`package-manager.ts` auto skill roots and
+`collectSkillEntries`, reference `4df157433`), in first-wins order:
+
+1. per-run `--skill` paths;
+2. `<workspace>/.pipy/skills/` (Pi `.pi/skills`), trusted projects only;
+3. `.agents/skills/` in the workspace and each ancestor up to the git
+   repository root, trusted projects only, excluding `~/.agents/skills`;
+4. `<global-root>/skills/` (Pi `~/.pi/agent/skills`);
+5. `~/.agents/skills/`;
+6. installed package skill directories.
+
+Every root uses Pi's layout: a directory holding `SKILL.md` is one skill
+(named after the directory unless the frontmatter names it) and is not
+descended further; `.`-prefixed entries and `node_modules` are skipped;
+plain `*.md` files count at the root of `.pipy/skills`/global/CLI/package
+roots and below the root of `.agents/skills` roots; `.gitignore`,
+`.ignore` and `.fdignore` rules apply. The body is the skill instruction
+text that the runtime injects as a bounded provider-visible message when
 the user loads the skill through the `/skill <name>` slash command.
 
 This module is a pure, dependency-free pipy-owned helper. It mirrors
@@ -54,9 +70,11 @@ SKILLS_SYSTEM_BLOCK_HEADER_LINES: tuple[str, ...] = (
     "The following skills provide specialized instructions for specific tasks.",
     "Use the read tool to load a skill's file when the task matches its description.",
     "When a skill file references a relative path, resolve it against the "
-    "skill directory (parent of the skill file / dirname of the path) and use "
+    "skill directory (parent of SKILL.md / dirname of the path) and use "
     "that absolute path in tool commands.",
 )
+# Pi wraps the block in its `skills` system-prompt section tag.
+SKILLS_SECTION_TAG: str = "skills"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,17 +126,18 @@ def discover_workspace_skills(
     """Discover skill files in the workspace and global root.
 
     Workspace-local discovery is fail-closed by default. Product callers must
-    opt in only after resolving project trust. The workspace dir is
-    `<workspace>/.pipy/skills/`. The global dir is
-    resolved through `PIPY_CONFIG_HOME` then `${XDG_CONFIG_HOME}/pipy`
-    then `~/.config/pipy`, and the `skills` subdir is appended. Files
-    are deduplicated by canonical path. Missing dirs and files never
-    raise. Resource directories must not be symlinks, and resource-file
-    symlinks must stay inside the concrete `skills` directory they were found in.
+    opt in only after resolving project trust; it covers both
+    `<workspace>/.pipy/skills/` and the project `.agents/skills/` roots. The
+    global dir is resolved through `PIPY_CONFIG_HOME` then
+    `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`, and the `skills` subdir
+    is appended; `~/.agents/skills/` (from `home_dir`) follows it. Files are
+    deduplicated by canonical path and skills by name (first wins). Missing
+    dirs and files never raise. Resource directories must not be symlinks,
+    and resource-file symlinks must stay inside the concrete skills root
+    they were found in.
 
-    Returns `(skills, total_byte_cap_reached)`. Skills are listed
-    workspace-first, then global, in sorted-name order within each
-    source.
+    Returns `(skills, total_byte_cap_reached)` in the source order listed in
+    the module docstring, sorted by path within each source.
     """
 
     raw_files, cap_reached = discover_resource_files(
@@ -136,6 +155,7 @@ def discover_workspace_skills(
         include_global_defaults=include_global_defaults,
         include_package_defaults=include_package_defaults,
         dedupe_by_name=True,
+        skill_discovery=True,
     )
     skills = [
         SkillFile(
@@ -190,19 +210,20 @@ def _escape_xml(value: str) -> str:
 def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
     """Compose the system-prompt section that advertises skills.
 
-    Mirrors Pi's `formatSkillsForPrompt`: a short header instructing the
-    model to load a skill's file with the read tool when the task matches
-    its description, followed by an `<available_skills>` block carrying a
-    per-skill `<name>`, `<description>`, and `<location>` (the skill
-    file's absolute path), all XML-escaped. Bodies never appear in the
-    block; the model loads them on demand with the read tool. When
-    `skills` is empty the function returns an empty string so the caller
-    can safely concatenate it onto the base prompt.
+    Mirrors Pi's `skills` system-prompt section (`formatSkillsForPrompt`
+    wrapped in `<skills>...</skills>` and joined with a blank line): a short
+    header instructing the model to load a skill's file with the read tool
+    when the task matches its description, followed by an
+    `<available_skills>` block carrying a per-skill `<name>`,
+    `<description>`, and `<location>` (the skill file's absolute path), all
+    XML-escaped. Bodies never appear in the block; the model loads them on
+    demand with the read tool. When `skills` is empty the function returns
+    an empty string so the caller can safely concatenate it onto the prompt.
     """
 
     if not skills:
         return ""
-    lines: list[str] = ["", ""]
+    lines: list[str] = ["", "", f"<{SKILLS_SECTION_TAG}>"]
     lines.extend(SKILLS_SYSTEM_BLOCK_HEADER_LINES)
     lines.append("")
     lines.append("<available_skills>")
@@ -215,6 +236,7 @@ def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
         )
         lines.append("  </skill>")
     lines.append("</available_skills>")
+    lines.append(f"</{SKILLS_SECTION_TAG}>")
     return "\n".join(lines)
 
 

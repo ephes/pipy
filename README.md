@@ -452,10 +452,11 @@ also appear as their own `/<name>` command (see "Runtime resources" below).
 
 The model reads and edits files through the model-visible `read`, `ls`, `grep`,
 `find`, `write`, `edit`, and `bash` tools rather than dedicated slash commands.
-Workspace context (`AGENTS.md`, `AGENTS.MD`, `pipy.md`, or
-`PIPY.md` from ancestors plus the global pipy config root) is discovered and
-composed into the native bootstrap system prompt across the real providers,
-bounded by 64 KiB per file and 256 KiB total.
+Workspace context (the first of `AGENTS.override.md`, `AGENTS.md`,
+`AGENTS.MD`, `CLAUDE.md`, or `CLAUDE.MD` per directory, from ancestors plus the
+global pipy config root, as in Pi) is discovered and composed into the system
+prompt as Pi's `<project_context>` section across the real providers, bounded
+by 64 KiB per file and 256 KiB total.
 
 ### Runtime resources: skills, prompt templates, custom commands
 
@@ -469,6 +470,10 @@ body is the instruction/template text.
 - `/skill <name>` loads a skill body as a bounded provider turn; `/skill`
   lists available skills. Discovered skills are also advertised in the system
   prompt so the model can load a skill body on demand with the `read` tool.
+  Skills also come from project `.agents/skills/` (cwd up to the git root) and
+  `~/.agents/skills/`. Every skill root uses Pi's layout: a directory with a
+  `SKILL.md` is one skill, and a skill needs a `description` (see
+  [docs/customization.md](docs/customization.md)).
 - Each discovered prompt template is invoked as its own `/<template-name>`
   command, expanding `$ARGUMENTS` / `$1..$9` as a bounded provider turn.
 - A `.pipy/commands/<name>.md` file becomes a `/<name>` custom slash command

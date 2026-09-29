@@ -288,7 +288,7 @@ def test_tool_loop_round_trip_AGENTS_md_reaches_system_prompt_and_archive_exclud
     first_system_prompt = provider.captured_requests[0].system_prompt
     assert _LEAK_MARKER in first_system_prompt
     assert "AGENTS.md" in first_system_prompt
-    assert "## Workspace Instructions" in first_system_prompt
+    assert "<project_context>" in first_system_prompt
 
     # AdapterResult metadata exposes the per-file metadata, not the body.
     assert result.record.markdown_path is not None
@@ -573,7 +573,7 @@ def test_session_with_no_instructions_records_empty_metadata_block(
     assert result.exit_code == 0
     system_prompt = provider.captured_requests[0].system_prompt
     assert _LEAK_MARKER not in system_prompt
-    assert "## Workspace Instructions" not in system_prompt
+    assert "<project_context>" not in system_prompt
 
     events = _read_jsonl(result.record.jsonl_path)
     session_started = [

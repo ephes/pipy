@@ -38,12 +38,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pipy_harness.capture import looks_sensitive
+from pipy_harness.native.ignore_rules import IgnoreMatcher, add_ignore_rules
 from pipy_harness.native.read_only_tool import _is_ignored_or_generated
 
 if TYPE_CHECKING:
@@ -99,6 +101,9 @@ class _ResourceSource:
     ignore_root: Path
     package_filters: tuple[str, ...]
     explicit_file: bool
+    # "flat": `*.md` one level deep (templates, commands). "pi"/"agents": Pi's
+    # skill layout walk (`collectSkillEntries` modes), used for skills only.
+    layout: str = "flat"
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,8 +159,15 @@ def discover_resource_files(
     include_global_defaults: bool = True,
     include_package_defaults: bool = True,
     dedupe_by_name: bool = False,
+    skill_discovery: bool = False,
 ) -> tuple[list[_RawResourceFile], bool]:
     """Discover Markdown files in a workspace and global resource directory.
+
+    `skill_discovery=True` switches to Pi's skill rules (see
+    `pipy_harness.native.skills`): the `SKILL.md` directory layout with
+    `.gitignore`/`.ignore`/`.fdignore` handling, the extra `.agents/skills`
+    roots, the `SKILL.md` parent-directory name fallback, and dropping
+    skills without a description.
 
     Workspace-local discovery is fail-closed by default. Product callers must
     opt in only after resolving project trust. `workspace_subdir` is the path
@@ -219,6 +231,13 @@ def discover_resource_files(
         include_global_defaults=include_global_defaults,
         include_package_defaults=include_package_defaults,
     )
+    if skill_discovery:
+        sources = _with_skill_layout_sources(
+            sources,
+            resolved_workspace=resolved_workspace,
+            home=(home_dir or Path.home()).expanduser(),
+            include_workspace_defaults=include_workspace_defaults,
+        )
 
     seen_paths: set[Path] = set()
     seen_names: set[str] = set()
@@ -231,7 +250,10 @@ def discover_resource_files(
             source, seen_paths
         ):
             loaded = _load_resource_candidate(
-                candidate, resolved_candidate, per_file_byte_cap
+                candidate,
+                resolved_candidate,
+                per_file_byte_cap,
+                skill_discovery=skill_discovery,
             )
             if loaded is None or not _resource_name_is_selected(
                 loaded.name,
@@ -240,11 +262,15 @@ def discover_resource_files(
                 seen_names=seen_names,
             ):
                 continue
+            if skill_discovery and not loaded.description.strip():
+                # Pi `loadSkillFromFile`: a skill without a description is not
+                # loaded, so it neither counts nor shadows a later same name.
+                continue
             if total_loaded + loaded.byte_length > total_byte_cap:
                 cap_reached = True
                 break
             resource = _materialize_resource_candidate(
-                loaded, source_kind=source.kind, workspace=resolved_workspace
+                loaded, source=source, workspace=resolved_workspace
             )
             if resource is None:
                 continue
@@ -333,6 +359,113 @@ def _assemble_resource_sources(
     return sources
 
 
+AGENTS_DIR_NAME: str = ".agents"
+AGENTS_SKILLS_SUBDIR: str = "skills"
+
+
+def _with_skill_layout_sources(
+    sources: list[_ResourceSource],
+    *,
+    resolved_workspace: Path,
+    home: Path,
+    include_workspace_defaults: bool,
+) -> list[_ResourceSource]:
+    """Apply Pi's skill layout modes and add the `.agents/skills` roots.
+
+    Pi order (`package-manager.ts` auto resources): project `.pi/skills`
+    (pipy `.pipy/skills`, mode "pi", trusted), project `.agents/skills` from
+    cwd up to the git root (mode "agents", trusted, excluding
+    `~/.agents/skills`), user `<agentDir>/skills` (mode "pi"), then
+    `~/.agents/skills` (mode "agents"). CLI and package directories load in
+    mode "pi" (`loadSkillsFromDirInternal(dir, ..., true)`).
+    """
+
+    user_agents_skills = home / AGENTS_DIR_NAME / AGENTS_SKILLS_SUBDIR
+    result: list[_ResourceSource] = []
+    for source in sources:
+        result.append(_replace_layout(source, "pi"))
+        if source.kind == "workspace" and include_workspace_defaults:
+            result.extend(
+                _ResourceSource(
+                    path=agents_dir,
+                    kind="workspace",
+                    ignore_root=resolved_workspace,
+                    package_filters=(),
+                    explicit_file=False,
+                    layout="agents",
+                )
+                for agents_dir in _ancestor_agents_skill_dirs(
+                    resolved_workspace, exclude=user_agents_skills
+                )
+            )
+        if source.kind == "global":
+            result.append(
+                _ResourceSource(
+                    path=user_agents_skills,
+                    kind="user-agents",
+                    ignore_root=home / AGENTS_DIR_NAME,
+                    package_filters=(),
+                    explicit_file=False,
+                    layout="agents",
+                )
+            )
+    return result
+
+
+def _replace_layout(source: _ResourceSource, layout: str) -> _ResourceSource:
+    return _ResourceSource(
+        path=source.path,
+        kind=source.kind,
+        ignore_root=source.ignore_root,
+        package_filters=source.package_filters,
+        explicit_file=source.explicit_file,
+        layout=layout,
+    )
+
+
+def _find_git_repo_root(start: Path) -> Path | None:
+    """Pi `findGitRepoRoot`: the first ancestor holding a `.git` entry."""
+
+    directory = start
+    while True:
+        if os.path.exists(directory / ".git"):
+            return directory
+        parent = directory.parent
+        if parent == directory:
+            return None
+        directory = parent
+
+
+def _ancestor_agents_skill_dirs(start: Path, *, exclude: Path) -> list[Path]:
+    """Pi `collectAncestorAgentsSkillDirs`, minus the user `~/.agents/skills`.
+
+    Lists `<dir>/.agents/skills` from `start` upwards, cwd first, stopping at
+    the git repo root (or the filesystem root outside a repository).
+    """
+
+    excluded = _canonical_or_self(exclude)
+    git_root = _find_git_repo_root(start)
+    dirs: list[Path] = []
+    directory = start
+    while True:
+        candidate = directory / AGENTS_DIR_NAME / AGENTS_SKILLS_SUBDIR
+        if candidate != exclude and _canonical_or_self(candidate) != excluded:
+            dirs.append(candidate)
+        if git_root is not None and directory == git_root:
+            return dirs
+        parent = directory.parent
+        if parent == directory:
+            return dirs
+        directory = parent
+
+
+def _canonical_or_self(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
 def _screen_resource_candidates(
     source: _ResourceSource,
     seen_paths: set[Path],
@@ -350,7 +483,14 @@ def _screen_resource_candidates(
     except OSError:
         return
 
-    candidates = [source.path] if source.explicit_file else _iter_md_files(source.path)
+    if source.explicit_file:
+        candidates = [source.path]
+    elif source.layout == "flat":
+        candidates = _iter_md_files(source.path)
+    else:
+        candidates = _iter_skill_layout_files(
+            source.path, source.layout, containment_root
+        )
     for candidate in candidates:
         try:
             resolved_candidate = candidate.resolve()
@@ -368,6 +508,8 @@ def _load_resource_candidate(
     candidate: Path,
     resolved_candidate: Path,
     per_file_byte_cap: int,
+    *,
+    skill_discovery: bool = False,
 ) -> _LoadedResourceCandidate | None:
     """Stat and bounded-read one screened candidate without hashing it."""
 
@@ -383,7 +525,13 @@ def _load_resource_candidate(
     content = head.decode("utf-8", errors="replace")
     if truncated:
         content += PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
-    name, description, body = _parse_frontmatter(content, fallback_name=candidate.stem)
+    # Pi `loadSkillFromFile` names a `SKILL.md` after its directory.
+    fallback_name = (
+        candidate.parent.name
+        if skill_discovery and candidate.name == SKILL_FILE_NAME
+        else candidate.stem
+    )
+    name, description, body = _parse_frontmatter(content, fallback_name=fallback_name)
     return _LoadedResourceCandidate(
         candidate=candidate,
         resolved_path=resolved_candidate,
@@ -413,7 +561,7 @@ def _resource_name_is_selected(
 def _materialize_resource_candidate(
     loaded: _LoadedResourceCandidate,
     *,
-    source_kind: str,
+    source: _ResourceSource,
     workspace: Path,
 ) -> _RawResourceFile | None:
     """Hash an accepted candidate and project it to the discovered record."""
@@ -429,7 +577,7 @@ def _materialize_resource_candidate(
     return _RawResourceFile(
         path_label=_path_label_for(
             candidate=loaded.candidate,
-            source_kind=source_kind,
+            source=source,
             workspace=workspace,
         ),
         name=loaded.name,
@@ -564,36 +712,167 @@ def _iter_md_files(directory: Path) -> list[Path]:
     return files
 
 
+SKILL_FILE_NAME: str = "SKILL.md"
+_SKILL_WALK_SKIPPED_DIR_NAMES: frozenset[str] = frozenset({"node_modules"})
+
+
+def _iter_skill_layout_files(
+    root: Path, layout: str, containment_root: Path
+) -> list[Path]:
+    """Port of Pi `collectSkillEntries` for one skills root.
+
+    A directory holding a `SKILL.md` file yields only that file (recursion
+    stops). Otherwise names starting with `.` and `node_modules` are skipped,
+    subdirectories are walked, and plain `*.md` files are included only at
+    the root in "pi" layout or only below the root in "agents" layout.
+    `.gitignore`/`.ignore`/`.fdignore` rules found along the way apply
+    (`ignore_rules`). Entries are visited in sorted-name order.
+
+    pipy keeps its symlink containment guard: a subdirectory whose real path
+    leaves `containment_root` is not walked (its files would be rejected
+    anyway), which also stops symlink cycles together with `visited`.
+    """
+
+    try:
+        if not root.is_dir():
+            return []
+    except OSError:
+        return []
+    matcher = IgnoreMatcher()
+    files: list[Path] = []
+    _collect_skill_entries(
+        root,
+        root=root,
+        layout=layout,
+        matcher=matcher,
+        containment_root=containment_root,
+        visited=set(),
+        files=files,
+    )
+    return files
+
+
+def _collect_skill_entries(
+    directory: Path,
+    *,
+    root: Path,
+    layout: str,
+    matcher: IgnoreMatcher,
+    containment_root: Path,
+    visited: set[Path],
+    files: list[Path],
+) -> None:
+
+    try:
+        real_directory = directory.resolve()
+        real_directory.relative_to(containment_root)
+    except (OSError, ValueError):
+        return
+    if real_directory in visited:
+        return
+    visited.add(real_directory)
+    add_ignore_rules(matcher, directory, root)
+    try:
+        entries = sorted(directory.iterdir(), key=lambda entry: entry.name)
+    except OSError:
+        return
+
+    skill_file = directory / SKILL_FILE_NAME
+    if any(entry.name == SKILL_FILE_NAME for entry in entries) and _is_file(skill_file):
+        if not matcher.ignores(_relative_posix(skill_file, root)):
+            files.append(skill_file)
+            return
+
+    for entry in entries:
+        if entry.name.startswith(".") or entry.name in _SKILL_WALK_SKIPPED_DIR_NAMES:
+            continue
+        relative = _relative_posix(entry, root)
+        is_file = _is_file(entry)
+        at_root = directory == root
+        if (
+            is_file
+            and entry.name.endswith(".md")
+            and not matcher.ignores(relative)
+            and ((layout == "pi" and at_root) or (layout == "agents" and not at_root))
+        ):
+            files.append(entry)
+            continue
+        if not _is_dir(entry) or matcher.ignores(f"{relative}/"):
+            continue
+        _collect_skill_entries(
+            entry,
+            root=root,
+            layout=layout,
+            matcher=matcher,
+            containment_root=containment_root,
+            visited=visited,
+            files=files,
+        )
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def _is_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
+def _relative_posix(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
 def _path_label_for(
     *,
     candidate: Path,
-    source_kind: str,
+    source: _ResourceSource,
     workspace: Path,
 ) -> str:
-    """Compute the workspace-relative or `<global>`-prefixed POSIX label."""
+    """Compute the workspace-relative or `<prefix>`-labelled POSIX label.
 
-    if source_kind == "global":
-        # Label as <global>/<subdir>/<filename>, joining the parent
-        # dir name with the file name so the audit trail keeps the
-        # category (`skills` vs `templates`).
-        parent_name = candidate.parent.name
-        return f"{GLOBAL_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
-    if source_kind == "package":
-        # Label as <package>/<subdir>/<filename> so a package resource is
-        # never recorded with its absolute on-disk source path. The parent
-        # dir name is a manifest-declared package directory, so it is
-        # sanitized (control bytes stripped) before it enters the label —
-        # the filename itself was already screened by `_candidate_name_is_safe`.
-        parent_name = _sanitize_label(candidate.parent.name) or "package"
-        return f"{PACKAGE_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
-    if source_kind == "cli":
-        parent_name = _sanitize_label(candidate.parent.name) or "resource"
-        return f"{CLI_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
+    Labels never carry an absolute on-disk path. Non-workspace sources are
+    labelled `<prefix>/<source dir name>/<path within the source>`, which is
+    `<prefix>/<subdir>/<filename>` for flat stores. Directory names are
+    sanitized (control bytes stripped) before they enter the label; the
+    filename itself was already screened by `_candidate_name_is_safe`.
+    """
+
+    prefix = _LABEL_PREFIXES.get(source.kind)
+    if prefix is not None:
+        root = source.path.parent if source.explicit_file else source.path
+        try:
+            inner_parts = candidate.relative_to(root).parts
+        except ValueError:
+            inner_parts = (candidate.name,)
+        fallback = "package" if source.kind == "package" else "resource"
+        parts = [_sanitize_label(root.name) or fallback]
+        parts.extend(_sanitize_label(part) or "_" for part in inner_parts[:-1])
+        parts.append(candidate.name)
+        return prefix + "/".join(parts)
     try:
         relative = candidate.resolve().relative_to(workspace)
         return relative.as_posix()
     except (OSError, ValueError):
+        pass
+    try:
+        return Path(os.path.relpath(candidate.resolve(), workspace)).as_posix()
+    except (OSError, ValueError):
         return candidate.name
+
+
+USER_AGENTS_PATH_LABEL_PREFIX: str = "<user-agents>/"
+_LABEL_PREFIXES: dict[str, str] = {
+    "global": GLOBAL_PATH_LABEL_PREFIX,
+    "package": PACKAGE_PATH_LABEL_PREFIX,
+    "cli": CLI_PATH_LABEL_PREFIX,
+    "user-agents": USER_AGENTS_PATH_LABEL_PREFIX,
+}
 
 
 def _parse_frontmatter(
@@ -641,30 +920,63 @@ def _parse_frontmatter_fields(
     *,
     fallback_name: str,
 ) -> tuple[str, str]:
-    """Parse the supported, single-line frontmatter label fields."""
+    """Parse the supported frontmatter label fields (`name`, `description`).
 
-    name = fallback_name
-    description = ""
+    Top-level `key: value` lines are honoured. Indented lines that follow a
+    key continue its value, so YAML block scalars (`description: >-` /
+    `|`) and multi-line plain scalars keep their text. Labels are
+    single-line, so continuation lines are joined with spaces (and then
+    whitespace-collapsed by `_sanitize_label`).
+    """
+
+    fields: dict[str, str] = {}
+    for key, value in _frontmatter_top_level_fields(lines):
+        if key in ("name", "description"):
+            fields[key] = _sanitize_label(_unquote(value))
+    name = fields.get("name") or fallback_name
+    return name, fields.get("description", "")
+
+
+_BLOCK_SCALAR_INDICATOR = re.compile(r"^[|>][+-]?[0-9]?[+-]?(?:\s+#.*)?$")
+# A YAML comment on an unquoted value starts at whitespace followed by `#`.
+_TRAILING_COMMENT = re.compile(r"\s+#.*$")
+
+
+def _frontmatter_top_level_fields(lines: list[str]) -> list[tuple[str, str]]:
+    fields: list[tuple[str, str]] = []
+    current_key: str | None = None
+    parts: list[str] = []
+
+    def flush() -> None:
+        if current_key is not None:
+            fields.append((current_key, " ".join(part for part in parts if part)))
+
     for raw_line in lines:
-        stripped = raw_line.rstrip("\r")
-        if not stripped or stripped.lstrip().startswith("#") or ":" not in stripped:
+        line = raw_line.rstrip("\r")
+        if line[:1] in (" ", "\t"):
+            if current_key is not None:
+                parts.append(line.strip())
             continue
-        key, _, value = stripped.partition(":")
-        key = key.strip().lower()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        flush()
+        if ":" not in line:
+            current_key, parts = None, []
+            continue
+        key, _, value = line.partition(":")
         value = value.strip()
-        if (
-            value.startswith(("'", '"'))
-            and value.endswith(("'", '"'))
-            and len(value) >= 2
-        ):
-            value = value[1:-1]
-        if key == "name":
-            sanitized = _sanitize_label(value)
-            if sanitized:
-                name = sanitized
-        elif key == "description":
-            description = _sanitize_label(value)
-    return name, description
+        current_key = key.strip().lower()
+        if not value.startswith(("'", '"')):
+            value = _TRAILING_COMMENT.sub("", value)
+        parts = [] if _BLOCK_SCALAR_INDICATOR.match(value) else [value]
+    flush()
+    return fields
+
+
+def _unquote(value: str) -> str:
+    if value.startswith(("'", '"')) and value.endswith(("'", '"')) and len(value) >= 2:
+        return value[1:-1]
+    return value
 
 
 def _reconstruct_frontmatter_body(content: str, body_lines: list[str]) -> str:

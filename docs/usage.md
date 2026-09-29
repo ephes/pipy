@@ -122,12 +122,25 @@ surface, not the product session source of truth.
 
 ## Context and system prompt files
 
-Pipy loads `AGENTS.md`, `AGENTS.MD`, `pipy.md`, or `PIPY.md` at startup from
-parent directories and the current directory, plus the first matching file in
-the global pipy config root (`PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`,
-`~/.pipy`, then `~/.config/pipy`). Use context files for project conventions,
-commands, safety rules, and preferences. Disable loading with
-`--no-context-files` or `-nc`.
+Pipy loads context files at startup the way Pi does. In each directory it takes
+the first file that exists from `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`,
+`CLAUDE.md`, then `CLAUDE.MD`. It reads the global pipy config root first
+(`PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, `~/.pipy`, then
+`~/.config/pipy`). Then it reads every parent directory from the filesystem root
+down, and the current directory last, so more specific files come later. A file
+reached twice is loaded once.
+
+Inside a linked git worktree that sits inside its main checkout (for example
+`.claude/worktrees/<name>`), the main checkout's context file with the same name
+as the worktree's own file is skipped, so the repository's instructions are not
+applied twice.
+
+The files go into the system prompt as Pi's `<project_context>` section: one
+`<project_instructions path="...">` block per file. Context files are loaded
+whether or not the project is trusted.
+
+Use context files for project conventions, commands, safety rules, and
+preferences. Disable loading with `--no-context-files` or `-nc`.
 
 Replace or append to the default system prompt with CLI flags:
 

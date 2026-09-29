@@ -8,6 +8,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Context files now load the way Pi loads them (Pi `4df157433`). In each
+  directory pipy takes the first file that exists from `AGENTS.override.md`,
+  `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, then `CLAUDE.MD`. It stops ignoring
+  `CLAUDE.md`, so projects whose instructions live only in `CLAUDE.md` now get
+  them.
+  - Inside a linked git worktree nested in its main checkout, the main
+    checkout's same-named file is skipped, as in Pi.
+  - The files reach the model as Pi's `<project_context>` section, with one
+    `<project_instructions path="...">` block per file.
+  - The startup `[Context]` list comes from the same loader.
+- Skills now come from Pi's roots and in Pi's layout:
+  - project `.agents/skills/` directories from the cwd up to the git root
+    (trusted projects only), and `~/.agents/skills/`;
+  - a `<name>/SKILL.md` directory is one skill, named after its directory;
+  - `.gitignore`, `.ignore` and `.fdignore` files inside a skills directory
+    apply.
+
+  A `.agents/skills/` directory in the project or any parent directory now makes
+  the project need trust. The skills advertisement is wrapped in Pi's `<skills>`
+  section.
+
 - The built-in catalog now carries Pi's current frontier rows. Costs, context
   windows, max tokens and thinking maps come from Pi's generator at
   `4df157433`. The new rows are:
@@ -297,6 +318,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Removed
 
+- `pipy.md` and `PIPY.md` are no longer context files. Pi has no equivalent;
+  rename them to `AGENTS.md`. Skills without a frontmatter `description` no
+  longer load, matching Pi's `loadSkillFromFile`.
 - The pipy-only one-shot Python SDK facade has been removed outright. Python
   embedding now uses `create_product_session(...)` or `open_product_session(...)`
   with an explicit provider; `pipy run --agent pipy-native` retains its separate

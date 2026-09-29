@@ -94,8 +94,9 @@ Pipy loads instruction files into the system prompt at startup:
 
 - a global pipy config root selected from `PIPY_CONFIG_HOME`,
   `${XDG_CONFIG_HOME}/pipy`, `~/.pipy` when present, then `~/.config/pipy`;
-- `AGENTS.md`, `AGENTS.MD`, `pipy.md`, or `PIPY.md` from parent directories
-  and the current directory.
+- the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, or
+  `CLAUDE.MD` from each parent directory and the current directory (Pi's
+  candidate order).
 
 Add an `AGENTS.md` file to a project to tell pipy how to work there:
 

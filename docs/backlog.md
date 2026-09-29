@@ -87,18 +87,36 @@ Remaining follow-ons, not queued separately yet:
   on thinking requests, and `/model x:level` clamping remain Pi deviations.
 - OpenRouter Claude rows need an Anthropic-Messages-over-OpenRouter transport.
 
-### 2. CTX1 — Pi context-file and skill discovery (S)
+### 2. CTX1 — Pi context-file and skill discovery (done 2026-09-29)
 
-Pi loads `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md` and
-`CLAUDE.MD` per directory (`coding-agent/src/core/resource-loader.ts:162`). It
-also loads `.agents/skills`, globally and under trust for projects
-(`core/trust-manager.ts:181-197`). Pipy deliberately excludes `CLAUDE.md`
-(`workspace_context.py:13-21`) and only knows `.pipy/skills` (`skills.py`), so
-it runs without project instructions in CLAUDE.md-only repos. Adopt Pi's
-candidate order and skill roots, keep the symlink-escape guard, and update
-`docs/usage.md`
-([Context and system prompt files](usage.md#context-and-system-prompt-files))
-and `docs/pi-parity.md`.
+Landed on branch `feat/ctx1-context-discovery`. Context files and skills now
+follow Pi `4df157433`. The plan and the deviations are in
+`docs/specs/2026-09-29-ctx1-context-discovery-plan.md`, `docs/pi-parity.md` and
+`docs/usage.md`.
+
+- Context files use Pi's candidate order (`AGENTS.override.md`, `AGENTS.md`,
+  `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD`) and are not trust-gated. Pi's
+  linked-worktree shadowing applies. `pipy.md`/`PIPY.md` were dropped.
+- The prompt uses Pi's `<project_context>` and `<skills>` sections.
+- Skills load from `--skill` paths, `.pipy/skills`, project `.agents/skills`
+  (cwd up to the git root, trusted only), `<config>/skills`,
+  `~/.agents/skills`, then packages. Every root uses Pi's `SKILL.md` layout with
+  ignore files. A skill without a description is dropped. `.agents/skills` in
+  any ancestor makes a project need trust.
+
+Deviations kept as follow-ons, not queued separately yet:
+
+- The symlink-containment guard also covers skill roots, so a skill directory
+  symlinked out of `~/.pipy/skills` or `~/.agents/skills` does not load.
+  Relaxing it for user-owned roots is a candidate.
+- The global resource root (skills, templates, commands, `models.json`) falls
+  back to `~/.config/pipy`, not `~/.pipy` like settings and context. Unify it.
+- A plain `.md` skill without a frontmatter `name` keeps its file stem (Pi uses
+  the parent directory name). Package skills come after the auto roots (Pi puts
+  them first).
+- Not ported: skill `disable-model-invocation`, the bash-only "Use bash to load"
+  advertisement, and the rest of Pi's sectioned system prompt (`<tools>`,
+  `<rules>`, `<cwd>`).
 
 ### 3. DF1 — Live smoke and dogfooding acceptance (S–M)
 
@@ -191,7 +209,8 @@ only.
 - **Done in this rewrite:** this backlog, the archive and a historical marker on
   `docs/pi-mono-gap-audit.md`.
 - **Remaining:**
-  - Re-baseline the feature notes in `docs/pi-parity.md` when MC1/CTX1 land.
+  - Re-baseline the feature notes in `docs/pi-parity.md` when MC1/CTX1 land
+    (the CTX1 rows were updated with the slice).
   - Delete the stale remote branches (`feat/catalog-non-completions`,
     `feat/extension-api`, `feat/tui-interaction-comfort`).
   - Review the four local stashes with their owner before dropping any.

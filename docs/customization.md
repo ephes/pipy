@@ -15,8 +15,10 @@ in the global config root's `trust.json`; `--approve` and `--no-approve` provide
 run-only overrides. When a project is untrusted, its skills, templates, commands,
 extensions, system-prompt files, settings, and project package declarations are
 not loaded. Global resources/packages and explicit per-run source flags remain
-available. `AGENTS.md` / `pipy.md` context files are intentionally exempt from
-this gate (unless `--no-context-files` is used). Interactive startup can save a
+available. Project `.agents/skills` directories (in the project or any parent
+directory) also make a project need trust, as in Pi. Your own `~/.agents/skills`
+does not. Context files (`AGENTS.md`, `CLAUDE.md` and the other Pi candidates)
+are intentionally exempt from this gate (unless `--no-context-files` is used). Interactive startup can save a
 current/parent/session-only decision; `/trust` manages the saved next-restart
 decision. Trust is not a sandbox.
 Before saved/default/UI fallback, global and explicit CLI extensions may handle
@@ -34,8 +36,13 @@ workspace or global theme directory.
 | Source | Skills | Templates | Commands | Themes |
 | --- | --- | --- | --- | --- |
 | Project (workspace) | `.pipy/skills/` | `.pipy/templates/` | `.pipy/commands/` | (packages only) |
+| Project `.agents` (cwd up to the git root) | `.agents/skills/` | — | — | — |
 | Global config root | `<root>/skills/` | `<root>/templates/` | `<root>/commands/` | (packages only) |
+| User `.agents` | `~/.agents/skills/` | — | — | — |
 | Installed packages | `skills/` | `templates/` | `commands/` | `themes/*.toml` |
+
+Skills are searched in that row order, after any `--skill` paths, and the first
+skill with a given name wins. The project rows load only for trusted projects.
 
 The global config root resolves in order: `$PIPY_CONFIG_HOME`, then
 `${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy` (an existing `~/.pipy` is also
@@ -85,8 +92,24 @@ description** are advertised in the tool-loop system prompt (along with the
 skill's absolute location), and the model loads the full body on demand with the
 `read` tool. Only the descriptions stay in context; the bodies load when needed.
 
-Add a skill as `.pipy/skills/<name>.md` in your project or
-`<root>/skills/<name>.md` globally:
+Pipy discovers skills in Pi's layout:
+
+- A directory that contains a `SKILL.md` is one skill. The skill is named after
+  the directory unless the frontmatter sets `name`. Pipy does not look inside
+  that directory for more skills.
+- Other directories are searched recursively. Entries whose names start with
+  `.` are skipped, and so is `node_modules`.
+- Plain `*.md` files count as skills only in some places:
+  - at the top level of `.pipy/skills/`, `<root>/skills/`, a package skill
+    directory, or a `--skill` directory;
+  - below the top level of `.agents/skills/`.
+- `.gitignore`, `.ignore` and `.fdignore` files inside a skills directory hide
+  the entries they match.
+- A skill needs a non-empty `description`. Pipy skips a file without one.
+
+Add a skill as `.pipy/skills/<name>/SKILL.md` or `.pipy/skills/<name>.md` in your
+project, as `.agents/skills/<name>/SKILL.md` to share it with other agents, or as
+`<root>/skills/<name>/SKILL.md` globally:
 
 ```markdown
 ---
