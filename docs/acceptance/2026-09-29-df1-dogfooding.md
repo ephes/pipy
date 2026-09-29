@@ -190,7 +190,7 @@ These are recorded with their repro steps in
   `offset`/`limit`, reads 2000 lines / 50 KB and appends
   `[Showing lines …]`. On a 901-line CSV the model believed it had read the
   whole file, and the auto-compaction summary recorded a wrong fact
-  ("last row has ID 00198").
+  ("last row has ID 00198"). Fixed by READ1 (see the backlog's Done table).
 - **F2 Resumed conversations are not rendered.** `-r`, `/resume`, `/tree`
   navigation and `/fork` leave the transcript empty; Pi renders the branch.
 - **F3 Resume does not restore model or thinking level.** Pi restores the

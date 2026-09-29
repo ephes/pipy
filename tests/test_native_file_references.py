@@ -109,22 +109,55 @@ def test_resolve_out_of_workspace_fails_closed(tmp_path: Path) -> None:
     assert "outside content" not in resolution.augmented_prompt("read @../secret.txt")
 
 
-def test_resolve_secret_shaped_file_does_not_leak(tmp_path: Path) -> None:
-    (tmp_path / "creds.env").write_text(
-        "AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLEKEYDATA1234567890ABCD\n",
-        encoding="utf-8",
-    )
+def test_resolve_secret_shaped_file_loads_like_pi_read(tmp_path: Path) -> None:
+    # READ1: `@file` reads through Pi's `read`, which has no content filter.
+    body = "AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLEKEYDATA1234567890ABCD\n"
+    (tmp_path / "creds.env").write_text(body, encoding="utf-8")
 
     resolution = resolve_file_references(
         "check @creds.env",
         workspace_root=tmp_path,
     )
 
-    assert resolution.loaded_count == 0
-    assert resolution.failed_count == 1
-    augmented = resolution.augmented_prompt("check @creds.env")
-    assert "AKIA" not in augmented
-    assert "SECRET" not in augmented.replace("@creds.env", "")
+    assert resolution.loaded_count == 1
+    assert resolution.failed_count == 0
+    assert resolution.references[0].text == body
+
+
+def test_resolve_large_file_loads_first_2000_lines_with_notice(
+    tmp_path: Path,
+) -> None:
+    # Formerly refused (over 256 KB); now Pi's read truncation applies.
+    rows = "".join(f"{i}\n" for i in range(1, 60001))
+    (tmp_path / "big.txt").write_text(rows, encoding="utf-8")
+    assert (tmp_path / "big.txt").stat().st_size > 256 * 1024
+
+    resolution = resolve_file_references("see @big.txt", workspace_root=tmp_path)
+
+    assert resolution.loaded_count == 1
+    text = resolution.references[0].text
+    assert text is not None
+    assert text.endswith(
+        "\n1999\n2000\n\n[Showing lines 1-2000 of 60001. Use offset=2001 to continue.]"
+    )
+
+
+def test_resolve_two_near_limit_files_exceed_context_budget(tmp_path: Path) -> None:
+    # Each reference loads about 50 KB; the second no longer fits in 64 KB.
+    row = "x" * 99 + "\n"
+    (tmp_path / "a.csv").write_text(row * 900, encoding="utf-8")
+    (tmp_path / "b.csv").write_text(row * 900, encoding="utf-8")
+
+    resolution = resolve_file_references(
+        "compare @a.csv and @b.csv", workspace_root=tmp_path
+    )
+
+    first, second = resolution.references
+    assert first.loaded is True
+    assert first.text is not None
+    assert first.text.endswith("(50.0KB limit). Use offset=513 to continue.]")
+    assert second.loaded is False
+    assert second.reason == "context_budget_exhausted"
 
 
 def test_resolve_one_bad_reference_does_not_block_good_one(tmp_path: Path) -> None:

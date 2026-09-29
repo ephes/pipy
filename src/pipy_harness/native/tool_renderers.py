@@ -923,26 +923,27 @@ class _ToolLoopRenderer:
     def _read_range_label(data: Mapping[str, Any]) -> str:
         """Format the ``:start-end`` line range for a ``read`` header.
 
-        Pi's read tool natively exposes ``offset`` and ``limit`` style
-        arguments. Pipy's bounded `read` tool uses a fixed line cap, but
-        the codex provider may still emit the optional ``offset`` and
-        ``limit`` properties that other read tools advertise. When
-        present they shape the header label so the user sees the
-        actual requested range; otherwise the default ``:1-200``
-        matches the tool's hard-coded ``line_limit``.
+        Port of Pi's ``formatReadLineRange``
+        (``core/tools/renderers/read.ts``): no range when both ``offset`` and
+        ``limit`` are absent or null; otherwise the 1-indexed ``offset``
+        (default 1), plus ``-end`` when ``limit`` is given and the end line
+        is non-zero.
         """
 
         start = data.get("offset")
         limit = data.get("limit")
-        if isinstance(start, int) and start >= 0:
-            start_line = start + 1
-        else:
-            start_line = 1
-        if isinstance(limit, int) and limit > 0:
-            end_line = start_line + limit - 1
-        else:
-            end_line = start_line + 199
-        return f":{start_line}-{end_line}"
+        if start is None and limit is None:
+            return ""
+        start_line = start if start is not None else 1
+        end_line = None
+        if limit is not None:
+            try:
+                end_line = start_line + limit - 1
+            except TypeError:
+                end_line = None
+        if end_line:
+            return f":{start_line}-{end_line}"
+        return f":{start_line}"
 
     def _format_pi_call_header_rich(
         self, tool_name: str, arguments_json: str
@@ -951,7 +952,7 @@ class _ToolLoopRenderer:
 
         Pi styles the header per-segment: the verb (e.g. `read`,
         `ls`, `grep`) is bold white, the operand (path/pattern) is
-        plain dim white, and the line range (`:1-200`) is yellow.
+        plain dim white, and the line range (`:5-14`) is yellow.
         We reproduce that by emitting separate text+style pairs,
         which `_tool_panel_rich_line` joins back into one panel row
         with each segment carrying its own ANSI weight/color while
@@ -1020,7 +1021,7 @@ class _ToolLoopRenderer:
         """Render a Pi-shape one-line tool header.
 
         Built-in read/ls/grep/find/write/edit tools render as Pi-style
-        compact lines: ``read path:1-line_limit``, ``ls path``,
+        compact lines: ``read path[:start-end]``, ``ls path``,
         ``grep "pattern" path``, ``find "pattern" path``. Unknown tools
         fall back to a ``name(args)`` form so the user can still see the
         invocation.

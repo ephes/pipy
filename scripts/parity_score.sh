@@ -108,7 +108,7 @@ check B8  "7-tool manifest" small  "parity_run pytest -q tests/test_native_codin
 # Pi keeps output truncation internal rather than advertising another agent
 # tool. Exercise pipy's independent read, bash, and provider-visible result
 # bounds instead of checking for a model-facing helper module.
-check B9  "output bounds" small  "parity_run pytest -q tests/test_native_tools_read.py::test_read_tool_truncates_to_byte_limit tests/test_bash_tool.py::test_bounds_large_output tests/test_native_tools_base.py::test_tool_execution_result_rejects_oversized_output"
+check B9  "output bounds" small  "parity_run pytest -q tests/test_native_tools_read.py::test_read_tool_byte_truncation_notice tests/test_bash_tool.py::test_bounds_large_output tests/test_native_tools_base.py::test_tool_execution_result_rejects_oversized_output"
 
 echo
 echo "── Core subsystems (C1–C15) ────────────────────────"
