@@ -14,6 +14,7 @@ from pipy_harness.native.agent.messages import (
     AgentMessage,
     AgentToolResultMessage,
     AgentUserMessage,
+    provider_replay_messages,
 )
 from pipy_harness.native.agent.request import validate_frozen_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
@@ -145,6 +146,11 @@ def build_summary_request(
     2000 characters: the summary does not need full tool output, and an
     oversized result must not make the summary request itself too large to
     send (DF1-F5).
+
+    The summary request carries history as structured messages, so aborted
+    and failed assistant turns are dropped like on every other provider
+    request (Pi keeps their partial text inside its serialized
+    ``<conversation>`` text instead).
     """
 
     return ProviderRequest(
@@ -153,7 +159,9 @@ def build_summary_request(
         provider_name=binding.provider_name,
         model_id=binding.model_id,
         cwd=cwd,
-        messages=tuple(_summary_message(message) for message in messages),
+        messages=tuple(
+            _summary_message(message) for message in provider_replay_messages(messages)
+        ),
         available_tools=(),
         provider_header_callback=header_callback,
         session_id=uuid.uuid4().hex,

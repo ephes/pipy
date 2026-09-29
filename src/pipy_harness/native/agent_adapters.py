@@ -107,7 +107,11 @@ class ProductSessionEventProjection:
             return
         if self._suppress_next_assistant:
             self._suppress_next_assistant = False
-            return
+            # An aborted or failed turn is persisted with its stop reason
+            # (Pi appends every message_end); only a synthetic balance-only
+            # completion carries none.
+            if message.stop_reason is None:
+                return
         self._append(message)
 
     def _append_skipped_results(self, event: TurnCompleted) -> None:

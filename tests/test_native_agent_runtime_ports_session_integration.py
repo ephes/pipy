@@ -17,6 +17,7 @@ from pipy_harness.native.agent import (
     AgentEventSink,
     AgentMessage,
     AgentRunStarted,
+    AgentStopReason,
     AgentSystemMessage,
     AgentToolResultMessage,
     AgentTranscriptMessage,
@@ -474,7 +475,7 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
+def test_projection_action_sink_persists_stopped_failure_and_cancel_assistant(
     cancelled: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.repl.wiring as loop_module
@@ -507,13 +508,19 @@ def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
         "prompt\n",
     )
 
-    assert len(effects) == 2
+    # Pi persists every message_end, so the aborted or failed turn is stored
+    # with its stop reason (DF1-F6) and is the event's exact message.
+    assert len(effects) == 3
     assert isinstance(effects[0], AgentSystemMessage)
     assert isinstance(effects[1], AgentUserMessage)
+    stopped = effects[2]
+    assert isinstance(stopped, AgentAssistantMessage)
+    assert stopped.content == ProductContent("")
+    assert stopped.stop_reason is (
+        AgentStopReason.ABORTED if cancelled else AgentStopReason.ERROR
+    )
     assert any(
-        isinstance(event, MessageCompleted)
-        and isinstance(event.message, AgentAssistantMessage)
-        and event.message.content == ProductContent("")
+        isinstance(event, MessageCompleted) and event.message is stopped
         for event in canonical.events
     )
     terminal_type = RunCancelled if cancelled else ProviderFailed

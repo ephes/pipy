@@ -207,9 +207,9 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"message_end","message":{"role":"system","content":"","sections":{"preamble":"..."},"toolsAdded":[...]}}
 {"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
 {"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
-{"type":"message_start","message":{"role":"assistant","content":[]}}
+{"type":"message_start","message":{"role":"assistant","content":[],"stopReason":"stop"}}
 {"type":"message_update","message":{...},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"SEEN:ROOT","partial":{...}}}
-{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}],"stopReason":"stop"}}
 {"type":"turn_end","message":{...},"toolResults":[]}
 {"type":"agent_end","messages":[...],"willRetry":false}
 {"type":"agent_settled"}
@@ -665,7 +665,12 @@ While a `prompt` run is in flight:
 - `follow_up` enqueues a message to run after the current run settles, subject
   to `followUpMode`; also observable via `queue_update`.
 - `abort` cancels the active run; the run emits its terminating `message_end` /
-  `turn_end` / `agent_end` events and the `abort` response resolves.
+  `turn_end` / `agent_end` events and the `abort` response resolves. As in Pi,
+  the terminating assistant message keeps the text streamed so far and carries
+  `"stopReason":"aborted"`; a provider failure ends with `"stopReason":"error"`
+  and `errorMessage`. Every assistant message carries `stopReason` (`stop`,
+  `toolUse`, `aborted` or `error`). The stopped message is stored in the
+  session and returned by `get_messages`, but never sent to a provider again.
 - `prompt` itself may carry `streamingBehavior: "steer" | "followUp"` so a
   prompt sent during an active run is treated as a steer or follow-up.
 

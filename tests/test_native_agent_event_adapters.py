@@ -330,13 +330,14 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
     assert sink.events == [
         {
             "type": "message_start",
-            "message": {"role": "assistant", "content": []},
+            "message": {"role": "assistant", "content": [], "stopReason": "stop"},
         },
         {
             "type": "message_update",
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "first"}],
+                "stopReason": "stop",
             },
             "assistantMessageEvent": {
                 "type": "text_delta",
@@ -345,6 +346,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
                 "partial": {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "first"}],
+                    "stopReason": "stop",
                 },
             },
         },
@@ -353,6 +355,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "first second"}],
+                "stopReason": "stop",
             },
             "assistantMessageEvent": {
                 "type": "text_delta",
@@ -361,6 +364,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
                 "partial": {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "first second"}],
+                    "stopReason": "stop",
                 },
             },
         },
@@ -473,6 +477,7 @@ def test_automation_projection_preserves_lifecycle_retry_and_terminal_shapes() -
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "answer"}],
+                "stopReason": "stop",
             },
             "toolResults": [],
         },
@@ -486,6 +491,7 @@ def test_automation_projection_preserves_lifecycle_retry_and_terminal_shapes() -
                 {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "answer"}],
+                    "stopReason": "stop",
                 },
             ],
             "willRetry": False,

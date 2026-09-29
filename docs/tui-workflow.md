@@ -688,11 +688,12 @@ boundaries:
    the idle input prompt still clears/exits as before.)
 
 **Session-tree / context on abort**: the user's prompt for the aborted turn is
-recorded normally (the user did type it), but the loop breaks before any
-`AgentAssistantMessage`/tool observation is appended, so an aborted turn never
-records a misleading successful assistant or tool result, and the next
-provider request carries the user prompt with no fabricated assistant reply in
-between. No secret/auth payload enters the metadata archive — the abort path
+recorded normally (the user did type it). As in Pi, the turn is then recorded
+as an assistant message with `stop_reason: "aborted"` and the text streamed
+before the abort (DF1-F6), never as a successful answer or tool result, and
+the transcript shows it again on resume with `Operation aborted`. Provider
+requests skip it (Pi `transformMessages`), so the next request carries the
+user prompt with no assistant reply in between. No secret/auth payload enters the metadata archive — the abort path
 adds no metadata and `ProviderCancelledError` carries no provider payload.
 
 **Coverage**: focused unit tests around the boundary

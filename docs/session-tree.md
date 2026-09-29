@@ -622,6 +622,15 @@ Rules to match Pi:
   messages. A `firstKeptEntryId` equal to the entry's own `id` keeps no earlier
   message (Pi's `appendCompaction(summary, null)`); fork and clone rewrite it to
   the copy's own id.
+- An aborted or failed provider turn (Escape, steering, a provider error) is
+  stored as an assistant message with `"stop_reason": "aborted"` or
+  `"error"`, the text streamed so far, no tool calls, and for an error
+  `"error_message"` (Pi `stopReason`/`errorMessage`, DF1-F6). Both keys are
+  written only for such a turn. The message stays in `build_context()` and
+  the coding history, but no provider request replays it: the one request
+  funnel (`materialize_provider_request`) and the compaction summary request
+  drop it, like Pi's `transformMessages`. `/tree` shows a stopped turn without
+  text as `assistant: (aborted)` or `assistant: <error message>`.
 - System messages (Pi `buildSessionContext`) are part of `build_context()`,
   which RPC `get_messages` serves. A compaction contributes its `systemMessage`
   checkpoint before its summary, and the retained entries before the
@@ -753,6 +762,9 @@ the latest compaction entry, then the entries its cut keeps):
 - user and assistant messages; each tool call as its call row followed by its
   result, drawn by the same renderer as a live turn (a successful `read` shows
   only its call row; a call without a result shows only its call row);
+- an aborted turn as its partial text, then an `Operation aborted` error row;
+  a failed turn as its partial text, then `Error: <message>` (Pi
+  `AssistantMessageComponent`);
 - a `!` shell record as its `$ command` and status/output rows;
 - `[compaction]` and `[branch]` rows, collapsed as
   `Compacted from N tokens (ctrl+o to expand)` and

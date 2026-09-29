@@ -67,6 +67,7 @@ os.environ.pop("NO_COLOR", None)
 from pipy_harness.models import CapturePolicy, HarnessStatus, RunRequest  # noqa: E402
 from pipy_harness.native.agent import (  # noqa: E402
     AgentAssistantMessage,
+    AgentStopReason,
     AgentUserMessage,
 )
 from pipy_harness.native.cancellation import ProviderCancelledError  # noqa: E402
@@ -599,17 +600,21 @@ def run_checks(base: Path) -> list[Check]:
         aborted_ok = run.wait_for("Operation aborted")
     captures.append(run.text())
     observed_cancel = provider10.observed == ["cancelled"]
-    # No fabricated assistant after the aborted user turn in the native tree.
+    # Pi keeps the aborted turn (DF1-F6): the tree holds exactly one assistant,
+    # marked aborted, and no completed (fabricated) answer.
     entries = list(tree10.get_entries())
-    has_assistant = any(
-        isinstance(getattr(e, "message", None), AgentAssistantMessage) for e in entries
-    )
+    assistants = [
+        e.message
+        for e in entries
+        if isinstance(getattr(e, "message", None), AgentAssistantMessage)
+    ]
+    stored_aborted = [a.stop_reason for a in assistants] == [AgentStopReason.ABORTED]
     checks.append(
         Check(
             "true_cancellation_and_tree_consistent",
-            aborted_ok and observed_cancel and not has_assistant,
+            aborted_ok and observed_cancel and stored_aborted,
             f"aborted={aborted_ok} observed={observed_cancel} "
-            f"fabricated_assistant={has_assistant}",
+            f"stored_aborted_assistant={stored_aborted}",
         )
     )
 

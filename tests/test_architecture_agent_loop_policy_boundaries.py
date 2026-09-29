@@ -77,6 +77,7 @@ _PRODUCT_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
+        "pipy_harness.native.agent.messages.provider_replay_messages",
         "pipy_harness.native.agent.request",
         "pipy_harness.native.agent.request.AgentProviderRequestSnapshot",
         "pipy_harness.native.agent.request.validate_product_content",

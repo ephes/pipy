@@ -175,7 +175,12 @@ def test_message_start_has_empty_assistant_content(tmp_path: Path) -> None:
         for e in sink.events
         if e["type"] == "message_start" and e["message"]["role"] == "assistant"
     )
-    assert message_start["message"] == {"role": "assistant", "content": []}
+    # Pi's partial assistant starts with stopReason "stop".
+    assert message_start["message"] == {
+        "role": "assistant",
+        "content": [],
+        "stopReason": "stop",
+    }
 
 
 def test_agent_end_carries_messages_and_will_retry_false(tmp_path: Path) -> None:

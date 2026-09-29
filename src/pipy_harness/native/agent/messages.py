@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import ClassVar
 
 from pipy_harness.native.agent._validation import (
@@ -51,15 +53,52 @@ class AgentUserMessage:
             )
 
 
+class AgentStopReason(StrEnum):
+    """Why an assistant turn ended early (Pi ``StopReason``).
+
+    ``None`` on a message means the turn completed (Pi ``stop``/``toolUse``).
+    Pi records ``aborted`` and ``error`` messages with the content streamed so
+    far and skips them when replaying history to a provider
+    (``transform-messages.ts``); see :func:`provider_replay_messages`.
+    """
+
+    ABORTED = "aborted"
+    ERROR = "error"
+
+
 @dataclass(frozen=True, slots=True)
 class AgentAssistantMessage:
-    """One assembled assistant message and its tool intents."""
+    """One assembled assistant message and its tool intents.
+
+    A message with a ``stop_reason`` is an aborted or failed turn: it keeps
+    the streamed partial text, never carries tool calls, and is transcript
+    state that providers never see again.
+    """
 
     content: ProductContent
     tool_calls: tuple[AgentToolCall, ...] = ()
+    stop_reason: AgentStopReason | None = None
+    error_message: str | None = None
     CONTENT_MAX_LENGTH: ClassVar[int] = 256 * 1024
 
     def __post_init__(self) -> None:
+        if self.stop_reason is not None and type(self.stop_reason) is not (
+            AgentStopReason
+        ):
+            raise TypeError(
+                "AgentAssistantMessage.stop_reason must be AgentStopReason or None"
+            )
+        if self.error_message is not None:
+            if type(self.error_message) is not str:
+                raise TypeError(
+                    "AgentAssistantMessage.error_message must be a string or None"
+                )
+            if self.stop_reason is None:
+                raise ValueError(
+                    "AgentAssistantMessage.error_message requires a stop_reason"
+                )
+        if self.stop_reason is not None and self.tool_calls:
+            raise ValueError("a stopped AgentAssistantMessage carries no tool calls")
         if not isinstance(self.content, ProductContent):
             raise TypeError("AgentAssistantMessage.content must be ProductContent")
         if len(self.content.value) > self.CONTENT_MAX_LENGTH:
@@ -203,6 +242,32 @@ Lifecycle events, run results and the session tree carry this union (Pi's
 ``Message`` includes ``SystemMessage``); provider history stays
 :data:`AgentMessage`.
 """
+
+
+def provider_replay_messages(
+    messages: Sequence[AgentMessage],
+) -> tuple[AgentMessage, ...]:
+    """History as a provider may see it: without aborted or failed turns.
+
+    Pi ``transformMessages`` (``packages/ai/src/api/transform-messages.ts``)
+    skips every assistant message whose ``stopReason`` is ``error`` or
+    ``aborted``: it is an incomplete turn, and the model retries from the
+    last valid state. Stopped messages carry no tool calls, so skipping one
+    never orphans a tool result.
+    """
+
+    kept = tuple(
+        message
+        for message in messages
+        if not (
+            isinstance(message, AgentAssistantMessage)
+            and message.stop_reason is not None
+        )
+    )
+    if len(kept) == len(messages) and isinstance(messages, tuple):
+        return messages  # nothing to drop: keep the caller's exact tuple
+    return kept
+
 
 _AGENT_MESSAGE_TYPES = (
     AgentUserMessage,

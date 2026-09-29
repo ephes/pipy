@@ -42,6 +42,7 @@ from typing import Any, ClassVar, Concatenate, ParamSpec, TypeVar, cast
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentStopReason,
     AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
@@ -297,7 +298,7 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
     if isinstance(message, AgentUserMessage):
         return {"role": "user", "content": message.content.value}
     if isinstance(message, AgentAssistantMessage):
-        return {
+        assistant: dict[str, Any] = {
             "role": "assistant",
             "content": message.content.value,
             "tool_calls": [
@@ -309,6 +310,12 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
                 for call in message.tool_calls
             ],
         }
+        # Pi ``stopReason``/``errorMessage``, written only for a stopped turn.
+        if message.stop_reason is not None:
+            assistant["stop_reason"] = message.stop_reason.value
+        if message.error_message is not None:
+            assistant["error_message"] = message.error_message
+        return assistant
     if isinstance(message, AgentToolResultMessage):
         body = {
             "role": "tool",
@@ -379,9 +386,17 @@ def _message_from_json(
             )
             for call in raw_calls
         )
+        raw_stop_reason = body.get("stop_reason")
+        raw_error_message = body.get("error_message")
+        if raw_error_message is not None and not isinstance(raw_error_message, str):
+            raise ValueError("assistant error_message must be a string")
         return AgentAssistantMessage(
             content=ProductContent(str(body.get("content", ""))),
             tool_calls=tool_calls,
+            stop_reason=(
+                None if raw_stop_reason is None else AgentStopReason(raw_stop_reason)
+            ),
+            error_message=raw_error_message,
         )
     if role == "tool":
         raw_added_tool_names = body.get("added_tool_names")

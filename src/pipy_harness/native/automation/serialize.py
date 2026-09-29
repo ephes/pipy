@@ -62,6 +62,14 @@ def assistant_content_blocks(
     return blocks
 
 
+def assistant_stop_reason(message: AgentAssistantMessage) -> str:
+    """Pi ``stopReason``: ``aborted``/``error`` when set, else how it ended."""
+
+    if message.stop_reason is not None:
+        return message.stop_reason.value
+    return "toolUse" if message.tool_calls else "stop"
+
+
 def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
     """Map one native loop message to its Pi-shaped JSON object."""
 
@@ -73,12 +81,16 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
             "content": [{"type": "text", "text": message.content.value}],
         }
     if isinstance(message, AgentAssistantMessage):
-        return {
+        assistant: dict[str, Any] = {
             "role": "assistant",
             "content": assistant_content_blocks(
                 message.content.value, message.tool_calls
             ),
+            "stopReason": assistant_stop_reason(message),
         }
+        if message.error_message is not None:
+            assistant["errorMessage"] = message.error_message
+        return assistant
     if isinstance(message, AgentToolResultMessage):
         return {
             "role": "toolResult",

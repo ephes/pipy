@@ -333,8 +333,10 @@ def test_auto_compaction_keeps_identity_overlay_on_every_provider_iteration(
     ("case", "expected_outcome", "expected_contents"),
     [
         ("success", AgentRunOutcome.SUCCEEDED, ["active", "answer-1"]),
-        ("failure", AgentRunOutcome.FAILED, ["active"]),
-        ("cancel", AgentRunOutcome.CANCELLED, ["active"]),
+        # The stopped assistant keeps what the turn produced (Pi stopReason
+        # error/aborted with its partial content).
+        ("failure", AgentRunOutcome.FAILED, ["active", "answer-1"]),
+        ("cancel", AgentRunOutcome.CANCELLED, ["active", ""]),
         (
             "fatal",
             AgentRunOutcome.FAILED,
