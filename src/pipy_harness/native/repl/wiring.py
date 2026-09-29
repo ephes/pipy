@@ -835,7 +835,11 @@ def _compose_extension_phase(
         {},
         workspace_root=cwd,
         reference_roots=inputs.reference_roots,
-        stderr_sink=startup.stderr_sink,
+        stderr_sink=(
+            terminal_ui.components.transcript.add_tool_side_output
+            if terminal_ui is not None
+            else startup.stderr_sink
+        ),
         filter_options=inputs.tool_filter_options,
         cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
         state_lock=session_state_lock,

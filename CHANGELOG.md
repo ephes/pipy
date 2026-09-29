@@ -426,6 +426,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Switching the model (`/model`, Ctrl+P, RPC `set_model`, extension
+  `setModel`) now keeps the conversation, as Pi `setModel` does. The next
+  request replays the same history to the new model. Before, the switch
+  cleared provider-visible history, so the new model answered without any
+  earlier context while a later resume of the same session still had it.
+  Usage totals still restart per model. Found by the DF1 live dogfooding run.
 - OpenAI Responses requests with a thinking level now send Pi's
   `reasoning.summary: "auto"` and ask for the encrypted reasoning item
   (`include: ["reasoning.encrypted_content"]`). This applies to every
@@ -571,6 +577,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Found by the DF1 live dogfooding run (`docs/acceptance/2026-09-29-df1-dogfooding.md`):
+  - The `edit` and `write` diffs no longer corrupt the interactive screen. They
+    were written raw to the terminal mid-turn, in raw mode, so the diff
+    staircased across the editor and footer rows. They now render as a
+    transcript row under the tool call.
+  - Tool-call rows show `$ <command> (timeout Ns)` for `bash`,
+    `$ edit <path>` and `$ write <path>` instead of an argument dump such as
+    `$ bash(command="…", timeout=120)`. A `!` shell command no longer shows
+    as `$ $ <command>`.
+  - Escape and Ctrl-C on an OpenAI Codex WebSocket stream no longer freeze
+    the frame for about three seconds. Cancellation now shuts the socket down
+    before the WebSocket close handshake, so `Operation aborted` shows at once.
+  - A refused `/model` switch (for example to the non-tool `fake` provider)
+    no longer changes the footer's thinking level. It had published the
+    refused target's level (`/model fake` showed `thinking off`) while
+    requests kept the old one.
 - `pipy repl --native-provider fake --native-model fake-native-bootstrap` no
   longer ends the first turn with `ProviderResult.model_id must match the
   request`. The REPL runs any `fake` selection on `fake-tools`, but it stamped

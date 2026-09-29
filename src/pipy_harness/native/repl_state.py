@@ -613,10 +613,15 @@ class NativeReplProviderState:
     def publish_model_capability_refusal(
         self, prepared: PreparedNativeModelMutation
     ) -> None:
-        """Retain the characterized thinking/default effect of a tool refusal."""
+        """Keep selection and thinking level; retain the default effect only.
+
+        The live provider keeps its level, so a refusal must not publish the
+        target's resolved or clamped level: that would leave the footer and
+        later thinking changes disagreeing with the requests actually sent.
+        """
 
         self.selection = prepared.expected.selection
-        self.thinking_level = prepared.replacement.thinking_level
+        self.thinking_level = prepared.expected.thinking_level
         self.pending_default = (
             prepared.expected.selection
             if prepared.replacement.pending_default is not None

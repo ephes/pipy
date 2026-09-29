@@ -272,13 +272,11 @@ def test_model_mutation_uses_exact_binding_identity_and_assignment_only_publish(
     assert [ast.unparse(node.targets[0]) for node in assignments] == [
         "self._preparation_failure",
         "self._binding",
-        "self._messages",
         "self._usage_accumulator",
     ]
     assert [ast.unparse(node.value) for node in assignments] == [
         "None",
         "prepared.replacement_binding",
-        "()",
         "prepared.replacement_usage",
     ]
 

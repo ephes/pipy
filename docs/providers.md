@@ -94,12 +94,12 @@ before taking the session mutex, then atomically verifies the context's creating
 generation, reload publication gate, terminal state, expected live selection,
 and coding provider binding before committing the in-memory rebind. A stale,
 gated, terminal, failed-construction, or superseded candidate returns `False`
-and cannot change the selection or coding context. A successful switch still
-clears in-memory provider history and usage, retains compaction/provider-failure
-state, and is visible to the current turn when called from
-`before_agent_start`. For compatibility, resolving a tool-incompatible target
-with an explicit `:level` still retains that thinking level while leaving the
-provider selection and coding state unchanged. Footer refresh and fail-soft
+and cannot change the selection or coding context. A successful switch keeps
+in-memory provider history (Pi `setModel`), resets usage, retains
+compaction/provider-failure state, and is visible to the current turn when called from
+`before_agent_start`. A refused tool-incompatible target leaves the provider
+selection, the thinking level (an explicit `:level` or a clamp to the target's
+levels included) and the coding state unchanged. Footer refresh and fail-soft
 default persistence happen
 after the mutex is released; provider construction and defaults-file I/O never
 run while it is held.

@@ -878,9 +878,9 @@ default-persistence and thinking-entry failures: report bounded diagnostics but
 do not claim that an already live mutation failed.
 
 `set_model` and `cycle_model` publish provider state and the coding binding
-together through the existing prepared mutation. They preserve the current
-product behavior that clears provider-visible coding history and installs a new
-usage accumulator for a model switch. The prior thinking level is clamped through
+together through the existing prepared mutation. Like Pi `setModel`, a model
+switch keeps provider-visible coding history; it installs a new usage
+accumulator. The prior thinking level is clamped through
 the existing model-capability helper for the selected model. If the effective
 level changes, the existing persistence boundary attempts one durable
 thinking-level append before returning the successful owner result. RPC then

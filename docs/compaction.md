@@ -361,7 +361,7 @@ agent loop. Summary requests and results stay private product content.
 ### Guarded run context and stale automatic summaries
 
 D1b depends on the implemented D1b0 [guarded coding-run publication contract](harness-spec.md#guarded-coding-run-publication-contract).
-A retained authorized model control can replace the binding and clear history
+A retained authorized model control can replace the binding
 between the coding run's initial history read and its preparation mirror. This
 lost update is prevented by the run witness before semantic summary generation
 adds its longer freshness window. Guarding only the final history mirror or only the

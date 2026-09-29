@@ -787,8 +787,8 @@ before it accepts input; all later target claims use that same slot and registry
   `isScoped`; a singleton yields explicit `null`.
 - Changes are idle-only: construction happens before the final native-control
   gate and an admitted prompt wins any race, leaving the live binding unchanged.
-  A model switch resets provider-visible history and usage; a thinking-only
-  refresh retains both. Supported effective thinking changes append one durable
+  A model switch keeps provider-visible history (Pi `setModel`) and resets
+  usage; a thinking-only refresh retains both. Supported effective thinking changes append one durable
   entry, write the correlated response, then emit `thinking_level_changed`.
   No-op changes emit no event, and no model-change event exists.
 - An injected provider without `NativeReplProviderState` is a static singleton:

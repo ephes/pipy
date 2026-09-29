@@ -1617,6 +1617,56 @@ def test_websockets_sync_client_cancel_token_closes_live_socket(
     assert raw.closed is True
 
 
+def test_websocket_cancel_shuts_the_socket_down_before_the_close_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DF1: Escape froze the frame ~3s while `close()` awaited the server.
+
+    Cancellation must shut the socket down before calling `close()`, so the
+    closing handshake has nothing to wait for.
+    """
+
+    import socket as socket_module
+
+    order: list[object] = []
+
+    class _Sock:
+        def shutdown(self, how: int) -> None:
+            order.append(("shutdown", how))
+
+    class _Raw(_FakeRawWebSocket):
+        socket = _Sock()
+
+        def recv(self, *, timeout: float | None = None) -> object:
+            del timeout
+            token.cancel()
+            raise OSError("socket shut down")
+
+        def close(self) -> None:
+            order.append("close")
+            super().close()
+
+    raw = _Raw([])
+    token = CancelToken()
+    monkeypatch.setattr("websockets.sync.client.connect", lambda *_args, **_kwargs: raw)
+    from pipy_harness.native.openai_codex_provider import WebsocketsSyncClient
+
+    events = WebsocketsSyncClient().post_events(
+        "wss://example.test/responses",
+        headers={},
+        body={"model": "gpt-test"},
+        connect_timeout_seconds=1.0,
+        idle_timeout_seconds=1.0,
+        cancel_token=token,
+    )
+
+    with pytest.raises(ProviderCancelledError):
+        list(events)
+
+    assert order[:2] == [("shutdown", socket_module.SHUT_RDWR), "close"]
+    assert raw.closed is True
+
+
 def test_pre_event_websocket_protocol_error_does_not_fallback(tmp_path: Path) -> None:
     sse = FakeSseHTTPClient(
         SseResponse(status_code=200, body=sse_payload(completed_events("sse")))

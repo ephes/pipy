@@ -6,9 +6,9 @@ shared ``NativeReplProviderState`` boundary — not a dead wrapper module.
 Tool-loop product path (driven via ``CodingSession.run`` with captured
 streams, recording every ``ProviderRequest``):
 
-  * a successful switch rebinds the live provider/model AND clears the
-    provider-visible conversation (the next request carries only the new user
-    message);
+  * a successful switch rebinds the live provider/model AND keeps the
+    provider-visible conversation, like Pi ``setModel`` (the next request
+    carries the prior exchange ahead of the new user message);
   * a refused switch (availability gate) preserves both the selection and the
     accumulated conversation;
   * the two ``/model`` commands trigger no extra provider calls.
@@ -146,19 +146,21 @@ def _tool_loop_behaviour_holds() -> bool:
     # Refused switch preserves the prior selection for the third prompt.
     if requests[2].model_id != "model-b":
         return False
-    # Successful switch cleared the provider-visible conversation: the second
-    # request carries only the freshly typed user message.
+    # Successful switch kept the provider-visible conversation: the second
+    # request replays the first exchange ahead of the new user message.
     second_messages = requests[1].messages
-    if len(second_messages) != 1:
+    if len(second_messages) != 3:
         return False
-    if second_messages[0].content.value.strip() != "second":
+    if second_messages[0].content.value.strip() != "first":
         return False
-    # Refused switch did NOT clear: the third request still carries the prior
-    # exchange ahead of the new prompt.
+    if second_messages[-1].content.value.strip() != "second":
+        return False
+    # Refused switch did not clear either: the third request extends the
+    # second one with its exchange and the new prompt.
     third_messages = requests[2].messages
-    if len(third_messages) <= 1:
+    if third_messages[: len(second_messages)] != second_messages:
         return False
-    if third_messages[0].content.value.strip() != "second":
+    if third_messages[-1].content.value.strip() != "third":
         return False
     return True
 

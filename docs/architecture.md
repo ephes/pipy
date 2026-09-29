@@ -939,7 +939,8 @@ captures exact selection/default/thinking plus coding-binding expectations under
 coding preparation then run with the session mutex released. The commit
 reacquires the same lock order, atomically rechecks terminal, generation, gate,
 and both expected owners, and performs only prevalidated assignments for
-selection, provider binding, empty history, and cleared usage. A stale, gated,
+selection, provider binding, and cleared usage; provider-visible history is
+kept, as in Pi `setModel`. A stale, gated,
 terminal, or superseded candidate returns `False` without any commit or post-
 commit effect. Footer presentation and fail-soft default persistence run only
 after both locks release, while the effect lease keeps terminal teardown from

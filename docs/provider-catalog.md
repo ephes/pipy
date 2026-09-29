@@ -1179,7 +1179,7 @@ Pipy target:
   product TUI over the scoped set, falling back to the full available set when
   no scope is set, with a "only one model" notice when the set has one entry.
   Cycling rebinds the live provider/model (and pinned level) exactly like a
-  `/model` switch: availability gate, context clear on success, footer/status
+  `/model` switch: availability gate, conversation kept on success, footer/status
   refresh, no provider turn during selection.
 - Initial-model selection honors the first scoped model (when not
   continuing/resuming) ahead of saved defaults, matching `findInitialModel`.

@@ -82,7 +82,7 @@ class _ProbeReplState(NativeReplProviderState):
         return self._probe.factory(selection)
 
 
-def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
+def test_tool_loop_switch_keeps_history_and_refusal_preserves(tmp_path: Path) -> None:
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import ModelRuntime
@@ -118,10 +118,15 @@ def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
     requests = probe.requests
     # Three prompts -> three provider calls; the two /model commands add none.
     assert [r.model_id for r in requests] == ["model-a", "model-b", "model-b"]
-    # Successful switch rebinds and clears the provider-visible conversation.
-    assert [m.content.value.strip() for m in requests[1].messages] == ["second"]
+    # A successful switch rebinds but keeps the provider-visible conversation,
+    # like Pi ``setModel``: model-b sees the turn model-a answered.
+    first_turn = list(requests[0].messages)
+    assert [m.content.value.strip() for m in first_turn] == ["first"]
+    assert requests[1].messages[0] is first_turn[0]
+    assert requests[1].messages[-1].content.value.strip() == "second"
+    assert len(requests[1].messages) == 3
     # Refused switch (availability gate) preserves the accumulated conversation.
-    assert len(requests[2].messages) > 1
-    assert requests[2].messages[0].content.value.strip() == "second"
+    assert requests[2].messages[: len(requests[1].messages)] == requests[1].messages
+    assert requests[2].messages[-1].content.value.strip() == "third"
     # The live selection is unchanged by the refused switch.
     assert state.current_selection() == NativeModelSelection("fake", "model-b")

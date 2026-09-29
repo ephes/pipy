@@ -263,8 +263,9 @@ class ToolContext:
     """Environment passed to one tool invocation.
 
     `stderr_sink` is an optional callable that mutation tools (`write`,
-    `edit`) use to stream unified diffs out to the loop's `error_stream`.
-    The default is `None`, in which case mutation tools fall back to
+    `edit`) use to report unified diffs: the loop's `error_stream` in the
+    line-oriented REPL, a transcript row in the TUI (whose raw-mode terminal
+    must never be written to directly). The default is `None`, in which case mutation tools fall back to
     discarding the diff. The archive boundary is unrelated; diffs never
     cross it from inside the tool.
 

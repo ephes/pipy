@@ -411,7 +411,7 @@ that do not advertise tool-call support (the same constraint `/model` enforces).
 Add a pipy-owned scoped-model set, backed by the non-secret local settings store,
 so cycling can be narrowed to a curated subset; when no scope is configured,
 cycle the full available list. On each cycle pipy reuses `select_model` (rebind
-provider, clear in-memory context, rebind usage meter, refresh footer/status
+provider, keep in-memory context, rebind usage meter, refresh footer/status
 label, persist the non-secret default). The native-tree schema supports
 `model_change`, but the current `/model` and cycling composition path does not
 append that entry. Pi also emits `model_select`, but current pipy selection and

@@ -1060,7 +1060,7 @@ def test_rpc_configuration_gate_excludes_admission_after_detached_preparation(
     assert construction_locks and not any(construction_locks)
 
 
-def test_rpc_model_resets_history_and_usage_but_thinking_refresh_retains_them(
+def test_rpc_model_resets_usage_but_retains_history_like_thinking_refresh(
     tmp_path: Path,
 ) -> None:
     effects, state, _tools, _ref, _coordinator, tree, _footers = (
@@ -1069,7 +1069,7 @@ def test_rpc_model_resets_history_and_usage_but_thinking_refresh_retains_them(
     control = _NativeSessionControl(CodingInputQueue())
     port = effects.rpc_configuration_port(control.publish_if_true_idle)
     coding = effects.coding_state
-    message = AgentUserMessage(content=ProductContent("retained only for thinking"))
+    message = AgentUserMessage(content=ProductContent("retained across switches"))
     coding.append_message(message)
     coding.absorb_usage(AgentProviderUsageSample(input_tokens=9, total_tokens=9))
     durable_before = tuple(tree.get_entries())
@@ -1077,7 +1077,9 @@ def test_rpc_model_resets_history_and_usage_but_thinking_refresh_retains_them(
 
     model = port.set_model(NativeModelSelection("openai", "gpt-5.4"))
     assert model.success
-    assert coding.messages == ()
+    # Pi ``setModel`` keeps the conversation; the new model sees it next turn.
+    assert coding.messages == (message,)
+    assert coding.messages[0] is message
     assert coding._usage_accumulator is not old_usage
     assert coding.usage_snapshot().usage.input_tokens == 0
     assert tuple(tree.get_entries()) == durable_before
@@ -1467,7 +1469,7 @@ def test_successful_model_commit_preserves_rebind_contract_for_current_turn(
     assert state.current_thinking_level() == "high"
     assert coding.provider is coding.provider_binding.provider
     assert (coding.provider_name, coding.model_id) == ("openai", "gpt-5.4")
-    assert coding.messages == ()
+    assert coding.messages == (message,)
     assert coding.usage.input_tokens == 0
     assert coding.compaction_suffix == "\nretained compaction"
     assert coding.compaction_count == 1
@@ -1680,7 +1682,8 @@ def test_retained_model_control_stops_stale_coding_run_publication(
     owner = owners[0]
     binding, messages, entries = cast(tuple[Any, Any, Any], mutations[0])
     assert owner.coding_state.provider_binding is binding
-    assert owner.coding_state.messages == messages == ()
+    # The switch keeps history: the stale run stops without appending to it.
+    assert owner.coding_state.messages == messages
     assert owner.coding_state.usage.input_tokens == 0
     assert owner.ctl.session_tree.get_entries() == entries
     assert owner.ctl.coding_effects.terminal
@@ -1794,7 +1797,10 @@ def test_compaction_gate_model_replacement_stops_only_an_active_run(
     if trigger == "auto":
         with pytest.raises(CodingContextChangedError, match="session stopped"):
             run()
-        assert session._coding_state.messages == ()
+        # The model switch keeps history; the stopped run appends nothing durable.
+        assert [
+            message.content.value for message in session._coding_state.messages
+        ] == ["older", "recent", "latest", "accepted input"]
         assert (
             tuple(
                 entry for entry in tree.get_entries() if isinstance(entry, MessageEntry)
@@ -1808,17 +1814,21 @@ def test_compaction_gate_model_replacement_stops_only_an_active_run(
         ]
     else:
         assert run().status is HarnessStatus.SUCCEEDED
+        # The gate's model switch keeps history, so the manual compaction still
+        # runs on it under the new model and the next turn continues from it.
         assert [
             message.content.value for message in session._coding_state.messages
-        ] == ["accepted input", "answer"]
-        assert len(requests) == 1
+        ] == ["recent", "latest", "accepted input", "answer"]
+        # The semantic summary request plus the ordinary turn, both on gpt-5.4.
+        assert len(requests) == 2
         assert evidence.read_text(encoding="utf-8").splitlines() == [
             "gate:manual:True",
             "provider-model-denied:False",
             "shutdown",
         ]
     assert session._coding_state.model_id == "gpt-5.4"
-    assert session._coding_state.compaction_count == 0
+    # Only the manual trigger compacts: the auto run stops at the gate first.
+    assert session._coding_state.compaction_count == (1 if trigger == "manual" else 0)
     assert session._coding_state.usage.input_tokens == 0
     witness = session._coding_state.begin_agent_run()
     session._coding_state.end_agent_run(witness)
