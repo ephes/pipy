@@ -1089,8 +1089,9 @@ def _plain_tool_call_header(call: AgentToolCall) -> str:
     if call.tool_name == "read" and isinstance(path, str):
         prefix = "read resource" if path.startswith("/") else "read"
         return f"{prefix} {path}{_ToolLoopRenderer._read_range_label(data)}"
-    if call.tool_name == "ls" and isinstance(path, str):
-        return "ls" if path == "." else f"ls {path}"
+    if call.tool_name == "ls" and (path is None or isinstance(path, str)):
+        # `path` is optional, as in Pi's `ls`.
+        return f"ls {path}" if path and path != "." else "ls"
     if call.tool_name in {"grep", "find"}:
         pattern = data.get("pattern")
         root = path if isinstance(path, str) else "."
