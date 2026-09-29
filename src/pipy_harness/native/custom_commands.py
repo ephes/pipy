@@ -94,7 +94,8 @@ def discover_workspace_custom_commands(
     opt in only after resolving project trust. The workspace dir is
     `<workspace>/.pipy/commands/`. The global dir
     is resolved through `PIPY_CONFIG_HOME` then
-    `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`, and the
+    `${XDG_CONFIG_HOME}/pipy` then `~/.pipy` (when present) then
+    `~/.config/pipy`, and the
     `commands` subdir is appended. Files are deduplicated by canonical
     path. Missing dirs and files never raise. Resource directories must not
     be symlinks, and resource-file symlinks must stay inside the concrete

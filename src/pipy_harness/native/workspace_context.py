@@ -32,9 +32,9 @@ Discovery rules (pinned by `tests/test_native_workspace_context.py`):
   loader does not fall through to another candidate name in that case.
 - Missing files never raise. A leading UTF-8 BOM is stripped from the
   content, like Pi's `stripBom`.
-- pipy-kept guard (not in Pi): a candidate symlink whose resolved real path
-  is not inside the directory it was found in is treated as absent, so the
-  loader falls through to the next candidate name for that directory.
+- Symlinked candidates are followed wherever they point, like Pi. Context
+  files are not trust-gated, so (as Pi's `docs/security.md` says) treat them
+  as untrusted input.
 - pipy-kept caps (not in Pi): each file loads at most `per_file_byte_cap`
   bytes (a longer file is truncated with a deterministic marker and
   `truncated=True`; `byte_length` and `sha256` always describe the file on
@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -125,7 +125,7 @@ class WorkspaceInstructionDiscovery:
 
 def resolve_global_instruction_root(
     *,
-    env: dict[str, str] | os._Environ[str] | None = None,
+    env: Mapping[str, str] | None = None,
     home_dir: Path | None = None,
 ) -> Path:
     """Return the global pipy instruction root.
@@ -285,20 +285,16 @@ def _load_first_candidate(
     per_file_byte_cap: int,
     path_label_for: Callable[[str], str],
 ) -> tuple[WorkspaceInstructionFile, Path] | None:
-    """Pi `loadContextFileFromDir` plus pipy's symlink-escape guard.
+    """Pi `loadContextFileFromDir`: the first readable candidate file.
 
+    Symlinked candidates are followed like Pi's `statSync`/`readFileSync`.
     Returns the directory's context file and its canonical path, or `None`.
     """
 
-    resolved_dir = _resolve_candidate_directory(directory)
-    if resolved_dir is None:
+    if not _is_directory(directory):
         return None
     for candidate_name in INSTRUCTION_CANDIDATE_FILENAMES:
-        resolved_candidate = _validated_candidate_path(
-            directory,
-            resolved_dir,
-            candidate_name,
-        )
+        resolved_candidate = _resolved_candidate_file(directory / candidate_name)
         if resolved_candidate is None:
             continue
         entry = _materialize_candidate(
@@ -313,38 +309,23 @@ def _load_first_candidate(
     return None
 
 
-def _resolve_candidate_directory(directory: Path) -> Path | None:
+def _is_directory(directory: Path) -> bool:
     try:
-        if not directory.is_dir():
-            return None
+        return directory.is_dir()
     except OSError:
-        return None
-    try:
-        return directory.resolve()
-    except OSError:
-        return None
+        return False
 
 
-def _validated_candidate_path(
-    directory: Path,
-    resolved_dir: Path,
-    candidate_name: str,
-) -> Path | None:
-    candidate = directory / candidate_name
+def _resolved_candidate_file(candidate: Path) -> Path | None:
     try:
         if not candidate.is_file():
             return None
     except OSError:
         return None
     try:
-        resolved_candidate = candidate.resolve()
+        return candidate.resolve()
     except OSError:
         return None
-    try:
-        resolved_candidate.relative_to(resolved_dir)
-    except ValueError:
-        return None
-    return resolved_candidate
 
 
 def _materialize_candidate(

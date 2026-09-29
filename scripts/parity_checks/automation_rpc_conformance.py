@@ -306,7 +306,12 @@ def _run_rpc_checks(base: Path) -> list[Check]:
 
     # (6) bash
     proc.send({"id": "r4", "type": "bash", "command": "echo hi"})
-    bash = proc.wait_for(lambda r: r.get("id") == "r4") or {}
+    # Pi streams `bash_execution_update` records carrying the command id before
+    # the final response, so match the response record itself.
+    bash = (
+        proc.wait_for(lambda r: r.get("id") == "r4" and r.get("type") == "response")
+        or {}
+    )
     bd = bash.get("data", {})
     bash_ok = (
         bash.get("success") is True

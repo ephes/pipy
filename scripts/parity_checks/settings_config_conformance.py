@@ -463,8 +463,13 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
     ws = root / "ws13"
     skills_dir = ws / ".pipy" / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
-    (skills_dir / "review.md").write_text("# review\n", encoding="utf-8")
-    (skills_dir / "draft.md").write_text("# draft\n", encoding="utf-8")
+    # Pi `loadSkillFromFile` drops a skill without a description.
+    (skills_dir / "review.md").write_text(
+        "---\ndescription: Review skill\n---\n# review\n", encoding="utf-8"
+    )
+    (skills_dir / "draft.md").write_text(
+        "---\ndescription: Draft skill\n---\n# draft\n", encoding="utf-8"
+    )
     cfg = root / "cfg13"
     cfg.mkdir(parents=True, exist_ok=True)
     settings_path = cfg / "settings.json"

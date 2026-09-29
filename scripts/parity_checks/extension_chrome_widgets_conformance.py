@@ -127,10 +127,10 @@ def run_checks() -> list[Check]:
 
     # 4. title OSC on TTY, no-op off.
     ui_tty = _ui(tty=True)
-    ui_tty._chrome.component.set_title("hello")  # noqa: SLF001
+    ui_tty.components.chrome.component.set_title("hello")  # noqa: SLF001
     osc_ok = "\x1b]0;hello\x07" in ui_tty.terminal_stream.getvalue()
     ui_off = _ui(tty=False)
-    ui_off._chrome.component.set_title("hello")  # noqa: SLF001
+    ui_off.components.chrome.component.set_title("hello")  # noqa: SLF001
     noop_ok = ui_off.terminal_stream.getvalue() == ""
     checks.append(Check("title_osc", osc_ok and noop_ok, "OSC on TTY / no-op off"))
 
@@ -203,7 +203,7 @@ def run_checks() -> list[Check]:
         "k", lambda theme: _DComp(disposed)
     )
     ui.components.chrome.component.set_widget("k", ["plain"])  # noqa: SLF001
-    ui.clear_extension_chrome()
+    ui.components.chrome.generation.retire_generation()
     checks.append(Check("dispose", disposed == [True], "dispose on replace/clear"))
 
     return checks

@@ -106,11 +106,11 @@ follow Pi `4df157433`. The plan and the deviations are in
 
 Deviations kept as follow-ons, not queued separately yet:
 
-- The symlink-containment guard also covers skill roots, so a skill directory
-  symlinked out of `~/.pipy/skills` or `~/.agents/skills` does not load.
-  Relaxing it for user-owned roots is a candidate.
-- The global resource root (skills, templates, commands, `models.json`) falls
-  back to `~/.config/pipy`, not `~/.pipy` like settings and context. Unify it.
+- Done on `fix/gates-and-skill-symlinks`: skill roots and context files follow
+  symlinks like Pi, and the global resource root (skills, templates, commands,
+  extensions, `models.json`) uses `~/.pipy` like settings and context.
+- Template and command stores still keep the symlink-containment guard (Pi's
+  prompt templates follow symlinks).
 - A plain `.md` skill without a frontmatter `name` keeps its file stem (Pi uses
   the parent directory name). Package skills come after the auto roots (Pi puts
   them first).
@@ -214,6 +214,14 @@ only.
   - Delete the stale remote branches (`feat/catalog-non-completions`,
     `feat/extension-api`, `feat/tui-interaction-comfort`).
   - Review the four local stashes with their owner before dropping any.
+- **Done (`fix/gates-and-skill-symlinks`):** seven stale
+  `scripts/parity_checks/` gates were repaired against the refactors that broke
+  them (`extension_package`, `project_trust`, `extension_chrome_widgets`,
+  `session_tree`, `automation_rpc`, `settings_config`, `tui_workflow`). All
+  gates pass except the two Pi comparisons, which need pi-mono's generated
+  model data (`npm run hydrate-model-data` in `packages/ai`). The gates are
+  still run by hand. Wiring them into pytest or CI stays out of scope by owner
+  decision.
 
 ## Deferred and watch list
 

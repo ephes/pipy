@@ -362,6 +362,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Skills, prompt templates, custom commands, global extensions and
+  `models.json` now use the same global config root as settings and context
+  files: `PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when it
+  exists, then `~/.config/pipy`. Before, they skipped `~/.pipy`, so skills in
+  `~/.pipy/skills/` never loaded.
+- Skill roots follow symlinks like Pi. A skill directory or file symlinked into
+  `~/.pipy/skills/`, `~/.agents/skills/`, a `--skill` path, or a trusted
+  project's `.pipy/skills/` or `.agents/skills/` now loads from wherever it
+  points, and a symlinked skills root is followed too. Template and command
+  stores keep their containment guard.
+- Context files follow symlinks like Pi, including a link to a file outside
+  its directory. Context files load without project trust, so treat them as
+  untrusted input (Pi `docs/security.md`).
 - Provider defaults now mirror Pi's `defaultModelPerProvider`:
 
   | Provider | Default |
@@ -460,6 +473,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Seven conformance gates in `scripts/parity_checks/` had gone stale against
+  refactors and crashed or failed before checking the product:
+  `extension_package`, `project_trust`, `extension_chrome_widgets`,
+  `session_tree`, `automation_rpc`, `settings_config` and `tui_workflow`.
+  They run and pass again.
 - Codex GPT-5.6 Sol now reports Pi's 272K context window, in the catalog
   and in the footer meter. It previously reported 372K. The footer meter now
   reads every built-in row's context window, formatted like Pi's footer.

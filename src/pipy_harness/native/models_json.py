@@ -74,7 +74,7 @@ def strip_json_comments(text: str) -> str:
 
 
 def default_models_json_path(env: Mapping[str, str] | None = None) -> Path:
-    """``<config>/models.json`` via PIPY_CONFIG_HOME -> XDG -> ~/.config/pipy."""
+    """``<config>/models.json`` (PIPY_CONFIG_HOME -> XDG -> ~/.pipy -> ~/.config/pipy)."""
 
     return resolve_global_resource_root(env=env) / "models.json"
 

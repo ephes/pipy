@@ -13,13 +13,14 @@ lookup surface.
 
 The helpers mirror the conventions pinned by
 `pipy_harness.native.workspace_context`: stdlib only, no pydantic,
-missing files never raise, resource directories must not be symlinks,
-resource-file symlinks must resolve inside the containing directory,
-per-file body loads are bounded with a deterministic marker, and the
-global root resolves through `PIPY_CONFIG_HOME` then
-`${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`.
+missing files never raise, per-file body loads are bounded with a
+deterministic marker, and the global root resolves through the shared
+config-home chain (`PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, `~/.pipy`
+when present, `~/.config/pipy`). Skill roots follow symlinks like Pi. The flat
+template and command stores keep pipy's containment guard: the store must not
+be a symlink and a file symlink must resolve inside it.
 
-Safety policy (in addition to byte caps and symlink containment):
+Safety policy (in addition to byte caps and flat-store containment):
 candidate files are skipped silently when the filename looks secret
 (`pipy_harness.capture.looks_sensitive`), when the loaded head bytes
 contain a NUL byte (binary content), or when the bare filename is a
@@ -47,13 +48,19 @@ from typing import TYPE_CHECKING
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.ignore_rules import IgnoreMatcher, add_ignore_rules
 from pipy_harness.native.read_only_tool import _is_ignored_or_generated
+from pipy_harness.native.workspace_context import (
+    PIPY_CONFIG_DIR_NAME as PIPY_CONFIG_DIR_NAME,
+)
+from pipy_harness.native.workspace_context import (
+    PIPY_CONFIG_HOME_ENV as PIPY_CONFIG_HOME_ENV,
+)
+from pipy_harness.native.workspace_context import (
+    XDG_CONFIG_HOME_ENV as XDG_CONFIG_HOME_ENV,
+)
+from pipy_harness.native.workspace_context import resolve_global_instruction_root
 
 if TYPE_CHECKING:
     from pipy_harness.native.package_resources import PackageRoot
-
-PIPY_CONFIG_HOME_ENV: str = "PIPY_CONFIG_HOME"
-XDG_CONFIG_HOME_ENV: str = "XDG_CONFIG_HOME"
-PIPY_CONFIG_DIR_NAME: str = "pipy"
 
 WORKSPACE_PIPY_DIR_NAME: str = ".pipy"
 
@@ -123,24 +130,18 @@ def resolve_global_resource_root(
     env: Mapping[str, str] | None = None,
     home_dir: Path | None = None,
 ) -> Path:
-    """Return the global pipy resource root.
+    """Return the global pipy resource root (pipy's Pi `agentDir`).
 
-    Resolution order matches `workspace_context.resolve_global_instruction_root`:
+    Delegates to `workspace_context.resolve_global_instruction_root`, the one
+    config-home chain settings, context files, trust and keybindings use:
 
     1. `PIPY_CONFIG_HOME` (taken verbatim, then `~` expanded).
     2. `${XDG_CONFIG_HOME}/pipy`.
-    3. `~/.config/pipy`.
+    3. `~/.pipy` when that directory exists.
+    4. `~/.config/pipy`.
     """
 
-    env_map: Mapping[str, str] = env if env is not None else os.environ
-    explicit = env_map.get(PIPY_CONFIG_HOME_ENV)
-    if explicit:
-        return Path(explicit).expanduser()
-    xdg = env_map.get(XDG_CONFIG_HOME_ENV)
-    if xdg:
-        return Path(xdg).expanduser() / PIPY_CONFIG_DIR_NAME
-    home = (home_dir or Path.home()).expanduser()
-    return home / ".config" / PIPY_CONFIG_DIR_NAME
+    return resolve_global_instruction_root(env=env, home_dir=home_dir)
 
 
 def discover_resource_files(
@@ -202,8 +203,9 @@ def discover_resource_files(
       a longer file is truncated with a deterministic marker and
       `truncated=True`. `byte_length` and `sha256` always describe the
       on-disk file, with hashing streamed in bounded chunks.
-    - Symlinks must resolve inside the source directory they were found in.
-      A symlink that escapes is skipped silently.
+    - Skill roots follow symlinks like Pi. In the flat stores a symlink must
+      resolve inside the source directory it was found in; one that escapes
+      is skipped silently.
     - Candidate files are skipped silently when the filename looks
       secret, when the loaded head bytes are binary (contain a NUL
       byte), or when the bare filename is a generated/ignored artifact.
@@ -470,10 +472,18 @@ def _screen_resource_candidates(
     source: _ResourceSource,
     seen_paths: set[Path],
 ) -> Iterator[tuple[Path, Path]]:
-    """Resolve candidates and enforce source containment and filename safety."""
+    """Resolve candidates and enforce filename safety (and flat containment).
 
+    Skill layouts ("pi"/"agents") follow symlinks like Pi `collectSkillEntries`
+    and `loadSkills`: a symlinked root, skill directory, or skill file loads
+    from wherever it points. The flat template/command stores keep pipy's
+    containment guard: the store must not be a symlink and a file symlink must
+    resolve inside it.
+    """
+
+    contained = source.layout == "flat"
     try:
-        if source.path.is_symlink() and not source.explicit_file:
+        if contained and source.path.is_symlink() and not source.explicit_file:
             return
         containment_root = (
             source.path.parent.expanduser().resolve()
@@ -488,13 +498,12 @@ def _screen_resource_candidates(
     elif source.layout == "flat":
         candidates = _iter_md_files(source.path)
     else:
-        candidates = _iter_skill_layout_files(
-            source.path, source.layout, containment_root
-        )
+        candidates = _iter_skill_layout_files(source.path, source.layout)
     for candidate in candidates:
         try:
             resolved_candidate = candidate.resolve()
-            resolved_candidate.relative_to(containment_root)
+            if contained:
+                resolved_candidate.relative_to(containment_root)
         except (OSError, ValueError):
             continue
         if resolved_candidate in seen_paths:
@@ -716,9 +725,7 @@ SKILL_FILE_NAME: str = "SKILL.md"
 _SKILL_WALK_SKIPPED_DIR_NAMES: frozenset[str] = frozenset({"node_modules"})
 
 
-def _iter_skill_layout_files(
-    root: Path, layout: str, containment_root: Path
-) -> list[Path]:
+def _iter_skill_layout_files(root: Path, layout: str) -> list[Path]:
     """Port of Pi `collectSkillEntries` for one skills root.
 
     A directory holding a `SKILL.md` file yields only that file (recursion
@@ -728,9 +735,12 @@ def _iter_skill_layout_files(
     `.gitignore`/`.ignore`/`.fdignore` rules found along the way apply
     (`ignore_rules`). Entries are visited in sorted-name order.
 
-    pipy keeps its symlink containment guard: a subdirectory whose real path
-    leaves `containment_root` is not walked (its files would be rejected
-    anyway), which also stops symlink cycles together with `visited`.
+    Symlinked subdirectories and files are followed, like Pi, and a directory
+    reached through two names is walked under each (its ignore rules and skill
+    name depend on the path it was found at); duplicate files are dropped by
+    real path later. A directory whose real path is already on the current
+    walk path is not entered again, which stops symlink cycles where Pi would
+    recurse until the OS refuses the path.
     """
 
     try:
@@ -745,8 +755,7 @@ def _iter_skill_layout_files(
         root=root,
         layout=layout,
         matcher=matcher,
-        containment_root=containment_root,
-        visited=set(),
+        ancestors=set(),
         files=files,
     )
     return files
@@ -758,19 +767,39 @@ def _collect_skill_entries(
     root: Path,
     layout: str,
     matcher: IgnoreMatcher,
-    containment_root: Path,
-    visited: set[Path],
+    ancestors: set[Path],
     files: list[Path],
 ) -> None:
 
     try:
         real_directory = directory.resolve()
-        real_directory.relative_to(containment_root)
-    except (OSError, ValueError):
+    except OSError:
         return
-    if real_directory in visited:
+    if real_directory in ancestors:
         return
-    visited.add(real_directory)
+    ancestors.add(real_directory)
+    try:
+        _collect_skill_directory(
+            directory,
+            root=root,
+            layout=layout,
+            matcher=matcher,
+            ancestors=ancestors,
+            files=files,
+        )
+    finally:
+        ancestors.discard(real_directory)
+
+
+def _collect_skill_directory(
+    directory: Path,
+    *,
+    root: Path,
+    layout: str,
+    matcher: IgnoreMatcher,
+    ancestors: set[Path],
+    files: list[Path],
+) -> None:
     add_ignore_rules(matcher, directory, root)
     try:
         entries = sorted(directory.iterdir(), key=lambda entry: entry.name)
@@ -804,8 +833,7 @@ def _collect_skill_entries(
             root=root,
             layout=layout,
             matcher=matcher,
-            containment_root=containment_root,
-            visited=visited,
+            ancestors=ancestors,
             files=files,
         )
 
@@ -855,14 +883,16 @@ def _path_label_for(
         parts.extend(_sanitize_label(part) or "_" for part in inner_parts[:-1])
         parts.append(candidate.name)
         return prefix + "/".join(parts)
+    # Label the path the file was found at, not its symlink target, so a
+    # project skill symlinked out of the workspace keeps its in-tree label.
     try:
-        relative = candidate.resolve().relative_to(workspace)
+        relative = candidate.relative_to(workspace)
         return relative.as_posix()
-    except (OSError, ValueError):
+    except ValueError:
         pass
     try:
-        return Path(os.path.relpath(candidate.resolve(), workspace)).as_posix()
-    except (OSError, ValueError):
+        return Path(os.path.relpath(candidate, workspace)).as_posix()
+    except ValueError:
         return candidate.name
 
 

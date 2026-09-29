@@ -137,7 +137,8 @@ applied twice.
 
 The files go into the system prompt as Pi's `<project_context>` section: one
 `<project_instructions path="...">` block per file. Context files are loaded
-whether or not the project is trusted.
+whether or not the project is trusted, and a symlinked context file is followed
+wherever it points, like Pi. Treat them as untrusted input.
 
 Use context files for project conventions, commands, safety rules, and
 preferences. Disable loading with `--no-context-files` or `-nc`.

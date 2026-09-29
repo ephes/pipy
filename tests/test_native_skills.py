@@ -198,88 +198,72 @@ def test_dedupes_by_canonical_path(tmp_path: Path) -> None:
     assert skills[0].name == "shared"
 
 
-def test_refuses_symlink_outside_workspace(tmp_path: Path) -> None:
+def test_follows_symlink_outside_workspace(tmp_path: Path) -> None:
+    # Pi `collectSkillEntries` follows symlinks in every skill root; the
+    # project root only loads once the project is trusted.
     workspace = _make_workspace(tmp_path)
     outside_dir = tmp_path / "outside"
-    outside_dir.mkdir()
-    secret = outside_dir / "secret.md"
-    secret.write_text("never load me\n", encoding="utf-8")
-
-    skills_dir = workspace / ".pipy" / "skills"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "leak.md").symlink_to(secret)
-
-    # A legitimate skill alongside the bad symlink still discovers.
-    _write_skill(
-        skills_dir,
-        filename="legitimate.md",
-        name="legitimate",
-        description="real",
-        body="real body\n",
-    )
-
-    skills, _ = _discover(workspace)
-
-    assert all(skill.name != "leak" for skill in skills)
-    assert all("never load me" not in skill.body for skill in skills)
-    assert any(skill.name == "legitimate" for skill in skills)
-
-
-def test_refuses_symlink_inside_workspace_but_outside_resource_dir(
-    tmp_path: Path,
-) -> None:
-    workspace = _make_workspace(tmp_path)
-    secret = workspace / "secret.md"
-    secret.write_text(
-        "---\nname: leak\ndescription: outside resource dir\n---\nnever load me\n",
-        encoding="utf-8",
+    outside = _write_skill(
+        outside_dir,
+        filename="shared.md",
+        description="kept outside",
+        body="outside body\n",
     )
 
     skills_dir = workspace / ".pipy" / "skills"
     skills_dir.mkdir(parents=True)
     try:
-        (skills_dir / "leak.md").symlink_to(secret)
+        (skills_dir / "linked.md").symlink_to(outside)
     except OSError as exc:
         pytest.skip(f"symlink creation unavailable: {exc}")
+    _write_skill(skills_dir, filename="legitimate.md", description="real")
 
-    _write_skill(
-        skills_dir,
-        filename="legitimate.md",
-        name="legitimate",
-        description="real",
-        body="real body\n",
-    )
+    skills, _ = _discover(workspace, home_dir=tmp_path / "home")
 
-    skills, _ = _discover(workspace)
-
-    assert all(skill.name != "leak" for skill in skills)
-    assert all("never load me" not in skill.body for skill in skills)
-    assert [skill.name for skill in skills] == ["legitimate"]
+    by_name = {skill.name: skill for skill in skills}
+    assert sorted(by_name) == ["legitimate", "linked"]
+    linked = by_name["linked"]
+    assert linked.body == "outside body\n"
+    # The label is the in-tree path; the location is the real file.
+    assert linked.path_label == ".pipy/skills/linked.md"
+    assert linked.absolute_path == outside.resolve()
 
 
-def test_refuses_global_symlink_inside_root_but_outside_resource_dir(
-    tmp_path: Path,
-) -> None:
+def test_follows_global_symlink_outside_resource_dir(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     global_root = tmp_path / "global-pipy"
-    secret = global_root / "secret.md"
-    secret.parent.mkdir()
-    secret.write_text(
-        "---\nname: leak\ndescription: outside resource dir\n---\nnever load me\n",
-        encoding="utf-8",
+    target = _write_skill(
+        global_root, filename="elsewhere.md", description="outside skills dir"
     )
 
     skills_dir = global_root / "skills"
     skills_dir.mkdir()
     try:
-        (skills_dir / "leak.md").symlink_to(secret)
+        (skills_dir / "linked.md").symlink_to(target)
     except OSError as exc:
         pytest.skip(f"symlink creation unavailable: {exc}")
 
     env = {PIPY_CONFIG_HOME_ENV: str(global_root)}
     skills, _ = _discover(workspace, env=env, home_dir=tmp_path)
 
-    assert skills == []
+    assert [(s.name, s.path_label) for s in skills] == [
+        ("linked", "<global>/skills/linked.md")
+    ]
+
+
+def test_broken_skill_symlink_is_skipped(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    skills_dir = workspace / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True)
+    try:
+        (skills_dir / "dangling.md").symlink_to(tmp_path / "missing.md")
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    _write_skill(skills_dir, filename="real.md")
+
+    skills, _ = _discover(workspace, home_dir=tmp_path / "home")
+
+    assert [s.name for s in skills] == ["real"]
 
 
 def test_per_file_byte_cap_truncates_with_marker(tmp_path: Path) -> None:

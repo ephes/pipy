@@ -24,7 +24,9 @@ def _discover(
     return discover_workspace_skills(
         workspace,
         config_home_env=env if env is not None else {},
-        home_dir=workspace,
+        # A home apart from the workspace: `~/.pipy` is the global root when
+        # present, so home == workspace would load `.pipy/skills` twice.
+        home_dir=workspace.parent / "home",
         include_workspace_defaults=True,
     )
 

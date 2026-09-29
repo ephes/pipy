@@ -54,6 +54,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from pipy_harness.models import CapturePolicy, HarnessStatus, RunRequest
 from pipy_harness.native.agent import (
@@ -63,6 +64,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.repl.session_commands import run_interactive_session_picker
 from pipy_harness.native.session_tree import (
     LabelEntry,
     MessageEntry,
@@ -761,6 +763,11 @@ class _ScriptedPickerUi:
         self._choose = choose
         self.row_ids: list[str] = []
 
+    @property
+    def components(self) -> SimpleNamespace:
+        # Product wiring reaches the picker through `terminal_ui.components.modals`.
+        return SimpleNamespace(modals=self)
+
     def run_session_picker(self, **kwargs: object) -> Path:
         from pipy_harness.native.session_tree_commands import (
             build_session_picker_rows,
@@ -796,13 +803,12 @@ def _resume_picker_product_checks(base: Path) -> list[Check]:
     to_delete = NativeSessionTree.create(cwd, session_dir=session_dir)
     to_delete.append_message(AgentUserMessage(content=ProductContent("DELETE_ME")))
 
-    session = CodingSession(provider=_SeenProvider(), native_session=active)
     ui = _ScriptedPickerUi(
         rename_target=to_rename.path,
         delete_target=to_delete.path,
         choose=to_rename.path,
     )
-    chosen = session._run_interactive_session_picker(
+    chosen = run_interactive_session_picker(
         session_tree=active,
         terminal_ui=ui,  # type: ignore[arg-type]
     )

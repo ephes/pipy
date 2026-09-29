@@ -286,7 +286,8 @@ Initial discovery should support:
 - Global extensions:
   `<config>/extensions/<name>/extension.py` and `<config>/extensions/<name>.py`,
   where `<config>` follows the existing pipy config root resolution:
-  `PIPY_CONFIG_HOME` -> `${XDG_CONFIG_HOME}/pipy` -> `~/.config/pipy`
+  `PIPY_CONFIG_HOME` -> `${XDG_CONFIG_HOME}/pipy` -> `~/.pipy` (when present)
+  -> `~/.config/pipy`
 - Explicit CLI paths: repeated `--extension <PATH>` accepts a Python file, a
   direct extension directory, or a directory of extension candidates. Matching
   `--no-extensions` disables workspace/global/package discovery but still
