@@ -377,6 +377,31 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(
     assert "native-repl" in finalized[0].name
 
 
+@pytest.mark.parametrize(
+    "model_flags", [[], ["--native-model", "fake-native-bootstrap"]]
+)
+def test_cli_repl_explicit_fake_selection_completes_a_turn(
+    tmp_path, capfd, monkeypatch, model_flags
+) -> None:
+    # Regression: the REPL upgrades an explicit ``fake`` selection to the
+    # tool-capable ``fake-tools``, but the adapter used to stamp provider
+    # requests with the raw ``--native-model`` flag, so the first turn died with
+    # "ProviderResult.model_id must match the request".
+    root = tmp_path / "sessions"
+    monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
+    monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
+
+    exit_code = main(
+        ["repl", "--cwd", str(tmp_path), "--native-provider", "fake", *model_flags]
+    )
+
+    captured = capfd.readouterr()
+    assert "model_id must match" not in captured.err
+    assert exit_code == 0, captured.err
+    assert "SEEN:hello" in captured.out
+    assert "(fake) fake-tools" in captured.err + captured.out
+
+
 def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capfd):
     root = tmp_path / "sessions"
 
