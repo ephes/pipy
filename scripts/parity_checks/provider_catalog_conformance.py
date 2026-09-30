@@ -1680,13 +1680,14 @@ def _check_tier2_construction(checks, tmp: Path):
         and az_sent["body"]["model"] == "gpt-x"
         and az_sent["headers"]["api-key"] == "azk"
         and "Authorization" not in az_sent["headers"]
-        and az_sent["body"]["reasoning"] == {"effort": "high"}
+        and az_sent["body"]["reasoning"] == {"effort": "high", "summary": "auto"}
+        and az_sent["body"]["include"] == ["reasoning.encrypted_content"]
     )
     checks.append(
         Check(
             "21_azure_construction",
             azure_ok,
-            "azure-openai-responses: /openai/v1 URL + api-version=v1 + deployment body model + api-key header + reasoning.effort",
+            "azure-openai-responses: /openai/v1 URL + api-version=v1 + deployment body model + api-key header + reasoning.effort/summary + encrypted reasoning include",
         )
     )
 

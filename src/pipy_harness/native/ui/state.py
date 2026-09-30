@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from pipy_harness.native.agent.content import display_segments
 from pipy_harness.native.agent.events import (
     AgentEvent,
     AssistantReasoningDelta,
@@ -39,7 +40,8 @@ class UiState:
     ``assistant_active`` tracks whether an assistant message has started but not
     yet completed.  ``assistant_streamed`` records that at least one non-empty
     text delta streamed, so a buffered fallback is not re-rendered on
-    completion.  ``assistant_completion_suppressed`` records that a failure or
+    completion; ``reasoning_streamed`` does the same for reasoning deltas.
+    ``assistant_completion_suppressed`` records that a failure or
     cancellation already produced a terminal decision, so ``MessageCompleted``
     stays silent.
     """
@@ -47,6 +49,7 @@ class UiState:
     assistant_active: bool = False
     assistant_streamed: bool = False
     assistant_completion_suppressed: bool = False
+    reasoning_streamed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +77,13 @@ class RenderBufferedAssistantText:
 
     text: str
     has_tool_calls: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RenderBufferedAssistantThinking:
+    """Render one thinking run of a non-streamed answer, in its place."""
+
+    text: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +158,7 @@ RenderDecision = (
     | StreamAssistantText
     | StreamAssistantReasoning
     | RenderBufferedAssistantText
+    | RenderBufferedAssistantThinking
     | CompleteAssistantMessage
     | FailAssistantMessage
     | CancelAssistantMessage
@@ -190,7 +201,11 @@ def _reduce_assistant_event(state: UiState, event: AgentEvent) -> _Reduction | N
             (StreamAssistantText(event.delta.value),),
         )
     if isinstance(event, AssistantReasoningDelta):
-        return (state, (StreamAssistantReasoning(event.delta.value),))
+        streamed = state.reasoning_streamed or bool(event.delta.value)
+        return (
+            replace(state, reasoning_streamed=streamed),
+            (StreamAssistantReasoning(event.delta.value),),
+        )
     if isinstance(event, ProviderFailed):
         suppressed = replace(state, assistant_completion_suppressed=True)
         if state.assistant_active:
@@ -211,7 +226,7 @@ def _reduce_retry_event(state: UiState, event: AgentEvent) -> _Reduction | None:
         # The retried attempt starts over, so its text renders as fresh output
         # (a buffered completion is no longer covered by the failed stream).
         return (
-            replace(state, assistant_streamed=False),
+            replace(state, assistant_streamed=False, reasoning_streamed=False),
             (
                 ScheduleRetry(
                     event.attempt,
@@ -250,7 +265,15 @@ def _reduce_message_completed(state: UiState, event: MessageCompleted) -> _Reduc
         return (completed, ())
     has_tool_calls = bool(event.message.tool_calls)
     decisions: list[RenderDecision] = []
-    if event.message.content.value and not state.assistant_streamed:
+    if not state.assistant_streamed and not state.reasoning_streamed:
+        # Nothing streamed: draw the answer's thinking runs and text in order.
+        for thinking, text in display_segments(event.message.ordered_content()):
+            decisions.append(
+                RenderBufferedAssistantThinking(text)
+                if thinking
+                else RenderBufferedAssistantText(text, has_tool_calls=has_tool_calls)
+            )
+    elif event.message.content.value and not state.assistant_streamed:
         decisions.append(
             RenderBufferedAssistantText(
                 event.message.content.value,

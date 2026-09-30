@@ -157,7 +157,8 @@ def test_openai_parses_function_call_into_provider_tool_call(tmp_path: Path):
     assert len(result.tool_calls) == 1
     call = result.tool_calls[0]
     assert isinstance(call, ProviderToolCall)
-    assert call.provider_correlation_id == "call_abc"
+    # Pi stores the Responses id as ``call_id|item_id`` (replay splits it).
+    assert call.provider_correlation_id == "call_abc|fc_internal"
     assert call.tool_name == "read"
     assert call.arguments_json == '{"path": "README.md"}'
 
@@ -466,9 +467,15 @@ def test_openai_includes_assistant_text_alongside_tool_calls(tmp_path: Path):
     provider.complete(request)
 
     items = client.requests[0]["body"]["input"][1:]
+    # Pi ``convertResponsesMessages``: a message item with Pi's fallback id.
     assert items[1] == {
+        "type": "message",
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "let me read it"}],
+        "content": [
+            {"type": "output_text", "text": "let me read it", "annotations": []}
+        ],
+        "status": "completed",
+        "id": "msg_pi_1",
     }
     assert items[2]["type"] == "function_call"
     assert items[2]["call_id"] == "call_abc"

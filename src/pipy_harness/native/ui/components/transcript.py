@@ -5,9 +5,10 @@ transcript's state never lived on a shared record, so the component owns its
 fields directly -- the committed ``history_blocks`` list, the four live stream
 buffers (``assistant_text``, ``reasoning_text``, ``tool_output_text``,
 ``working_text``), the running tool call's row (``pending_tool`` and its
-rendered ``pending_tool_lines``), the Ctrl+T thinking-fold trio
-(``thinking_hidden``, ``hidden_thinking_label``, ``deferred_reasoning``) and
-the Ctrl+O ``tools_expanded`` flag. The screen reads these buffers through its
+rendered ``pending_tool_lines``), the Ctrl+T thinking-fold pair
+(``thinking_hidden``, ``hidden_thinking_label``) and the Ctrl+O
+``tools_expanded`` flag. Committed reasoning rows keep their text, so a
+fold or label change re-renders them like Pi's assistant components. The screen reads these buffers through its
 explicit frame-source protocol and owns the shared live render-input
 projection.
 
@@ -122,6 +123,13 @@ def _thread_ticker(tick: Callable[[], None]) -> Callable[[], None]:
 
 
 @dataclass(frozen=True, slots=True)
+class ReasoningRenderState:
+    """A committed thinking run: its text, drawn or folded to the label."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class SummaryRenderState:
     """A collapsible row with fixed collapsed/expanded lines (``!`` results)."""
 
@@ -175,10 +183,6 @@ class TranscriptComponent:
         # drawn in the live region until its result commits the whole row.
         self.pending_tool: ToolRowState | None = None
         self.pending_tool_lines: tuple[str, ...] = ()
-        # Reasoning blocks that settled while thinking was folded (Ctrl+T).
-        # Retained rather than dropped so toggling visibility back reveals them
-        # (committed fresh at toggle time, not retro-written into scrollback).
-        self.deferred_reasoning: list[str] = []
 
     # -- seeding -------------------------------------------------------------
 
@@ -217,7 +221,6 @@ class TranscriptComponent:
             self.working_text = ""
             self.pending_tool = None
             self.pending_tool_lines = ()
-            self.deferred_reasoning.clear()
             self.history_blocks = [*self.history_blocks[:boundary], *replacement]
             cancel = self._take_ticker_locked()
         if cancel is not None:
@@ -329,56 +332,111 @@ class TranscriptComponent:
     def _settle_reasoning_locked(self) -> None:
         if not self.reasoning_text:
             return
-        # When thinking blocks are folded (Ctrl+T), the settled reasoning is
-        # deferred (retained, not committed to scrollback) so the fold holds but
-        # the content is not lost -- toggling visibility back reveals it.
-        if self.thinking_hidden:
-            self.deferred_reasoning.append(self.reasoning_text)
-        else:
-            self.history_blocks.append(
-                HistoryBlockTuple(
-                    "reasoning", tuple(self.reasoning_text.splitlines() or [""])
-                )
-            )
+        self.history_blocks.append(self._reasoning_row(self.reasoning_text))
         self.reasoning_text = ""
 
+    def _reasoning_row(self, text: str) -> HistoryBlockTuple:
+        """A thinking run's row: its text, or the label while folded (Ctrl+T)."""
+
+        lines = (
+            (self.hidden_thinking_label,)
+            if self.thinking_hidden
+            else tuple(text.splitlines() or [""])
+        )
+        return HistoryBlockTuple("reasoning", lines, ReasoningRenderState(text))
+
     def settle_reasoning(self) -> None:
-        """Commit (or defer, while folded) the live reasoning buffer."""
+        """Commit the live reasoning buffer as a thinking row."""
 
         with self._paint_lock:
             self._settle_reasoning_locked()
 
+    def add_reasoning(self, text: str) -> None:
+        """Commit a finished thinking run after the content before it.
+
+        A non-streamed answer and restored history draw each thinking run in
+        its place among the text blocks (Pi ``AssistantMessageComponent``).
+        """
+
+        if not text:
+            return
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self._commit_assistant_text_locked()
+            self.working_text = ""
+            self.history_blocks.append(self._reasoning_row(text.replace("**", "")))
+        self._repaint()
+
+    def add_assistant_block(self, text: str) -> None:
+        """Buffer one finished text block after the content before it.
+
+        Pi draws every text block of a message as its own Markdown component,
+        so a text block following another one starts a new row.
+        """
+
+        if not text:
+            return
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self._commit_assistant_text_locked()
+            self.assistant_text = text
+        self._repaint()
+
+    def _commit_assistant_text_locked(self) -> None:
+        if self.assistant_text:
+            self.history_blocks.append(
+                HistoryBlockTuple(
+                    "assistant", tuple(self.assistant_text.splitlines() or [""])
+                )
+            )
+            self.assistant_text = ""
+
     # -- thinking fold (Ctrl+T) ----------------------------------------------
 
     def set_thinking_hidden(self, hidden: bool) -> None:
-        """Set the Ctrl+T thinking-fold flag, revealing deferred reasoning.
+        """Pi ``updateThinkingBlockVisibility``: re-render every thinking row.
 
-        Folding hides subsequent/live reasoning and defers settled blocks;
-        unfolding commits any deferred reasoning into history so it becomes
-        visible (committed fresh now rather than retro-written into the host
-        terminal's existing scrollback, preserving the inline contract).
+        Folded rows show the hidden label, unfolded ones their text, live and
+        restored alike. When a committed row changes, the scrollback is
+        redrawn like Ctrl+O (Pi's full render).
         """
 
         with self._paint_lock:
-            self.thinking_hidden = hidden
-            revealed = bool(not hidden and self.deferred_reasoning)
-            if revealed:
-                for text in self.deferred_reasoning:
-                    self.history_blocks.append(
-                        HistoryBlockTuple("reasoning", tuple(text.splitlines() or [""]))
-                    )
-                self.deferred_reasoning.clear()
-        if revealed:
-            self._repaint()
+            self.thinking_hidden = bool(hidden)
+            changed = self._rerender_reasoning_locked()
+        self._redraw(changed)
 
     def set_hidden_thinking_label(self, label: str | None = None) -> None:
-        """Set the live folded-thinking label; ``None`` restores Pi's default."""
+        """Set the folded-thinking label; ``None`` restores Pi's default.
+
+        Pi's ``setHiddenThinkingLabel`` re-renders every assistant message,
+        so folded rows show the new label.
+        """
 
         with self._paint_lock:
             self.hidden_thinking_label = (
                 DEFAULT_HIDDEN_THINKING_LABEL if label is None else str(label)
             )
-        self._repaint()
+            changed = self._rerender_reasoning_locked()
+        self._redraw(changed)
+
+    def _rerender_reasoning_locked(self) -> bool:
+        changed = False
+        for index, block in enumerate(self.history_blocks):
+            state = getattr(block, "state", None)
+            if not isinstance(state, ReasoningRenderState):
+                continue
+            row = self._reasoning_row(state.text)
+            if row[1] != block[1]:
+                self.history_blocks[index] = row
+                changed = True
+        return changed
+
+    def _redraw(self, changed: bool) -> None:
+        if changed:
+            self._replace_scrollback()
+        else:
+            self._repaint()
 
     def reset_hidden_thinking_label(self) -> None:
         """Restore the default label without repainting.
@@ -882,6 +940,9 @@ class TranscriptComponent:
         for block in self.history_blocks:
             kind, lines = block
             state = getattr(block, "state", None)
+            if isinstance(state, ReasoningRenderState):
+                rebuilt.append(block)
+                continue
             if isinstance(state, SummaryRenderState):
                 next_lines = state.expanded if self.tools_expanded else state.collapsed
                 changed = changed or next_lines != lines

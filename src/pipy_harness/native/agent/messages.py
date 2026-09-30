@@ -13,7 +13,11 @@ from pipy_harness.native.agent._validation import (
     require_non_empty_string,
     require_non_negative_int,
 )
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    ProductContent,
+    TextContent,
+    ThinkingContent,
+)
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
 
@@ -29,6 +33,8 @@ class AgentToolCall:
     provider_correlation_id: str
     tool_name: str
     arguments_json: ProductContent
+    # Pi ``ToolCall.thoughtSignature`` (Gemini): replayed to the same model.
+    thought_signature: str | None = None
 
     def __post_init__(self) -> None:
         require_non_empty_string(
@@ -37,6 +43,10 @@ class AgentToolCall:
         require_non_empty_string(self.tool_name, "AgentToolCall.tool_name")
         if not isinstance(self.arguments_json, ProductContent):
             raise TypeError("AgentToolCall.arguments_json must be ProductContent")
+        if self.thought_signature is not None and type(self.thought_signature) is not (
+            str
+        ):
+            raise TypeError("AgentToolCall.thought_signature must be a string or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,16 +137,28 @@ class AgentMessageUsage:
             raise TypeError("AgentMessageUsage.cost must be an AgentUsageCost")
 
 
+AgentContentBlock = TextContent | ThinkingContent | AgentToolCall
+"""One entry of Pi's ordered ``AssistantMessage.content``."""
+
+
 @dataclass(frozen=True, slots=True)
 class AgentAssistantMessage:
     """One assembled assistant message and its tool intents.
 
     A message with a ``stop_reason`` is an aborted or failed turn: it keeps
-    the streamed partial text, never carries tool calls, and is transcript
-    state that providers never see again.
+    the content streamed so far (partial tool calls included, which are never
+    executed) and is transcript state that providers never see again.
 
-    ``usage``, ``provider`` and ``model`` record which model answered and what
-    the response cost (Pi ``AssistantMessage.usage/provider/model``);
+    ``blocks`` is Pi's ordered ``content`` (text, thinking and tool-call
+    blocks with their provider signatures) whenever it holds more than
+    ``content`` followed by ``tool_calls``: its text blocks joined are
+    ``content`` and its tool calls are ``tool_calls``. A message that is just
+    that default layout stores no blocks, so it compares equal to one built
+    from text and tool calls; :meth:`ordered_content` returns the blocks
+    either way.
+
+    ``usage``, ``provider``, ``api`` and ``model`` record which model answered
+    and what the response cost (Pi ``AssistantMessage.usage/provider/api/model``);
     ``provider_thinking_level`` is the effort an Anthropic mid-conversation
     effort model answered at (Pi ``providerThinkingLevel``). They describe
     the turn rather than the conversation, so they take no part in equality:
@@ -151,7 +173,33 @@ class AgentAssistantMessage:
     provider: str | None = field(default=None, compare=False)
     model: str | None = field(default=None, compare=False)
     provider_thinking_level: str | None = field(default=None, compare=False)
+    blocks: tuple[AgentContentBlock, ...] = ()
+    # Pi ``AssistantMessage.api``: the adapter API that answered.
+    api: str | None = field(default=None, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 256 * 1024
+
+    @classmethod
+    def from_blocks(
+        cls, blocks: Sequence[AgentContentBlock], **fields: Any
+    ) -> AgentAssistantMessage:
+        """Build a message from Pi's ordered content."""
+
+        ordered = tuple(blocks)
+        text = "".join(b.text for b in ordered if isinstance(b, TextContent))
+        calls = tuple(b for b in ordered if isinstance(b, AgentToolCall))
+        return cls(ProductContent(text), calls, blocks=ordered, **fields)
+
+    def thinking_blocks(self) -> tuple[ThinkingContent, ...]:
+        """The message's thinking blocks, in order."""
+
+        return tuple(b for b in self.blocks if isinstance(b, ThinkingContent))
+
+    def ordered_content(self) -> tuple[AgentContentBlock, ...]:
+        """Pi's ordered ``content`` of this message."""
+
+        if self.blocks:
+            return self.blocks
+        return _default_layout(self.content.value, self.tool_calls)
 
     def __post_init__(self) -> None:
         _validate_turn_metadata(self)
@@ -170,8 +218,6 @@ class AgentAssistantMessage:
                 raise ValueError(
                     "AgentAssistantMessage.error_message requires a stop_reason"
                 )
-        if self.stop_reason is not None and self.tool_calls:
-            raise ValueError("a stopped AgentAssistantMessage carries no tool calls")
         if not isinstance(self.content, ProductContent):
             raise TypeError("AgentAssistantMessage.content must be ProductContent")
         if len(self.content.value) > self.CONTENT_MAX_LENGTH:
@@ -185,12 +231,48 @@ class AgentAssistantMessage:
             raise TypeError(
                 "AgentAssistantMessage.tool_calls must contain AgentToolCall values"
             )
+        _validate_blocks(self)
+
+
+def _default_layout(
+    text: str, tool_calls: tuple[AgentToolCall, ...]
+) -> tuple[AgentContentBlock, ...]:
+    head: tuple[AgentContentBlock, ...] = (TextContent(text),) if text else ()
+    return (*head, *tool_calls)
+
+
+def _validate_blocks(message: AgentAssistantMessage) -> None:
+    """Check ``blocks`` against ``content``/``tool_calls``; drop a default layout."""
+
+    blocks = message.blocks
+    if not isinstance(blocks, tuple):
+        raise TypeError("AgentAssistantMessage.blocks must be a tuple")
+    if not blocks:
+        return
+    if any(
+        type(block) not in (TextContent, ThinkingContent, AgentToolCall)
+        for block in blocks
+    ):
+        raise TypeError(
+            "AgentAssistantMessage.blocks must hold TextContent, ThinkingContent "
+            "or AgentToolCall values"
+        )
+    text = "".join(b.text for b in blocks if isinstance(b, TextContent))
+    if text != message.content.value:
+        raise ValueError("AgentAssistantMessage.blocks text must equal its content")
+    calls = tuple(b for b in blocks if isinstance(b, AgentToolCall))
+    if calls != message.tool_calls:
+        raise ValueError(
+            "AgentAssistantMessage.blocks tool calls must equal its tool_calls"
+        )
+    if blocks == _default_layout(message.content.value, message.tool_calls):
+        object.__setattr__(message, "blocks", ())
 
 
 def _validate_turn_metadata(message: AgentAssistantMessage) -> None:
     if message.usage is not None and type(message.usage) is not AgentMessageUsage:
         raise TypeError("AgentAssistantMessage.usage must be AgentMessageUsage or None")
-    for field_name in ("provider", "model", "provider_thinking_level"):
+    for field_name in ("provider", "api", "model", "provider_thinking_level"):
         value = getattr(message, field_name)
         if value is not None:
             require_non_empty_string(value, f"AgentAssistantMessage.{field_name}")

@@ -19,13 +19,18 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.deferred_tools import short_hash
 from pipy_harness.native.http import JsonResponse, ProviderHTTPError
 from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 from pipy_harness.native.providers.anthropic_messages_wire import envelope_to_message
 from pipy_harness.native.providers.google_generate_content_wire import (
     envelope_to_content,
 )
-from pipy_harness.native.providers.openai_responses_wire import envelope_to_input_items
+from pipy_harness.native.providers.openai_responses_wire import (
+    OPENAI_TOOL_CALL_PROVIDERS,
+    ResponsesReplay,
+)
+from pipy_harness.native.providers.replay_content import ReplayTarget
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.read import ReadTool
@@ -124,14 +129,19 @@ def test_shared_wires_pair_the_same_portable_tool_correlation_id() -> None:
     assert anthropic_call_content[1]["id"] == expected
     assert anthropic_result_content[0]["tool_use_id"] == expected
 
-    responses_call = envelope_to_input_items(
-        assistant, parse_error_class=ProviderHTTPError
+    # Responses targets split Pi's compound id: the call part keeps its safe
+    # bytes, and a foreign item id becomes ``fc_<shortHash>`` (Pi
+    # ``normalizeToolCallId``) for a target that accepts compound ids.
+    replay = ResponsesReplay(
+        ReplayTarget("openai", "openai-responses", "gpt-test"),
+        OPENAI_TOOL_CALL_PROVIDERS,
+        ProviderHTTPError,
     )
-    responses_result = envelope_to_input_items(
-        result, parse_error_class=ProviderHTTPError
-    )
-    assert responses_call[1]["call_id"] == expected
-    assert responses_result[0]["call_id"] == expected
+    responses_call = replay.items(assistant, 0)
+    responses_result = replay.items(result, 1)
+    assert responses_call[1]["call_id"] == "call_abc"
+    assert responses_call[1]["id"] == f"fc_{short_hash('fc_abc')}"
+    assert responses_result[0]["call_id"] == "call_abc"
 
     google_call = envelope_to_content(assistant, parse_error_class=ProviderHTTPError)
     google_result = envelope_to_content(result, parse_error_class=ProviderHTTPError)

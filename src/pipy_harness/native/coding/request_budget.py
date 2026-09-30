@@ -144,6 +144,10 @@ def estimate_request(
         else:
             message_tokens += _text_tokens(message.content.value)
         if isinstance(message, AgentAssistantMessage):
+            # Pi ``estimateTokens`` counts thinking text (not signatures).
+            message_tokens += sum(
+                _text_tokens(block.thinking) for block in message.thinking_blocks()
+            )
             call_count += len(message.tool_calls)
             for call in message.tool_calls:
                 tool_call_tokens += sum(

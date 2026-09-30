@@ -25,6 +25,7 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.content import display_segments
 from pipy_harness.native.local_shell_record import (
     parse_local_shell_record,
     shell_result_lines,
@@ -137,6 +138,9 @@ class SessionHistoryRenderer:
             render_inputs=self.render_inputs,
         )
         scratch.tools_expanded = self.transcript.tools_expanded
+        # Thinking rows follow the live fold and label (Pi hideThinkingBlock).
+        scratch.thinking_hidden = self.transcript.thinking_hidden
+        scratch.hidden_thinking_label = self.transcript.hidden_thinking_label
         renderer = self.tool_renderer.detached(scratch)
         custom = replace(
             self.custom_renderer,
@@ -228,6 +232,12 @@ def stopped_assistant_marker(message: AgentAssistantMessage) -> str | None:
     return None
 
 
+def _stopped_call_text(message: AgentAssistantMessage) -> str:
+    if message.stop_reason is AgentStopReason.ABORTED:
+        return "Operation aborted"
+    return message.error_message or "Error"
+
+
 def _render_assistant(
     message: AgentAssistantMessage,
     renderer: TuiToolLoopRenderer,
@@ -235,19 +245,27 @@ def _render_assistant(
     results: dict[str, AgentToolResultMessage],
 ) -> None:
     has_tool_calls = bool(message.tool_calls)
-    if message.content.value:
-        renderer.render_buffered_assistant_text(
-            message.content.value, has_tool_calls=has_tool_calls
-        )
+    # Pi's AssistantMessageComponent: text and thinking runs in order.
+    for thinking, text in display_segments(message.ordered_content()):
+        if thinking:
+            scratch.add_reasoning(text)
+        else:
+            renderer.render_buffered_assistant_text(text, has_tool_calls=has_tool_calls)
     marker = stopped_assistant_marker(message)
-    if marker is not None:
+    if marker is not None and not has_tool_calls:
         scratch.add_error(marker)
         return
     renderer.complete_assistant_message(has_tool_calls=has_tool_calls)
     for call in message.tool_calls:
         renderer.render_tool_call(call)
         result = results.get(call.provider_correlation_id)
-        if result is not None:
+        if message.stop_reason is not None:
+            # Pi renderSessionItems: a stopped turn's partial tool call ends
+            # with the abort or error as its (error) result.
+            renderer.render_tool_result(
+                output_text=_stopped_call_text(message), is_error=True
+            )
+        elif result is not None:
             renderer.render_tool_result(
                 output_text=result.content.value,
                 is_error=result.is_error,

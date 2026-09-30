@@ -277,7 +277,7 @@ def resolve_construction(
     )
     reasoning_summary, include_encrypted_reasoning = (
         _responses_reasoning_extras(spec, thinking_level)
-        if spec.api == "openai-responses"
+        if spec.api in ("openai-responses", "azure-openai-responses")
         else (None, False)
     )
     anthropic_prompt_cache = (
@@ -347,16 +347,22 @@ def _oauth_request_auth(
 def _responses_reasoning_extras(
     spec: NativeModelSpec, thinking_level: str | None
 ) -> tuple[str | None, bool]:
-    """Pi ``buildParams`` ``reasoning.summary`` + ``include`` (openai-responses).
+    """Pi ``buildParams`` ``reasoning.summary`` + ``include`` (openai-responses,
+    azure-openai-responses).
 
     An on-state effort sends ``summary: "auto"`` and requests the encrypted
-    reasoning item; xai requests it on every reasoning request, including the
-    off-state (``openai-responses.ts:343-358``).
+    reasoning item; on openai-responses xai requests it on every reasoning
+    request, including the off-state (``openai-responses.ts:343-358``,
+    ``azure-openai-responses.ts:330-345``).
     """
 
     effort, off_state = resolve_responses_reasoning(spec, thinking_level)
     on_state = effort is not None and not off_state
-    include = on_state or (spec.provider_name == "xai" and bool(spec.reasoning))
+    include = on_state or (
+        spec.api == "openai-responses"
+        and spec.provider_name == "xai"
+        and bool(spec.reasoning)
+    )
     return ("auto" if on_state else None), include
 
 
@@ -1143,6 +1149,8 @@ def _build_catalog_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            reasoning_summary=resolved.reasoning_summary,
+            include_encrypted_reasoning=resolved.include_encrypted_reasoning,
             supports_tool_search=resolved.supports_tool_search,
             supports_mid_convo_system_messages=(
                 resolved.transcript.supports_mid_convo_system_messages

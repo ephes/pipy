@@ -653,6 +653,7 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
         cwd=tmp_path,
         messages=(
             AgentUserMessage(content=ProductContent("read it")),
+            # The same model's call replays its item id (Pi isSameModel).
             AgentAssistantMessage(
                 content=ProductContent(""),
                 tool_calls=(
@@ -662,6 +663,9 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
                         arguments_json=ProductContent('{"path": "README.md"}'),
                     ),
                 ),
+                provider="openai-codex",
+                api="openai-codex-responses",
+                model="gpt-test",
             ),
             AgentToolResultMessage(
                 tool_request_id=request_id,

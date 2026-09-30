@@ -574,9 +574,18 @@ Add two pipy-owned view flags on `TerminalUi`:
   rows keep their inputs, so a toggle re-renders them and redraws the screen
   with the terminal scrollback cleared (Pi's full render,
   `\x1b[2J\x1b[H\x1b[3J`), like Pi's `setExpanded` on every component.
-- `thinking_hidden` (toggled by `ctrl+t`): hides or shows reasoning/thinking
-  blocks for subsequent and live rendering, persisted in the non-secret local
-  settings store, with a `Thinking blocks: hidden|visible` status.
+- `thinking_hidden` (toggled by `ctrl+t`): hides or shows thinking blocks,
+  persisted as `hideThinkingBlock` in the non-secret local settings store,
+  with a `Thinking blocks: hidden|visible` status. Every thinking row, live
+  and restored, keeps its text: a hidden row shows Pi's italic label
+  (`Thinking...`, or the extension's `setHiddenThinkingLabel`), and a toggle
+  or label change re-renders the rows and redraws the scrollback like
+  `ctrl+o` (Pi `updateThinkingBlockVisibility`). A non-streamed answer
+  (every adapter but `openai-codex`) draws its thinking runs and text in
+  block order when it completes, and a resumed session draws them the same
+  way (Pi `AssistantMessageComponent`: consecutive thinking blocks form one
+  run, trimmed and joined by a blank line). Pi's per-run mouse toggle has no
+  pipy counterpart.
 
 Both toggles run no provider turn and mutate only renderer view state plus the
 non-secret settings file. When the tree selector is open, `ctrl+o`/`ctrl+t`

@@ -96,11 +96,13 @@ def _failed(text: str = FAILED_PARTIAL) -> AgentAssistantMessage:
 def test_stopped_message_invariants() -> None:
     with pytest.raises(ValueError, match="requires a stop_reason"):
         AgentAssistantMessage(ProductContent("x"), error_message="boom")
+    # Pi keeps a stopped turn's partial tool calls (DF1-F6b); they are never
+    # executed or replayed.
     call = AgentToolCall("c1", "read", ProductContent("{}"))
-    with pytest.raises(ValueError, match="no tool calls"):
-        AgentAssistantMessage(
-            ProductContent(""), (call,), stop_reason=AgentStopReason.ABORTED
-        )
+    stopped = AgentAssistantMessage(
+        ProductContent(""), (call,), stop_reason=AgentStopReason.ABORTED
+    )
+    assert provider_replay_messages((stopped,)) == ()
     with pytest.raises(TypeError, match="stop_reason"):
         AgentAssistantMessage(ProductContent(""), stop_reason="aborted")  # type: ignore[arg-type]
 

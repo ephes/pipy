@@ -26,7 +26,11 @@ from pipy_harness.native.agent.provider_retry import (
 )
 from pipy_harness.native.agent.results import AgentCancellationReason, AgentFailure
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import (
+    ProviderPartial,
+    ProviderRequest,
+    ProviderResult,
+)
 from pipy_harness.native.provider import (
     PreparedProviderCompletion,
     PreparedProviderPort,
@@ -75,12 +79,16 @@ class ProviderTurnOutcome:
 
     result: ProviderResult | None = None
     cancellation_reason: AgentCancellationReason | None = None
+    # What the adapter had streamed when it was cancelled (Pi's partial).
+    partial: ProviderPartial | None = None
 
     def __post_init__(self) -> None:
         if (self.result is None) == (self.cancellation_reason is None):
             raise ValueError(
                 "provider turn outcome requires exactly one result or cancellation"
             )
+        if self.partial is not None and self.cancellation_reason is None:
+            raise ValueError("a provider partial belongs to a cancellation")
         if self.result is not None and not isinstance(self.result, ProviderResult):
             raise TypeError("ProviderTurnOutcome.result must be ProviderResult")
         if self.cancellation_reason is not None and not isinstance(
@@ -503,8 +511,9 @@ class ProviderTurnExecutor:
         if retry_policy is not None and before_reissue is None:
             raise ValueError("before_reissue is required with retry_policy")
         self._validate_rpc_retry_control(rpc_retry_control)
+        partials: list[ProviderPartial | None] = []
         if waiter is None:
-            return self._complete_synchronously(
+            outcome = self._complete_synchronously(
                 provider,
                 request,
                 event_sink,
@@ -513,18 +522,22 @@ class ProviderTurnExecutor:
                 retry_policy,
                 before_reissue,
                 rpc_retry_control,
+                partials,
             )
-        return self._complete_interruptibly(
-            provider,
-            request,
-            event_sink,
-            turn_index,
-            waiter,
-            delta_policy,
-            retry_policy,
-            before_reissue,
-            rpc_retry_control,
-        )
+        else:
+            outcome = self._complete_interruptibly(
+                provider,
+                request,
+                event_sink,
+                turn_index,
+                waiter,
+                delta_policy,
+                retry_policy,
+                before_reissue,
+                rpc_retry_control,
+                partials,
+            )
+        return _with_partial(outcome, partials)
 
     @staticmethod
     def _validate_rpc_retry_control(control: RpcRetryControl | None) -> None:
@@ -567,6 +580,7 @@ class ProviderTurnExecutor:
         retry_policy: ProviderManagedRetryPolicy | None,
         before_reissue: Callable[[], None] | None,
         rpc_retry_control: RpcRetryControl | None,
+        partials: list[ProviderPartial | None],
     ) -> ProviderTurnOutcome:
         gate = _DeltaAdmissionGate(_ExecutionOrder())
         text_sink, reasoning_sink = self._delta_sinks(
@@ -594,7 +608,8 @@ class ProviderTurnExecutor:
                 result = self._retry_synchronously(
                     prepared, result, retry_policy, before_reissue, event_sink
                 )
-        except ProviderCancelledError:
+        except ProviderCancelledError as exc:
+            partials.append(exc.partial)
             return ProviderTurnOutcome(
                 cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
             )
@@ -659,6 +674,7 @@ class ProviderTurnExecutor:
         retry_policy: ProviderManagedRetryPolicy | None,
         before_reissue: Callable[[], None] | None,
         rpc_retry_control: RpcRetryControl | None,
+        partials: list[ProviderPartial | None],
     ) -> ProviderTurnOutcome:
         order = _ExecutionOrder()
         cancel_token = CancelToken()
@@ -679,6 +695,7 @@ class ProviderTurnExecutor:
                 cancel_token,
                 cancel_event,
                 gate,
+                partials,
             )
         finally:
             gate.close()
@@ -698,6 +715,7 @@ class ProviderTurnExecutor:
         cancel_token: CancelToken,
         cancel_event: _OrderedCancellationEvent,
         gate: _DeltaAdmissionGate,
+        partials: list[ProviderPartial | None],
     ) -> ProviderTurnOutcome:
         done_event = threading.Event()
         results: list[ProviderResult] = []
@@ -787,7 +805,8 @@ class ProviderTurnExecutor:
                             ProviderAttemptAllowance(attempt, retry_policy.max_attempts)
                         )
                     )
-            except ProviderCancelledError:
+            except ProviderCancelledError as exc:
+                partials.append(exc.partial)
                 provider_cancelled.set()
             # re-raised by the caller
             except BaseException as exc:  # noqa: BLE001 - re-raised by caller
@@ -1048,6 +1067,19 @@ class ProviderTurnExecutor:
                 cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
             )
         return _completed_outcome(results, errors, provider_cancelled)
+
+
+def _with_partial(
+    outcome: ProviderTurnOutcome, partials: list[ProviderPartial | None]
+) -> ProviderTurnOutcome:
+    """Attach the adapter's partial output to a cancelled outcome."""
+
+    partial = next((item for item in reversed(partials) if item), None)
+    if outcome.cancellation_reason is None or partial is None:
+        return outcome
+    return ProviderTurnOutcome(
+        cancellation_reason=outcome.cancellation_reason, partial=partial
+    )
 
 
 def _cancellation_reason(

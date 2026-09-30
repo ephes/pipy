@@ -56,28 +56,27 @@ class TestThinkingFold:
         ui.components.transcript.append_reasoning("VISIBLE-THOUGHT")
         assert "VISIBLE-THOUGHT" in _frame_text(ui)
 
-    def test_settle_defers_reasoning_when_hidden(self, tmp_path: Path) -> None:
+    def test_settled_reasoning_shows_the_label_when_hidden(
+        self, tmp_path: Path
+    ) -> None:
         ui = _ui(tmp_path)
         ui.components.transcript.set_thinking_hidden(True)
-        ui.components.transcript.append_reasoning("DEFER-ME")
+        ui.components.transcript.append_reasoning("FOLDED-THOUGHT")
         ui.components.transcript.settle_reasoning()
-        # Not committed to scrollback while hidden, but retained (not dropped).
-        assert all(
-            "DEFER-ME" not in "".join(block)
-            for _kind, block in ui.components.transcript.history_blocks
-        )
-        assert ui.components.transcript.deferred_reasoning == ["DEFER-ME"]
+        # Pi draws a hidden thinking block as its label, kept in the history.
+        assert "FOLDED-THOUGHT" not in _frame_text(ui)
+        assert "Thinking..." in _frame_text(ui)
 
-    def test_unhiding_reveals_deferred_reasoning(self, tmp_path: Path) -> None:
+    def test_unhiding_rerenders_settled_reasoning(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
         ui.components.transcript.set_thinking_hidden(True)
         ui.components.transcript.append_reasoning("WAS-HIDDEN")
         ui.components.transcript.settle_reasoning()
         assert "WAS-HIDDEN" not in _frame_text(ui)
-        # Toggling visibility back commits the deferred reasoning into history.
+        # Pi updateThinkingBlockVisibility re-renders the row in place.
         ui.components.transcript.set_thinking_hidden(False)
         assert "WAS-HIDDEN" in _frame_text(ui)
-        assert ui.components.transcript.deferred_reasoning == []
+        assert "Thinking..." not in _frame_text(ui)
 
 
 class TestToolExpansion:

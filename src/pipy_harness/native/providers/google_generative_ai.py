@@ -27,7 +27,10 @@ from pipy_harness.native.providers.google_generate_content_wire import (
     parse_response,
     serialize_tool_for_gemini,
 )
+from pipy_harness.native.providers.replay_content import ReplayTarget
 
+# Pi ``Api`` of this adapter, recorded on each answer for replay.
+GOOGLE_GENERATIVE_AI_API = "google-generative-ai"
 GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 # Per-model thinking shape, ported from Pi's ``google.ts``. Pi injects
@@ -232,6 +235,7 @@ class GoogleGenerativeAIProvider:
                 request,
                 parse_error_class=GoogleResponseParseError,
                 attach_images=True,
+                target=ReplayTarget.of(request, GOOGLE_GENERATIVE_AI_API),
             ),
         }
         if request.system_prompt:
@@ -301,6 +305,8 @@ class GoogleGenerativeAIProvider:
                 "finish_reason": result.finish_reason,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api=GOOGLE_GENERATIVE_AI_API,
         )
 
 

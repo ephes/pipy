@@ -24,6 +24,8 @@ from pipy_harness.native.agent import (
     AgentTranscriptMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent.messages import AgentContentBlock
 from pipy_harness.native.agent.system_messages import system_message_to_json
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
@@ -46,22 +48,39 @@ def parse_tool_arguments(arguments_json: str) -> Any:
 
 
 def tool_call_block(call: AgentToolCall) -> dict[str, Any]:
-    return {
+    block: dict[str, Any] = {
         "type": "toolCall",
         "id": call.provider_correlation_id,
         "name": call.tool_name,
         "arguments": parse_tool_arguments(call.arguments_json.value),
     }
+    if call.thought_signature is not None:
+        block["thoughtSignature"] = call.thought_signature
+    return block
 
 
-def assistant_content_blocks(
-    content: str, tool_calls: tuple[AgentToolCall, ...]
-) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
-    if content:
-        blocks.append({"type": "text", "text": content})
-    blocks.extend(tool_call_block(call) for call in tool_calls)
-    return blocks
+def content_block(block: AgentContentBlock) -> dict[str, Any]:
+    """One Pi content block: text, thinking or a tool call."""
+
+    if isinstance(block, TextContent):
+        text: dict[str, Any] = {"type": "text", "text": block.text}
+        if block.signature is not None:
+            text["textSignature"] = block.signature
+        return text
+    if isinstance(block, ThinkingContent):
+        thinking: dict[str, Any] = {"type": "thinking", "thinking": block.thinking}
+        if block.signature is not None:
+            thinking["thinkingSignature"] = block.signature
+        if block.redacted:
+            thinking["redacted"] = True
+        return thinking
+    return tool_call_block(block)
+
+
+def assistant_content_blocks(message: AgentAssistantMessage) -> list[dict[str, Any]]:
+    """Pi's ordered ``AssistantMessage.content``."""
+
+    return [content_block(block) for block in message.ordered_content()]
 
 
 def assistant_stop_reason(message: AgentAssistantMessage) -> str:
@@ -85,10 +104,10 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
     if isinstance(message, AgentAssistantMessage):
         assistant: dict[str, Any] = {
             "role": "assistant",
-            "content": assistant_content_blocks(
-                message.content.value, message.tool_calls
-            ),
+            "content": assistant_content_blocks(message),
         }
+        if message.api is not None:
+            assistant["api"] = message.api
         if message.provider is not None:
             assistant["provider"] = message.provider
         if message.model is not None:

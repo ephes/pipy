@@ -756,3 +756,105 @@ def test_restored_stopped_turn_markers_follow_pi(tmp_path: Path) -> None:
         ("user", ("four",)),
         ("error", ("Operation aborted",)),
     ]
+
+
+# -- thinking blocks (DF1-F2b) ---------------------------------------------------
+
+
+def _thinking_turn() -> AgentAssistantMessage:
+    from pipy_harness.native.agent.content import TextContent, ThinkingContent
+
+    return AgentAssistantMessage.from_blocks(
+        [
+            ThinkingContent(" first thought "),
+            ThinkingContent("second", "sig"),
+            TextContent("Answer."),
+            ThinkingContent("later"),
+            _call("c1", "read", {"path": "a"}),
+        ]
+    )
+
+
+def test_restored_thinking_runs_render_in_block_order(tmp_path: Path) -> None:
+    """Pi ``AssistantMessageComponent``: a thinking run (trimmed, joined by a
+    blank line), the text, the next run; tool rows follow."""
+
+    terminal = _Terminal(tmp_path)
+    terminal.tree.append_message(_user("q"))
+    terminal.tree.append_message(_thinking_turn())
+    terminal.history.render_active_branch()
+
+    rows = terminal.rows()
+    assert rows[:4] == [
+        ("user", ("q",)),
+        ("reasoning", ("first thought", "", "second")),
+        ("assistant", ("Answer.",)),
+        ("reasoning", ("later",)),
+    ]
+    assert rows[4][0] == "tool_box"
+
+
+def test_restored_text_blocks_keep_their_own_rows(tmp_path: Path) -> None:
+    """Pi draws each text block as its own Markdown component."""
+
+    from pipy_harness.native.agent.content import TextContent
+
+    terminal = _Terminal(tmp_path)
+    terminal.tree.append_message(_user("q"))
+    terminal.tree.append_message(
+        AgentAssistantMessage.from_blocks(
+            [
+                TextContent("First paragraph.", '{"v":1,"id":"msg_1"}'),
+                TextContent("Second paragraph.", '{"v":1,"id":"msg_2"}'),
+            ]
+        )
+    )
+    terminal.history.render_active_branch()
+
+    assert terminal.rows() == [
+        ("user", ("q",)),
+        ("assistant", ("First paragraph.",)),
+        ("assistant", ("Second paragraph.",)),
+    ]
+
+
+def test_restored_thinking_follows_the_fold_and_ctrl_t(tmp_path: Path) -> None:
+    terminal = _Terminal(tmp_path)
+    terminal.transcript.thinking_hidden = True
+    terminal.tree.append_message(_user("q"))
+    terminal.tree.append_message(_thinking_turn())
+    terminal.history.render_active_branch()
+    assert [lines for kind, lines in terminal.rows() if kind == "reasoning"] == [
+        ("Thinking...",),
+        ("Thinking...",),
+    ]
+
+    clears = terminal.scrollback_clears
+    terminal.transcript.set_thinking_hidden(False)
+    assert [lines for kind, lines in terminal.rows() if kind == "reasoning"] == [
+        ("first thought", "", "second"),
+        ("later",),
+    ]
+    assert terminal.scrollback_clears == clears + 1
+
+
+def test_restored_stopped_turn_draws_its_partial_tool_call_as_failed(
+    tmp_path: Path,
+) -> None:
+    """Pi renderSessionItems: a stopped turn's tool call row gets the abort
+    or error as its result, and no separate marker line."""
+
+    terminal = _Terminal(tmp_path)
+    terminal.tree.append_message(_user("q"))
+    terminal.tree.append_message(
+        AgentAssistantMessage(
+            ProductContent("partial"),
+            (_call("c1", "read", {"path": "a"}),),
+            stop_reason=AgentStopReason.ABORTED,
+        )
+    )
+    terminal.history.render_active_branch()
+
+    rows = terminal.rows()
+    assert [kind for kind, _lines in rows] == ["user", "assistant", "tool_box"]
+    assert "Operation aborted" in "\n".join(text for _bg, text in _box(rows[2][1]))

@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from pipy_harness.native.models import ProviderPartial
 
 
 class ProviderCancelledError(Exception):
@@ -25,7 +28,12 @@ class ProviderCancelledError(Exception):
     never appends a misleading successful assistant/tool observation, so this
     exception is consumed (not surfaced as a provider failure) once the abort
     state has been rendered.
+
+    An adapter that streamed output may set ``partial`` before re-raising;
+    the loop stores it on the aborted message (Pi's partial content).
     """
+
+    partial: ProviderPartial | None = None
 
 
 @runtime_checkable

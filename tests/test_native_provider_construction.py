@@ -1807,8 +1807,10 @@ def test_azure_catalog_construction(tmp_path):
     # Azure uses the api-key header, not Authorization: Bearer
     assert sent["headers"]["api-key"] == "azk"
     assert "Authorization" not in sent["headers"]
-    # Azure shares the Responses thinking shape
-    assert sent["body"]["reasoning"] == {"effort": "high"}
+    # Azure shares the Responses thinking shape; an on-state effort asks for
+    # a summary and the encrypted reasoning item (Pi azure-openai-responses.ts).
+    assert sent["body"]["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert sent["body"]["include"] == ["reasoning.encrypted_content"]
 
 
 def test_azure_catalog_construction_api_version_env_override(tmp_path, monkeypatch):

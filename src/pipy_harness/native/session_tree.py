@@ -57,6 +57,10 @@ from pipy_harness.native.agent.system_messages import (
     system_message_to_json,
 )
 from pipy_harness.native.agent.usage_json import usage_from_json, usage_to_json
+from pipy_harness.native.assistant_blocks_json import (
+    assistant_blocks_from_json,
+    assistant_blocks_to_json,
+)
 
 CURRENT_SESSION_VERSION = 1
 
@@ -302,15 +306,10 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
         assistant: dict[str, Any] = {
             "role": "assistant",
             "content": message.content.value,
-            "tool_calls": [
-                {
-                    "provider_correlation_id": call.provider_correlation_id,
-                    "tool_name": call.tool_name,
-                    "arguments_json": call.arguments_json.value,
-                }
-                for call in message.tool_calls
-            ],
+            "tool_calls": [_tool_call_to_json(call) for call in message.tool_calls],
         }
+        if message.blocks:
+            assistant["blocks"] = assistant_blocks_to_json(message)
         # Pi ``stopReason``/``errorMessage``, written only for a stopped turn.
         if message.stop_reason is not None:
             assistant["stop_reason"] = message.stop_reason.value
@@ -320,6 +319,17 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
     if isinstance(message, AgentToolResultMessage | _UnresolvedToolResultMessage):
         return _tool_result_to_json(message)
     raise TypeError(f"unsupported message type: {type(message)!r}")
+
+
+def _tool_call_to_json(call: AgentToolCall) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "provider_correlation_id": call.provider_correlation_id,
+        "tool_name": call.tool_name,
+        "arguments_json": call.arguments_json.value,
+    }
+    if call.thought_signature is not None:
+        body["thoughtSignature"] = call.thought_signature
+    return body
 
 
 def _tool_result_to_json(
@@ -342,13 +352,15 @@ def _tool_result_to_json(
 def _with_turn_metadata(
     body: dict[str, Any], message: AgentAssistantMessage
 ) -> dict[str, Any]:
-    """Pi ``usage`` (in Pi's shape), ``provider``, ``model`` and
+    """Pi ``usage`` (in Pi's shape), ``provider``, ``api``, ``model`` and
     ``providerThinkingLevel`` when recorded."""
 
     if message.usage is not None:
         body["usage"] = usage_to_json(message.usage)
     if message.provider is not None:
         body["provider"] = message.provider
+    if message.api is not None:
+        body["api"] = message.api
     if message.model is not None:
         body["model"] = message.model
     if message.provider_thinking_level is not None:
@@ -357,11 +369,12 @@ def _with_turn_metadata(
 
 
 def _turn_metadata_from_json(body: dict[str, Any]) -> dict[str, Any]:
-    """Read back ``usage``/``provider``/``model``; entries before USAGE1 have none."""
+    """Read back ``usage``/``provider``/``api``/``model``; older entries lack them."""
 
     metadata: dict[str, Any] = {}
     for key, name in (
         ("provider", "provider"),
+        ("api", "api"),
         ("model", "model"),
         ("providerThinkingLevel", "provider_thinking_level"),
     ):
@@ -416,6 +429,7 @@ def _message_from_json(
                 provider_correlation_id=str(call["provider_correlation_id"]),
                 tool_name=str(call["tool_name"]),
                 arguments_json=ProductContent(str(call["arguments_json"])),
+                thought_signature=call.get("thoughtSignature"),
             )
             for call in raw_calls
         )
@@ -430,6 +444,7 @@ def _message_from_json(
                 None if raw_stop_reason is None else AgentStopReason(raw_stop_reason)
             ),
             error_message=raw_error_message,
+            blocks=assistant_blocks_from_json(body.get("blocks"), tool_calls),
             **_turn_metadata_from_json(body),
         )
     if role == "tool":
@@ -1183,15 +1198,23 @@ def _strict_assistant_message_from_json(message: dict[str, Any]) -> None:
     if type(message.get("content")) is not str or not isinstance(calls, list):
         raise ValueError("native session assistant message is invalid")
     for call in calls:
-        if not isinstance(call, dict) or any(
-            type(call.get(field)) is not str
-            for field in (
-                "provider_correlation_id",
-                "tool_name",
-                "arguments_json",
+        if (
+            not isinstance(call, dict)
+            or any(
+                type(call.get(field)) is not str
+                for field in (
+                    "provider_correlation_id",
+                    "tool_name",
+                    "arguments_json",
+                )
             )
+            or type(call.get("thoughtSignature", "")) is not str
         ):
             raise ValueError("native session assistant tool call is invalid")
+    try:
+        _message_from_json(message, parent_id=None, by_id={})
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("native session assistant message is invalid") from error
 
 
 def _strict_tool_message_from_json(message: dict[str, Any]) -> None:

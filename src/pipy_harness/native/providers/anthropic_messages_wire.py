@@ -51,15 +51,26 @@ from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
     AgentSystemMessage,
+    AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
+)
+from pipy_harness.native.agent.content import (
+    REDACTED_THINKING_TEXT,
+    TextContent,
+    ThinkingContent,
 )
 from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.http import ProviderHTTPError, extract_anthropic_usage
 from pipy_harness.native.models import (
     CacheRetention,
+    ProviderContentBlock,
     ProviderRequest,
     ProviderToolCall,
+)
+from pipy_harness.native.providers.replay_content import (
+    ReplayTarget,
+    transform_assistant_blocks,
 )
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 
@@ -72,6 +83,8 @@ class ParsedAnthropicMessagesResponse:
     usage: dict[str, int | float]
     stop_reason: str
     tool_calls: tuple[ProviderToolCall, ...] = ()
+    # Pi's ordered content: thinking (signed or redacted), text, tool calls.
+    content_blocks: tuple[ProviderContentBlock, ...] = ()
 
 
 # Last-block types Pi's Anthropic adapter marks with the conversation
@@ -158,8 +171,13 @@ def messages_payload(
     native_tool_changes: bool = False,
     attach_images: bool = False,
     coalesce_tool_results: bool = False,
+    target: ReplayTarget | None = None,
 ) -> list[dict[str, object]]:
     """Serialize a ``ProviderRequest`` into the Anthropic ``messages`` payload.
+
+    ``target`` is the model the request goes to: its own thinking blocks are
+    replayed with their signatures, another model's arrive as text (Pi
+    ``transformMessages``).
 
     ``items`` is the resolved transcript (later system messages interleaved;
     ``providers/transcript.py``), defaulting to the request's messages.
@@ -209,7 +227,9 @@ def messages_payload(
                 payload.append({"role": "user", "content": results})
                 continue
             payload.append(
-                envelope_to_message(item, parse_error_class=parse_error_class)
+                envelope_to_message(
+                    item, parse_error_class=parse_error_class, target=target
+                )
             )
         payload.extend(pending)
     if attach_images:
@@ -273,6 +293,7 @@ def envelope_to_message(
     envelope: Any,
     *,
     parse_error_class: type[ProviderHTTPError],
+    target: ReplayTarget | None = None,
 ) -> dict[str, object]:
     """Translate one ``AgentMessage`` into one Anthropic-shape message dict."""
 
@@ -283,31 +304,59 @@ def envelope_to_message(
         }
     if isinstance(envelope, AgentAssistantMessage):
         content: list[dict[str, object]] = []
-        if envelope.content.value:
-            content.append({"type": "text", "text": envelope.content.value})
-        for call in envelope.tool_calls:
-            try:
-                parsed_input = (
-                    json.loads(call.arguments_json.value)
-                    if call.arguments_json.value
-                    else {}
-                )
-            except json.JSONDecodeError:
-                parsed_input = {}
-            if not isinstance(parsed_input, Mapping):
-                parsed_input = {}
-            content.append(
-                {
-                    "type": "tool_use",
-                    "id": portable_tool_correlation_id(call.provider_correlation_id),
-                    "name": call.tool_name,
-                    "input": dict(parsed_input),
-                }
-            )
+        for block in transform_assistant_blocks(envelope, target):
+            if isinstance(block, TextContent):
+                if block.text:
+                    content.append({"type": "text", "text": block.text})
+            elif isinstance(block, ThinkingContent):
+                thinking = _thinking_block(block)
+                if thinking is not None:
+                    content.append(thinking)
+            else:
+                content.append(_tool_use_block(block))
         return {"role": "assistant", "content": content}
     if isinstance(envelope, AgentToolResultMessage):
         return {"role": "user", "content": [convert_tool_result(envelope)]}
     raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
+
+
+def _thinking_block(block: ThinkingContent) -> dict[str, object] | None:
+    """Pi ``convertMessages``' thinking rules (``anthropic-messages.ts``).
+
+    Redacted thinking goes back as its opaque payload; a signed block as
+    ``thinking``; an unsigned one (an aborted stream, or a block the
+    transform kept for its own model) as plain text, or nothing when blank.
+    """
+
+    if block.redacted:
+        return {"type": "redacted_thinking", "data": block.signature or ""}
+    signed = bool(block.signature and block.signature.strip())
+    if not block.thinking.strip() and not signed:
+        return None
+    if not signed:
+        return {"type": "text", "text": block.thinking}
+    return {
+        "type": "thinking",
+        "thinking": block.thinking,
+        "signature": block.signature,
+    }
+
+
+def _tool_use_block(call: AgentToolCall) -> dict[str, object]:
+    try:
+        parsed_input = (
+            json.loads(call.arguments_json.value) if call.arguments_json.value else {}
+        )
+    except json.JSONDecodeError:
+        parsed_input = {}
+    if not isinstance(parsed_input, Mapping):
+        parsed_input = {}
+    return {
+        "type": "tool_use",
+        "id": portable_tool_correlation_id(call.provider_correlation_id),
+        "name": call.tool_name,
+        "input": dict(parsed_input),
+    }
 
 
 def convert_tool_result(envelope: AgentToolResultMessage) -> dict[str, object]:
@@ -356,7 +405,56 @@ def parse_response(
         usage=extract_anthropic_usage(body.get("usage")),
         stop_reason=stop_reason,
         tool_calls=tool_calls,
+        content_blocks=_content_blocks(content, tool_calls),
     )
+
+
+def _content_blocks(
+    content: Any, tool_calls: tuple[ProviderToolCall, ...]
+) -> tuple[ProviderContentBlock, ...]:
+    """Pi's ordered content from an Anthropic ``content`` list.
+
+    ``thinking`` keeps its signature (``""`` when absent, as Pi starts it);
+    ``redacted_thinking`` is Pi's placeholder text with the opaque ``data`` as
+    its signature. Tool calls are the parsed ``tool_calls``, in order.
+    """
+
+    if not isinstance(content, list):
+        return tuple(tool_calls)
+    calls = iter(tool_calls)
+    blocks: list[ProviderContentBlock] = []
+    for item in content:
+        if not isinstance(item, Mapping):
+            continue
+        kind = item.get("type")
+        if kind == "text":
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                blocks.append(TextContent(text))
+        elif kind == "thinking":
+            thinking = item.get("thinking")
+            signature = item.get("signature")
+            blocks.append(
+                ThinkingContent(
+                    thinking if isinstance(thinking, str) else "",
+                    signature if isinstance(signature, str) else "",
+                )
+            )
+        elif kind == "redacted_thinking":
+            data = item.get("data")
+            blocks.append(
+                ThinkingContent(
+                    REDACTED_THINKING_TEXT,
+                    data if isinstance(data, str) else "",
+                    redacted=True,
+                )
+            )
+        elif kind == "tool_use" and isinstance(item.get("name"), str) and item["name"]:
+            call = next(calls, None)
+            if call is not None:
+                blocks.append(call)
+    blocks.extend(calls)
+    return tuple(blocks)
 
 
 def extract_final_text(content: Any) -> str | None:

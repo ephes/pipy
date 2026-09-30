@@ -41,6 +41,7 @@ from pipy_harness.native.providers.openai_prompt_cache import (
     clamp_openai_prompt_cache_key,
 )
 from pipy_harness.native.providers.openai_responses_wire import (
+    AZURE_TOOL_CALL_PROVIDERS,
     ResponsesTranscriptOptions,
     parse_response,
     resolve_responses_transcript,
@@ -48,6 +49,8 @@ from pipy_harness.native.providers.openai_responses_wire import (
 )
 
 DEFAULT_AZURE_OPENAI_API_VERSION = "v1"
+# Pi ``Api`` of this adapter, recorded on each answer for replay.
+AZURE_OPENAI_RESPONSES_API = "azure-openai-responses"
 # Azure host suffixes for which the base URL is normalized to ``/openai/v1``,
 # matching Pi's ``normalizeAzureBaseUrl`` (azure-openai-responses.ts).
 _AZURE_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
@@ -187,6 +190,11 @@ class AzureOpenAIResponsesProvider:
     # ``reasoning_effort`` is the mapped thinking value (Responses-shaped).
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    # Pi ``buildParams`` (``azure-openai-responses.ts:330-345``): an on-state
+    # effort asks for a summary and the encrypted reasoning item, which
+    # ``store: false`` replay needs.
+    reasoning_summary: str | None = None
+    include_encrypted_reasoning: bool = False
     # Pi's Responses compat for system messages and later tool loads
     # (``azure-openai-responses.ts:290-300``), resolved by construction.
     supports_mid_convo_system_messages: bool = False
@@ -197,6 +205,17 @@ class AzureOpenAIResponsesProvider:
     @property
     def name(self) -> str:
         return self.provider_name
+
+    def _apply_reasoning_fields(self, body: dict[str, Any]) -> None:
+        """Azure shares the Responses thinking shape (``reasoning.effort``)."""
+
+        if self.reasoning_effort is not None:
+            reasoning: dict[str, str] = {"effort": self.reasoning_effort}
+            if self.reasoning_summary is not None:
+                reasoning["summary"] = self.reasoning_summary
+            body["reasoning"] = reasoning
+        if self.include_encrypted_reasoning:
+            body["include"] = ["reasoning.encrypted_content"]
 
     def _resolve_base_url(self) -> str | None:
         """Resolve the effective Azure base URL (Pi ``resolveAzureConfig``)."""
@@ -313,6 +332,8 @@ class AzureOpenAIResponsesProvider:
                 parse_error_class=AzureOpenAIResponseParseError,
                 transcript=transcript,
                 instruction_role=self.instruction_role,
+                api=AZURE_OPENAI_RESPONSES_API,
+                tool_call_providers=AZURE_TOOL_CALL_PROVIDERS,
             ),
             "store": False,
         }
@@ -326,9 +347,7 @@ class AzureOpenAIResponsesProvider:
             body["tools"] = [
                 serialize_tool_for_responses(tool) for tool in transcript.tools
             ]
-        # Azure shares the Responses thinking shape (reasoning.effort).
-        if self.reasoning_effort is not None:
-            body["reasoning"] = {"effort": self.reasoning_effort}
+        self._apply_reasoning_fields(body)
         headers = {"Content-Type": "application/json"}
         # Merged models.json/model headers (may include an explicit api-key).
         for header_name, header_value in configuration.extra_headers:
@@ -383,6 +402,8 @@ class AzureOpenAIResponsesProvider:
                 "response_status": result.response_status,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api=AZURE_OPENAI_RESPONSES_API,
         )
 
 

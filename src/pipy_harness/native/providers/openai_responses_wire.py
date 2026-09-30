@@ -11,9 +11,12 @@ byte-identical translation in both directions:
   ``function_call_output`` items, developer messages, anchored tool loads).
   Codex reuses the transcript items with its own envelope conversion and
   sends the leading prompt as ``instructions``.
-- :func:`envelope_to_input_items` translates one ``AgentMessage`` envelope.
-- :func:`parse_response` / :func:`extract_final_text` turn a Responses response
-  body into a :class:`ParsedResponse`.
+- :class:`ResponsesReplay` translates one ``AgentMessage`` envelope as Pi's
+  ``convertResponsesMessages`` does for the target model: stored reasoning
+  items, message items with their ids and phase, ``function_call`` ids.
+- :func:`parse_response` turns a Responses response body into a
+  :class:`ParsedResponse`, with Pi's ordered content
+  (``providers/responses_output.py``).
 
 The two adapters differ only where they genuinely differ, threaded through as
 parameters here:
@@ -22,8 +25,10 @@ parameters here:
 - the per-provider parse-error class (``parse_error_class``);
 - the human-readable response label used in parse-error messages
   (``response_label``, e.g. ``"OpenAI"`` vs ``"Azure OpenAI"``);
-- the nested-usage detail-field tuple (``nested_usage_fields``); and
-- the tool-call provider prefix (``tool_call_provider_prefix``).
+- the nested-usage detail-field tuple (``nested_usage_fields``);
+- the tool-call provider prefix (``tool_call_provider_prefix``); and
+- the replay target: the adapter's API and the providers whose compound
+  tool-call ids it accepts (Pi's ``*_TOOL_CALL_PROVIDERS``).
 
 Auth, base-URL/deployment resolution, and the two provider dataclasses and their
 error hierarchies stay in the adapter modules.
@@ -31,26 +36,37 @@ error hierarchies stay in the adapter modules.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import (
-    extract_responses_tool_calls,
-    serialize_tool_for_responses,
-)
+from pipy_harness.native._provider_helpers import serialize_tool_for_responses
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentMessage,
     AgentSystemMessage,
+    AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.content import TextContent, ThinkingContent
 from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.deferred_tools import short_hash
 from pipy_harness.native.http import ProviderHTTPError, extract_responses_usage
-from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.models import (
+    ProviderContentBlock,
+    ProviderRequest,
+    ProviderToolCall,
+)
+from pipy_harness.native.providers.replay_content import (
+    ReplayTarget,
+    transform_assistant_blocks,
+)
+from pipy_harness.native.providers.responses_output import (
+    output_blocks,
+    parse_text_signature,
+)
 from pipy_harness.native.providers.transcript import (
     ResolvedTranscript,
     declaration_definition,
@@ -69,6 +85,142 @@ class ParsedResponse:
     usage: dict[str, int | float]
     response_status: str
     tool_calls: tuple[ProviderToolCall, ...] = ()
+    content_blocks: tuple[ProviderContentBlock, ...] = ()
+
+
+# Pi ``OPENAI_TOOL_CALL_PROVIDERS`` / ``CODEX_TOOL_CALL_PROVIDERS`` and
+# ``AZURE_TOOL_CALL_PROVIDERS``: targets that accept another provider's
+# compound ``call_id|item_id`` tool-call ids with a hashed ``fc_`` item id.
+OPENAI_TOOL_CALL_PROVIDERS = frozenset({"openai", "openai-codex", "opencode"})
+AZURE_TOOL_CALL_PROVIDERS = OPENAI_TOOL_CALL_PROVIDERS | {"azure-openai-responses"}
+
+
+@dataclass(frozen=True, slots=True)
+class ResponsesReplay:
+    """Pi ``convertResponsesMessages`` for one target model's history.
+
+    ``target`` is the model the request goes to; ``tool_call_providers`` the
+    providers whose compound tool-call ids it accepts. Tool-call ``call_id``
+    values use pipy's portable projection of the call part (D8a), which keeps
+    Pi's safe ids byte for byte; the item ``id`` follows Pi.
+    """
+
+    target: ReplayTarget
+    tool_call_providers: frozenset[str]
+    parse_error_class: type[ProviderHTTPError] = ProviderHTTPError
+
+    def items(self, envelope: Any, msg_index: int) -> list[dict[str, object]]:
+        """Translate one ``AgentMessage`` into Responses input items."""
+
+        if isinstance(envelope, AgentUserMessage):
+            return [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": envelope.content.value}],
+                }
+            ]
+        if isinstance(envelope, AgentAssistantMessage):
+            return self._assistant_items(envelope, msg_index)
+        if isinstance(envelope, AgentToolResultMessage):
+            return [
+                {
+                    "type": "function_call_output",
+                    "call_id": _call_id(envelope.provider_correlation_id),
+                    "output": envelope.content.value,
+                }
+            ]
+        raise self.parse_error_class(
+            f"unsupported message envelope: {type(envelope).__name__}"
+        )
+
+    def _assistant_items(
+        self, message: AgentAssistantMessage, msg_index: int
+    ) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        text_index = 0
+        for block in transform_assistant_blocks(message, self.target):
+            if isinstance(block, ThinkingContent):
+                # Only a signed block (the stored reasoning item) is sent.
+                reasoning = _reasoning_item(block.signature)
+                if reasoning is not None:
+                    items.append(reasoning)
+            elif isinstance(block, TextContent):
+                items.append(_message_item(block, msg_index, text_index))
+                text_index += 1
+            else:
+                items.append(self._function_call(block, message))
+        return items
+
+    def _function_call(
+        self, call: AgentToolCall, source: AgentAssistantMessage
+    ) -> dict[str, object]:
+        item: dict[str, object] = {
+            "type": "function_call",
+            "call_id": _call_id(call.provider_correlation_id),
+            "name": call.tool_name,
+            "arguments": call.arguments_json.value,
+        }
+        item_id = self._item_id(call.provider_correlation_id, source)
+        if item_id is not None:
+            item["id"] = item_id
+        return item
+
+    def _item_id(self, correlation: str, source: AgentAssistantMessage) -> str | None:
+        """Pi's ``function_call.id``: kept for the same model, hashed for a
+        foreign provider or API on an accepting target, dropped otherwise and
+        whenever it is not an ``fc_`` id."""
+
+        _, sep, item_id = correlation.partition("|")
+        if not sep or not item_id:
+            return None
+        target = self.target
+        if not target.produced(source):
+            foreign = source.provider != target.provider or source.api != target.api
+            if not foreign or target.provider not in self.tool_call_providers:
+                return None
+            item_id = f"fc_{short_hash(item_id)}"[:64]
+        return item_id if item_id.startswith("fc_") else None
+
+
+def _call_id(correlation: str) -> str:
+    return portable_tool_correlation_id(correlation.partition("|")[0])
+
+
+def _reasoning_item(signature: str | None) -> dict[str, object] | None:
+    if not signature:
+        return None
+    try:
+        item = json.loads(signature)
+    except json.JSONDecodeError:
+        return None
+    return item if isinstance(item, dict) else None
+
+
+def _message_item(
+    block: TextContent, msg_index: int, text_index: int
+) -> dict[str, object]:
+    """Pi's replayed assistant message item (id from ``textSignature``)."""
+
+    parsed = parse_text_signature(block.signature)
+    message_id = parsed[0] if parsed is not None else ""
+    if not message_id:
+        message_id = (
+            f"msg_pi_{msg_index}"
+            if text_index == 0
+            else f"msg_pi_{msg_index}_{text_index}"
+        )
+    elif len(message_id) > 64:
+        message_id = f"msg_{short_hash(message_id)}"
+    item: dict[str, object] = {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": block.text, "annotations": []}],
+        "status": "completed",
+        "id": message_id,
+    }
+    if parsed is not None and parsed[1] is not None:
+        item["phase"] = parsed[1]
+    return item
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +277,7 @@ def responses_transcript_items(
     transcript: ResponsesTranscript,
     *,
     instruction_role: str,
-    envelope_items: Callable[[AgentMessage], list[dict[str, object]]],
+    replay: ResponsesReplay,
     include_leading_prompt: bool,
 ) -> list[dict[str, object]]:
     """Pi ``convertResponsesMessages`` over the resolved transcript.
@@ -153,7 +305,7 @@ def responses_transcript_items(
                 items.append({"role": instruction_role, "content": text})
             msg_index += 1
             continue
-        converted = envelope_items(item)
+        converted = replay.items(item, msg_index)
         items.extend(converted)
         if converted or not isinstance(item, AgentAssistantMessage):
             msg_index += 1
@@ -209,6 +361,8 @@ def responses_input(
     transcript: ResponsesTranscript | None = None,
     instruction_role: str = "developer",
     attach_images: bool = False,
+    api: str = "openai-responses",
+    tool_call_providers: frozenset[str] = OPENAI_TOOL_CALL_PROVIDERS,
 ) -> list[dict[str, object]]:
     """Serialize a ``ProviderRequest`` into the Responses ``input`` payload.
 
@@ -226,8 +380,8 @@ def responses_input(
     items = responses_transcript_items(
         transcript,
         instruction_role=instruction_role,
-        envelope_items=lambda envelope: envelope_to_input_items(
-            envelope, parse_error_class=parse_error_class
+        replay=ResponsesReplay(
+            ReplayTarget.of(request, api), tool_call_providers, parse_error_class
         ),
         include_leading_prompt=True,
     )
@@ -271,56 +425,6 @@ def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> 
         return
 
 
-def envelope_to_input_items(
-    envelope: Any,
-    *,
-    parse_error_class: type[ProviderHTTPError],
-) -> list[dict[str, object]]:
-    """Translate one ``AgentMessage`` into Responses API input items."""
-
-    if isinstance(envelope, AgentUserMessage):
-        return [
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": envelope.content.value}],
-            }
-        ]
-    if isinstance(envelope, AgentAssistantMessage):
-        items: list[dict[str, object]] = []
-        if envelope.content.value:
-            items.append(
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": envelope.content.value}
-                    ],
-                }
-            )
-        for call in envelope.tool_calls:
-            items.append(
-                {
-                    "type": "function_call",
-                    "call_id": portable_tool_correlation_id(
-                        call.provider_correlation_id
-                    ),
-                    "name": call.tool_name,
-                    "arguments": call.arguments_json.value,
-                }
-            )
-        return items
-    if isinstance(envelope, AgentToolResultMessage):
-        return [
-            {
-                "type": "function_call_output",
-                "call_id": portable_tool_correlation_id(
-                    envelope.provider_correlation_id
-                ),
-                "output": envelope.content.value,
-            }
-        ]
-    raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
-
-
 def response_error_metadata(body: Mapping[str, Any]) -> dict[str, str]:
     """``api_error_type``/``api_error_code`` from a Responses body's ``error``."""
 
@@ -359,10 +463,13 @@ def parse_response(
             },
         )
 
-    final_text = extract_final_text(body)
-    tool_calls = extract_responses_tool_calls(
-        body.get("output"), provider_prefix=tool_call_provider_prefix
+    blocks = output_blocks(
+        body.get("output"),
+        provider_prefix=tool_call_provider_prefix,
+        output_text=body.get("output_text"),
     )
+    final_text = "".join(b.text for b in blocks if isinstance(b, TextContent)) or None
+    tool_calls = tuple(b for b in blocks if isinstance(b, ProviderToolCall))
     if not final_text and not tool_calls:
         raise parse_error_class(
             f"{response_label} response did not include final output text or tool calls.",
@@ -377,43 +484,5 @@ def parse_response(
         usage=extract_responses_usage(body.get("usage"), nested_usage_fields),
         response_status=response_status,
         tool_calls=tool_calls,
+        content_blocks=blocks,
     )
-
-
-def _message_output_text_chunks(output: list[object]) -> list[str]:
-    """Collect message output-text chunks in Responses wire order."""
-
-    chunks: list[str] = []
-    for item in output:
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") not in (None, "message"):
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            continue
-        for content_item in content:
-            if not isinstance(content_item, Mapping):
-                continue
-            if content_item.get("type") == "output_text" and isinstance(
-                content_item.get("text"), str
-            ):
-                chunks.append(content_item["text"])
-    return chunks
-
-
-def extract_final_text(body: Mapping[str, Any]) -> str | None:
-    """Extract the assistant final text from a Responses body."""
-
-    output_text = body.get("output_text")
-    if isinstance(output_text, str) and output_text:
-        return output_text
-
-    output = body.get("output")
-    if not isinstance(output, list):
-        return None
-
-    chunks = _message_output_text_chunks(output)
-    if not chunks:
-        return None
-    return "".join(chunks)

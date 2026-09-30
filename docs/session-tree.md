@@ -582,7 +582,21 @@ Minimum entry types:
   prompt and that state as a later message, as in Pi (SYS1c).
 
   An assistant answer from an Anthropic mid-conversation effort model stores
-  Pi's `providerThinkingLevel` (SYS1c).
+  Pi's `providerThinkingLevel` (SYS1c), also on an aborted or failed answer.
+
+  An assistant message stores Pi's `api` (the adapter that answered) and,
+  when its ordered content holds more than its text followed by its tool
+  calls, a `blocks` list in Pi's content shape (reasoning storage):
+  `{"type":"thinking","thinking","thinkingSignature"?,"redacted"?}`,
+  `{"type":"text","text","textSignature"?}` and `{"type":"toolCall",
+  "index"}` (a position in `tool_calls`). The signatures are the provider's
+  replay data (the Anthropic signature or redacted payload, the Responses
+  reasoning item with its `encrypted_content`, the Responses message id and
+  phase, Gemini `thoughtSignature`s; a tool call's Gemini signature is its
+  `thoughtSignature`). Messages written before carry neither and load as
+  their text followed by their tool calls. An aborted or failed message keeps
+  the thinking and tool calls streamed so far; its tool calls are never run
+  or sent again.
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.

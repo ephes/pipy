@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
@@ -14,7 +15,7 @@ from pipy_harness.native._provider_helpers import (
     utc_now,
 )
 from pipy_harness.native.agent.messages import AgentAssistantMessage
-from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonHTTPClient,
@@ -24,7 +25,12 @@ from pipy_harness.native.http import (
 from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
 )
-from pipy_harness.native.models import CacheRetention, ProviderRequest, ProviderResult
+from pipy_harness.native.models import (
+    CacheRetention,
+    ProviderPartial,
+    ProviderRequest,
+    ProviderResult,
+)
 from pipy_harness.native.provider import (
     COPILOT_PROVIDER_NAME,
     StreamChunkSink,
@@ -40,6 +46,7 @@ from pipy_harness.native.providers.anthropic_messages_wire import (
     system_blocks,
 )
 from pipy_harness.native.providers.openai_prompt_cache import resolve_cache_retention
+from pipy_harness.native.providers.replay_content import ReplayTarget
 from pipy_harness.native.providers.transcript import (
     ResolvedTranscript,
     declaration_definition,
@@ -50,6 +57,8 @@ from pipy_harness.native.providers.transcript import (
 from pipy_harness.native.tools.base import ToolDefinition
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+# Pi ``Api`` of this adapter, recorded on each answer for replay.
+ANTHROPIC_MESSAGES_API = "anthropic-messages"
 MID_CONVERSATION_TOOL_CHANGES_BETA = "mid-conversation-tool-changes-2026-07-01"
 # Pi ``getBetaFeatures`` for ``supportsMidConvoEffort`` rows (``4e69b0c28``).
 MID_CONVERSATION_OUTPUT_CONFIG_BETA = "mid-conversation-output-config-2026-07-01"
@@ -305,6 +314,7 @@ def _build_anthropic_request_body(
         native_tool_changes=transcript.native_tool_changes,
         attach_images=True,
         coalesce_tool_results=True,
+        target=ReplayTarget.of(request, ANTHROPIC_MESSAGES_API),
     )
     apply_last_user_cache_breakpoint(
         messages,
@@ -519,6 +529,27 @@ class AnthropicProvider:
             headers["anthropic-beta"] = ",".join(betas)
         headers = apply_provider_headers(request, headers)
 
+        return self._send(
+            request,
+            headers=headers,
+            body=body,
+            started_at=started_at,
+            managed_effort=managed_effort,
+            cancel_token=cancel_token,
+        )
+
+    def _send(
+        self,
+        request: ProviderRequest,
+        *,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        started_at: datetime,
+        managed_effort: str | None,
+        cancel_token: CancelToken | None,
+    ) -> ProviderResult:
+        """Post the body and turn the answer (or failure) into a result."""
+
         try:
             response = self.http_client.post_json(
                 self.endpoint,
@@ -538,8 +569,14 @@ class AnthropicProvider:
                 response_label="Anthropic",
                 tool_call_provider_prefix="anthropic",
             )
+        except ProviderCancelledError as exc:
+            # Pi sets ``providerThinkingLevel`` when it builds the request, so
+            # an aborted answer carries it too.
+            if managed_effort is not None:
+                exc.partial = ProviderPartial(provider_thinking_level=managed_effort)
+            raise
         except AnthropicProviderError as exc:
-            return failed_provider_result(
+            failed = failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -547,6 +584,7 @@ class AnthropicProvider:
                 error_message=str(exc),
                 metadata=exc.metadata,
             )
+            return replace(failed, provider_thinking_level=managed_effort)
 
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
@@ -561,6 +599,8 @@ class AnthropicProvider:
             },
             tool_calls=result.tool_calls,
             provider_thinking_level=managed_effort,
+            content_blocks=result.content_blocks,
+            api=ANTHROPIC_MESSAGES_API,
         )
 
     def _request_headers(
