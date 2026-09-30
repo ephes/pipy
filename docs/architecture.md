@@ -136,7 +136,7 @@ Live budget admission remains a later integration of these existing owners.
 
 `CodingSessionAdapter` in `adapters/native.py` owns reusable product preparation:
 `prepare_session_context` resolves the injected provider, settings/trust, prompt,
-instructions, skills and reference roots; `build_session` constructs the configured
+instructions and skills; `build_session` constructs the configured
 native session from those private values. The same settings instance reaches
 preparation and wiring. Neither helper starts a lifetime or emits workflow archive
 events. The stream adapter retains its context event between preparation and

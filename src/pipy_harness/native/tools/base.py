@@ -269,13 +269,6 @@ class ToolContext:
     discarding the diff. The archive boundary is unrelated; diffs never
     cross it from inside the tool.
 
-    `reference_roots` is a tuple of additional absolute directories that
-    read-only tools (`read`, `ls`, `grep`, `find`) may resolve absolute
-    paths against. Mutation tools (`write`, `edit`) ignore this tuple and
-    remain workspace-only. Reference roots reuse the
-    workspace `.git`/symlink/secret-content defenses; they are read-only
-    inspection roots, not additional write surfaces.
-
     `output_sink` is an optional callable that long-running tools (`bash`)
     use to stream incremental command output to the loop's live UI region as
     it is produced, matching Pi's live tool-output rendering. The default is
@@ -295,7 +288,6 @@ class ToolContext:
 
     workspace_root: Path
     stderr_sink: Callable[[str], None] | None = field(default=None)
-    reference_roots: tuple[Path, ...] = field(default=())
     output_sink: Callable[[str], None] | None = field(default=None)
     cancel_event: threading.Event | None = field(default=None)
     extension_generation_id: int | None = field(default=None)
@@ -313,13 +305,6 @@ class ToolContext:
             raise ValueError(
                 "ToolContext.cancel_event must be an Event-like object or None"
             )
-        if not isinstance(self.reference_roots, tuple):
-            raise ValueError("ToolContext.reference_roots must be a tuple")
-        for root in self.reference_roots:
-            if not isinstance(root, Path):
-                raise ValueError("ToolContext.reference_roots entries must be Path")
-            if not root.is_absolute():
-                raise ValueError("ToolContext.reference_roots entries must be absolute")
 
 
 @runtime_checkable

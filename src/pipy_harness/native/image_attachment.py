@@ -9,10 +9,10 @@ intact and keeping the raw image bytes out of the metadata-first archive.
 
 Design boundaries:
 
-- Path policy is reused verbatim from the ``read`` tool's
-  ``resolve_tool_path`` / ``_is_ignored_or_generated`` (workspace-relative or
-  ``--read-root`` reference roots, ``.git``/``.gitignore`` defenses, traversal
-  and shell-expansion refusal). No new path policy is introduced here.
+- The path resolves like the ``read`` tool's (Pi ``resolveReadPath``, see
+  :mod:`pipy_harness.native.tools.path_utils`): relative to the working
+  directory, ``~`` expanded, macOS screenshot name variants tried, and no
+  deny list (READ2).
 - Loading is bounded: at most :data:`MAX_IMAGE_ATTACHMENTS_PER_TURN` images per
   turn, each at most :data:`MAX_IMAGE_ATTACHMENT_BYTES`, and at most
   :data:`MAX_TOTAL_IMAGE_ATTACHMENT_BYTES` in aggregate.
@@ -32,13 +32,9 @@ import base64
 import hashlib
 import re
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-from pipy_harness.native.read_only_tool import (
-    _GENERATED_PARTS,
-    _matches_root_ignore,
-    resolve_tool_path,
-)
+from pipy_harness.native.tools.path_utils import resolve_read_path
 
 MAX_IMAGE_ATTACHMENTS_PER_TURN: int = 4
 MAX_IMAGE_ATTACHMENT_BYTES: int = 5 * 1024 * 1024
@@ -61,7 +57,6 @@ _TRAILING_PUNCTUATION = ").,;:!?]}\"'"
 _LOADED_REASON = "loaded"
 _INVALID_REASON = "invalid_reference"
 _MISSING_REASON = "missing_file"
-_IGNORED_REASON = "ignored_or_generated"
 _NOT_FILE_REASON = "not_a_regular_file"
 _OVERSIZED_REASON = "oversized_image"
 _UNSUPPORTED_REASON = "unsupported_or_non_image_type"
@@ -207,7 +202,6 @@ def resolve_image_attachments(
     text: str,
     *,
     workspace_root: Path,
-    reference_roots: tuple[Path, ...] = (),
     max_attachments: int = MAX_IMAGE_ATTACHMENTS_PER_TURN,
     max_attachment_bytes: int = MAX_IMAGE_ATTACHMENT_BYTES,
     max_total_bytes: int = MAX_TOTAL_IMAGE_ATTACHMENT_BYTES,
@@ -228,7 +222,6 @@ def resolve_image_attachments(
         resolved = _resolve_one(
             token,
             workspace=workspace,
-            reference_roots=reference_roots,
             max_attachment_bytes=max_attachment_bytes,
             max_total_bytes=max_total_bytes,
             loaded_bytes=loaded_bytes,
@@ -247,7 +240,6 @@ def _prevalidate_candidate(
     token: str,
     *,
     workspace: Path,
-    reference_roots: tuple[Path, ...],
     max_attachment_bytes: int,
     max_total_bytes: int,
     loaded_bytes: int,
@@ -264,17 +256,9 @@ def _prevalidate_candidate(
     if len(token) > _MAX_REFERENCE_PATH_LENGTH:
         return None, _INVALID_REASON
     try:
-        resolved = resolve_tool_path(
-            token,
-            workspace_root=workspace,
-            reference_roots=reference_roots,
-        )
+        candidate = resolve_read_path(token, workspace)
     except ValueError:
         return None, _INVALID_REASON
-
-    candidate = resolved.resolved
-    if _is_blocked_path(resolved.relative_label, resolved.root):
-        return None, _IGNORED_REASON
     if not candidate.exists():
         return None, _MISSING_REASON
     if not candidate.is_file():
@@ -294,7 +278,6 @@ def _resolve_one(
     token: str,
     *,
     workspace: Path,
-    reference_roots: tuple[Path, ...],
     max_attachment_bytes: int,
     max_total_bytes: int,
     loaded_bytes: int,
@@ -302,7 +285,6 @@ def _resolve_one(
     candidate, reason = _prevalidate_candidate(
         token,
         workspace=workspace,
-        reference_roots=reference_roots,
         max_attachment_bytes=max_attachment_bytes,
         max_total_bytes=max_total_bytes,
         loaded_bytes=loaded_bytes,
@@ -337,21 +319,6 @@ def _resolve_one(
     return ResolvedImageAttachment(
         raw=token, loaded=True, reason=_LOADED_REASON, attachment=attachment
     )
-
-
-def _is_blocked_path(relative_label: str, root: Path) -> bool:
-    """Reject VCS/cache/build paths and ``.gitignore`` matches.
-
-    Reuses the ``read`` tool's ``.git``/cache directory set and
-    ``.gitignore`` matcher, but deliberately omits its *generated-suffix*
-    rejection: images legitimately carry ``.png``/``.jpg``/``.gif`` suffixes
-    that the text reader treats as generated binary to skip.
-    """
-
-    posix_path = PurePosixPath(relative_label)
-    if any(part in _GENERATED_PARTS for part in posix_path.parts):
-        return True
-    return _matches_root_ignore(relative_label, root)
 
 
 def _display_label(raw: str) -> str:

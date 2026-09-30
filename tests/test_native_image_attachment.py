@@ -97,15 +97,33 @@ def test_oversized_image_fails_closed(tmp_path: Path) -> None:
     assert resolution.failed_count == 1
 
 
-def test_git_path_refused(tmp_path: Path) -> None:
-    _write(tmp_path / ".git" / "secret.png", _PNG)
+def test_git_ignored_and_outside_paths_attach_like_pi_read(tmp_path: Path) -> None:
+    # READ2: images resolve like Pi's read path (no deny list, any path).
+    workspace = tmp_path / "ws"
+    _write(workspace / ".git" / "a.png", _PNG)
+    _write(workspace / ".gitignore", b"build/\n")
+    _write(workspace / "build" / "b.png", _PNG)
+    _write(tmp_path / "c.png", _PNG)
     resolution = resolve_image_attachments(
-        "@image:.git/secret.png", workspace_root=tmp_path
+        f"@image:.git/a.png @image:build/b.png @image:../c.png @image:{tmp_path}/c.png",
+        workspace_root=workspace,
     )
-    assert resolution.used is False
+    assert resolution.failed_count == 0
+    assert len(resolution.attachments()) == 4
 
 
-def test_traversal_refused(tmp_path: Path) -> None:
+def test_invalid_file_url_fails_closed_without_blocking_others(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / "good.png", _PNG)
+    resolution = resolve_image_attachments(
+        "@image:file://[broken/image.png @image:good.png", workspace_root=tmp_path
+    )
+    assert resolution.failed_count == 1
+    assert len(resolution.attachments()) == 1
+
+
+def test_missing_traversal_target_fails_closed(tmp_path: Path) -> None:
     resolution = resolve_image_attachments(
         "@image:../escape.png", workspace_root=tmp_path / "ws"
     )

@@ -8,11 +8,13 @@ the model did not see the whole file. The file is read whole and decoded as
 UTF-8 with replacement characters; there is no size cap and no content
 refusal, as in Pi.
 
+The path resolves like Pi's ``resolveReadPath`` (READ2, see
+:mod:`pipy_harness.native.tools.path_utils`): relative to the working
+directory, ``~`` expanded, a leading ``@`` stripped, the macOS screenshot
+name variants tried, and no deny list, so any readable file can be read.
+
 Deviations from Pi, each tracked in ``docs/backlog.md``:
 
-- Paths resolve through pipy's shared ``resolve_tool_path`` (workspace plus
-  configured reference roots, ``.git``/``.gitignore`` refused) rather than
-  Pi's ``resolveReadPath`` (READ2).
 - Tool results are text-only, so a supported image returns an error instead
   of an image attachment (READ-IMG).
 - ``offset``/``limit`` are ``integer`` in pipy's schema subset, which has no
@@ -28,11 +30,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipy_harness.native.read_only_tool import (
-    ResolvedToolPath,
-    _is_ignored_or_generated,
-    resolve_tool_path,
-)
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -43,6 +40,7 @@ from pipy_harness.native.tools.base import (
 from pipy_harness.native.tools.image_mime import (
     detect_supported_image_mime_type_from_file,
 )
+from pipy_harness.native.tools.path_utils import resolve_read_path
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
@@ -107,23 +105,28 @@ class ReadTool:
         offset = _optional_int(request.arguments.get("offset"), "offset")
         limit = _optional_int(request.arguments.get("limit"), "limit")
 
-        resolved = self._resolve_target(path_arg, context)
-        if isinstance(resolved, _ReadFailure):
-            return self._error(request, resolved.message)
+        if not isinstance(path_arg, str):
+            raise ToolArgumentError(
+                "read", "path must be a string", field_path=("path",)
+            )
+        try:
+            resolved = resolve_read_path(path_arg, context.workspace_root)
+        except ValueError as exc:
+            return self._error(request, str(exc))
 
-        target_failure = self._validate_target(resolved.resolved)
+        target_failure = self._validate_target(resolved)
         if target_failure is not None:
             return self._error(request, target_failure.message)
 
         try:
-            mime_type = detect_supported_image_mime_type_from_file(resolved.resolved)
+            mime_type = detect_supported_image_mime_type_from_file(resolved)
         except OSError as exc:
             return self._error(request, f"failed to read file: {exc}")
         if mime_type is not None:
             return self._error(request, _image_message(mime_type))
 
         try:
-            raw = resolved.resolved.read_bytes()
+            raw = resolved.read_bytes()
         except OSError as exc:
             return self._error(request, f"failed to read file: {exc}")
 
@@ -140,26 +143,6 @@ class ReadTool:
             output_text=output,
             provider_correlation_id=request.provider_correlation_id,
         )
-
-    @staticmethod
-    def _resolve_target(
-        path_arg: object, context: ToolContext
-    ) -> ResolvedToolPath | _ReadFailure:
-        try:
-            if not isinstance(path_arg, str):
-                raise ValueError("path must be a string")
-            resolved = resolve_tool_path(
-                path_arg,
-                workspace_root=context.workspace_root,
-                reference_roots=context.reference_roots,
-            )
-        except ValueError as exc:
-            raise ToolArgumentError("read", str(exc), field_path=("path",)) from None
-        except OSError as exc:
-            return _ReadFailure(f"failed to resolve path: {exc}")
-        if _is_ignored_or_generated(resolved.relative_label, resolved.root):
-            return _ReadFailure("path is ignored or under .git/generated directories")
-        return resolved
 
     @staticmethod
     def _validate_target(candidate: Path) -> _ReadFailure | None:

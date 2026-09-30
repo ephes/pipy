@@ -7,15 +7,15 @@ appendix while preserving the user's literal prompt text.
 
 Design boundaries:
 
-- It reuses :class:`ReadTool`, which follows Pi's ``read``: the
-  workspace/``--read-root`` path policy with ``.git``/``.gitignore`` refusal,
-  and output truncated to 2000 lines or 50 KB with a continuation notice.
-  Like Pi, it has no size cap and no binary, non-UTF-8 or secret-shaped
-  refusal. No new reader and no new path policy are introduced here; every
-  read goes through ``ReadTool``.
-- Failures fail closed: a missing, ignored, image or out-of-workspace
-  reference, or one past the total context budget, loads no content. One bad
-  reference never blocks a good one.
+- It reuses :class:`ReadTool`, which follows Pi's ``read``: the path
+  resolves like Pi's ``resolveReadPath`` (relative to the working directory,
+  ``~`` expanded, no deny list), and output is truncated to 2000 lines or
+  50 KB with a continuation notice. Like Pi, it has no size cap and no
+  binary, non-UTF-8 or secret-shaped refusal. Every read goes through
+  ``ReadTool``.
+- Failures fail closed: a missing, directory or image reference, or one past
+  the total context budget, loads no content. One bad reference never blocks
+  a good one.
 - Only safe counters cross the archive boundary via :meth:`safe_metadata`.
   Raw paths, file contents, and secrets stay out of the metadata-first archive.
 """
@@ -183,16 +183,14 @@ def resolve_file_references(
     text: str,
     *,
     workspace_root: Path,
-    reference_roots: tuple[Path, ...] = (),
     read_tool: ReadTool | None = None,
     max_references: int = MAX_FILE_REFERENCES_PER_TURN,
     max_context_bytes: int = MAX_FILE_REFERENCE_CONTEXT_BYTES,
 ) -> FileReferenceResolution:
     """Resolve every ``@file`` reference in ``text`` through the bounded reader.
 
-    Reuses :class:`ReadTool` for the read, so the workspace/read-root policy
-    and Pi's 2000-line / 50 KB truncation match the model-driven ``read``
-    tool. Returns a :class:`FileReferenceResolution`
+    Reuses :class:`ReadTool` for the read, so path resolution and Pi's
+    2000-line / 50 KB truncation match the model-driven ``read`` tool. Returns a :class:`FileReferenceResolution`
     carrying per-reference outcomes, over-budget count, and safe counters.
     """
 
@@ -201,10 +199,7 @@ def resolve_file_references(
         return FileReferenceResolution()
 
     tool = read_tool or ReadTool()
-    context = ToolContext(
-        workspace_root=workspace_root.expanduser().resolve(),
-        reference_roots=reference_roots,
-    )
+    context = ToolContext(workspace_root=workspace_root.expanduser().resolve())
 
     attempted = tokens[:max_references]
     over_budget = len(tokens) - len(attempted)
@@ -248,8 +243,7 @@ def _resolve_one(
     try:
         result = tool.invoke(request, context)
     except (ToolArgumentError, ValueError):
-        # Unsafe path shape (traversal, shell-expansion, control chars, or a
-        # path outside every allowed root). Fail closed with a safe label.
+        # A malformed argument. Fail closed with a safe label.
         return ResolvedFileReference(raw=token, loaded=False, reason=_INVALID_REASON)
 
     if result.is_error:

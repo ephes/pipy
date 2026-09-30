@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.tools import (
-    ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
@@ -147,51 +146,80 @@ def test_ls_tool_lists_subdirectory(tmp_path: Path):
     assert result.output_text == "nested.txt"
 
 
-def test_ls_tool_refuses_dot_git(tmp_path: Path):
+def test_ls_tool_lists_dot_git_like_pi(tmp_path: Path):
+    # READ2: Pi's ls has no deny list.
     git_dir = tmp_path / ".git"
     git_dir.mkdir()
     (git_dir / "config").write_text("x", encoding="utf-8")
-    tool = LsTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": ".git"})
+    (git_dir / "objects").mkdir()
 
-    result = tool.invoke(request, context)
-
-    assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
-
-
-def test_ls_tool_skips_ignored_children_when_listing_root(tmp_path: Path):
-    (tmp_path / ".git").mkdir()
-    (tmp_path / ".git" / "config").write_text("x", encoding="utf-8")
-    (tmp_path / "visible.txt").write_text("y", encoding="utf-8")
-    tool = LsTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "."})
-
-    result = tool.invoke(request, context)
+    result = LsTool().invoke(
+        _make_request({"path": ".git"}), ToolContext(workspace_root=tmp_path)
+    )
 
     assert result.is_error is False
-    assert "visible.txt" in result.output_text
-    assert ".git" not in result.output_text
+    assert result.output_text == "config\nobjects/"
 
 
-def test_ls_tool_refuses_absolute_path():
-    tool = LsTool()
-    context = ToolContext(workspace_root=Path("/tmp").resolve())
-    request = _make_request({"path": "/etc"})
+def test_ls_tool_lists_git_ignored_and_generated_children(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    (tmp_path / "ignored.txt").write_text("i", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "yarn.lock").write_text("l", encoding="utf-8")
+    (tmp_path / "visible.txt").write_text("y", encoding="utf-8")
 
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    result = LsTool().invoke(
+        _make_request({"path": "."}), ToolContext(workspace_root=tmp_path)
+    )
+
+    assert result.output_text == (
+        ".git/\n.gitignore\nignored.txt\nnode_modules/\nvisible.txt\nyarn.lock"
+    )
 
 
-def test_ls_tool_refuses_parent_traversal(tmp_path: Path):
-    tool = LsTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "../etc"})
+def test_ls_tool_lists_absolute_path_outside_cwd(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    (outside / "sub").mkdir(parents=True)
+    (outside / "b.txt").write_text("b", encoding="utf-8")
 
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    result = LsTool().invoke(
+        _make_request({"path": str(outside)}), ToolContext(workspace_root=workspace)
+    )
+
+    assert result.is_error is False
+    assert result.output_text == "b.txt\nsub/"
+
+
+def test_ls_tool_resolves_parent_traversal_and_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (tmp_path / "sibling.txt").write_text("s", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    context = ToolContext(workspace_root=workspace)
+
+    parent = LsTool().invoke(_make_request({"path": ".."}), context)
+    home = LsTool().invoke(_make_request({"path": "~"}), context)
+
+    assert parent.output_text == "sibling.txt\nworkspace/"
+    assert home.output_text == parent.output_text
+
+
+def test_ls_tool_skips_entries_whose_stat_fails(tmp_path: Path):
+    (tmp_path / "dangling").symlink_to(tmp_path / "missing-target")
+    (tmp_path / "linked").symlink_to(tmp_path)
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+
+    result = LsTool().invoke(
+        _make_request({"path": "."}), ToolContext(workspace_root=tmp_path)
+    )
+
+    # Pi stats each entry (following symlinks) and skips failures.
+    assert result.output_text == "a.txt\nlinked/"
 
 
 def test_ls_tool_missing_directory_is_error_observation(tmp_path: Path):
@@ -205,10 +233,9 @@ def test_ls_tool_missing_directory_is_error_observation(tmp_path: Path):
     assert "does not exist" in result.output_text
 
 
-def test_ls_tool_filters_ignored_children_before_row_cap(tmp_path: Path):
+def test_ls_tool_counts_dot_git_toward_the_row_cap(tmp_path: Path):
     (tmp_path / ".git").mkdir()
     (tmp_path / "a.txt").write_text("a", encoding="utf-8")
-    (tmp_path / "z.txt").write_text("z", encoding="utf-8")
     tool = LsTool()
     context = ToolContext(workspace_root=tmp_path)
 
@@ -216,7 +243,7 @@ def test_ls_tool_filters_ignored_children_before_row_cap(tmp_path: Path):
 
     assert result.is_error is False
     assert result.output_text == (
-        "a.txt\n\n[1 entries limit reached. Use limit=2 for more]"
+        ".git/\n\n[1 entries limit reached. Use limit=2 for more]"
     )
 
 

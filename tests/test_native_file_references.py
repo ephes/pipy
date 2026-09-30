@@ -93,20 +93,27 @@ def test_resolve_missing_file_fails_closed(tmp_path: Path) -> None:
     assert any("nope.txt" in line for line in resolution.diagnostics())
 
 
-def test_resolve_out_of_workspace_fails_closed(tmp_path: Path) -> None:
+def test_resolve_out_of_workspace_git_and_ignored_paths_like_pi_read(
+    tmp_path: Path,
+) -> None:
+    # READ2: `@file` reads through Pi's `read`, which resolves any path.
     workspace = tmp_path / "ws"
-    workspace.mkdir()
-    outside = tmp_path / "secret.txt"
+    (workspace / ".git").mkdir(parents=True)
+    (workspace / ".git" / "HEAD").write_text("ref: main\n", encoding="utf-8")
+    (workspace / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    (workspace / "ignored.txt").write_text("ignored content\n", encoding="utf-8")
+    outside = tmp_path / "notes.txt"
     outside.write_text("outside content\n", encoding="utf-8")
 
-    resolution = resolve_file_references(
-        "read @../secret.txt",
-        workspace_root=workspace,
-    )
+    prompt = f"read @../notes.txt @{outside} @.git/HEAD @ignored.txt"
+    resolution = resolve_file_references(prompt, workspace_root=workspace)
 
-    assert resolution.loaded_count == 0
-    assert resolution.failed_count == 1
-    assert "outside content" not in resolution.augmented_prompt("read @../secret.txt")
+    assert resolution.loaded_count == 4
+    assert resolution.failed_count == 0
+    augmented = resolution.augmented_prompt(prompt)
+    assert "outside content" in augmented
+    assert "ref: main" in augmented
+    assert "ignored content" in augmented
 
 
 def test_resolve_secret_shaped_file_loads_like_pi_read(tmp_path: Path) -> None:
@@ -204,14 +211,14 @@ def test_safe_metadata_is_counters_only(tmp_path: Path) -> None:
     (tmp_path / "ok.txt").write_text("hello\n", encoding="utf-8")
 
     resolution = resolve_file_references(
-        "see @ok.txt and @secret.env",
+        "see @ok.txt and @secret.env and @missing.env",
         workspace_root=tmp_path,
     )
     metadata = resolution.safe_metadata()
     serialized = json.dumps(metadata)
 
-    assert metadata["file_reference_count"] == 2
-    assert metadata["file_reference_loaded_count"] == 1
+    assert metadata["file_reference_count"] == 3
+    assert metadata["file_reference_loaded_count"] == 2
     assert metadata["file_reference_failed_count"] == 1
     # No raw paths, file contents, or secrets in the archive-safe metadata.
     assert "ok.txt" not in serialized

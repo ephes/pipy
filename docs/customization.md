@@ -130,8 +130,8 @@ Run `just lint`, read each reported file, and apply minimal fixes.
 ```
 
 The frontmatter `description` determines when the model reaches for a skill, so
-be specific. Skill directories are added to the read-only reference roots, so a
-skill body can also reference sibling files by relative path.
+be specific. The model reads a skill body by its absolute location, and `read`
+opens any path, so a skill body can also point at sibling files.
 
 ### Skill commands
 

@@ -1045,7 +1045,6 @@ def _reload_owners(ref: SessionGenerationRef, emitter: Any = None):
         {},
         {},
         workspace_root=Path.cwd(),
-        reference_roots=(),
         stderr_sink=lambda _text: None,
         filter_options=ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=1.0,

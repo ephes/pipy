@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.tools import (
-    ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
@@ -242,13 +241,19 @@ def test_grep_byte_cap_notice(tmp_path: Path, engine: str):
     assert len(body.encode()) <= 50 * 1024
 
 
-def test_grep_git_matches_do_not_count_toward_the_limit(tmp_path: Path, engine: str):
+def test_grep_searches_dot_git_like_rg_hidden(tmp_path: Path, engine: str):
+    # READ2: Pi runs rg --hidden, which searches .git contents.
     (tmp_path / ".git").mkdir()
-    for n in range(5):
+    for n in range(3):
         (tmp_path / ".git" / f"f{n}").write_text("needle\n", encoding="utf-8")
     _write(tmp_path, "z.txt", "needle\n")
 
-    assert _grep(tmp_path, pattern="needle", limit=1).startswith("z.txt:1: needle")
+    assert sorted(_grep(tmp_path, pattern="needle").splitlines()) == [
+        ".git/f0:1: needle",
+        ".git/f1:1: needle",
+        ".git/f2:1: needle",
+        "z.txt:1: needle",
+    ]
 
 
 def test_grep_skips_binary_files(tmp_path: Path, engine: str):
@@ -264,35 +269,88 @@ def test_grep_no_matches(tmp_path: Path, engine: str):
     assert _grep(tmp_path, pattern="NEVER") == "No matches found"
 
 
-def test_grep_tool_refuses_path_under_dot_git(tmp_path: Path):
+def test_grep_searches_dot_git_as_a_path(tmp_path: Path, engine: str):
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("NEEDLE_HERE\n", encoding="utf-8")
-    tool = GrepTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"pattern": "NEEDLE_HERE", "path": ".git"})
 
-    result = tool.invoke(request, context)
-
-    assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
-
-
-def test_grep_tool_refuses_absolute_path_via_argument_error(tmp_path: Path):
-    tool = GrepTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"pattern": "x", "path": "/etc"})
-
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    assert _grep(tmp_path, pattern="NEEDLE_HERE", path=".git") == (
+        "config:1: NEEDLE_HERE"
+    )
+    assert _grep(tmp_path, pattern="NEEDLE_HERE", path=".git/config") == (
+        "config:1: NEEDLE_HERE"
+    )
 
 
-def test_grep_tool_refuses_parent_traversal(tmp_path: Path):
-    tool = GrepTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"pattern": "x", "path": "../etc"})
+def test_grep_searches_absolute_parent_and_home_paths(
+    tmp_path: Path, engine: str, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    _write(tmp_path, "outside/notes.txt", "needle\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "outside"))
 
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    for path in (str(tmp_path / "outside"), "../outside", "~"):
+        assert _grep(workspace, pattern="needle", path=path) == (
+            "notes.txt:1: needle"
+        ), path
+
+
+def test_grep_respects_ignore_files_and_names_an_ignored_file(
+    tmp_path: Path, engine: str
+):
+    (tmp_path / ".git").mkdir()
+    _write(tmp_path, ".gitignore", "ignored.txt\nlogs/\n/anchored.txt\n")
+    _write(tmp_path, ".ignore", "by_ignore.txt\n")
+    _write(tmp_path, ".rgignore", "by_rgignore.txt\n")
+    _write(tmp_path, ".fdignore", "kept_fdignore.txt\n")
+    for name in (
+        "ignored.txt",
+        "logs/a.txt",
+        "anchored.txt",
+        "sub/anchored.txt",
+        "sub/ignored.txt",
+        "by_ignore.txt",
+        "by_rgignore.txt",
+        "kept_fdignore.txt",
+        "keep.txt",
+    ):
+        _write(tmp_path, name, "needle\n")
+
+    assert sorted(_grep(tmp_path, pattern="needle").splitlines()) == [
+        "keep.txt:1: needle",
+        "kept_fdignore.txt:1: needle",
+        "sub/anchored.txt:1: needle",
+    ]
+    # rg searches a file named on the command line whatever the rules.
+    assert _grep(tmp_path, pattern="needle", path="ignored.txt") == (
+        "ignored.txt:1: needle"
+    )
+
+
+def test_grep_gitignore_needs_a_repository(tmp_path: Path, engine: str):
+    # rg (no --no-require-git) ignores .gitignore outside a git repository;
+    # .ignore still applies.
+    _write(tmp_path, ".gitignore", "ignored.txt\n")
+    _write(tmp_path, ".ignore", "by_ignore.txt\n")
+    _write(tmp_path, "ignored.txt", "needle\n")
+    _write(tmp_path, "by_ignore.txt", "needle\n")
+
+    assert _grep(tmp_path, pattern="needle") == "ignored.txt:1: needle"
+
+
+def test_grep_positive_glob_overrides_ignore_rules(tmp_path: Path, engine: str):
+    (tmp_path / ".git").mkdir()
+    _write(tmp_path, ".gitignore", "ignored.txt\nlogs/\nbuildx/\n")
+    for name in ("ignored.txt", "logs/a.txt", "buildx/b.txt", "keep.txt", "keep.md"):
+        _write(tmp_path, name, "needle\n")
+
+    assert sorted(_grep(tmp_path, pattern="needle", glob="*.txt").splitlines()) == [
+        "ignored.txt:1: needle",
+        "keep.txt:1: needle",
+    ]
+    assert _grep(tmp_path, pattern="needle", glob="buildx*") == "No matches found"
+    assert _grep(tmp_path, pattern="needle", glob="logs/**") == "No matches found"
+    assert _grep(tmp_path, pattern="needle", glob="!keep.md") == "keep.txt:1: needle"
 
 
 def test_grep_skips_outside_workspace_symlink(tmp_path: Path, engine: str):

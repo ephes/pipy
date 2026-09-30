@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.tools import (
-    ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
@@ -218,85 +217,73 @@ def test_find_tool_matches_recursive_glob(tmp_path: Path):
     assert result.output_text == "src/nested.py"
 
 
-def test_find_tool_skips_dot_git(tmp_path: Path):
+def test_find_tool_lists_dot_git_like_fd_hidden(tmp_path: Path):
+    # READ2: Pi runs fd --hidden, which lists .git contents.
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "hidden.py").write_text("", encoding="utf-8")
     (tmp_path / "visible.py").write_text("", encoding="utf-8")
-    tool = FindTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"pattern": "**/*.py"})
-
-    result = tool.invoke(request, context)
-
-    assert result.is_error is False
-    assert "visible.py" in result.output_text
-    assert ".git" not in result.output_text
-
-
-def test_find_tool_projects_sorted_reference_root_results(tmp_path: Path):
-    workspace = tmp_path / "workspace"
-    reference = tmp_path / "reference"
-    outside = tmp_path / "outside"
-    workspace.mkdir()
-    reference.mkdir()
-    outside.mkdir()
-    (reference / "b.py").write_text("", encoding="utf-8")
-    (reference / "a.py").write_text("", encoding="utf-8")
-    (reference / ".git").mkdir()
-    (reference / ".git" / "hidden.py").write_text("", encoding="utf-8")
-    (outside / "leaked.py").write_text("", encoding="utf-8")
-    (reference / "leak.py").symlink_to(outside / "leaked.py")
-    context = ToolContext(
-        workspace_root=workspace,
-        reference_roots=(reference,),
-    )
 
     result = FindTool().invoke(
-        _make_request({"pattern": "**/*.py", "path": str(reference)}),
-        context,
+        _make_request({"pattern": "**/*.py"}), ToolContext(workspace_root=tmp_path)
     )
 
-    assert result.is_error is False
-    # Relative to the search directory, as in Pi; the symlink out of the
-    # reference root and `.git` stay hidden (pipy path policy, READ2).
-    assert result.output_text == "a.py\nb.py"
+    assert sorted(result.output_text.splitlines()) == [".git/hidden.py", "visible.py"]
 
 
-def test_find_tool_validates_pattern_before_search_root(tmp_path: Path):
-    request = _make_request({"pattern": "../*.py", "path": "/outside"})
+def test_find_tool_searches_absolute_parent_and_home_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    (outside / "sub").mkdir(parents=True)
+    (outside / "b.py").write_text("", encoding="utf-8")
+    (outside / "sub" / "a.py").write_text("", encoding="utf-8")
+    (outside / "leak.py").symlink_to(outside / "b.py")
+    monkeypatch.setenv("HOME", str(outside))
+    context = ToolContext(workspace_root=workspace)
 
-    with pytest.raises(ToolArgumentError) as info:
-        FindTool().invoke(request, ToolContext(workspace_root=tmp_path))
-
-    assert info.value.field_path == ("pattern",)
-    assert str(info.value) == "find.pattern: pattern must not contain '..'"
-
-
-def test_find_tool_rejects_absolute_pattern():
-    tool = FindTool()
-    context = ToolContext(workspace_root=Path("/tmp").resolve())
-    request = _make_request({"pattern": "/etc/*"})
-
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
-
-
-def test_find_tool_rejects_parent_traversal_in_pattern(tmp_path: Path):
-    tool = FindTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"pattern": "../*.py"})
-
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    for path in (str(outside), "../outside", "~"):
+        result = FindTool().invoke(
+            _make_request({"pattern": "*.py", "path": path}), context
+        )
+        # Relative to the search directory; symlinks are listed, not followed.
+        assert result.output_text == "b.py\nleak.py\nsub/a.py", path
 
 
-def test_find_tool_rejects_unsafe_search_root(tmp_path: Path):
-    tool = FindTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"pattern": "*.py", "path": "/etc"})
+def test_find_tool_absolute_pattern_matches_the_full_path(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("", encoding="utf-8")
+    (tmp_path / "b.py").write_text("", encoding="utf-8")
+    root = tmp_path.resolve()
 
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    result = FindTool().invoke(
+        _make_request({"pattern": f"{root.as_posix()}/src/*.py"}),
+        ToolContext(workspace_root=root),
+    )
+
+    assert result.output_text == "src/a.py"
+
+
+def test_find_tool_parent_pattern_matches_nothing(tmp_path: Path):
+    (tmp_path / "a.py").write_text("", encoding="utf-8")
+
+    result = FindTool().invoke(
+        _make_request({"pattern": "../*.py"}), ToolContext(workspace_root=tmp_path)
+    )
+
+    assert result.output_text == "No files found matching pattern"
+
+
+def test_find_tool_backslash_escapes_a_glob_character(tmp_path: Path):
+    (tmp_path / "a*b.txt").write_text("", encoding="utf-8")
+    (tmp_path / "axb.txt").write_text("", encoding="utf-8")
+
+    result = FindTool().invoke(
+        _make_request({"pattern": "a\\*b.txt"}), ToolContext(workspace_root=tmp_path)
+    )
+
+    assert result.output_text == "a*b.txt"
 
 
 def test_find_tool_no_matches_reports_safely(tmp_path: Path):

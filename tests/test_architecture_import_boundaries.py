@@ -2157,7 +2157,6 @@ def test_product_tool_capability_facade_structurally_implements_agent_port(
         {},
         {},
         workspace_root=tmp_path,
-        reference_roots=(),
         stderr_sink=lambda _message: None,
         filter_options=ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=0.0,

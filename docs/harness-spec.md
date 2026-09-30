@@ -847,7 +847,7 @@ cycling through the scoped/available set; `Ctrl+O` tool-output expansion and
 `hideThinkingBlock`); queued steering/follow-up during active turns
 (`Alt+Enter`/`Alt+Up`, a pending region, steering-then-follow-up drain order,
 steering interruption via the per-turn `CancelToken`); `Ctrl+V` clipboard image
-paste (owner-only temp file under an image reference root) and terminal
+paste (owner-only temp file, attached by absolute path) and terminal
 drag-drop file references; the `/scoped-models` multi-select overlay and
 `/hotkeys` overlay plus new actionable `/settings` rows; and the
 mouse-selection invariant (the renderer never enables xterm mouse-tracking
@@ -1425,14 +1425,13 @@ Boundaries:
   total context budget.
 - Each reference resolves through the `read` tool
   (`pipy_harness.native.file_references` calls `ReadTool`), reusing its
-  workspace resolution and `.git`/`.gitignore` refusal and Pi's `read` output:
-  the first 2000 lines or 50 KB, with a `[Showing lines …]` notice when the
-  file is longer. Since READ1 there is no size cap and no binary, non-UTF-8 or
-  secret-shaped refusal, as in Pi. No new reader or path policy is
-  introduced. The tool-loop REPL passes its `--read-root` reference roots, so
-  absolute references under a configured read-root resolve there.
-- Failures fail closed: missing, ignored, image and out-of-workspace
-  references, and references past the total context budget, load no content
+  path resolution (Pi's `resolveReadPath`: relative to the working directory
+  or absolute, `~` expanded, macOS screenshot name variants, no deny list,
+  READ2) and Pi's `read` output: the first 2000 lines or 50 KB, with a
+  `[Showing lines …]` notice when the file is longer. Since READ1 there is no
+  size cap and no binary, non-UTF-8 or secret-shaped refusal, as in Pi.
+- Failures fail closed: missing, directory and image references, and
+  references past the total context budget, load no content
   and produce a safe local diagnostic. One bad reference never blocks a good
   one.
 - The user's literal prompt text is preserved verbatim; bounded excerpts are
@@ -1457,13 +1456,11 @@ Boundaries (`pipy_harness.native.image_attachment`):
   (`MAX_IMAGE_ATTACHMENTS_PER_TURN = 4`), per image
   (`MAX_IMAGE_ATTACHMENT_BYTES = 5 MiB`), and in aggregate
   (`MAX_TOTAL_IMAGE_ATTACHMENT_BYTES = 16 MiB`).
-- Path policy is reused from the `read` tool (`resolve_tool_path` plus the
-  `.git`/cache-dir and `.gitignore` defenses), but the text reader's
-  generated-suffix rejection is deliberately *not* applied, since images
-  legitimately carry `.png`/`.jpg`/`.gif` suffixes.
+- Paths resolve like the `read` tool's (Pi `resolveReadPath`, READ2): any
+  path, relative to the working directory or absolute, with no deny list.
 - Type is validated by magic bytes (PNG/JPEG/GIF/WebP only). Arbitrary binary
-  or non-image content fails closed, as do missing, ignored, oversized, and
-  out-of-workspace references — each with a safe local diagnostic. One bad
+  or non-image content fails closed, as do missing and oversized
+  references — each with a safe local diagnostic. One bad
   attachment never blocks a good one.
 - Loaded images travel on `ProviderRequest.attachments` (base64 + media type +
   byte count + sha256). The Anthropic (`image`), OpenAI-Responses

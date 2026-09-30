@@ -249,8 +249,8 @@ class ReplLoopScope:
     observed by both the composition-root closures and :meth:`_ReplLoopStep.
     step_once` exactly as it was when the loop body was inline.
 
-    The four scalars below (``abort_event``, ``file_reference_roots``,
-    ``provider_state``, ``tool_budget``) are the last things the step reached
+    The three scalars below (``abort_event``, ``provider_state``,
+    ``tool_budget``) are the last things the step reached
     through the session object. Each is set once when the adapter is configured,
     before the session is constructed, and never assigned afterwards, so
     carrying them by value here is what the step already observed -- and it is
@@ -269,11 +269,6 @@ class ReplLoopScope:
     cwd: Path
     started_at: datetime
     base_system_prompt: str
-    # `image_reference_roots` is *derived* from `file_reference_roots` under a
-    # different clipboard policy; both are consumed a dozen lines apart under
-    # the same `reference_roots=` parameter name, so they keep distinct names.
-    image_reference_roots: tuple[Path, ...]
-    file_reference_roots: tuple[Path, ...]
     abort_event: "threading.Event | _AbortCallbackSignal | None"
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
     tool_budget: int

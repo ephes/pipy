@@ -256,26 +256,6 @@ def test_system_prompt_omits_skill_block_when_read_excluded(
     assert "<available_skills>" not in run_kwargs["system_prompt"]
 
 
-def test_skill_dirs_added_to_reference_roots(tmp_path: Path, monkeypatch):
-    from pipy_harness.native.tools.read import ReadTool
-
-    skills_dir = tmp_path / ".pipy" / "skills"
-    _write_skill(skills_dir, name="lint", description="Lint the code", body="lint body")
-    adapter = CodingSessionAdapter(
-        provider=FakeNativeProvider(supports_tool_calls=True),
-        tool_registry={"read": ReadTool()},
-        input_stream=io.StringIO(""),
-        output_stream=io.StringIO(),
-        error_stream=io.StringIO(),
-        settings_manager=_trusted_settings(tmp_path),
-    )
-    prepared = _prepared_for(adapter, tmp_path)
-    init_kwargs, _ = _run_adapter_with_spy(adapter, prepared, monkeypatch)
-
-    reference_roots = init_kwargs["reference_roots"]
-    assert skills_dir.resolve() in reference_roots
-
-
 def test_adapter_without_settings_fails_closed_for_project_resources(
     tmp_path: Path, monkeypatch
 ):
@@ -329,20 +309,17 @@ def test_adapter_without_settings_fails_closed_for_project_resources(
     assert "package-only" not in run_kwargs["system_prompt"]
 
 
-def test_model_can_read_global_skill_body_via_reference_roots(
-    tmp_path: Path, monkeypatch
-):
+def test_model_can_read_global_skill_body_by_absolute_path(tmp_path: Path, monkeypatch):
     """A1-A4 integration: the model loads an outside-cwd skill body via read.
 
-    The skill lives in a global skill dir outside the workspace. Its parent
-    directory enters the session reference roots, so the read tool can open the
-    skill body by absolute path. A non-skill path outside cwd is still refused.
-    The archive-safe skill metadata stays path_label/sha256/byte_length/truncated.
+    The skill lives in a global skill dir outside the workspace. Like Pi, the
+    read tool opens any absolute path (READ2), so the advertised location is
+    readable, and so is any other file outside cwd. The archive-safe skill
+    metadata stays path_label/sha256/byte_length/truncated.
     """
 
     from pipy_harness.native.skills import safe_skill_metadata
     from pipy_harness.native.tools import ToolContext, ToolRequest
-    from pipy_harness.native.tools.base import ToolArgumentError
     from pipy_harness.native.tools.read import ReadTool
 
     workspace = tmp_path / "workspace"
@@ -370,14 +347,9 @@ def test_model_can_read_global_skill_body_via_reference_roots(
         workspace, SettingsManager.for_workspace(workspace, project_trusted=False)
     )
     assert any(s.name == "deploy" for s in skills)
-    reference_roots = adapter._reference_roots_with_skill_dirs(skills)
-    assert global_skills.resolve() in reference_roots
 
     tool = ReadTool()
-    context = ToolContext(
-        workspace_root=workspace.resolve(),
-        reference_roots=reference_roots,
-    )
+    context = ToolContext(workspace_root=workspace.resolve())
     allowed = tool.invoke(
         ToolRequest(
             tool_request_id="pipy-tool-skill-read",
@@ -389,19 +361,20 @@ def test_model_can_read_global_skill_body_via_reference_roots(
     assert allowed.is_error is False
     assert "GLOBAL SKILL BODY" in allowed.output_text
 
-    # A non-skill path outside cwd is still refused (no reference root covers it).
+    # Any other path outside cwd is readable too, as in Pi.
     other = tmp_path / "elsewhere"
     other.mkdir()
-    (other / "secret.txt").write_text("nope", encoding="utf-8")
-    with pytest.raises(ToolArgumentError, match="outside the workspace"):
-        tool.invoke(
-            ToolRequest(
-                tool_request_id="pipy-tool-outside-read",
-                tool_name="read",
-                arguments={"path": str((other / "secret.txt").resolve())},
-            ),
-            context,
-        )
+    (other / "notes.txt").write_text("elsewhere body", encoding="utf-8")
+    outside = tool.invoke(
+        ToolRequest(
+            tool_request_id="pipy-tool-outside-read",
+            tool_name="read",
+            arguments={"path": str((other / "notes.txt").resolve())},
+        ),
+        context,
+    )
+    assert outside.is_error is False
+    assert outside.output_text == "elsewhere body"
 
     # Archive boundary unchanged: only the four safe keys; no body/abs path.
     safe = safe_skill_metadata(skills)
@@ -439,10 +412,7 @@ def test_model_can_read_workspace_skill_body_under_ignored_pipy_dir(
         settings_manager=_trusted_settings(tmp_path),
     )
     prepared = _prepared_for(adapter, tmp_path)
-    init_kwargs, _ = _run_adapter_with_spy(adapter, prepared, monkeypatch)
-
-    reference_roots = init_kwargs["reference_roots"]
-    assert skills_dir.resolve() in reference_roots
+    _run_adapter_with_spy(adapter, prepared, monkeypatch)
 
     result = ReadTool().invoke(
         ToolRequest(
@@ -450,10 +420,7 @@ def test_model_can_read_workspace_skill_body_under_ignored_pipy_dir(
             tool_name="read",
             arguments={"path": str(skill_path.resolve())},
         ),
-        ToolContext(
-            workspace_root=tmp_path.resolve(),
-            reference_roots=reference_roots,
-        ),
+        ToolContext(workspace_root=tmp_path.resolve()),
     )
 
     assert result.is_error is False
@@ -544,7 +511,6 @@ def test_skill_advertisement_matches_canonical_read_visibility(
         adapter.tool_registry,
         {},
         workspace_root=tmp_path,
-        reference_roots=(),
         stderr_sink=lambda _text: None,
         filter_options=tool_filter_options,
         cancel_join_timeout_seconds=0.1,
@@ -606,7 +572,7 @@ def test_shared_preparation_matches_stream_prompt_and_lifetime(
     cwd = tmp_path / "workspace"
     cwd.mkdir()
     (cwd / "AGENTS.md").write_text("PREPARATION_PRIVATE_INSTRUCTION", encoding="utf-8")
-    project_skill = _write_skill(
+    _write_skill(
         cwd / ".pipy" / "skills",
         name="project-skill",
         description="project skill description",
@@ -624,8 +590,6 @@ def test_shared_preparation_matches_stream_prompt_and_lifetime(
         description="explicit skill description",
         body="EXPLICIT_PRIVATE_SKILL_BODY",
     )
-    supplied_root = tmp_path / "read-root"
-    supplied_root.mkdir()
     provider = _ContextRecordingProvider()
     settings = (
         None
@@ -646,7 +610,6 @@ def test_shared_preparation_matches_stream_prompt_and_lifetime(
             else empty_workspace_instruction_loader
         ),
         append_system_prompt_sources=["PREPARATION_PRIVATE_APPEND"],
-        reference_roots=(supplied_root,),
         resource_options=options,
         tool_filter_options=ToolFilterOptions(
             exclude=() if read_visible else ("read",)
@@ -679,11 +642,8 @@ def test_shared_preparation_matches_stream_prompt_and_lifetime(
         trusted is True and read_visible
     )
     assert ("<name>explicit-skill</name>" in context.system_prompt) is read_visible
-    expected_roots = {supplied_root, explicit_skill.parent.resolve()}
-    if trusted:
-        expected_roots.add(project_skill.parent.resolve())
-    assert set(context.reference_roots) == expected_roots
-    assert len(context.reference_roots) == len(expected_roots)
+    # READ2: no reference roots; the pipy-only system-prompt block is gone.
+    assert "Reference roots" not in context.system_prompt
     assert context.settings.get_compaction_enabled() is (trusted is not True)
 
     session = adapter.build_session(context)
@@ -691,7 +651,6 @@ def test_shared_preparation_matches_stream_prompt_and_lifetime(
     assert session.settings_manager is context.settings
     assert session.resource_options is options
     assert session.tool_registry is adapter.tool_registry
-    assert session.reference_roots == context.reference_roots
     with session._open_lifetime(
         workspace_root=context.cwd,
         input_stream=io.StringIO(),

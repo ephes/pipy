@@ -22,6 +22,29 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - The default `openai-codex` model is now `gpt-6.1-sol` (was `gpt-5.5`), as in
   Pi (MC6, Pi `12c416e1a`). `--native-provider openai-codex` without
   `--native-model` starts on it; the other defaults are unchanged.
+- `read`, `ls`, `grep`, `find`, `@file` and `@image:` resolve paths the way
+  Pi's tools do (READ2, Pi `path-utils.ts`): relative to the working
+  directory or absolute, with `~` expanded, a leading `@` stripped and unicode
+  spaces normalized, and without any deny list. Files under `.git`,
+  `.gitignore` matches, generated directories (`node_modules`, `build`,
+  `dist`, `.venv`, `.pipy`, …), suffixes such as `.lock`, `.map`, `.min.js`
+  and `.d.ts`, `..` and paths outside the workspace all read now, including
+  the `bash` full-output temp file. `read`, `@file` and `@image:` also try the
+  names macOS gives screenshots (a narrow no-break space before `AM`/`PM`,
+  NFD, a curly apostrophe). `ls` lists every entry. `grep` and `find` leave
+  out only what `rg --hidden` and `fd --hidden` leave out: `.git` is searched,
+  and `.gitignore` (inside a repository, and for `find` also outside one),
+  `.ignore`, `.rgignore`/`.fdignore` and `.git/info/exclude` apply. `grep`'s
+  Python fallback and `find` follow those rules, including rg's `glob`
+  override. `find` accepts patterns that start with `/` or contain `..` or
+  `\`. `write` and `edit` keep their workspace-only policy.
+
+### Removed
+
+- `--read-root`, the `PIPY_READ_ROOTS` environment variable, the automatic
+  reference roots found in `AGENTS.md` and docs, and the `Reference roots`
+  block in the system prompt (READ2). They only widened what the read tools
+  could open; those tools now open any path, as in Pi.
 
 ### Fixed
 
@@ -43,8 +66,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   do (TOOLS1, Pi `4df157433`), and take Pi's parameters and descriptions:
   - `bash` keeps the last 2000 lines or 50 KB (was 16 KB), saves the full
     output to a temp file (`pipy-bash-<id>.log` in the system temp directory)
-    and ends with `[Showing lines X-Y of N. Full output: <path>]`. `read`
-    cannot open that file yet (READ2); the model pages it with `bash`.
+    and ends with `[Showing lines X-Y of N. Full output: <path>]`, which
+    `read` can open (READ2).
   - `grep` takes a regex (or `literal`), `glob`, `ignoreCase`, `context` and
     `limit` (default 100). Rows are `path:N: text` relative to the search
     path, with `path-N- text` context lines; long lines are cut to 500
