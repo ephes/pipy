@@ -170,7 +170,6 @@ class _UnresolvedToolResultMessage:
     content: str
     provider_correlation_id: str | None
     is_error: bool = False
-    added_tool_names: tuple[str, ...] = ()
     details: dict[str, Any] | None = None
 
 
@@ -334,8 +333,6 @@ def _tool_result_to_json(
         "is_error": message.is_error,
         "provider_correlation_id": message.provider_correlation_id,
     }
-    if message.added_tool_names:
-        body["added_tool_names"] = list(message.added_tool_names)
     # Pi ``ToolResultMessage.details``; omitted when the tool gave none.
     if message.details is not None:
         body["details"] = dict(message.details)
@@ -429,13 +426,6 @@ def _message_from_json(
             **_turn_metadata_from_json(body),
         )
     if role == "tool":
-        raw_added_tool_names = body.get("added_tool_names")
-        if raw_added_tool_names is None:
-            added_tool_names: tuple[str, ...] = ()
-        elif isinstance(raw_added_tool_names, list):
-            added_tool_names = tuple(raw_added_tool_names)
-        else:
-            raise ValueError("tool added_tool_names must be a list")
         tool_request_id = str(body["tool_request_id"])
         output_text = str(body.get("output_text", ""))
         is_error = bool(body.get("is_error", False))
@@ -458,7 +448,6 @@ def _message_from_json(
                 content=ProductContent(output_text),
                 is_error=is_error,
                 provider_correlation_id=provider_correlation_id,
-                added_tool_names=added_tool_names,
                 details=raw_details,
             )
         return _UnresolvedToolResultMessage(
@@ -466,7 +455,6 @@ def _message_from_json(
             content=output_text,
             provider_correlation_id=provider_correlation_id,
             is_error=is_error,
-            added_tool_names=added_tool_names,
             details=raw_details,
         )
     raise ValueError(f"unsupported message role: {role!r}")
@@ -689,6 +677,10 @@ class CodingSessionTreeContext:
     messages: tuple[AgentMessage, ...]
     entry_ids: tuple[str, ...]
     prior_summary: str | None
+    # Transcript system messages anchored before ``messages[position]`` (Pi's
+    # session projection): a compaction's checkpoint leads at 0, and system
+    # entries the compaction replaced are gone.
+    system_anchors: tuple[tuple[int, AgentSystemMessage], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -754,15 +746,24 @@ def build_coding_context(
         by_id = {entry.id: entry for entry in entries}
     path = _active_branch_path(leaf_id, by_id)
     _, _, compaction = _reconstruct_context_settings(path)
-    projected = [
-        (entry.id, message)
-        for entry in _retained_context_entries(path, compaction)
-        if (message := _project_context_entry(entry)) is not None
-    ]
+    projected: list[tuple[str, AgentMessage]] = []
+    anchors: list[tuple[int, AgentSystemMessage]] = []
+    if compaction is not None and compaction.system_message is not None:
+        anchors.append((0, compaction.system_message))
+    for entry in _without_replaced_system_entries(
+        path, compaction, _retained_context_entries(path, compaction)
+    ):
+        if isinstance(entry, MessageEntry) and isinstance(
+            entry.message, AgentSystemMessage
+        ):
+            anchors.append((len(projected), entry.message))
+        elif (message := _project_context_entry(entry)) is not None:
+            projected.append((entry.id, message))
     return CodingSessionTreeContext(
         messages=tuple(message for _, message in projected),
         entry_ids=tuple(entry_id for entry_id, _ in projected),
         prior_summary=compaction.summary if compaction and compaction.summary else None,
+        system_anchors=tuple(anchors),
     )
 
 
@@ -1195,13 +1196,7 @@ def _strict_tool_message_from_json(message: dict[str, Any]) -> None:
     if "is_error" in message and type(message["is_error"]) is not bool:
         raise ValueError("native session tool result is invalid")
     correlation_id = message.get("provider_correlation_id")
-    added_names = message.get("added_tool_names")
     if correlation_id is not None and type(correlation_id) is not str:
-        raise ValueError("native session tool result is invalid")
-    if added_names is not None and (
-        not isinstance(added_names, list)
-        or any(type(name) is not str for name in added_names)
-    ):
         raise ValueError("native session tool result is invalid")
     details = message.get("details")
     if details is not None and not isinstance(details, dict):

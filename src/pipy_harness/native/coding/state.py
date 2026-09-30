@@ -1104,10 +1104,6 @@ def _require_tool_result_message(
     )
     if type(message.is_error) is not bool:
         raise TypeError(f"{field_name}.is_error must be an exact bool")
-    if type(message.added_tool_names) is not tuple:
-        raise TypeError(f"{field_name}.added_tool_names must be an exact tuple")
-    for index, name in enumerate(message.added_tool_names):
-        _require_non_empty_string(name, f"{field_name}.added_tool_names[{index}]")
 
 
 def _require_tool_call(call: object, field_name: str) -> None:

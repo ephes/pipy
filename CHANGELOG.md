@@ -16,9 +16,49 @@ entries oldest-first, and a version bump shows the new entries at startup.
   field is sent. A carried `off` clamps to the lowest offered level: `minimal`
   on Codex (sent as `low`), `low` on OpenAI and Copilot. Levels run up to
   `max`.
+- Models that accept mid-conversation system messages now receive them in
+  place, as in Pi (SYS1b, Pi `9e05370b2`). The leading prompt stays fixed
+  and later prompt or tool changes arrive where they happened, so the prompt
+  cache prefix survives them. The catalog carries Pi's compat flags:
+  `supportsMidConvoSystemMessages` (OpenAI and Codex GPT-5.4 and later,
+  Anthropic Opus 4.8/5/5.5, Sonnet 5.5, Fable 5/5.1, and the GitHub Copilot
+  rows that already carried Pi's flag, including through its per-request
+  OAuth token refresh),
+  `supportsAdditionalTools`, `supportsMidConvoToolChanges` and
+  `supportsDeveloperRole`; `supportsMidConvoToolAdditions` is honoured from
+  `models.json`. Per API:
+  - OpenAI Responses, Azure and Codex send a later update as a `developer`
+    message (`system` when the model is not a reasoning model or has
+    `supportsDeveloperRole: false`), and load tools added later in place as
+    `additional_tools` or, without that flag, as a client `tool_search` pair;
+  - Chat Completions sends updates in the instruction role, and with
+    `supportsMidConvoToolAdditions` a `{role: "system", tools}` message;
+    Mistral sends `system` messages;
+  - Anthropic sends `system`-role messages before the next assistant turn,
+    and on models with tool changes adds and removes tools with
+    `tool_addition`/`tool_removal` blocks, a deferred placeholder tool and
+    the `mid-conversation-tool-changes-2026-07-01` beta;
+  - Google and Bedrock keep sending the replayed prompt, like Pi.
+
+  A `before_agent_start` suffix or a `before_provider_request` prompt change
+  forces the prompt for that request, which then collapses as before. The
+  request budget counts the updates and every declaration kept on the wire.
 
 ### Changed
 
+- The system prompt is recorded as Pi's tagged sections (SYS1b): the untagged
+  `preamble` (the default or custom prompt), then
+  `<addendum>` (appended prompts, now wrapped in their tag), `<project_context>`,
+  `<skills>`, a new `<cwd>` section with the working directory, and pipy's
+  `<resume>` block. A later run patches only the sections that changed. A
+  `before_agent_start` suffix is no longer recorded in the transcript; it
+  forces that run's prompt, as a forced prompt does in Pi.
+- Tools loaded mid-run are declared by the next turn's system message instead
+  of a marker on the loader's tool result, as in Pi (which removed
+  `addedToolNames` and `supportsToolReferences`). Models without the new
+  compat flags now receive such tools as ordinary definitions; Anthropic
+  `tool_reference` result blocks are gone. Stored sessions no longer write
+  `added_tool_names`.
 - Selectors and slash completion follow Pi (DF1-F7b). `/model <ref>` switches
   only on an exact reference among the scoped or available models, for this
   session only (`Model: <id>`); other text opens the model selector with it

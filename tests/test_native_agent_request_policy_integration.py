@@ -688,8 +688,6 @@ def test_tool_added_by_first_call_is_not_authorized_later_in_same_response(
         "loaded",
         "unknown tool: late_tool",
     ]
-    assert observations[0].added_tool_names == ("late_tool",)
-    assert observations[1].added_tool_names == ()
 
 
 def test_tool_activated_by_call_runs_with_custom_renderers_on_next_request(

@@ -41,7 +41,9 @@ from pipy_harness.native.providers.openai_prompt_cache import (
     clamp_openai_prompt_cache_key,
 )
 from pipy_harness.native.providers.openai_responses_wire import (
+    ResponsesTranscriptOptions,
     parse_response,
+    resolve_responses_transcript,
     responses_input,
 )
 
@@ -185,6 +187,12 @@ class AzureOpenAIResponsesProvider:
     # ``reasoning_effort`` is the mapped thinking value (Responses-shaped).
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    # Pi's Responses compat for system messages and later tool loads
+    # (``azure-openai-responses.ts:290-300``), resolved by construction.
+    supports_mid_convo_system_messages: bool = False
+    supports_additional_tools: bool = False
+    supports_tool_search: bool = False
+    instruction_role: str = "developer"
 
     @property
     def name(self) -> str:
@@ -286,14 +294,26 @@ class AzureOpenAIResponsesProvider:
         if isinstance(configuration, ProviderResult):
             return configuration
 
+        transcript = resolve_responses_transcript(
+            request,
+            ResponsesTranscriptOptions(
+                supports_mid_convo_system_messages=(
+                    self.supports_mid_convo_system_messages
+                ),
+                supports_additional_tools=self.supports_additional_tools,
+                supports_tool_search=self.supports_tool_search,
+            ),
+        )
         body: dict[str, Any] = {
             # Pi's AzureOpenAI v1 surface passes the deployment as the body
             # ``model`` field (buildParams: ``model: deploymentName``).
             "model": configuration.deployment,
-            "instructions": request.system_prompt,
+            "instructions": transcript.instructions,
             "input": responses_input(
                 request,
                 parse_error_class=AzureOpenAIResponseParseError,
+                transcript=transcript,
+                instruction_role=self.instruction_role,
             ),
             "store": False,
         }
@@ -303,9 +323,9 @@ class AzureOpenAIResponsesProvider:
         prompt_cache_key = clamp_openai_prompt_cache_key(request.session_id)
         if prompt_cache_key is not None:
             body["prompt_cache_key"] = prompt_cache_key
-        if request.available_tools:
+        if transcript.tools:
             body["tools"] = [
-                serialize_tool_for_responses(tool) for tool in request.available_tools
+                serialize_tool_for_responses(tool) for tool in transcript.tools
             ]
         # Azure shares the Responses thinking shape (reasoning.effort).
         if self.reasoning_effort is not None:

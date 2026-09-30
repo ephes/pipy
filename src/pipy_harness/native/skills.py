@@ -223,10 +223,18 @@ def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
     an empty string so the caller can safely concatenate it onto the prompt.
     """
 
+    body = skills_section_body(skills)
+    if not body:
+        return ""
+    return f"\n\n<{SKILLS_SECTION_TAG}>\n{body}\n</{SKILLS_SECTION_TAG}>"
+
+
+def skills_section_body(skills: Sequence[SkillFile]) -> str:
+    """Pi ``formatSkillsForPrompt``: the ``skills`` section body, or ``""``."""
+
     if not skills:
         return ""
-    lines: list[str] = ["", "", f"<{SKILLS_SECTION_TAG}>"]
-    lines.extend(SKILLS_SYSTEM_BLOCK_HEADER_LINES)
+    lines: list[str] = list(SKILLS_SYSTEM_BLOCK_HEADER_LINES)
     lines.append("")
     lines.append("<available_skills>")
     for skill in skills:
@@ -238,7 +246,6 @@ def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
         )
         lines.append("  </skill>")
     lines.append("</available_skills>")
-    lines.append(f"</{SKILLS_SECTION_TAG}>")
     return "\n".join(lines)
 
 

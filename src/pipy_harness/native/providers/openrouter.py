@@ -25,7 +25,7 @@ from pipy_harness.native.http import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
-    chat_messages,
+    chat_transcript,
     extract_chat_completions_usage,
     parse_response,
 )
@@ -100,15 +100,16 @@ class OpenRouterChatCompletionsProvider:
                 ),
             )
 
+        # A directly constructed adapter has no catalog compat: collapse path.
+        transcript = chat_transcript(request)
         body: dict[str, Any] = {
             "model": self.model_id,
-            "messages": chat_messages(request),
+            "messages": transcript.messages,
             "stream": False,
         }
-        if request.available_tools:
+        if transcript.tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool)
-                for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool) for tool in transcript.tools
             ]
         headers = {
             "Authorization": f"Bearer {api_key}",

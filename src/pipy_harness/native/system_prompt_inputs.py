@@ -94,9 +94,15 @@ class SystemPromptInput:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSystemPrompt:
-    """The effective base prompt plus safe metadata for the inputs used."""
+    """The effective prompt parts plus safe metadata for the inputs used.
 
-    base_prompt: str
+    ``preamble`` is the default or custom prompt and ``addendum`` the appended
+    prompts joined by a blank line: Pi's ``preamble`` and ``addendum``
+    sections (``customPrompt``/``appendSystemPrompt``).
+    """
+
+    preamble: str
+    addendum: str = ""
     replaced: bool = False
     replace_input: SystemPromptInput | None = None
     append_inputs: tuple[SystemPromptInput, ...] = field(default_factory=tuple)
@@ -144,9 +150,9 @@ def resolve_system_prompt(
     wins over the auto-discovered ``SYSTEM.md``; otherwise the default prompt is
     kept. Append precedence: explicit ``append_sources``
     (``--append-system-prompt``, repeatable) wins over the auto-discovered
-    ``APPEND_SYSTEM.md``. The append section is joined onto the base/custom
-    prompt with blank lines, ahead of the project context files the caller adds
-    afterwards.
+    ``APPEND_SYSTEM.md``. The appended prompts are joined with blank lines
+    into the ``addendum``; the caller places it as Pi's ``addendum`` section,
+    ahead of the project context files.
     """
 
     # Replace. An empty flag value is treated as absent (Pi's resolvePromptInput
@@ -203,11 +209,9 @@ def resolve_system_prompt(
         append_texts.append(text)
         append_inputs.append(SystemPromptInput.of(source_label=label, text=text))
 
-    if append_texts:
-        base = base + "\n\n" + "\n\n".join(append_texts)
-
     return ResolvedSystemPrompt(
-        base_prompt=base,
+        preamble=base,
+        addendum="\n\n".join(append_texts),
         replaced=replaced,
         replace_input=replace_input,
         append_inputs=tuple(append_inputs),

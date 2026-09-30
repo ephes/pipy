@@ -25,9 +25,18 @@ from pipy_harness.native._provider_helpers import (
     extract_chat_completions_tool_calls,
     extract_text_content,
     safe_response_label,
+    serialize_tool_for_chat_completions,
 )
+from pipy_harness.native.agent.messages import AgentSystemMessage
+from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.http import ProviderHTTPError
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.providers.transcript import (
+    declaration_definition,
+    request_tools,
+    resolve_request_transcript,
+)
+from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.usage import normalize_provider_usage
 
 
@@ -42,23 +51,79 @@ class ParsedChatCompletion:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-def chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
+@dataclass(frozen=True, slots=True)
+class ChatTranscriptOptions:
+    """One Chat Completions adapter's mid-conversation system-message compat.
+
+    Pi ``convertMessages`` (``openai-completions.ts:1185-1260``): later
+    system messages stay in place when the model accepts them; with
+    ``supportsMidConvoToolAdditions`` a message that adds tools first sends a
+    ``{role: "system", tools}`` message; the update text uses
+    ``instruction_role``. Pi's Mistral adapter has no tool additions and
+    always uses ``system``.
+    """
+
+    supports_mid_convo_system_messages: bool = False
+    supports_mid_convo_tool_additions: bool = False
+    instruction_role: str = "system"
+
+
+@dataclass(frozen=True, slots=True)
+class ChatTranscript:
+    """The ``messages`` list and top-level tools of one request."""
+
+    messages: list[dict[str, Any]]
+    tools: tuple[ToolDefinition, ...]
+
+
+def chat_transcript(
+    request: ProviderRequest, options: ChatTranscriptOptions | None = None
+) -> ChatTranscript:
     """Translate a canonical ``ProviderRequest`` into Chat Completions messages.
 
     Emits the system envelope, then either the canonical message list (with
-    ``tool_calls``/``tool`` roles) or the single-turn payload built from
-    ``system_prompt``/``user_prompt``.
+    ``tool_calls``/``tool`` roles and any later system messages) or the
+    single-turn payload built from ``system_prompt``/``user_prompt``.
     """
 
+    options = options if options is not None else ChatTranscriptOptions()
+    resolved = resolve_request_transcript(
+        request, supports_mid_convo=options.supports_mid_convo_system_messages
+    )
+    tools, anchors = request_tools(
+        resolved,
+        request,
+        supports_additions=(
+            options.supports_mid_convo_system_messages
+            and options.supports_mid_convo_tool_additions
+        ),
+    )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": request.system_prompt}
+        {"role": "system", "content": resolved.leading_text}
     ]
-    if request.messages:
-        for envelope in request.messages:
-            messages.append(envelope_to_chat_message(envelope))
-        return messages
-    messages.append({"role": "user", "content": request.user_prompt})
-    return messages
+    if not request.messages:
+        messages.append({"role": "user", "content": request.user_prompt})
+        return ChatTranscript(messages, tools)
+    for item in resolved.items:
+        if not isinstance(item, AgentSystemMessage):
+            messages.append(envelope_to_chat_message(item))
+            continue
+        if anchors and item.tools_added:
+            messages.append(
+                {
+                    "role": "system",
+                    "tools": [
+                        serialize_tool_for_chat_completions(
+                            declaration_definition(tool)
+                        )
+                        for tool in item.tools_added
+                    ],
+                }
+            )
+        text = render_system_message_update(item)
+        if text:
+            messages.append({"role": options.instruction_role, "content": text})
+    return ChatTranscript(messages, tools)
 
 
 def parse_response(

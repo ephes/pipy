@@ -276,6 +276,9 @@ class ReplLoopScope:
     cwd: Path
     started_at: datetime
     base_system_prompt: str
+    # Pi's tagged sections ``base_system_prompt`` renders (the transcript
+    # records them).
+    base_system_sections: tuple[tuple[str, str], ...]
     abort_event: "threading.Event | _AbortCallbackSignal | None"
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
     tool_budget: int

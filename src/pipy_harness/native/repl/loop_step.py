@@ -37,7 +37,11 @@ from pipy_harness.native.agent.request import (
 )
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.agent.runtime_ports import AgentQueuedInput
-from pipy_harness.native.agent.system_messages import system_prompt_input
+from pipy_harness.native.agent.system_messages import (
+    replayed_system_prompt,
+    request_system_messages,
+    system_prompt_input,
+)
 from pipy_harness.native.agent_loop_policy import materialize_provider_request
 from pipy_harness.native.chrome import print_input_separator
 from pipy_harness.native.coding.accepted_input import (
@@ -88,7 +92,7 @@ from pipy_harness.native.image_attachment import (
     ImageAttachmentResolution,
     resolve_image_attachments,
 )
-from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.models import ProviderRequest, ProviderSystemMessage
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.repl.loop_scope import (
@@ -359,8 +363,29 @@ class _RequestPreparationEffects:
     ) -> ProviderRequest:
         scope = self.accepted.turn_input.turn.scope
         accepted_turn = self.accepted.accepted_turn
+        system_prompt = accepted_turn.agent_system_prompt
+        system_messages: tuple[ProviderSystemMessage, ...] = ()
+        # A ``before_agent_start`` suffix forces this run's prompt (Pi
+        # ``16292398a``). Otherwise the prompt is the transcript's replay (Pi
+        # ``collapseSystemMessages`` order), and only a provider that accepts
+        # mid-conversation system messages gets the messages themselves.
+        if accepted_turn.agent_system_prompt == scope.base_system_prompt:
+            with scope.ctl.session_tree_section() as tree:
+                persisted = tree.build_coding_context()
+            anchored = request_system_messages(
+                context.messages,
+                persisted.messages,
+                persisted.system_anchors,
+                active_input,
+                turn_index,
+            )
+            system_prompt = replayed_system_prompt(anchored, system_prompt)
+            if getattr(
+                context.binding.provider, "supports_mid_convo_system_messages", False
+            ):
+                system_messages = anchored
         return ProviderRequest(
-            system_prompt=(accepted_turn.agent_system_prompt + context.summary_suffix),
+            system_prompt=system_prompt + context.summary_suffix,
             user_prompt=accepted_turn.provider_user_input,
             provider_name=context.binding.provider_name,
             model_id=context.binding.model_id,
@@ -372,6 +397,7 @@ class _RequestPreparationEffects:
             # prompt-cache affinity; read per request so /new, /resume and
             # /fork switch it.
             session_id=scope.ctl.session_tree.session_id,
+            system_messages=system_messages,
         )
 
 
@@ -709,11 +735,10 @@ def _phase_f2_run_and_settle(
     scope.ctl.agent_settled_pending = True
     with scope.ctl.session_tree_section() as tree:
         transcript = tree.build_context().messages
-    # pipy's composed prompt is one untagged Pi `preamble` section; Pi's
-    # tagged sections are a separate follow-on (docs/backlog.md).
-    system_prompt = system_prompt_input(
-        transcript, (("preamble", accepted.accepted_turn.agent_system_prompt),)
-    )
+    # The transcript records the base prompt's tagged sections; a
+    # ``before_agent_start`` suffix forces the run's prompt without being
+    # recorded (Pi ``16292398a``).
+    system_prompt = system_prompt_input(transcript, scope.base_system_sections)
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,

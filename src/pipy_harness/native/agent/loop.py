@@ -427,9 +427,16 @@ class AgentLoop:
         turn_index: int,
     ) -> _IterationDisposition:
         definitions = _validate_tool_definitions(self._tools.definitions())
+        system_message = self._system_update(
+            state, definitions, active_input.accepted_message
+        )
         preparation = self._request_source.prepare(
             state.history,
-            active_input,
+            (
+                active_input
+                if system_message is None
+                else replace(active_input, turn_system_message=system_message)
+            ),
             turn_index,
             definitions,
         )
@@ -440,11 +447,7 @@ class AgentLoop:
         )
         _validate_overlay_absent(preparation.history, active_input)
         state.history = preparation.history
-        self._start_turn(
-            turn_index,
-            active_input.accepted_message,
-            self._system_update(state, definitions, active_input.accepted_message),
-        )
+        self._start_turn(turn_index, active_input.accepted_message, system_message)
         if preparation.preparation_failure is not None:
             return self._settle_preparation_failure(
                 state, preparation.preparation_failure, turn_index

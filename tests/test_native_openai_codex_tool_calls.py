@@ -28,6 +28,9 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.messages import AgentSystemMessage
+from pipy_harness.native.agent.system_messages import tool_declaration
+from pipy_harness.native.models import ProviderSystemMessage
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     OpenAICodexCredentials,
@@ -766,49 +769,25 @@ def test_openai_codex_places_deferred_tools_with_full_correlation_hash(
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
         supports_tool_search=True,
+        supports_mid_convo_system_messages=True,
     )
-    provider.complete(
-        ProviderRequest(
-            system_prompt="SYS",
-            user_prompt="load",
-            provider_name="openai-codex",
-            model_id="gpt-5.6-sol",
-            cwd=tmp_path,
-            messages=(
-                AgentAssistantMessage(
-                    content=ProductContent(""),
-                    tool_calls=(
-                        AgentToolCall(
-                            "call_loader|fc_loader", "loader", ProductContent("{}")
-                        ),
-                    ),
-                ),
-                AgentToolResultMessage(
-                    tool_request_id="pipy-tool-load",
-                    tool_name="loader",
-                    content=ProductContent("loaded"),
-                    provider_correlation_id="call_loader|fc_loader",
-                    added_tool_names=("late_tool", "later_tool"),
-                ),
-            ),
-            available_tools=(_tool("loader"), _tool("late_tool"), _tool("later_tool")),
-        )
-    )
+    provider.complete(_loaded_tools_request(tmp_path))
 
     body = client.requests[0]["body"]
     assert [tool["name"] for tool in body["tools"]] == ["loader"]
+    # Pi seeds the id with the system message's index: system:2:<names>.
     assert body["input"][-3:] == [
         {"type": "function_call_output", "call_id": "call_loader", "output": "loaded"},
         {
             "type": "tool_search_call",
-            "call_id": "pi_tool_load_igackd1nf7qef",
+            "call_id": "pi_tool_load_1gq8sya10t3lyb",
             "execution": "client",
             "status": "completed",
             "arguments": {"query": "late_tool later_tool", "limit": 2},
         },
         {
             "type": "tool_search_output",
-            "call_id": "pi_tool_load_igackd1nf7qef",
+            "call_id": "pi_tool_load_1gq8sya10t3lyb",
             "execution": "client",
             "status": "completed",
             "tools": [
@@ -832,29 +811,61 @@ def test_openai_codex_tool_search_defaults_off(tmp_path: Path) -> None:
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
-    ).complete(
-        ProviderRequest(
-            system_prompt="SYS",
-            user_prompt="load",
-            provider_name="openai-codex",
-            model_id="gpt-test",
-            cwd=tmp_path,
-            messages=(
-                AgentToolResultMessage(
-                    tool_request_id="pipy-tool-load",
-                    tool_name="loader",
-                    content=ProductContent("loaded"),
-                    provider_correlation_id="call_loader|fc_loader",
-                    added_tool_names=("late_tool",),
-                ),
-            ),
-            available_tools=(_tool("late_tool"),),
-        )
-    )
+        supports_mid_convo_system_messages=True,
+    ).complete(_loaded_tools_request(tmp_path))
 
     body = client.requests[0]["body"]
-    assert [tool["name"] for tool in body["tools"]] == ["late_tool"]
+    assert [tool["name"] for tool in body["tools"]] == [
+        "loader",
+        "late_tool",
+        "later_tool",
+    ]
     assert not any(item.get("type") == "tool_search_output" for item in body["input"])
+
+
+def _loaded_tools_request(tmp_path: Path) -> ProviderRequest:
+    """A loader call whose result is followed by a system message adding tools."""
+
+    loader, late, later = _tool("loader"), _tool("late_tool"), _tool("later_tool")
+    return ProviderRequest(
+        system_prompt="SYS",
+        user_prompt="load",
+        provider_name="openai-codex",
+        model_id="gpt-5.6-sol",
+        cwd=tmp_path,
+        messages=(
+            AgentAssistantMessage(
+                content=ProductContent(""),
+                tool_calls=(
+                    AgentToolCall(
+                        "call_loader|fc_loader", "loader", ProductContent("{}")
+                    ),
+                ),
+            ),
+            AgentToolResultMessage(
+                tool_request_id="pipy-tool-load",
+                tool_name="loader",
+                content=ProductContent("loaded"),
+                provider_correlation_id="call_loader|fc_loader",
+            ),
+        ),
+        available_tools=(loader, late, later),
+        system_messages=(
+            ProviderSystemMessage(
+                0,
+                AgentSystemMessage(
+                    sections=(("preamble", "SYS"),),
+                    tools_added=(tool_declaration(loader),),
+                ),
+            ),
+            ProviderSystemMessage(
+                2,
+                AgentSystemMessage(
+                    tools_added=(tool_declaration(late), tool_declaration(later))
+                ),
+            ),
+        ),
+    )
 
 
 def test_openai_codex_legacy_callers_still_get_no_tools_field(tmp_path: Path):

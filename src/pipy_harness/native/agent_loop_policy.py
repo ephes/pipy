@@ -21,6 +21,7 @@ from pipy_harness.native.agent.request import (
     validate_product_content,
     validate_provider_request_snapshot,
 )
+from pipy_harness.native.agent.system_messages import remap_system_messages
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import (
     ToolDefinition,
@@ -44,10 +45,19 @@ def materialize_provider_request(
     )
     # Every provider adapter receives history through here: drop aborted and
     # failed assistant turns like Pi's per-provider ``transformMessages``.
+    messages = snapshot.request.messages
+    replayed = provider_replay_messages(messages)
+    system_messages = snapshot.request.system_messages
+    if replayed is not messages and system_messages:
+        kept_ids = {id(message) for message in replayed}
+        system_messages = remap_system_messages(
+            system_messages, [id(message) in kept_ids for message in messages]
+        )
     request = replace(
         snapshot.request,
         available_tools=tools,
-        messages=provider_replay_messages(snapshot.request.messages),
+        messages=replayed,
+        system_messages=system_messages,
     )
     if type(request) is not ProviderRequest:
         raise TypeError("provider projection must produce an exact ProviderRequest")

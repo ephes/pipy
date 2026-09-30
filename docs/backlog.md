@@ -113,6 +113,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | TOOLS3 + DF1-F2b (part) | Tool rows follow Pi's `ToolExecutionComponent` and per-tool renderers ([plan](specs/2026-09-30-tools3-tool-rows-plan.md)): one box per call (pending, then success/error background), read/grep/find/ls/write/edit/bash collapsed and expanded texts, compact `read` classification, edit's diff preview and word-level highlights (jsdiff `diffWords` ported), bash's last-5-lines preview, warning footer and `Took` (bash only), extension renderers and Pi's generic fallbacks. Tool results carry and store Pi's `details` (truncation, limits, edit diff, extension details; never sent to providers). Ctrl+O re-renders every row, extension rows included, live and restored, clearing the scrollback like Pi's full render; the render-details sink and the tools' side output are removed. Deviations: no syntax highlighting, links or ticking `Elapsed`; follow-on TOOLS3b | `feat/tools3-renderers` |
 | DF1-F7 + DF1-F2b (TUI) | TUI polish ([plan](specs/2026-09-30-f7-tui-polish-plan.md)). `/compact` and automatic compaction redraw the chat like Pi's `compaction_end` (kept rows, then the `[compaction]` row; the prompt being sent is drawn after the kept rows), and summary rows are Pi's padded `customMessageBg` boxes. The `pi` theme is Pi's `dark` theme (truecolor and 256-colour codes from Pi's `theme.ts`), and the editor border follows the thinking level or `bashMode` (no ` ! bash ` label). A running `bash` row ticks `Elapsed Ns` every second. Status lines are Pi's dim `showStatus` rows without the `pipy  pipy:` prefix, with Pi's hotkey texts. Paints wait for startup (no stale editor frame), `quietStartup` hides the TUI header, and `--print`/`--mode json`/`--mode rpc` write no chrome to stderr. Deviations and the model-selection and compaction-prompt bullets: follow-on DF1-F7b | `feat/f7-tui-polish` |
 | DF1-F7b (selectors) | Pi's `fuzzy.ts` port; `/model` exact-ref switch or fuzzy selector of available models (Tab scope toggle, Ctrl+S saves default); `/thinking` selector with search; slash menu fuzzy ranking and `/model`/`/thinking` argument completion; `/resume` search via Pi's `parseSearchQuery`; slash commands no longer drawn as user messages; `Error:` lines ([plan](specs/2026-09-30-f7b-selectors-plan.md)). Remainder in the F7b follow-on | `feat/f7b-selectors` |
+| SYS1b | System messages reach providers ([plan](specs/2026-09-30-sys1b-provider-system-messages-plan.md)). Catalog compat flags from Pi's data (`supportsMidConvoSystemMessages`, `supportsAdditionalTools`, `supportsMidConvoToolChanges`, `supportsDeveloperRole`; `supportsMidConvoToolAdditions` via `models.json`); requests carry the session's anchored system messages for adapters that accept them: Responses/Azure/Codex developer messages with `additional_tools`/`tool_search` loads, Chat Completions/Mistral, Anthropic held `system` messages with `tool_addition`/`tool_removal`, placeholder and beta; Google/Bedrock collapse. Tagged prompt sections; `added_tool_names` and `supportsToolReferences` removed (Pi). Remainder: SYS1c | `feat/sys1b-provider-system-messages` |
 
 ## Follow-ons
 
@@ -243,28 +244,31 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - `/session` has no `Cache Warming` section and no styling; resume and
     `/model` restore still need a `model_change` although assistant messages
     now name their model.
-- **SYS1b, system messages to providers:** SYS1a (see Done) records Pi's
-  system messages in the transcript but still sends every model the prompt
-  out of band (Pi's collapse path). Still to port from Pi `9e05370b2`:
-  - the compat flags `supportsMidConvoSystemMessages`,
-    `supportsMidConvoToolAdditions` and `supportsMidConvoToolChanges`, and
-    per-adapter serialization of later system messages (Anthropic
-    `tool_addition`/`tool_removal`, OpenAI Responses/Codex developer messages
-    and `additional_tools`, Chat Completions, Google, Bedrock, Mistral);
+- **SYS1c, system-message remainder:** SYS1b (see Done) sends later system
+  messages to models whose compat accepts them and records Pi's tagged
+  `preamble`/`addendum`/`project_context`/`skills`/`cwd` sections. Still to
+  port from Pi:
   - Anthropic mid-conversation effort (`supportsMidConvoEffort`,
-    `output_config` system messages, `4e69b0c28`);
-  - replacing `AgentToolResultMessage.added_tool_names` deferred-tool loads
-    with transcript `toolsAdded` (Pi removed `addedToolNames`);
-  - restoring the active tool set from the transcript on resume
-    (`_restoreToolsFromTranscript`);
-  - Pi's tagged prompt sections (`tools`/`rules`/`docs`/`addendum`/
-    `project_context`/`skills`/`cwd`) in place of pipy's single `preamble`.
+    `output_config` system messages before assistant turns, the per-message
+    `providerThinkingLevel`, adaptive `block_binding`, the
+    `mid-conversation-output-config`/`thinking-binding-controls` betas;
+    `4e69b0c28`);
+  - restoring the active tool set from the transcript at startup and after
+    `/tree` navigation (`_restoreToolsFromTranscript`);
+  - the `tools`/`rules`/`docs` sections (tool prompt snippets and
+    guidelines; with the "Skills and prompt" follow-on);
+  - the leading prompt's shape: Pi's openai-responses sends it as the first
+    input message in the instruction role (pipy: `instructions`), and Chat
+    Completions uses the instruction role (pipy: `system`); Codex's empty
+    prompt default;
+  - a session whose first system message is not the leading one (made
+    before SYS1a) collapses, where Pi sends the state as a later message.
 - **Thinking and model switches:** an extension `setThinkingLevel` does not
   rebuild the provider; `/model x:level` clamping; the 128k context fallback for
   a selection without a catalog row.
 - **Prompt cache:** openai-completions `prompt_cache_key` and affinity
   headers; Codex WebSocket reuse and per-session SSE fallback; uuidv7 routing
-  ids; Pi's deferred-tool placeholder; Bedrock cache gate reads `model.name`;
+  ids; Bedrock cache gate reads `model.name`;
   prompt-cache warming (`c596d09d9`).
 - **Catalog and cost:** built-in rows carry no cost tiers (xAI and Copilot
   included); extension provider rows carry no cost; `models.json` rejects
@@ -287,7 +291,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Skills and prompt:** template and command stores keep the symlink guard; a
   plain `.md` skill keeps its file stem; package skills load after the auto
   roots; not ported: `disable-model-invocation`, the bash-only skill
-  advertisement and Pi's `<tools>`/`<rules>`/`<cwd>` prompt sections.
+  advertisement and Pi's `<tools>`/`<rules>`/`<docs>` prompt sections
+  (`<cwd>` shipped with SYS1b).
 - **Timing display:** response time and tok/s (tau `7b96883`) and tau's
   reactive model/thinking preview stay pipy product decisions; Pi has neither.
 - **Repo hygiene:** done 2026-09-29. The three merged remote branches were

@@ -102,14 +102,15 @@ def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:
     ]
 
     # Pi `9e05370b2`: the first run opens with the leading system message
-    # (prompt as the `preamble` section, every tool declared), before the user
+    # (prompt as Pi's tagged sections, every tool declared), before the user
     # message, and `agent_end.messages` starts with it.
     system = records[3]["message"]
     assert records[3]["type"] == "message_start"
     assert records[4] == {"type": "message_end", "message": system}
     assert system["role"] == "system"
     assert system["content"] == ""
-    assert list(system["sections"]) == ["preamble"]
+    assert list(system["sections"]) == ["preamble", "cwd"]
+    assert system["sections"]["cwd"].startswith("<cwd>\n")
     assert system["sections"]["preamble"].startswith("You are pipy-native")
     assert [tool["name"] for tool in system["toolsAdded"]]
     assert all(

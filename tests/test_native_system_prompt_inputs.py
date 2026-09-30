@@ -79,7 +79,7 @@ def test_replace_via_flag_overrides_default(tmp_path: Path) -> None:
         config_home=tmp_path / "cfg",
         system_prompt_source="CUSTOM",
     )
-    assert result.base_prompt == "CUSTOM"
+    assert result.preamble == "CUSTOM"
     assert result.replaced is True
     assert result.replace_input is not None
     assert result.replace_input.source_label == "--system-prompt"
@@ -87,7 +87,7 @@ def test_replace_via_flag_overrides_default(tmp_path: Path) -> None:
 
 def test_default_used_when_no_replace(tmp_path: Path) -> None:
     result = resolve_system_prompt(DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg")
-    assert result.base_prompt == DEFAULT
+    assert (result.preamble, result.addendum) == (DEFAULT, "")
     assert result.replaced is False
     assert result.replace_input is None
 
@@ -100,7 +100,7 @@ def test_replace_via_project_system_md_when_no_flag(tmp_path: Path) -> None:
     (cfg / "SYSTEM.md").write_text("GLOBAL SYSTEM", encoding="utf-8")
     result = resolve_system_prompt(DEFAULT, cwd=tmp_path, config_home=cfg)
     # Project .pipy/SYSTEM.md wins over global <config>/SYSTEM.md.
-    assert result.base_prompt == "PROJECT SYSTEM"
+    assert result.preamble == "PROJECT SYSTEM"
     assert result.replace_input is not None
     assert ".pipy/SYSTEM.md" in result.replace_input.source_label
 
@@ -110,7 +110,7 @@ def test_replace_via_global_system_md_when_no_project(tmp_path: Path) -> None:
     cfg.mkdir()
     (cfg / "SYSTEM.md").write_text("GLOBAL SYSTEM", encoding="utf-8")
     result = resolve_system_prompt(DEFAULT, cwd=tmp_path, config_home=cfg)
-    assert result.base_prompt == "GLOBAL SYSTEM"
+    assert result.preamble == "GLOBAL SYSTEM"
 
 
 def test_flag_wins_over_system_md_file(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ def test_flag_wins_over_system_md_file(tmp_path: Path) -> None:
     result = resolve_system_prompt(
         DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", system_prompt_source="FLAG"
     )
-    assert result.base_prompt == "FLAG"
+    assert result.preamble == "FLAG"
 
 
 # --- resolve_system_prompt: append ------------------------------------------
@@ -132,7 +132,7 @@ def test_append_via_flag_repeatable(tmp_path: Path) -> None:
         config_home=tmp_path / "cfg",
         append_sources=["EXTRA ONE", "EXTRA TWO"],
     )
-    assert result.base_prompt == f"{DEFAULT}\n\nEXTRA ONE\n\nEXTRA TWO"
+    assert (result.preamble, result.addendum) == (DEFAULT, "EXTRA ONE\n\nEXTRA TWO")
     assert len(result.append_inputs) == 2
 
 
@@ -144,7 +144,7 @@ def test_append_via_file(tmp_path: Path) -> None:
         config_home=tmp_path / "cfg",
         append_sources=[str(tmp_path / "extra.md")],
     )
-    assert result.base_prompt == f"{DEFAULT}\n\nFROM FILE"
+    assert (result.preamble, result.addendum) == (DEFAULT, "FROM FILE")
 
 
 def test_append_via_append_system_md_when_no_flag(tmp_path: Path) -> None:
@@ -153,7 +153,7 @@ def test_append_via_append_system_md_when_no_flag(tmp_path: Path) -> None:
         "PROJECT APPEND", encoding="utf-8"
     )
     result = resolve_system_prompt(DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg")
-    assert result.base_prompt == f"{DEFAULT}\n\nPROJECT APPEND"
+    assert (result.preamble, result.addendum) == (DEFAULT, "PROJECT APPEND")
 
 
 def test_append_flag_wins_over_append_system_md(tmp_path: Path) -> None:
@@ -167,7 +167,7 @@ def test_append_flag_wins_over_append_system_md(tmp_path: Path) -> None:
         config_home=tmp_path / "cfg",
         append_sources=["FLAG APPEND"],
     )
-    assert result.base_prompt == f"{DEFAULT}\n\nFLAG APPEND"
+    assert (result.preamble, result.addendum) == (DEFAULT, "FLAG APPEND")
 
 
 def test_replace_and_append_compose(tmp_path: Path) -> None:
@@ -178,7 +178,7 @@ def test_replace_and_append_compose(tmp_path: Path) -> None:
         system_prompt_source="CUSTOM BASE",
         append_sources=["APPENDED"],
     )
-    assert result.base_prompt == "CUSTOM BASE\n\nAPPENDED"
+    assert (result.preamble, result.addendum) == ("CUSTOM BASE", "APPENDED")
 
 
 # --- safe metadata ----------------------------------------------------------
@@ -220,7 +220,7 @@ def test_empty_system_prompt_flag_keeps_default_and_skips_discovery(
     result = resolve_system_prompt(
         DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", system_prompt_source=""
     )
-    assert result.base_prompt == DEFAULT
+    assert (result.preamble, result.addendum) == (DEFAULT, "")
     assert result.replaced is False
     assert result.replace_input is None
 
@@ -229,7 +229,7 @@ def test_empty_append_flag_value_is_dropped(tmp_path: Path) -> None:
     result = resolve_system_prompt(
         DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", append_sources=[""]
     )
-    assert result.base_prompt == DEFAULT
+    assert (result.preamble, result.addendum) == (DEFAULT, "")
     assert result.append_inputs == ()
 
 
@@ -242,4 +242,4 @@ def test_empty_append_flag_does_not_fall_through_to_file(tmp_path: Path) -> None
     result = resolve_system_prompt(
         DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", append_sources=[""]
     )
-    assert result.base_prompt == DEFAULT
+    assert (result.preamble, result.addendum) == (DEFAULT, "")

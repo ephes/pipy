@@ -203,7 +203,6 @@ class AgentToolResultMessage:
     content: ProductContent
     provider_correlation_id: str
     is_error: bool = False
-    added_tool_names: tuple[str, ...] = ()
     # Pi ``ToolResultMessage.details``: stored and rendered, never sent to a
     # provider, so it takes no part in history equality.
     details: Mapping[str, Any] | None = field(default=None, compare=False)
@@ -228,12 +227,6 @@ class AgentToolResultMessage:
             self.provider_correlation_id,
             "AgentToolResultMessage.provider_correlation_id",
         )
-        if not isinstance(self.added_tool_names, tuple):
-            raise TypeError("AgentToolResultMessage.added_tool_names must be a tuple")
-        for index, name in enumerate(self.added_tool_names):
-            require_non_empty_string(
-                name, f"AgentToolResultMessage.added_tool_names[{index}]"
-            )
         if not self.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX):
             raise ValueError(
                 "AgentToolResultMessage.tool_request_id must be pipy-owned "

@@ -306,7 +306,6 @@ def _deferred_request(
                 tool_name="base_tool",
                 content=ProductContent("loaded late tool"),
                 provider_correlation_id="call_base",
-                added_tool_names=("late_tool",),
             ),
         ),
         available_tools=tools or (_tool("base_tool"), _tool("late_tool")),
@@ -329,147 +328,39 @@ def _successful_client() -> FakeJsonHTTPClient:
     )
 
 
-def test_supported_anthropic_defers_tool_at_result_marker(tmp_path: Path) -> None:
-    client = _successful_client()
-    provider = AnthropicProvider(
-        model_id="claude-opus-4-7",
-        api_key="sk-test",
-        http_client=client,
-        supports_tool_references=True,
-    )
+def test_anthropic_without_native_tool_changes_sends_current_tools(
+    tmp_path: Path,
+) -> None:
+    """Pi removed tool-result ``tool_reference`` loads (``9e05370b2``).
 
-    provider.complete(_deferred_request(tmp_path))
+    A model without mid-conversation tool changes (``claude-opus-4-7``) gets
+    the current tools as ordinary definitions and the result as plain text.
+    """
+
+    client = _successful_client()
+    AnthropicProvider(
+        model_id="claude-opus-4-7", api_key="sk-test", http_client=client
+    ).complete(_deferred_request(tmp_path))
 
     body = client.requests[0]["body"]
-    assert body["tools"] == [
-        {
-            "name": "base_tool",
-            "description": "base_tool description",
-            "input_schema": {"type": "object", "properties": {}},
-            "cache_control": {"type": "ephemeral"},
-        },
-        {
-            "name": "late_tool",
-            "description": "late_tool description",
-            "input_schema": {"type": "object", "properties": {}},
-            "defer_loading": True,
-        },
-    ]
+    assert [
+        (tool["name"], tool.get("defer_loading"), tool.get("cache_control"))
+        for tool in body["tools"]
+    ] == [("base_tool", None, None), ("late_tool", None, {"type": "ephemeral"})]
     assert body["messages"][-1] == {
         "role": "user",
         "content": [
             {
                 "type": "tool_result",
                 "tool_use_id": "call_base",
-                "content": [{"type": "tool_reference", "tool_name": "late_tool"}],
-            },
-            {
-                "type": "text",
-                "text": "loaded late tool",
+                "content": "loaded late tool",
                 "cache_control": {"type": "ephemeral"},
-            },
+            }
         ],
     }
 
 
-def test_anthropic_reference_omits_empty_displaced_output(tmp_path: Path) -> None:
-    for output_text in ("", " \n\t"):
-        request = _deferred_request(tmp_path)
-        messages = list(request.messages)
-        messages[-1] = AgentToolResultMessage(
-            tool_request_id="pipy-tool-load",
-            tool_name="base_tool",
-            content=ProductContent(output_text),
-            provider_correlation_id="call_base",
-            added_tool_names=("late_tool",),
-        )
-        request = ProviderRequest(
-            system_prompt=request.system_prompt,
-            user_prompt=request.user_prompt,
-            provider_name=request.provider_name,
-            model_id=request.model_id,
-            cwd=request.cwd,
-            messages=tuple(messages),
-            available_tools=request.available_tools,
-        )
-        client = _successful_client()
-        AnthropicProvider(
-            model_id="claude-opus-4-7",
-            api_key="sk-test",
-            http_client=client,
-            supports_tool_references=True,
-        ).complete(request)
-
-        assert client.requests[0]["body"]["messages"][-1]["content"] == [
-            {
-                "type": "tool_result",
-                "tool_use_id": "call_base",
-                "content": [{"type": "tool_reference", "tool_name": "late_tool"}],
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
-
-
-def test_anthropic_deferred_fallback_matrix(tmp_path: Path) -> None:
-    cases = (
-        # Explicitly unsupported models keep the full ordinary tool list.
-        (False, _deferred_request(tmp_path), ["base_tool", "late_tool"]),
-        # A tool used before its marker must remain immediate.
-        (
-            True,
-            _deferred_request(
-                tmp_path,
-                messages=(
-                    AgentUserMessage(content=ProductContent("load tools")),
-                    AgentAssistantMessage(
-                        content=ProductContent(""),
-                        tool_calls=(
-                            AgentToolCall(
-                                provider_correlation_id="call_late",
-                                tool_name="late_tool",
-                                arguments_json=ProductContent("{}"),
-                            ),
-                        ),
-                    ),
-                    AgentToolResultMessage(
-                        tool_request_id="pipy-tool-load",
-                        tool_name="late_tool",
-                        content=ProductContent("already used"),
-                        provider_correlation_id="call_late",
-                        added_tool_names=("late_tool",),
-                    ),
-                ),
-            ),
-            ["base_tool", "late_tool"],
-        ),
-        # Anthropic requires at least one immediate tool.
-        (
-            True,
-            _deferred_request(tmp_path, tools=(_tool("late_tool"),)),
-            ["late_tool"],
-        ),
-    )
-    for supported, request, expected_names in cases:
-        client = _successful_client()
-        AnthropicProvider(
-            model_id="claude-opus-4-7",
-            api_key="sk-test",
-            http_client=client,
-            supports_tool_references=supported,
-        ).complete(request)
-        tools = client.requests[0]["body"]["tools"]
-        assert [tool["name"] for tool in tools] == expected_names
-        assert all("defer_loading" not in tool for tool in tools)
-        result_content = client.requests[0]["body"]["messages"][-1]["content"][0][
-            "content"
-        ]
-        assert not (
-            isinstance(result_content, list)
-            and any(block.get("type") == "tool_reference" for block in result_content)
-        )
-
-
-def test_anthropic_groups_consecutive_results_before_displaced_output(
+def test_anthropic_groups_consecutive_results_into_one_user_turn(
     tmp_path: Path,
 ) -> None:
     messages = (
@@ -486,7 +377,6 @@ def test_anthropic_groups_consecutive_results_before_displaced_output(
             tool_name="base_tool",
             content=ProductContent("first output"),
             provider_correlation_id="call_1",
-            added_tool_names=("late_tool", "late_tool", "missing_tool"),
         ),
         AgentToolResultMessage(
             tool_request_id="pipy-tool-2",
@@ -497,26 +387,15 @@ def test_anthropic_groups_consecutive_results_before_displaced_output(
     )
     client = _successful_client()
     AnthropicProvider(
-        model_id="claude-opus-4-7",
-        api_key="sk-test",
-        http_client=client,
-        supports_tool_references=True,
+        model_id="claude-opus-4-7", api_key="sk-test", http_client=client
     ).complete(_deferred_request(tmp_path, messages=messages))
 
     assert client.requests[0]["body"]["messages"][-1]["content"] == [
-        {
-            "type": "tool_result",
-            "tool_use_id": "call_1",
-            "content": [{"type": "tool_reference", "tool_name": "late_tool"}],
-        },
+        {"type": "tool_result", "tool_use_id": "call_1", "content": "first output"},
         {
             "type": "tool_result",
             "tool_use_id": "call_2",
             "content": "second output",
-        },
-        {
-            "type": "text",
-            "text": "first output",
             "cache_control": {"type": "ephemeral"},
         },
     ]

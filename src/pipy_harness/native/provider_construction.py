@@ -122,10 +122,9 @@ class ResolvedConstruction:
     # Pi's ``compat.forceAdaptiveThinking === true`` gate. Only the
     # anthropic-messages adapter consumes it (adaptive vs budget thinking).
     force_adaptive_thinking: bool = False
-    # Anthropic-native deferred tools are opt-in by explicit compat or by Pi's
-    # bounded first-party Claude 4.5+ detector. Only the anthropic adapter uses
-    # this value.
-    supports_tool_references: bool = False
+    # Pi's mid-conversation system-message compat for the adapter family
+    # (``resolve_transcript_compat``).
+    transcript: "TranscriptCompat" = field(default_factory=lambda: TranscriptCompat())
     # OpenAI Responses client tool search is an explicit per-model compat bit.
     # Only openai-responses reads it from the resolved value; Codex resolves it
     # from ``spec`` directly in :func:`build_openai_codex_provider`.
@@ -265,13 +264,8 @@ def resolve_construction(
     reasoning_effort, thinking_disabled = _resolve_family_thinking(
         spec, thinking_level, body_extra
     )
-    supports_tool_references = (
-        _resolve_anthropic_tool_references(spec)
-        if spec.api == "anthropic-messages"
-        else False
-    )
     supports_tool_search = (
-        resolve_openai_tool_search(spec) if spec.api == "openai-responses" else False
+        resolve_openai_tool_search(spec) if spec.api in _RESPONSES_FAMILIES else False
     )
     responses_prompt_cache = (
         resolve_responses_prompt_cache(spec, base_url)
@@ -303,7 +297,7 @@ def resolve_construction(
         include_encrypted_reasoning=include_encrypted_reasoning,
         thinking_disabled=thinking_disabled,
         force_adaptive_thinking=_resolve_anthropic_adaptive_thinking(spec),
-        supports_tool_references=supports_tool_references,
+        transcript=resolve_transcript_compat(spec),
         supports_tool_search=supports_tool_search,
         responses_prompt_cache=responses_prompt_cache,
         anthropic_prompt_cache=anthropic_prompt_cache,
@@ -587,27 +581,144 @@ _THINKING_HANDLERS: Mapping[str, _ThinkingHandler] = {
 }
 
 
-_ANTHROPIC_TOOL_REFERENCE_MODEL = re.compile(
-    r"^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)"
+def _explicit_compat_flag(spec: NativeModelSpec, key: str) -> bool | None:
+    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
+    value = compat.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _compat_flag(spec: NativeModelSpec, key: str) -> bool:
+    """An explicit-only Pi compat bool: the row's value, else ``false``."""
+
+    return _explicit_compat_flag(spec, key) is True
+
+
+# Pi ``detectCompat`` ``isNonStandard`` providers and base-URL markers
+# (nvidia, cerebras, xai, together, chutes, zai, moonshot, opencode,
+# Cloudflare Workers AI and AI Gateway, ant-ling; deepseek is tested on the
+# lowered URL, as Pi does).
+_NON_STANDARD_COMPLETIONS_PROVIDERS = frozenset(
+    {
+        "nvidia",
+        "cerebras",
+        "xai",
+        "together",
+        "deepseek",
+        "zai",
+        "zai-coding-cn",
+        "moonshotai",
+        "moonshotai-cn",
+        "opencode",
+        "cloudflare-workers-ai",
+        "cloudflare-ai-gateway",
+        "ant-ling",
+    }
+)
+_NON_STANDARD_COMPLETIONS_URLS = (
+    "integrate.api.nvidia.com",
+    "cerebras.ai",
+    "api.x.ai",
+    "api.together.ai",
+    "api.together.xyz",
+    "chutes.ai",
+    "api.z.ai",
+    "open.bigmodel.cn",
+    "api.moonshot.",
+    "opencode.ai",
+    "api.cloudflare.com",
+    "gateway.ai.cloudflare.com",
+    "api.ant-ling.com",
 )
 
 
-def _resolve_anthropic_tool_references(spec: NativeModelSpec) -> bool:
-    """Resolve Pi's ``compat.supportsToolReferences`` independently."""
+def _completions_developer_role(spec: NativeModelSpec) -> bool:
+    """Pi ``detectCompat`` ``supportsDeveloperRole`` (``openai-completions.ts:1585-1638``).
 
-    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
-    explicit = compat.get("supportsToolReferences")
-    if isinstance(explicit, bool):
+    An explicit ``compat.supportsDeveloperRole`` wins; otherwise OpenRouter
+    ``anthropic/``/``openai/`` models and every endpoint that is neither
+    non-standard nor OpenRouter use the developer role.
+    """
+
+    explicit = _explicit_compat_flag(spec, "supportsDeveloperRole")
+    if explicit is not None:
         return explicit
-    if spec.provider_name != "anthropic" or "haiku" in spec.model_id:
-        return False
-    match = _ANTHROPIC_TOOL_REFERENCE_MODEL.match(spec.model_id)
-    if match is None:
-        return False
-    major = int(match.group(1))
-    raw_minor = match.group(2)
-    minor = int(raw_minor) if raw_minor is not None and len(raw_minor) < 8 else 0
-    return major > 4 or (major == 4 and minor >= 5)
+    provider = spec.provider_name or ""
+    base_url = spec.base_url or ""
+    is_open_router = provider == "openrouter" or "openrouter.ai" in base_url
+    is_non_standard = (
+        provider in _NON_STANDARD_COMPLETIONS_PROVIDERS
+        or any(part in base_url for part in _NON_STANDARD_COMPLETIONS_URLS)
+        or "deepseek.com" in base_url.lower()
+    )
+    if is_open_router and spec.model_id.startswith(("anthropic/", "openai/")):
+        return True
+    return not is_non_standard and not is_open_router
+
+
+_RESPONSES_TRANSCRIPT_APIS = frozenset(
+    {"openai-responses", "azure-openai-responses", "openai-codex-responses"}
+)
+_COMPLETIONS_TRANSCRIPT_APIS = frozenset(
+    {"openai-completions", "cloudflare-workers-ai"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptCompat:
+    """Pi's mid-conversation system-message compat for one adapter family.
+
+    Fields a family does not read keep their defaults (for example Mistral
+    has no tool additions and always uses ``system``).
+    """
+
+    supports_mid_convo_system_messages: bool = False
+    supports_additional_tools: bool = False
+    supports_mid_convo_tool_additions: bool = False
+    supports_mid_convo_tool_changes: bool = False
+    instruction_role: str = "system"
+
+
+def resolve_transcript_compat(spec: NativeModelSpec) -> TranscriptCompat:
+    """Pi's mid-conversation system-message compat, per adapter family.
+
+    Each flag resolves on its own (Pi ``getCompat``): the explicit row value,
+    else Pi's default (``false`` for every flag here; the developer role
+    follows each API's own rule). Families Pi always collapses (Google,
+    Bedrock) get the defaults.
+    """
+
+    mid_convo = _compat_flag(spec, "supportsMidConvoSystemMessages")
+    if spec.api in _RESPONSES_TRANSCRIPT_APIS:
+        developer = (
+            spec.reasoning
+            and _explicit_compat_flag(spec, "supportsDeveloperRole") is not False
+        )
+        return TranscriptCompat(
+            supports_mid_convo_system_messages=mid_convo,
+            supports_additional_tools=_compat_flag(spec, "supportsAdditionalTools"),
+            instruction_role="developer" if developer else "system",
+        )
+    if spec.api in _COMPLETIONS_TRANSCRIPT_APIS:
+        developer = spec.reasoning and _completions_developer_role(spec)
+        return TranscriptCompat(
+            supports_mid_convo_system_messages=mid_convo,
+            supports_mid_convo_tool_additions=_compat_flag(
+                spec, "supportsMidConvoToolAdditions"
+            ),
+            instruction_role="developer" if developer else "system",
+        )
+    if spec.api == "anthropic-messages":
+        return TranscriptCompat(
+            supports_mid_convo_system_messages=mid_convo,
+            supports_mid_convo_tool_changes=_compat_flag(
+                spec, "supportsMidConvoToolChanges"
+            ),
+        )
+    if spec.api == "mistral":
+        # Pi ``mistral-conversations``: later messages use ``system``, no
+        # tool additions.
+        return TranscriptCompat(supports_mid_convo_system_messages=mid_convo)
+    return TranscriptCompat()
 
 
 def resolve_openai_tool_search(spec: NativeModelSpec) -> bool:
@@ -1017,6 +1128,12 @@ def _build_catalog_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            supports_tool_search=resolved.supports_tool_search,
+            supports_mid_convo_system_messages=(
+                resolved.transcript.supports_mid_convo_system_messages
+            ),
+            supports_additional_tools=resolved.transcript.supports_additional_tools,
+            instruction_role=resolved.transcript.instruction_role,
             **http_kwargs,
         )
 
@@ -1033,6 +1150,13 @@ def _build_catalog_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            supports_mid_convo_system_messages=(
+                resolved.transcript.supports_mid_convo_system_messages
+            ),
+            supports_mid_convo_tool_additions=(
+                resolved.transcript.supports_mid_convo_tool_additions
+            ),
+            instruction_role=resolved.transcript.instruction_role,
             **http_kwargs,
         )
 
@@ -1058,6 +1182,13 @@ def _build_catalog_provider(
             extra_headers=dict(resolved.headers),
             extra_body=dict(resolved.body_extra),
             reasoning_effort=resolved.reasoning_effort,
+            supports_mid_convo_system_messages=(
+                resolved.transcript.supports_mid_convo_system_messages
+            ),
+            supports_mid_convo_tool_additions=(
+                resolved.transcript.supports_mid_convo_tool_additions
+            ),
+            instruction_role=resolved.transcript.instruction_role,
         )
 
     if resolved.api == "anthropic-messages":
@@ -1072,7 +1203,12 @@ def _build_catalog_provider(
             reasoning_effort=resolved.reasoning_effort,
             thinking_disabled=resolved.thinking_disabled,
             force_adaptive_thinking=resolved.force_adaptive_thinking,
-            supports_tool_references=resolved.supports_tool_references,
+            supports_mid_convo_system_messages=(
+                resolved.transcript.supports_mid_convo_system_messages
+            ),
+            supports_mid_convo_tool_changes=(
+                resolved.transcript.supports_mid_convo_tool_changes
+            ),
             **_anthropic_prompt_cache_kwargs(resolved.anthropic_prompt_cache),
             **http_kwargs,
         )
@@ -1092,6 +1228,11 @@ def _build_catalog_provider(
             reasoning_summary=resolved.reasoning_summary,
             include_encrypted_reasoning=resolved.include_encrypted_reasoning,
             supports_tool_search=resolved.supports_tool_search,
+            supports_mid_convo_system_messages=(
+                resolved.transcript.supports_mid_convo_system_messages
+            ),
+            supports_additional_tools=resolved.transcript.supports_additional_tools,
+            instruction_role=resolved.transcript.instruction_role,
             **_responses_prompt_cache_kwargs(resolved.responses_prompt_cache),
             **http_kwargs,
         )
@@ -1105,6 +1246,9 @@ def _build_catalog_provider(
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
         reasoning_effort=resolved.reasoning_effort,
+        supports_mid_convo_system_messages=(
+            resolved.transcript.supports_mid_convo_system_messages
+        ),
         **http_kwargs,
     )
 
@@ -1212,6 +1356,12 @@ def build_openai_codex_provider(
         ),
         "supports_tool_search": resolve_openai_tool_search(spec),
     }
+    transcript = resolve_transcript_compat(spec)
+    codex_options["supports_mid_convo_system_messages"] = (
+        transcript.supports_mid_convo_system_messages
+    )
+    codex_options["supports_additional_tools"] = transcript.supports_additional_tools
+    codex_options["instruction_role"] = transcript.instruction_role
     effort, off_state = resolve_responses_reasoning(spec, thinking_level)
     if off_state:
         codex_options["reasoning_off"] = True
@@ -1299,6 +1449,12 @@ class PerRequestOAuthProvider:
     @property
     def model_id(self) -> str:
         return self.resolved.model_id
+
+    @property
+    def supports_mid_convo_system_messages(self) -> bool:
+        """The rebuilt adapter's compat, so requests carry system messages."""
+
+        return self.resolved.transcript.supports_mid_convo_system_messages
 
     def _fresh_construction(self) -> ResolvedConstruction | str:
         try:

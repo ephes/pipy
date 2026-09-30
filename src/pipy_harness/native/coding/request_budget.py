@@ -18,6 +18,11 @@ from pipy_harness.native.agent.messages import (
     AgentToolResultMessage,
 )
 from pipy_harness.native.agent.request import validate_frozen_provider_request
+from pipy_harness.native.agent.system_messages import (
+    current_system_message,
+    render_system_message_update,
+    system_message_text,
+)
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import materialize_tool_input_schema
 
@@ -134,7 +139,6 @@ def estimate_request(
                     message.tool_request_id,
                     message.provider_correlation_id,
                     str(message.is_error).lower(),
-                    *message.added_tool_names,
                 )
             )
         else:
@@ -164,13 +168,14 @@ def estimate_request(
         )
         for tool in request.available_tools
     )
-    system_tokens = _text_tokens(request.system_prompt)
+    system_tokens, later_count = _system_tokens(request)
     image_tokens = 4096 * image_count
     framing_tokens = 32 + 8 * (
         max(1, len(request.messages))
         + len(request.available_tools)
         + call_count
         + image_count
+        + later_count
     )
     subtotal = (
         system_tokens
@@ -192,6 +197,47 @@ def estimate_request(
         (subtotal + 3) // 4,
         output_reserve,
     )
+
+
+def _system_tokens(request: ProviderRequest) -> tuple[int, int]:
+    """System text as a mid-conversation adapter sends it, and extra framing.
+
+    With system messages the leading text is the first message's own text
+    plus the out-of-band tail (the current replay can be shorter), each later
+    message adds its rendered update, and every declaration an adapter may
+    keep beyond ``available_tools`` counts: all later additions and the
+    leading declarations no longer advertised (Anthropic keeps removed tools
+    declared). The second value is the extra framing units.
+    """
+
+    anchored = request.system_messages
+    if not anchored:
+        return _text_tokens(request.system_prompt), 0
+    messages = tuple(anchor.message for anchor in anchored)
+    replay = current_system_message(messages)
+    replay_text = system_message_text(replay) if replay is not None else ""
+    leading = system_message_text(messages[0]) if anchored[0].position == 0 else ""
+    tail = (
+        request.system_prompt[len(replay_text) :]
+        if request.system_prompt.startswith(replay_text)
+        else request.system_prompt
+    )
+    # The adapter falls back to the collapsed prompt when the invariant fails.
+    tokens = max(_text_tokens(request.system_prompt), _text_tokens(leading + tail))
+    advertised = {tool.name for tool in request.available_tools}
+    kept = [
+        *(tool for tool in messages[0].tools_added if tool.name not in advertised),
+        *(tool for message in messages[1:] for tool in message.tools_added),
+    ]
+    for message in messages[1:]:
+        tokens += _text_tokens(render_system_message_update(message))
+    tokens += sum(
+        _text_tokens(tool.name)
+        + _text_tokens(tool.description)
+        + _text_tokens(tool.parameters_json)
+        for tool in kept
+    )
+    return tokens, len(messages) - 1 + len(kept)
 
 
 def _text_tokens(text: str) -> int:

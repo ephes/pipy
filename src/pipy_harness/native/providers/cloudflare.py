@@ -27,7 +27,8 @@ from pipy_harness.native.http import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
-    chat_messages,
+    ChatTranscriptOptions,
+    chat_transcript,
     extract_chat_completions_usage,
     parse_response,
 )
@@ -92,6 +93,11 @@ class CloudflareWorkersAIProvider:
     endpoint: str | None = None
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    # Pi's openai-completions system-message compat (SYS1b; Pi serves
+    # Cloudflare over openai-completions), resolved by catalog construction.
+    supports_mid_convo_system_messages: bool = False
+    supports_mid_convo_tool_additions: bool = False
+    instruction_role: str = "system"
 
     @property
     def name(self) -> str:
@@ -178,14 +184,25 @@ class CloudflareWorkersAIProvider:
         if isinstance(configuration, ProviderResult):
             return configuration
 
+        transcript = chat_transcript(
+            request,
+            ChatTranscriptOptions(
+                supports_mid_convo_system_messages=(
+                    self.supports_mid_convo_system_messages
+                ),
+                supports_mid_convo_tool_additions=(
+                    self.supports_mid_convo_tool_additions
+                ),
+                instruction_role=self.instruction_role,
+            ),
+        )
         body: dict[str, Any] = {
             "model": configuration.model_id,
-            "messages": chat_messages(request),
+            "messages": transcript.messages,
         }
-        if request.available_tools:
+        if transcript.tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool)
-                for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool) for tool in transcript.tools
             ]
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort

@@ -302,58 +302,6 @@ def test_execution_forwards_product_context_live_output_and_identity_domains(
     assert error.provider_correlation_id == "provider-missing"
 
 
-@pytest.mark.parametrize(
-    ("extension_error", "next_names", "expected_added"),
-    [
-        (False, ("loader", "late"), ("late",)),
-        (False, ("late",), ()),
-        (True, ("loader", "late"), ()),
-    ],
-)
-def test_extension_results_mark_only_successful_additive_visibility(
-    tmp_path: Path,
-    extension_error: bool,
-    next_names: tuple[str, ...],
-    expected_added: tuple[str, ...],
-) -> None:
-    holder: list[NativeToolCapabilities] = []
-
-    def activate(_request: ToolRequest, _context: ToolContext) -> None:
-        assert holder[0].set_active_tools(next_names) is True
-
-    loader = _RecordingTool("loader", invoke_hook=activate, is_error=extension_error)
-    capabilities = _capabilities(
-        tmp_path,
-        extensions=(loader, _RecordingTool("late")),
-    )
-    holder.append(capabilities)
-    assert capabilities.set_active_tools(("loader",)) is True
-
-    outcome = capabilities.execute(_call("loader"))
-
-    assert outcome.result.added_tool_names == expected_added
-
-
-def test_builtin_results_do_not_announce_additive_visibility(tmp_path: Path) -> None:
-    holder: list[NativeToolCapabilities] = []
-
-    def activate(_request: ToolRequest, _context: ToolContext) -> None:
-        assert holder[0].set_active_tools(("loader", "late")) is True
-
-    loader = _RecordingTool("loader", invoke_hook=activate)
-    capabilities = _capabilities(
-        tmp_path,
-        builtins=(loader,),
-        extensions=(_RecordingTool("late"),),
-    )
-    holder.append(capabilities)
-    assert capabilities.set_active_tools(("loader",)) is True
-
-    outcome = capabilities.execute(_call("loader"))
-
-    assert outcome.result.added_tool_names == ()
-
-
 def test_agent_protocol_accepts_a_headless_fake_implementation() -> None:
     class _HeadlessCapabilities:
         def definitions(
@@ -501,59 +449,6 @@ def test_published_state_mappings_are_read_only(tmp_path: Path) -> None:
     for mapping in (state.registry, state.builtin_registry, state.extension_registry):
         with pytest.raises(TypeError):
             cast(dict[str, object], mapping)["injected"] = _RecordingTool("injected")
-
-
-def test_reload_during_a_call_is_not_reported_as_added_tools(
-    tmp_path: Path,
-) -> None:
-    """A generation swap mid-call must not masquerade as tool widening."""
-
-    reloading = _RecordingTool("reloading")
-    capabilities = _capabilities(
-        tmp_path,
-        builtins=(_RecordingTool("builtin"),),
-        extensions=(reloading,),
-    )
-    assert capabilities.set_active_tools(("reloading",)) is True
-
-    def _publish_new_generation(_request: ToolRequest, _context: ToolContext) -> None:
-        capabilities.publish(
-            capabilities.prepare_extensions(
-                {
-                    "reloading": reloading,
-                    "arrived_on_reload": _RecordingTool("arrived_on_reload"),
-                }
-            )
-        )
-
-    reloading.invoke_hook = _publish_new_generation
-
-    outcome = capabilities.execute(_call("reloading"))
-
-    assert outcome.result.added_tool_names == ()
-
-
-def test_active_tool_widening_during_a_call_is_still_reported(
-    tmp_path: Path,
-) -> None:
-    """The generation check must not suppress the real widening case."""
-
-    widening = _RecordingTool("widening")
-    capabilities = _capabilities(
-        tmp_path,
-        builtins=(_RecordingTool("builtin"),),
-        extensions=(widening,),
-    )
-    assert capabilities.set_active_tools(("widening",)) is True
-
-    def _widen(_request: ToolRequest, _context: ToolContext) -> None:
-        assert capabilities.set_active_tools(("widening", "builtin")) is True
-
-    widening.invoke_hook = _widen
-
-    outcome = capabilities.execute(_call("widening"))
-
-    assert outcome.result.added_tool_names == ("builtin",)
 
 
 def test_publication_does_not_overwrite_a_selection_accepted_while_preparing(

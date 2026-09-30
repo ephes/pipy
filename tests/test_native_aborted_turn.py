@@ -60,7 +60,7 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.openai_codex_provider import _responses_input_messages
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
-from pipy_harness.native.providers.chat_completions_wire import chat_messages
+from pipy_harness.native.providers.chat_completions_wire import chat_transcript
 from pipy_harness.native.providers.google_generate_content_wire import (
     gemini_contents,
 )
@@ -234,7 +234,7 @@ def test_materialized_request_drops_stopped_turns() -> None:
 
 def _wire_payloads(request: ProviderRequest) -> dict[str, object]:
     return {
-        "chat-completions": chat_messages(request),
+        "chat-completions": chat_transcript(request).messages,
         "chat-envelopes": [envelope_to_chat_message(m) for m in request.messages],
         "anthropic": messages_payload(request, parse_error_class=ProviderHTTPError),
         "anthropic-coalesced": messages_payload(

@@ -189,6 +189,7 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
 )
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.system_prompt_sections import sections_for_prompt
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
@@ -216,6 +217,7 @@ class SessionWiringInput:
     output_stream: TextIO
     error_stream: TextIO
     system_prompt: str
+    system_prompt_sections: tuple[tuple[str, str], ...]
     provider_name: str | None
     model_id: str | None
     build_terminal_ui: Callable[..., TerminalUi | None]
@@ -543,6 +545,7 @@ class _ProductPhase:
     renderer: _ToolLoopRenderer | TuiToolLoopRenderer
     started_at: datetime
     base_system_prompt: str
+    base_system_sections: tuple[tuple[str, str], ...]
     ctl: RunControlState
     product_session: CodingProductSessionCoordinator
     append_agent_message: Callable[[AgentTranscriptMessage], None]
@@ -1170,6 +1173,9 @@ def _compose_product_session(
         renderer=renderer,
         started_at=started_at,
         base_system_prompt=base_system_prompt,
+        base_system_sections=sections_for_prompt(
+            system_prompt, inputs.system_prompt_sections
+        ),
         ctl=ctl,
         product_session=product_session,
         append_agent_message=append_agent_message,
@@ -1914,6 +1920,7 @@ def _assemble_session_wiring(
         cwd=cwd,
         started_at=started_at,
         base_system_prompt=base_system_prompt,
+        base_system_sections=product.base_system_sections,
         abort_event=_runtime_abort_event(inputs, loop_controller),
         provider_state=inputs.provider_state,
         tool_budget=inputs.tool_budget,

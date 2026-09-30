@@ -126,6 +126,8 @@ class CodingSession:
     tool_budget: int = 50
     workspace_root: Path | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
+    # Pi's tagged sections of the prompt ``run`` gets (wiring checks them).
+    system_prompt_sections: tuple[tuple[str, str], ...] = ()
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = (
         None
     )
@@ -156,11 +158,8 @@ class CodingSession:
     # Optional canonical event projection used by architecture adapters and
     # tests. It participates in the same synchronous, ordered mode composite.
     agent_event_sink: "AgentEventSink | None" = None
-    # Optional external abort signal for the headless automation RPC mode. When
-    # set, a non-TUI provider turn runs on a worker thread with a cancel token
-    # wired to this event, so an RPC ``abort`` cancels the in-flight turn at the
-    # provider boundary. ``None`` (CLI/TUI/one-shot) keeps the simple blocking
-    # provider call.
+    # Headless RPC abort: a non-TUI provider turn runs on a worker thread whose
+    # cancel token follows this event; ``None`` keeps the blocking call.
     abort_event: "threading.Event | _AbortCallbackSignal | None" = None
     resource_options: RuntimeResourceOptions = field(
         default_factory=RuntimeResourceOptions.empty
@@ -290,6 +289,7 @@ class CodingSession:
                 output_stream=output_stream,
                 error_stream=error_stream,
                 system_prompt=system_prompt,
+                system_prompt_sections=self.system_prompt_sections,
                 provider_name=provider_name,
                 model_id=model_id,
                 build_terminal_ui=self._build_terminal_ui,

@@ -69,6 +69,9 @@ class _CapturingProvider:
 
 
 class _DynamicProvider(_CapturingProvider):
+    # Accepts later system messages, so requests carry the transcript's.
+    supports_mid_convo_system_messages = True
+
     def __init__(self) -> None:
         super().__init__()
         self._turn = 0
@@ -228,11 +231,12 @@ def _run_dynamic_tools(workspace: Path) -> Check:
         error_stream=io.StringIO(),
     )
     second = provider.requests[1] if len(provider.requests) > 1 else None
-    markers = (
+    # Pi 9e05370b2: the next turn declares the added tool in a transcript
+    # system message anchored after the loader's result.
+    loads = (
         [
-            getattr(message, "added_tool_names", ())
-            for message in second.messages
-            if getattr(message, "added_tool_names", ())
+            (anchor.position, tuple(tool.name for tool in anchor.message.tools_added))
+            for anchor in second.system_messages[1:]
         ]
         if second is not None
         else []
@@ -242,8 +246,9 @@ def _run_dynamic_tools(workspace: Path) -> Check:
         result.status is HarnessStatus.SUCCEEDED
         and second is not None
         and [tool.name for tool in second.available_tools] == ["loader", "late_tool"]
-        and markers == [("late_tool",)],
-        "extension-tool additive activation reaches the next request with a marker",
+        and loads == [(len(second.messages), ("late_tool",))],
+        "extension-tool additive activation reaches the next request as a "
+        "system-message tool addition",
     )
 
 

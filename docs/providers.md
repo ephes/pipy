@@ -36,12 +36,17 @@ The built-in catalog includes rows for the implemented adapter families:
 Package or per-run extensions may add temporary provider rows for the current
 process. `models.json` may also add custom providers and models.
 
-Supported Anthropic Claude 4.5+ and selected OpenAI Responses/Codex Responses
-models preserve prompt-cache prefixes when an extension tool activates new
-tools: the definitions load at that tool result instead of moving into the
-earlier request prefix. Custom models opt in explicitly with
-`compat.supportsToolReferences` (Anthropic) or `compat.supportsToolSearch`
-(Responses); both features default off for unverified endpoints.
+Models that accept mid-conversation system messages keep their prompt-cache
+prefix when the prompt or the tool set changes: the change arrives as a later
+system message where it happened (Pi `9e05370b2`). Tools added later load in
+place (`additional_tools` or a client `tool_search` pair on OpenAI
+Responses/Codex, `tool_addition` blocks on Anthropic). The built-in rows set
+the flags from Pi's catalog; custom models opt in with
+`compat.supportsMidConvoSystemMessages` plus `supportsAdditionalTools` /
+`supportsToolSearch` (Responses), `supportsMidConvoToolAdditions` (Chat
+Completions) or `supportsMidConvoToolChanges` (Anthropic). All default off,
+and every other model receives the current prompt and tools as before. See
+[provider-catalog.md](provider-catalog.md#mid-conversation-system-messages).
 
 ## Choose a provider and model
 

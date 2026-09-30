@@ -496,7 +496,6 @@ def test_tool_result_message_round_trips(tmp_path: Path) -> None:
             tool_name="test_tool",
             content=ProductContent("done"),
             provider_correlation_id="provider-call-1",
-            added_tool_names=("late_one", "late_two"),
         )
     )
     assert tree.path is not None
@@ -505,7 +504,6 @@ def test_tool_result_message_round_trips(tmp_path: Path) -> None:
     tool_results = [m for m in messages if isinstance(m, AgentToolResultMessage)]
     assert len(tool_results) == 1
     assert tool_results[0].content.value == "done"
-    assert tool_results[0].added_tool_names == ("late_one", "late_two")
 
 
 def test_tool_result_name_inference_is_branch_local(tmp_path: Path) -> None:
