@@ -83,8 +83,7 @@ def test_production_edit_check_and_durable_reopen_preserve_exact_context(
             json.dumps(
                 {
                     "path": "answer.py",
-                    "old_string": "return 41",
-                    "new_string": "return 42",
+                    "edits": [{"oldText": "return 41", "newText": "return 42"}],
                 }
             ),
         ),
@@ -146,12 +145,12 @@ def test_production_edit_check_and_durable_reopen_preserve_exact_context(
         assert next_messages == tuple(expected)
     assert len({observation.tool_request_id for observation in observations}) == 3
     assert "return 41" in observations[0].content.value
-    assert observations[1].content.value == "edited answer.py (1 replacement(s))"
-    # BashTool.is_error=False includes nonzero command exits; inspect the
-    # actual exit status and output instead of trusting the scripted answer.
-    assert observations[2].content.value == (
-        "exit code: 0\n[output]\nDAILY_CHECK_PASSED_7f3\n"
+    assert observations[1].content.value == (
+        "Successfully replaced 1 block(s) in answer.py."
     )
+    # A non-zero exit would be an error ending in `Command exited with code
+    # N` (Pi); exit 0 returns the bare output.
+    assert observations[2].content.value == "DAILY_CHECK_PASSED_7f3\n"
     expected.append(AgentAssistantMessage(ProductContent(final_text)))
 
     assert tree.path is not None

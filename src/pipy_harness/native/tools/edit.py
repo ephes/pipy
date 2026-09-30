@@ -1,26 +1,32 @@
-"""The `edit` tool: string-replace edits on workspace-relative files.
+"""The model-driven `edit` tool, following Pi's `edit`.
 
-`EditTool` reads an existing workspace-relative file, replaces
-occurrences of `old_string` with `new_string`, writes the result back,
-and streams the resulting unified diff to `ToolContext.stderr_sink`.
-Defaults to requiring a unique `old_string`; `replace_all=True` opts in
-to replacing every occurrence. Archive contracts remain metadata-only.
+Mirrors ``packages/coding-agent/src/core/tools/edit.ts`` (pi-mono
+``1b347794e``): ``path`` plus ``edits[]`` of ``{oldText, newText}``, each
+matched against the original file (exactly, else after Pi's fuzzy
+normalization), unique and non-overlapping, applied together. A UTF-8 BOM and
+the file's line ending (CRLF or LF) survive the edit. The path resolves like
+Pi's ``resolveToCwd`` with no deny list; the file must exist and be readable
+and writable. Results and errors carry Pi's texts
+(:mod:`pipy_harness.native.tools.edit_diff`), and mutations of one file are
+serialized like Pi's ``withFileMutationQueue``.
+
+:meth:`EditTool.prepare_arguments` is Pi's ``prepareArguments``: the executor
+calls it before schema validation, so an ``edits`` JSON string, a single edit
+object and the legacy top-level ``oldText``/``newText`` still work.
+
+The display diff (Pi ``generateDiffString``) is reported through
+``ToolContext.stderr_sink``; the TUI commits it as the row below the call.
+Pi's ``details.patch`` and ``firstChangedLine`` have no consumer in pipy.
 """
 
 from __future__ import annotations
 
-import difflib
+import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
 
-from pipy_harness.native.read_only_tool import (
-    _CONTROL_CHARS,
-    _is_ignored_or_generated,
-    _is_relative_to,
-    _resolved_relative_label,
-    _validate_workspace_relative_path,
-)
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -28,246 +34,244 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.native.tools.edit_diff import (
+    Edit,
+    EditError,
+    apply_edits_to_normalized_content,
+    detect_line_ending,
+    generate_diff_string,
+    normalize_to_lf,
+    restore_line_endings,
+    split_bom,
+)
+from pipy_harness.native.tools.file_mutation_queue import (
+    file_mutation_queue,
+    mutation_queue_key,
+)
+from pipy_harness.native.tools.fs_errors import (
+    error_code,
+    node_encodable_text,
+    node_fs_message,
+    node_null_byte_message,
+)
+from pipy_harness.native.tools.path_utils import resolve_to_cwd
+from pipy_harness.native.tools.write import OPERATION_ABORTED
 
-
-@dataclass(frozen=True, slots=True)
-class _EditArguments:
-    path_arg: str
-    old_string: str
-    new_string: str
-    replace_all: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _EditFailure:
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class _EditTarget:
-    candidate: Path
-
-
-@dataclass(frozen=True, slots=True)
-class _EditContent:
-    original_text: str
-
-
-@dataclass(frozen=True, slots=True)
-class _EditReplacement:
-    original_text: str
-    new_text: str
-    occurrences: int
+EDIT_TOOL_DESCRIPTION = (
+    "Edit a single file using exact text replacement. Every edits[].oldText "
+    "must match a unique, non-overlapping region of the original file. If two "
+    "changes affect the same block or nearby lines, merge them into one edit "
+    "instead of emitting overlapping edits. Do not include large unchanged "
+    "regions just to connect distant changes."
+)
 
 
 @dataclass(frozen=True, slots=True)
 class EditTool:
-    """Replace `old_string` with `new_string` in a workspace file."""
-
-    max_content_bytes: int = 256 * 1024
-
-    HARD_MAX_CONTENT_BYTES: ClassVar[int] = 4 * 1024 * 1024
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.max_content_bytes, int)
-            or isinstance(self.max_content_bytes, bool)
-            or self.max_content_bytes < 1
-            or self.max_content_bytes > self.HARD_MAX_CONTENT_BYTES
-        ):
-            raise ValueError(
-                "EditTool max_content_bytes must be in "
-                f"[1, {self.HARD_MAX_CONTENT_BYTES}]"
-            )
+    """Replace exact text regions in one file, like Pi's `edit`."""
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="edit",
-            description=(
-                "Replace `old_string` with `new_string` in an existing "
-                "workspace-relative UTF-8 file. By default, `old_string` "
-                "must appear exactly once; set `replace_all` to true to "
-                "replace every occurrence. Refuses .git, ignored paths, "
-                "binary content, and oversized files."
-            ),
+            description=EDIT_TOOL_DESCRIPTION,
             input_schema={
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 1024,
+                        "description": "Path to the file to edit (relative or absolute)",
                     },
-                    "old_string": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": self.max_content_bytes,
+                    "edits": {
+                        "type": "array",
+                        "description": (
+                            "One or more targeted replacements. Each edit is "
+                            "matched against the original file, not "
+                            "incrementally. Do not include overlapping or nested "
+                            "edits. If two changes touch the same block or nearby "
+                            "lines, merge them into one edit instead."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "oldText": {
+                                    "type": "string",
+                                    "description": (
+                                        "Exact text for one targeted replacement. "
+                                        "It must be unique in the original file and "
+                                        "must not overlap with any other "
+                                        "edits[].oldText in the same call."
+                                    ),
+                                },
+                                "newText": {
+                                    "type": "string",
+                                    "description": (
+                                        "Replacement text for this targeted edit."
+                                    ),
+                                },
+                            },
+                            "required": ["oldText", "newText"],
+                            "additionalProperties": False,
+                        },
                     },
-                    "new_string": {
-                        "type": "string",
-                        "maxLength": self.max_content_bytes,
-                    },
-                    "replace_all": {"type": "boolean"},
                 },
-                "required": ["path", "old_string", "new_string"],
+                "required": ["path", "edits"],
                 "additionalProperties": False,
             },
         )
 
+    @staticmethod
+    def prepare_arguments(arguments: object) -> object:
+        """Pi ``prepareEditArguments``, run before schema validation."""
+
+        if not isinstance(arguments, Mapping):
+            return arguments
+        args = dict(arguments)
+        edits = args.get("edits")
+        # Some models send edits as a JSON string, others a single object.
+        if isinstance(edits, str):
+            try:
+                parsed = json.loads(edits)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, list):
+                args["edits"] = parsed
+            elif _is_single_edit(parsed):
+                args["edits"] = [parsed]
+        elif _is_single_edit(edits):
+            args["edits"] = [edits]
+
+        old_text, new_text = args.get("oldText"), args.get("newText")
+        if not isinstance(old_text, str) or not isinstance(new_text, str):
+            return args
+        current = args.get("edits")
+        merged = list(current) if isinstance(current, list) else []
+        merged.append({"oldText": old_text, "newText": new_text})
+        del args["oldText"], args["newText"]
+        args["edits"] = merged
+        return args
+
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
-        arguments = self._validated_arguments(request)
-        target = self._resolve_target(arguments.path_arg, context.workspace_root)
-        if isinstance(target, _EditFailure):
-            return self._error(request, target.message)
-
-        content = self._read_content(target.candidate)
-        if isinstance(content, _EditFailure):
-            return self._error(request, content.message)
-        replacement = self._replace_content(arguments, content)
-        if isinstance(replacement, _EditFailure):
-            return self._error(request, replacement.message)
-        write_failure = self._write_content(target.candidate, replacement.new_text)
-        if write_failure is not None:
-            return self._error(request, write_failure.message)
-
-        self._stream_diff(arguments.path_arg, replacement, context)
-        replacement_count = replacement.occurrences if arguments.replace_all else 1
-        return ToolExecutionResult(
-            tool_request_id=request.tool_request_id,
-            output_text=(
-                f"edited {arguments.path_arg} ({replacement_count} replacement(s))"
-            ),
-            provider_correlation_id=request.provider_correlation_id,
-        )
-
-    @staticmethod
-    def _validated_arguments(request: ToolRequest) -> _EditArguments:
-        path_value = request.arguments["path"]
-        old_string = request.arguments["old_string"]
-        new_string = request.arguments["new_string"]
-        try:
-            _validate_workspace_relative_path(path_value)
-        except ValueError as exc:
-            raise ToolArgumentError("edit", str(exc), field_path=("path",)) from None
-        if not isinstance(old_string, str) or not old_string:
+        path_arg = request.arguments["path"]
+        raw_edits = request.arguments["edits"]
+        if not isinstance(path_arg, str):
             raise ToolArgumentError(
-                "edit",
-                "old_string must be a non-empty string",
-                field_path=("old_string",),
+                "edit", "path must be a string", field_path=("path",)
             )
-        if not isinstance(new_string, str):
-            raise ToolArgumentError(
-                "edit",
-                "new_string must be a string",
-                field_path=("new_string",),
+        if not isinstance(raw_edits, list | tuple) or not raw_edits:
+            return _result(
+                request,
+                "Edit tool input is invalid. edits must contain at least one "
+                "replacement.",
+                is_error=True,
             )
-        assert isinstance(path_value, str)
-        return _EditArguments(
-            path_arg=path_value,
-            old_string=old_string,
-            new_string=new_string,
-            replace_all=bool(request.arguments.get("replace_all", False)),
-        )
-
-    @staticmethod
-    def _resolve_target(
-        path_arg: str, workspace_root: Path
-    ) -> _EditTarget | _EditFailure:
-        workspace = workspace_root.resolve()
-        candidate = (workspace / path_arg).resolve()
-        if not _is_relative_to(candidate, workspace):
-            return _EditFailure("path escapes the workspace")
-        resolved_label = _resolved_relative_label(candidate, workspace)
-        if resolved_label is None:
-            return _EditFailure("path escapes the workspace")
-        if _is_ignored_or_generated(path_arg, workspace) or _is_ignored_or_generated(
-            resolved_label, workspace
-        ):
-            return _EditFailure("path is ignored or under .git/generated directories")
-        if not candidate.exists():
-            return _EditFailure("file does not exist")
-        if not candidate.is_file():
-            return _EditFailure("path is not a regular file")
-        return _EditTarget(candidate)
-
-    def _read_content(self, candidate: Path) -> _EditContent | _EditFailure:
+        edits = [Edit(str(item["oldText"]), str(item["newText"])) for item in raw_edits]
         try:
-            if candidate.stat().st_size > self.max_content_bytes:
-                return _EditFailure("file exceeds max_content_bytes")
-        except OSError as exc:
-            return _EditFailure(f"failed to stat file: {exc}")
-        try:
-            original_bytes = candidate.read_bytes()
-        except OSError as exc:
-            return _EditFailure(f"failed to read file: {exc}")
-        if b"\0" in original_bytes:
-            return _EditFailure("binary content detected")
-        if len(original_bytes) > self.max_content_bytes:
-            return _EditFailure("file exceeds max_content_bytes")
-        try:
-            original_text = original_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            return _EditFailure("non-UTF-8 content")
-        if any(char in _CONTROL_CHARS for char in original_text):
-            return _EditFailure("binary content detected")
-        return _EditContent(original_text)
-
-    def _replace_content(
-        self, arguments: _EditArguments, content: _EditContent
-    ) -> _EditReplacement | _EditFailure:
-        occurrences = content.original_text.count(arguments.old_string)
-        if occurrences == 0:
-            return _EditFailure("old_string not found")
-        if not arguments.replace_all and occurrences > 1:
-            return _EditFailure(
-                f"old_string is not unique ({occurrences} matches); "
-                "set replace_all=true to replace all"
-            )
-        count = -1 if arguments.replace_all else 1
-        new_text = content.original_text.replace(
-            arguments.old_string, arguments.new_string, count
-        )
-        if len(new_text.encode("utf-8")) > self.max_content_bytes:
-            return _EditFailure("edited content exceeds max_content_bytes")
-        return _EditReplacement(content.original_text, new_text, occurrences)
-
-    @staticmethod
-    def _write_content(candidate: Path, new_text: str) -> _EditFailure | None:
-        try:
-            candidate.write_text(new_text, encoding="utf-8")
-        except OSError as exc:
-            return _EditFailure(f"failed to write file: {exc}")
-        return None
-
-    def _stream_diff(
-        self, path_arg: str, replacement: _EditReplacement, context: ToolContext
-    ) -> None:
-        diff_text = self._unified_diff(
-            path_arg=path_arg,
-            original_text=replacement.original_text,
-            new_text=replacement.new_text,
-        )
-        if context.stderr_sink is not None and diff_text:
-            context.stderr_sink(diff_text)
-
-    @staticmethod
-    def _unified_diff(*, path_arg: str, original_text: str, new_text: str) -> str:
-        diff_lines = difflib.unified_diff(
-            original_text.splitlines(keepends=True),
-            new_text.splitlines(keepends=True),
-            fromfile=f"a/{path_arg}",
-            tofile=f"b/{path_arg}",
-        )
-        return "".join(diff_lines)
-
-    def _error(self, request: ToolRequest, message: str) -> ToolExecutionResult:
-        return ToolExecutionResult(
-            tool_request_id=request.tool_request_id,
-            output_text=f"edit error: {message}",
-            is_error=True,
-            provider_correlation_id=request.provider_correlation_id,
+            diff = _edit(path_arg, edits, context)
+        except EditError as exc:
+            return _result(request, str(exc), is_error=True)
+        if context.stderr_sink is not None and diff:
+            context.stderr_sink(diff)
+        return _result(
+            request,
+            f"Successfully replaced {len(edits)} block(s) in {path_arg}.",
+            is_error=False,
         )
 
 
-__all__ = ["EditTool"]
+def _is_single_edit(value: object) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and isinstance(value.get("oldText"), str)
+        and isinstance(value.get("newText"), str)
+    )
+
+
+def _edit(path_arg: str, edits: list[Edit], context: ToolContext) -> str:
+    """Apply ``edits``; return Pi's display diff. Raises :class:`EditError`."""
+
+    try:
+        absolute = resolve_to_cwd(path_arg, context.workspace_root)
+    except ValueError as exc:
+        raise EditError(str(exc)) from None
+    try:
+        key = mutation_queue_key(absolute)
+    except OSError as exc:
+        raise EditError(node_fs_message(exc, "realpath", str(absolute))) from None
+    except ValueError:  # a NUL byte: Node rejects the path before any syscall
+        raise EditError(node_null_byte_message(str(absolute))) from None
+    with file_mutation_queue(key):
+        return _edit_locked(absolute, path_arg, edits, context)
+
+
+def _edit_locked(
+    absolute: Path, path_arg: str, edits: list[Edit], context: ToolContext
+) -> str:
+    # Abort is checked after each step, never mid-operation, so the queue
+    # stays held until the filesystem call has settled (as in Pi).
+    _throw_if_aborted(context)
+    _check_access(absolute, path_arg)
+    _throw_if_aborted(context)
+    raw = _read(absolute)
+    _throw_if_aborted(context)
+
+    # The model will not include an invisible BOM in oldText.
+    bom, content = split_bom(raw.decode("utf-8", errors="replace"))
+    ending = detect_line_ending(content)
+    base, new = apply_edits_to_normalized_content(
+        normalize_to_lf(content), edits, path_arg
+    )
+    # Surrogates in newText join or become U+FFFD as Node writes them.
+    new = node_encodable_text(new)
+    _throw_if_aborted(context)
+    # Encoded before the file is opened, so nothing is truncated by a failure.
+    data = (bom + restore_line_endings(new, ending)).encode("utf-8")
+    try:
+        with open(absolute, "wb") as handle:
+            handle.write(data)
+    except OSError as exc:
+        raise EditError(node_fs_message(exc, "open", str(absolute))) from None
+    _throw_if_aborted(context)
+    diff, _first_changed_line = generate_diff_string(base, new)
+    return diff
+
+
+def _check_access(absolute: Path, path_arg: str) -> None:
+    """Pi's ``access(path, R_OK | W_OK)`` check and its error text."""
+
+    try:
+        os.stat(absolute)
+    except OSError as exc:
+        code = error_code(exc)
+        detail = f"Error code: {code}" if code else str(exc)
+        raise EditError(f"Could not edit file: {path_arg}. {detail}.") from None
+    if not os.access(absolute, os.R_OK | os.W_OK):
+        raise EditError(f"Could not edit file: {path_arg}. Error code: EACCES.")
+
+
+def _read(absolute: Path) -> bytes:
+    try:
+        with open(absolute, "rb") as handle:
+            return handle.read()
+    except IsADirectoryError as exc:
+        # Node opens a directory and fails on the read, naming no path.
+        raise EditError(node_fs_message(exc, "read", None)) from None
+    except OSError as exc:
+        raise EditError(node_fs_message(exc, "open", str(absolute))) from None
+
+
+def _throw_if_aborted(context: ToolContext) -> None:
+    if context.cancel_event is not None and context.cancel_event.is_set():
+        raise EditError(OPERATION_ABORTED)
+
+
+def _result(request: ToolRequest, text: str, *, is_error: bool) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        tool_request_id=request.tool_request_id,
+        output_text=text,
+        is_error=is_error,
+        provider_correlation_id=request.provider_correlation_id,
+    )
+
+
+__all__ = ["EDIT_TOOL_DESCRIPTION", "EditTool"]

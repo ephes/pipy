@@ -30,13 +30,24 @@ directories, a line with no other ``/`` gets ``**/`` (any depth), a trailing
 ``literal_separator`` and backslash escapes, so ``{a,b}`` alternation and
 ``[...]`` classes work (:mod:`pipy_harness.native.tools.glob_match`).
 
-Deviation: the global git excludes file (``core.excludesFile``) is not read.
+The global git excludes file applies where ``.gitignore`` files do, below
+every other rule. Its path is the ``ignore`` crate's: the first
+``excludesfile = …`` line of ``~/.gitconfig``, else of
+``$XDG_CONFIG_HOME/git/config`` (``~/.config/git/config``), read with the
+crate's lazy line regex and every ``~`` replaced by the home directory, else
+``$XDG_CONFIG_HOME/git/ignore`` (``~/.config/git/ignore``). Its rules are
+rooted at the working directory rg and fd run in: a path starting with that
+directory's string is matched relative to it (a plain string prefix, as the
+crate strips it), any other path whole, so unanchored lines apply everywhere
+and anchored ones only below the working directory.
+
 A caller's ``rg --glob`` override is checked before these rules (see
 :mod:`pipy_harness.native.tools.grep_fallback`).
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -152,10 +163,16 @@ class WalkIgnore:
     tool_rules: tuple[_ScopedRule, ...] = ()
     plain_rules: tuple[_ScopedRule, ...] = ()
     git_rules: tuple[_ScopedRule, ...] = ()
+    global_rules: GlobalExcludes | None = None
 
     @classmethod
     def for_search(
-        cls, search_path: Path, *, tool_file: str, no_require_git_outside_repo: bool
+        cls,
+        search_path: Path,
+        *,
+        tool_file: str,
+        no_require_git_outside_repo: bool,
+        cwd: Path,
     ) -> WalkIgnore:
         """Rules for the entries of ``search_path`` (an absolute directory).
 
@@ -163,7 +180,8 @@ class WalkIgnore:
         the search path (itself included) holds ``.git``, the walk runs as
         ``fd --no-require-git``: ``.gitignore`` files apply everywhere and a
         nested repository does not reset them. Otherwise (and always for
-        rg) the walk is git-aware.
+        rg) the walk is git-aware. ``cwd`` is the directory rg or fd would
+        run in, the root of the global excludes.
         """
 
         chain = (*reversed(search_path.parents), search_path)
@@ -171,6 +189,7 @@ class WalkIgnore:
         state = cls(
             tool_file=tool_file,
             require_git=not (no_require_git_outside_repo and outside_repo),
+            global_rules=GlobalExcludes.load(cwd),
         )
         for directory in chain:
             state = state.descend(directory)
@@ -215,7 +234,70 @@ class WalkIgnore:
             decision = _decide(rules, text, is_dir)
             if decision is not None:
                 return decision
+        # The global excludes apply where .gitignore files do, lowest.
+        if self.global_rules is not None and (self.in_repo or not self.require_git):
+            return self.global_rules.ignored(text, is_dir=is_dir)
         return False
+
+
+@dataclass(frozen=True, slots=True)
+class GlobalExcludes:
+    """The global git excludes file, rooted at the working directory."""
+
+    root: str
+    rules: tuple[GitIgnoreRule, ...]
+
+    @classmethod
+    def load(cls, cwd: Path) -> GlobalExcludes | None:
+        path = global_excludes_path()
+        if path is None:
+            return None
+        rules = tuple(scoped.rule for scoped in _load(path, ""))
+        return cls(cwd.as_posix(), rules) if rules else None
+
+    def ignored(self, path: str, *, is_dir: bool) -> bool:
+        # The `ignore` crate strips the root as a string prefix, then one "/".
+        candidate = path
+        if self.root != "." and candidate.startswith(self.root):
+            candidate = candidate[len(self.root) :].removeprefix("/")
+        for rule in reversed(self.rules):
+            if rule.matches(candidate, is_dir=is_dir):
+                return not rule.negated
+        return False
+
+
+# The `ignore` crate's lazy `core.excludesFile` line (`gitignore.rs`).
+_EXCLUDES_FILE_LINE = re.compile(
+    rb"(?im)^[\t\n\x0b\x0c\r ]*excludesfile[\t\n\x0b\x0c\r ]*="
+    rb"[\t\n\x0b\x0c\r ]*(.+)[\t\n\x0b\x0c\r ]*$"
+)
+
+
+def global_excludes_path() -> Path | None:
+    """The global git excludes file the ``ignore`` crate reads, if any."""
+
+    home = os.environ.get("HOME") or None
+    xdg = os.environ.get("XDG_CONFIG_HOME") or None
+    config_home = Path(xdg) if xdg else Path(home) / ".config" if home else None
+    candidates: list[Path] = []
+    if home:
+        candidates.append(Path(home) / ".gitconfig")
+    if config_home is not None:
+        candidates.append(config_home / "git" / "config")
+    for config in candidates:
+        try:
+            data = config.read_bytes()
+        except OSError:
+            continue
+        match = _EXCLUDES_FILE_LINE.search(data)
+        if match is None:
+            continue
+        try:
+            value = match[1].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        return Path(value.replace("~", home) if home else value)
+    return config_home / "git" / "ignore" if config_home is not None else None
 
 
 def _decide(rules: tuple[_ScopedRule, ...], path: str, is_dir: bool) -> bool | None:

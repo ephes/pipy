@@ -385,8 +385,8 @@ pytest`, `git status`, pipelines) and get the combined stdout/stderr back. Like
 Pi's bash tool it spawns a real shell (`bash -c <command>`) in the workspace
 root with the inherited environment and an optional `timeout` in seconds (the
 whole process group is killed when it elapses); output is bounded to a byte
-ceiling. A non-zero exit code is a normal observation the model reacts to, not
-a tool error. The combined output is returned to the model only; the archive
+ceiling. A non-zero exit is an error result ending in `Command exited with
+code N`, as in Pi. The combined output is returned to the model only; the archive
 boundary records counters and labels alone — never the raw command or output.
 
 #### Resume, branch, and compaction

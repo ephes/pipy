@@ -109,6 +109,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Deviations: no partial thinking or tool calls stored; follow-on DF1-F6b | `fix/f6-aborted-turn` |
 | USAGE1 | Usage stored on every assistant message ([plan](specs/2026-09-30-usage1-message-usage-plan.md)). The loop records Pi's `usage` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` parts from `calculateCost`) and the answering `provider`/`model`; the session file and every JSON/RPC assistant message carry them. The footer, RPC `get_session_stats` and `/session` sum every stored assistant message on every branch (Pi `getSessionStats`), so totals survive resume and a model switch. The footer follows Pi's parts (uncached `↑`, latest-message `CH`, `formatTokens`); `/session` prints Pi's `Session Info` with `Messages`, `Tokens` and `Cost` (per-model breakdown, `Cache Re-billed`). Old sessions load unchanged. Follow-on USAGE1b | `feat/usage1-message-usage` |
 | READ2 | `read`, `ls`, `grep`, `find`, `@file` and `@image:` resolve paths like Pi's `resolveToCwd`/`resolveReadPath` ([plan](specs/2026-09-30-read2-path-policy-plan.md)): cwd-relative or absolute, `~`, `@` prefix, unicode spaces, macOS screenshot/NFD/curly-quote variants, no deny list. `grep`/`find` leave out only what `rg --hidden`/`fd --hidden` do (measured rules in `tools/ignore_walk.py`, differential tests against the binaries). `--read-root`, `PIPY_READ_ROOTS` and the `Reference roots` prompt block are removed. No documented security boundary covers the read tools (`bash` is a real shell); the allowlisted command sandbox keeps its own policy. Follow-on READ2b | `feat/read2-path-policy` |
+| TOOLS2 + READ2b | `write`, `edit` and `bash` follow Pi ([plan](specs/2026-09-30-tools2-write-edit-bash-plan.md)). `write`/`edit` resolve like `resolveToCwd` with no deny list or size cap; `write` makes parent directories and overwrites; `edit` takes `edits[]` with Pi's exact/fuzzy matching, BOM/CRLF handling, error texts and numbered diff (jsdiff `diffLines` ported); one file's mutations are serialized. `bash` ends a failure with `Command exited with code N` / `timed out` / `aborted` as an error. The `!` shortcut uses Pi's executor output (sanitized, 2000 lines / 50 KB, temp file), `bashExecutionToText` record and component rows. Pi's grep/find/ls/write/edit headers; `ls` sorts by a Node-measured ICU approximation; the global git excludes file applies to the Python walks. No documented boundary covers the mutation tools. Deviations: the no-terminal `!` keeps a 600 s bound; collation outside the measured table; follow-on TOOLS3 | `feat/tools2-write-edit-bash` |
 
 ## Follow-ons
 
@@ -116,26 +117,18 @@ Open deviations collected from the done slices, not yet queued. Take one when
 a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
-- **READ2b, what READ2 left of the path policy:** `write` and `edit` keep
-  pipy's workspace-only policy (`.git`, `.gitignore` and generated paths
-  refused, `..` and absolute paths outside the workspace refused), and `write`
-  is create-only with a byte cap. Pi's (`core/tools/{write,edit}.ts`) resolve
-  with `resolveToCwd` and no deny list, and Pi's `write` overwrites and
-  creates parent directories. pipy's Python walks for `find` and the `grep`
-  fallback do not read the global git excludes file (`core.excludesFile`),
-  which `rg` and `fd` apply.
 - **READ-IMG, images from `read`:** Pi's `read` returns jpg/png/gif/webp/bmp
   files as image attachments (resized). pipy tool results are text-only, so
   `read` returns an error for images. Porting needs image content in tool
   results across the provider adapters, the session tree and replay.
-- **TOOLS2, what TOOLS1 left of the tool output:** `bash` still frames its
-  result as `exit code: N` + `[output]` and treats a non-zero exit as a normal
-  result; Pi appends `Command exited with code N` and marks it an error, with
-  `Command timed out after N seconds` / `Command aborted`. The `!`/`!!`
-  shortcut keeps a 16 KB tail where Pi's `bash-executor.ts` uses
-  `truncateTail` plus a temp file. Tool-row headers keep `grep "p" path`
-  where Pi shows `/p/ in path (glob) limit N`. `ls` sorts by code point where
-  Pi uses `localeCompare`.
+- **TOOLS3, per-tool TUI rows:** every non-bash tool row still renders behind
+  the `$ ` prompt, and results use one generic body (last 5 lines, `[error]
+  tool reported a failure`). Pi's renderers differ per tool: `grep`/`find`/`ls`
+  show the first 15/20 lines with `[Truncated: …]` warnings, a successful
+  `write` shows nothing, `edit` draws its diff in a coloured box, `bash`
+  replaces the `Full output` notice with a warning footer, and `read`
+  classifies docs, skills and resources compactly. The RPC `bash` command
+  still runs through the allowlisted sandbox instead of Pi's executor.
 - **DF1-F2b, restored-history rendering gaps** (left by F2/F3, see the Done
   table):
   - Rows drawn by an extension tool's `render_call`/`render_result` keep the

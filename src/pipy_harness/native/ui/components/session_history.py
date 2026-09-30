@@ -25,7 +25,10 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.local_shell_record import parse_local_shell_record
+from pipy_harness.native.local_shell_record import (
+    parse_local_shell_record,
+    shell_result_lines,
+)
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
     CompactionEntry,
@@ -178,11 +181,11 @@ def _render_message(
         if record is None:
             renderer.render_user_message(message.content.value)
             return
-        # The `!` shell shortcut's own rows: `$ command`, then status + output.
+        # The `!` shell shortcut's own rows: `$ command`, output, status.
         scratch.add_tool_call(record.command)
-        scratch.add_tool_result(
-            lines=[record.status_line, *(record.output.splitlines() or [""])],
-            is_error=record.is_error,
+        scratch.add_shell_result(
+            collapsed=shell_result_lines(record, expanded=False),
+            expanded=shell_result_lines(record, expanded=True),
         )
     elif isinstance(message, AgentAssistantMessage):
         _render_assistant(message, renderer, scratch, results)

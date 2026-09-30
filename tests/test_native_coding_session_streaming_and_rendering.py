@@ -254,7 +254,7 @@ def test_renderer_renders_pi_shape_tool_call_header():
 
 
 def test_plain_ls_header_without_path():
-    # `path` is optional for `ls`, as in Pi (TOOLS1).
+    # `path` is optional for `ls`; Pi's header shows `.` and the limit (TOOLS2).
     from pipy_harness.native.tool_renderers import _plain_tool_call_header
 
     def header(arguments: str) -> str:
@@ -266,9 +266,9 @@ def test_plain_ls_header_without_path():
             )
         )
 
-    assert header("{}") == "ls"
-    assert header('{"limit": 10}') == "ls"
-    assert header('{"path": "."}') == "ls"
+    assert header("{}") == "ls ."
+    assert header('{"limit": 10}') == "ls . (limit 10)"
+    assert header('{"path": "."}') == "ls ."
     assert header('{"path": "src"}') == "ls src"
 
 

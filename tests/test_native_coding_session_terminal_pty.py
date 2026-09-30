@@ -2580,9 +2580,10 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
             f"{label}: active command input never became ready"
         )
         os.write(in_master, b"\x1b")
-        assert (
-            wait_for_input_ready_after(err_chunks, "cancelled by escape") is not None
-        ), f"{label}: post-cancel input never became ready"
+        # Pi's BashExecutionComponent status for a cancelled command.
+        assert wait_for_input_ready_after(err_chunks, "(cancelled)") is not None, (
+            f"{label}: post-cancel input never became ready"
+        )
         # Session is still usable.
         third_turn_start = len(output_bytes(err_chunks))
         os.write(in_master, b"still here\n")

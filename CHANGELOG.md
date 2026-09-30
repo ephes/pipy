@@ -37,7 +37,44 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `.ignore`, `.rgignore`/`.fdignore` and `.git/info/exclude` apply. `grep`'s
   Python fallback and `find` follow those rules, including rg's `glob`
   override. `find` accepts patterns that start with `/` or contain `..` or
-  `\`. `write` and `edit` keep their workspace-only policy.
+  `\`.
+- `write` and `edit` follow Pi's tools (READ2b, Pi `write.ts`, `edit.ts`,
+  `edit-diff.ts`). Both resolve paths like the read tools, with no deny list
+  and no size cap. `write` creates parent directories and overwrites an
+  existing file. `edit` takes `edits[]` of `{oldText, newText}` (the
+  `old_string`/`new_string`/`replace_all` arguments are gone; a JSON-string
+  `edits`, a single edit object and top-level `oldText`/`newText` are still
+  accepted, as in Pi). Each `oldText` must match once, exactly or after Pi's
+  fuzzy normalization (trailing spaces, smart quotes, dashes, special
+  spaces), and the edits must not overlap. A UTF-8 BOM and CRLF line endings
+  survive the edit. Results and errors use Pi's texts (`Successfully wrote
+  to …`, `Successfully replaced N block(s) in ….`, `Could not find the exact
+  text in …`, Node's `EACCES: permission denied, open '…'`), and the diff row
+  shows Pi's numbered `+NN`/`-NN` lines. Mutations of one file are
+  serialized, as in Pi.
+- `bash` reports results like Pi (TOOLS2): the output alone on success; a
+  non-zero exit is an error ending in `Command exited with code N` (a
+  signal-killed shell reports `128 + n`), and a timeout or abort ends in
+  `Command timed out after N seconds` or `Command aborted`. The `exit code:
+  N` / `[output]` framing is gone.
+- The `!`/`!!` shortcut keeps its output like Pi's `bash-executor.ts`:
+  ANSI escapes and control characters are removed, the last 2000 lines or
+  50 KB are kept (was 16 KB) and the full output goes to a temp file. The
+  model sees Pi's `bash` message text (``Ran `cmd` `` with the output in a
+  fenced block, `Command exited with code N`, `(command cancelled)`, `[Output
+  truncated. Full output: …]`), and the rows show the last 20 lines with
+  `(exit N)`, `(cancelled)` and the full-output path, following Ctrl+O. In
+  the terminal UI a `!` command no longer stops after 600 seconds; Escape
+  cancels it, as in Pi.
+- Tool rows show Pi's headers: `grep /pattern/ in path (glob) limit N`,
+  `find pattern in path (limit N)`, `ls path (limit N)`, and `write`/`edit`
+  paths with the home directory shortened to `~`.
+- `ls` sorts like Pi's `localeCompare` (ICU root collation): punctuation,
+  then digits (`10` before `9`), then letters with accents and case as minor
+  differences, other scripts after Latin. pipy uses a collation table
+  measured on Node, so characters outside it can differ from Pi.
+- `find` and `grep`'s Python fallback apply the global git excludes file
+  (`core.excludesFile`, else `~/.config/git/ignore`) where rg and fd do.
 
 ### Removed
 

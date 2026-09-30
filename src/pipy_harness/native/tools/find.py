@@ -180,7 +180,10 @@ class FindTool:
         # Pi adds --no-require-git outside a repository; inside one the
         # repository root resets the .gitignore rules from above it.
         rules = WalkIgnore.for_search(
-            search_root, tool_file=FD_IGNORE_FILE, no_require_git_outside_repo=True
+            search_root,
+            tool_file=FD_IGNORE_FILE,
+            no_require_git_outside_repo=True,
+            cwd=context.workspace_root,
         )
         stack: list[tuple[str, WalkIgnore]] = [("", rules)]
         cancel = context.cancel_event

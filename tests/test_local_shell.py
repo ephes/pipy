@@ -72,9 +72,9 @@ def test_failing_command_records_nonzero_exit_in_context(tmp_path: Path) -> None
         error_stream=cast(TextIO, err),
         cwd=tmp_path,
     )
-    assert context is not None
-    assert "exit code: 1" in context
-    assert "exit code: 1" in err.getvalue()
+    # Pi's bashExecutionToText and the component's `(exit N)` status.
+    assert context == "Ran `false`\n(no output)\n\nCommand exited with code 1"
+    assert err.getvalue() == "$ false\n(exit 1)\n"
 
 
 def test_successful_command_records_zero_exit(tmp_path: Path) -> None:
@@ -85,9 +85,7 @@ def test_successful_command_records_zero_exit(tmp_path: Path) -> None:
         error_stream=cast(TextIO, io.StringIO()),
         cwd=tmp_path,
     )
-    assert context is not None
-    assert "exit code: 0" in context
-    assert "hi" in context
+    assert context == "Ran `echo hi`\n```\nhi\n\n```"
 
 
 class _RecordingTranscript:
@@ -102,6 +100,9 @@ class _RecordingTranscript:
 
     def add_tool_result(self, *, lines: object, is_error: bool) -> None:
         del lines, is_error
+
+    def add_shell_result(self, *, collapsed: object, expanded: object) -> None:
+        del collapsed, expanded
 
 
 def test_transcript_row_carries_the_bare_command(tmp_path: Path) -> None:

@@ -16,6 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
+
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
@@ -34,8 +36,10 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
 )
 from pipy_harness.native.local_shell_record import (
+    LocalShellRecord,
     format_local_shell_record,
     parse_local_shell_record,
+    shell_result_lines,
 )
 from pipy_harness.native.session_tree import (
     CompactionEntry,
@@ -314,43 +318,100 @@ def test_a_result_after_an_intervening_entry_still_completes_its_call(
     ]
 
 
+def _shell(
+    command: str,
+    output: str,
+    *,
+    exit_code: int | None = 0,
+    cancelled: bool = False,
+    path: str | None = None,
+) -> LocalShellRecord:
+    return LocalShellRecord(
+        command=command,
+        output=output,
+        exit_code=exit_code,
+        cancelled=cancelled,
+        truncated=path is not None,
+        full_output_path=path,
+    )
+
+
 def test_a_shell_record_renders_as_the_shell_rows(tmp_path: Path) -> None:
     terminal = _Terminal(tmp_path)
-    record = format_local_shell_record("ls tests", "exit code: 0", "a.py\nb.py")
-    terminal.tree.append_message(_user(record))
     terminal.tree.append_message(
-        _user(format_local_shell_record("false", "exit code: 1", "(no output)"))
+        _user(format_local_shell_record(_shell("ls tests", "a.py\nb.py")))
+    )
+    terminal.tree.append_message(
+        _user(format_local_shell_record(_shell("false", "", exit_code=1)))
     )
 
     terminal.history.render_active_branch()
 
+    # Pi's BashExecutionComponent: output, then `(exit N)` after a blank line.
     assert terminal.rows() == [
         ("tool", ("ls tests",)),
-        ("tool_result", ("exit code: 0", "a.py", "b.py")),
+        ("tool_result", ("a.py", "b.py")),
         ("tool", ("false",)),
-        (
-            "tool_result",
-            ("exit code: 1", "(no output)", "[error] tool reported a failure"),
-        ),
+        ("tool_result", ("", "(exit 1)")),
     ]
 
 
-def test_shell_record_parsing_is_exact() -> None:
-    text = format_local_shell_record("echo hi", "(cancelled by escape)", "")
-    parsed = parse_local_shell_record(text)
-    assert parsed is not None
-    assert (parsed.command, parsed.status_line, parsed.output) == (
-        "echo hi",
-        "(cancelled by escape)",
+def test_shell_rows_collapse_to_the_last_20_lines_and_follow_ctrl_o() -> None:
+    output = "\n".join(str(n) for n in range(1, 31))
+    record = _shell("seq 30", output, path="/tmp/pipy-bash-x.log")
+
+    collapsed = shell_result_lines(record, expanded=False)
+    expanded = shell_result_lines(record, expanded=True)
+
+    assert collapsed == (
+        *(str(n) for n in range(11, 31)),
         "",
+        "... 10 more lines (ctrl+o to expand)",
+        "Output truncated. Full output: /tmp/pipy-bash-x.log",
     )
-    assert not parsed.is_error
-    timed_out = parse_local_shell_record(
-        format_local_shell_record("sleep", "(timed out)", "x")
+    assert expanded[:30] == tuple(str(n) for n in range(1, 31))
+    assert expanded[30:] == (
+        "",
+        "(ctrl+o to collapse)",
+        "Output truncated. Full output: /tmp/pipy-bash-x.log",
     )
-    assert timed_out is not None and timed_out.is_error
-    assert parse_local_shell_record("I ran a shell command, honestly") is None
+    cancelled = _shell("sleep 9", "", exit_code=None, cancelled=True)
+    assert shell_result_lines(cancelled, expanded=False) == ("", "(cancelled)")
+
+
+def test_shell_record_text_is_pis_bash_execution_to_text() -> None:
+    assert format_local_shell_record(_shell("echo hi", "hi")) == (
+        "Ran `echo hi`\n```\nhi\n```"
+    )
+    assert format_local_shell_record(
+        _shell("sleep 9", "", exit_code=None, cancelled=True)
+    ) == ("Ran `sleep 9`\n(no output)\n\n(command cancelled)")
+    assert format_local_shell_record(
+        _shell("make", "err", exit_code=2, path="/tmp/f.log")
+    ) == (
+        "Ran `make`\n```\nerr\n```\n\nCommand exited with code 2"
+        "\n\n[Output truncated. Full output: /tmp/f.log]"
+    )
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _shell("echo hi", "hi"),
+        _shell("echo `x`", "a\n```\nb"),
+        _shell("false", "", exit_code=1),
+        _shell("sleep 9", "partial", exit_code=None, cancelled=True),
+        _shell("seq", "1\n2", exit_code=3, path="/tmp/pipy-bash-y.log"),
+    ],
+)
+def test_shell_record_parsing_round_trips(record: LocalShellRecord) -> None:
+    assert parse_local_shell_record(format_local_shell_record(record)) == record
+
+
+def test_shell_record_parsing_is_strict() -> None:
+    assert parse_local_shell_record("Ran `ls` and it was fine") is None
     assert parse_local_shell_record("plain user text") is None
+    assert parse_local_shell_record("Ran `ls`\n(no output)\n\nmore text") is None
 
 
 def test_summary_rows_are_collapsed_and_toggle_with_ctrl_o(tmp_path: Path) -> None:

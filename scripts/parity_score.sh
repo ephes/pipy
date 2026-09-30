@@ -122,7 +122,9 @@ check C7  "Tool port + registry"     small  "grep -q 'class AgentToolCapabilitie
 check C8  "Workspace context"        small  "test -f src/pipy_harness/native/workspace_context.py"
 check C9  "System prompt"            small  "grep -q system_prompt src/pipy_harness/native/workspace_context.py"
 check C10 "Tool budget"              small  "grep -q tool_budget src/pipy_harness/native/coding/session.py"
-check C11 ".git default-deny"        small  "grep -q _resolved_relative_label src/pipy_harness/native/read_only_tool.py"
+# C11: the model-driven file tools follow Pi with no deny list (READ2,
+# READ2b); the default-deny remains in the allowlisted command sandbox.
+check C11 ".git default-deny"        small  "grep -q _is_ignored_or_generated src/pipy_harness/native/command_sandbox.py"
 # C12 (transcript sidecar) was retired with the no-tool REPL: the native
 # session tree IS the full transcript, so the opt-in `transcripts.py` sidecar
 # no longer exists. The row is intentionally dropped from the rubric.

@@ -473,6 +473,23 @@ class TranscriptComponent:
             )
         self._repaint()
 
+    def add_shell_result(
+        self, *, collapsed: Iterable[str], expanded: Iterable[str]
+    ) -> None:
+        """Commit a ``!`` command's rows, which follow the Ctrl+O flag.
+
+        Like Pi's ``BashExecutionComponent.setExpanded``: collapsed shows the
+        last lines and a ``more lines`` hint, expanded shows every line.
+        """
+
+        state = SummaryRenderState(tuple(collapsed) or ("",), tuple(expanded) or ("",))
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self.tool_output_text = ""
+            lines = state.expanded if self.tools_expanded else state.collapsed
+            self.history_blocks.append(HistoryBlockTuple("tool_result", lines, state))
+        self._repaint()
+
     def add_summary(self, *, collapsed: Iterable[str], expanded: Iterable[str]) -> None:
         """Commit a collapsible compaction or branch summary row."""
 

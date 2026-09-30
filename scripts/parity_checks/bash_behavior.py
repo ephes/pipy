@@ -12,8 +12,8 @@ tool (not a recreated, unregistered helper):
    not an allowlisted no-shell boundary.
 3. ``.git`` is readable through the shell (``cat .git/config``), matching Pi —
    the bash tool has no ``.git`` default-deny.
-4. A non-zero exit is a normal, non-error observation that reports the exit
-   code, so the model can react to a failing command.
+4. A non-zero exit is an error result that ends with Pi's
+   ``Command exited with code N`` after the output.
 
 A recreated, unregistered helper module cannot satisfy this check.
 
@@ -79,9 +79,13 @@ def main() -> int:
         if git_read.is_error or "[core]" not in git_read.output_text:
             _fail("bash could not read .git through the shell (Pi parity)")
 
+        # Pi appends `Command exited with code N` and marks the result an error.
         failing = _run("echo boom; exit 3")
-        if failing.is_error or "exit code: 3" not in failing.output_text:
-            _fail("bash did not surface a non-zero exit as a normal observation")
+        if (
+            not failing.is_error
+            or failing.output_text != "boom\n\n\nCommand exited with code 3"
+        ):
+            _fail("bash did not report a non-zero exit like Pi")
 
     print("OK: bash tool is a registered real shell matching Pi")
     return 0

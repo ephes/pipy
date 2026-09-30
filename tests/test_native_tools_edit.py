@@ -1,280 +1,350 @@
-"""Slice 10 tests: the `edit` tool."""
+"""The `edit` tool follows Pi's `edit.ts` and `edit-diff.ts` (TOOLS2/READ2b).
+
+`tests/fixtures/pi_tools2/edit_diff_cases.json` holds Pi's own results: the
+cases were run through ``generateDiffString``, jsdiff ``diffLines`` and
+``applyEditsToNormalizedContent`` from pi-mono ``1b347794e`` on Node.
+"""
 
 from __future__ import annotations
 
 import io
+import json
+import os
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+from pipy_harness.native.agent.tools import ToolExecutor
 from pipy_harness.native.tools import (
-    ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
+    validate_arguments,
 )
-from pipy_harness.native.tools.edit import EditTool
+from pipy_harness.native.tools.edit import EDIT_TOOL_DESCRIPTION, EditTool
+from pipy_harness.native.tools.edit_diff import (
+    Edit,
+    EditError,
+    apply_edits_to_normalized_content,
+    detect_line_ending,
+    diff_lines,
+    generate_diff_string,
+    normalize_to_lf,
+)
+
+_FIXTURES = json.loads(
+    (
+        Path(__file__).parent / "fixtures" / "pi_tools2" / "edit_diff_cases.json"
+    ).read_text()
+)
 
 
-def _make_request(arguments: dict[str, object]) -> ToolRequest:
-    return ToolRequest(
-        tool_request_id=make_tool_request_id(),
-        tool_name="edit",
-        arguments=arguments,
-    )
+def _sink(buffer: io.StringIO | None) -> Callable[[str], None] | None:
+    if buffer is None:
+        return None
 
-
-def _stderr_capture(buffer: io.StringIO):
-    def _sink(text: str) -> None:
+    def write(text: str) -> None:
         buffer.write(text)
 
-    return _sink
+    return write
 
 
-def test_edit_tool_satisfies_tool_port_protocol():
+def _invoke(
+    workspace: Path,
+    arguments: dict[str, object],
+    *,
+    sink: io.StringIO | None = None,
+    cancel: threading.Event | None = None,
+):
     tool = EditTool()
-
-    assert isinstance(tool, ToolPort)
-
-
-def test_edit_tool_definition_requires_path_old_new():
-    tool = EditTool()
-
-    schema = tool.definition.input_schema
-
-    assert schema["type"] == "object"
-    assert set(schema["required"]) == {"path", "old_string", "new_string"}
-    assert schema["additionalProperties"] is False
-    assert schema["properties"]["replace_all"]["type"] == "boolean"
-
-
-def test_edit_tool_replaces_unique_match_and_streams_diff(tmp_path: Path):
-    target = tmp_path / "config.py"
-    target.write_text("DEBUG = False\n", encoding="utf-8")
-    buffer = io.StringIO()
-    tool = EditTool()
-    context = ToolContext(
-        workspace_root=tmp_path,
-        stderr_sink=_stderr_capture(buffer),
+    prepared = tool.prepare_arguments(arguments)
+    assert isinstance(prepared, dict)
+    validated = validate_arguments(
+        tool_name="edit", schema=tool.definition.input_schema, arguments=prepared
     )
-    request = _make_request(
-        {
-            "path": "config.py",
-            "old_string": "DEBUG = False",
-            "new_string": "DEBUG = True",
-        }
-    )
-
-    result = tool.invoke(request, context)
-
-    assert result.is_error is False
-    assert target.read_text(encoding="utf-8") == "DEBUG = True\n"
-    diff = buffer.getvalue()
-    assert "-DEBUG = False" in diff
-    assert "+DEBUG = True" in diff
-
-
-def test_edit_tool_writes_before_streaming_exact_diff(tmp_path: Path):
-    target = tmp_path / "note.txt"
-    target.write_text("before\n", encoding="utf-8")
-    observed: list[tuple[str, bytes]] = []
-
-    def sink(diff_text: str) -> None:
-        observed.append((target.read_text(encoding="utf-8"), diff_text.encode("utf-8")))
-
-    result = EditTool().invoke(
-        _make_request(
-            {
-                "path": "note.txt",
-                "old_string": "before",
-                "new_string": "after",
-            }
+    return tool.invoke(
+        ToolRequest(
+            tool_request_id=make_tool_request_id(),
+            tool_name="edit",
+            arguments=validated,
         ),
-        ToolContext(workspace_root=tmp_path, stderr_sink=sink),
+        ToolContext(
+            workspace_root=workspace,
+            stderr_sink=_sink(sink),
+            cancel_event=cancel,
+        ),
     )
 
-    assert observed == [
-        (
-            "after\n",
-            b"--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-before\n+after\n",
-        )
-    ]
-    assert result.output_text == "edited note.txt (1 replacement(s))"
+
+def _one(old: str, new: str) -> dict[str, object]:
+    return {"edits": [{"oldText": old, "newText": new}]}
 
 
-def test_edit_tool_preserves_argument_failure_order(tmp_path: Path):
+def test_definition_matches_pi() -> None:
     tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-
-    with pytest.raises(ToolArgumentError) as path_info:
-        tool.invoke(
-            _make_request({"path": "/etc/passwd", "old_string": "", "new_string": 1}),
-            context,
-        )
-    with pytest.raises(ToolArgumentError) as old_info:
-        tool.invoke(
-            _make_request({"path": "valid.txt", "old_string": "", "new_string": 1}),
-            context,
-        )
-
-    assert path_info.value.field_path == ("path",)
-    assert old_info.value.field_path == ("old_string",)
+    assert isinstance(tool, ToolPort)
+    assert tool.definition.description == EDIT_TOOL_DESCRIPTION
+    assert EDIT_TOOL_DESCRIPTION.startswith(
+        "Edit a single file using exact text replacement. Every edits[].oldText"
+    )
+    schema = tool.definition.input_schema
+    assert schema["required"] == ["path", "edits"]
+    item = schema["properties"]["edits"]["items"]
+    assert item["required"] == ["oldText", "newText"]
+    assert item["properties"]["newText"]["description"] == (
+        "Replacement text for this targeted edit."
+    )
+    assert "old_string" not in schema["properties"]
 
 
-def test_edit_tool_rejects_duplicate_when_replace_all_false(tmp_path: Path):
-    target = tmp_path / "dup.py"
-    target.write_text("X = 1\nX = 1\n", encoding="utf-8")
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "dup.py", "old_string": "X = 1", "new_string": "X = 2"}
+@pytest.mark.parametrize(
+    "entry",
+    [entry for entry in _FIXTURES if entry["case"]["kind"] == "diff"],
+    ids=lambda entry: repr(entry["case"]["new"][:12]),
+)
+def test_generate_diff_string_matches_pi(entry: dict) -> None:
+    case, pi = entry["case"], entry["pi"]
+    assert generate_diff_string(case["old"], case["new"]) == (
+        pi["diff"],
+        pi.get("firstChangedLine"),
     )
 
-    result = tool.invoke(request, context)
 
-    assert result.is_error is True
-    assert "not unique" in result.output_text
-    assert target.read_text(encoding="utf-8") == "X = 1\nX = 1\n"
+@pytest.mark.parametrize(
+    "entry", [entry for entry in _FIXTURES if entry["case"]["kind"] == "lines"]
+)
+def test_diff_lines_matches_jsdiff(entry: dict) -> None:
+    case = entry["case"]
+    parts = diff_lines(case["old"], case["new"])
+    assert [[p.value, p.added, p.removed, p.count] for p in parts] == entry["pi"]
 
 
-def test_edit_tool_replace_all_replaces_every_occurrence(tmp_path: Path):
-    target = tmp_path / "dup.py"
-    target.write_text("X = 1\nX = 1\n", encoding="utf-8")
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {
-            "path": "dup.py",
-            "old_string": "X = 1",
-            "new_string": "X = 2",
-            "replace_all": True,
-        }
-    )
+@pytest.mark.parametrize(
+    "entry",
+    [entry for entry in _FIXTURES if entry["case"]["kind"] == "apply"],
+    ids=lambda entry: json.dumps(entry["case"]["edits"])[:40],
+)
+def test_apply_edits_matches_pi(entry: dict) -> None:
+    case = entry["case"]
+    edits = [Edit(e["oldText"], e["newText"]) for e in case["edits"]]
+    try:
+        base, new = apply_edits_to_normalized_content(
+            normalize_to_lf(case["content"]), edits, case["path"]
+        )
+    except EditError as exc:
+        assert entry["pi"] == {"error": str(exc)}
+    else:
+        assert entry["pi"] == {"baseContent": base, "newContent": new}
 
-    result = tool.invoke(request, context)
+
+def test_edits_a_file(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\ny = 2\n")
+    sink = io.StringIO()
+
+    result = _invoke(tmp_path, {"path": "a.py", **_one("y = 2", "y = 3")}, sink=sink)
 
     assert result.is_error is False
-    assert target.read_text(encoding="utf-8") == "X = 2\nX = 2\n"
+    assert result.output_text == "Successfully replaced 1 block(s) in a.py."
+    assert (tmp_path / "a.py").read_text() == "x = 1\ny = 3\n"
+    assert sink.getvalue() == " 1 x = 1\n-2 y = 2\n+2 y = 3"
 
 
-def test_edit_tool_rejects_empty_old_string(tmp_path: Path):
-    (tmp_path / "f.py").write_text("x", encoding="utf-8")
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "f.py", "old_string": "", "new_string": "y"})
+def test_multiple_disjoint_edits_apply_together(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("one\ntwo\nthree\n")
 
-    with pytest.raises(ToolArgumentError) as info:
-        tool.invoke(request, context)
-
-    assert info.value.field_path == ("old_string",)
-
-
-def test_edit_tool_reports_missing_file(tmp_path: Path):
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "missing.py", "old_string": "x", "new_string": "y"}
+    result = _invoke(
+        tmp_path,
+        {
+            "path": "a.txt",
+            "edits": [
+                {"oldText": "three", "newText": "3"},
+                {"oldText": "one", "newText": "1"},
+            ],
+        },
     )
 
-    result = tool.invoke(request, context)
+    assert result.output_text == "Successfully replaced 2 block(s) in a.txt."
+    assert (tmp_path / "a.txt").read_text() == "1\ntwo\n3\n"
+
+
+def test_crlf_and_bom_survive(tmp_path: Path) -> None:
+    target = tmp_path / "w.txt"
+    target.write_bytes(b"\xef\xbb\xbfalpha\r\nbeta\r\n")
+
+    result = _invoke(tmp_path, {"path": "w.txt", **_one("alpha\nbeta", "gamma\ndelta")})
+
+    assert result.is_error is False
+    assert target.read_bytes() == b"\xef\xbb\xbfgamma\r\ndelta\r\n"
+
+
+def test_fuzzy_match_keeps_unchanged_lines(tmp_path: Path) -> None:
+    target = tmp_path / "q.txt"
+    target.write_text("say “hi”  \nkeep’ \nend\n")
+
+    result = _invoke(tmp_path, {"path": "q.txt", **_one('say "hi"', "said")})
+
+    assert result.is_error is False
+    # Only the touched line takes the normalized text.
+    assert target.read_text() == "said\nkeep’ \nend\n"
+
+
+def test_detect_line_ending() -> None:
+    assert detect_line_ending("a\r\nb\n") == "\r\n"
+    assert detect_line_ending("a\nb\r\n") == "\n"
+    assert detect_line_ending("a") == "\n"
+
+
+@pytest.mark.parametrize(
+    ("content", "arguments", "expected"),
+    [
+        (
+            "a\n",
+            _one("zzz", "b"),
+            "Could not find the exact text in f.txt. The old text must match "
+            "exactly including all whitespace and newlines.",
+        ),
+        (
+            "a\na\n",
+            _one("a", "b"),
+            "Found 2 occurrences of the text in f.txt. The text must be unique. "
+            "Please provide more context to make it unique.",
+        ),
+        ("a\n", _one("", "b"), "oldText must not be empty in f.txt."),
+        (
+            "a\n",
+            _one("a", "a"),
+            "No changes made to f.txt. The replacement produced identical content. "
+            "This might indicate an issue with special characters or the text not "
+            "existing as expected.",
+        ),
+        (
+            "a\n",
+            {"edits": []},
+            "Edit tool input is invalid. edits must contain at least one replacement.",
+        ),
+    ],
+)
+def test_error_texts_match_pi(
+    tmp_path: Path, content: str, arguments: dict[str, object], expected: str
+) -> None:
+    (tmp_path / "f.txt").write_text(content)
+
+    result = _invoke(tmp_path, {"path": "f.txt", **arguments})
 
     assert result.is_error is True
-    assert "does not exist" in result.output_text
+    assert result.output_text == expected
+    assert (tmp_path / "f.txt").read_text() == content
 
 
-def test_edit_tool_refuses_oversized_file_before_read(tmp_path: Path):
-    target = tmp_path / "large.py"
-    target.write_bytes(b"x" * 65)
-    tool = EditTool(max_content_bytes=64)
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "large.py", "old_string": "x", "new_string": "y"})
-
-    result = tool.invoke(request, context)
+def test_a_missing_file_is_pis_access_error(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, {"path": "nope.txt", **_one("a", "b")})
 
     assert result.is_error is True
-    assert "max_content_bytes" in result.output_text
-    assert target.read_bytes() == b"x" * 65
+    assert result.output_text == "Could not edit file: nope.txt. Error code: ENOENT."
 
 
-def test_edit_tool_refuses_dot_git(tmp_path: Path):
-    (tmp_path / ".git").mkdir()
-    (tmp_path / ".git" / "config").write_text("x", encoding="utf-8")
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": ".git/config", "old_string": "x", "new_string": "y"}
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+def test_a_read_only_file_is_pis_access_error(tmp_path: Path) -> None:
+    target = tmp_path / "ro.txt"
+    target.write_text("a\n")
+    target.chmod(0o400)
+
+    result = _invoke(tmp_path, {"path": "ro.txt", **_one("a", "b")})
+
+    assert result.output_text == "Could not edit file: ro.txt. Error code: EACCES."
+
+
+def test_a_directory_is_nodes_eisdir_read_error(tmp_path: Path) -> None:
+    (tmp_path / "d").mkdir()
+
+    result = _invoke(tmp_path, {"path": "d", **_one("a", "b")})
+
+    assert result.is_error is True
+    assert result.output_text == "EISDIR: illegal operation on a directory, read"
+
+
+def test_resolves_paths_like_pi_without_a_deny_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "ws"
+    (workspace / ".git").mkdir(parents=True)
+    (workspace / ".git" / "config").write_text("[core]\n")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("old\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert (
+        _invoke(workspace, {"path": ".git/config", **_one("core", "x")}).is_error
+        is False
+    )
+    assert (
+        _invoke(workspace, {"path": "~/outside.txt", **_one("old", "new")}).is_error
+        is False
     )
 
-    result = tool.invoke(request, context)
-
-    assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
+    assert (workspace / ".git" / "config").read_text() == "[x]\n"
+    assert outside.read_text() == "new\n"
 
 
-def test_edit_tool_refuses_absolute_path(tmp_path: Path):
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "/etc/passwd", "old_string": "x", "new_string": "y"}
+def test_an_aborted_call_changes_nothing(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("a\n")
+    cancel = threading.Event()
+    cancel.set()
+
+    result = _invoke(tmp_path, {"path": "a.txt", **_one("a", "b")}, cancel=cancel)
+
+    assert result.output_text == "Operation aborted"
+    assert (tmp_path / "a.txt").read_text() == "a\n"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"path": "f", "edits": '[{"oldText": "a", "newText": "b"}]'},
+        {"path": "f", "edits": '{"oldText": "a", "newText": "b"}'},
+        {"path": "f", "edits": {"oldText": "a", "newText": "b"}},
+        {"path": "f", "oldText": "a", "newText": "b"},
+    ],
+)
+def test_prepare_arguments_accepts_pis_legacy_shapes(raw: dict[str, object]) -> None:
+    assert EditTool.prepare_arguments(raw) == {
+        "path": "f",
+        "edits": [{"oldText": "a", "newText": "b"}],
+    }
+
+
+def test_prepare_arguments_appends_legacy_fields_to_edits() -> None:
+    prepared = EditTool.prepare_arguments(
+        {
+            "path": "f",
+            "edits": [{"oldText": "x", "newText": "y"}],
+            "oldText": "a",
+            "newText": "b",
+        }
+    )
+    assert prepared == {
+        "path": "f",
+        "edits": [{"oldText": "x", "newText": "y"}, {"oldText": "a", "newText": "b"}],
+    }
+    assert EditTool.prepare_arguments("not an object") == "not an object"
+
+
+def test_the_executor_prepares_arguments_before_validation(tmp_path: Path) -> None:
+    from pipy_harness.native.agent import AgentToolCall
+    from pipy_harness.native.agent.content import ProductContent
+
+    (tmp_path / "a.txt").write_text("a\n")
+    executor = ToolExecutor({"edit": EditTool()})
+    call = AgentToolCall(
+        "c1",
+        "edit",
+        ProductContent(json.dumps({"path": "a.txt", "oldText": "a", "newText": "b"})),
     )
 
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
+    outcome = executor.execute(call, ToolContext(workspace_root=tmp_path))
 
-
-def test_edit_tool_reports_no_match(tmp_path: Path):
-    target = tmp_path / "f.py"
-    target.write_text("hello\n", encoding="utf-8")
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "f.py", "old_string": "missing", "new_string": "x"}
-    )
-
-    result = tool.invoke(request, context)
-
-    assert result.is_error is True
-    assert "not found" in result.output_text
-
-
-def test_edit_tool_does_not_invoke_archive_recorder(tmp_path: Path, monkeypatch):
-    target = tmp_path / "f.py"
-    target.write_text("x", encoding="utf-8")
-    import pipy_session.recorder as recorder
-
-    sentinel: dict[str, int] = {"calls": 0}
-    original_append = recorder.append_event
-
-    def _trap(*args, **kwargs):
-        sentinel["calls"] += 1
-        return original_append(*args, **kwargs)
-
-    monkeypatch.setattr(recorder, "append_event", _trap)
-
-    tool = EditTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "f.py", "old_string": "x", "new_string": "y"})
-
-    tool.invoke(request, context)
-
-    assert sentinel["calls"] == 0
-
-
-def test_edit_tool_source_does_not_import_recorder():
-    source = (
-        Path(__file__).parents[1] / "src/pipy_harness/native/tools/edit.py"
-    ).read_text(encoding="utf-8")
-
-    assert "import pipy_session" not in source
-    assert "from pipy_session" not in source
-
-
-def test_production_tool_registry_holds_edit():
-    from pipy_harness.native import production_tool_registry
-
-    registry = production_tool_registry()
-    assert "edit" in registry
-    expected = {"read", "ls", "grep", "find", "write", "edit"}
-    assert expected.issubset(set(registry.keys()))
-    assert "bash" in registry
+    assert outcome.result.content.value == "Successfully replaced 1 block(s) in a.txt."
+    assert (tmp_path / "a.txt").read_text() == "b\n"

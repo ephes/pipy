@@ -387,8 +387,20 @@ normal prompt submit (matching Pi's `flushPendingBashComponents` timing, not an
 automatic flush on turn settle); a `!` submit while a bash command is already
 running is refused with a local warning and the text is restored. Escape cancels a
 running `!` command (terminating the child process group) without aborting the
-session. This reuses pipy's existing bash tool execution and bounding; it adds no
-new sandbox surface and runs no provider turn.
+session. This reuses pipy's existing bash tool execution; it adds no new sandbox
+surface and runs no provider turn.
+
+Output and record follow Pi (TOOLS2): the output is kept like Pi's
+`bash-executor.ts` (ANSI escapes and control characters removed, the last 2000
+lines / 50 KB, a `pipy-bash-<id>.log` temp file for the full output), the
+context record is Pi's `bashExecutionToText` text (``Ran `cmd` `` plus a fenced
+output block, `Command exited with code N` or `(command cancelled)`, and
+`[Output truncated. Full output: …]`), and the rows are Pi's
+`BashExecutionComponent`: the last 20 lines with `... N more lines (ctrl+o to
+expand)`, then `(exit N)` or `(cancelled)` and `Output truncated. Full output:
+…`, following Ctrl+O. With the terminal UI there is no time limit, as in Pi.
+Without a terminal (no cancel key) pipy keeps a 600-second bound and records a
+command killed by it as cancelled.
 
 ## Scoped-Model Cycling (Ctrl+P)
 

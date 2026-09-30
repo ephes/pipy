@@ -32,6 +32,7 @@ from pipy_harness.native.extension_ui import coerce_tool_render_lines
 from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.tool_headers import pi_tool_call_header
 
 
 class _PaletteToolRenderTheme:
@@ -1014,74 +1015,12 @@ class _ToolLoopRenderer:
                 (path, plain),
                 (range_label, yellow),
             ]
-        if tool_name == "ls":
-            return [
-                ("ls", bold),
-                (" ", plain),
-                (str(data.get("path", ".")), plain),
-            ]
-        if tool_name == "grep":
-            return [
-                ("grep", bold),
-                (" ", plain),
-                (f'"{data.get("pattern", "")}"', plain),
-                (" ", plain),
-                (str(data.get("path", ".")), plain),
-            ]
-        if tool_name == "find":
-            return [
-                ("find", bold),
-                (" ", plain),
-                (f'"{data.get("pattern", "")}"', plain),
-                (" ", plain),
-                (str(data.get("path", ".")), plain),
-            ]
-        if tool_name in {"write", "edit"}:
-            return [
-                (tool_name, bold),
-                (" ", plain),
-                (str(data.get("path", "")), plain),
-            ]
+        header = pi_tool_call_header(tool_name, data)
+        if header is not None:
+            title, rest = header
+            return [(title, bold), (" ", plain), (rest, plain)]
         preview = self._argument_preview(arguments_json)
         return [(f"{tool_name}({preview})", bold)]
-
-    @staticmethod
-    def _header_data(arguments_json: str) -> dict[str, object]:
-        try:
-            data = json.loads(arguments_json)
-        except (json.JSONDecodeError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    def _format_pi_call_header(self, tool_name: str, arguments_json: str) -> str:
-        """Render a Pi-shape one-line tool header.
-
-        Built-in read/ls/grep/find/write/edit tools render as Pi-style
-        compact lines: ``read path[:start-end]``, ``ls path``,
-        ``grep "pattern" path``, ``find "pattern" path``. Unknown tools
-        fall back to a ``name(args)`` form so the user can still see the
-        invocation.
-        """
-
-        data = self._header_data(arguments_json)
-        if tool_name == "read":
-            path = data.get("path", "")
-            prefix = "read resource" if str(path).startswith("/") else "read"
-            range_label = self._read_range_label(data)
-            return f"{prefix} {path}{range_label} (ctrl+o to expand)"
-        if tool_name in {"grep", "find"}:
-            pattern = data.get("pattern", "")
-            path = data.get("path", ".")
-            return f'{tool_name} "{pattern}" {path}'
-        path_defaults = {
-            "ls": ".",
-            "write": "",
-            "edit": "",
-        }
-        if tool_name in path_defaults:
-            return f"{tool_name} {data.get('path', path_defaults[tool_name])}"
-        preview = self._argument_preview(arguments_json)
-        return f"{tool_name}({preview})"
 
     def _argument_preview(self, arguments_json: str) -> str:
         try:
@@ -1125,14 +1064,9 @@ def _plain_tool_call_header(call: AgentToolCall) -> str:
     if call.tool_name == "read" and isinstance(path, str):
         prefix = "read resource" if path.startswith("/") else "read"
         return f"{prefix} {path}{_ToolLoopRenderer._read_range_label(data)}"
-    if call.tool_name == "ls" and (path is None or isinstance(path, str)):
-        # `path` is optional, as in Pi's `ls`.
-        return f"ls {path}" if path and path != "." else "ls"
-    if call.tool_name in {"grep", "find"}:
-        pattern = data.get("pattern")
-        root = path if isinstance(path, str) else "."
-        if isinstance(pattern, str):
-            return f'{call.tool_name} "{pattern}" {root}'
+    header = pi_tool_call_header(call.tool_name, data)
+    if header is not None:
+        return " ".join(header)
     # The row renders behind a `$ ` prompt, so `bash` shows its command line,
     # as Pi does, instead of an argument dump (`$ bash(command=...)`).
     command = data.get("command")
@@ -1145,8 +1079,6 @@ def _plain_tool_call_header(call: AgentToolCall) -> str:
         ):
             return f"{command} (timeout {timeout:g}s)"
         return command
-    if call.tool_name in {"write", "edit"} and isinstance(path, str):
-        return f"{call.tool_name} {path}"
     preview = _argument_preview(data)
     return f"{call.tool_name}({preview})"
 
