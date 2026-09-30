@@ -176,23 +176,41 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - Compaction and branch summaries drop a stopped turn's partial text; Pi
     serializes it into the summary input as `[Assistant]: …`.
 - **DF1-F7b, what F7 left of TUI polish** (see the F7 Done row):
-  - Model selection: `/model gpt-6-luna` resolves to the unauthenticated
-    `openai` row and the `/model` selector lists unavailable models. Pi
-    matches `/model <ref>` exactly over the scoped or available models
-    (`findExactModelReferenceMatch`) and otherwise opens its selector with
-    the text as the search; the selector (search input, fuzzy filter,
-    all/scoped toggle) lists only models with configured auth. pipy's
-    selector has no search input, so this is a component port.
+  - Selectors: the F7b selectors slice
+    ([plan](specs/2026-09-30-f7b-selectors-plan.md), branch
+    `feat/f7b-selectors`) ported Pi's `fuzzyFilter`, `/model <ref>` exact
+    matching, the searchable model and thinking selectors, the fuzzy slash
+    menu with `/model`/`/thinking` argument completion, the `/resume`
+    search, no user message for commands, and `Error:` lines on those
+    paths. It leaves:
+    - `/login` argument completion (Pi's login provider options); extension
+      commands have no `getArgumentCompletions`;
+    - the model selector does not refresh catalogs (Pi's `Refreshing model
+      catalogs…` / `Model catalogs refreshed.` line), and `/model <ref>`
+      does not refresh before its second lookup;
+    - the search input lacks Pi `Input`'s undo, yank, word motion and word
+      deletion and forward Delete (pipy decodes no `Delete` key), and edits
+      by code point, not grapheme cluster;
+    - the `/resume` picker has no `relevance`/`threaded` sort and searches no
+      message text (`allMessagesText`); `re:` uses Python's regex syntax;
+    - a skill run draws its expanded text as a user message; Pi draws a
+      `SkillInvocationMessageComponent`;
+    - argument completion opens on any edit after `/<command> `; Pi's editor
+      opens it only for letters, digits, `.`, `-` and `_`;
+    - the plain REPL keeps pipy's `/model <ref>` resolver and its command
+      bubbles; the settings dialog's provider/model list is still pipy's
+      list; the default model is pipy's defaults store, not Pi's
+      `defaultProvider`/`defaultModel` settings.
   - The compaction summary treats its own instruction as a user request:
     pipy sends the removed messages as structured history followed by the
     instruction. Pi serializes them into one `<conversation>` text
     (`serializeConversation`) with its structured `SUMMARIZATION_PROMPT` /
     `UPDATE_SUMMARIZATION_PROMPT`, split-turn prefix summaries and the
     read/modified file lists (a compaction request slice; see also F6b).
-  - Notice texts stay pipy's; Pi's `showWarning`/`showError` lines
-    (`Warning: …` / `Error: …`) are not separated from status lines, and
-    back-to-back statuses are not merged into one line.
-  - A slash command is drawn as a user message; Pi draws none.
+  - Notice texts stay pipy's; outside `/model` and `/thinking`, notices that
+    Pi shows with `showWarning`/`showError` (`Warning: …` / `Error: …`) are
+    still dim status lines, and back-to-back statuses are not merged into one
+    line. An unhandled `/…` line gets pipy's notice; Pi sends it as a prompt.
   - The non-quiet TUI header lists every hint; Pi shows its logo and a
     condensed list that Ctrl+O expands.
   - `!` rows keep pipy's boxed style; Pi's `BashExecutionComponent` draws

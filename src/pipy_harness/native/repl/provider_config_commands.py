@@ -27,14 +27,16 @@ from pipy_harness.native.coding.commands import (
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic, last_assistant_answer
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
+from pipy_harness.native.model_resolver import find_exact_model_reference
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.selector_actions import (
     handle_trust_command,
-    model_selector_rows,
+    model_choice,
     open_scoped_models_overlay,
-    thinking_selector_rows,
+    scoped_model_specs,
+    usable_model_specs,
 )
 from pipy_harness.native.repl.settings_actions import (
     drive_settings_dialog,
@@ -48,6 +50,11 @@ from pipy_harness.native.scoped_models import filter_scoped_references, next_ref
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.thinking import DEFAULT_THINKING_LEVEL
 from pipy_harness.native.tui import TerminalUi
+from pipy_harness.native.ui.components.search_selectors import (
+    ModelChoice,
+    ModelSearchSelector,
+    ThinkingSearchSelector,
+)
 
 
 def copy_last_answer(
@@ -195,35 +202,12 @@ class ProviderConfigurationCommandEffects:
                 self.error_stream,
                 "pipy: /model is unavailable for this REPL provider state.",
             )
-        elif argument:
-            _ok, message = self.provider_mutation.apply_model_selection(argument)
-            emit_diagnostic(
-                self.terminal_ui.components.transcript
-                if self.terminal_ui is not None
-                else None,
-                self.error_stream,
-                message,
-            )
         elif self.terminal_ui is not None:
-            ui_options, selections = model_selector_rows(state)
-            current = state.current_selection()
-            current_index = next(
-                (
-                    index
-                    for index, selection in enumerate(selections)
-                    if selection.provider_name == current.provider_name
-                    and selection.model_id == current.model_id
-                ),
-                0,
-            )
-            chosen = self.terminal_ui.components.modals.run_model_selector(
-                ui_options, current_index=current_index
-            )
-            if chosen is not None:
-                _ok, message = self.provider_mutation.apply_model_selection(
-                    selections[chosen].reference
-                )
-                self.terminal_ui.components.transcript.add_notice(message)
+            self._model_tui(state, self.terminal_ui, argument)
+        elif argument:
+            # The plain REPL has no Pi counterpart; it keeps pipy's resolver.
+            _ok, message = self.provider_mutation.apply_model_selection(argument)
+            emit_diagnostic(None, self.error_stream, message)
         else:
             for overlay_line in tool_loop_settings_overlay_lines(
                 self.settings,
@@ -231,6 +215,64 @@ class ProviderConfigurationCommandEffects:
                 provider_state=self.provider_state,
             ):
                 print(overlay_line, file=self.error_stream)
+
+    def _model_tui(
+        self, state: NativeReplProviderState, terminal_ui: TerminalUi, argument: str
+    ) -> None:
+        """Pi ``handleModelCommand``: an exact reference switches, else the
+        selector opens with the text as its search."""
+
+        available = usable_model_specs(state)
+        scoped = scoped_model_specs(self.settings.get_enabled_models(), available)
+        if argument:
+            match = find_exact_model_reference(argument, scoped or available)
+            if match is not None:
+                self._switch_model(match.provider_name, match.model_id, persist=False)
+                return
+        current = state.current_selection()
+        default = state.saved_default_selection()
+        selector = ModelSearchSelector(
+            models=[model_choice(spec) for spec in available],
+            scoped_models=[model_choice(spec) for spec in scoped],
+            current=ModelChoice(current.provider_name, current.model_id, ""),
+            default=(
+                ModelChoice(default.provider_name, default.model_id, "")
+                if default is not None
+                else None
+            ),
+            keys=terminal_ui.components.modals.selector_keys("app.models.save"),
+            initial_search=argument,
+        )
+        closed = terminal_ui.components.modals.run_search_selector(selector)
+        if isinstance(closed.value, ModelChoice):
+            self._switch_model(
+                closed.value.provider, closed.value.model_id, persist=closed.save
+            )
+
+    def _switch_model(self, provider: str, model_id: str, *, persist: bool) -> None:
+        """Pi ``setModel`` + ``showStatus`` / ``showError``."""
+
+        outcome = self.provider_mutation.switch_model(
+            f"{provider}/{model_id}", persist_default=persist
+        )
+        if not outcome.switched:
+            self._error(outcome.message)
+            return
+        self._notice(
+            f"Default model: {provider}/{model_id}" if persist else f"Model: {model_id}"
+        )
+        for diagnostic in outcome.diagnostics:
+            self._notice(diagnostic)
+
+    def _error(self, message: str) -> None:
+        """Pi ``showError``: ``Error: …`` in the chat, the notice otherwise."""
+
+        if self.terminal_ui is not None:
+            self.terminal_ui.components.transcript.add_error(
+                f"Error: {message.removeprefix('pipy: ')}"
+            )
+            return
+        emit_diagnostic(None, self.error_stream, message)
 
     def _notice(self, message: str) -> None:
         emit_diagnostic(
@@ -264,7 +306,7 @@ class ProviderConfigurationCommandEffects:
                 None,
             )
             if level is None:
-                self._notice(
+                self._error(
                     f'pipy: Unknown thinking level "{argument}". '
                     f"Available levels: {', '.join(levels)}."
                 )
@@ -278,26 +320,26 @@ class ProviderConfigurationCommandEffects:
                 f"(available: {', '.join(levels)})"
             )
             return
-        rows, current_index = thinking_selector_rows(
-            levels,
-            current_level=current,
-            default_level=(
+        selector = ThinkingSearchSelector(
+            levels=levels,
+            # Pi: `session.thinkingLevel ?? DEFAULT_THINKING_LEVEL`; pipy's
+            # unset level means off.
+            current=current or "off",
+            default=(
                 self.settings.get_default_thinking_level() or DEFAULT_THINKING_LEVEL
             ),
+            keys=self.terminal_ui.components.modals.selector_keys("app.thinking.save"),
         )
-        chosen = self.terminal_ui.components.modals.run_thinking_selector(
-            rows, current_index=current_index
-        )
-        if chosen is None or chosen.index is None:
-            return
-        self._select_thinking_level(levels[chosen.index], persist=chosen.save)
+        closed = self.terminal_ui.components.modals.run_search_selector(selector)
+        if isinstance(closed.value, str):
+            self._select_thinking_level(closed.value, persist=closed.save)
 
     def _select_thinking_level(self, level: str, *, persist: bool) -> None:
         """Pi ``selectThinkingLevel``: apply for the session, then persist."""
 
         result = self.provider_mutation.set_thinking_level(level)
         if not result.success:
-            self._notice(
+            self._error(
                 "pipy: thinking level unchanged "
                 f"({result.diagnostic or 'unknown error'})."
             )

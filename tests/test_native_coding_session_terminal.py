@@ -68,6 +68,10 @@ from pipy_harness.native.ui.components.custom_editor import (
 )
 from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.input_editor import InputEditor
+from pipy_harness.native.ui.components.search_selectors import (
+    ModelSearchSelector,
+    SearchSelectorClose,
+)
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
 )
@@ -1433,9 +1437,10 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
 
     ui.components.autocomplete.accept_slash_menu_selection()
     # Menu order is hotkeys(0), model(1), scoped-models(2), ...; one step down
-    # lands on the /model command (auto-completed into the editor).
-    assert ui.components.input_editor.text == "/model"
-    assert ui.components.input_editor.cursor == len("/model")
+    # lands on the /model command, inserted with a trailing space like Pi's
+    # `applyCompletion`.
+    assert ui.components.input_editor.text == "/model "
+    assert ui.components.input_editor.cursor == len("/model ")
     assert ui.components.autocomplete.slash_menu_open is False
 
     ui.components.input_editor.text = "/"
@@ -1870,18 +1875,19 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
         del self, prompt_label, footer
         return next(scripted)
 
-    def _select_model(self, options, *, current_index=0, title=None):
-        del self, current_index, title
+    def _select_model(self, selector):
+        del self
+        assert isinstance(selector, ModelSearchSelector)
         chosen = next(
-            index
-            for index, option in enumerate(options)
-            if option.selectable and option.label.startswith("openai/gpt-5.5")
+            choice
+            for choice in selector.filtered()
+            if choice.reference == "openai/gpt-5.5"
         )
-        chosen_labels.append(options[chosen].label)
-        return chosen
+        chosen_labels.append(chosen.reference)
+        return SearchSelectorClose(chosen)
 
     monkeypatch.setattr(TerminalUi, "read_line", _read_line)
-    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _select_model)
+    monkeypatch.setattr(TerminalModalDriver, "run_search_selector", _select_model)
     from pipy_harness.native.tui import TURN_SETTLED
 
     monkeypatch.setattr(
@@ -1943,12 +1949,12 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
 
-    def _cancel_selector(self, options, *, current_index=0, title=None):
-        del self, options, current_index, title
+    def _cancel_selector(self, selector):
+        del self, selector
         selector_calls.append(None)
-        return None
+        return SearchSelectorClose(None)
 
-    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _cancel_selector)
+    monkeypatch.setattr(TerminalModalDriver, "run_search_selector", _cancel_selector)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -1969,10 +1975,65 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
     assert provider_state.current_selection().reference == initial_reference
     assert result.user_turn_count == 0
     assert seen == []
-    assert any(
-        kind == "user" and lines == ("/model",)
-        for kind, lines in ui.components.transcript.history_blocks
+    # Pi draws no user message for a slash command.
+    assert not any(
+        kind == "user" for kind, _lines in ui.components.transcript.history_blocks
     )
+
+
+def test_tui_draws_user_messages_only_for_prompts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pi draws no user message for a command and the expanded text for a
+    prompt template (what the session stores and a restore draws)."""
+
+    templates_dir = tmp_path / ".pipy" / "templates"
+    templates_dir.mkdir(parents=True)
+    (templates_dir / "greet.md").write_text(
+        "---\nname: greet\ndescription: greet template\n---\n\n"
+        "TEMPLATE_GREET_BODY $ARGUMENTS\n",
+        encoding="utf-8",
+    )
+    provider = FakeNativeProvider(
+        supports_tool_calls=True, programmable_tool_calls=((), ())
+    )
+    session = CodingSession(provider=provider, tool_registry={})
+    ui = _ui(tmp_path)
+    scripted = iter(("/hotkeys\n", "/greet hi\n", "plain prompt\n", "/bogus\n", ""))
+    monkeypatch.setattr(
+        TerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    from pipy_harness.native.tui import TURN_SETTLED
+
+    monkeypatch.setattr(
+        TerminalUi,
+        "wait_for_active_turn_interrupt",
+        lambda self, done_event, abort_event, **kwargs: TURN_SETTLED,
+    )
+    monkeypatch.setattr(
+        CodingSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    user_blocks = [
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "user"
+    ]
+    assert user_blocks == [("TEMPLATE_GREET_BODY hi",), ("plain prompt",)]
 
 
 def test_model_command_refuses_non_tool_capable_selection(

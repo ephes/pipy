@@ -14,7 +14,6 @@ import io
 import json
 import threading
 from pathlib import Path
-from threading import RLock
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -29,22 +28,21 @@ from pipy_harness.native.coding.commands import (
     CodingCommandOutcomeKind,
 )
 from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsManager
-from pipy_harness.native.overlay_state import ModelSelectorOption, OverlayState
 from pipy_harness.native.repl.provider_config_commands import (
     ProviderConfigurationCommandEffects,
 )
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
-from pipy_harness.native.repl.selector_actions import thinking_selector_rows
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.session_tree import NativeSessionTree, SessionEntry
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.ui.components.model_selector import (
-    ModelSelectorClose,
-    ModelSelectorComponent,
-    model_selector_region_lines,
+from pipy_harness.native.ui.components.search_selectors import (
+    SearchSelector,
+    SearchSelectorClose,
+    SearchSelectorKeys,
+    ThinkingSearchSelector,
+    search_selector_keys,
 )
 from pipy_harness.native.ui.key_specs import resolved_key_specs
-from pipy_harness.native.ui.paint_lock import PaintLock
 
 
 def _thinking_levels(tree: NativeSessionTree) -> list[str]:
@@ -58,21 +56,32 @@ def _thinking_levels(tree: NativeSessionTree) -> list[str]:
 class _Transcript:
     def __init__(self) -> None:
         self.notices: list[str] = []
+        self.errors: list[str] = []
 
     def add_notice(self, message: str) -> None:
         self.notices.append(message)
 
+    def add_error(self, message: str) -> None:
+        self.errors.append(message)
+
 
 class _Modals:
-    def __init__(self, result: ModelSelectorClose | None) -> None:
-        self.result = result
-        self.calls: list[tuple[list[ModelSelectorOption], int]] = []
+    """Feeds scripted keys to the selector the command opens."""
 
-    def run_thinking_selector(
-        self, options: list[ModelSelectorOption], *, current_index: int = 0
-    ) -> ModelSelectorClose | None:
-        self.calls.append((list(options), current_index))
-        return self.result
+    def __init__(self, keys: list[str] | None) -> None:
+        self.keys = keys if keys is not None else ["esc"]
+        self.selectors: list[SearchSelector] = []
+
+    def selector_keys(self, save_action: str) -> SearchSelectorKeys:
+        return search_selector_keys(save_action, None)
+
+    def run_search_selector(self, selector: SearchSelector) -> SearchSelectorClose:
+        self.selectors.append(selector)
+        for key in self.keys:
+            closed = selector.handle_key(key)
+            if closed is not None:
+                return closed
+        return SearchSelectorClose(None)
 
 
 def _settings(tmp_path: Path, *, read_only: bool = False) -> SettingsManager:
@@ -92,7 +101,7 @@ def _command_fixture(
     tmp_path: Path,
     *,
     selection: NativeModelSelection | None = None,
-    selector_result: ModelSelectorClose | None = None,
+    selector_keys: list[str] | None = None,
     with_tui: bool = True,
     read_only_settings: bool = False,
 ) -> tuple[
@@ -110,7 +119,7 @@ def _command_fixture(
     )
     settings = _settings(tmp_path, read_only=read_only_settings)
     transcript = _Transcript()
-    modals = _Modals(selector_result)
+    modals = _Modals(selector_keys)
     terminal_ui = (
         SimpleNamespace(
             components=SimpleNamespace(transcript=transcript, modals=modals)
@@ -270,7 +279,7 @@ class TestThinkingCommand:
         assert getattr(effects.coding_state.provider, "reasoning_effort") == "high"
         assert transcript.notices == ["Thinking level: high"]
         assert _thinking_levels(tree) == ["high"]
-        assert modals.calls == []
+        assert modals.selectors == []
         assert _saved_default(settings) is None
 
     def test_unknown_level_lists_available_levels(self, tmp_path: Path) -> None:
@@ -279,12 +288,25 @@ class TestThinkingCommand:
         )
         command.execute(_thinking("max"))
 
-        assert transcript.notices == [
-            'pipy: Unknown thinking level "max". '
+        # Pi `showError`.
+        assert transcript.errors == [
+            'Error: Unknown thinking level "max". '
             "Available levels: off, low, medium, high, xhigh."
         ]
+        assert transcript.notices == []
         assert state.current_thinking_level() is None
         assert _thinking_levels(tree) == []
+
+    def test_unknown_level_without_tui_is_a_notice(self, tmp_path: Path) -> None:
+        command, _effects, _state, _tree, _settings_value, _transcript, _modals, err = (
+            _command_fixture(tmp_path, with_tui=False)
+        )
+        command.execute(_thinking("max"))
+
+        assert err.getvalue() == (
+            'pipy: Unknown thinking level "max". '
+            "Available levels: off, low, medium, high, xhigh.\n"
+        )
 
     def test_non_reasoning_model_offers_only_off(self, tmp_path: Path) -> None:
         command, _effects, _state, _tree, _settings_value, transcript, _modals, _err = (
@@ -294,30 +316,45 @@ class TestThinkingCommand:
         )
         command.execute(_thinking("low"))
 
-        assert transcript.notices == [
-            'pipy: Unknown thinking level "low". Available levels: off.'
+        assert transcript.errors == [
+            'Error: Unknown thinking level "low". Available levels: off.'
         ]
 
     def test_selector_enter_is_session_scoped(self, tmp_path: Path) -> None:
         command, _effects, state, tree, settings, transcript, modals, _err = (
-            _command_fixture(tmp_path, selector_result=ModelSelectorClose(3))
+            _command_fixture(tmp_path, selector_keys=["down", "enter"])
         )
         state.assign_thinking_level("medium")
         command.execute(_thinking(""))
 
-        options, current_index = modals.calls[0]
-        assert [option.label.split()[-1] for option in options][:1] == ["reasoning"]
-        assert current_index == 2  # off, low, medium
+        (selector,) = modals.selectors
+        assert isinstance(selector, ThinkingSearchSelector)
+        assert [item.value for item in selector.items()] == [
+            "off",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+        ]
         assert state.current_thinking_level() == "high"
         assert transcript.notices == ["Thinking level: high"]
         assert _thinking_levels(tree) == ["high"]
         assert _saved_default(settings) is None
 
+    def test_selector_search_filters_levels(self, tmp_path: Path) -> None:
+        command, _effects, state, _tree, _settings, transcript, _modals, _err = (
+            _command_fixture(tmp_path, selector_keys=["x", "h", "enter"])
+        )
+        command.execute(_thinking(""))
+
+        assert state.current_thinking_level() == "xhigh"
+        assert transcript.notices == ["Thinking level: xhigh"]
+
     def test_selector_save_key_persists_default_after_applying(
         self, tmp_path: Path
     ) -> None:
         command, _effects, state, _tree, settings, transcript, _modals, _err = (
-            _command_fixture(tmp_path, selector_result=ModelSelectorClose(1, save=True))
+            _command_fixture(tmp_path, selector_keys=["down", "ctrl-s"])
         )
         command.execute(_thinking(""))
 
@@ -328,7 +365,7 @@ class TestThinkingCommand:
 
     def test_selector_cancel_changes_nothing(self, tmp_path: Path) -> None:
         command, effects, state, tree, settings, transcript, _modals, _err = (
-            _command_fixture(tmp_path, selector_result=None)
+            _command_fixture(tmp_path, selector_keys=["down", "esc"])
         )
         before = effects.coding_state.provider
         command.execute(_thinking(""))
@@ -343,7 +380,7 @@ class TestThinkingCommand:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         command, effects, state, _tree, settings, transcript, _modals, _err = (
-            _command_fixture(tmp_path, selector_result=ModelSelectorClose(1, save=True))
+            _command_fixture(tmp_path, selector_keys=["down", "ctrl-s"])
         )
 
         def refuse(_commit: Any) -> bool:
@@ -358,8 +395,9 @@ class TestThinkingCommand:
 
         assert state.current_thinking_level() is None
         assert _saved_default(settings) is None
-        assert transcript.notices == [
-            "pipy: thinking level unchanged (session is not idle)."
+        assert transcript.notices == []
+        assert transcript.errors == [
+            "Error: thinking level unchanged (session is not idle)."
         ]
 
     def test_read_only_settings_still_apply_the_session_level(
@@ -368,7 +406,7 @@ class TestThinkingCommand:
         command, _effects, state, _tree, _settings_value, transcript, _modals, _err = (
             _command_fixture(
                 tmp_path,
-                selector_result=ModelSelectorClose(1, save=True),
+                selector_keys=["down", "ctrl-s"],
                 read_only_settings=True,
             )
         )
@@ -392,78 +430,48 @@ class TestThinkingCommand:
 
 
 class TestThinkingSelector:
-    def test_rows_follow_pi_thinking_selector(self) -> None:
-        rows, index = thinking_selector_rows(
-            ["off", "low", "medium", "high"],
-            current_level="high",
-            default_level="medium",
+    def _selector(
+        self,
+        *,
+        current: str = "high",
+        manager: KeybindingsManager | None = None,
+    ) -> ThinkingSearchSelector:
+        return ThinkingSearchSelector(
+            levels=["off", "low", "medium", "high"],
+            current=current,
+            default="medium",
+            keys=search_selector_keys("app.thinking.save", manager),
         )
-        assert [row.label for row in rows] == [
-            "  off        No reasoning",
-            "  low        Light reasoning (~2k tokens)",
-            "  medium     Moderate reasoning (~8k tokens) · default",
-            "✓ high       Deep reasoning (~16k tokens)",
+
+    def test_rows_follow_pi_thinking_selector(self) -> None:
+        selector = self._selector()
+        assert [(item.label, item.description) for item in selector.items()] == [
+            ("  off", "No reasoning"),
+            ("  low", "Light reasoning (~2k tokens)"),
+            ("  medium", "Moderate reasoning (~8k tokens) · default"),
+            ("✓ high", "Deep reasoning (~16k tokens)"),
         ]
-        assert all(row.selectable for row in rows)
-        assert index == 3
+        assert selector.selected_value() == "high"
 
     def test_unset_level_preselects_off(self) -> None:
-        _rows, index = thinking_selector_rows(
-            ["off", "low"], current_level=None, default_level="medium"
-        )
-        assert index == 0
-
-    def _component(
-        self, save_keys: list[str]
-    ) -> tuple[ModelSelectorComponent, OverlayState]:
-        overlays = OverlayState()
-        component = ModelSelectorComponent(
-            overlays, PaintLock(RLock()), lambda: None, save_keys=save_keys
-        )
-        options = [
-            ModelSelectorOption(label="  off", selectable=True),
-            ModelSelectorOption(label="✓ low", selectable=True),
-        ]
-        assert component.open(
-            options, current_index=1, title="Thinking Level", hint="custom hint"
-        )
-        return component, overlays
-
-    def test_save_key_closes_with_save(self) -> None:
-        component, overlays = self._component(["ctrl+s"])
-        lines = model_selector_region_lines(
-            overlays, width=80, height=10, footer_lines=("a", "b")
-        )
-        assert lines[0].text == " Thinking Level — custom hint"
-        assert component.handle_key("up") is None
-        assert component.handle_key("ctrl-s") == ModelSelectorClose(0, save=True)
-        assert overlays.model_hint is None
-
-    def test_enter_and_escape(self) -> None:
-        component, _overlays = self._component(["ctrl+s"])
-        assert component.handle_key("enter") == ModelSelectorClose(1, save=False)
-        component, _overlays = self._component(["ctrl+s"])
-        assert component.handle_key("esc") == ModelSelectorClose(None)
-
-    def test_model_selector_without_save_keys_ignores_ctrl_s(self) -> None:
-        component, _overlays = self._component([])
-        assert component.handle_key("ctrl-s") is None
+        assert self._selector(current="off").selected_value() == "off"
 
     def test_save_binding_wins_over_enter_and_escape(self) -> None:
-        component, _overlays = self._component(["enter"])
-        assert component.handle_key("enter") == ModelSelectorClose(1, save=True)
-        component, _overlays = self._component(["escape"])
-        assert component.handle_key("esc") == ModelSelectorClose(1, save=True)
+        # Pi checks `app.thinking.save` before the list keys.
+        for key, spec in (("enter", "enter"), ("esc", "escape")):
+            manager = KeybindingsManager({"app.thinking.save": spec})
+            selector = self._selector(manager=manager)
+            assert selector.handle_key(key) == SearchSelectorClose("high", save=True)
 
     def test_save_key_follows_user_keybindings(self) -> None:
         assert DEFAULT_KEYBINDINGS["app.thinking.save"].default_keys == ["ctrl+s"]
         assert resolved_key_specs("app.thinking.save", None) == ["ctrl+s"]
         remapped = KeybindingsManager({"app.thinking.save": "ctrl+x"})
-        specs = resolved_key_specs("app.thinking.save", remapped)
-        assert specs == ["ctrl+x"]
-        component, _overlays = self._component(specs)
-        assert component.handle_key("ctrl-s") is None
-        assert component.handle_key("ctrl-x") == ModelSelectorClose(1, save=True)
+        assert resolved_key_specs("app.thinking.save", remapped) == ["ctrl+x"]
+        selector = self._selector(manager=remapped)
+        # Ctrl+S is no longer the save key; it is not an edit key either.
+        assert selector.handle_key("ctrl-s") is None
+        assert selector.handle_key("ctrl-x") == SearchSelectorClose("high", save=True)
 
 
 def test_session_entries_are_the_imported_type() -> None:

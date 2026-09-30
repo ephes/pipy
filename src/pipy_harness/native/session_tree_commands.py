@@ -22,6 +22,11 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.session_search import (
+    match_session_text,
+    parse_search_query,
+    session_search_text,
+)
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
     CompactionEntry,
@@ -1053,15 +1058,18 @@ def build_session_picker_rows(
     """Build the filtered/sorted picker rows (pure; shared by all picker paths).
 
     ``scope`` chooses the current-project list or the all-projects list (Pi
-    ``Tab``). ``named_only`` keeps only named sessions (Pi ``Ctrl+N``). ``query``
-    is a case-insensitive substring match over name, id, and workspace path.
-    ``sort`` is ``recent`` (mtime, newest first) or ``name`` (alphabetical,
-    unnamed sessions last) (Pi ``Ctrl+S``). The session at ``current_path`` is
-    marked ``is_current``.
+    ``Tab``). ``named_only`` keeps only named sessions (Pi ``Ctrl+N``).
+    ``query`` is Pi's session search (``session_search.py``: fuzzy tokens,
+    quoted phrases, ``re:``) over ``id name cwd``; Pi also searches the message
+    text (backlog DF1-F7b). ``sort`` is ``recent`` (mtime, newest first) or
+    ``name`` (alphabetical, unnamed sessions last) (Pi ``Ctrl+S``). The session
+    at ``current_path`` is marked ``is_current``.
     """
 
     source = all_sessions if scope == "all" else project_sessions
-    needle = query.strip().lower()
+    parsed = parse_search_query(query)
+    if parsed.error is not None:
+        return []
     resolved_current = (
         current_path.expanduser().resolve() if current_path is not None else None
     )
@@ -1070,10 +1078,11 @@ def build_session_picker_rows(
     for entry in source:
         if named_only and not entry.name:
             continue
-        if needle:
-            haystack = " ".join([entry.name or "", entry.session_id, entry.cwd]).lower()
-            if needle not in haystack:
-                continue
+        matches, _score = match_session_text(
+            session_search_text(entry.session_id, entry.name, "", entry.cwd), parsed
+        )
+        if not matches:
+            continue
         is_current = (
             resolved_current is not None
             and entry.path.expanduser().resolve() == resolved_current

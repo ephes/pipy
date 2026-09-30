@@ -246,6 +246,10 @@ def test_template_custom_command_name_collision_is_dispatch_honest(
     # The menu description for /foo is the template's, not the command's.
     descriptions = tool_loop_command_descriptions(resources)
     assert descriptions["/foo"] == "TEMPLATE_foo_description"
+    # Built-ins carry Pi's argument hints (`<hint> — <description>`).
+    assert descriptions["/thinking"] == "<level> — Set thinking level"
+    assert descriptions["/model"] == "<provider/model> — Select provider/model"
+    assert descriptions["/hotkeys"] == "Show keyboard shortcuts"
 
     # Dispatching /foo runs the template (template wins the collision).
     dispatch = dispatch_resource_command("/foo bar", resources)

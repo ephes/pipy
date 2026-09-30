@@ -84,10 +84,14 @@ The built-in catalog tracks Pi's current rows:
 
 `pipy --list-models` shows the full table.
 
-Inside the product TUI, use `/model` to open the provider/model selector or
-`/model provider/model` to switch directly. Unavailable rows stay visible with a
-reason, but cannot be selected. Switching models clears the in-memory provider
-conversation context and keeps the session file as the durable transcript.
+Inside the product TUI, use `/model` to open Pi's searchable model selector,
+which lists only models whose provider has auth, or `/model provider/model` to
+switch directly when the reference names exactly one available (or scoped)
+model; any other text opens the selector with it as the search. Enter
+switches for the session; Ctrl+S also saves the default. See
+[tui-workflow.md](tui-workflow.md#searchable-selectors-and-slash-completion-df1-f7b).
+The model switch keeps the conversation (Pi `setModel`) and keeps the session
+file as the durable transcript.
 
 Extension commands and safe pre-turn hooks may make the same switch through
 `ctx.set_model(...)`. Pipy resolves and constructs that candidate provider

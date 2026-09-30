@@ -29,12 +29,15 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionSelectComponent,
 )
 from pipy_harness.native.ui.components.input_editor import InputEditor
-from pipy_harness.native.ui.components.model_selector import (
-    ModelSelectorClose,
-    ModelSelectorComponent,
-)
+from pipy_harness.native.ui.components.model_selector import ModelSelectorComponent
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
+)
+from pipy_harness.native.ui.components.search_selectors import (
+    SearchSelector,
+    SearchSelectorClose,
+    SearchSelectorKeys,
+    search_selector_keys,
 )
 from pipy_harness.native.ui.components.session_picker import SessionPickerComponent
 from pipy_harness.native.ui.components.settings_dialog import SettingsDialogComponent
@@ -64,7 +67,7 @@ def _drive_result(
 
 
 class TerminalModalDriver:
-    """Own the seven screen-driven modals and four extension dialog projections."""
+    """Own the screen-driven modals and four extension dialog projections."""
 
     def __init__(
         self,
@@ -106,49 +109,52 @@ class TerminalModalDriver:
         )
         return self._screen.drive(owner)
 
-    def run_thinking_selector(
-        self,
-        options: Sequence[ModelSelectorOption],
-        *,
-        current_index: int = 0,
-    ) -> ModelSelectorClose | None:
-        """Drive Pi's thinking-level selector over the model-selector overlay.
+    def selector_keys(self, save_action: str) -> SearchSelectorKeys:
+        """Resolved keys and hint texts for Pi's searchable selectors."""
 
-        Enter chooses a row for the session; ``app.thinking.save`` (default
-        ``ctrl+s``) chooses it with ``save=True`` so the caller also persists
-        it as the default; Esc cancels (``None``).
+        return search_selector_keys(save_action, self._keybindings_manager())
+
+    def run_search_selector(self, selector: SearchSelector) -> SearchSelectorClose:
+        """Drive a Pi searchable selector until it chooses or cancels.
+
+        ``None`` from the key loop (end of input) cancels, like Esc.
         """
 
-        save_keys = resolved_key_specs("app.thinking.save", self._keybindings_manager())
-        selector = ModelSelectorComponent(
-            self._overlays,
-            self._screen.paint_lock,
-            self._screen.paint,
-            save_keys=save_keys,
-        )
-        save_hint = "/".join(save_keys) or "ctrl+s"
-        hint = f"↑/↓ move · enter select · {save_hint} set as default · esc cancel"
-        owner: DriveOwner[ModelSelectorClose | None] = DriveOwner(
-            open=lambda: cast(
-                DriveResult[ModelSelectorClose | None] | None,
-                _open_result(
-                    selector.open(
-                        options,
-                        current_index=current_index,
-                        title="Thinking Level",
-                        hint=hint,
-                    ),
-                    None,
-                ),
-            ),
-            handle_key=lambda key: cast(
-                DriveResult[ModelSelectorClose | None] | None,
-                _drive_result(
-                    selector.handle_key(key),
-                    lambda closed: closed if closed.index is not None else None,
-                ),
-            ),
-            consume_paste=self._input_editor.consume_paste,
+        paint_lock = self._screen.paint_lock
+        repaint = self._screen.paint
+
+        def open_selector() -> DriveResult[SearchSelectorClose] | None:
+            with paint_lock:
+                self._overlays.begin_search_selector(selector)
+            repaint()
+            return None
+
+        def close(result: SearchSelectorClose) -> DriveResult[SearchSelectorClose]:
+            with paint_lock:
+                self._overlays.end_search_selector()
+            repaint()
+            return DriveResult(result)
+
+        def handle_key(key: str | None) -> DriveResult[SearchSelectorClose] | None:
+            if key is None:
+                return close(SearchSelectorClose(None))
+            with paint_lock:
+                result = selector.handle_key(key)
+            if result is not None:
+                return close(result)
+            repaint()
+            return None
+
+        def consume_paste() -> None:
+            text = self._input_editor.consume_paste()
+            with paint_lock:
+                selector.paste(text)
+            repaint()
+
+        owner: DriveOwner[SearchSelectorClose] = DriveOwner(
+            open=open_selector,
+            handle_key=handle_key,
+            consume_paste=consume_paste,
         )
         return self._screen.drive(owner)
 

@@ -128,7 +128,7 @@ shortcut (`app.message.followUp`), not the configurable newline action.
 
 | Action id | Default | Description |
 | --- | --- | --- |
-| `app.models.save` | `ctrl+s` | Save model selection |
+| `app.models.save` | `ctrl+s` | Save model selection; in the `/model` selector: switch and save the model as the default (rebindable in `keybindings.json`) |
 | `app.models.enableAll` | `ctrl+a` | Enable all models |
 | `app.models.clearAll` | `ctrl+x` | Clear all models |
 | `app.models.toggleProvider` | `ctrl+p` | Toggle all models for provider |

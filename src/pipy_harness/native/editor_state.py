@@ -9,6 +9,7 @@ execution; the TUI facade translates those effects into these transitions.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -26,6 +27,16 @@ CompletionMode = Literal["at", "path"]
 QueuedInputKind = Literal["steering", "follow_up"]
 
 
+CommandFilter = Callable[[tuple[str, ...], str], tuple[str, ...]]
+"""``(command names, text after "/") -> matches`` for the slash menu."""
+
+
+def prefix_command_filter(names: tuple[str, ...], prefix: str) -> tuple[str, ...]:
+    """The dependency-free default: names starting with ``/<prefix>``."""
+
+    return tuple(name for name in names if name.startswith(f"/{prefix}"))
+
+
 @dataclass(frozen=True, slots=True)
 class CompletionItem:
     """One completion row for built-in and extension autocomplete providers.
@@ -34,10 +45,13 @@ class CompletionItem:
     is accepted (already ``@``-prefixed and/or double-quoted as needed, with a
     trailing ``/`` for directories). ``label`` is display text for the popup
     row (typically the basename, with a trailing ``/`` for directories).
+    ``description`` is the optional muted detail column (Pi
+    ``AutocompleteItem.description``, e.g. a model's provider).
     """
 
     value: str
     label: str
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +109,9 @@ class EditorState:
     # caret movement closes the popup so a stale anchor cannot splice text.
     slash_menu_open: bool = False
     slash_menu_selection: int = 0
+    # The product TUI installs Pi's fuzzy command filter
+    # (`ui/autocomplete.py` `filter_slash_commands`).
+    command_filter: CommandFilter = prefix_command_filter
     autocomplete_open: bool = False
     autocomplete_items: tuple[CompletionItem, ...] = ()
     autocomplete_selection: int = 0
@@ -301,9 +318,15 @@ class EditorState:
         if not self.slash_menu_open:
             return ()
         prefix = self.text[: self.effective_cursor()]
-        return tuple(command for command in command_names if command.startswith(prefix))
+        return self.command_filter(command_names, prefix[1:])
 
     def refresh_slash_menu(self, command_names: tuple[str, ...]) -> None:
+        """Reopen the menu for the new text, like Pi's rebuilt list.
+
+        Pi builds a new ``SelectList`` for every suggestion update, so the
+        highlight returns to the best (first) match on each edit.
+        """
+
         before_cursor = self.text[: self.effective_cursor()]
         if before_cursor.startswith("/") and not any(
             char.isspace() for char in before_cursor
@@ -314,8 +337,7 @@ class EditorState:
                 self.close_slash_menu()
             else:
                 self.close_autocomplete()
-                if self.slash_menu_selection >= len(matches):
-                    self.slash_menu_selection = 0
+                self.slash_menu_selection = 0
         else:
             self.close_slash_menu()
 
@@ -333,10 +355,15 @@ class EditorState:
         return self.slash_menu_selection != previous
 
     def accept_slash_menu(self, command_names: tuple[str, ...]) -> bool:
+        """Pi ``applyCompletion`` for a command name: ``/<name> `` replaces
+        the typed prefix, the text after the cursor stays."""
+
         matches = self.filtered_commands(command_names)
         if not matches:
             return False
-        self.set_buffer(matches[self.slash_menu_selection])
+        command = matches[self.slash_menu_selection]
+        after = self.text[self.effective_cursor() :]
+        self.set_buffer(f"{command} {after}", cursor=len(command) + 1)
         self.close_slash_menu()
         return True
 
