@@ -63,14 +63,63 @@ from pipy_harness.native.editor_completion import (
 )
 from pipy_harness.native.editor_state import CompletionItem, CompletionMode, EditorState
 from pipy_harness.native.frame_renderer import FrameLine, clip_text
+from pipy_harness.native.fuzzy import fuzzy_filter
 from pipy_harness.native.ui.components.custom_editor import CustomEditorOwner
 
 
-class BuiltinAutocompleteProvider:
-    """Pi-shaped wrapper around pipy's built-in @ and path completion."""
+def filter_slash_commands(names: tuple[str, ...], prefix: str) -> tuple[str, ...]:
+    """Pi ``CombinedAutocompleteProvider`` command-name matching.
 
-    def __init__(self, cwd: Path) -> None:
+    ``names`` are ``/name`` entries and ``prefix`` is the text after ``/``.
+    Names are fuzzy-matched without their ``skill:`` prefix first; a
+    ``skill:`` name that did not match that way is then tried by its full
+    name and listed after the others. An empty prefix keeps the order.
+    """
+
+    def bare(name: str) -> str:
+        return name.removeprefix("/").removeprefix("skill:")
+
+    bare_matches = fuzzy_filter(names, prefix, bare)
+    matched = set(bare_matches)
+    full_name_matches = fuzzy_filter(
+        [
+            name
+            for name in names
+            if name.removeprefix("/").startswith("skill:") and name not in matched
+        ],
+        prefix,
+        lambda name: name.removeprefix("/"),
+    )
+    return (*bare_matches, *full_name_matches)
+
+
+def best_match_index(items: Sequence[CompletionItem], prefix: str) -> int:
+    """Pi ``getBestAutocompleteMatchIndex``: an exact value, else the first
+    value starting with ``prefix`` (case-sensitive), else ``-1``."""
+
+    if not prefix:
+        return -1
+    first_prefix = -1
+    for index, item in enumerate(items):
+        if item.value == prefix:
+            return index
+        if first_prefix == -1 and item.value.startswith(prefix):
+            first_prefix = index
+    return first_prefix
+
+
+ArgumentCompleter = Callable[[str, str], tuple[CompletionItem, ...] | None]
+"""``(command name, argument text) -> items``: Pi ``getArgumentCompletions``."""
+
+
+class BuiltinAutocompleteProvider:
+    """Pi-shaped wrapper around pipy's built-in @, argument and path completion."""
+
+    def __init__(
+        self, cwd: Path, argument_completer: ArgumentCompleter | None = None
+    ) -> None:
         self._cwd = cwd
+        self._argument_completer = argument_completer
 
     def get_suggestions(
         self,
@@ -83,6 +132,14 @@ class BuiltinAutocompleteProvider:
         if cursor_line > 0:
             text_before_cursor += "\n"
         text_before_cursor += lines[cursor_line][:cursor_col]
+        line_before_cursor = lines[cursor_line][:cursor_col]
+        if (
+            not context.force
+            and extract_at_token(text_before_cursor) is None
+            and line_before_cursor.startswith("/")
+            and " " in line_before_cursor
+        ):
+            return self._argument_suggestions(line_before_cursor, text_before_cursor)
         if context.force:
             extracted = extract_path_prefix(text_before_cursor, force=True)
             if extracted is None:
@@ -104,6 +161,24 @@ class BuiltinAutocompleteProvider:
         return AutocompleteSuggestion(items, "@" + query, start, "at")
 
     getSuggestions = get_suggestions
+
+    def _argument_suggestions(
+        self, line_before_cursor: str, text_before_cursor: str
+    ) -> AutocompleteSuggestion | None:
+        """Pi ``getSuggestions``: after ``/<command> ``, that command's
+        ``getArgumentCompletions`` for the argument text, else nothing (no
+        path completion inside a command's arguments)."""
+
+        space = line_before_cursor.index(" ")
+        command_name = line_before_cursor[1:space]
+        argument = line_before_cursor[space + 1 :]
+        if self._argument_completer is None:
+            return None
+        items = self._argument_completer(command_name, argument)
+        if not items:
+            return None
+        start = len(text_before_cursor) - len(argument)
+        return AutocompleteSuggestion(tuple(items), argument, start, "at")
 
     def apply_completion(
         self,
@@ -168,6 +243,16 @@ class AutocompleteComponent:
         self._custom_editor = custom_editor
         self._surface = surface if surface is not None else CommandSurface()
         self._max_visible = max_visible
+        self._argument_completer: ArgumentCompleter | None = None
+        editor.command_filter = filter_slash_commands
+
+    def set_argument_completer(self, completer: ArgumentCompleter | None) -> None:
+        """Publish the session's slash-command argument completions."""
+
+        self._argument_completer = completer
+
+    def _builtin_provider(self) -> BuiltinAutocompleteProvider:
+        return BuiltinAutocompleteProvider(self._cwd, self._argument_completer)
 
     # --- the command surface -------------------------------------------------
 
@@ -289,7 +374,7 @@ class AutocompleteComponent:
         return self.resolved_provider()
 
     def resolved_provider(self) -> object:
-        provider: object = BuiltinAutocompleteProvider(self._cwd)
+        provider: object = self._builtin_provider()
         for factory in self._editor.autocomplete_provider_factories:
             try:
                 wrapped = cast(Callable[[object], object], factory)(provider)
@@ -332,7 +417,7 @@ class AutocompleteComponent:
                 AutocompleteContext(force=force, signal=None),
             )
         except Exception:  # noqa: BLE001 - extension provider must fail soft
-            provider = BuiltinAutocompleteProvider(self._cwd)
+            provider = self._builtin_provider()
             raw = provider.get_suggestions(
                 lines,
                 cursor_line,
@@ -368,13 +453,19 @@ class AutocompleteComponent:
         if suggestion is None:
             self.close()
             return
+        # Pi builds a new list for every update and highlights its best
+        # match (`getBestAutocompleteMatchIndex`), else the first row.
         self._editor.open_autocomplete(
             items=tuple(suggestion.items),
             mode=suggestion.mode,
             token_start=suggestion.token_start,
             prefix=suggestion.prefix,
             active_provider=self._editor.autocomplete_active_provider,
+            reset_selection=True,
         )
+        best = best_match_index(suggestion.items, suggestion.prefix)
+        if best >= 0 and self._editor.autocomplete_open:
+            self._editor.autocomplete_selection = best
 
     def close(self) -> None:
         self._editor.close_autocomplete()
@@ -411,7 +502,7 @@ class AutocompleteComponent:
             return
         self._editor.snapshot_for_undo()
         self._editor.reset_history_nav()
-        provider = selection.active_provider or BuiltinAutocompleteProvider(self._cwd)
+        provider = selection.active_provider or self._builtin_provider()
         lines, cursor_line, cursor_col = cursor_to_line_col(
             selection.text, selection.cursor
         )
@@ -561,10 +652,20 @@ class AutocompleteComponent:
             label = item.label
             description_start = len(prefix) + len(label)
             line = f"{prefix}{label}"
+            if item.description and width > 40:
+                # Pi `SelectList` default layout: a 32-column primary column,
+                # then the description.
+                column = max(1, min(32, width - len(prefix) - 4))
+                shown = label[: max(1, column - 2)]
+                spacing = " " * max(1, column - len(shown))
+                remaining = width - (len(prefix) + len(shown) + len(spacing)) - 2
+                if remaining > 10:
+                    line = f"{prefix}{shown}{spacing}{item.description[:remaining]}"
+                    description_start = len(prefix) + len(shown) + len(spacing)
             # Show the full inserted value (dimmed) when it differs from the
             # short label and the row has room, so a scoped/quoted path is
             # legible before acceptance.
-            if item.value not in {label, f"@{label}"} and width > 40:
+            elif item.value not in {label, f"@{label}"} and width > 40:
                 spacing = " " * max(1, 24 - len(line))
                 remaining = width - len(line) - len(spacing) - 2
                 if remaining > 6:

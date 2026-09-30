@@ -96,6 +96,20 @@ from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tui import TerminalUi
 
 
+@dataclass(frozen=True, slots=True)
+class ModelSwitchOutcome:
+    """One product model switch: the summary line plus post-commit notices.
+
+    ``message`` is the resolver's summary on success and the refusal
+    otherwise; ``diagnostics`` are fail-soft post-commit problems (footer,
+    default persistence, session-file appends) that do not undo the switch.
+    """
+
+    switched: bool
+    message: str
+    diagnostics: tuple[str, ...] = ()
+
+
 def _report_default_persistence(
     state: "NativeReplProviderState",
 ) -> str | None:
@@ -889,6 +903,12 @@ class ProviderMutationEffects:
     ) -> str:
         """Run fail-soft presentation and default persistence after unlock."""
 
+        diagnostics = self._finish_model_mutation_diagnostics(state)
+        return "\n".join((message, *diagnostics)) if diagnostics else message
+
+    def _finish_model_mutation_diagnostics(
+        self, state: NativeReplProviderState
+    ) -> list[str]:
         diagnostics: list[str] = []
         try:
             self.refresh_footer_text()
@@ -907,33 +927,54 @@ class ProviderMutationEffects:
             )
         if persistence_error is not None:
             diagnostics.append(persistence_error)
-        return "\n".join((message, *diagnostics)) if diagnostics else message
+        return diagnostics
 
     def apply_model_selection(self, reference: str) -> tuple[bool, str]:
         """Prepare, atomically commit, and present one product model switch."""
 
+        outcome = self.switch_model(reference, persist_default=True)
+        if not outcome.switched:
+            return False, outcome.message
+        return True, "\n".join((outcome.message, *outcome.diagnostics))
+
+    def switch_model(
+        self, reference: str, *, persist_default: bool
+    ) -> ModelSwitchOutcome:
+        """One model switch; ``persist_default`` also saves it as the default.
+
+        Pi ``setModel(model, {persist})``: ``/model <ref>`` and Enter in the
+        selector switch for the session only; the save key persists.
+        """
+
         state = self.provider_state
         if not isinstance(state, NativeReplProviderState):
-            return False, "pipy: /model is unavailable for this REPL provider state."
+            return ModelSwitchOutcome(
+                False, "pipy: /model is unavailable for this REPL provider state."
+            )
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
                 expected = state.capture_model_mutation_state()
                 expected_binding = self.coding_state.provider_binding
         prepared, message = self._prepare_model_mutation(
-            state, expected, expected_binding, reference
+            state,
+            expected,
+            expected_binding,
+            reference,
+            persist_default=persist_default,
         )
         if prepared is None:
-            return False, message
+            return ModelSwitchOutcome(False, message)
         if not self._commit_model_mutation(prepared, generation_id=None):
-            return False, (
+            return ModelSwitchOutcome(
+                False,
                 "pipy: model selection changed while the provider was prepared; "
-                "try again."
+                "try again.",
             )
         if prepared.coding is None:
-            return False, message
+            return ModelSwitchOutcome(False, message)
         appended = self._drain_session_appends()
-        finished = self._finish_model_mutation(state, message)
-        return True, "\n".join((finished, *appended)) if appended else finished
+        diagnostics = self._finish_model_mutation_diagnostics(state)
+        return ModelSwitchOutcome(True, message, (*diagnostics, *appended))
 
     def sync_session_settings(self) -> None:
         """Restore the active tree's model and thinking level.

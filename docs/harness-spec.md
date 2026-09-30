@@ -703,19 +703,24 @@ legacy local-state stores kept as caches/fallbacks. See
 [settings-config.md](/settings-config/) for the full surface.
 
 `/model` is an executable interactive provider/model selector in the product
-TUI. Bare `/model` opens an in-frame selector (`TerminalUi.run_model_selector`)
-built from `NativeReplProviderState.model_options()`: each row shows the
-`provider/model` reference and its availability state (`[available]`, or
-`[unavailable: <reason>]` for missing credentials or a provider that does not
-advertise tool-call support, which tool-loop mode requires), the active
-selection is marked `(current)`, Up/Down move the highlight (wrapping), Enter
-chooses the highlighted row only when it is selectable, and Esc/Ctrl-C/Ctrl-D
-cancel. The selector runs no provider turn while it is open. On a successful
-choice the session calls `NativeReplProviderState.select_model` (the shared
-provider-state boundary), rebinds the live provider,
-keeps the in-memory conversation context (Pi `setModel`), rebinds the usage meter, refreshes
-the footer/status model label, and persists the non-secret default; the next
-provider turn is constructed with the new provider/model. Construction and
+TUI. Bare `/model` opens Pi's searchable `ModelSelectorComponent` port
+(`ui/components/search_selectors.py`, driven by
+`TerminalModalDriver.run_search_selector`) over the available models
+(`NativeReplProviderState.available_model_specs()`, Pi
+`getAvailableSnapshot`), with Pi's fuzzy search, the scoped/all toggle and
+the current/default markers; `/model <text>` switches directly when the text is
+an exact reference (Pi `findExactModelReferenceMatch`) and otherwise opens the
+selector with the text as the search (see `docs/tui-workflow.md`). Enter
+switches for the session and the save key also persists the non-secret
+default. The selector runs no provider turn while it is open. On a successful
+choice the session switches through `ProviderMutationEffects.switch_model`
+(the shared provider-state boundary), rebinds the live provider,
+keeps the in-memory conversation context (Pi `setModel`), rebinds the usage meter, and refreshes
+the footer/status model label; the next
+provider turn is constructed with the new provider/model. The settings
+dialog's "change provider/model" row still uses pipy's generic list
+(`TerminalUi.run_model_selector` over `model_options()`, with availability
+reasons). Construction and
 catalog spec resolution behind that boundary are owned by `ModelRuntime`
 (`native/repl_state.py`), which composes the merged provider catalog with the
 `provider_construction` boundary; its `construct` is total (every selection —
@@ -725,9 +730,9 @@ built-in `ds4`, and extension-registered providers (built through
 provider through that boundary, threading the settings-derived
 `ConstructionOptions`; there is no separate legacy provider factory), and the
 `select_model`/`model_options`/auth surface and its behavior
-are unchanged. A direct
-`/model <provider>/<model>` (or `<model>`) form switches without opening the
-selector and works in both the product TUI and the captured-stream fallback. A
+are unchanged. In the captured-stream fallback, which has no Pi counterpart, a direct
+`/model <provider>/<model>` (or `<model>`) keeps pipy's resolver and saves the
+default. A
 switch to a provider that does not advertise tool-call support is refused and
 the previous selection restored. Unavailable providers stay visible with a
 reason but cannot be chosen as if available. The selector reads and mutates only

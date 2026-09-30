@@ -148,6 +148,7 @@ from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
 )
+from pipy_harness.native.repl.selector_actions import slash_argument_completer
 from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseRegistry,
     CanonicalSessionLeaseSlot,
@@ -843,6 +844,10 @@ def _compose_extension_phase(
             keybindings=keybindings,
             error_stream=error_stream,
         )
+        if terminal_ui is not None:
+            terminal_ui.components.autocomplete.set_argument_completer(
+                slash_argument_completer(inputs.provider_state, settings)
+            )
         apply_startup_provider_projection(
             generation_ref=generation_ref,
             provider_state=inputs.provider_state,

@@ -142,6 +142,24 @@ class ChromeStyle:
             text, self.palette.separator_truecolor, self.palette.separator_fallback
         )
 
+    def border(self, text: str) -> str:
+        """Pi's ``border`` token; ``separator`` when the theme sets none."""
+
+        palette = self.palette
+        if palette.border_truecolor is None or palette.border_fallback is None:
+            return self.separator(text)
+        return self._wrap(text, palette.border_truecolor, palette.border_fallback)
+
+    def accent(self, text: str) -> str:
+        return self._wrap(
+            text, self.palette.accent_truecolor, self.palette.accent_fallback
+        )
+
+    def muted(self, text: str) -> str:
+        """Pi's ``muted`` token (pipy's secondary dim)."""
+
+        return self.secondary_dim(text)
+
     def editor_border(self, text: str, *, level: str, bash_mode: bool) -> str:
         """Pi's editor border: ``bashMode`` for ``!`` input, else the
         thinking level's colour (``getThinkingBorderColor``); ``separator``

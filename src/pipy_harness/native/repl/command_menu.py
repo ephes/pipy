@@ -72,8 +72,30 @@ def tool_loop_command_descriptions(
         descriptions.update(extension_descriptions)
     descriptions.update(resources.custom_command_descriptions())
     descriptions.update(resources.template_descriptions())
-    descriptions.update(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+    descriptions.update(
+        {
+            name: _with_argument_hint(name, description)
+            for name, description in DEFAULT_REPL_COMMAND_DESCRIPTIONS.items()
+        }
+    )
     return descriptions
+
+
+# Pi `BUILTIN_SLASH_COMMANDS` argument hints (core/slash-commands.ts).
+_ARGUMENT_HINTS = {
+    "/model": "<provider/model>",
+    "/thinking": "<level>",
+    "/login": "<provider>",
+}
+
+
+def _with_argument_hint(name: str, description: str) -> str:
+    """Pi's menu text: ``<hint> — <description>`` when the command has a hint."""
+
+    hint = _ARGUMENT_HINTS.get(name)
+    if hint is None:
+        return description
+    return f"{hint} — {description}" if description else hint
 
 
 def published_command_surface(

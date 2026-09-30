@@ -468,11 +468,12 @@ clamped by an RPC model switch.
 
 - `/thinking <level>` matches the model's available levels case-insensitively
   and applies the level for this session only. An unknown level reports
-  `Unknown thinking level "<x>". Available levels: …`.
+  `Error: Unknown thinking level "<x>". Available levels: …`.
 - A bare `/thinking` opens the Thinking Level selector. It lists only the levels
   the model's thinking map offers, each with Pi's description, marks the current
   level with `✓` and the settings default with `· default`, and preselects the
-  current level. Enter applies the level for the session. `app.thinking.save`
+  current level. Typing filters the levels (see Searchable Selectors below).
+  Enter applies the level for the session. `app.thinking.save`
   (default Ctrl+S, rebindable in `keybindings.json`) applies it and then saves it
   as `defaultThinkingLevel`. Esc cancels.
 - Without the TUI, a bare `/thinking` prints the current and available levels.
@@ -502,8 +503,50 @@ model) and `Cache Re-billed` (Pi `computeCacheWaste`). Pi's `Cache Warming`
 section is left out because pipy has no cache warming. The block is plain
 text; Pi styles its headings.
 
-Deviations: the selector has no fuzzy search box, and `/thinking` has no
-argument completion. Pipy's selectors and slash commands have neither yet.
+## Searchable Selectors And Slash Completion (DF1-F7b)
+
+pipy ports Pi's fuzzy matcher (`packages/tui/src/fuzzy.ts`, as
+`native/fuzzy.py`): every query character must appear in order, consecutive
+and word-boundary matches score better, and `fuzzyFilter` splits the query at
+whitespace and `/` and keeps items matching every token, best first. A
+differential test compares it with Pi's own code under Node.
+
+- `/model <ref>` switches when `<ref>` names exactly one model (Pi
+  `findExactModelReferenceMatch`: `provider/id`, then a unique id,
+  case-insensitive) among the scoped models, or the available models when
+  there is no scope. The switch is for this session only; the status reads
+  `Model: <id>`. Otherwise the selector opens with `<ref>` as its search.
+- The `/model` selector (Pi `ModelSelectorComponent`) replaces the editor
+  between two border lines. It lists only models whose provider has auth
+  (and that can run pipy's tool loop, which leaves out the `fake` bootstrap
+  model), the current model first (`✓`), then the saved default
+  (`· default`), then by provider. Typing filters (`provider provider/id provider id name`, plus
+  `default` for the default model; a prefix of `default` puts the default
+  first). With `enabledModels` set, Tab switches between the scoped list (in
+  pattern order) and all models. Enter switches for the session, Ctrl+S
+  (`app.models.save`) also saves the model as the default
+  (`Default model: <provider>/<id>`), Esc or Ctrl+C cancels. Pi also refreshes
+  remote catalogs while the selector is open; pipy does not.
+- The `/thinking` selector (Pi `ThinkingSelectorComponent`) has the same
+  search input, filtering `level description`.
+- The slash menu fuzzy-filters command names (a `skill:` prefix is ignored
+  first) and highlights the best match after every edit. Accepting a command
+  inserts `/<name> `. After `/model ` and `/thinking ` the popup offers the
+  command's arguments: models as `provider/id` (scoped, else available) and
+  the model's thinking levels. Enter or Tab puts the highlighted argument in
+  the editor without sending it.
+- The `/resume` search uses Pi's session search: fuzzy tokens, `"quoted
+  phrases"`, and `re:<pattern>` (case-insensitive) over the session id, name
+  and working directory. pipy keeps its `recent`/`name` sorts.
+- A slash command is not drawn as a user message. A prompt template or skill
+  run draws its expanded text, as a resumed session does. The plain REPL
+  (no TUI) still echoes every line.
+- Failures of `/model` and `/thinking` are red `Error: …` lines (Pi
+  `showError`), e.g. `Error: Unknown thinking level "x". Available levels: …`.
+
+The search input edits by code point: Pi's grapheme handling, undo, yank, word
+motion and word deletion are not ported. `/login` has no argument completion.
+The backlog DF1-F7b entry lists the other differences.
 
 ## Output/Thinking Folding (Ctrl+T) And Tool-Output Expansion (Ctrl+O)
 

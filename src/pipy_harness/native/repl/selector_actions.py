@@ -1,23 +1,30 @@
 """Overlay-backed selectors: pick a model, a scope, or a trust decision.
 
-`/model`, `/scoped-models` and `/trust` each present a list and act on one
-choice. What they share is not the list -- it is the shape of the decision:
-build rows that are honest about what is *selectable*, run an overlay when the
-terminal can host one, and fall back to a printed list otherwise.
+The settings dialog's model list, `/scoped-models` and `/trust` each present a
+list and act on one choice. What they share is not the list -- it is the
+shape of the decision: build rows that are honest about what is
+*selectable*, run an overlay when the terminal can host one, and fall back to
+a printed list otherwise. In that list a model row is marked unavailable when
+its provider has no credentials, and non-tool-capable when it cannot run the
+agent loop at all; both stay visible with their reason.
 
-"Honest about what is selectable" is the part worth stating. A model row is
-marked unavailable when its provider has no credentials, and non-tool-capable
-when it cannot run the agent loop at all; both stay visible so the operator can
-see why a model is not offered rather than wondering where it went.
+`/model` itself follows Pi: its searchable selector
+(`ui/components/search_selectors.py`) and argument completion list only the
+available models, or the `enabledModels` scope (`scoped_model_specs`); the
+helpers for both live here too.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TextIO
 
+from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.diagnostics import emit_diagnostic
+from pipy_harness.native.editor_state import CompletionItem
+from pipy_harness.native.fuzzy import fuzzy_filter
+from pipy_harness.native.model_resolver import resolve_model_scope
 from pipy_harness.native.overlay_state import ModelSelectorOption, ScopedModelRow
 from pipy_harness.native.project_trust import (
     DefaultProjectTrust,
@@ -28,12 +35,16 @@ from pipy_harness.native.project_trust import (
 from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
+    StaticNativeReplProviderState,
 )
 from pipy_harness.native.scoped_models import filter_scoped_references
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.startup_selectors import run_project_trust_selector
-from pipy_harness.native.thinking import THINKING_LEVEL_DESCRIPTIONS
 from pipy_harness.native.tui import TerminalUi
+from pipy_harness.native.ui.components.search_selectors import (
+    ModelChoice,
+    model_search_text,
+)
 
 
 def handle_trust_command(
@@ -84,35 +95,86 @@ def handle_trust_command(
     )
 
 
-def thinking_selector_rows(
-    levels: Sequence[str],
-    *,
-    current_level: str | None,
-    default_level: str,
-) -> tuple[list[ModelSelectorOption], int]:
-    """Rows for Pi's ``/thinking`` selector and the preselected index.
+def usable_model_specs(state: NativeReplProviderState) -> list[NativeModelSpec]:
+    """Pi ``getAvailableSnapshot`` for the tool loop: the available models
+    whose provider can run it (tool calls), so the selector and completion
+    never offer a model the switch would refuse (the ``fake`` bootstrap)."""
 
-    One row per level the model offers, in Pi's order: ``✓ <level>`` marks the
-    current level, the description comes from Pi's ``LEVEL_DESCRIPTIONS``, and
-    the settings default carries `` · default``. The current level (an unset
-    level counts as ``off``) is preselected, else the first row.
+    return [
+        spec
+        for spec in state.available_model_specs()
+        if _selection_supports_tool_calls(
+            state, NativeModelSelection(spec.provider_name, spec.model_id)
+        )
+    ]
+
+
+def model_choice(spec: NativeModelSpec) -> ModelChoice:
+    """One catalog row as a Pi selector/completion model item."""
+
+    return ModelChoice(spec.provider_name, spec.model_id, spec.display_name)
+
+
+def slash_argument_completer(
+    state: NativeReplProviderState | StaticNativeReplProviderState | None,
+    settings: SettingsManager,
+) -> Callable[[str, str], tuple[CompletionItem, ...] | None]:
+    """Pi's built-in ``getArgumentCompletions`` for ``/model`` and ``/thinking``.
+
+    ``/model``: the scoped models when any, else the available ones (like
+    Pi, without the selector's tool-loop probe, which constructs providers),
+    fuzzy-filtered over ``getModelSearchText``; items insert
+    ``provider/id`` and show the id with the provider as the description.
+    ``/thinking``: the model's available levels, fuzzy-filtered. Every other
+    command has none (``/login``'s provider list is backlog DF1-F7b).
     """
 
-    current = current_level or "off"
-    rows: list[ModelSelectorOption] = []
-    for level in levels:
-        marker = "✓ " if level == current else "  "
-        description = THINKING_LEVEL_DESCRIPTIONS.get(level, "")
-        if level == default_level:
-            description = f"{description} · default"
-        rows.append(
-            ModelSelectorOption(
-                label=f"{marker}{level:<10} {description}".rstrip(),
-                selectable=True,
+    def complete(command: str, argument: str) -> tuple[CompletionItem, ...] | None:
+        if not isinstance(state, NativeReplProviderState):
+            return None
+        if command == "model":
+            # Pi `getAvailableSnapshot`, read on every edit: no provider is
+            # constructed here (construction can run credential helpers).
+            available = state.available_model_specs()
+            specs = (
+                scoped_model_specs(settings.get_enabled_models(), available)
+                or available
             )
-        )
-    index = list(levels).index(current) if current in levels else 0
-    return rows, index
+            if not specs:
+                return None
+            choices = fuzzy_filter(
+                [model_choice(spec) for spec in specs], argument, model_search_text
+            )
+            return (
+                tuple(
+                    CompletionItem(choice.reference, choice.model_id, choice.provider)
+                    for choice in choices
+                )
+                or None
+            )
+        if command == "thinking":
+            levels = fuzzy_filter(
+                state.current_thinking_levels(), argument, lambda level: level
+            )
+            return tuple(CompletionItem(level, level) for level in levels) or None
+        return None
+
+    return complete
+
+
+def scoped_model_specs(
+    patterns: Sequence[str], available: Sequence[NativeModelSpec]
+) -> list[NativeModelSpec]:
+    """Pi ``session.scopedModels``: ``enabledModels`` resolved against the
+    available models (``resolveModelScope``), in pattern order; empty when no
+    patterns are set."""
+
+    if not patterns:
+        return []
+    return [
+        scoped.model
+        for scoped in resolve_model_scope(list(patterns), list(available)).models
+    ]
 
 
 def open_scoped_models_overlay(

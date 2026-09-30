@@ -604,7 +604,10 @@ def _phase_d_dispatch(
     turn_input: _TurnInput,
 ) -> CommandDispatchResolution | LoopStepSignal:
     scope = turn_input.turn.scope
-    if turn_input.stripped and not turn_input.from_hotkey:
+    echo = bool(turn_input.stripped) and not turn_input.from_hotkey
+    if echo and scope.terminal_ui is None:
+        # The plain REPL (no Pi counterpart) restyles the line readline
+        # already echoed, command or not.
         scope.renderer.render_user_message(turn_input.user_input)
     resolution = scope.loop_controller.dispatch_command(
         command_text=turn_input.command_text,
@@ -617,6 +620,14 @@ def _phase_d_dispatch(
         return LoopStepSignal.break_loop()
     if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
         return LoopStepSignal.continue_loop()
+    # The TUI draws a user message only for a prompt that reaches the agent,
+    # like Pi: none for a command, the expanded text for a prompt template or
+    # skill (what the session stores and a restored session draws).
+    if scope.terminal_ui is not None:
+        if resolution.resource_provider_text is not None:
+            scope.renderer.render_user_message(resolution.resource_provider_text)
+        elif echo:
+            scope.renderer.render_user_message(turn_input.user_input)
     return resolution
 
 

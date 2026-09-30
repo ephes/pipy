@@ -104,6 +104,10 @@ class ChromePalette:
     thinking_max_fallback: str | None = None
     bash_mode_truecolor: str | None = None
     bash_mode_fallback: str | None = None
+    # Pi's `border` token (`DynamicBorder` around selectors). `None` draws
+    # it in `separator`.
+    border_truecolor: str | None = None
+    border_fallback: str | None = None
 
 
 # The default "pi" palette is Pi's `dark` theme (`theme/dark.json`), resolved
@@ -166,6 +170,8 @@ _PI_PALETTE = ChromePalette(
     thinking_max_fallback="38;5;203",
     bash_mode_truecolor="38;2;94;178;134",
     bash_mode_fallback="38;5;72",
+    border_truecolor="38;2;95;168;204",
+    border_fallback="38;5;74",
 )
 
 # A high-contrast scheme for low-vision / bright-terminal users: bold primary

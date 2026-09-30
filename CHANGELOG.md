@@ -19,6 +19,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Selectors and slash completion follow Pi (DF1-F7b). `/model <ref>` switches
+  only on an exact reference among the scoped or available models, for this
+  session only (`Model: <id>`); other text opens the model selector with it
+  as the search. The `/model` selector is Pi's: a search box with Pi's fuzzy
+  ranking, only models with configured auth, the current model and the saved
+  default marked, Tab between scoped and all models, Enter for the session
+  and Ctrl+S (`app.models.save`, rebindable) to also save the default. The
+  `/thinking` selector gains the same search box. The slash menu ranks
+  commands with Pi's fuzzy filter, accepting a command inserts `/<name> `,
+  and `/model` and `/thinking` complete their arguments. The `/resume`
+  search takes Pi's fuzzy tokens, `"phrases"` and `re:` patterns. Slash
+  commands are no longer drawn as user messages; a prompt template run draws
+  its expanded text. `/model` and `/thinking` failures are red `Error: …`
+  lines. The plain REPL keeps its `/model <ref>` resolver.
 - Tool calls in the terminal UI are drawn as Pi draws them (TOOLS3): one
   padded box per call, grey while it runs, then green or red, with each
   tool's own rows. A collapsed `read` shows `read <path>:<range>` (or

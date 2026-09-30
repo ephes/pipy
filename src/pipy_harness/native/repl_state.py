@@ -833,6 +833,17 @@ class NativeReplProviderState:
             )
         return options
 
+    def available_model_specs(self) -> list[NativeModelSpec]:
+        """Pi ``getAvailableSnapshot``: catalog rows usable with configured auth."""
+
+        return self._catalog.get_available()
+
+    def saved_default_selection(self) -> NativeModelSelection | None:
+        """The saved default model (pipy's defaults store), if any."""
+
+        store = self.defaults_store
+        return store.load() if store is not None else None
+
     def _begin_selection_transaction(self) -> None:
         """Discard any default queued by an earlier, abandoned operation.
 

@@ -260,6 +260,7 @@ def test_all_lock_bearing_composed_owners_share_the_screen_lock(
         "tree",
         "scoped_models",
         "model",
+        "search_selector",
     )
 
 

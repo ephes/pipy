@@ -38,6 +38,9 @@ from pipy_harness.native.ui.components.model_selector import (
 from pipy_harness.native.ui.components.scoped_models_selector import (
     scoped_models_region_lines,
 )
+from pipy_harness.native.ui.components.search_selectors import (
+    search_selector_region_lines,
+)
 from pipy_harness.native.ui.components.session_picker import (
     session_picker_region_lines,
 )
@@ -66,6 +69,7 @@ OverlayName = Literal[
     "tree",
     "scoped_models",
     "model",
+    "search_selector",
 ]
 
 
@@ -285,6 +289,7 @@ class Screen:
             OverlayContributor("tree", self._tree_overlay),
             OverlayContributor("scoped_models", self._scoped_overlay),
             OverlayContributor("model", self._model_overlay),
+            OverlayContributor("search_selector", self._search_selector_overlay),
         )
         return OrderedFrameContributors(ordinary, overlays)
 
@@ -393,6 +398,15 @@ class Screen:
             width=request.width,
             height=request.height,
             footer_lines=self._overlay_footer(),
+        )
+
+    def _search_selector_overlay(self, request: FrameRequest) -> Sequence[FrameLine]:
+        return search_selector_region_lines(
+            self._overlays,
+            width=request.width,
+            height=request.height,
+            footer_lines=self._overlay_footer(),
+            style=self._style(),
         )
 
     def force_full_redraw(self, *, clear_scrollback: bool = False) -> None:
