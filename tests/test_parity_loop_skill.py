@@ -91,13 +91,41 @@ def test_canonical_body_warns_about_hard_coded_tree_indices() -> None:
 # PTY evidence and gates polluted the real ~/.pipy and compared colourless
 # captures; the recipe doc must keep both guards.
 PTY_EVIDENCE = REPO_ROOT / "docs" / "parity-loop" / "pty-evidence.md"
-PTY_EVIDENCE_GUARD_TOKENS = ("PIPY_CONFIG_HOME", "env -u NO_COLOR", "slice-named")
+PTY_EVIDENCE_GUARD_TOKENS = (
+    "PIPY_CONFIG_HOME",
+    "env -u NO_COLOR",
+    "slice-named",
+    "timeout 600",
+    "=name:",
+)
 
 
 def test_pty_evidence_keeps_isolation_and_colour_guards() -> None:
     text = PTY_EVIDENCE.read_text(encoding="utf-8")
     missing = [tok for tok in PTY_EVIDENCE_GUARD_TOKENS if tok not in text]
     assert not missing, f"pty-evidence.md lacks guard tokens: {missing}"
+
+
+# The thinkingFormat rules and line-ceiling pins moved from the body to the
+# porting notes; the body points there and the notes must keep the rules.
+PORTING_NOTES = REPO_ROOT / "docs" / "parity-loop" / "porting-notes.md"
+PORTING_NOTES_GUARD_TOKENS = (
+    "Completions `thinkingFormat`",
+    "enable_thinking",
+    'dict.get("off")',
+    "available_thinking_levels",
+    "Line ceilings and audit pins",
+    "MEMBER_LIST",
+)
+
+
+def test_porting_notes_keep_rules_moved_out_of_body() -> None:
+    text = PORTING_NOTES.read_text(encoding="utf-8")
+    missing = [tok for tok in PORTING_NOTES_GUARD_TOKENS if tok not in text]
+    assert not missing, f"porting-notes.md lacks moved rules: {missing}"
+    body = BODY.read_text(encoding="utf-8")
+    assert "Completions `thinkingFormat`" in body
+    assert "Line ceilings and audit pins" in body
 
 
 def test_planning_docs_use_neutral_repo_owned_paths() -> None:

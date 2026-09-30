@@ -144,124 +144,11 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    separately (such as explicit overrides, no-resource cases, extension
    decisions, saved decisions, and global defaults), so a broad row such as
    `headless = untrusted` cannot bypass a valid earlier result.
-   For any request-shape field gated by a Pi compat flag, also pin — per field —
-   which compat flag(s) gate it and how each of those flags is independently
-   resolved. Pi's `getCompat` resolves every compat field independently (explicit
-   `compat.<flag>` wins, else that flag's own `detectCompat` predicate), so a
-   field's format flag and any secondary gating flag are not coupled: e.g.
-   `thinkingFormat` always emits `thinking:{type}`, but the top-level
-   `reasoning_effort` is added only when `supportsReasoningEffort` is true, and an
-   explicit `compat.thinkingFormat="deepseek"` on a baseUrl that `detectCompat`
-   EXCLUDES from `supportsReasoningEffort`
-   (isGrok/isZai/isMoonshot/isTogether/isCloudflareAiGateway/isNvidia/isAntLing)
-   yields `thinkingFormat=deepseek` AND `supportsReasoningEffort=false` → Pi emits
-   `thinking:{type:enabled}` with NO `reasoning_effort`. Implement each secondary
-   flag as its own faithful bounded predicate (explicit bool wins, else the
-   exclusion list) — a single bounded predicate, not a full `detectCompat` port —
-   and add a test for the explicit-format-on-excluded-provider mismatch. Never
-   default a secondary flag to True because the format flag's detection "implies"
-   it; the different-family reviewer flags that coupling.
-   Pin per-variant in the plan whether a secondary flag even APPLIES — not every
-   `thinkingFormat` variant has one. The `enable_thinking` family (`zai`,
-   explicit-only `qwen`, and the `qwen-chat-template` `chat_template_kwargs` shape)
-   is a BARE-BOOLEAN branch: Pi emits `enable_thinking = !!options.reasoningEffort`
-   (openai-completions.ts:556-563) and NOTHING else — it never consults
-   `compat.supportsReasoningEffort` and never emits a top-level `reasoning_effort`,
-   unlike the deepseek/together branches. So do NOT add a `supportsReasoningEffort`
-   gate or a `reasoning_effort` emission to an `enable_thinking`-family branch; the
-   omission is STRUCTURAL to the branch, not a consequence of any exclusion. Note
-   the trap: `zai` (and `qwen`) ARE in `detectCompat`'s `supportsReasoningEffort`
-   exclusion list, which tempts a "zai-excluded → omit `reasoning_effort`" framing
-   — but the branch omits `reasoning_effort` because it never reads the flag, not
-   because the flag resolves false. For the `enable_thinking` family, the right
-   guard is the INVERSE test — force explicit `compat.supportsReasoningEffort=true`
-   and assert the request STILL omits `reasoning_effort` (only `enable_thinking`
-   appears) — instead of the deepseek-style explicit-format-on-excluded-provider
-   mismatch test.
-   When the field is resolved by porting one rung of a Pi `detectCompat`-style
-   if/else-if DETECTION CHAIN (e.g. the `thinkingFormat` chain isDeepSeek > isZai >
-   isTogether > isAntLing > isOpenRouter), pin each ported rung's POSITION relative
-   to its Pi siblings — not just the set of providers pipy detects. pipy resolves
-   the field through its own ordered if-chain, so appending a new rung (e.g.
-   together) AFTER a rung that comes later in Pi (e.g. openrouter) makes collision
-   rows — those matching two rungs at once — resolve differently from Pi. In the
-   plan, place the new branch at its Pi-faithful position and account for the rungs
-   pipy defers to the default (e.g. zai/ant-ling): deferred rungs must not silently
-   reorder the rungs pipy does implement. Add a precedence test for a row that
-   matches two rungs (e.g. a together provider on an openrouter.ai base URL →
-   together shape). The different-family plan reviewer flags exactly this ordering
-   bug.
-   The INVERSE case is an EXPLICIT-COMPAT-ONLY variant with NO `detectCompat` rung
-   (Pi's chain, openai-completions.ts:1126-1136, has no `isQwen` or
-   `isStringThinking`): `qwen`, `qwen-chat-template`, and `string-thinking` are
-   reachable only through an explicit `model.compat.thinkingFormat`, which pipy's
-   `_resolve_thinking_format` already returns verbatim. Add ONLY the request-shape
-   `elif` in `provider_construction` — no resolver change and no precedence test —
-   and set `compat={thinkingFormat: <variant>}` explicitly in test specs. `ant-ling`
-   IS in the chain (isAntLing) and needs an ordered rung plus a precedence test. Pin
-   per variant in the plan whether it is auto-detected or explicit-only, so the
-   diff is not over-built. Also pin any constant companion field a variant's branch forces
-   regardless of the reasoning state: e.g. `qwen-chat-template` emits a Pi-forced
-   literal `preserve_thinking: true` present in BOTH the reasoning-on and
-   reasoning-off sub-states, independent of the toggled `enable_thinking` boolean.
-   When a `thinkingFormat` branch reuses pipy's `reasoning_value`
-   (= `map_thinking_level`), pin the EXACT Pi value expression for that branch and
-   check it for a `?? level` (a.k.a. `?? options.reasoningEffort`) fallback before
-   reusing it. deepseek/together/openrouter/string-thinking all do
-   `model.thinkingLevelMap?.[level] ?? level`, but `ant-ling`
-   (openai-completions.ts:581-585) does a RAW `model.thinkingLevelMap?.[level]`
-   lookup with NO fallback. For any off/unset branch that mirrors Pi's
-   `model.thinkingLevelMap?.off !== null` gate plus `?? "none"` (including
-   string-thinking), pin and test all three states separately: missing `off` MUST
-   emit the forced default string `"none"`, string `off` emits that string, and
-   explicit `off: null` suppresses the field. In Python, gate with key membership
-   before lookup; never use `dict.get("off")` as the branch condition, because it
-   conflates a missing key with explicit `None`. pipy's `reasoning_value` falls
-   back to the raw requested level when a model has no map, so reusing it for a
-   no-fallback branch emits `reasoning:{effort:<raw level>}` where Pi emits nothing
-   — add a dedicated string-only raw-lookup helper and a no-`thinkingLevelMap`
-   on-state test asserting the field is omitted.
-   Also guard the non-reasoning + `thinkingLevelMap` DEFAULT-BRANCH LEAK: a branch
-   gated `elif thinking_format == X and bool(spec.reasoning):` can FALL THROUGH to
-   the default `elif reasoning_value is not None: reasoning_effort = reasoning_value`
-   for a NON-reasoning model that declares a `thinkingLevelMap`, because
-   `map_thinking_level` keys off the map keys (`supported_thinking_levels`) and
-   IGNORES `model.reasoning`, so `reasoning_value` is a non-None string for it. Pi
-   gates BOTH its branch AND its default on `model.reasoning`, so it emits nothing;
-   pipy leaks a top-level `reasoning_effort`. Make the new branch consume ALL of its
-   `thinking_format` cases — drop `and bool(spec.reasoning)` from the `elif` and move
-   the reasoning check INSIDE the value helper — and add a non-reasoning +
-   `thinkingLevelMap` regression test asserting NEITHER `reasoning` NOR
-   `reasoning_effort`. The existing zai/together/qwen branches still carry this
-   latent divergence as a candidate follow-on.
-   `ant-ling` is also the only emitting completions variant with a fully SILENT
-   off-state: its branch is gated on `options.reasoningEffort`, so an off/unset
-   reasoning state emits neither `reasoning` nor `reasoning_effort`.
-   When a slice introduces a NEW stored thinking level (e.g. `max`) that can
-   persist across a model switch, port request-time CLAMPING at the touched
-   provider's request path — mirror exactly where Pi clamps (`clampThinkingLevel`
-   inside `openai-codex-responses.ts:468`), a provider-SCOPED clamp-then-map. Do
-   NOT port the clamp globally (breaks other providers' omit tests) and do NOT
-   defer it (Pi emits the clamped effort; pipy would emit nothing). It is
-   reachable only via cross-model persistence, but still test it: a stored `max`
-   on a Codex model lacking `max` clamps to `xhigh`; mapping neither, to `high`.
-   Keep cross-provider clamp+label unification as a named follow-on, and state in
-   docs that effort is omitted ONLY for unset/off, not for an unsupported level.
-   Do NOT reuse `thinking.supported_thinking_levels` to build a Pi-faithful
-   Shift+Tab cycle or a clamp: pipy derives it from `thinkingLevelMap` KEYS, but
-   Pi `getSupportedThinkingLevels` (`models.ts:410-419`) treats an unmapped,
-   non-null ordinary level (minimal/low/medium/high) as IDENTITY-supported and
-   only requires `xhigh`/`max` to be explicitly mapped. A partial catalog map like
-   `claude-opus {xhigh:xhigh}` makes pipy see `xhigh`-only, so reusing
-   `supported_thinking_levels` would regress such a model's cycle to `off`+`xhigh`.
-   Add an `available_thinking_levels` helper with Pi semantics — `off` + the
-   ordinary tier always + `xhigh`/`max` only when mapped, explicit `None` removes a
-   level — instead of reusing `supported_thinking_levels`. Corollary: any
-   hand-authored catalog row whose Pi map is PARTIAL must spell out the identity
-   ordinary levels, because pipy reads map keys — Pi's `gpt-6-sol` map is
-   `{xhigh:xhigh, max:max, minimal:low}`, so the pipy row must add
-   `low`/`medium`/`high` explicitly (and note `minimal->low` is a non-identity Pi
-   mapping worth its own test).
+   For a request-shape field gated by a Pi compat flag or a thinking level, pin
+   per field and per variant which flags gate it (each resolved independently),
+   the detection-rung position, the value expression's `?? level` fallback, the
+   three `off` states, and clamping, using the rules in
+   `docs/parity-loop/porting-notes.md` ("Completions `thinkingFormat`").
    First locate where Pi computes each request-shape field: catalog/model-registry
    metadata, construction-time mapping, provider-local model-id logic, or a
    delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
@@ -329,6 +216,11 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    a re-render of stored history, port Pi's pairing state exactly
    (`renderSessionItems` keeps each unanswered tool call pending across all
    intervening entries until the first later `toolResult` with its id).
+   pipy compacts before a request, while the accepted prompt is not yet in the
+   tree (Pi compacts after `agent_end` or on overflow), so a mid-run redraw from
+   `build_context_entries()` must also draw `active_input.accepted_message`,
+   skipped by identity once the branch holds it; PTY-check a compaction on a
+   turn's first request and one mid tool loop.
    Reproduce compaction/budget bugs with a persistent `NativeSessionTree`
    (`create_product_session(tree=...)`), not only an ephemeral SDK session whose
    durable-origin refusals never fire: parametrize tests over persisted and
@@ -396,12 +288,20 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      not only `materialize_provider_request` (compaction's
      `build_summary_request` bypasses it). A Pi JSON projection field must also
      reach streamed `message_update` partials (`automation/agent_events.py`).
+     A new request carrier must survive every transform between build and
+     adapter: `provider_replay_messages` drops stopped turns (re-anchor
+     positions), `before_provider_request` narrows tools (pass the hidden set
+     explicitly) or replaces the prompt (drop the carrier), and
+     `estimate_request` counts what the carrier adds on the wire.
    - A transcript-only message kind (Pi system messages) gets its own union
      beside provider-history `AgentMessage`, so mypy finds every consumer;
      non-appending publications still need `require_current_run`. If Pi's
      default `/tree` filter shows it, grep tests and `scripts/parity_checks` for
      hard-coded `/tree select N`, `/fork N` and Pi role lists first; update them
-     to the new Pi shape, never loosen the check.
+     to the new Pi shape, never loosen the check. Build the out-of-band system
+     prompt from the transcript replay (Pi `getCurrentSystemMessage` keeps Map
+     order, so a later section goes last), and plan a live mid-session
+     section-addition turn (resume with a new `--append-system-prompt`).
    - Pi error-text classifiers: pipy messages are sanitized, so feed each
      adapter family's error type/code and transport retryable flags, and port
      Pi's earlier `isContextOverflow` veto (overflow text `50000` matches `500`).
@@ -425,7 +325,14 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      through a lock-protected cache holding no `AuthStore`, rebuilds the
      adapter from the owner-thread `ResolvedConstruction` replacing only
      `api_key`/`base_url`, and regenerates token-derived headers (models.json
-     `authHeader`).
+     `authHeader`). A product gate reading a capability off the bound
+     `ProviderPort` (`getattr`) must hold through every wrapper
+     (`PerRequestOAuthProvider` hides adapter fields): grep
+     `provider_construction` for wrappers and test through one.
+   - Per-keystroke paths (autocomplete, argument completion) must never
+     construct providers: construction runs credential `!command` helpers and
+     extension factories. A user-typed regex must also catch `OverflowError` and
+     `RecursionError`, not only `re.error`.
    - Cost/usage: confirm the price is actually consumed (`repl/turn_leaves.py`
      `pricing_for`) and enumerate every adapter usage extractor against the Pi
      adapter that normalizes it (uncached input = prompt minus inclusive cache
@@ -470,17 +377,14 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
 5. **Implement.** Execute on `main`, TDD where it applies, matching Pi behavior;
    remove pipy-only accretions per the no-deprecation policy. Verify each edit
    landed (grep/Read) before running gates: some hosts' guards refuse shell edits
-   without applying them. Before editing a native module, check the line-ceiling
-   pins in `tests/test_architecture_quality_gates.py` and
-   `tests/test_god_file_decomposition_final_audit.py`:
-   `src/pipy_harness/native/session.py` sits exactly at the ceiling (the audit
-   asserts equality), so edits there, including `NATIVE_TOOL_LOOP_SYSTEM_PROMPT`,
-   must keep its line count unchanged. Exercise UI, cost, tool-call, and
-   restored-session behavior without live credentials in a real tmux PTY using
-   `docs/parity-loop/pty-evidence.md` (isolated env — no gate, test or PTY run
-   may touch the real `~/.pipy` — colour-capable tmux env, fake-provider limits,
-   local completions stub, `pipy -r` model restore, offline real-Pi comparison,
-   cheap live `--mode json` checks with a pinned tool call).
+   without applying them. Before editing a native module or adding a
+   `CodingSession` field, check the line ceilings and audit pins in
+   porting-notes ("Line ceilings and audit pins"). Exercise UI, cost, tool-call,
+   and restored-session behavior without live credentials in a real tmux PTY
+   using `docs/parity-loop/pty-evidence.md` (isolated env — no gate, test or PTY
+   run may touch the real `~/.pipy` — colour-capable tmux env, side-by-side tmux
+   scripting, byte recordings, fake providers, local completions stub, `pipy -r`
+   restore, offline real-Pi comparison, cheap live `--mode json` checks).
    *Done-when:* code complete, focused tests written.
 6. **Update docs (part of the change).** Bring docs + release notes + the parity
    docs (`docs/parity-plan.md`, `docs/pi-mono-gap-audit.md`, `docs/backlog.md`)
@@ -497,8 +401,9 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    the unchanged gate with a raised descriptor limit such as
    `ulimit -n 4096; just check` before treating it as a code failure; still rerun
    any individually reported flaky PTY test to distinguish environmental
-   pressure from a real regression. Only when green, run the
-   different-family review over the **full diff — code and docs together**. The
+   pressure from a real regression. Run PTY gates under `timeout 600` (they can
+   hang uninterruptibly on macOS) and rerun once before investigating. Only when
+   green, run the different-family review over the **full diff — code and docs together**. The
    reviewer must be a single direct fresh context:
    no subagents, `Agent` tool, Task-style delegation, or parallel reviewer fanout.
    On an ISSUES verdict, fix and **return to the top of
