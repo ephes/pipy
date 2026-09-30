@@ -342,8 +342,6 @@ def test_capabilities_and_the_generation_share_one_session_mutex(
         {},
         {},
         workspace_root=tmp_path,
-        reference_roots=(),
-        stderr_sink=lambda _text: None,
         filter_options=ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=1.0,
         state_lock=ref.lock,
@@ -1121,7 +1119,7 @@ def test_production_projection_tool_port_is_detached_and_stable(
     source_flags: dict[str, object] = {"projection-mode": "candidate"}
     notices: list[tuple[str, str]] = []
     active_calls: list[tuple[int, tuple[str, ...]]] = []
-    render_details: dict[str, object | None] = {"preexisting": {"sink": "preserved"}}
+    result_details: dict[str, object | None] = {}
 
     def notify(kind: str, text: str) -> None:
         notices.append((kind, text))
@@ -1146,7 +1144,6 @@ def test_production_projection_tool_port_is_detached_and_stable(
         has_ui=has_ui,
         notify_sink=notify,
         set_active_tools=set_active_tools,
-        render_details=render_details,
         project_trusted=project_trusted,
         prepare_capability=prepare,
         chrome=None,
@@ -1155,7 +1152,6 @@ def test_production_projection_tool_port_is_detached_and_stable(
     source_flags["projection-mode"] = "caller-mutated"
     context = ToolContext(
         workspace_root=tmp_path,
-        stderr_sink=lambda _text: None,
         extension_generation_id=7,
     )
     outcomes: list[tuple[str, bool]] = []
@@ -1171,6 +1167,7 @@ def test_production_projection_tool_port_is_detached_and_stable(
             context,
         )
         outcomes.append((result.output_text, result.is_error))
+        result_details[f"{side}-{phase}"] = result.details
 
     expected_output = (
         f"ui={has_ui};trusted={project_trusted};flag=candidate;active=False"
@@ -1193,12 +1190,9 @@ def test_production_projection_tool_port_is_detached_and_stable(
     assert active_calls == [
         (7, ("projected_tool", "secondary")) for _ in expected_invocations
     ]
-    assert render_details == {
-        "preexisting": {"sink": "preserved"},
-        **{
-            f"{side}-{phase}": {"side": side, "phase": phase}
-            for side, phase in expected_invocations
-        },
+    assert result_details == {
+        f"{side}-{phase}": {"side": side, "phase": phase}
+        for side, phase in expected_invocations
     }
     assert projected.runtime_flags.values == {"projection-mode": "candidate"}
 
@@ -1300,7 +1294,6 @@ def test_invalid_builder_results_fail_before_returning_a_projection(
             notify_sink=lambda *_args: None,
             set_active_tools=lambda _generation_id, _names: True,
             flags=flags,
-            render_details={},
             project_trusted=True,
         )
 
@@ -1453,8 +1446,6 @@ def _startup_attach_input(
         {},
         {},
         workspace_root=tmp_path,
-        reference_roots=(),
-        stderr_sink=lambda _text: None,
         filter_options=ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=1.0,
         state_lock=lock,
@@ -1467,7 +1458,6 @@ def _startup_attach_input(
         has_ui=True,
         notify_sink=lambda _kind, _message: None,
         set_active_tools=lambda _generation_id, _names: True,
-        render_details=cast(Any, {}),
         project_trusted=True,
         tool_capabilities=capabilities,
         chrome_sink=chrome,

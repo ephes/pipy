@@ -19,7 +19,8 @@ or naming the current session without driving the terminal UI.
   errors omit the input `id`.
 - stdout may also contain asynchronous session events that are not direct
   responses to a request.
-- stderr is for diagnostics that are not protocol messages.
+- stderr is for diagnostics that are not protocol messages; startup chrome and
+  the footer are not written there.
 
 The exact command and event contract is maintained in
 [Automation & RPC](automation-rpc.md); this page is the user-facing overview.

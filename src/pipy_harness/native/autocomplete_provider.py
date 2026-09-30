@@ -48,9 +48,11 @@ def call_provider_method(
 def coerce_completion_item(value: object) -> CompletionItem | None:
     if isinstance(value, CompletionItem):
         return value
+    raw_description: object = None
     if isinstance(value, dict):
         raw_value = value.get("value")
         raw_label = value.get("label", raw_value)
+        raw_description = value.get("description")
     elif isinstance(value, tuple) and value:
         raw_value = value[0]
         raw_label = value[1] if len(value) > 1 else value[0]
@@ -61,7 +63,8 @@ def coerce_completion_item(value: object) -> CompletionItem | None:
     label = str(raw_label)[:512]
     if not text or not label:
         return None
-    return CompletionItem(text, label)
+    description = str(raw_description)[:512] if raw_description else None
+    return CompletionItem(text, label, description)
 
 
 def coerce_completion_items(values: object) -> tuple[CompletionItem, ...]:

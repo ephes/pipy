@@ -1,27 +1,24 @@
-"""The `write` tool: create-only workspace-relative file writes.
+"""The model-driven `write` tool, following Pi's `write`.
 
-`WriteTool` creates a new UTF-8 file at a workspace-relative path. The
-tool is create-only in this slice: it refuses paths that already exist,
-paths under `.git`, ignored paths, paths that escape the workspace, and
-paths whose parent directory does not exist. The resulting unified diff
-is streamed to the loop's `error_stream` via `ToolContext.stderr_sink`;
-the archive (pipy_session.recorder) is not touched from inside the
-tool.
+Mirrors ``packages/coding-agent/src/core/tools/write.ts`` (pi-mono
+``1b347794e``): the path resolves like Pi's ``resolveToCwd`` (relative to the
+working directory or absolute, ``~`` expanded, no deny list), the parent
+directories are created, and the file is created or overwritten with the
+content as UTF-8. The result is ``Successfully wrote to {path}``; a failure is
+the error text alone, as Pi's thrown errors are.
+
+The TUI's write row shows the content from the call arguments
+(:mod:`pipy_harness.native.tool_rows`). Mutations of one file are serialized
+like Pi's
+``withFileMutationQueue`` (:mod:`pipy_harness.native.tools.file_mutation_queue`).
 """
 
 from __future__ import annotations
 
-import difflib
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
 
-from pipy_harness.native.read_only_tool import (
-    _is_ignored_or_generated,
-    _is_relative_to,
-    _resolved_relative_label,
-    _validate_workspace_relative_path,
-)
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -29,65 +26,48 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.native.tools.file_mutation_queue import (
+    file_mutation_queue,
+    mutation_queue_key,
+)
+from pipy_harness.native.tools.fs_errors import (
+    node_encodable_text,
+    node_fs_message,
+    node_null_byte_message,
+)
+from pipy_harness.native.tools.path_utils import resolve_to_cwd
+
+WRITE_TOOL_DESCRIPTION = (
+    "Write content to a file. Creates the file if it doesn't exist, overwrites "
+    "if it does. Automatically creates parent directories."
+)
+
+OPERATION_ABORTED = "Operation aborted"
 
 
-@dataclass(frozen=True, slots=True)
-class _WriteFailure:
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class _WriteTarget:
-    candidate: Path
+class _WriteFailure(Exception):
+    """A failure whose message is the tool result text."""
 
 
 @dataclass(frozen=True, slots=True)
 class WriteTool:
-    """Create a new workspace-relative file with the provided content."""
-
-    max_content_bytes: int = 256 * 1024
-
-    HARD_MAX_CONTENT_BYTES: ClassVar[int] = 4 * 1024 * 1024
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.max_content_bytes, int)
-            or isinstance(self.max_content_bytes, bool)
-            or self.max_content_bytes < 1
-            or self.max_content_bytes > self.HARD_MAX_CONTENT_BYTES
-        ):
-            raise ValueError(
-                "WriteTool max_content_bytes must be in "
-                f"[1, {self.HARD_MAX_CONTENT_BYTES}]"
-            )
+    """Create or overwrite a file, like Pi's `write`."""
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="write",
-            description=(
-                "Create a new workspace-relative UTF-8 file with the "
-                "provided content. Refuses existing files, paths under "
-                ".git, ignored paths, absolute paths, parent traversal, "
-                "and paths whose parent directory does not exist."
-            ),
+            description=WRITE_TOOL_DESCRIPTION,
             input_schema={
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 1024,
-                        "description": (
-                            "Workspace-relative POSIX path for the new file."
-                        ),
+                        "description": "Path to the file to write (relative or absolute)",
                     },
                     "content": {
                         "type": "string",
-                        "maxLength": self.max_content_bytes,
-                        "description": (
-                            "UTF-8 file content. Empty strings create an empty file."
-                        ),
+                        "description": "Content to write to the file",
                     },
                 },
                 "required": ["path", "content"],
@@ -96,102 +76,71 @@ class WriteTool:
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
-        path_value = request.arguments["path"]
+        path_arg = request.arguments["path"]
         content = request.arguments["content"]
-        path_arg = self._validated_path_argument(path_value)
+        if not isinstance(path_arg, str):
+            raise ToolArgumentError(
+                "write", "path must be a string", field_path=("path",)
+            )
         if not isinstance(content, str):
             raise ToolArgumentError(
-                "write",
-                "content must be a string",
-                field_path=("content",),
+                "write", "content must be a string", field_path=("content",)
             )
-
-        target = self._resolve_target(path_arg, context.workspace_root)
-        if isinstance(target, _WriteFailure):
-            return self._error(request, target.message)
-
-        write_failure = self._write_content(target.candidate, content)
-        if write_failure is not None:
-            return self._error(request, write_failure.message)
-
-        self._stream_diff(path_arg, content, context)
-        return ToolExecutionResult(
-            tool_request_id=request.tool_request_id,
-            output_text=f"wrote {path_arg} ({len(content.encode('utf-8'))} bytes)",
-            provider_correlation_id=request.provider_correlation_id,
-        )
-
-    @staticmethod
-    def _validated_path_argument(path_arg: object) -> str:
+        content = node_encodable_text(content)
         try:
-            if not isinstance(path_arg, str):
-                raise ValueError("workspace_relative_path must be a string")
-            _validate_workspace_relative_path(path_arg)
-        except ValueError as exc:
-            raise ToolArgumentError("write", str(exc), field_path=("path",)) from None
-        return path_arg
-
-    @staticmethod
-    def _resolve_target(
-        path_arg: str, workspace_root: Path
-    ) -> _WriteTarget | _WriteFailure:
-        workspace = workspace_root.resolve()
-        candidate = (workspace / path_arg).resolve()
-        if not _is_relative_to(candidate, workspace):
-            return _WriteFailure("path escapes the workspace")
-        resolved_label = _resolved_relative_label(candidate, workspace)
-        if resolved_label is None:
-            return _WriteFailure("path escapes the workspace")
-        if _is_ignored_or_generated(path_arg, workspace) or _is_ignored_or_generated(
-            resolved_label, workspace
-        ):
-            return _WriteFailure("path is ignored or under .git/generated directories")
-        if candidate.exists():
-            return _WriteFailure("file already exists")
-        parent = candidate.parent
-        if not parent.exists():
-            return _WriteFailure("parent directory does not exist")
-        if not parent.is_dir():
-            return _WriteFailure("parent is not a directory")
-        parent_label = _resolved_relative_label(parent.resolve(), workspace)
-        if parent_label is None:
-            return _WriteFailure("parent directory escapes the workspace")
-        if parent_label and _is_ignored_or_generated(parent_label, workspace):
-            return _WriteFailure(
-                "parent directory is ignored or under .git/generated directories"
-            )
-        return _WriteTarget(candidate=candidate)
-
-    @staticmethod
-    def _write_content(candidate: Path, content: str) -> _WriteFailure | None:
-        try:
-            candidate.write_text(content, encoding="utf-8")
-        except OSError as exc:
-            return _WriteFailure(f"failed to write file: {exc}")
-        return None
-
-    def _stream_diff(self, path_arg: str, content: str, context: ToolContext) -> None:
-        diff_text = self._unified_diff(path_arg=path_arg, new_content=content)
-        if context.stderr_sink is not None and diff_text:
-            context.stderr_sink(diff_text)
-
-    @staticmethod
-    def _unified_diff(*, path_arg: str, new_content: str) -> str:
-        diff_lines = difflib.unified_diff(
-            [],
-            new_content.splitlines(keepends=True),
-            fromfile=f"a/{path_arg}",
-            tofile=f"b/{path_arg}",
-        )
-        return "".join(diff_lines)
-
-    def _error(self, request: ToolRequest, message: str) -> ToolExecutionResult:
-        return ToolExecutionResult(
-            tool_request_id=request.tool_request_id,
-            output_text=f"write error: {message}",
-            is_error=True,
-            provider_correlation_id=request.provider_correlation_id,
-        )
+            _write(path_arg, content, context)
+        except _WriteFailure as exc:
+            return _result(request, str(exc), is_error=True)
+        return _result(request, f"Successfully wrote to {path_arg}", is_error=False)
 
 
-__all__ = ["WriteTool"]
+def _write(path_arg: str, content: str, context: ToolContext) -> None:
+    try:
+        absolute = resolve_to_cwd(path_arg, context.workspace_root)
+    except ValueError as exc:
+        raise _WriteFailure(str(exc)) from None
+    try:
+        key = mutation_queue_key(absolute)
+    except OSError as exc:
+        raise _WriteFailure(node_fs_message(exc, "realpath", str(absolute))) from None
+    except ValueError:  # a NUL byte: Node rejects the path before any syscall
+        raise _WriteFailure(node_null_byte_message(str(absolute))) from None
+    with file_mutation_queue(key):
+        _write_locked(absolute, content, context)
+
+
+def _write_locked(absolute: Path, content: str, context: ToolContext) -> None:
+    # Abort is checked after each step, never mid-operation, so the queue
+    # stays held until the filesystem call has settled (as in Pi).
+    _throw_if_aborted(context)
+    directory = absolute.parent
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        raise _WriteFailure(node_fs_message(exc, "mkdir", str(directory))) from None
+    _throw_if_aborted(context)
+    # Encoded before the file is opened, so nothing is truncated by a failure.
+    data = content.encode("utf-8")
+    try:
+        with open(absolute, "wb") as handle:
+            handle.write(data)
+    except OSError as exc:
+        raise _WriteFailure(node_fs_message(exc, "open", str(absolute))) from None
+    _throw_if_aborted(context)
+
+
+def _throw_if_aborted(context: ToolContext) -> None:
+    if context.cancel_event is not None and context.cancel_event.is_set():
+        raise _WriteFailure(OPERATION_ABORTED)
+
+
+def _result(request: ToolRequest, text: str, *, is_error: bool) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        tool_request_id=request.tool_request_id,
+        output_text=text,
+        is_error=is_error,
+        provider_correlation_id=request.provider_correlation_id,
+    )
+
+
+__all__ = ["OPERATION_ABORTED", "WRITE_TOOL_DESCRIPTION", "WriteTool"]

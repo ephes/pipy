@@ -5,8 +5,8 @@ untagged text, every other section is wrapped ``<name>\\n...\\n</name>`` so a
 later system message can patch it by name. The transcript records the
 sections; the prompt text is their rendering (``getSystemMessageText``).
 
-pipy builds the sections it has: ``preamble`` (the default or custom prompt,
-plus pipy's reference-roots lines), ``addendum`` (appended prompts),
+pipy builds the sections it has: ``preamble`` (the default or custom
+prompt), ``addendum`` (appended prompts),
 ``project_context``, ``skills``, ``cwd``, and the pipy-only ``resume`` block
 as a trailing custom section. Pi's ``tools``/``rules``/``docs`` sections are
 a follow-on (``docs/backlog.md``).

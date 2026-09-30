@@ -178,15 +178,13 @@ effort work).
 - `render_system_prompt(sections)` = Pi `getSystemMessageText` over them.
 
 `adapters/native.py` builds them: `preamble` = the default or custom prompt
-plus pipy's reference-roots lines (pipy-only content stays in the untagged
-preamble); `addendum` = the append texts joined by `\n\n` (split out of
+(READ2 later removed pipy's reference-roots lines); `addendum` = the append texts joined by `\n\n` (split out of
 `resolve_system_prompt`, which gains `preamble`/`addendum` fields);
 `project_context` = the existing renderer's body; `skills` = the existing
 block's body (read-tool gate unchanged); `cwd`; `resume` = the resume block.
 The composed `system_prompt` string is `render_system_prompt(sections)`.
-Rendering changes: the addendum is wrapped in `<addendum>` and ordered
-before the reference roots → after them; a `<cwd>` section is added; the
-resume block is wrapped `<resume>`.
+Rendering changes: the addendum is wrapped in `<addendum>`; a `<cwd>`
+section is added; the resume block is wrapped `<resume>`.
 
 The sections travel beside the string without changing `run`'s signature:
 `build_session` sets a new `CodingSession.system_prompt_sections` field,

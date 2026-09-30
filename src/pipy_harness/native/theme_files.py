@@ -44,6 +44,14 @@ _COLOR_FIELDS: tuple[str, ...] = tuple(
     f.name for f in fields(ChromePalette) if f.name != "name"
 )
 
+#: Optional fields (default ``None``: the thinking-level and bash-mode editor
+#: borders, ``thinking_text``) a theme file sets itself or leaves unset, so
+#: a theme without them keeps its own ``separator``/``secondary_dim`` instead
+#: of the default palette's Pi colours.
+_UNINHERITED_FIELDS: frozenset[str] = frozenset(
+    f.name for f in fields(ChromePalette) if f.default is None
+)
+
 #: A valid theme name: lowercase ASCII letters/digits/hyphen, not empty
 #: and not starting or ending with a hyphen. Mirrors the resource-name
 #: posture used elsewhere so a theme name is safe in UI and persistence.
@@ -91,7 +99,11 @@ def load_theme_file(path: Path) -> ChromePalette | None:
             return None
         overrides[field] = value
 
-    merged = {field: getattr(DEFAULT_PALETTE, field) for field in _COLOR_FIELDS}
+    merged = {
+        field: getattr(DEFAULT_PALETTE, field)
+        for field in _COLOR_FIELDS
+        if field not in _UNINHERITED_FIELDS
+    }
     merged.update(overrides)
     return ChromePalette(name=name, **merged)
 

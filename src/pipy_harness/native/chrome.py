@@ -21,7 +21,7 @@ import re as _re
 import shutil
 import textwrap
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TextIO
@@ -55,6 +55,8 @@ from pipy_harness.native.workspace_context import (
 )
 
 _CHROME_SGR_RE = _re.compile(r"\x1b\[[0-9;]*m")
+# A full reset (`\x1b[m`, `\x1b[0m`) or a default-background code (`49`).
+_CHROME_FULL_RESET_RE = _re.compile(r"\x1b\[(?:0?|(?:[0-9;]*;)?(?:0|49)(?:;[0-9;]*)?)m")
 
 
 def _visible_len_no_sgr(text: str) -> int:
@@ -114,14 +116,14 @@ class ChromeStyle:
         )
 
     def dim_italic(self, text: str) -> str:
-        # Italic + secondary dim, mirroring the captured-stream fallback
-        # renderer so streamed reasoning reads as Pi's italic prose voice.
+        # Reasoning: italic in Pi's `thinkingText` (secondary dim for themes
+        # that set none).
         if not self.enabled:
             return text
-        code = (
-            self.palette.secondary_dim_truecolor
-            if self.truecolor
-            else self.palette.secondary_dim_fallback
+        palette = self.palette
+        code = self.palette_code(
+            palette.thinking_text_truecolor or palette.secondary_dim_truecolor,
+            palette.thinking_text_fallback or palette.secondary_dim_fallback,
         )
         return f"\x1b[3;{code}m{text}\x1b[0m"
 
@@ -140,6 +142,36 @@ class ChromeStyle:
             text, self.palette.separator_truecolor, self.palette.separator_fallback
         )
 
+    def border(self, text: str) -> str:
+        """Pi's ``border`` token; ``separator`` when the theme sets none."""
+
+        palette = self.palette
+        if palette.border_truecolor is None or palette.border_fallback is None:
+            return self.separator(text)
+        return self._wrap(text, palette.border_truecolor, palette.border_fallback)
+
+    def accent(self, text: str) -> str:
+        return self._wrap(
+            text, self.palette.accent_truecolor, self.palette.accent_fallback
+        )
+
+    def muted(self, text: str) -> str:
+        """Pi's ``muted`` token (pipy's secondary dim)."""
+
+        return self.secondary_dim(text)
+
+    def editor_border(self, text: str, *, level: str, bash_mode: bool) -> str:
+        """Pi's editor border: ``bashMode`` for ``!`` input, else the
+        thinking level's colour (``getThinkingBorderColor``); ``separator``
+        when the theme sets neither."""
+
+        name = "bash_mode" if bash_mode else f"thinking_{level}"
+        mode = "truecolor" if self.truecolor else "fallback"
+        code = getattr(self.palette, f"{name}_{mode}", None)
+        if code is None:
+            return self.separator(text)
+        return self._wrap(text, code, code)
+
     def user_message(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
@@ -150,9 +182,11 @@ class ChromeStyle:
         padded = text + (" " * max(0, width - len(text)))
         if text == "":
             return f"\x1b[{bg}m{padded}\x1b[0m"
-        return (
-            f"\x1b[{bg}m\x1b[{self.palette.user_message_text_truecolor}m{padded}\x1b[0m"
+        fg = self.palette_code(
+            self.palette.user_message_text_truecolor,
+            self.palette.user_message_text_fallback,
         )
+        return f"\x1b[{bg}m\x1b[{fg}m{padded}\x1b[0m"
 
     def tool_command(self, text: str, *, width: int) -> str:
         if not self.enabled:
@@ -207,23 +241,42 @@ class ChromeStyle:
             return f"\x1b[{bg}m{padding}\x1b[0m"
         return f"\x1b[{bg}m{text}\x1b[0m\x1b[{bg}m{padding}\x1b[0m"
 
-    def tool_read(self, text: str, *, width: int) -> str:
+    def tool_box(self, text: str, *, bg: str, width: int) -> str:
+        """One row of a Pi tool box: pre-styled ``text`` on its background.
+
+        ``bg`` is ``pending``/``success``/``error`` (Pi ``toolPendingBg`` /
+        ``toolSuccessBg`` / ``toolErrorBg``), ``custom`` (``customMessageBg``,
+        the summary rows) or ``none`` (edit's result lines below its box).
+        The row is padded to ``width``; a full SGR reset inside
+        the text re-opens the background, like Pi's ``applyBackgroundToLine``
+        keeps the box colour behind every cell.
+        """
+
         if not self.enabled:
             return text
-        bg = self.palette_code(
-            self.palette.tool_command_bg_truecolor,
-            self.palette.tool_command_bg_fallback,
-        )
-        leading = text[: len(text) - len(text.lstrip(" "))]
-        visible = text[len(leading) :]
-        verb, separator, rest = visible.partition(" ")
-        padding = " " * max(0, width - len(text))
-        return (
-            f"\x1b[{bg}m"
-            f"{leading}\x1b[{self.palette.title_truecolor}m{verb}\x1b[0m"
-            f"\x1b[{bg}m"
-            f"{separator}{rest}{padding}\x1b[0m"
-        )
+        visible = _visible_len_no_sgr(text)
+        padding = " " * max(0, width - visible)
+        if bg == "none":
+            return f"{text}\x1b[0m{padding}"
+        palette = self.palette
+        truecolor, fallback = {
+            "pending": (
+                palette.tool_pending_bg_truecolor,
+                palette.tool_pending_bg_fallback,
+            ),
+            "success": (
+                palette.tool_success_bg_truecolor,
+                palette.tool_success_bg_fallback,
+            ),
+            "error": (palette.tool_error_bg_truecolor, palette.tool_error_bg_fallback),
+            "custom": (
+                palette.custom_message_bg_truecolor,
+                palette.custom_message_bg_fallback,
+            ),
+        }.get(bg, (palette.tool_pending_bg_truecolor, palette.tool_pending_bg_fallback))
+        code = f"\x1b[{self.palette_code(truecolor, fallback)}m"
+        body = _CHROME_FULL_RESET_RE.sub(lambda match: match.group(0) + code, text)
+        return f"{code}{body}{padding}\x1b[0m"
 
     def menu_row(self, text: str) -> str:
         if not self.enabled:
@@ -482,6 +535,16 @@ class _ReplRuntime(Protocol):
     runtime_label: str
 
 
+@dataclass(slots=True)
+class _EditorBorderLevel:
+    """The thinking level the editor border shows, set with the footer text.
+
+    The paint reads it without taking the provider state's lock.
+    """
+
+    level: str = "off"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _ChromeFooterEffects:
     """Own footer composition and project live coding state into terminal chrome."""
@@ -494,6 +557,25 @@ class _ChromeFooterEffects:
     repl_runtime: _ReplRuntime
     # The live session tree (it is replaced by /new, /resume and /fork).
     session_tree: Callable[[], NativeSessionTree]
+    border: _EditorBorderLevel = field(default_factory=_EditorBorderLevel)
+
+    def border_level(self) -> str:
+        """Pi ``updateEditorBorderColor``'s level (``thinkingLevel || "off"``)."""
+
+        return self.border.level
+
+    def _thinking_level(self, provider_name: str, model_id: str) -> str:
+        """The live level, ``off`` for a model without reasoning (Pi clamps)."""
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return "off"
+        spec = state.model_runtime.resolve_spec(
+            NativeModelSelection(provider_name, model_id)
+        )
+        if spec is None or not spec.reasoning:
+            return "off"
+        return state.current_thinking_level() or "off"
 
     def _declared_context_window(self, provider_name: str, model_id: str) -> int | None:
         """The resolved catalog row's declared window (models.json aware)."""
@@ -647,6 +729,9 @@ class _ChromeFooterEffects:
 
     def coding_footer_text(self) -> str:
         coding_state = self.coding_state
+        self.border.level = self._thinking_level(
+            coding_state.provider_name, coding_state.model_id
+        )
         return self._footer_text(
             cwd=self.cwd,
             provider_name=coding_state.provider_name,

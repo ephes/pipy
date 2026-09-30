@@ -6,10 +6,15 @@ provider the command, its exit status and its output as conversation context;
 why this lives outside the session: it needs the terminal, the workspace root
 and the extension user-bash hooks, and nothing else the composition root holds.
 
-Cancellation is the interesting part. Without a live TUI the command runs
-synchronously under a deadline. With one, it runs on a worker thread while the
-same active-turn interrupt watcher a provider turn uses reads stdin, so Escape
-kills the child *process group* and leaves the session standing.
+The recorded text is Pi's ``bashExecutionToText`` and the rows are Pi's
+``BashExecutionComponent`` (:mod:`pipy_harness.native.local_shell_record`).
+
+Cancellation is the interesting part. With a live TUI the command runs on a
+worker thread, with no deadline as in Pi, while the same active-turn interrupt
+watcher a provider turn uses reads stdin, so Escape kills the child *process
+group* and leaves the session standing. Without a terminal there is no cancel
+key, so the command runs synchronously under a deadline and a deadline kill is
+recorded as cancelled (Pi has no such path).
 """
 
 from __future__ import annotations
@@ -28,21 +33,20 @@ from pipy_harness.native.extension_types import (
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
 )
-from pipy_harness.native.local_shell_record import format_local_shell_record
+from pipy_harness.native.local_shell_record import (
+    LocalShellRecord,
+    format_local_shell_record,
+    shell_result_lines,
+    shell_status_lines,
+)
 from pipy_harness.native.repl.turn_leaves import CANCEL_JOIN_TIMEOUT_SECONDS
 from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
-from pipy_harness.native.tui import (
-    TURN_ABORTED,
-    TURN_LOCAL_COMMAND,
-    TURN_SETTLED,
-    TerminalUi,
-)
+from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 
-# Bound on a ``!``/``!!`` editor shell command so it cannot hang the session
-# indefinitely (Escape cancels earlier in a live TTY; a non-TTY script has no
-# cancel key, so the deadline is the only bound there). Generous so ordinary
-# builds/tests finish well within it.
+# Bound on a ``!``/``!!`` command when there is no terminal: a script has no
+# cancel key, so the deadline is the only bound there. Generous so ordinary
+# builds/tests finish well within it. The live TUI has none (Escape cancels).
 _LOCAL_SHELL_TIMEOUT_SECONDS = 600
 
 
@@ -127,38 +131,57 @@ def run_local_shell_shortcut(
             command, sink=sink, terminal_ui=terminal_ui, cwd=cwd
         )
 
-    output_text = result.output or "(no output)"
-    # Status line mirrors the bash tool's _shape: a timeout, the exit code,
-    # or cancellation. A non-zero exit (e.g. !false) is an error the model
-    # should see, matching the real bash execution boundary.
-    if result.cancelled:
-        reason = result.cancel_reason or "escape"
-        status_line = f"(cancelled by {reason})"
-    elif result.timed_out:
-        status_line = "(timed out)"
-    else:
-        status_line = f"exit code: {result.exit_code}"
-    is_error = (
-        result.timed_out
-        or not result.started
-        or (
-            not result.cancelled
-            and result.exit_code is not None
-            and result.exit_code != 0
-        )
+    return _settle_local_shell(
+        command,
+        result,
+        transcript=transcript,
+        error_stream=error_stream,
+        exclude_from_context=exclude_from_context,
+    )
+
+
+def _settle_local_shell(
+    command: str,
+    result: LocalShellResult,
+    *,
+    transcript: TranscriptComponent | None,
+    error_stream: TextIO,
+    exclude_from_context: bool,
+) -> str | None:
+    """Draw the result rows; return the record text for ``!`` (else None)."""
+
+    if not result.started:
+        if transcript is not None:
+            transcript.add_tool_result(lines=[result.output], is_error=True)
+        else:
+            print(result.output, file=error_stream)
+        return None
+
+    # Pi's `BashResult`: a cancelled command (Escape, or the no-terminal
+    # deadline) has no exit code.
+    cancelled = result.cancelled or result.timed_out
+    record = LocalShellRecord(
+        command=command,
+        output=result.output,
+        exit_code=None if cancelled else result.exit_code,
+        cancelled=cancelled,
+        truncated=result.truncated,
+        full_output_path=result.full_output_path,
     )
     if transcript is not None:
-        rendered = [status_line, *(output_text.splitlines() or [""])]
-        transcript.add_tool_result(lines=rendered, is_error=is_error)
+        transcript.add_shell_result(
+            collapsed=shell_result_lines(record, expanded=False),
+            expanded=shell_result_lines(record, expanded=True),
+        )
     else:
         # Captured-stream path: the body already streamed through the sink,
-        # so print only the status line (never re-print the output — that
-        # duplicated every command's output).
-        print(status_line, file=error_stream)
+        # so print only the status lines (never re-print the output).
+        for line in shell_status_lines(record):
+            print(line, file=error_stream)
 
-    if exclude_from_context or not result.started:
+    if exclude_from_context:
         return None
-    return format_local_shell_record(command, status_line, output_text)
+    return format_local_shell_record(record)
 
 
 def _execute_local_shell(
@@ -197,7 +220,6 @@ def _execute_local_shell(
                     workspace_root=cwd,
                     output_sink=sink,
                     cancel_event=cancel_event,
-                    timeout=_LOCAL_SHELL_TIMEOUT_SECONDS,
                 )
             )
         finally:
@@ -205,21 +227,15 @@ def _execute_local_shell(
 
     worker = threading.Thread(target=_worker, name="pipy-local-shell", daemon=True)
     worker.start()
-    outcome = TURN_SETTLED
     try:
-        outcome = terminal_ui.wait_for_active_turn_interrupt(
+        terminal_ui.wait_for_active_turn_interrupt(
             done_event, cancel_event, accept_commands=True
         )
     except KeyboardInterrupt:
         cancel_event.set()
-        outcome = TURN_ABORTED
     worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
-    cancel_reason = "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
     if holder:
-        result = holder[0]
-        if result.cancelled:
-            result.cancel_reason = cancel_reason
-        return result
+        return holder[0]
     return LocalShellResult(
         output="",
         exit_code=None,
@@ -227,5 +243,4 @@ def _execute_local_shell(
         timed_out=False,
         cancelled=True,
         started=True,
-        cancel_reason=cancel_reason,
     )

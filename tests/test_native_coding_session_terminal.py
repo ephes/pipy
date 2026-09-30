@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -33,6 +34,7 @@ from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.frame_renderer import visible_len as _visible_len_allow_sgr
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.overlay_state import ModelSelectorOption, SettingsRow
@@ -66,6 +68,10 @@ from pipy_harness.native.ui.components.custom_editor import (
 )
 from pipy_harness.native.ui.components.footer import FooterComponent
 from pipy_harness.native.ui.components.input_editor import InputEditor
+from pipy_harness.native.ui.components.search_selectors import (
+    ModelSearchSelector,
+    SearchSelectorClose,
+)
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
 )
@@ -107,6 +113,17 @@ class _TtyBuffer:
 
     def getvalue(self) -> str:
         return self._buffer.getvalue()
+
+
+def _strip_sgr(text: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
+def _plain_rows(lines: tuple[str, ...]) -> list[str]:
+    """A tool row's non-blank lines without styling."""
+
+    texts = (_strip_sgr(decode_tool_box_line(line)[2]) for line in lines)
+    return [text for text in texts if text]
 
 
 def _ui(tmp_path: Path) -> TerminalUi:
@@ -243,6 +260,8 @@ class _ExitOnlyUi:
                 paint_lock=paint_lock,
                 close=self.close,
                 external_io_suspension=noop_scope,
+                defer_paints=noop,
+                set_border_level_source=lambda _source: None,
             ),
             overlays=SimpleNamespace(),
             input_editor=self.input_editor,
@@ -258,7 +277,8 @@ class _ExitOnlyUi:
     def set_footer_text(self, text: str) -> None:
         del text
 
-    def start(self) -> None:
+    def start(self, *, quiet: bool = False) -> None:
+        del quiet
         self.started = True
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
@@ -336,8 +356,8 @@ def test_tui_styles_only_working_spinner_with_accent(tmp_path: Path):
         width=40,
     )
 
-    assert styled.startswith("\x1b[38;5;244m \x1b[0m\x1b[38;5;109m⠋\x1b[0m")
-    assert "\x1b[38;5;244m Working...\x1b[0m" in styled
+    assert styled.startswith("\x1b[38;5;145m \x1b[0m\x1b[38;5;140m⠋\x1b[0m")
+    assert "\x1b[38;5;145m Working...\x1b[0m" in styled
 
 
 def test_tui_keeps_input_row_stable_when_working_line_settles(
@@ -430,7 +450,7 @@ def test_tui_edit_diff_renders_as_a_transcript_row_not_raw_stderr(
         provider_correlation_id="call-1",
         tool_name="edit",
         arguments_json=json.dumps(
-            {"path": "notes.txt", "old_string": "beta", "new_string": "gamma"}
+            {"path": "notes.txt", "edits": [{"oldText": "beta", "newText": "gamma"}]}
         ),
     )
     replies = [(call,), ()]
@@ -500,15 +520,14 @@ def test_tui_edit_diff_renders_as_a_transcript_row_not_raw_stderr(
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "alpha\ngamma\n"
-    assert "+++ b/notes.txt" not in error_stream.getvalue()
-    diff_blocks = [
-        lines
+    # Pi's display diff (generateDiffString), drawn in the edit row's box.
+    assert "-2 beta" not in error_stream.getvalue()
+    edit_rows = [
+        _plain_rows(lines)
         for kind, lines in ui.components.transcript.history_blocks
-        if kind == "tool_result" and "+++ b/notes.txt" in lines
+        if kind == "tool_box"
     ]
-    assert len(diff_blocks) == 1
-    assert "-beta" in diff_blocks[0]
-    assert "+gamma" in diff_blocks[0]
+    assert edit_rows == [["edit notes.txt", " 1 alpha", "-2 beta", "+2 gamma"]]
 
 
 def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
@@ -671,13 +690,14 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
         transcript=ui.components.transcript,
         chrome=ui.components.chrome.record,
         render_inputs=ui.components.screen.render_inputs,
+        cwd=tmp_path,
     )
 
     renderer.render_tool_call(
         AgentToolCall(
             provider_correlation_id="call_read",
             tool_name="read",
-            arguments_json=ProductContent('{"path": "docs/backlog.md", "limit": 5}'),
+            arguments_json=ProductContent('{"path": "notes/plan.md", "limit": 5}'),
         )
     )
     renderer.render_tool_result(
@@ -686,12 +706,14 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
-    assert "read docs/backlog.md" in frame
+    frame = _strip_sgr(
+        "\n".join(ui.components.screen.render_lines(width=72, height=20))
+    )
+    # Pi `formatReadCall`: the range stays; collapsed, no content, no duration.
+    assert "read notes/plan.md:1-5" in frame
     assert "$ read" not in frame
-    assert ":1-5" not in frame
     assert "line one" not in frame
-    assert "Took 0.2s" not in frame
+    assert "Took" not in frame
 
 
 def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
@@ -704,11 +726,12 @@ def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
         transcript=ui.components.transcript,
         chrome=ui.components.chrome.record,
         render_inputs=ui.components.screen.render_inputs,
+        cwd=tmp_path,
     )
     calls = (
         ("bash", {"command": "python3 -m unittest", "timeout": 120}),
         ("bash", {"command": "ls tests"}),
-        ("edit", {"path": "core.py", "old_string": "a", "new_string": "b"}),
+        ("edit", {"path": "core.py", "edits": [{"oldText": "a", "newText": "b"}]}),
         ("write", {"path": "new.py", "content": "x = 1\n"}),
     )
     for index, (tool_name, arguments) in enumerate(calls):
@@ -722,17 +745,19 @@ def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
         renderer.render_tool_result(output_text="ok", is_error=False)
 
     headers = [
-        lines[0]
+        _plain_rows(lines)[0]
         for kind, lines in ui.components.transcript.history_blocks
-        if kind == "tool"
+        if kind == "tool_box"
     ]
     assert headers == [
-        "python3 -m unittest (timeout 120s)",
-        "ls tests",
+        "$ python3 -m unittest (timeout 120s)",
+        "$ ls tests",
         "edit core.py",
         "write new.py",
     ]
-    frame = "\n".join(ui.components.screen.render_lines(width=72, height=40))
+    frame = _strip_sgr(
+        "\n".join(ui.components.screen.render_lines(width=72, height=40))
+    )
     assert "$ python3 -m unittest (timeout 120s)" in frame
     assert "bash(" not in frame
     assert "edit(" not in frame
@@ -760,11 +785,15 @@ def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Pa
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
-    assert "$ ls" in frame
-    assert "one" in frame
-    assert "two" in frame
-    assert "Took 0.2s" in frame
+    frame = _strip_sgr(
+        "\n".join(ui.components.screen.render_lines(width=72, height=20))
+    )
+    assert "ls ." in frame
+    assert "$ ls" not in frame
+    assert "file one" in frame
+    assert "file two" in frame
+    # Pi shows a duration only on bash rows.
+    assert "Took" not in frame
 
 
 def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
@@ -1149,7 +1178,7 @@ def test_tui_reasoning_row_emits_italic_escape(
     ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
-    assert "\x1b[3;38;2;128;128;128m Thinking about this.\x1b[0m" in output
+    assert "\x1b[3;38;2;150;160;164m Thinking about this.\x1b[0m" in output
 
 
 def test_tui_reasoning_row_drops_italic_under_no_color(
@@ -1222,7 +1251,7 @@ def test_tui_tool_result_uses_pi_command_background(
     )
     result = snapshot.find("result line")[0]
     assert result.attr.bg == "40;50;40"
-    assert result.attr.fg == "128;128;128"
+    assert result.attr.fg == "157;165;169"
 
 
 def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
@@ -1408,9 +1437,10 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
 
     ui.components.autocomplete.accept_slash_menu_selection()
     # Menu order is hotkeys(0), model(1), scoped-models(2), ...; one step down
-    # lands on the /model command (auto-completed into the editor).
-    assert ui.components.input_editor.text == "/model"
-    assert ui.components.input_editor.cursor == len("/model")
+    # lands on the /model command, inserted with a trailing space like Pi's
+    # `applyCompletion`.
+    assert ui.components.input_editor.text == "/model "
+    assert ui.components.input_editor.cursor == len("/model ")
     assert ui.components.autocomplete.slash_menu_open is False
 
     ui.components.input_editor.text = "/"
@@ -1845,18 +1875,19 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
         del self, prompt_label, footer
         return next(scripted)
 
-    def _select_model(self, options, *, current_index=0, title=None):
-        del self, current_index, title
+    def _select_model(self, selector):
+        del self
+        assert isinstance(selector, ModelSearchSelector)
         chosen = next(
-            index
-            for index, option in enumerate(options)
-            if option.selectable and option.label.startswith("openai/gpt-5.5")
+            choice
+            for choice in selector.filtered()
+            if choice.reference == "openai/gpt-5.5"
         )
-        chosen_labels.append(options[chosen].label)
-        return chosen
+        chosen_labels.append(chosen.reference)
+        return SearchSelectorClose(chosen)
 
     monkeypatch.setattr(TerminalUi, "read_line", _read_line)
-    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _select_model)
+    monkeypatch.setattr(TerminalModalDriver, "run_search_selector", _select_model)
     from pipy_harness.native.tui import TURN_SETTLED
 
     monkeypatch.setattr(
@@ -1918,12 +1949,12 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
 
-    def _cancel_selector(self, options, *, current_index=0, title=None):
-        del self, options, current_index, title
+    def _cancel_selector(self, selector):
+        del self, selector
         selector_calls.append(None)
-        return None
+        return SearchSelectorClose(None)
 
-    monkeypatch.setattr(TerminalModalDriver, "run_model_selector", _cancel_selector)
+    monkeypatch.setattr(TerminalModalDriver, "run_search_selector", _cancel_selector)
     monkeypatch.setattr(
         CodingSession,
         "_build_terminal_ui",
@@ -1944,10 +1975,65 @@ def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
     assert provider_state.current_selection().reference == initial_reference
     assert result.user_turn_count == 0
     assert seen == []
-    assert any(
-        kind == "user" and lines == ("/model",)
-        for kind, lines in ui.components.transcript.history_blocks
+    # Pi draws no user message for a slash command.
+    assert not any(
+        kind == "user" for kind, _lines in ui.components.transcript.history_blocks
     )
+
+
+def test_tui_draws_user_messages_only_for_prompts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pi draws no user message for a command and the expanded text for a
+    prompt template (what the session stores and a restore draws)."""
+
+    templates_dir = tmp_path / ".pipy" / "templates"
+    templates_dir.mkdir(parents=True)
+    (templates_dir / "greet.md").write_text(
+        "---\nname: greet\ndescription: greet template\n---\n\n"
+        "TEMPLATE_GREET_BODY $ARGUMENTS\n",
+        encoding="utf-8",
+    )
+    provider = FakeNativeProvider(
+        supports_tool_calls=True, programmable_tool_calls=((), ())
+    )
+    session = CodingSession(provider=provider, tool_registry={})
+    ui = _ui(tmp_path)
+    scripted = iter(("/hotkeys\n", "/greet hi\n", "plain prompt\n", "/bogus\n", ""))
+    monkeypatch.setattr(
+        TerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    from pipy_harness.native.tui import TURN_SETTLED
+
+    monkeypatch.setattr(
+        TerminalUi,
+        "wait_for_active_turn_interrupt",
+        lambda self, done_event, abort_event, **kwargs: TURN_SETTLED,
+    )
+    monkeypatch.setattr(
+        CodingSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    user_blocks = [
+        lines
+        for kind, lines in ui.components.transcript.history_blocks
+        if kind == "user"
+    ]
+    assert user_blocks == [("TEMPLATE_GREET_BODY hi",), ("plain prompt",)]
 
 
 def test_model_command_refuses_non_tool_capable_selection(

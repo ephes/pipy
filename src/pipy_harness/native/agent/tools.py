@@ -325,6 +325,10 @@ class ToolExecutor:
                 self.error_result(call, f"invalid arguments JSON: {exc.msg}"),
                 malformed_arguments=True,
             )
+        # Pi's `prepareArguments` runs before schema validation.
+        prepare = getattr(tool, "prepare_arguments", None)
+        if callable(prepare):
+            raw_arguments = prepare(raw_arguments)
         try:
             arguments = validate_arguments(
                 tool_name=call.tool_name,
@@ -357,5 +361,6 @@ class ToolExecutor:
                     execution_result.provider_correlation_id
                     or call.provider_correlation_id
                 ),
+                details=execution_result.details,
             )
         )

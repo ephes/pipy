@@ -227,6 +227,10 @@ These are recorded with their repro steps in
   - `-p` prints the startup chrome and footer to stderr.
   - The manual compaction summary treated the summarize instruction as a
     user request ("the next asks for the combined context summary").
+  Fixed by DF1-F7: notices, the stale startup frame and the `-p` chrome,
+  with Pi's dark palette, the live compaction redraw and a ticking
+  `Elapsed`. The tool-row prompt was fixed by TOOLS3. Model selection and the
+  compaction summary prompt remain (follow-on F7b).
 
 ## Demo material
 

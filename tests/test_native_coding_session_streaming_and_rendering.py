@@ -130,7 +130,6 @@ def _run_loop(
     tool_registry: Mapping[str, ToolPort],
     user_inputs: tuple[str, ...],
     tmp_path: Path,
-    reference_roots: tuple[Path, ...] = (),
 ) -> tuple[str, str]:
     provider = FakeNativeProvider(
         supports_tool_calls=True,
@@ -141,7 +140,6 @@ def _run_loop(
         provider=provider,
         tool_registry=dict(tool_registry),
         tool_budget=5,
-        reference_roots=reference_roots,
     )
     input_stream = io.StringIO("\n".join(user_inputs) + "\n")
     output_stream = io.StringIO()
@@ -253,25 +251,6 @@ def test_renderer_renders_pi_shape_tool_call_header():
     # emit before this slice.
     assert "→" not in rendered
     assert "↳" not in rendered
-
-
-def test_plain_ls_header_without_path():
-    # `path` is optional for `ls`, as in Pi (TOOLS1).
-    from pipy_harness.native.tool_renderers import _plain_tool_call_header
-
-    def header(arguments: str) -> str:
-        return _plain_tool_call_header(
-            AgentToolCall(
-                provider_correlation_id="cc",
-                tool_name="ls",
-                arguments_json=ProductContent(arguments),
-            )
-        )
-
-    assert header("{}") == "ls"
-    assert header('{"limit": 10}') == "ls"
-    assert header('{"path": "."}') == "ls"
-    assert header('{"path": "src"}') == "ls src"
 
 
 def test_renderer_renders_tool_result_error_tag():
@@ -833,107 +812,75 @@ def test_tool_loop_does_not_answer_i_cannot_inspect_when_inspection_available(
         assert marker not in output
 
 
-# ------------------------- reference root acceptance -----------------------
+# ------------------------- paths outside the workspace ---------------------
 
 
-def test_reference_root_lets_read_tool_open_absolute_path(tmp_path: Path):
+def test_read_tool_opens_absolute_path_outside_the_workspace(tmp_path: Path):
+    # READ2: Pi's read resolves any path; there are no reference roots.
     from pipy_harness.native.tools.read import ReadTool
 
-    ref_root = tmp_path / "sibling"
-    ref_root.mkdir()
-    (ref_root / "notes.md").write_text("# sibling docs\nbody\n", encoding="utf-8")
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (sibling / "notes.md").write_text("# sibling docs\nbody\n", encoding="utf-8")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    tool = ReadTool()
-    context = ToolContext(
-        workspace_root=workspace,
-        reference_roots=(ref_root,),
+    result = ReadTool().invoke(
+        ToolRequest(
+            tool_request_id="pipy-tool-test-1",
+            tool_name="read",
+            arguments={"path": str(sibling / "notes.md")},
+        ),
+        ToolContext(workspace_root=workspace),
     )
-    request = ToolRequest(
-        tool_request_id="pipy-tool-test-1",
-        tool_name="read",
-        arguments={"path": str(ref_root / "notes.md")},
-    )
-    result = tool.invoke(request, context)
 
     assert result.is_error is False
     assert "# sibling docs" in result.output_text
 
 
-def test_read_tool_refuses_absolute_path_outside_any_root(tmp_path: Path):
+def test_read_tool_opens_git_files_outside_the_workspace(tmp_path: Path):
     from pipy_harness.native.tools.read import ReadTool
 
-    other = tmp_path / "elsewhere"
-    other.mkdir()
-    (other / "secrets.txt").write_text("nothing here", encoding="utf-8")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    tool = ReadTool()
-    context = ToolContext(workspace_root=workspace)
-    request = ToolRequest(
-        tool_request_id="pipy-tool-test-2",
-        tool_name="read",
-        arguments={"path": str(other / "secrets.txt")},
-    )
-
-    from pipy_harness.native.tools.base import ToolArgumentError
-
-    with pytest.raises(ToolArgumentError, match="outside the workspace"):
-        tool.invoke(request, context)
-
-
-def test_reference_root_preserves_git_default_deny(tmp_path: Path):
-    from pipy_harness.native.tools.read import ReadTool
-
-    ref_root = tmp_path / "sibling"
-    git_dir = ref_root / ".git"
+    git_dir = tmp_path / "sibling" / ".git"
     git_dir.mkdir(parents=True)
     (git_dir / "config").write_text("[core]\n", encoding="utf-8")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    tool = ReadTool()
-    context = ToolContext(
-        workspace_root=workspace,
-        reference_roots=(ref_root,),
+    result = ReadTool().invoke(
+        ToolRequest(
+            tool_request_id="pipy-tool-test-3",
+            tool_name="read",
+            arguments={"path": "../sibling/.git/config"},
+        ),
+        ToolContext(workspace_root=workspace),
     )
-    request = ToolRequest(
-        tool_request_id="pipy-tool-test-3",
-        tool_name="read",
-        arguments={"path": str(git_dir / "config")},
-    )
-    result = tool.invoke(request, context)
 
-    assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
+    assert result.is_error is False
+    assert result.output_text == "[core]\n"
 
 
-def test_reference_root_read_returns_secret_shaped_content_like_pi(tmp_path: Path):
-    # READ1: Pi's read has no content filter, so a secret-shaped file under a
-    # reference root reads like any other file.
+def test_read_returns_secret_shaped_content_like_pi(tmp_path: Path):
+    # READ1: Pi's read has no content filter, so a secret-shaped file reads
+    # like any other file.
     from pipy_harness.native.tools.read import ReadTool
 
-    ref_root = tmp_path / "sibling"
-    ref_root.mkdir()
-    (ref_root / "leaky.txt").write_text(
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (sibling / "leaky.txt").write_text(
         "api_key=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8"
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    tool = ReadTool()
-    context = ToolContext(
-        workspace_root=workspace,
-        reference_roots=(ref_root,),
+    result = ReadTool().invoke(
+        ToolRequest(
+            tool_request_id="pipy-tool-test-4",
+            tool_name="read",
+            arguments={"path": str(sibling / "leaky.txt")},
+        ),
+        ToolContext(workspace_root=workspace),
     )
-    request = ToolRequest(
-        tool_request_id="pipy-tool-test-4",
-        tool_name="read",
-        arguments={"path": str(ref_root / "leaky.txt")},
-    )
-    result = tool.invoke(request, context)
 
     assert result.is_error is False
     assert result.output_text == "api_key=AKIAIOSFODNN7EXAMPLE\n"

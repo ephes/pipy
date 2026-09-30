@@ -1,207 +1,189 @@
-"""Slice 9 tests: the `write` tool.
+"""The `write` tool follows Pi's `write.ts` (TOOLS2/READ2b).
 
-These tests pin the create-only mutation, the stderr diff stream, and
-the archive-untouched invariant. The pipy_session.recorder boundary is
-not invoked from inside the tool; a sanity check guards against future
-regressions.
+Pi resolves the path with `resolveToCwd` (no deny list), creates parent
+directories, creates or overwrites the file, answers `Successfully wrote to
+{path}`, and lets filesystem errors through as Node's messages.
 """
 
 from __future__ import annotations
 
-import io
+import os
+import threading
 from pathlib import Path
 
 import pytest
 
 from pipy_harness.native.tools import (
-    ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tools.write import WriteTool
+from pipy_harness.native.tools.write import (
+    WRITE_TOOL_DESCRIPTION,
+    WriteTool,
+)
 
 
-def _make_request(arguments: dict[str, object]) -> ToolRequest:
-    return ToolRequest(
-        tool_request_id=make_tool_request_id(),
-        tool_name="write",
-        arguments=arguments,
+def _invoke(
+    workspace: Path,
+    arguments: dict[str, object],
+    *,
+    cancel: threading.Event | None = None,
+):
+    return WriteTool().invoke(
+        ToolRequest(
+            tool_request_id=make_tool_request_id(),
+            tool_name="write",
+            arguments=arguments,
+        ),
+        ToolContext(
+            workspace_root=workspace,
+            cancel_event=cancel,
+        ),
     )
 
 
-def _stderr_capture(buffer: io.StringIO):
-    def _sink(text: str) -> None:
-        buffer.write(text)
-
-    return _sink
-
-
-def test_write_tool_satisfies_tool_port_protocol():
+def test_definition_matches_pi() -> None:
     tool = WriteTool()
-
     assert isinstance(tool, ToolPort)
-
-
-def test_write_tool_definition_requires_path_and_content():
-    tool = WriteTool()
-
+    assert tool.definition.description == (
+        "Write content to a file. Creates the file if it doesn't exist, "
+        "overwrites if it does. Automatically creates parent directories."
+    )
+    assert tool.definition.description == WRITE_TOOL_DESCRIPTION
     schema = tool.definition.input_schema
+    assert schema["required"] == ["path", "content"]
+    assert schema["properties"] == {
+        "path": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)",
+        },
+        "content": {"type": "string", "description": "Content to write to the file"},
+    }
 
-    assert schema["type"] == "object"
-    assert set(schema["required"]) == {"path", "content"}
-    assert schema["additionalProperties"] is False
 
-
-def test_write_tool_creates_new_file_and_streams_diff_to_stderr(tmp_path: Path):
-    buffer = io.StringIO()
-    tool = WriteTool()
-    context = ToolContext(
-        workspace_root=tmp_path,
-        stderr_sink=_stderr_capture(buffer),
-    )
-    request = _make_request({"path": "new.txt", "content": "hello\n"})
-
-    result = tool.invoke(request, context)
+def test_creates_a_new_file(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, {"path": "new.txt", "content": "hello\n"})
 
     assert result.is_error is False
-    assert (tmp_path / "new.txt").read_text(encoding="utf-8") == "hello\n"
-    diff = buffer.getvalue()
-    assert diff.startswith("--- a/new.txt")
-    assert "+++ b/new.txt" in diff
-    assert "+hello" in diff
+    assert result.output_text == "Successfully wrote to new.txt"
+    assert (tmp_path / "new.txt").read_text() == "hello\n"
 
 
-def test_write_tool_refuses_existing_file(tmp_path: Path):
-    (tmp_path / "exists.txt").write_text("already", encoding="utf-8")
-    buffer = io.StringIO()
-    tool = WriteTool()
-    context = ToolContext(
-        workspace_root=tmp_path,
-        stderr_sink=_stderr_capture(buffer),
-    )
-    request = _make_request({"path": "exists.txt", "content": "new"})
+def test_overwrites_an_existing_file(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("old content that is longer\n")
 
-    result = tool.invoke(request, context)
+    result = _invoke(tmp_path, {"path": "a.txt", "content": "new\n"})
 
-    assert result.is_error is True
-    assert "already exists" in result.output_text
-    assert buffer.getvalue() == ""
+    assert result.output_text == "Successfully wrote to a.txt"
+    assert (tmp_path / "a.txt").read_text() == "new\n"
 
 
-def test_write_tool_refuses_dot_git(tmp_path: Path):
-    (tmp_path / ".git").mkdir()
-    tool = WriteTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": ".git/HEAD", "content": "ref"})
-
-    result = tool.invoke(request, context)
-
-    assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
-
-
-def test_write_tool_refuses_absolute_path(tmp_path: Path):
-    tool = WriteTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "/etc/passwd", "content": ""})
-
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
-
-
-def test_write_tool_refuses_parent_traversal(tmp_path: Path):
-    tool = WriteTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "../escape.txt", "content": ""})
-
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
-
-
-def test_write_tool_validates_path_before_content_type(tmp_path: Path):
-    tool = WriteTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "../escape.txt", "content": 7})
-
-    with pytest.raises(ToolArgumentError) as info:
-        tool.invoke(request, context)
-
-    assert info.value.field_path == ("path",)
-
-
-def test_write_tool_refuses_missing_parent_directory(tmp_path: Path):
-    tool = WriteTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "missing/dir/file.txt", "content": "x"})
-
-    result = tool.invoke(request, context)
-
-    assert result.is_error is True
-    assert "parent directory does not exist" in result.output_text
-
-
-def test_write_tool_handles_empty_content(tmp_path: Path):
-    buffer = io.StringIO()
-    tool = WriteTool()
-    context = ToolContext(
-        workspace_root=tmp_path,
-        stderr_sink=_stderr_capture(buffer),
-    )
-    request = _make_request({"path": "empty.txt", "content": ""})
-
-    result = tool.invoke(request, context)
+def test_creates_parent_directories(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, {"path": "a/b/c.txt", "content": "x"})
 
     assert result.is_error is False
-    assert (tmp_path / "empty.txt").read_text(encoding="utf-8") == ""
+    assert (tmp_path / "a" / "b" / "c.txt").read_text() == "x"
 
 
-def test_write_tool_does_not_invoke_archive_recorder(tmp_path: Path, monkeypatch):
-    """The write tool must never call into pipy_session.recorder.
+def test_writes_empty_content_and_keeps_line_endings(tmp_path: Path) -> None:
+    _invoke(tmp_path, {"path": "empty.txt", "content": ""})
+    _invoke(tmp_path, {"path": "crlf.txt", "content": "a\r\nb\r\n"})
 
-    Mutation must be archive-safe: diffs flow only to stderr_sink and
-    never reach the metadata archive.
-    """
-
-    import pipy_session.recorder as recorder
-
-    sentinel: dict[str, int] = {"calls": 0}
-
-    original_append = recorder.append_event
-
-    def _trap(*args, **kwargs):
-        sentinel["calls"] += 1
-        return original_append(*args, **kwargs)
-
-    monkeypatch.setattr(recorder, "append_event", _trap)
-
-    tool = WriteTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "trap.txt", "content": "x"})
-
-    tool.invoke(request, context)
-
-    assert sentinel["calls"] == 0
+    assert (tmp_path / "empty.txt").read_bytes() == b""
+    assert (tmp_path / "crlf.txt").read_bytes() == b"a\r\nb\r\n"
 
 
-def test_write_tool_source_does_not_import_recorder():
-    source = (
-        Path(__file__).parents[1] / "src/pipy_harness/native/tools/write.py"
-    ).read_text(encoding="utf-8")
+def test_resolves_absolute_parent_and_home_paths_without_a_deny_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
 
-    assert "import pipy_session" not in source
-    assert "from pipy_session" not in source
+    outside = tmp_path / "outside.txt"
+    assert (
+        _invoke(workspace, {"path": str(outside), "content": "abs"}).is_error is False
+    )
+    assert (
+        _invoke(workspace, {"path": "../rel.txt", "content": "rel"}).is_error is False
+    )
+    assert _invoke(workspace, {"path": "~/h.txt", "content": "home"}).is_error is False
+    assert _invoke(workspace, {"path": "@at.txt", "content": "at"}).is_error is False
+    assert _invoke(workspace, {"path": ".git/config", "content": "g"}).is_error is False
+
+    assert outside.read_text() == "abs"
+    assert (tmp_path / "rel.txt").read_text() == "rel"
+    assert (home / "h.txt").read_text() == "home"
+    assert (workspace / "at.txt").read_text() == "at"
+    assert (workspace / ".git" / "config").read_text() == "g"
 
 
-def test_write_tool_rejects_invalid_max_content_bytes():
-    with pytest.raises(ValueError, match="max_content_bytes"):
-        WriteTool(max_content_bytes=0)
-    with pytest.raises(ValueError, match="max_content_bytes"):
-        WriteTool(max_content_bytes=WriteTool.HARD_MAX_CONTENT_BYTES + 1)
+def test_the_success_text_names_the_raw_path(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, {"path": "./x/../y.txt", "content": ""})
+
+    assert result.output_text == "Successfully wrote to ./x/../y.txt"
+    assert (tmp_path / "y.txt").exists()
 
 
-def test_production_tool_registry_includes_write():
-    from pipy_harness.native import production_tool_registry
+def test_writing_a_directory_is_nodes_eisdir_error(tmp_path: Path) -> None:
+    (tmp_path / "dir").mkdir()
 
-    assert "write" in production_tool_registry()
+    result = _invoke(tmp_path, {"path": "dir", "content": "x"})
+
+    assert result.is_error is True
+    assert result.output_text == (
+        f"EISDIR: illegal operation on a directory, open '{tmp_path / 'dir'}'"
+    )
+
+
+def test_a_file_in_the_parent_chain_is_a_mkdir_error(tmp_path: Path) -> None:
+    (tmp_path / "file").write_text("")
+
+    result = _invoke(tmp_path, {"path": "file/child.txt", "content": "x"})
+
+    assert result.is_error is True
+    assert result.output_text.endswith(f", mkdir '{tmp_path / 'file'}'")
+    assert result.output_text.split(":", 1)[0] in {"EEXIST", "ENOTDIR"}
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+def test_permission_denied_is_nodes_eacces_error(tmp_path: Path) -> None:
+    locked = tmp_path / "locked.txt"
+    locked.write_text("")
+    locked.chmod(0o400)
+
+    result = _invoke(tmp_path, {"path": "locked.txt", "content": "x"})
+
+    assert result.is_error is True
+    assert result.output_text == f"EACCES: permission denied, open '{locked}'"
+
+
+def test_an_invalid_file_url_is_an_error_result(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, {"path": "file://host/x", "content": "x"})
+
+    assert result.is_error is True
+    assert "File URL host" in result.output_text
+
+
+def test_an_aborted_call_writes_nothing(tmp_path: Path) -> None:
+    cancel = threading.Event()
+    cancel.set()
+
+    result = _invoke(tmp_path, {"path": "a.txt", "content": "x"}, cancel=cancel)
+
+    assert result.is_error is True
+    assert result.output_text == "Operation aborted"
+    assert not (tmp_path / "a.txt").exists()
+
+
+def test_a_write_has_no_details(tmp_path: Path) -> None:
+    """Pi `write` returns `details: undefined`; its row draws the arguments."""
+
+    result = _invoke(tmp_path, {"path": "a.py", "content": "a\r\n\tb\n"})
+
+    assert result.is_error is False
+    assert result.details is None

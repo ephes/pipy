@@ -9,7 +9,8 @@ including the tool-call, tool-update, and tool-result renders.
 
 from __future__ import annotations
 
-from typing import Protocol, assert_never, runtime_checkable
+from collections.abc import Mapping
+from typing import Any, Protocol, assert_never, runtime_checkable
 
 from pipy_harness.native.agent import AgentCancellationReason, AgentEvent, AgentToolCall
 from pipy_harness.native.provider import StreamChunkSink
@@ -64,6 +65,7 @@ class AgentEventRenderer(Protocol):
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> None: ...
 
 
@@ -169,6 +171,7 @@ class RenderingAgentEventAdapter:
                 output_text=decision.output_text,
                 is_error=decision.is_error,
                 duration_seconds=decision.duration_seconds,
+                details=decision.details,
             )
         else:
             assert_never(decision)

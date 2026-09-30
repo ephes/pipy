@@ -12,8 +12,11 @@ extension-renderer coverage lives in ``test_native_coding_session_terminal.py``,
 from __future__ import annotations
 
 import io
+import json
+import re
 import threading
 import time
+from collections.abc import Callable
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -21,10 +24,13 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
+
+_SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class _Harness:
@@ -36,17 +42,41 @@ class _Harness:
         self.render_inputs = ScreenRenderInputs(
             lambda: 80, io.StringIO(), self._expanded
         )
+        # A fake clock and a ticker the test drives (Pi's 1 s `setInterval`).
+        self.now = 100.0
+        self.ticks: list[Callable[[], None]] = []
+        self.cancelled = 0
         self.transcript = TranscriptComponent(
             PaintLock(threading.RLock()),
             self._repaint,
             reset_scrollback=lambda: None,
             render_inputs=self.render_inputs,
+            clock=lambda: self.now,
+            schedule_ticker=self._schedule_ticker,
         )
         self.renderer = TuiToolLoopRenderer(
             transcript=self.transcript,
             chrome=self.chrome,
             render_inputs=self.render_inputs,
         )
+
+    def _schedule_ticker(self, tick: Callable[[], None]) -> Callable[[], None]:
+        self.ticks.append(tick)
+
+        def cancel() -> None:
+            self.cancelled += 1
+            self.ticks.remove(tick)
+
+        return cancel
+
+    def pending_rows(self) -> list[tuple[str, str]]:
+        return [
+            (bg, _SGR.sub("", text))
+            for bg, _wrap, text in map(
+                decode_tool_box_line, self.transcript.pending_tool_lines
+            )
+            if text
+        ]
 
     def _expanded(self) -> bool:
         return self.transcript.tools_expanded
@@ -61,6 +91,14 @@ class _Harness:
                 return self.transcript.working_text
             time.sleep(0.01)
         return self.transcript.working_text
+
+
+def _call(name: str, args: dict[str, object]) -> AgentToolCall:
+    return AgentToolCall(
+        provider_correlation_id=f"corr-{name}",
+        tool_name=name,
+        arguments_json=ProductContent(json.dumps(args)),
+    )
 
 
 def _tool_call(name: str) -> AgentToolCall:
@@ -132,56 +170,132 @@ def test_operator_abort_commits_the_aborted_notice() -> None:
     assert ("error", ("Operation aborted",)) in h.transcript.history_blocks
 
 
+def _rows(h: _Harness) -> list[list[tuple[str, str]]]:
+    """``(background, text)`` of each committed tool row's non-blank lines."""
+
+    rows = []
+    for kind, lines in h.transcript.history_blocks:
+        if kind != "tool_box":
+            continue
+        decoded = (decode_tool_box_line(line) for line in lines)
+        rows.append([(bg, _SGR.sub("", text)) for bg, _wrap, text in decoded if text])
+    return rows
+
+
 def test_read_result_is_collapsed_and_errors_are_not() -> None:
     h = _Harness()
-    h.renderer.render_tool_call(_tool_call("read"))
+    h.renderer.render_tool_call(_call("read", {"path": "a.txt"}))
     h.renderer.render_tool_result(output_text="line one\nline two", is_error=False)
-    kinds = [kind for kind, _lines in h.transcript.history_blocks]
-    assert "tool_result" not in kinds  # successful read collapses to its header
-
-    h.renderer.render_tool_call(_tool_call("read"))
+    h.renderer.render_tool_call(_call("read", {"path": "b.txt"}))
     h.renderer.render_tool_result(output_text="boom", is_error=True)
-    kinds = [kind for kind, _lines in h.transcript.history_blocks]
-    assert kinds.count("tool_result") == 1  # a failed read still shows output
 
-
-def test_ls_result_lines_drop_the_kind_prefixes() -> None:
-    h = _Harness()
-    h.renderer.render_tool_call(_tool_call("ls"))
-    h.renderer.render_tool_result(
-        output_text="file a.txt\ndirectory sub\nother pipe\nplain",
-        is_error=False,
-    )
-    result = [
-        lines for kind, lines in h.transcript.history_blocks if kind == "tool_result"
+    # Pi read: a collapsed success shows only its header; an error its text.
+    assert _rows(h) == [
+        [("success", "read a.txt")],
+        [("error", "read b.txt"), ("error", "boom")],
     ]
-    assert result == [("a.txt", "sub", "pipe", "plain")]
 
 
-def test_long_result_previews_unless_the_transcript_is_expanded() -> None:
+def test_ls_rows_show_the_output_under_the_header() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("ls", {"path": "src"}))
+    h.renderer.render_tool_result(output_text="a.txt\nsub/", is_error=False)
+    assert _rows(h) == [
+        [("success", "ls src"), ("success", "a.txt"), ("success", "sub/")]
+    ]
+
+
+def test_bash_previews_the_last_lines_unless_the_transcript_is_expanded() -> None:
     h = _Harness()
     output = "\n".join(f"line {n}" for n in range(1, 9))
-    h.renderer.render_tool_call(_tool_call("bash"))
+    h.renderer.render_tool_call(_call("bash", {"command": "seq"}))
     h.renderer.render_tool_result(output_text=output, is_error=False)
-    collapsed = next(
-        lines for kind, lines in h.transcript.history_blocks if kind == "tool_result"
-    )
-    assert collapsed[0] == "... (3 earlier lines, ctrl+o to expand)"
-    assert collapsed[1:] == ("line 4", "line 5", "line 6", "line 7", "line 8")
+    assert _rows(h)[0] == [
+        ("success", "$ seq"),
+        ("success", "... (3 earlier lines, ctrl+o to expand)"),
+        *[("success", f"line {n}") for n in range(4, 9)],
+    ]
 
     h.transcript.set_tools_expanded(True)
-    h.renderer.render_tool_call(_tool_call("bash"))
+    h.renderer.render_tool_call(_call("bash", {"command": "seq"}))
     h.renderer.render_tool_result(output_text=output, is_error=False)
-    expanded = [
-        lines for kind, lines in h.transcript.history_blocks if kind == "tool_result"
-    ][-1]
-    assert expanded == tuple(f"line {n}" for n in range(1, 9))
+    assert _rows(h)[-1] == [
+        ("success", "$ seq"),
+        *[("success", f"line {n}") for n in range(1, 9)],
+    ]
 
 
-def test_tool_output_streams_into_the_live_region() -> None:
+def test_tool_output_streams_into_the_pending_row() -> None:
+    """A running bash call shows its output in its pending box (Pi partial)."""
+
     h = _Harness()
-    h.renderer.render_tool_call(_tool_call("bash"))
+    h.renderer.render_tool_call(_call("bash", {"command": "just test"}))
     h.renderer.tool_output_sink("...... [ 50%]\n")
-    assert "[ 50%]" in h.transcript.tool_output_text
-    h.renderer.render_tool_result(output_text="done", is_error=False)
+    assert h.pending_rows() == [
+        ("pending", "$ just test"),
+        ("pending", "...... [ 50%]"),
+        ("pending", "Elapsed 0.0s"),
+    ]
     assert h.transcript.tool_output_text == ""
+    h.renderer.render_tool_result(output_text="done", is_error=False)
+    assert h.transcript.pending_tool_lines == ()
+    assert _rows(h) == [[("success", "$ just test"), ("success", "done")]]
+
+
+def test_running_bash_row_ticks_elapsed_until_the_result() -> None:
+    """Pi's bash renderer: `Elapsed` from the start, re-rendered every second."""
+
+    h = _Harness()
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 3"}))
+    # Pi's bash tool sends an empty update first: the row shows `Elapsed`
+    # before any output.
+    assert h.pending_rows() == [
+        ("pending", "$ sleep 3"),
+        ("pending", "Elapsed 0.0s"),
+    ]
+    assert len(h.ticks) == 1
+    repaints = h.repaints
+    h.now += 1.04
+    h.ticks[0]()
+    assert h.pending_rows()[-1] == ("pending", "Elapsed 1.0s")
+    assert h.repaints == repaints + 1
+    h.now += 62
+    h.ticks[0]()
+    assert h.pending_rows()[-1] == ("pending", "Elapsed 1m 3s")
+    h.renderer.render_tool_result(output_text="", is_error=False, duration_seconds=63.2)
+    # The result stops the ticker; the row shows `Took`.
+    assert h.ticks == [] and h.cancelled == 1
+    assert _rows(h) == [[("success", "$ sleep 3"), ("success", "Took 1m 3s")]]
+
+
+def test_flushed_bash_row_freezes_elapsed_and_stops_ticking() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 9"}))
+    h.now += 2.5
+    h.transcript.flush_pending_tool()
+    assert h.ticks == [] and h.cancelled == 1
+    h.now += 30
+    h.transcript.set_tools_expanded(True)
+    assert _rows(h) == [[("pending", "$ sleep 9"), ("pending", "Elapsed 2.5s")]]
+
+
+def test_other_tools_and_replayed_bash_rows_do_not_tick() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("read", {"path": "a.txt"}))
+    assert h.ticks == []
+    assert h.pending_rows() == [("pending", "read a.txt")]
+    h.renderer.render_tool_result(output_text="x", is_error=False)
+    replay = h.renderer.detached(h.transcript)
+    replay.render_tool_call(_call("bash", {"command": "seq 3"}))
+    # A restored call never started here: no `Elapsed`, no ticker (Pi has no
+    # `startedAt` without `executionStarted`).
+    assert h.ticks == []
+    assert h.pending_rows() == [("pending", "$ seq 3")]
+
+
+def test_a_new_session_render_stops_the_ticker() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 9"}))
+    h.transcript.replace_conversation([])
+    assert h.ticks == [] and h.cancelled == 1
+    assert h.transcript.pending_tool is None

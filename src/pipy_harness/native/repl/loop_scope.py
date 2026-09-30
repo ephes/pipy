@@ -28,7 +28,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.native import extension_hooks as _extension_hooks
-from pipy_harness.native.agent import AgentFailure, AgentTranscriptMessage
+from pipy_harness.native.agent import (
+    AgentFailure,
+    AgentTranscriptMessage,
+    AgentUserMessage,
+)
 from pipy_harness.native.agent.loop_policy import AgentToolPolicyState
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
@@ -249,8 +253,8 @@ class ReplLoopScope:
     observed by both the composition-root closures and :meth:`_ReplLoopStep.
     step_once` exactly as it was when the loop body was inline.
 
-    The four scalars below (``abort_event``, ``file_reference_roots``,
-    ``provider_state``, ``tool_budget``) are the last things the step reached
+    The three scalars below (``abort_event``, ``provider_state``,
+    ``tool_budget``) are the last things the step reached
     through the session object. Each is set once when the adapter is configured,
     before the session is constructed, and never assigned afterwards, so
     carrying them by value here is what the step already observed -- and it is
@@ -261,6 +265,9 @@ class ReplLoopScope:
     loop_controller: CodingSessionController
     terminal_ui: TerminalUi | None
     error_stream: TextIO
+    # Display-only output (the plain REPL's separators); discarded in the
+    # headless modes, where `error_stream` keeps the diagnostics.
+    display_stream: TextIO
     coding_state: CodingSessionState
     repl_input: "TerminalUi | NativeReplInput"
     renderer: "_ToolLoopRenderer | TuiToolLoopRenderer"
@@ -272,11 +279,6 @@ class ReplLoopScope:
     # Pi's tagged sections ``base_system_prompt`` renders (the transcript
     # records them).
     base_system_sections: tuple[tuple[str, str], ...]
-    # `image_reference_roots` is *derived* from `file_reference_roots` under a
-    # different clipboard policy; both are consumed a dozen lines apart under
-    # the same `reference_roots=` parameter name, so they keep distinct names.
-    image_reference_roots: tuple[Path, ...]
-    file_reference_roots: tuple[Path, ...]
     abort_event: "threading.Event | _AbortCallbackSignal | None"
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
     tool_budget: int
@@ -304,6 +306,8 @@ class ReplLoopScope:
         ],
         CodingCompactionOutcome,
     ]
+    # Pi `compaction_end`: redraw the chat, or show the outcome's notice.
+    show_compaction: Callable[[CodingCompactionOutcome, AgentUserMessage | None], None]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
     cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"]
     append_agent_message: Callable[[AgentTranscriptMessage], None]

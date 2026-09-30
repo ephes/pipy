@@ -19,17 +19,16 @@ emits it, and enforces the timeout from one monotonic deadline — so the
 timeout/kill path stays free of thread-join races. The truncated output is
 still returned as the tool result regardless of whether a sink is present.
 
-Contract with the tool loop:
+Results follow Pi's ``execute``: the output (or ``(no output)``) on exit 0;
+otherwise an error result with Pi's status after a blank line —
+``Command exited with code N`` (a signal-killed shell reports ``128 + n``),
+``Command timed out after N seconds`` or ``Command aborted`` (the last two
+without the ``(no output)`` placeholder). The loop treats these as tool
+execution errors, not malformed provider tool calls.
 
-- A timeout or a failure to start the shell is surfaced as ``is_error=True``
-  with a safe reason label. The loop treats these as valid tool execution
-  errors, not malformed provider tool calls.
-- A command that runs to completion — even with a non-zero exit code — is
-  ``is_error=False``. A failing build or test is a normal observation the model
-  should reason about, not a malformed tool call; the exit code is reported in
-  the observation so the model can react to it. (Pi appends
-  ``Command exited with code N`` and marks it an error; that framing is the
-  TOOLS2 follow-on.)
+The ``!``/``!!`` editor shortcut runs through :func:`run_local_command`, which
+keeps its output like Pi's ``bash-executor.ts``
+(:mod:`pipy_harness.native.tools.bash_executor`).
 
 The combined output is returned to the model only. The loop's archive boundary
 records counters and labels alone; no raw command string or output body is ever
@@ -57,6 +56,7 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.native.tools.bash_executor import ExecutorOutput
 from pipy_harness.native.tools.output_accumulator import (
     OutputAccumulator,
     OutputSnapshot,
@@ -69,7 +69,6 @@ from pipy_harness.native.tools.truncate import (
 
 # Pi's MAX_TIMEOUT_MS (2^31 - 1 ms) in whole seconds.
 _MAX_TIMEOUT_SECONDS = 2_147_483
-_LOCAL_SHELL_MAX_OUTPUT_BYTES = 16 * 1024
 _STREAM_THROTTLE_SECONDS = 0.1
 _READ_CHUNK_BYTES = 64 * 1024
 
@@ -136,6 +135,13 @@ class BashTool:
             )
 
         cwd = context.workspace_root.resolve()
+        if not cwd.exists():
+            return self._result(
+                request,
+                f"Working directory does not exist: {cwd}\n"
+                "Cannot execute bash commands.",
+                is_error=True,
+            )
         try:
             proc = subprocess.Popen(  # noqa: S603 - intentional real shell, Pi parity
                 [shell, "-c", command],
@@ -162,17 +168,35 @@ class BashTool:
         accumulator.close_temp_file()
         # Taken after the close so a file that failed to flush is not named.
         snapshot = accumulator.snapshot()
-        return self._result(
-            request,
-            _shape(
-                _output_with_notice(snapshot, accumulator.last_line_bytes),
-                proc.returncode,
-                timed_out=timed_out,
-                cancelled=cancelled,
-                timeout=timeout,
-            ),
-            is_error=timed_out or cancelled,
-        )
+        output = _output_with_notice(snapshot, accumulator.last_line_bytes)
+        # Pi `formatOutput`: an interrupted command shows no `(no output)`.
+        if cancelled:
+            return self._result(
+                request, _append_status(output, "Command aborted"), is_error=True
+            )
+        if timed_out:
+            return self._result(
+                request,
+                _append_status(output, f"Command timed out after {timeout} seconds"),
+                is_error=True,
+            )
+        text = output or "(no output)"
+        # Pi `formatOutput` details: set only when the output was truncated.
+        # (Pi's aborted/timed-out paths throw and so carry none.)
+        details: dict[str, object] | None = None
+        if snapshot.truncation.truncated:
+            details = {"truncation": snapshot.truncation.to_details()}
+            if snapshot.full_output_path is not None:
+                details["fullOutputPath"] = snapshot.full_output_path
+        exit_code = shell_exit_code(proc.returncode)
+        if exit_code != 0:
+            return self._result(
+                request,
+                _append_status(text, f"Command exited with code {exit_code}"),
+                is_error=True,
+                details=details,
+            )
+        return self._result(request, text, is_error=False, details=details)
 
     def _resolve_shell(self) -> str | None:
         if self.shell_path is not None:
@@ -182,13 +206,19 @@ class BashTool:
         )
 
     def _result(
-        self, request: ToolRequest, output_text: str, *, is_error: bool
+        self,
+        request: ToolRequest,
+        output_text: str,
+        *,
+        is_error: bool,
+        details: dict[str, object] | None = None,
     ) -> ToolExecutionResult:
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=output_text,
             is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
 
@@ -197,29 +227,12 @@ class _OutputStore(Protocol):
 
 
 @dataclass(slots=True)
-class _ByteTail:
-    """The last ``max_output_bytes`` bytes, for the ``!`` shell shortcut."""
-
-    max_output_bytes: int
-    raw_tail: bytearray = field(default_factory=bytearray)
-    truncated: bool = False
-
-    def append(self, data: bytes) -> None:
-        self.raw_tail.extend(data)
-        if len(self.raw_tail) > self.max_output_bytes:
-            del self.raw_tail[: len(self.raw_tail) - self.max_output_bytes]
-            self.truncated = True
-
-    def output(self) -> str:
-        return bytes(self.raw_tail).decode("utf-8", "replace")
-
-
-@dataclass(slots=True)
 class _OutputState:
     """The result store plus incremental sink-decoder state."""
 
     sink: Callable[[str], None] | None
     store: _OutputStore
+    sanitize: Callable[[str], str] | None = None
     pending: list[str] = field(default_factory=list)
     decoder: codecs.IncrementalDecoder = field(init=False)
     last_emit: float = field(init=False)
@@ -231,6 +244,8 @@ class _OutputState:
     def absorb(self, data: bytes) -> None:
         if self.sink is not None:
             text = self.decoder.decode(data)
+            if self.sanitize is not None:
+                text = self.sanitize(text)
             if text:
                 self.pending.append(text)
         self.store.append(data)
@@ -337,6 +352,7 @@ def _stream_output(
     timeout: int | None,
     store: _OutputStore,
     cancel_event: "threading.Event | None" = None,
+    sanitize: Callable[[str], str] | None = None,
 ) -> tuple[bool, bool]:
     """Drain stdout into ``store``, stream chunks, and enforce one deadline.
 
@@ -350,7 +366,7 @@ def _stream_output(
     fd = proc.stdout.fileno()
     selector = selectors.DefaultSelector()
     selector.register(fd, selectors.EVENT_READ)
-    state = _OutputState(sink=sink, store=store)
+    state = _OutputState(sink=sink, store=store, sanitize=sanitize)
     deadline = None if timeout is None else time.monotonic() + timeout
 
     outcome = _read_output_phase(
@@ -389,7 +405,7 @@ class LocalShellResult:
     timed_out: bool
     cancelled: bool
     started: bool
-    cancel_reason: str | None = None
+    full_output_path: str | None = None
 
 
 def run_local_command(
@@ -398,19 +414,19 @@ def run_local_command(
     workspace_root: Path,
     output_sink: Callable[[str], None] | None = None,
     timeout: int | None = None,
-    max_output_bytes: int = _LOCAL_SHELL_MAX_OUTPUT_BYTES,
     cancel_event: "threading.Event | None" = None,
     shell_path: str | None = None,
 ) -> LocalShellResult:
     """Run one bash command for an editor ``!``/``!!`` shortcut (Pi parity).
 
-    Reuses the same real-shell streaming substrate as the model-visible
-    ``bash`` tool — combined bounded stdout/stderr, optional timeout, live
-    streaming through ``output_sink`` — and adds cooperative cancellation: when
-    ``cancel_event`` is set (Escape during the run) the whole process group is
-    killed and the partial output returned with ``cancelled=True``. This runs
-    no provider turn; it is a local diagnostic the caller renders and
-    (for ``!``) records into the conversation context itself.
+    Reuses the real-shell streaming substrate of the model-visible ``bash``
+    tool and keeps its output like Pi's ``executeBashWithOperations``
+    (:mod:`pipy_harness.native.tools.bash_executor`): sanitized text, the
+    last 2000 lines / 50 KB, and a temp file with the full output. The sink
+    receives the sanitized chunks. When ``cancel_event`` is set (Escape
+    during the run) the whole process group is killed and the partial output
+    returned with ``cancelled=True`` and no exit code. This runs no provider
+    turn; the caller renders the result and (for ``!``) records it.
     """
 
     shell = (
@@ -446,21 +462,24 @@ def run_local_command(
             cancelled=False,
             started=False,
         )
-    store = _ByteTail(max_output_bytes)
+    store = ExecutorOutput()
     timed_out, cancelled = _stream_output(
         proc,
         sink=output_sink,
         timeout=timeout,
         store=store,
         cancel_event=cancel_event,
+        sanitize=store.sanitize,
     )
+    result = store.finish()
     return LocalShellResult(
-        output=store.output(),
-        exit_code=proc.returncode,
-        truncated=store.truncated,
+        output=result.output,
+        exit_code=None if cancelled else shell_exit_code(proc.returncode),
+        truncated=result.truncated,
         timed_out=timed_out,
         cancelled=cancelled,
         started=True,
+        full_output_path=result.full_output_path,
     )
 
 
@@ -500,25 +519,23 @@ def _output_with_notice(snapshot: OutputSnapshot, last_line_bytes: int) -> str:
     return f"{text}\n\n{notice}"
 
 
-def _shape(
-    output: str,
-    exit_code: int | None,
-    *,
-    timed_out: bool,
-    timeout: int | None,
-    cancelled: bool = False,
-) -> str:
-    if cancelled:
-        sections = ["bash: command cancelled"]
-    elif timed_out:
-        sections = [f"bash: command timed out after {timeout}s"]
-    else:
-        sections = [f"exit code: {exit_code}"]
-    if output:
-        sections.append("[output]\n" + output)
-    else:
-        sections.append("(no output)")
-    return "\n".join(sections)
+def _append_status(text: str, status: str) -> str:
+    """Pi ``appendStatus``: the status after a blank line, or alone."""
+
+    return f"{text}\n\n{status}" if text else status
+
+
+def shell_exit_code(returncode: int | None) -> int:
+    """Pi's exit code: a signal-killed shell reports ``128 + signal``.
+
+    Python reports a signal as a negative ``returncode``; Pi's
+    ``createLocalShellOperations`` maps Node's ``signalCode`` to ``128 + n``
+    and a missing code to 1.
+    """
+
+    if returncode is None:
+        return 1
+    return 128 - returncode if returncode < 0 else returncode
 
 
 __all__ = [

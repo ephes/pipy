@@ -1045,8 +1045,6 @@ def _reload_owners(ref: SessionGenerationRef, emitter: Any = None):
         {},
         {},
         workspace_root=Path.cwd(),
-        reference_roots=(),
-        stderr_sink=lambda _text: None,
         filter_options=ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=1.0,
         state_lock=ref.lock,
@@ -1976,7 +1974,6 @@ def test_reload_acceptance_failure_keeps_previous_generation(
         diag=diagnostics.append,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
-        extension_render_details=cast(Any, lambda *_args: None),
     )
     candidate = _ExtensionCandidate()
     newer_capability = None
@@ -2086,7 +2083,6 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
-        extension_render_details=cast(Any, lambda *_args: None),
     )
     candidate = _ExtensionCandidate()
 
@@ -2162,7 +2158,6 @@ def test_reload_interrupt_releases_route_and_preserves_base_exception(
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=interrupt_message,
-        extension_render_details=cast(Any, lambda *_args: None),
     )
     candidate = _ExtensionCandidate()
 
@@ -2470,7 +2465,6 @@ def test_reload_exception_disposes_candidate_only_after_the_gate_closes(
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
-        extension_render_details=cast(Any, lambda *_args: None),
     )
     outcome = CodingCommandOutcome(
         CodingCommandOutcomeKind.CONTINUE,

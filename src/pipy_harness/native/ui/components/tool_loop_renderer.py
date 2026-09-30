@@ -24,9 +24,10 @@ from __future__ import annotations
 import math
 import threading
 import time
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, TypedDict
+from pathlib import Path
+from typing import Any, ClassVar
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -34,30 +35,20 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.extension_types import ExtensionTool
-from pipy_harness.native.extensions.tool_port import ToolRenderDetailsSink
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.tool_renderers import (
-    _parse_tool_input,
-    _plain_tool_call_header,
-    _ToolLoopRenderer,
+from pipy_harness.native.tool_renderers import _ToolLoopRenderer
+from pipy_harness.native.tool_rows import (
+    BUILTIN_RENDERED_TOOLS,
+    ToolRowResult,
+    ToolRowState,
+    compute_edit_preview,
+    parse_arguments,
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.screen import ScreenRenderInputs
 
-if TYPE_CHECKING:
-    from pipy_harness.native.extension_types import ToolRenderContext
-
-
-class _PendingToolRender(TypedDict):
-    corr: str
-    args: dict[str, object]
-    state: dict[str, object]
-    # The renderer resolved when the call was rendered. Pinning it here keeps a
-    # result bound to the tool set advertised for its request: `/reload` may
-    # replace the live renderer map while a tool call is in flight, and a
-    # second lookup at result time would then render the result with a
-    # different extension's renderer, or with none.
-    tool: "ExtensionTool"
+# How long a finished edit waits for its still-running diff preview.
+_PREVIEW_JOIN_SECONDS = 0.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,15 +59,6 @@ class _RetryCountdown:
     max_attempts: int
     deadline: float
     cancel_key: str
-
-
-def _forward_legacy_render_details(ctx: ToolRenderContext, details: object) -> None:
-    """Preserve opaque values manually inserted into the internal reader sink."""
-
-    # The public context deliberately remains mapping-only. Older/manual callers
-    # could still insert an opaque value into this internal handoff, so bypass the
-    # frozen field only at this compatibility seam rather than widening its type.
-    object.__setattr__(ctx, "details", details)
 
 
 class TuiToolLoopRenderer:
@@ -94,9 +76,10 @@ class TuiToolLoopRenderer:
         chrome: ExtensionChromeState,
         render_inputs: ScreenRenderInputs,
         tool_renderers: Mapping[str, ExtensionTool] | None = None,
-        render_details_sink: ToolRenderDetailsSink | None = None,
+        cwd: Path | None = None,
         interrupt_key_text: Callable[[], str] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        replaying: bool = False,
     ) -> None:
         self._transcript = transcript
         self._chrome = chrome
@@ -108,10 +91,14 @@ class TuiToolLoopRenderer:
         self._streamed_any = False
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
-        self._last_tool_name = ""
         self._tool_renderers = dict(tool_renderers or {})
-        self._render_details_sink = render_details_sink
-        self._pending_render: _PendingToolRender | None = None
+        # The session's working directory: tool paths resolve against it
+        # (Pi's renderer `context.cwd`).
+        self._cwd = cwd if cwd is not None else Path.cwd()
+        # A session replay draws stored calls: no edit preview (Pi never
+        # marks a restored call's arguments complete).
+        self._replaying = replaying
+        self._preview_thread: threading.Thread | None = None
 
     def detached(self, transcript: TranscriptComponent) -> "TuiToolLoopRenderer":
         """A renderer with this one's tool renderers that writes to ``transcript``.
@@ -125,8 +112,10 @@ class TuiToolLoopRenderer:
             chrome=self._chrome,
             render_inputs=self._render_inputs,
             tool_renderers=self._tool_renderers,
+            cwd=self._cwd,
             interrupt_key_text=self._interrupt_key_text,
             clock=self._clock,
+            replaying=True,
         )
 
     @property
@@ -289,33 +278,48 @@ class TuiToolLoopRenderer:
         self._streamed_any = True
 
     def render_tool_call(self, call: AgentToolCall) -> None:
+        """Start the call's row (Pi ``ToolExecutionComponent``), pending.
+
+        Built-in tools draw with Pi's renderers; an extension tool with its
+        ``render_call``/``render_result`` (pinned here, so a ``/reload``
+        during the call cannot swap the renderer), otherwise with Pi's
+        generic fallbacks. A live ``edit`` starts its diff preview, as Pi
+        does once the arguments are complete: on a worker thread (Pi's
+        ``computeEditsDiff`` is asynchronous), so a slow or blocking file
+        never holds the loop or the interrupt keys. A replayed session never
+        computes one.
+        """
+
         self._stop_working(clear=True)
-        self._last_tool_name = call.tool_name
-        self._pending_render = None
-        tool = self._tool_renderers.get(call.tool_name)
-        if tool is not None:
-            args = _parse_tool_input(call.arguments_json.value)
-            state: dict[str, object] = {}
-            self._pending_render = {
-                "corr": call.provider_correlation_id,
-                "args": args,
-                "state": state,
-                "tool": tool,
-            }
-            if tool.render_call is not None:
-                lines = self._dispatch_render(
-                    tool.render_call,
-                    args,
-                    state,
-                    is_result=False,
-                    content=None,
-                    details=None,
-                    is_error=False,
-                )
-                if lines is not None:
-                    self._transcript.add_tool_call_custom(lines)
-                    return
-        self._transcript.add_tool_call(_plain_tool_call_header(call))
+        args = parse_arguments(call.arguments_json.value)
+        name = call.tool_name
+        builtin = name in BUILTIN_RENDERED_TOOLS
+        extension = None if builtin else self._tool_renderers.get(name)
+        state = ToolRowState(
+            tool_name=name,
+            args=args,
+            cwd=self._cwd,
+            extension=extension,
+            # Pi's bash renderer records `startedAt` once execution starts;
+            # a replayed call never started here.
+            started_at=None if self._replaying else self._transcript.now(),
+        )
+        self._transcript.start_tool(state)
+        self._preview_thread = None
+        if builtin and name == "edit" and not self._replaying:
+            thread = threading.Thread(
+                target=self._compute_edit_preview,
+                args=(state,),
+                name="pipy-edit-preview",
+                daemon=True,
+            )
+            self._preview_thread = thread
+            thread.start()
+
+    def _compute_edit_preview(self, state: ToolRowState) -> None:
+        preview = compute_edit_preview(state.args, state.cwd)
+        if preview is not None:
+            self._transcript.apply_tool_preview(state, preview)
 
     def tool_output_sink(self, chunk: str) -> None:
         self._transcript.append_tool_output(chunk)
@@ -326,95 +330,18 @@ class TuiToolLoopRenderer:
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> None:
-        pending = self._pending_render
-        self._pending_render = None
-        if pending is not None:
-            tool = pending["tool"]
-            if tool.render_result is not None:
-                details: object | None = None
-                if self._render_details_sink is not None:
-                    details = self._render_details_sink.pop(pending["corr"], None)
-                lines = self._dispatch_render(
-                    tool.render_result,
-                    pending["args"],
-                    pending["state"],
-                    is_result=True,
-                    content=output_text,
-                    details=details,
-                    is_error=is_error,
-                )
-                if lines is not None:
-                    self._transcript.add_tool_result_custom(
-                        lines, duration_seconds=duration_seconds
-                    )
-                    return
-        if self._last_tool_name == "read" and not is_error:
-            return
-        lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
-        # Ctrl+O tool-output expansion: the transcript keeps the full (already
-        # tool-bounded) output and shows it, or the collapsed preview, for the
-        # current flag, re-rendering the row when the flag changes.
-        self._transcript.add_collapsible_tool_result(
-            lines=lines,
-            is_error=is_error,
+        # Give a running edit preview a short, bounded moment to land first:
+        # the preview normally resolves before the edit finishes (in Pi too),
+        # and it decides where a failure's text is drawn.
+        thread, self._preview_thread = self._preview_thread, None
+        if thread is not None:
+            thread.join(timeout=_PREVIEW_JOIN_SECONDS)
+        self._transcript.finish_tool(
+            ToolRowResult(output_text, details, is_error),
             duration_seconds=duration_seconds,
         )
-
-    def _dispatch_render(
-        self,
-        renderer: Callable[[ToolRenderContext], object],
-        args: Mapping[str, object],
-        state: MutableMapping[str, object],
-        *,
-        is_result: bool,
-        content: str | None,
-        details: object | None,
-        is_error: bool,
-    ) -> list[str] | None:
-        # Local imports: the render-theme machinery is only needed on the
-        # rarely-hit custom-renderer branch, so it is imported here rather than
-        # at module top to keep this module's import-time dependency surface
-        # focused on the loop's hot path.
-        from pipy_harness.extensions import ToolRenderContext
-        from pipy_harness.native.chrome import chrome_style_for
-        from pipy_harness.native.tool_renderers import (
-            build_tool_render_theme,
-            render_tool_phase,
-        )
-
-        style = chrome_style_for(self._render_inputs.stream)
-        typed_details = details if isinstance(details, Mapping) else None
-        ctx = ToolRenderContext(
-            tool_name=self._last_tool_name,
-            args=args,
-            is_result=is_result,
-            is_error=is_error,
-            content=content,
-            details=typed_details,
-            expanded=self._render_inputs.expanded(),
-            width=self._render_inputs.width(),
-            theme=build_tool_render_theme(style),
-            state=state,
-        )
-        if details is not None and typed_details is None:
-            _forward_legacy_render_details(ctx, details)
-        return render_tool_phase(renderer, ctx)
-
-    def _visible_tool_result_lines(self, lines: list[str]) -> list[str]:
-        if self._last_tool_name != "ls":
-            return lines
-        rendered: list[str] = []
-        for line in lines:
-            if line.startswith("file "):
-                rendered.append(line[len("file ") :])
-            elif line.startswith("directory "):
-                rendered.append(line[len("directory ") :])
-            elif line.startswith("other "):
-                rendered.append(line[len("other ") :])
-            else:
-                rendered.append(line)
-        return rendered
 
     def handle_reasoning_chunk(self, chunk: str) -> None:
         self._stop_working(clear=True)

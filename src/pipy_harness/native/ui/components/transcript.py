@@ -4,10 +4,12 @@ Same ownership contract as the sibling components, with one difference: the
 transcript's state never lived on a shared record, so the component owns its
 fields directly -- the committed ``history_blocks`` list, the four live stream
 buffers (``assistant_text``, ``reasoning_text``, ``tool_output_text``,
-``working_text``), the Ctrl+T thinking-fold trio (``thinking_hidden``,
-``hidden_thinking_label``, ``deferred_reasoning``) and the Ctrl+O
-``tools_expanded`` flag. The screen reads these buffers through its explicit
-frame-source protocol and owns the shared live render-input projection.
+``working_text``), the running tool call's row (``pending_tool`` and its
+rendered ``pending_tool_lines``), the Ctrl+T thinking-fold trio
+(``thinking_hidden``, ``hidden_thinking_label``, ``deferred_reasoning``) and
+the Ctrl+O ``tools_expanded`` flag. The screen reads these buffers through its
+explicit frame-source protocol and owns the shared live render-input
+projection.
 
 Every verb applies its whole transition in ONE :class:`PaintLock` section --
 mutating painters share that reentrant lock, so a concurrent frame never
@@ -18,11 +20,11 @@ injected ``repaint`` callable. Verbs that replace committed rows wholesale
 injected ``reset_scrollback`` callable instead -- the screen-owned full redraw
 that clears inline-scrollback bookkeeping stays on the screen.
 :meth:`replace_conversation` (a session switch, fork or tree navigation)
-calls ``replace_scrollback``, the screen's full redraw that also clears the
+and :meth:`set_tools_expanded` (Ctrl+O, Pi's full render) call
+``replace_scrollback``, the screen's full redraw that also clears the
 terminal scrollback. These are the component's only effectful ports besides
-repainting. The retained-row rerender (rich custom rows, summary rows, plain
-tool results) uses the same screen-owned render-input record as other
-renderers.
+repainting. The retained-row rerender (rich custom rows, summary rows, tool
+rows) uses the same screen-owned render-input record as other renderers.
 
 Two verbs deliberately do not repaint: :meth:`discard_working_text` and
 :meth:`reset_hidden_thinking_label` run inside a caller's enclosing lock
@@ -31,11 +33,13 @@ section (extension-chrome transitions) whose caller paints once at the end.
 
 from __future__ import annotations
 
-import re
+import threading
+import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Self, cast
 
+from pipy_harness.native.chrome import chrome_style_for
 from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
@@ -45,6 +49,20 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
 )
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.tool_rows import (
+    EditPreview,
+    RowRenderInputs,
+    SummaryBox,
+    ToolRowResult,
+    ToolRowState,
+    apply_edit_result,
+    encode_rows,
+    is_builtin_edit,
+    is_running_builtin_bash,
+    render_summary_box,
+    render_tool_row,
+    row_theme,
+)
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
 
@@ -53,6 +71,8 @@ DEFAULT_HIDDEN_THINKING_LABEL = "Thinking..."
 # Live streaming tool output stays character-bounded before the pure frame
 # renderer applies its row-tail policy.
 _TOOL_STREAM_LIVE_MAX_CHARS = 8 * 1024
+# The app prefix of a diagnostic written to stderr; a chat status drops it.
+_STDERR_PREFIX = "pipy: "
 
 HistoryBlock = tuple[str, tuple[str, ...]]
 
@@ -82,46 +102,31 @@ class CustomMessageRenderState:
     entry_renderers: Mapping[str, RegisteredEntryRenderer] | None = None
 
 
+#: Start calling ``tick`` once a second; the returned callable stops it.
+TickerScheduler = Callable[[Callable[[], None]], Callable[[], None]]
+
+_TICK_SECONDS = 1.0
+
+
+def _thread_ticker(tick: Callable[[], None]) -> Callable[[], None]:
+    """Call ``tick`` every second on a daemon thread until cancelled."""
+
+    stop = threading.Event()
+
+    def run() -> None:
+        while not stop.wait(_TICK_SECONDS):
+            tick()
+
+    threading.Thread(target=run, name="pipy-bash-elapsed", daemon=True).start()
+    return stop.set
+
+
 @dataclass(frozen=True, slots=True)
 class SummaryRenderState:
-    """A collapsible Pi summary row: ``[compaction]`` or ``[branch]``."""
+    """A collapsible row with fixed collapsed/expanded lines (``!`` results)."""
 
     collapsed: tuple[str, ...]
     expanded: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ToolResultRenderState:
-    """A plain tool result whose preview follows the Ctrl+O flag."""
-
-    lines: tuple[str, ...]
-    is_error: bool
-    duration_seconds: float | None
-
-
-# Pi's collapsed tool-result preview keeps the last lines of the output.
-TOOL_RESULT_PREVIEW_LINES = 5
-
-
-def _tool_result_lines(
-    state: ToolResultRenderState, *, expanded: bool
-) -> tuple[str, ...]:
-    lines = list(state.lines) or [""]
-    if not expanded and len(lines) > TOOL_RESULT_PREVIEW_LINES:
-        earlier = len(lines) - TOOL_RESULT_PREVIEW_LINES
-        lines = [
-            f"... ({earlier} earlier lines, ctrl+o to expand)",
-            *lines[-TOOL_RESULT_PREVIEW_LINES:],
-        ]
-    if state.is_error:
-        lines.append("[error] tool reported a failure")
-    if state.duration_seconds is not None:
-        lines.extend(("", f"Took {state.duration_seconds:.1f}s"))
-    return tuple(lines)
-
-
-def _compact_read_header(header: str) -> str:
-    return re.sub(r":\d+-\d+(?:\s+\(ctrl\+o to expand\))?$", "", header)
 
 
 class TranscriptComponent:
@@ -135,8 +140,15 @@ class TranscriptComponent:
         reset_scrollback: Callable[[], None],
         render_inputs: ScreenRenderInputs,
         replace_scrollback: Callable[[], None] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        schedule_ticker: TickerScheduler | None = None,
     ) -> None:
         self._paint_lock = paint_lock
+        # A running `bash` row's `Elapsed` reads `clock`; `schedule_ticker`
+        # re-renders it every second (Pi's `setInterval(invalidate, 1000)`).
+        self._clock = clock
+        self._schedule_ticker = schedule_ticker or _thread_ticker
+        self._cancel_ticker: Callable[[], None] | None = None
         self._repaint = repaint
         self._reset_scrollback = reset_scrollback
         # The full redraw that also clears the terminal scrollback, used when
@@ -149,6 +161,7 @@ class TranscriptComponent:
         # listing). A conversation replacement keeps them, like Pi keeps its
         # header containers while it clears the chat container.
         self.startup_block_count = 0
+        self._seeded = False
         self.assistant_text = ""
         self.reasoning_text = ""
         self.tool_output_text = ""
@@ -158,6 +171,10 @@ class TranscriptComponent:
         self.thinking_hidden = False
         self.hidden_thinking_label = DEFAULT_HIDDEN_THINKING_LABEL
         self.tools_expanded = False
+        # The running tool call's row (Pi's pending `ToolExecutionComponent`):
+        # drawn in the live region until its result commits the whole row.
+        self.pending_tool: ToolRowState | None = None
+        self.pending_tool_lines: tuple[str, ...] = ()
         # Reasoning blocks that settled while thinking was folded (Ctrl+T).
         # Retained rather than dropped so toggling visibility back reveals them
         # (committed fresh at toggle time, not retro-written into scrollback).
@@ -166,12 +183,19 @@ class TranscriptComponent:
     # -- seeding -------------------------------------------------------------
 
     def seed_history(self, blocks: Iterable[HistoryBlock]) -> None:
-        """Seed startup blocks once; a non-empty transcript stays untouched."""
+        """Seed the startup blocks once, above anything added before start.
+
+        Rows added before the terminal UI started (an extension's load
+        notice) follow the header and count as startup rows, so the first
+        conversation render keeps them.
+        """
 
         with self._paint_lock:
-            if not self.history_blocks:
-                self.history_blocks.extend(blocks)
-                self.startup_block_count = len(self.history_blocks)
+            if self._seeded:
+                return
+            self._seeded = True
+            self.history_blocks[:0] = list(blocks)
+            self.startup_block_count = len(self.history_blocks)
 
     def replace_conversation(self, blocks: Iterable[HistoryBlock]) -> None:
         """Replace every row after the startup rows with ``blocks``.
@@ -191,8 +215,13 @@ class TranscriptComponent:
             self.reasoning_text = ""
             self.tool_output_text = ""
             self.working_text = ""
+            self.pending_tool = None
+            self.pending_tool_lines = ()
             self.deferred_reasoning.clear()
             self.history_blocks = [*self.history_blocks[:boundary], *replacement]
+            cancel = self._take_ticker_locked()
+        if cancel is not None:
+            cancel()
         if replaced_rows:
             self._replace_scrollback()
         else:
@@ -364,10 +393,17 @@ class TranscriptComponent:
     # -- notices / settings overlay ------------------------------------------
 
     def add_notice(self, text: str) -> None:
+        """Show a status line (Pi ``showStatus``: dim, one column in).
+
+        The ``pipy: `` prefix marks a line on stderr; in the chat it is
+        dropped, as Pi's statuses carry none.
+        """
+
         with self._paint_lock:
             self._settle_reasoning_locked()
             safe_lines = tuple(
-                sanitize_label_text(line) for line in str(text).splitlines()
+                sanitize_label_text(line.removeprefix(_STDERR_PREFIX))
+                for line in str(text).splitlines()
             ) or ("",)
             self.history_blocks.append(HistoryBlockTuple("notice", safe_lines))
         self._repaint()
@@ -392,25 +428,177 @@ class TranscriptComponent:
     # -- tool call / result stream -------------------------------------------
 
     def add_tool_call(self, header: str) -> None:
+        """Commit a ``!`` shell command's ``$ command`` row."""
+
         with self._paint_lock:
             self._settle_reasoning_locked()
             self.working_text = ""
             self.tool_output_text = ""
-            if header.startswith("read ") or header.startswith("read resource "):
-                self.history_blocks.append(
-                    HistoryBlockTuple("tool_read", (_compact_read_header(header),))
-                )
-            else:
-                self.history_blocks.append(HistoryBlockTuple("tool", (header,)))
+            self.history_blocks.append(HistoryBlockTuple("tool", (header,)))
         self._repaint()
+
+    def start_tool(self, state: ToolRowState) -> None:
+        """Show a model tool call's row, pending, in the live region.
+
+        Pi adds a pending ``ToolExecutionComponent`` whose box turns green or
+        red when the result arrives; the inline scrollback cannot change rows
+        it has printed, so the row stays live until :meth:`finish_tool`
+        commits it once.
+        """
+
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self.working_text = ""
+            self.tool_output_text = ""
+            self._flush_pending_tool_locked()
+            self.pending_tool = state
+            self.pending_tool_lines = self._tool_row_lines(state)
+            cancel = self._take_ticker_locked()
+        if cancel is not None:
+            cancel()
+        if is_running_builtin_bash(state):
+            self._start_ticker(state)
+        self._repaint()
+
+    def now(self) -> float:
+        """The clock a live ``bash`` row's ``started_at`` is taken from."""
+
+        return self._clock()
+
+    def _start_ticker(self, state: ToolRowState) -> None:
+        def tick() -> None:
+            with self._paint_lock:
+                if self.pending_tool is not state or not is_running_builtin_bash(state):
+                    return
+                self.pending_tool_lines = self._tool_row_lines(state)
+            self._repaint()
+
+        cancel = self._schedule_ticker(tick)
+        with self._paint_lock:
+            if self.pending_tool is state and self._cancel_ticker is None:
+                self._cancel_ticker = cancel
+                return
+        # The row settled while the ticker started.
+        cancel()
+
+    def _take_ticker_locked(self) -> Callable[[], None] | None:
+        cancel, self._cancel_ticker = self._cancel_ticker, None
+        return cancel
+
+    def finish_tool(
+        self, result: ToolRowResult, *, duration_seconds: float | None = None
+    ) -> None:
+        """Commit the running call's row with its result (Pi ``updateResult``)."""
+
+        with self._paint_lock:
+            self._settle_reasoning_locked()
+            self.tool_output_text = ""
+            cancel = self._take_ticker_locked()
+            state = self.pending_tool
+            if state is not None:
+                state.result = result
+                state.partial_output = ""
+                state.duration_seconds = duration_seconds
+                if state.started_at is not None:
+                    state.ended_at = self._clock()
+                if is_builtin_edit(state):
+                    apply_edit_result(state)
+                self.pending_tool = None
+                self.pending_tool_lines = ()
+                self.history_blocks.append(
+                    HistoryBlockTuple("tool_box", self._tool_row_lines(state), state)
+                )
+        if cancel is not None:
+            cancel()
+        if state is not None:
+            self._repaint()
+
+    def refresh_tool_rows(self) -> None:
+        """Redraw every tool row at the current width; the caller paints.
+
+        Collapsed ``bash`` output counts wrapped rows and extension renderers
+        draw at a width, so a terminal resize redraws the rows, as Pi renders
+        every component again at the new width.
+        """
+
+        with self._paint_lock:
+            self.history_blocks = [
+                HistoryBlockTuple(block[0], self._tool_row_lines(state), state)
+                if isinstance(
+                    state := getattr(block, "state", None), ToolRowState | SummaryBox
+                )
+                else block
+                for block in self.history_blocks
+            ]
+            if self.pending_tool is not None:
+                self.pending_tool_lines = self._tool_row_lines(self.pending_tool)
+
+    def apply_tool_preview(self, state: ToolRowState, preview: EditPreview) -> None:
+        """Pi's asynchronous edit preview arriving for a still-running call.
+
+        The preview is computed off the UI thread (Pi schedules
+        ``computeEditsDiff`` and invalidates the component when it resolves).
+        Once the result has arrived the row is committed and the result's diff
+        is authoritative, so a late preview is dropped.
+        """
+
+        with self._paint_lock:
+            if state is not self.pending_tool or state.result is not None:
+                return
+            state.preview = preview
+            self.pending_tool_lines = self._tool_row_lines(state)
+        self._repaint()
+
+    def flush_pending_tool(self) -> None:
+        """Commit a call that never got a result as it stands (pending)."""
+
+        with self._paint_lock:
+            flushed = self._flush_pending_tool_locked()
+            cancel = self._take_ticker_locked()
+        if cancel is not None:
+            cancel()
+        if flushed:
+            self._repaint()
+
+    def _flush_pending_tool_locked(self) -> bool:
+        state = self.pending_tool
+        if state is None:
+            return False
+        if state.started_at is not None and state.ended_at is None:
+            # The committed row cannot tick any more: freeze its `Elapsed`.
+            state.ended_at = self._clock()
+        self.history_blocks.append(
+            HistoryBlockTuple("tool_box", self._tool_row_lines(state), state)
+        )
+        self.pending_tool = None
+        self.pending_tool_lines = ()
+        return True
+
+    def _tool_row_lines(self, state: ToolRowState | SummaryBox) -> tuple[str, ...]:
+        style = chrome_style_for(self._render_inputs.stream)
+        if isinstance(state, SummaryBox):
+            return encode_rows(
+                render_summary_box(
+                    state, row_theme(style), expanded=self.tools_expanded
+                )
+            )
+        inputs = RowRenderInputs(
+            expanded=self.tools_expanded,
+            width=self._render_inputs.width(),
+            theme=row_theme(style),
+            extension_theme=self._render_inputs.theme(),
+            now=self._clock(),
+        )
+        return encode_rows(render_tool_row(state, inputs))
 
     def append_tool_output(self, chunk: str) -> None:
         """Stream incremental tool output into the live region as produced.
 
-        Used by long-running tools (`bash`) so the live frame shows e.g. pytest
-        dots scrolling in real time, matching Pi. Only a bounded tail is kept
-        live; the full bounded result is committed by `add_tool_result` when
-        the tool settles.
+        A running model tool call (`bash`) shows it inside its pending row
+        through the tool's result renderer, like Pi's partial results; the
+        ``!`` shortcut, which has no row, shows it as a live tail. Only a
+        bounded tail is kept live; the full bounded result arrives with the
+        result.
         """
 
         if not chunk:
@@ -418,11 +606,18 @@ class TranscriptComponent:
         with self._paint_lock:
             self._settle_reasoning_locked()
             self.working_text = ""
-            self.tool_output_text += chunk
-            if len(self.tool_output_text) > _TOOL_STREAM_LIVE_MAX_CHARS:
-                self.tool_output_text = self.tool_output_text[
+            state = self.pending_tool
+            if state is not None:
+                state.partial_output = (state.partial_output + chunk)[
                     -_TOOL_STREAM_LIVE_MAX_CHARS:
                 ]
+                self.pending_tool_lines = self._tool_row_lines(state)
+            else:
+                self.tool_output_text += chunk
+                if len(self.tool_output_text) > _TOOL_STREAM_LIVE_MAX_CHARS:
+                    self.tool_output_text = self.tool_output_text[
+                        -_TOOL_STREAM_LIVE_MAX_CHARS:
+                    ]
         self._repaint()
 
     def add_tool_result(
@@ -445,93 +640,35 @@ class TranscriptComponent:
             )
         self._repaint()
 
-    def add_collapsible_tool_result(
-        self,
-        *,
-        lines: Iterable[str],
-        is_error: bool,
-        duration_seconds: float | None = None,
+    def add_shell_result(
+        self, *, collapsed: Iterable[str], expanded: Iterable[str]
     ) -> None:
-        """Commit a tool result whose preview follows the Ctrl+O flag.
+        """Commit a ``!`` command's rows, which follow the Ctrl+O flag.
 
-        Collapsed, the row keeps the last few lines behind an
-        ``... (N earlier lines, ctrl+o to expand)`` marker; expanded, it shows
-        every line. The full lines are retained so a later Ctrl+O re-renders
-        the row, like Pi's ``ToolExecutionComponent.setExpanded``.
+        Like Pi's ``BashExecutionComponent.setExpanded``: collapsed shows the
+        last lines and a ``more lines`` hint, expanded shows every line.
         """
 
-        state = ToolResultRenderState(tuple(lines), bool(is_error), duration_seconds)
+        state = SummaryRenderState(tuple(collapsed) or ("",), tuple(expanded) or ("",))
         with self._paint_lock:
             self._settle_reasoning_locked()
             self.tool_output_text = ""
-            self.history_blocks.append(
-                HistoryBlockTuple(
-                    "tool_result",
-                    _tool_result_lines(state, expanded=self.tools_expanded),
-                    state,
-                )
-            )
+            lines = state.expanded if self.tools_expanded else state.collapsed
+            self.history_blocks.append(HistoryBlockTuple("tool_result", lines, state))
         self._repaint()
 
-    def add_summary(self, *, collapsed: Iterable[str], expanded: Iterable[str]) -> None:
-        """Commit a collapsible compaction or branch summary row."""
+    def add_summary_box(self, box: SummaryBox) -> None:
+        """Commit a collapsible compaction or branch summary box.
 
-        state = SummaryRenderState(tuple(collapsed), tuple(expanded))
+        Pi's summary components draw a padded ``customMessageBg`` box; like a
+        tool row it is drawn again on Ctrl+O and resize, with the active theme.
+        """
+
         with self._paint_lock:
             self._settle_reasoning_locked()
             self.working_text = ""
             self.history_blocks.append(
-                HistoryBlockTuple(
-                    "custom",
-                    state.expanded if self.tools_expanded else state.collapsed,
-                    state,
-                )
-            )
-        self._repaint()
-
-    def add_tool_side_output(self, text: str) -> None:
-        """Commit a tool's side output (the `edit`/`write` diff) as a result row.
-
-        Tools report it through `ToolContext.stderr_sink` while they run. The
-        terminal is in raw mode during a turn, so writing it to the error
-        stream would bypass the frame renderer and smear the diff across the
-        live editor and footer rows.
-        """
-
-        lines = tuple(text.splitlines())
-        if not lines:
-            return
-        with self._paint_lock:
-            self._settle_reasoning_locked()
-            self.tool_output_text = ""
-            self.history_blocks.append(HistoryBlockTuple("tool_result", lines))
-        self._repaint()
-
-    def add_tool_call_custom(self, lines: Iterable[str]) -> None:
-        """Commit extension-rendered call-row lines (pre-styled, SGR-safe)."""
-
-        with self._paint_lock:
-            self._settle_reasoning_locked()
-            self.working_text = ""
-            self.tool_output_text = ""
-            self.history_blocks.append(
-                HistoryBlockTuple("tool_call_custom", tuple(lines) or ("",))
-            )
-        self._repaint()
-
-    def add_tool_result_custom(
-        self, lines: Iterable[str], *, duration_seconds: float | None = None
-    ) -> None:
-        """Commit extension-rendered result-row lines (pre-styled, SGR-safe)."""
-
-        with self._paint_lock:
-            self._settle_reasoning_locked()
-            self.tool_output_text = ""
-            rendered = list(lines)
-            if duration_seconds is not None:
-                rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-            self.history_blocks.append(
-                HistoryBlockTuple("tool_result_custom", tuple(rendered or [""]))
+                HistoryBlockTuple("tool_box", self._tool_row_lines(box), box)
             )
         self._repaint()
 
@@ -713,14 +850,17 @@ class TranscriptComponent:
         """Set the Ctrl+O expansion flag and refresh retained rich rows.
 
         Bundles the flag write and the rerender in one lock section so no
-        frame paints against the new flag with stale retained rows.
+        frame paints against the new flag with stale retained rows. Changed
+        rows are redrawn with the terminal scrollback cleared, as Pi's full
+        render does when a row above the viewport changes, so the collapsed
+        copy does not stay above the expanded one.
         """
 
         with self._paint_lock:
             self.tools_expanded = bool(expanded)
             changed = self._rerender_custom_messages_locked()
         if changed:
-            self._reset_scrollback()
+            self._replace_scrollback()
         else:
             self._repaint()
 
@@ -747,8 +887,9 @@ class TranscriptComponent:
                 changed = changed or next_lines != lines
                 rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
                 continue
-            if isinstance(state, ToolResultRenderState):
-                next_lines = _tool_result_lines(state, expanded=self.tools_expanded)
+            if isinstance(state, ToolRowState | SummaryBox):
+                # Pi `setExpanded` on every ToolExecutionComponent and summary.
+                next_lines = self._tool_row_lines(state)
                 changed = changed or next_lines != lines
                 rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
                 continue
@@ -761,6 +902,9 @@ class TranscriptComponent:
             rebuilt.append(next_block)
         if changed:
             self.history_blocks = rebuilt
+        if self.pending_tool is not None:
+            # The live row only needs a repaint, not a scrollback redraw.
+            self.pending_tool_lines = self._tool_row_lines(self.pending_tool)
         return changed
 
     def _rerendered_block(

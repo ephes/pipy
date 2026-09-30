@@ -108,6 +108,10 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | SYS1a | Pi system messages in the transcript ([plan](specs/2026-09-29-sys1-system-messages-plan.md)). The first run records `role: "system"` with the prompt as the `preamble` section and every tool in `toolsAdded`; later runs and in-run tool changes record only changes. JSON/RPC events, `agent_end.messages`, `get_messages`, the session file and the compaction checkpoint (`systemMessage`) carry it; the TUI draws nothing, `/tree` shows `[system]`. Provider requests are unchanged (Pi's collapse path). `automation_pi_comparison.py` is green. Remainder: SYS1b | `feat/sys1-system-messages` |
 | DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Deviations: no partial thinking or tool calls stored; follow-on DF1-F6b | `fix/f6-aborted-turn` |
 | USAGE1 | Usage stored on every assistant message ([plan](specs/2026-09-30-usage1-message-usage-plan.md)). The loop records Pi's `usage` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` parts from `calculateCost`) and the answering `provider`/`model`; the session file and every JSON/RPC assistant message carry them. The footer, RPC `get_session_stats` and `/session` sum every stored assistant message on every branch (Pi `getSessionStats`), so totals survive resume and a model switch. The footer follows Pi's parts (uncached `↑`, latest-message `CH`, `formatTokens`); `/session` prints Pi's `Session Info` with `Messages`, `Tokens` and `Cost` (per-model breakdown, `Cache Re-billed`). Old sessions load unchanged. Follow-on USAGE1b | `feat/usage1-message-usage` |
+| READ2 | `read`, `ls`, `grep`, `find`, `@file` and `@image:` resolve paths like Pi's `resolveToCwd`/`resolveReadPath` ([plan](specs/2026-09-30-read2-path-policy-plan.md)): cwd-relative or absolute, `~`, `@` prefix, unicode spaces, macOS screenshot/NFD/curly-quote variants, no deny list. `grep`/`find` leave out only what `rg --hidden`/`fd --hidden` do (measured rules in `tools/ignore_walk.py`, differential tests against the binaries). `--read-root`, `PIPY_READ_ROOTS` and the `Reference roots` prompt block are removed. No documented security boundary covers the read tools (`bash` is a real shell); the allowlisted command sandbox keeps its own policy. Follow-on READ2b | `feat/read2-path-policy` |
+| TOOLS2 + READ2b | `write`, `edit` and `bash` follow Pi ([plan](specs/2026-09-30-tools2-write-edit-bash-plan.md)). `write`/`edit` resolve like `resolveToCwd` with no deny list or size cap; `write` makes parent directories and overwrites; `edit` takes `edits[]` with Pi's exact/fuzzy matching, BOM/CRLF handling, error texts and numbered diff (jsdiff `diffLines` ported); one file's mutations are serialized. `bash` ends a failure with `Command exited with code N` / `timed out` / `aborted` as an error. The `!` shortcut uses Pi's executor output (sanitized, 2000 lines / 50 KB, temp file), `bashExecutionToText` record and component rows. Pi's grep/find/ls/write/edit headers; `ls` sorts by a Node-measured ICU approximation; the global git excludes file applies to the Python walks. No documented boundary covers the mutation tools. Deviations: the no-terminal `!` keeps a 600 s bound; collation outside the measured table; follow-on TOOLS3 | `feat/tools2-write-edit-bash` |
+| TOOLS3 + DF1-F2b (part) | Tool rows follow Pi's `ToolExecutionComponent` and per-tool renderers ([plan](specs/2026-09-30-tools3-tool-rows-plan.md)): one box per call (pending, then success/error background), read/grep/find/ls/write/edit/bash collapsed and expanded texts, compact `read` classification, edit's diff preview and word-level highlights (jsdiff `diffWords` ported), bash's last-5-lines preview, warning footer and `Took` (bash only), extension renderers and Pi's generic fallbacks. Tool results carry and store Pi's `details` (truncation, limits, edit diff, extension details; never sent to providers). Ctrl+O re-renders every row, extension rows included, live and restored, clearing the scrollback like Pi's full render; the render-details sink and the tools' side output are removed. Deviations: no syntax highlighting, links or ticking `Elapsed`; follow-on TOOLS3b | `feat/tools3-renderers` |
+| DF1-F7 + DF1-F2b (TUI) | TUI polish ([plan](specs/2026-09-30-f7-tui-polish-plan.md)). `/compact` and automatic compaction redraw the chat like Pi's `compaction_end` (kept rows, then the `[compaction]` row; the prompt being sent is drawn after the kept rows), and summary rows are Pi's padded `customMessageBg` boxes. The `pi` theme is Pi's `dark` theme (truecolor and 256-colour codes from Pi's `theme.ts`), and the editor border follows the thinking level or `bashMode` (no ` ! bash ` label). A running `bash` row ticks `Elapsed Ns` every second. Status lines are Pi's dim `showStatus` rows without the `pipy  pipy:` prefix, with Pi's hotkey texts. Paints wait for startup (no stale editor frame), `quietStartup` hides the TUI header, and `--print`/`--mode json`/`--mode rpc` write no chrome to stderr. Deviations and the model-selection and compaction-prompt bullets: follow-on DF1-F7b | `feat/f7-tui-polish` |
 | SYS1b | System messages reach providers ([plan](specs/2026-09-30-sys1b-provider-system-messages-plan.md)). Catalog compat flags from Pi's data (`supportsMidConvoSystemMessages`, `supportsAdditionalTools`, `supportsMidConvoToolChanges`, `supportsDeveloperRole`; `supportsMidConvoToolAdditions` via `models.json`); requests carry the session's anchored system messages for adapters that accept them: Responses/Azure/Codex developer messages with `additional_tools`/`tool_search` loads, Chat Completions/Mistral, Anthropic held `system` messages with `tool_addition`/`tool_removal`, placeholder and beta; Google/Bedrock collapse. Tagged prompt sections; `added_tool_names` and `supportsToolReferences` removed (Pi). Remainder: SYS1c | `feat/sys1b-provider-system-messages` |
 
 ## Follow-ons
@@ -116,42 +120,29 @@ Open deviations collected from the done slices, not yet queued. Take one when
 a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
-- **READ2, read path policy:** `read` still resolves paths
-  through pipy's shared `resolve_tool_path`: workspace plus `--read-root`
-  roots, with `.git` and `.gitignore` paths refused, and so are generated
-  directories (`node_modules`, `build`, `dist`, `.venv`, `.pipy`, …) and
-  suffixes (`.lock`, `.map`, `.min.js`, `.d.ts`, images, archives). Pi's `resolveReadPath`
-  (`core/tools/path-utils.ts`) reads any path, expands `~`, strips a leading
-  `@`, normalizes unicode spaces and tries the macOS screenshot, NFD and
-  curly-quote variants. No security boundary needs the restriction (`bash`
-  reads anything). The same resolver serves `ls`/`grep`/`find`, `@file` and
-  `@image:`, so the slice decides each consumer.
 - **READ-IMG, images from `read`:** Pi's `read` returns jpg/png/gif/webp/bmp
   files as image attachments (resized). pipy tool results are text-only, so
   `read` returns an error for images. Porting needs image content in tool
   results across the provider adapters, the session tree and replay.
-- **TOOLS2, what TOOLS1 left of the tool output:** `bash` still frames its
-  result as `exit code: N` + `[output]` and treats a non-zero exit as a normal
-  result; Pi appends `Command exited with code N` and marks it an error, with
-  `Command timed out after N seconds` / `Command aborted`. The `!`/`!!`
-  shortcut keeps a 16 KB tail where Pi's `bash-executor.ts` uses
-  `truncateTail` plus a temp file. Tool-row headers keep `grep "p" path`
-  where Pi shows `/p/ in path (glob) limit N`. `ls` sorts by code point where
-  Pi uses `localeCompare`. The bash temp file sits outside `read`'s path
-  policy until READ2.
-- **DF1-F2b, restored-history rendering gaps** (left by F2/F3, see the Done
-  table):
-  - Rows drawn by an extension tool's `render_call`/`render_result` keep the
-    expansion state of the moment they were rendered, live and restored
-    alike. Pi calls `setExpanded` on every `ToolExecutionComponent`.
-    Re-rendering needs the renderer inputs retained (args, per-call state,
-    result text, details).
-  - A live `/compact` or automatic compaction shows its notice; Pi redraws the
-    chat, so the `[compaction]` row appears at once. pipy shows that row only
-    after the next redraw (resume, tree navigation).
-  - Reasoning text, tool-result details and durations are not stored, so
-    restored history has no thinking blocks, extension result details or
-    `Took Ns`.
+- **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
+  - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
+    OSC 8 file links (DF1-F7 added the ticking `Elapsed`);
+  - JSON/RPC `toolResult` messages and `tool_execution_end` carry no
+    `details`; Pi's thrown tool errors store `details: {}`, pipy stores none;
+  - `edit` stores no `details.patch` (jsdiff `createTwoFilesPatch`);
+  - a hallucinated tool name gets the generic `name key=value` row where Pi,
+    knowing no definition, prints the arguments as JSON;
+  - the RPC `bash` command still runs through the allowlisted sandbox
+    instead of Pi's executor.
+- **DF1-F2b, restored-history rendering gaps** (left by F2/F3; TOOLS3 closed
+  the extension-row expansion and tool-result details, F7 the live compaction
+  redraw):
+  - Reasoning text is not stored, so restored history has no thinking
+    blocks (it touches the assistant message model and provider replay).
+    Durations are not stored in Pi either: a restored `bash` row has no
+    `Took` line in both.
+  - A resumed session shows no `Session compacted N times` status (Pi
+    `renderInitialMessages`).
 - **DF1-F4b, what F4 left of retries:** F4 is merged (plan:
   `docs/parity-loop/plans/f4-retry-visibility.md`). Every provider is retried
   with Pi's classifier, also after partial output. The TUI shows `Error: ...`
@@ -185,17 +176,56 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     results; Pi's loop then records an empty aborted assistant.
   - Compaction and branch summaries drop a stopped turn's partial text; Pi
     serializes it into the summary input as `[Assistant]: …`.
-- **DF1-F7, TUI polish:**
-  - Notices print `pipy  pipy: …`.
-  - Non-bash tool rows keep the `$ ` prompt. Pi shows `edit path`,
-    `find X in Y` and `grep /X/ in Y`.
-  - `/model gpt-6-luna` resolves to the unauthenticated `openai` row.
-  - The `/model` selector lists unavailable models; Pi lists only models with
-    configured auth.
-  - Startup leaves a stale editor frame in scrollback.
-  - `-p` prints the startup chrome to stderr.
-  - The manual compaction summary treated its own instruction as a user
-    request.
+- **DF1-F7b, what F7 left of TUI polish** (see the F7 Done row):
+  - Selectors: the F7b selectors slice
+    ([plan](specs/2026-09-30-f7b-selectors-plan.md), branch
+    `feat/f7b-selectors`) ported Pi's `fuzzyFilter`, `/model <ref>` exact
+    matching, the searchable model and thinking selectors, the fuzzy slash
+    menu with `/model`/`/thinking` argument completion, the `/resume`
+    search, no user message for commands, and `Error:` lines on those
+    paths. It leaves:
+    - `/login` argument completion (Pi's login provider options); extension
+      commands have no `getArgumentCompletions`;
+    - the model selector does not refresh catalogs (Pi's `Refreshing model
+      catalogs…` / `Model catalogs refreshed.` line), and `/model <ref>`
+      does not refresh before its second lookup;
+    - the search input lacks Pi `Input`'s undo, yank, word motion and word
+      deletion and forward Delete (pipy decodes no `Delete` key), and edits
+      by code point, not grapheme cluster;
+    - the `/resume` picker has no `relevance`/`threaded` sort and searches no
+      message text (`allMessagesText`); `re:` uses Python's regex syntax;
+    - a skill run draws its expanded text as a user message; Pi draws a
+      `SkillInvocationMessageComponent`;
+    - argument completion opens on any edit after `/<command> `; Pi's editor
+      opens it only for letters, digits, `.`, `-` and `_`;
+    - the plain REPL keeps pipy's `/model <ref>` resolver and its command
+      bubbles; the settings dialog's provider/model list is still pipy's
+      list; the default model is pipy's defaults store, not Pi's
+      `defaultProvider`/`defaultModel` settings.
+  - The compaction summary treats its own instruction as a user request:
+    pipy sends the removed messages as structured history followed by the
+    instruction. Pi serializes them into one `<conversation>` text
+    (`serializeConversation`) with its structured `SUMMARIZATION_PROMPT` /
+    `UPDATE_SUMMARIZATION_PROMPT`, split-turn prefix summaries and the
+    read/modified file lists (a compaction request slice; see also F6b).
+  - Notice texts stay pipy's; outside `/model` and `/thinking`, notices that
+    Pi shows with `showWarning`/`showError` (`Warning: …` / `Error: …`) are
+    still dim status lines, and back-to-back statuses are not merged into one
+    line. An unhandled `/…` line gets pipy's notice; Pi sends it as a prompt.
+  - The non-quiet TUI header lists every hint; Pi shows its logo and a
+    condensed list that Ctrl+O expands.
+  - `!` rows keep pipy's boxed style; Pi's `BashExecutionComponent` draws
+    `bashMode` borders and a bold `$ command`.
+  - The expanded compaction and branch summaries are not Markdown-rendered.
+  - pipy compacts before sending a prompt, so an automatic `[compaction]` row
+    comes before that prompt's answer; Pi compacts after the answer (or
+    after an overflow error) and draws the row after it.
+  - Pi draws its working loader inside the editor's top border
+    (`── ⠏ Working ──`) while a tool runs; pipy shows no loader there.
+  - Pi's default theme is `system` (colours generated from the terminal's);
+    pipy's `pi` theme is Pi's `dark`, and other Pi theme tokens (Markdown,
+    syntax, `border`/`borderAccent`, `selectedBg`) have no pipy field. The
+    `pipy` title stays (bold `accent`) where Pi draws its logo.
 
 - **Publishing:** choose and own a PyPI distribution name, then add a
   publish workflow with SHA-pinned actions. Until then
@@ -215,9 +245,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     now name their model.
 - **SYS1c, system-message remainder:** SYS1b (see Done) sends later system
   messages to models whose compat accepts them and records Pi's tagged
-  `preamble`/`addendum`/`project_context`/`skills`/`cwd` sections (so the
-  `<cwd>` part of "Skills and prompt" and the Anthropic deferred-tool
-  placeholder under "Prompt cache" are done). Still to port from Pi:
+  `preamble`/`addendum`/`project_context`/`skills`/`cwd` sections. Still to
+  port from Pi:
   - Anthropic mid-conversation effort (`supportsMidConvoEffort`,
     `output_config` system messages before assistant turns, the per-message
     `providerThinkingLevel`, adaptive `block_binding`, the
@@ -239,7 +268,7 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   a selection without a catalog row.
 - **Prompt cache:** openai-completions `prompt_cache_key` and affinity
   headers; Codex WebSocket reuse and per-session SSE fallback; uuidv7 routing
-  ids; Pi's deferred-tool placeholder; Bedrock cache gate reads `model.name`;
+  ids; Bedrock cache gate reads `model.name`;
   prompt-cache warming (`c596d09d9`).
 - **Catalog and cost:** built-in rows carry no cost tiers (xAI and Copilot
   included); extension provider rows carry no cost; `models.json` rejects
@@ -262,7 +291,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Skills and prompt:** template and command stores keep the symlink guard; a
   plain `.md` skill keeps its file stem; package skills load after the auto
   roots; not ported: `disable-model-invocation`, the bash-only skill
-  advertisement and Pi's `<tools>`/`<rules>`/`<cwd>` prompt sections.
+  advertisement and Pi's `<tools>`/`<rules>`/`<docs>` prompt sections
+  (`<cwd>` shipped with SYS1b).
 - **Timing display:** response time and tok/s (tau `7b96883`) and tau's
   reactive model/thinking preview stay pipy product decisions; Pi has neither.
 - **Repo hygiene:** done 2026-09-29. The three merged remote branches were

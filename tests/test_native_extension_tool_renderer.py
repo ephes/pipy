@@ -1,4 +1,5 @@
 import io
+import re
 from pathlib import Path
 
 from pipy_harness.extensions import (
@@ -10,7 +11,7 @@ from pipy_harness.extensions import (
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.extensions.tool_port import _ExtensionToolPort
-from pipy_harness.native.tool_renderers import _extension_render_details_sinks
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolRequest,
@@ -19,15 +20,7 @@ from pipy_harness.native.tools.base import (
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
-
-def test_render_details_sinks_select_renderer_and_preserve_writer_identity():
-    tui = _extension_render_details_sinks(has_terminal_ui=True)
-    assert tui.writer is tui.tui
-    assert tui.captured is None
-
-    captured = _extension_render_details_sinks(has_terminal_ui=False)
-    assert captured.writer is captured.captured
-    assert captured.tui is None
+_SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def _registered(handler, **kw):
@@ -41,44 +34,51 @@ def _registered(handler, **kw):
     return RegisteredTool(tool=tool, extension="ext")
 
 
-def test_port_writes_details_to_sink(tmp_path: Path):
-    sink: dict[str, object] = {}
-    port = _ExtensionToolPort(
-        _registered(
-            lambda ctx, inp: ToolResult(content="c", details={"k": "v"}),
-            render_result=lambda ctx: None,
-        ),
-        has_ui=False,
-        render_details_sink=sink,
-    )
+def _invoke(port: _ExtensionToolPort, tmp_path: Path):
     req = ToolRequest(
         tool_request_id=make_tool_request_id(),
         tool_name="kv",
         arguments={},
         provider_correlation_id="corr-1",
     )
-    port.invoke(req, ToolContext(workspace_root=tmp_path.resolve()))
-    assert sink["corr-1"] == {"k": "v"}
+    return port.invoke(req, ToolContext(workspace_root=tmp_path.resolve()))
 
 
-def test_port_writes_none_details_when_absent(tmp_path: Path):
-    sink: dict[str, object] = {}
+def test_port_puts_details_on_the_result(tmp_path: Path):
     port = _ExtensionToolPort(
-        _registered(
-            lambda ctx, inp: ToolResult(content="c"),
-            render_result=lambda ctx: None,
-        ),
+        _registered(lambda ctx, inp: ToolResult(content="c", details={"k": "v"})),
         has_ui=False,
-        render_details_sink=sink,
     )
-    req = ToolRequest(
-        tool_request_id=make_tool_request_id(),
-        tool_name="kv",
-        arguments={},
-        provider_correlation_id="corr-2",
+    assert _invoke(port, tmp_path).details == {"k": "v"}
+
+
+def test_port_result_has_no_details_when_absent(tmp_path: Path):
+    port = _ExtensionToolPort(
+        _registered(lambda ctx, inp: ToolResult(content="c")),
+        has_ui=False,
     )
-    port.invoke(req, ToolContext(workspace_root=tmp_path.resolve()))
-    assert sink["corr-2"] is None
+    assert _invoke(port, tmp_path).details is None
+
+
+def test_port_drops_details_that_are_not_json(tmp_path: Path):
+    """The session stores the JSON copy; live rows render the same value."""
+
+    port = _ExtensionToolPort(
+        _registered(lambda ctx, inp: ToolResult(content="c", details={"k": object()})),
+        has_ui=False,
+    )
+    assert _invoke(port, tmp_path).details is None
+
+
+def test_port_details_are_a_detached_json_copy(tmp_path: Path):
+    source = {"k": [1, 2]}
+    port = _ExtensionToolPort(
+        _registered(lambda ctx, inp: ToolResult(content="c", details=source)),
+        has_ui=False,
+    )
+    details = _invoke(port, tmp_path).details
+    source["k"].append(3)
+    assert details == {"k": [1, 2]}
 
 
 def _tui(tmp_path):
@@ -89,7 +89,35 @@ def _tui(tmp_path):
     )
 
 
-def test_tui_renderer_uses_render_result(tmp_path):
+def _renderer(ui, tools, tmp_path) -> TuiToolLoopRenderer:
+    return TuiToolLoopRenderer(
+        transcript=ui.components.transcript,
+        chrome=ui.components.chrome.record,
+        render_inputs=ui.components.screen.render_inputs,
+        tool_renderers=tools,
+        cwd=tmp_path,
+    )
+
+
+def _row_texts(lines) -> list[str]:
+    return [_SGR.sub("", decode_tool_box_line(line)[2]) for line in lines]
+
+
+def _tool_rows(ui) -> list[list[str]]:
+    """Plain text of every committed tool row, then the running one."""
+
+    transcript = ui.components.transcript
+    rows = [
+        [text for text in _row_texts(lines) if text]
+        for kind, lines in transcript.history_blocks
+        if kind == "tool_box"
+    ]
+    if transcript.pending_tool_lines:
+        rows.append([t for t in _row_texts(transcript.pending_tool_lines) if t])
+    return rows
+
+
+def test_tui_renderer_uses_render_result_with_result_details(tmp_path):
     tool = ExtensionTool(
         name="kv",
         description="d",
@@ -100,67 +128,54 @@ def test_tui_renderer_uses_render_result(tmp_path):
         ),
     )
     ui = _tui(tmp_path)
-    sink: dict[str, object] = {"corr-1": {"k": "v"}}
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": tool},
-        render_details_sink=sink,
+    renderer = _renderer(ui, {"kv": tool}, tmp_path)
+    renderer.render_tool_call(AgentToolCall("corr-1", "kv", ProductContent("{}")))
+    renderer.render_tool_result(
+        output_text="ignored", is_error=False, details={"k": "v"}
     )
-    renderer.render_tool_call(
-        AgentToolCall(
-            provider_correlation_id="corr-1",
-            tool_name="kv",
-            arguments_json=ProductContent("{}"),
-        )
-    )
-    renderer.render_tool_result(output_text="ignored", is_error=False)
-    blocks = [
-        b
-        for b in ui.components.transcript.history_blocks
-        if b[0] == "tool_result_custom"
-    ]
-    assert blocks, "expected a tool_result_custom block"
-    text = "\n".join(blocks[-1][1])
-    assert "key=v" in text and "err=False" in text
+    # No render_call: Pi's generic header, then the extension's result lines.
+    assert _tool_rows(ui) == [["kv", "key=v", "err=False"]]
 
 
-def test_tui_renderer_forwards_manually_injected_non_mapping_details(
-    tmp_path: Path,
-) -> None:
-    seen: list[object | None] = []
+def test_tui_renderer_rerenders_extension_rows_on_ctrl_o(tmp_path):
+    """DF1-F2b: extension rows follow the expansion flag (Pi setExpanded)."""
+
+    seen: list[tuple[bool, bool, object]] = []
+
+    def render_call(ctx: ToolRenderContext) -> object:
+        seen.append((ctx.is_result, ctx.expanded, dict(ctx.state)))
+        calls = ctx.state.get("calls", 0)
+        ctx.state["calls"] = (calls if isinstance(calls, int) else 0) + 1
+        return lines_component([f"CALL expanded={ctx.expanded}"])
 
     def render_result(ctx: ToolRenderContext) -> object:
-        seen.append(ctx.details)
-        return lines_component(["custom"])
+        seen.append((ctx.is_result, ctx.expanded, ctx.details))
+        return lines_component([f"RESULT expanded={ctx.expanded} {ctx.content}"])
 
     tool = ExtensionTool(
         name="kv",
         description="d",
         input_schema={"type": "object"},
-        handler=lambda ctx, inp: ToolResult(content="ignored"),
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=render_call,
         render_result=render_result,
     )
     ui = _tui(tmp_path)
-    sink: dict[str, object | None] = {"corr-1": "manually-injected"}
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": tool},
-        render_details_sink=sink,
-    )
-    renderer.render_tool_call(
-        AgentToolCall(
-            provider_correlation_id="corr-1",
-            tool_name="kv",
-            arguments_json=ProductContent("{}"),
-        )
-    )
-    renderer.render_tool_result(output_text="ignored", is_error=False)
+    renderer = _renderer(ui, {"kv": tool}, tmp_path)
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent('{"a": 1}')))
+    renderer.render_tool_result(output_text="out", is_error=False, details={"d": 1})
+    assert _tool_rows(ui) == [["CALL expanded=False", "RESULT expanded=False out"]]
 
-    assert seen == ["manually-injected"]
+    ui.components.transcript.set_tools_expanded(True)
+
+    assert _tool_rows(ui) == [["CALL expanded=True", "RESULT expanded=True out"]]
+    # The retained per-call state and details reach every redraw.
+    assert (True, True, {"d": 1}) in seen
+    assert any(
+        not is_result and expanded and state.get("calls")
+        for is_result, expanded, state in seen
+        if isinstance(state, dict)
+    )
 
 
 def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
@@ -175,23 +190,11 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
         render_result=boom,
     )
     ui = _tui(tmp_path)
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": tool},
-        render_details_sink={},
-    )
-    renderer.render_tool_call(
-        AgentToolCall(
-            provider_correlation_id="c",
-            tool_name="kv",
-            arguments_json=ProductContent("{}"),
-        )
-    )
+    renderer = _renderer(ui, {"kv": tool}, tmp_path)
+    renderer.render_tool_call(AgentToolCall("c", "kv", ProductContent("{}")))
     renderer.render_tool_result(output_text="real-output", is_error=False)
-    kinds = [b[0] for b in ui.components.transcript.history_blocks]
-    assert "tool_result" in kinds and "tool_result_custom" not in kinds
+    # Pi createResultFallback: the output under the generic header.
+    assert _tool_rows(ui) == [["kv", "real-output"]]
 
 
 def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
@@ -206,25 +209,13 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
         render_call=boom,
     )
     ui = _tui(tmp_path)
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": tool},
-        render_details_sink={},
-    )
-    renderer.render_tool_call(
-        AgentToolCall(
-            provider_correlation_id="c",
-            tool_name="kv",
-            arguments_json=ProductContent("{}"),
-        )
-    )
-    kinds = [b[0] for b in ui.components.transcript.history_blocks]
-    assert "tool" in kinds and "tool_call_custom" not in kinds
+    renderer = _renderer(ui, {"kv": tool}, tmp_path)
+    renderer.render_tool_call(AgentToolCall("c", "kv", ProductContent('{"a": 1}')))
+    # Pi formatToolCallWithArgs.
+    assert _tool_rows(ui) == [["kv a=1"]]
 
 
-def test_captured_renderer_emits_custom_lines(tmp_path):
+def test_captured_renderer_emits_custom_lines_with_result_details(tmp_path):
     from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
@@ -239,16 +230,9 @@ def test_captured_renderer_emits_custom_lines(tmp_path):
         output_stream=out,
         error_stream=err,
         tool_renderers={"kv": tool},
-        render_details_sink={"c": {"k": "v"}},
     )
-    renderer.render_tool_call(
-        AgentToolCall(
-            provider_correlation_id="c",
-            tool_name="kv",
-            arguments_json=ProductContent("{}"),
-        )
-    )
-    renderer.render_tool_result(output_text="x", is_error=False)
+    renderer.render_tool_call(AgentToolCall("c", "kv", ProductContent("{}")))
+    renderer.render_tool_result(output_text="x", is_error=False, details={"k": "v"})
     assert "KV:v" in err.getvalue()
 
 
@@ -267,16 +251,37 @@ def test_captured_renderer_emits_custom_call_lines(tmp_path):
         output_stream=out,
         error_stream=err,
         tool_renderers={"kv": tool},
-        render_details_sink={},
+    )
+    renderer.render_tool_call(AgentToolCall("c", "kv", ProductContent("{}")))
+    assert "CALL:kv" in err.getvalue()
+
+
+def test_captured_renderer_prints_edit_diff_and_write_content(tmp_path):
+    """The tools no longer print side output; the captured renderer does."""
+
+    from pipy_harness.native.tool_renderers import _ToolLoopRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    renderer = _ToolLoopRenderer(output_stream=out, error_stream=err)
+    renderer.render_tool_call(
+        AgentToolCall("c1", "edit", ProductContent('{"path": "a.py", "edits": []}'))
+    )
+    renderer.render_tool_result(
+        output_text="Successfully replaced 1 block(s) in a.py.",
+        is_error=False,
+        details={"diff": "-1 old\n+1 new", "firstChangedLine": 1},
     )
     renderer.render_tool_call(
         AgentToolCall(
-            provider_correlation_id="c",
-            tool_name="kv",
-            arguments_json=ProductContent("{}"),
+            "c2", "write", ProductContent('{"path": "b.txt", "content": "x\\ty\\n\\n"}')
         )
     )
-    assert "CALL:kv" in err.getvalue()
+    renderer.render_tool_result(
+        output_text="Successfully wrote to b.txt", is_error=False
+    )
+    rendered = err.getvalue()
+    assert "-1 old\n+1 new" in rendered
+    assert "x   y" in rendered
 
 
 def test_captured_renderer_refreshes_tool_renderers_after_reload():
@@ -301,7 +306,6 @@ def test_captured_renderer_refreshes_tool_renderers_after_reload():
         output_stream=out,
         error_stream=err,
         tool_renderers={"kv": first},
-        render_details_sink={},
     )
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": second})
@@ -332,26 +336,15 @@ def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
         render_call=lambda ctx: lines_component(["CALL:second"]),
     )
     ui = _tui(tmp_path)
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": first},
-    )
+    renderer = _renderer(ui, {"kv": first}, tmp_path)
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": second})
     renderer.render_tool_call(AgentToolCall("c2", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({})
     renderer.render_tool_call(AgentToolCall("c3", "kv", ProductContent("{}")))
 
-    custom_blocks = [
-        b for b in ui.components.transcript.history_blocks if b[0] == "tool_call_custom"
-    ]
-    assert [tuple(b[1]) for b in custom_blocks] == [
-        ("CALL:first",),
-        ("CALL:second",),
-    ]
-    assert ui.components.transcript.history_blocks[-1][0] == "tool"
+    # The unregistered tool falls back to Pi's generic header.
+    assert _tool_rows(ui) == [["CALL:first"], ["CALL:second"], ["kv"]]
 
 
 def _renderer_pair(marker: str) -> ExtensionTool:
@@ -375,7 +368,6 @@ def test_captured_renderer_pins_result_renderer_to_its_call():
         output_stream=out,
         error_stream=err,
         tool_renderers={"kv": _renderer_pair("first")},
-        render_details_sink={},
     )
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": _renderer_pair("second")})
@@ -397,7 +389,6 @@ def test_captured_renderer_pins_result_renderer_when_tool_is_removed():
         output_stream=out,
         error_stream=err,
         tool_renderers={"kv": _renderer_pair("first")},
-        render_details_sink={},
     )
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({})
@@ -408,39 +399,19 @@ def test_captured_renderer_pins_result_renderer_when_tool_is_removed():
 
 def test_tui_renderer_pins_result_renderer_to_its_call(tmp_path):
     ui = _tui(tmp_path)
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": _renderer_pair("first")},
-    )
+    renderer = _renderer(ui, {"kv": _renderer_pair("first")}, tmp_path)
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": _renderer_pair("second")})
     renderer.render_tool_result(output_text="x", is_error=False)
 
-    result_blocks = [
-        b
-        for b in ui.components.transcript.history_blocks
-        if b[0] == "tool_result_custom"
-    ]
-    assert [tuple(b[1]) for b in result_blocks] == [("RESULT:first",)]
+    assert _tool_rows(ui) == [["CALL:first", "RESULT:first"]]
 
 
 def test_tui_renderer_pins_result_renderer_when_tool_is_removed(tmp_path):
     ui = _tui(tmp_path)
-    renderer = TuiToolLoopRenderer(
-        transcript=ui.components.transcript,
-        chrome=ui.components.chrome.record,
-        render_inputs=ui.components.screen.render_inputs,
-        tool_renderers={"kv": _renderer_pair("first")},
-    )
+    renderer = _renderer(ui, {"kv": _renderer_pair("first")}, tmp_path)
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({})
     renderer.render_tool_result(output_text="x", is_error=False)
 
-    result_blocks = [
-        b
-        for b in ui.components.transcript.history_blocks
-        if b[0] == "tool_result_custom"
-    ]
-    assert [tuple(b[1]) for b in result_blocks] == [("RESULT:first",)]
+    assert _tool_rows(ui) == [["CALL:first", "RESULT:first"]]

@@ -8,11 +8,13 @@ the model did not see the whole file. The file is read whole and decoded as
 UTF-8 with replacement characters; there is no size cap and no content
 refusal, as in Pi.
 
+The path resolves like Pi's ``resolveReadPath`` (READ2, see
+:mod:`pipy_harness.native.tools.path_utils`): relative to the working
+directory, ``~`` expanded, a leading ``@`` stripped, the macOS screenshot
+name variants tried, and no deny list, so any readable file can be read.
+
 Deviations from Pi, each tracked in ``docs/backlog.md``:
 
-- Paths resolve through pipy's shared ``resolve_tool_path`` (workspace plus
-  configured reference roots, ``.git``/``.gitignore`` refused) rather than
-  Pi's ``resolveReadPath`` (READ2).
 - Tool results are text-only, so a supported image returns an error instead
   of an image attachment (READ-IMG).
 - ``offset``/``limit`` are ``integer`` in pipy's schema subset, which has no
@@ -28,11 +30,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipy_harness.native.read_only_tool import (
-    ResolvedToolPath,
-    _is_ignored_or_generated,
-    resolve_tool_path,
-)
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -43,6 +40,7 @@ from pipy_harness.native.tools.base import (
 from pipy_harness.native.tools.image_mime import (
     detect_supported_image_mime_type_from_file,
 )
+from pipy_harness.native.tools.path_utils import resolve_read_path
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
@@ -107,23 +105,28 @@ class ReadTool:
         offset = _optional_int(request.arguments.get("offset"), "offset")
         limit = _optional_int(request.arguments.get("limit"), "limit")
 
-        resolved = self._resolve_target(path_arg, context)
-        if isinstance(resolved, _ReadFailure):
-            return self._error(request, resolved.message)
+        if not isinstance(path_arg, str):
+            raise ToolArgumentError(
+                "read", "path must be a string", field_path=("path",)
+            )
+        try:
+            resolved = resolve_read_path(path_arg, context.workspace_root)
+        except ValueError as exc:
+            return self._error(request, str(exc))
 
-        target_failure = self._validate_target(resolved.resolved)
+        target_failure = self._validate_target(resolved)
         if target_failure is not None:
             return self._error(request, target_failure.message)
 
         try:
-            mime_type = detect_supported_image_mime_type_from_file(resolved.resolved)
+            mime_type = detect_supported_image_mime_type_from_file(resolved)
         except OSError as exc:
             return self._error(request, f"failed to read file: {exc}")
         if mime_type is not None:
             return self._error(request, _image_message(mime_type))
 
         try:
-            raw = resolved.resolved.read_bytes()
+            raw = resolved.read_bytes()
         except OSError as exc:
             return self._error(request, f"failed to read file: {exc}")
 
@@ -135,31 +138,13 @@ class ReadTool:
         )
         if isinstance(output, _ReadFailure):
             return self._error(request, output.message)
+        text, details = output
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=output,
+            output_text=text,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
-
-    @staticmethod
-    def _resolve_target(
-        path_arg: object, context: ToolContext
-    ) -> ResolvedToolPath | _ReadFailure:
-        try:
-            if not isinstance(path_arg, str):
-                raise ValueError("path must be a string")
-            resolved = resolve_tool_path(
-                path_arg,
-                workspace_root=context.workspace_root,
-                reference_roots=context.reference_roots,
-            )
-        except ValueError as exc:
-            raise ToolArgumentError("read", str(exc), field_path=("path",)) from None
-        except OSError as exc:
-            return _ReadFailure(f"failed to resolve path: {exc}")
-        if _is_ignored_or_generated(resolved.relative_label, resolved.root):
-            return _ReadFailure("path is ignored or under .git/generated directories")
-        return resolved
 
     @staticmethod
     def _validate_target(candidate: Path) -> _ReadFailure | None:
@@ -199,8 +184,11 @@ def _image_message(mime_type: str) -> str:
 
 def _format_text(
     text: str, *, path: str, offset: int | None, limit: int | None
-) -> str | _ReadFailure:
+) -> tuple[str, dict[str, object] | None] | _ReadFailure:
     """Select and truncate lines exactly like Pi's `read` text branch.
+
+    Returns the output and Pi's ``details`` (``{truncation}`` when the line
+    or byte limit cut the output, else None).
 
     The offset/limit arithmetic is transcribed from Pi, including its
     JavaScript ``slice`` semantics for zero and negative values (Python
@@ -231,17 +219,21 @@ def _format_text(
             f"[Line {start_line_display} is {first_line_size}, exceeds "
             f"{format_size(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n "
             f"'{start_line_display}p' {path} | head -c {DEFAULT_MAX_BYTES}]"
-        )
+        ), {"truncation": truncation.to_details()}
     if truncation.truncated:
         end_line_display = start_line_display + truncation.output_lines - 1
         next_offset = end_line_display + 1
         shown = f"Showing lines {start_line_display}-{end_line_display} of {total_file_lines}"
+        details: dict[str, object] = {"truncation": truncation.to_details()}
         if truncation.truncated_by == "lines":
-            return f"{truncation.content}\n\n[{shown}. Use offset={next_offset} to continue.]"
+            return (
+                f"{truncation.content}\n\n[{shown}. Use offset={next_offset} to continue.]",
+                details,
+            )
         return (
             f"{truncation.content}\n\n[{shown} ({format_size(DEFAULT_MAX_BYTES)} "
             f"limit). Use offset={next_offset} to continue.]"
-        )
+        ), details
     if (
         user_limited_lines is not None
         and start_line + user_limited_lines < total_file_lines
@@ -251,8 +243,8 @@ def _format_text(
         return (
             f"{truncation.content}\n\n[{remaining} more lines in file. "
             f"Use offset={next_offset} to continue.]"
-        )
-    return truncation.content
+        ), None
+    return truncation.content, None
 
 
 __all__ = ["READ_TOOL_DESCRIPTION", "ReadTool"]

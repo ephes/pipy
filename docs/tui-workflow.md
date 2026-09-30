@@ -274,8 +274,9 @@ splicing a candidate at a stale offset.
 `@`-prefixed token at the cursor and offers a scored list of workspace-relative
 paths. Because pipy adds no dependency for this and must not require `fd`, the candidate walk
 uses `os.scandir`/`os.walk` with a bounded breadth (depth and entry caps) and a
-default-deny of `.git` and other ignored roots, matching the existing
-`ReadTool`/`file_references` path policy. Ranking mirrors Pi's `scoreEntry`:
+default-deny of `.git` and other ignored roots (pipy's
+`_is_ignored_or_generated` list; since READ2 the `read` tool and `@file` no
+longer apply it). Ranking mirrors Pi's `scoreEntry`:
 case-insensitive exact filename (highest), filename prefix, filename substring,
 then full-path substring, with a directory bonus, dropping zero-score entries and
 sorting by descending score. It is explicitly exact/prefix/substring scoring, not
@@ -386,8 +387,20 @@ normal prompt submit (matching Pi's `flushPendingBashComponents` timing, not an
 automatic flush on turn settle); a `!` submit while a bash command is already
 running is refused with a local warning and the text is restored. Escape cancels a
 running `!` command (terminating the child process group) without aborting the
-session. This reuses pipy's existing bash tool execution and bounding; it adds no
-new sandbox surface and runs no provider turn.
+session. This reuses pipy's existing bash tool execution; it adds no new sandbox
+surface and runs no provider turn.
+
+Output and record follow Pi (TOOLS2): the output is kept like Pi's
+`bash-executor.ts` (ANSI escapes and control characters removed, the last 2000
+lines / 50 KB, a `pipy-bash-<id>.log` temp file for the full output), the
+context record is Pi's `bashExecutionToText` text (``Ran `cmd` `` plus a fenced
+output block, `Command exited with code N` or `(command cancelled)`, and
+`[Output truncated. Full output: …]`), and the rows are Pi's
+`BashExecutionComponent`: the last 20 lines with `... N more lines (ctrl+o to
+expand)`, then `(exit N)` or `(cancelled)` and `Output truncated. Full output:
+…`, following Ctrl+O. With the terminal UI there is no time limit, as in Pi.
+Without a terminal (no cancel key) pipy keeps a 600-second bound and records a
+command killed by it as cancelled.
 
 ## Scoped-Model Cycling (Ctrl+P)
 
@@ -455,11 +468,12 @@ clamped by an RPC model switch.
 
 - `/thinking <level>` matches the model's available levels case-insensitively
   and applies the level for this session only. An unknown level reports
-  `Unknown thinking level "<x>". Available levels: …`.
+  `Error: Unknown thinking level "<x>". Available levels: …`.
 - A bare `/thinking` opens the Thinking Level selector. It lists only the levels
   the model's thinking map offers, each with Pi's description, marks the current
   level with `✓` and the settings default with `· default`, and preselects the
-  current level. Enter applies the level for the session. `app.thinking.save`
+  current level. Typing filters the levels (see Searchable Selectors below).
+  Enter applies the level for the session. `app.thinking.save`
   (default Ctrl+S, rebindable in `keybindings.json`) applies it and then saves it
   as `defaultThinkingLevel`. Esc cancels.
 - Without the TUI, a bare `/thinking` prints the current and available levels.
@@ -489,8 +503,50 @@ model) and `Cache Re-billed` (Pi `computeCacheWaste`). Pi's `Cache Warming`
 section is left out because pipy has no cache warming. The block is plain
 text; Pi styles its headings.
 
-Deviations: the selector has no fuzzy search box, and `/thinking` has no
-argument completion. Pipy's selectors and slash commands have neither yet.
+## Searchable Selectors And Slash Completion (DF1-F7b)
+
+pipy ports Pi's fuzzy matcher (`packages/tui/src/fuzzy.ts`, as
+`native/fuzzy.py`): every query character must appear in order, consecutive
+and word-boundary matches score better, and `fuzzyFilter` splits the query at
+whitespace and `/` and keeps items matching every token, best first. A
+differential test compares it with Pi's own code under Node.
+
+- `/model <ref>` switches when `<ref>` names exactly one model (Pi
+  `findExactModelReferenceMatch`: `provider/id`, then a unique id,
+  case-insensitive) among the scoped models, or the available models when
+  there is no scope. The switch is for this session only; the status reads
+  `Model: <id>`. Otherwise the selector opens with `<ref>` as its search.
+- The `/model` selector (Pi `ModelSelectorComponent`) replaces the editor
+  between two border lines. It lists only models whose provider has auth
+  (and that can run pipy's tool loop, which leaves out the `fake` bootstrap
+  model), the current model first (`✓`), then the saved default
+  (`· default`), then by provider. Typing filters (`provider provider/id provider id name`, plus
+  `default` for the default model; a prefix of `default` puts the default
+  first). With `enabledModels` set, Tab switches between the scoped list (in
+  pattern order) and all models. Enter switches for the session, Ctrl+S
+  (`app.models.save`) also saves the model as the default
+  (`Default model: <provider>/<id>`), Esc or Ctrl+C cancels. Pi also refreshes
+  remote catalogs while the selector is open; pipy does not.
+- The `/thinking` selector (Pi `ThinkingSelectorComponent`) has the same
+  search input, filtering `level description`.
+- The slash menu fuzzy-filters command names (a `skill:` prefix is ignored
+  first) and highlights the best match after every edit. Accepting a command
+  inserts `/<name> `. After `/model ` and `/thinking ` the popup offers the
+  command's arguments: models as `provider/id` (scoped, else available) and
+  the model's thinking levels. Enter or Tab puts the highlighted argument in
+  the editor without sending it.
+- The `/resume` search uses Pi's session search: fuzzy tokens, `"quoted
+  phrases"`, and `re:<pattern>` (case-insensitive) over the session id, name
+  and working directory. pipy keeps its `recent`/`name` sorts.
+- A slash command is not drawn as a user message. A prompt template or skill
+  run draws its expanded text, as a resumed session does. The plain REPL
+  (no TUI) still echoes every line.
+- Failures of `/model` and `/thinking` are red `Error: …` lines (Pi
+  `showError`), e.g. `Error: Unknown thinking level "x". Available levels: …`.
+
+The search input edits by code point: Pi's grapheme handling, undo, yank, word
+motion and word deletion are not ported. `/login` has no argument completion.
+The backlog DF1-F7b entry lists the other differences.
 
 ## Output/Thinking Folding (Ctrl+T) And Tool-Output Expansion (Ctrl+O)
 
@@ -511,15 +567,13 @@ a forward-looking render-mode toggle plus a re-render of the live history the UI
 still owns, not a mutation of bytes already in the host terminal's scrollback.
 Add two pipy-owned view flags on `TerminalUi`:
 
-- `tools_expanded` (toggled by `ctrl+o`): when collapsed (default), tool-result
-  blocks render the existing bounded preview (the last five lines behind
-  `... (N earlier lines, ctrl+o to expand)`); when expanded, they render the
-  full retained tool output up to the existing output bound. Plain tool results
-  (live and restored), `[compaction]`/`[branch]` summary rows and rich
-  extension message/entry rows keep their inputs, so a toggle re-renders them
-  in place and redraws the frame, like Pi's `setExpanded` on every component.
-  Rows drawn by an extension tool's `render_call`/`render_result` keep the form
-  they were committed with (DF1-F2b in `docs/backlog.md`).
+- `tools_expanded` (toggled by `ctrl+o`): switches every tool row between
+  Pi's collapsed and expanded renderer output (see "Tool rows" below).
+  Tool rows (live and restored, built-in and extension-rendered),
+  `[compaction]`/`[branch]` summary rows and rich extension message/entry
+  rows keep their inputs, so a toggle re-renders them and redraws the screen
+  with the terminal scrollback cleared (Pi's full render,
+  `\x1b[2J\x1b[H\x1b[3J`), like Pi's `setExpanded` on every component.
 - `thinking_hidden` (toggled by `ctrl+t`): hides or shows reasoning/thinking
   blocks for subsequent and live rendering, persisted in the non-secret local
   settings store, with a `Thinking blocks: hidden|visible` status.
@@ -527,6 +581,50 @@ Add two pipy-owned view flags on `TerminalUi`:
 Both toggles run no provider turn and mutate only renderer view state plus the
 non-secret settings file. When the tree selector is open, `ctrl+o`/`ctrl+t`
 follow the session-tree spec's filter semantics instead.
+
+## Tool Rows (TOOLS3)
+
+**Pi reference:** `ToolExecutionComponent`
+(`modes/interactive/components/tool-execution.ts`), the built-in renderers in
+`core/tools/renderers/{read,grep,find,ls,write,edit,bash}.ts`,
+`core/tools/render-utils.ts` and `components/diff.ts` (pi-mono `1b347794e`).
+
+Every model tool call is one row (`native/tool_rows.py`): a box with one
+column of padding and a blank row above and below, on Pi's
+`toolPendingBg` while the call runs, then `toolSuccessBg` or `toolErrorBg`.
+The running call's row is drawn in the live region (the inline scrollback
+cannot change printed rows) and committed once when its result arrives; a
+running `bash` call shows its streamed output in that box. Each tool draws
+with Pi's renderer:
+
+| Tool | Collapsed | Expanded |
+| --- | --- | --- |
+| `read` | `read <path>:<range>`; nothing else unless an error. `SKILL.md` reads show `[skill] <dir>`, `AGENTS.md`/`CLAUDE.md` reads `read resource <path>`, reads of pipy's own `README.md`/`docs/`/`examples/` `read docs <path>`, each with `(ctrl+o to expand)` | the header and every line, plus `[Truncated: …]` / `[First line exceeds …]` |
+| `grep` | 15 lines, `... (N more lines, ctrl+o to expand)` | every line |
+| `find`, `ls` | 20 lines | every line |
+| `write` | `write <path>`, the first 10 content lines, `... (N more lines, T total, ctrl+o to expand)`; a success adds nothing | every content line |
+| `edit` | its own box: the header, then the diff (numbered, context muted, removed red, added green, changed words of a one-line edit inverted) or the error | the same |
+| `bash` | `$ <command>`, the last 5 wrapped lines behind `... (N earlier lines, ctrl+o to expand)`, a `[Full output: … Truncated: …]` warning, `Elapsed Ns` (updated every second) while it runs, then `Took Ns` | every line |
+| extension tool | its `render_call`/`render_result` lines; without them `name key=value …` and the first 10 result lines | the renderers' expanded output; `key: value` lines |
+
+`grep`/`find`/`ls` add `[Truncated: N matches limit, 50.0KB limit, some lines
+truncated]` from the result's `details` in both states. A live `edit` computes
+its diff on a worker thread as the call starts (Pi's asynchronous preview; a
+slow or blocking file never holds the UI, and the result waits at most 0.5 s
+for it); the result's `details.diff` replaces it, a preview that arrives after
+the result is dropped, and a restored `edit` draws the stored diff. A terminal
+resize redraws every tool row at the new width, as Pi re-renders. Only `bash` shows a
+duration, and only live: Pi does not store it. A running `bash` row shows
+`Elapsed Ns` from the moment it starts, re-rendered every second (Pi's bash
+renderer `setInterval`), until the result replaces it with `Took Ns`. An extension tool's renderers
+run again on every redraw with the retained arguments, per-call `state`,
+result and `details`, and get the box's content width (two columns less than
+the terminal).
+
+Deviations: no syntax highlighting (Pi uses highlight.js; lines Pi would
+highlight keep the terminal's default colour) and no OSC 8 file links. The
+default `pi` theme uses Pi's `dark` colours. The captured (non-TTY)
+renderer keeps its line-oriented blocks.
 
 ## Queued Steering / Follow-Up During Active Turns
 
@@ -764,9 +862,10 @@ rather than only hiding chunks that keep arriving.
 - Honest affordances. Footer hints, the slash menu, the `@`/path popup, and the
   `/hotkeys` overlay advertise only what the dispatcher can actually do at the
   current state, matching pipy's existing honest-menu posture.
-- Path/image safety. The `@` picker, path completion, and drag/clipboard image
-  paste respect the existing workspace path policy, `.git`/ignored default-deny,
-  symlink/path-escape checks, and output bounds. Image bytes are written to
+- Path/image safety. The `@` picker and path completion respect the
+  workspace `.git`/ignored default-deny, symlink/path-escape checks, and
+  output bounds; the references they insert resolve like `read` (any path,
+  READ2). Image bytes are written to
   owner-only temp files and never enter the metadata archive.
 - Archive privacy is owned elsewhere. The TUI does not write the archive
   directly; persistence and redaction stay behind the native session-tree and

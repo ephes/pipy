@@ -258,6 +258,7 @@ def test_contributor_order_and_shared_render_inputs_are_exact(tmp_path: Path) ->
         "tree",
         "scoped_models",
         "model",
+        "search_selector",
     )
     lock = components.screen.paint_lock
     assert components.transcript._paint_lock is lock  # noqa: SLF001

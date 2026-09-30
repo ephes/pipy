@@ -27,6 +27,7 @@ OverlayKind = Literal[
     "scoped_models",
     "session_picker",
     "custom",
+    "search_selector",
 ]
 SettingsOverlayKind = Literal["settings", "project_trust"]
 _SETTINGS_OVERLAY_KINDS = frozenset({"settings", "project_trust"})
@@ -148,6 +149,10 @@ class OverlayState:
     session_project: list[SessionListEntry] = field(default_factory=list)
     session_all: list[SessionListEntry] = field(default_factory=list)
     session_now: float = 0.0
+
+    # Pi's searchable model/thinking selectors: a component with
+    # `render(width, style)` (ui/components/search_selectors.py).
+    search_selector: object | None = None
 
     custom_component: object | None = None
     custom_render_width: int | None = None
@@ -510,6 +515,14 @@ class OverlayState:
         self.session_query = ""
         self.session_project = []
         self.session_all = []
+
+    def begin_search_selector(self, component: object) -> None:
+        self.search_selector = component
+        self.activate("search_selector")
+
+    def end_search_selector(self) -> None:
+        self.close("search_selector")
+        self.search_selector = None
 
     def begin_custom(self, component: object, *, render_width: int | None) -> None:
         self.custom_done = False

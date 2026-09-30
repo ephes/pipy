@@ -280,10 +280,9 @@ are bounded automatically.
 | `--no-prompt-templates`, `-np` | Disable default prompt-template discovery; explicit templates still load |
 | `--theme PATH` | Load a theme TOML file or directory so it can be selected |
 | `--no-themes` | Disable package theme discovery; explicit and built-in themes remain available |
-| `--read-root PATH` | Add a read-only root for read/ls/grep/find absolute paths |
 
-`--read-root` is a pipy-owned harness convenience; mutation tools always stay
-inside the workspace.
+`read`, `ls`, `grep`, `find`, `write` and `edit` take any path, relative to
+`--cwd` or absolute, like Pi's tools.
 
 ### Other useful options
 

@@ -47,7 +47,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
 ### Changed
 
 - The system prompt is recorded as Pi's tagged sections (SYS1b): the untagged
-  `preamble` (default or custom prompt and reference roots), then
+  `preamble` (the default or custom prompt), then
   `<addendum>` (appended prompts, now wrapped in their tag), `<project_context>`,
   `<skills>`, a new `<cwd>` section with the working directory, and pipy's
   `<resume>` block. A later run patches only the sections that changed. A
@@ -59,10 +59,126 @@ entries oldest-first, and a version bump shows the new entries at startup.
   compat flags now receive such tools as ordinary definitions; Anthropic
   `tool_reference` result blocks are gone. Stored sessions no longer write
   `added_tool_names`.
-
+- Selectors and slash completion follow Pi (DF1-F7b). `/model <ref>` switches
+  only on an exact reference among the scoped or available models, for this
+  session only (`Model: <id>`); other text opens the model selector with it
+  as the search. The `/model` selector is Pi's: a search box with Pi's fuzzy
+  ranking, only models with configured auth, the current model and the saved
+  default marked, Tab between scoped and all models, Enter for the session
+  and Ctrl+S (`app.models.save`, rebindable) to also save the default. The
+  `/thinking` selector gains the same search box. The slash menu ranks
+  commands with Pi's fuzzy filter, accepting a command inserts `/<name> `,
+  and `/model` and `/thinking` complete their arguments. The `/resume`
+  search takes Pi's fuzzy tokens, `"phrases"` and `re:` patterns. Slash
+  commands are no longer drawn as user messages; a prompt template run draws
+  its expanded text. `/model` and `/thinking` failures are red `Error: …`
+  lines. The plain REPL keeps its `/model <ref>` resolver.
+- Tool calls in the terminal UI are drawn as Pi draws them (TOOLS3): one
+  padded box per call, grey while it runs, then green or red, with each
+  tool's own rows. A collapsed `read` shows `read <path>:<range>` (or
+  `[skill] <name>`, `read resource AGENTS.md`, `read docs …`); `grep` shows
+  15 lines and `find`/`ls` 20, with `[Truncated: …]` warnings; `write`
+  previews 10 lines of the content; `edit` shows its numbered diff in its box,
+  computed before the edit runs, with the changed words of a one-line edit
+  highlighted; `bash` shows `$ command`, the last 5 lines, a `[Full output: …]`
+  warning and `Took Ns`. The `$ ` prompt on non-bash rows, the
+  `[error] tool reported a failure` line and `Took` on non-bash rows are
+  gone. Ctrl+O now re-renders every tool row, extension-rendered ones
+  included, live and after a resume, and clears the scrollback like Pi.
+  Rows use Pi's `toolPendingBg`/`toolSuccessBg`/`toolErrorBg`/`toolOutput`
+  colours, which theme files can set (`tool_pending_bg_*`,
+  `tool_success_bg_*`, `tool_error_bg_*`, `tool_output_*`). There is no
+  syntax highlighting yet.
+- Tool results carry Pi's `details` and the session file stores them
+  (TOOLS3): truncation facts and limits for `read`/`grep`/`find`/`ls`/`bash`
+  (with `fullOutputPath`), `edit`'s `diff` and `firstChangedLine`, and an
+  extension tool's `ToolResult.details` (its JSON copy). They are never sent
+  to a provider, and restored rows draw from them.
 - The default `openai-codex` model is now `gpt-6.1-sol` (was `gpt-5.5`), as in
   Pi (MC6, Pi `12c416e1a`). `--native-provider openai-codex` without
   `--native-model` starts on it; the other defaults are unchanged.
+- `read`, `ls`, `grep`, `find`, `@file` and `@image:` resolve paths the way
+  Pi's tools do (READ2, Pi `path-utils.ts`): relative to the working
+  directory or absolute, with `~` expanded, a leading `@` stripped and unicode
+  spaces normalized, and without any deny list. Files under `.git`,
+  `.gitignore` matches, generated directories (`node_modules`, `build`,
+  `dist`, `.venv`, `.pipy`, …), suffixes such as `.lock`, `.map`, `.min.js`
+  and `.d.ts`, `..` and paths outside the workspace all read now, including
+  the `bash` full-output temp file. `read`, `@file` and `@image:` also try the
+  names macOS gives screenshots (a narrow no-break space before `AM`/`PM`,
+  NFD, a curly apostrophe). `ls` lists every entry. `grep` and `find` leave
+  out only what `rg --hidden` and `fd --hidden` leave out: `.git` is searched,
+  and `.gitignore` (inside a repository, and for `find` also outside one),
+  `.ignore`, `.rgignore`/`.fdignore` and `.git/info/exclude` apply. `grep`'s
+  Python fallback and `find` follow those rules, including rg's `glob`
+  override. `find` accepts patterns that start with `/` or contain `..` or
+  `\`.
+- `write` and `edit` follow Pi's tools (READ2b, Pi `write.ts`, `edit.ts`,
+  `edit-diff.ts`). Both resolve paths like the read tools, with no deny list
+  and no size cap. `write` creates parent directories and overwrites an
+  existing file. `edit` takes `edits[]` of `{oldText, newText}` (the
+  `old_string`/`new_string`/`replace_all` arguments are gone; a JSON-string
+  `edits`, a single edit object and top-level `oldText`/`newText` are still
+  accepted, as in Pi). Each `oldText` must match once, exactly or after Pi's
+  fuzzy normalization (trailing spaces, smart quotes, dashes, special
+  spaces), and the edits must not overlap. A UTF-8 BOM and CRLF line endings
+  survive the edit. Results and errors use Pi's texts (`Successfully wrote
+  to …`, `Successfully replaced N block(s) in ….`, `Could not find the exact
+  text in …`, Node's `EACCES: permission denied, open '…'`), and the diff row
+  shows Pi's numbered `+NN`/`-NN` lines. Mutations of one file are
+  serialized, as in Pi.
+- `bash` reports results like Pi (TOOLS2): the output alone on success; a
+  non-zero exit is an error ending in `Command exited with code N` (a
+  signal-killed shell reports `128 + n`), and a timeout or abort ends in
+  `Command timed out after N seconds` or `Command aborted`. The `exit code:
+  N` / `[output]` framing is gone.
+- The `!`/`!!` shortcut keeps its output like Pi's `bash-executor.ts`:
+  ANSI escapes and control characters are removed, the last 2000 lines or
+  50 KB are kept (was 16 KB) and the full output goes to a temp file. The
+  model sees Pi's `bash` message text (``Ran `cmd` `` with the output in a
+  fenced block, `Command exited with code N`, `(command cancelled)`, `[Output
+  truncated. Full output: …]`), and the rows show the last 20 lines with
+  `(exit N)`, `(cancelled)` and the full-output path, following Ctrl+O. In
+  the terminal UI a `!` command no longer stops after 600 seconds; Escape
+  cancels it, as in Pi.
+- Tool rows show Pi's headers: `grep /pattern/ in path (glob) limit N`,
+  `find pattern in path (limit N)`, `ls path (limit N)`, and `write`/`edit`
+  paths with the home directory shortened to `~`.
+- `ls` sorts like Pi's `localeCompare` (ICU root collation): punctuation,
+  then digits (`10` before `9`), then letters with accents and case as minor
+  differences, other scripts after Latin. pipy uses a collation table
+  measured on Node, so characters outside it can differ from Pi.
+- `find` and `grep`'s Python fallback apply the global git excludes file
+  (`core.excludesFile`, else `~/.config/git/ignore`) where rg and fd do.
+
+- The terminal UI follows Pi's look more closely (DF1-F7, Pi `1b347794e`):
+  - The default `pi` theme uses Pi's `dark` theme colours: accent, dim and
+    muted text, `[Context]` headings, errors, warnings, the blue user message
+    background, reasoning text and the tool boxes' 256-colour fallbacks. The
+    editor border takes the thinking level's colour and turns green while the
+    input starts with `!`; the ` ! bash ` label on the border is gone.
+  - `/compact` and automatic compaction redraw the chat as Pi does: the kept
+    messages, then the `[compaction]` row at once (a padded box in Pi's
+    summary colours, also for `[branch]` rows), instead of a
+    `compacted conversation context` notice.
+  - A running `bash` row shows `Elapsed Ns`, updated every second, until
+    `Took Ns` replaces it.
+  - Status lines lose the `pipy  pipy:` prefix and are dim, like Pi's; the
+    Ctrl+O, Ctrl+T, Shift+Tab and `/thinking` statuses use Pi's texts
+    (`Tool output: expanded`, `Thinking level: high`, …).
+  - Startup no longer leaves a stale editor frame above the header, and
+    `quietStartup` hides the header and resource listing in the terminal UI
+    too. The untrusted-project warning follows the restored session.
+  - `--print`, `--mode json` and `--mode rpc` no longer write the startup
+    chrome, prompt echo or footer to stderr; a successful run leaves stderr
+    empty.
+
+### Removed
+
+- `--read-root`, the `PIPY_READ_ROOTS` environment variable, the automatic
+  reference roots found in `AGENTS.md` and docs, and the `Reference roots`
+  block in the system prompt (READ2). They only widened what the read tools
+  could open; those tools now open any path, as in Pi.
 
 ### Fixed
 
@@ -98,8 +214,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   do (TOOLS1, Pi `4df157433`), and take Pi's parameters and descriptions:
   - `bash` keeps the last 2000 lines or 50 KB (was 16 KB), saves the full
     output to a temp file (`pipy-bash-<id>.log` in the system temp directory)
-    and ends with `[Showing lines X-Y of N. Full output: <path>]`. `read`
-    cannot open that file yet (READ2); the model pages it with `bash`.
+    and ends with `[Showing lines X-Y of N. Full output: <path>]`, which
+    `read` can open (READ2).
   - `grep` takes a regex (or `literal`), `glob`, `ignoreCase`, `context` and
     `limit` (default 100). Rows are `path:N: text` relative to the search
     path, with `path-N- text` context lines; long lines are cut to 500

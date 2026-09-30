@@ -38,6 +38,9 @@ from pipy_harness.native.ui.components.model_selector import (
 from pipy_harness.native.ui.components.scoped_models_selector import (
     scoped_models_region_lines,
 )
+from pipy_harness.native.ui.components.search_selectors import (
+    search_selector_region_lines,
+)
 from pipy_harness.native.ui.components.session_picker import (
     session_picker_region_lines,
 )
@@ -66,6 +69,7 @@ OverlayName = Literal[
     "tree",
     "scoped_models",
     "model",
+    "search_selector",
 ]
 
 
@@ -79,6 +83,9 @@ class TranscriptFrameSource(Protocol):
     thinking_hidden: bool
     hidden_thinking_label: str
     tools_expanded: bool
+    pending_tool_lines: tuple[str, ...]
+
+    def refresh_tool_rows(self) -> None: ...
 
 
 class InputFrameSource(Protocol):
@@ -106,6 +113,9 @@ class ScreenState:
     """All mutable terminal-frame bookkeeping guarded by one paint lock."""
 
     closed: bool = False
+    # Paints wait for the terminal UI's start (Pi renders once the startup
+    # components are in place), so no editor frame lands above the header.
+    deferred: bool = False
     painted_block_count: int = 0
     live_height: int = 0
     live_input_row: int = 0
@@ -210,6 +220,8 @@ class Screen:
         self._paint_lock = PaintLock(threading.RLock())
         self._state = ScreenState()
         self._sources: FrameSources | None = None
+        # The live thinking level for the editor border colour.
+        self._border_level: Callable[[], str] = lambda: "off"
         self.render_inputs = ScreenRenderInputs(
             self.frame_width, terminal_stream, self.tools_expanded
         )
@@ -233,6 +245,24 @@ class Screen:
         if self._sources is None:
             raise RuntimeError("screen frame sources are not bound")
         return self._sources
+
+    def defer_paints(self) -> None:
+        """Hold every paint until :meth:`resume_paints` (before startup)."""
+
+        with self._paint_lock:
+            self._state.deferred = True
+
+    def resume_paints(self) -> None:
+        """Allow paints again; the caller paints the first frame."""
+
+        with self._paint_lock:
+            self._state.deferred = False
+
+    def set_border_level_source(self, source: Callable[[], str]) -> None:
+        """Install the live thinking level the editor border shows."""
+
+        with self._paint_lock:
+            self._border_level = source
 
     def frame_width(self) -> int:
         return self._driver.size()[0]
@@ -259,6 +289,7 @@ class Screen:
             OverlayContributor("tree", self._tree_overlay),
             OverlayContributor("scoped_models", self._scoped_overlay),
             OverlayContributor("model", self._model_overlay),
+            OverlayContributor("search_selector", self._search_selector_overlay),
         )
         return OrderedFrameContributors(ordinary, overlays)
 
@@ -369,12 +400,24 @@ class Screen:
             footer_lines=self._overlay_footer(),
         )
 
+    def _search_selector_overlay(self, request: FrameRequest) -> Sequence[FrameLine]:
+        return search_selector_region_lines(
+            self._overlays,
+            width=request.width,
+            height=request.height,
+            footer_lines=self._overlay_footer(),
+            style=self._style(),
+        )
+
     def force_full_redraw(self, *, clear_scrollback: bool = False) -> None:
         # ``clear_scrollback`` also erases the terminal scrollback (Pi's
         # clearing full render, ``\x1b[2J\x1b[H\x1b[3J``) so a replaced
         # conversation does not linger above the redrawn one.
         clear = "\x1b[2J\x1b[H\x1b[3J" if clear_scrollback else "\x1b[2J\x1b[H"
         with self._paint_lock:
+            if self._state.deferred:
+                # Nothing is on the screen yet; the first paint draws it all.
+                return
             if not self._driver.write_deferred(clear):
                 return
             self._reset_live_state()
@@ -409,7 +452,7 @@ class Screen:
 
     def request_render(self) -> None:
         with self._paint_lock:
-            if self._state.closed:
+            if self._state.closed or self._state.deferred:
                 return
             if self._state.painting:
                 self._state.paint_requested_during_paint = True
@@ -418,7 +461,7 @@ class Screen:
 
     def paint(self) -> None:
         with self._paint_lock:
-            if self._state.closed:
+            if self._state.closed or self._state.deferred:
                 return
             if self._state.painting:
                 self._state.paint_requested_during_paint = True
@@ -543,6 +586,8 @@ class Screen:
             overlay=overlay,
             cursor_visible=self._overlays.active is None,
             working_warning=transcript.working_warning,
+            pending_tool=tuple(transcript.pending_tool_lines),
+            thinking_level=self._border_level(),
         )
 
     def read_driver_key(self, key: str | None) -> str | None:
@@ -574,14 +619,19 @@ class Screen:
 
     def _repaint_after_resize(self) -> None:
         with self._paint_lock:
-            if self._state.closed:
+            if self._state.closed or self._state.deferred:
                 return
             if not self._driver.write_deferred("\x1b[2J\x1b[H"):
                 return
+            # Tool rows are drawn at a width (Pi re-renders every component at
+            # the new width), so redraw them before the frame repaints.
+            self._require_sources().transcript.refresh_tool_rows()
             self._reset_live_state()
             self._paint()
 
     def drive(self, owner: DriveOwner[T]) -> T:
+        # A modal needs the screen even before startup finished.
+        self.resume_paints()
         result: DriveResult[T] | None = None
         raw_mode_acquired = False
         try:

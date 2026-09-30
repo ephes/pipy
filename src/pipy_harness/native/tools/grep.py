@@ -12,17 +12,18 @@ limit=200 for more, or refine pattern]`` style notice when a cap applies.
 Pi runs ``rg --json`` (downloading ripgrep when it is missing). pipy runs
 ``rg`` when it is on ``PATH`` and otherwise
 :mod:`pipy_harness.native.tools.grep_fallback`, a Python search with rg's
-rules and rg's JSON output (``re`` instead of Rust regex syntax, and only the
-root ``.gitignore``). Both run as a child process that the tool reads
-line by line, kills at the match limit, and kills when ``cancel_event`` is
-set, so a pathological regex in the fallback can be stopped.
+rules and rg's JSON output (``re`` instead of Rust regex syntax; the ignore
+rules of :mod:`pipy_harness.native.tools.ignore_walk`). Both run as a child
+process that the tool reads line by line, kills at the match limit, and kills
+when ``cancel_event`` is set, so a pathological regex in the fallback can be
+stopped.
 
-``rg`` runs in the resolved root (the workspace, or the reference root for a
-``--read-root`` path); Pi runs it in its process cwd. Deviations from Pi,
-each tracked in ``docs/backlog.md``: paths resolve through pipy's
-``resolve_tool_path``, and ``.git``, ``.gitignore`` matches and generated
-paths are refused as a search root and dropped from rg's results before the
-limit counts them (READ2); ``context``/``limit`` are ``integer``.
+The path resolves like Pi's ``resolveToCwd`` (READ2, see
+:mod:`pipy_harness.native.tools.path_utils`), and results are not filtered
+further: what rg's own rules keep (``.git`` and hidden files included,
+``.gitignore``/``.ignore``/``.rgignore`` matches left out) is what the model
+sees. ``rg`` runs in the working directory, Pi's process cwd. Deviation from
+Pi, tracked in ``docs/backlog.md``: ``context``/``limit`` are ``integer``.
 """
 
 from __future__ import annotations
@@ -41,10 +42,6 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pipy_harness.native.read_only_tool import (
-    _is_ignored_or_generated,
-    resolve_tool_path,
-)
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -52,7 +49,7 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
-from pipy_harness.native.tools.grep_fallback import kept
+from pipy_harness.native.tools.path_utils import resolve_to_cwd
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     GREP_MAX_LINE_LENGTH,
@@ -176,33 +173,28 @@ class GrepTool:
             matches = _search(options, location, context.cancel_event)
         except _GrepFailure as exc:
             return self._error(request, str(exc))
+        output, details = _format_output(matches, options, location)
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=_format_output(matches, options, location),
+            output_text=output,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
     @staticmethod
     def _location(path_arg: object, context: ToolContext) -> _Location | str:
-        if path_arg == ".":
-            workspace = context.workspace_root.resolve()
-            return _Location(workspace, workspace, is_directory=True)
-        try:
-            if not isinstance(path_arg, str):
-                raise ValueError("path must be a string")
-            resolved = resolve_tool_path(
-                path_arg,
-                workspace_root=context.workspace_root,
-                reference_roots=context.reference_roots,
+        if not isinstance(path_arg, str):
+            raise ToolArgumentError(
+                "grep", "path must be a string", field_path=("path",)
             )
+        try:
+            search_path = resolve_to_cwd(path_arg, context.workspace_root)
         except ValueError as exc:
-            raise ToolArgumentError("grep", str(exc), field_path=("path",)) from None
-        if _is_ignored_or_generated(resolved.relative_label, resolved.root):
-            return "path is ignored or under .git/generated directories"
-        if not resolved.resolved.exists():
+            return str(exc)
+        if not search_path.exists():
             return "path does not exist"
         return _Location(
-            resolved.resolved, resolved.root, is_directory=resolved.resolved.is_dir()
+            search_path, context.workspace_root, is_directory=search_path.is_dir()
         )
 
     def _error(self, request: ToolRequest, message: str) -> ToolExecutionResult:
@@ -392,8 +384,6 @@ def _rg_match(line: bytes, root: Path) -> _Match | None:
     file_path = Path(path_text)
     if not file_path.is_absolute():
         file_path = root / file_path
-    if not kept(file_path, root):
-        return None
     lines = data.get("lines")
     line_text = lines.get("text") if isinstance(lines, dict) else None
     return _Match(
@@ -464,9 +454,13 @@ class _Formatter:
         return block
 
 
-def _format_output(matches: _Matches, options: _Options, location: _Location) -> str:
+def _format_output(
+    matches: _Matches, options: _Options, location: _Location
+) -> tuple[str, dict[str, object] | None]:
+    """The output and Pi's ``details`` (omitted when no limit was hit)."""
+
     if not matches.items:
-        return "No matches found"
+        return "No matches found", None
     formatter = _Formatter(location, options.context)
     rows: list[str] = []
     for match in matches.items:
@@ -474,21 +468,25 @@ def _format_output(matches: _Matches, options: _Options, location: _Location) ->
     truncation = truncate_head("\n".join(rows), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
+    details: dict[str, object] = {}
     if matches.limit_reached:
         notices.append(
             f"{options.limit} matches limit reached. Use limit={options.limit * 2} "
             "for more, or refine pattern"
         )
+        details["matchLimitReached"] = options.limit
     if truncation.truncated:
         notices.append(f"{format_size(DEFAULT_MAX_BYTES)} limit reached")
+        details["truncation"] = truncation.to_details()
     if formatter.lines_truncated:
         notices.append(
             f"Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool "
             "to see full lines"
         )
+        details["linesTruncated"] = True
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output
+    return output, details or None
 
 
 __all__ = ["DEFAULT_LIMIT", "GREP_TOOL_DESCRIPTION", "GrepTool"]

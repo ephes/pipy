@@ -10,7 +10,9 @@ canonical ``agent`` value types.  The outer rendering adapter holds a
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from typing import Any
 
 from pipy_harness.native.agent.events import (
     AgentEvent,
@@ -137,6 +139,8 @@ class RenderToolResult:
     output_text: str
     is_error: bool
     duration_seconds: float | None
+    # Pi ``ToolResultMessage.details`` for the tool's result renderer.
+    details: Mapping[str, Any] | None = field(default=None, compare=False)
 
 
 RenderDecision = (
@@ -270,6 +274,7 @@ def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
                     output_text=event.result.content.value,
                     is_error=event.result.is_error,
                     duration_seconds=event.duration_seconds,
+                    details=event.result.details,
                 ),
             ),
         )

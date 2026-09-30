@@ -1573,24 +1573,28 @@ and the live `scripts/tmux_answer_verify.sh`.
     `render_call(ctx)` and `render_result(ctx)` callables that return a
     `ToolRenderComponent` (use the `lines_component(...)` convenience to wrap
     pre-rendered lines). pipy dispatches them when rendering that extension's own
-    tool rows — in the product TUI and in captured (non-TTY) output — and commits
-    the pre-styled lines under dedicated `tool_call_custom`/`tool_result_custom`
-    line-kinds with default band framing. The renderer receives a read-only
-    `ToolRenderContext` (`tool_name`, `args`, `is_result`, `is_error`, `content`,
-    `details`, `expanded`, `width`, `theme`, and a `state` mapping shared from
-    `render_call` to `render_result` for one tool execution); the extension's
-    `ToolResult.details` reaches `render_result` through an in-memory,
-    correlation-keyed sink that is never archived or sent to the provider. A
-    bounded `ToolRenderTheme` (`theme.fg(color, text)` / `theme.bold` /
-    `theme.dim`, with semantic colors `text`/`accent`/`success`/`warning`/`error`/
-    `dim`) maps onto the active chrome palette and emits plain text when color is
-    disabled (captured / `NO_COLOR`). Rendering is **render-once / snapshot**: the
-    component's `render(width)` is called once per phase, output is coerced and
-    length-bounded, and there is no live `invalidate`/re-render runtime yet. The
-    whole path is **fail-soft**: a renderer (or its `render()`) that raises,
-    returns a non-component, or returns an uncoercible value falls back to pipy's
-    default tool-row rendering. Deferred: live invalidation/partial updates,
-    `renderShell:"self"` self-framing, and overriding built-in tool renderers.
+    tool rows — in the product TUI and in captured (non-TTY) output. In the TUI
+    their lines fill the tool's Pi box (pending, then success or error
+    background; `docs/tui-workflow.md` "Tool rows"). The renderer receives a
+    read-only `ToolRenderContext` (`tool_name`, `args`, `is_result`, `is_error`,
+    `content`, `details`, `expanded`, `width`, `theme`, and a `state` mapping
+    shared from `render_call` to `render_result` for one tool execution); the
+    extension's `ToolResult.details` reaches `render_result` on the tool result
+    itself, and like Pi the session file stores it (the JSON copy; a value that
+    does not survive a JSON round trip becomes `None`, live and restored
+    alike). It is never sent to the provider. A bounded `ToolRenderTheme`
+    (`theme.fg(color, text)` / `theme.bold` / `theme.dim`, with semantic colors
+    `text`/`accent`/`success`/`warning`/`error`/`dim`) maps onto the active
+    chrome palette and emits plain text when color is disabled (captured /
+    `NO_COLOR`). In the TUI the row keeps its inputs and both renderers run
+    again on every redraw — Ctrl+O, live and after a resume — with the new
+    `expanded` flag and the same `state`, like Pi's `setExpanded`; `width` is
+    the box's content width (the terminal width less two columns). The whole
+    path is **fail-soft**: a renderer (or its `render()`) that raises, returns a
+    non-component, or returns an uncoercible value falls back to Pi's generic
+    rows (`name key=value …` and the first 10 result lines). Deferred: live
+    invalidation/partial updates, `renderShell:"self"` self-framing, and
+    overriding built-in tool renderers.
     The extension tool-renderer map now refreshes on `/reload`: renderers added,
     removed, or changed by the reloaded extension generation are applied to the
     existing session renderer without restarting, and stale renderers disappear

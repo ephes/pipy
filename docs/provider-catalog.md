@@ -106,8 +106,9 @@ Known deviations, owned by later slices:
 - **Anthropic mid-conversation managed effort.** On Pi rows with
   `supportsMidConvoEffort`, Pi sends `output_config` effort system messages
   before assistant turns (backlog SYS1c); pipy does not carry the flag.
-- **No clamp on an explicit `/model provider/model:level` suffix.** Pi clamps
-  it, while pipy passes it through.
+- **No clamp on an explicit `provider/model:level` suffix** (the plain REPL's
+  `/model`, `--model`). Pi clamps it, while pipy passes it through. The TUI's
+  `/model` takes no suffix: like Pi it matches exact references only.
 - **The Responses on-state keeps pipy's `{effort}` shape.** Pi adds
   `summary`/`include`.
 - **Prompt caching metadata, built-in pricing tiers and refusal fallback
@@ -326,10 +327,13 @@ openai-completions) construct from the catalog via `native/provider_construction
   env shim synthesizes the same entry.
 - **CLI/REPL** (`native/catalog_state.py`, `cli.py`, `native/repl_state.py`):
   `--list-models [search]` (Pi column parity, verified live against
-  `pi --list-models`), the `/model` selector / `model_options()` over the full
-  catalog with the shared availability gate (the tool-capability probe builds
-  via `provider_for`, so a custom provider is probed as it will be used), and
-  direct `/model <ref>` resolved through the shared `resolve_cli_model`
+  `pi --list-models`), the TUI `/model` selector over the available models
+  (`get_available()`, Pi `getAvailableSnapshot`) and `/model <ref>` by Pi's
+  exact reference match (DF1-F7b), the settings dialog's list /
+  `model_options()` over the full catalog with the shared availability gate
+  (the tool-capability probe builds via `provider_for`, so a custom provider
+  is probed as it will be used), and the plain REPL's direct `/model <ref>`
+  resolved through the shared `resolve_cli_model`
   (exact/bare/fuzzy/`:level`/colon-in-id/invalid-suffix fallback) gated by
   availability. Extension `ctx.set_model(...)` uses the same resolver and
   construction boundary through a detached three-phase adapter: fallible

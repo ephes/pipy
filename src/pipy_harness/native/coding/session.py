@@ -126,7 +126,6 @@ class CodingSession:
     tool_budget: int = 50
     workspace_root: Path | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
-    reference_roots: tuple[Path, ...] = field(default_factory=tuple)
     # Pi's tagged sections of the prompt ``run`` gets (wiring checks them).
     system_prompt_sections: tuple[tuple[str, str], ...] = ()
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = (
@@ -307,7 +306,6 @@ class CodingSession:
                 native_session=self.native_session,
                 prompt_history_store=self.prompt_history_store,
                 provider_state=self.provider_state,
-                reference_roots=self.reference_roots,
                 resource_options=self.resource_options,
                 resume_branch_label=self.resume_branch_label,
                 resume_context=self.resume_context,

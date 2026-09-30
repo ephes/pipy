@@ -506,23 +506,6 @@ def _validate_safe_label(value: str, *, field_name: str) -> None:
         raise ValueError(f"{field_name} must not be a filesystem path")
 
 
-def _resolved_relative_label(candidate: Path, workspace: Path) -> str | None:
-    """Return the workspace-relative POSIX label for a resolved candidate, or
-    `None` when the candidate is not inside the workspace.
-
-    The Tool-Loop Parity Track tools use this to re-check
-    `_is_ignored_or_generated` against the path the filesystem actually
-    points at, which closes the symlink-bypass gap where the original
-    model-supplied label (for example, `gitconfig_link`) would not match
-    `_GENERATED_PARTS` even though it resolves into `.git`.
-    """
-
-    try:
-        return candidate.relative_to(workspace).as_posix()
-    except ValueError:
-        return None
-
-
 def _is_ignored_or_generated(relative_path: str, workspace: Path) -> bool:
     posix_path = PurePosixPath(relative_path)
     if any(part in _GENERATED_PARTS for part in posix_path.parts):
@@ -650,8 +633,10 @@ def _is_relative_to(candidate: Path, workspace: Path) -> bool:
 class ResolvedToolPath:
     """A safely resolved tool path with its containing root.
 
-    Returned by `resolve_tool_path` for the bounded read-only model-driven
-    tool loop. `root` is the workspace or the matching reference root the
+    Returned by `resolve_tool_path`, the path policy of the allowlisted
+    command sandbox (`command_sandbox.py`); the model-visible read tools use
+    Pi's resolution in `tools/path_utils.py` instead (READ2). `root` is the
+    workspace or the matching reference root the
     candidate lives under. `relative_label` is the POSIX path relative to
     that root (used for `.gitignore`/`.git` checks and for the model-visible
     output). `display_label` is the user-facing label: the relative label

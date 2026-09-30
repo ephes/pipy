@@ -484,7 +484,7 @@ D2p supplies reusable internal methods within `CodingSessionAdapter` in
 `prepare_session_context(cwd)` accepts an expanded, resolved and validated
 workspace directory and resolves the
 provider, fail-closed default settings (`project_trusted=False`), system prompt,
-instruction/skill composition and bounded reference roots. Its private prepared
+and instruction/skill composition. Its private prepared
 value retains the provider and settings identities. `build_session(context)`
 uses that value and the adapter's configured options to construct `CodingSession`
 without entering its lifetime. Call both methods on the same configured adapter,

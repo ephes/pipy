@@ -797,14 +797,20 @@ the latest compaction entry, then the entries its cut keeps):
 
 The rows replace everything after the startup header. At startup they are
 appended; otherwise the screen and the terminal scrollback are cleared and
-redrawn (Pi's clearing full render, `\x1b[2J\x1b[H\x1b[3J`). Plain tool
-results keep their full lines, so Ctrl+O expands and collapses live and
-restored results alike.
+redrawn (Pi's clearing full render, `\x1b[2J\x1b[H\x1b[3J`). Tool rows keep
+their arguments, result and stored `details`, so Ctrl+O expands and collapses
+live and restored rows alike, extension-rendered ones included (TOOLS3). A
+call without a result stays a pending row. A restored `bash` row has no
+`Took` line, as in Pi, which does not store durations either.
 
-Not restored, because pipy does not store them: reasoning text, tool-result
-details and durations, aborted-turn markers (DF1-F6) and Pi's skill-invocation
-block. Extension-rendered tool rows keep the expansion they were drawn with
-(DF1-F2b).
+Tool results store Pi's `details` (a JSON object, `details` on the `tool`
+message, written only when the tool returned one): `truncation`,
+`matchLimitReached`, `resultLimitReached`, `entryLimitReached`,
+`linesTruncated`, `fullOutputPath`, edit's `diff`/`firstChangedLine` and an
+extension tool's `ToolResult.details`. Provider requests never read them.
+
+Not restored, because pipy does not store them: reasoning text, aborted-turn
+markers (DF1-F6) and Pi's skill-invocation block.
 
 **Model and thinking.** Pi `createAgentSession` (`core/sdk.ts:194-263`)
 restores an opened session's settings every time a runtime is created. pipy

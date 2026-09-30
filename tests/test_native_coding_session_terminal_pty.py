@@ -329,7 +329,10 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
     ]
     assert separator_rows, f"{label}: input frame separators missing"
     # The input frame lives in the lower portion of the window (full height).
-    assert max(separator_rows) >= rows - 6
+    # Typing `/copy` opens Pi's fuzzy slash menu (up to five rows plus the
+    # `(i/n)` line) and no user message is drawn for the command, so closing
+    # the menu leaves up to that many blank rows under the frame.
+    assert max(separator_rows) >= rows - 12
 
     # Scroll/review: the earliest answer line was printed into the buffer but
     # has scrolled off the live viewport. Because the renderer never used the
@@ -488,32 +491,32 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         assert (
             wait_for_input_ready_after(
                 err_chunks,
-                "Select provider/model",
+                "Only showing models from configured providers",
                 after=selector_start,
             )
             is not None
         ), "selector input never became ready"
-        # The selector lists availability state and reasons.
+        # Pi's selector lists the available models with the highlighted
+        # model's name below the list.
         assert (
-            wait_for_output(err_chunks, "[available]", after=selector_start) is not None
-        ), "availability state missing"
+            wait_for_output(err_chunks, "Model Name: ", after=selector_start)
+            is not None
+        ), "model list missing"
         # Opening the selector runs no provider turn.
         assert seen == [], "selector opened a provider turn"
-        # Navigate up one row from the current openrouter/openai/gpt-5.1-codex
-        # row (the catalog lists it directly after the available
-        # openai-completions rows), then choose the available row above it.
-        navigation_start = len(output_bytes(err_chunks))
-        os.write(in_master, b"\x1b[A")  # up arrow
+        # Typing searches: the fuzzy filter leaves the one matching row.
+        search_start = len(output_bytes(err_chunks))
+        os.write(in_master, b"gpt-4.1")
         assert (
-            wait_for_output(err_chunks, "Select provider/model", after=navigation_start)
+            wait_for_output(err_chunks, "Model Name: GPT-4.1", after=search_start)
             is not None
-        ), "selector navigation did not repaint"
+        ), "search did not repaint"
         selection_start = len(output_bytes(err_chunks))
-        os.write(in_master, b"\r")  # enter selects the highlighted available row
+        os.write(in_master, b"\r")  # enter selects the highlighted row
         assert (
             wait_for_input_ready_after(
                 err_chunks,
-                "selected model openai-completions/gpt-4.1",
+                "Model: gpt-4.1",
                 after=selection_start,
             )
             is not None
@@ -2580,9 +2583,10 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
             f"{label}: active command input never became ready"
         )
         os.write(in_master, b"\x1b")
-        assert (
-            wait_for_input_ready_after(err_chunks, "cancelled by escape") is not None
-        ), f"{label}: post-cancel input never became ready"
+        # Pi's BashExecutionComponent status for a cancelled command.
+        assert wait_for_input_ready_after(err_chunks, "(cancelled)") is not None, (
+            f"{label}: post-cancel input never became ready"
+        )
         # Session is still usable.
         third_turn_start = len(output_bytes(err_chunks))
         os.write(in_master, b"still here\n")
@@ -2985,7 +2989,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
         os.write(in_master, b"\x1b[Z")
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking level: low", after=low_start
+                err_chunks, "Thinking level: low", after=low_start
             )
             is not None
         ), f"{label}: shift+tab did not return to ready input"
@@ -2995,7 +2999,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
         os.write(in_master, b"\x1b[Z")
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking level: medium", after=medium_start
+                err_chunks, "Thinking level: medium", after=medium_start
             )
             is not None
         ), f"{label}: second shift+tab did not return to ready input"
@@ -3075,7 +3079,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         os.write(in_master, b"\x14")  # ctrl+t toggles thinking visibility
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking blocks: hidden", after=hidden_start
+                err_chunks, "Thinking blocks: hidden", after=hidden_start
             )
             is not None
         ), f"{label}: ctrl+t did not return to ready input"
@@ -3084,7 +3088,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         os.write(in_master, b"\x14")  # toggle back
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking blocks: visible", after=visible_start
+                err_chunks, "Thinking blocks: visible", after=visible_start
             )
             is not None
         ), f"{label}: second ctrl+t did not return to ready input"
@@ -3092,7 +3096,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         os.write(in_master, b"\x0f")  # ctrl+o expands tool output
         assert (
             wait_for_input_ready_after(
-                err_chunks, "tool output: expanded", after=expanded_start
+                err_chunks, "Tool output: expanded", after=expanded_start
             )
             is not None
         ), f"{label}: ctrl+o did not return to ready input"
@@ -3824,7 +3828,7 @@ def test_pty_manual_compaction_cancellation_preserves_steering_and_follow_up(
     captured = _run_editor_pty(
         monkeypatch, tmp_path, provider, drive, native_session=tree
     )
-    assert "pipy: compaction cancelled." in captured
+    assert "compaction cancelled." in captured
     assert provider.user_prompts == [
         "Provide the combined context summary now.",
         "manual steering",

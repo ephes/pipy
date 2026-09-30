@@ -7,7 +7,6 @@ import math
 import os
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
-from dataclasses import dataclass
 from typing import Any, ClassVar, TextIO, TypedDict
 
 from pipy_harness.native.agent import (
@@ -29,9 +28,9 @@ from pipy_harness.native.extension_types import (
     ToolRenderTheme,
 )
 from pipy_harness.native.extension_ui import coerce_tool_render_lines
-from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.tool_headers import pi_tool_call_header
 
 
 class _PaletteToolRenderTheme:
@@ -176,25 +175,6 @@ def render_chrome_component(
     return lines
 
 
-@dataclass(frozen=True, slots=True)
-class _ExtensionRenderDetailsSinks:
-    """Typed render-details handoff for one terminal or captured renderer."""
-
-    writer: ToolRenderDetailsWriter
-    tui: dict[str, object | None] | None = None
-    captured: dict[str, object | None] | None = None
-
-
-def _extension_render_details_sinks(
-    has_terminal_ui: bool,
-) -> _ExtensionRenderDetailsSinks:
-    if has_terminal_ui:
-        tui: dict[str, object | None] = {}
-        return _ExtensionRenderDetailsSinks(writer=tui, tui=tui)
-    captured: dict[str, object | None] = {}
-    return _ExtensionRenderDetailsSinks(writer=captured, captured=captured)
-
-
 class _PendingCapturedToolRender(TypedDict):
     corr: str
     args: dict[str, object]
@@ -260,7 +240,6 @@ class _ToolLoopRenderer:
         output_stream: TextIO,
         error_stream: TextIO,
         tool_renderers: "Mapping[str, ExtensionTool] | None" = None,
-        render_details_sink: "MutableMapping[str, object] | None" = None,
     ) -> None:
         self._output_stream = output_stream
         self._error_stream = error_stream
@@ -290,10 +269,10 @@ class _ToolLoopRenderer:
         self._reasoning_active = False
         self._reasoning_emitted_any = False
         self._tool_renderers = dict(tool_renderers or {})
-        self._render_details_sink = render_details_sink
         self._pending_render: _PendingCapturedToolRender | None = None
         self._pending_tool: "ExtensionTool | None" = None
         self._last_tool_name = ""
+        self._last_arguments: dict[str, object] = {}
 
     def refresh_tool_renderers(
         self, tool_renderers: "Mapping[str, ExtensionTool]"
@@ -723,6 +702,7 @@ class _ToolLoopRenderer:
         self._clear_working()
         self._close_reasoning()
         self._last_tool_name = call.tool_name
+        self._last_arguments = _parse_tool_input(call.arguments_json.value)
         self._pending_render = None
         self._pending_tool = None
         tool = self._tool_renderers.get(call.tool_name)
@@ -783,16 +763,51 @@ class _ToolLoopRenderer:
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> None:
         pending = self._pending_render
         tool = self._pending_tool
         self._pending_render = None
         self._pending_tool = None
-        lines = self._extension_result_lines(pending, tool, output_text, is_error)
+        lines = self._extension_result_lines(
+            pending, tool, output_text, is_error, details
+        )
         if lines is not None:
             self._write_extension_result(lines, duration_seconds)
             return
+        self._write_mutation_preview(is_error, details)
         self._write_default_result(output_text, is_error, duration_seconds)
+
+    def _write_mutation_preview(
+        self, is_error: bool, details: Mapping[str, Any] | None
+    ) -> None:
+        """The edit diff or write content, where the tools used to print it.
+
+        The tools no longer write side output (Pi's renderers draw both); this
+        line-oriented renderer shows them before the result body, from the
+        result's ``details.diff`` and the call's ``content`` argument.
+        """
+
+        if is_error:
+            return
+        text = ""
+        if self._last_tool_name == "edit" and details is not None:
+            diff = details.get("diff")
+            text = diff if isinstance(diff, str) else ""
+        elif self._last_tool_name == "write":
+            content = self._last_arguments.get("content")
+            if isinstance(content, str):
+                lines = content.replace("\r", "").replace("\t", "   ").split("\n")
+                while lines and lines[-1] == "":
+                    lines.pop()
+                text = "\n".join(lines)
+        if text:
+            try:
+                with self._terminal_lock:
+                    self._error_stream.write(text)
+                    self._error_stream.flush()
+            except (ValueError, OSError):
+                pass
 
     def _extension_result_lines(
         self,
@@ -800,12 +815,10 @@ class _ToolLoopRenderer:
         tool: ExtensionTool | None,
         output_text: str,
         is_error: bool,
+        details: Mapping[str, Any] | None,
     ) -> list[str] | None:
         if pending is None or tool is None or tool.render_result is None:
             return None
-        details = None
-        if self._render_details_sink is not None:
-            details = self._render_details_sink.pop(str(pending["corr"]), None)
         return self._dispatch_render(
             tool.render_result,
             pending["args"],
@@ -875,25 +888,22 @@ class _ToolLoopRenderer:
         *,
         is_result: bool,
         content: str | None,
-        details: object | None,
+        details: Mapping[str, Any] | None,
         is_error: bool,
     ) -> list[str] | None:
         style = chrome_style_for(self._error_stream)
-        typed_details = details if isinstance(details, Mapping) else None
         ctx = ToolRenderContext(
             tool_name=self._last_tool_name,
             args=args,
             is_result=is_result,
             is_error=is_error,
             content=content,
-            details=typed_details,
+            details=details,
             expanded=False,
             width=80,
             theme=build_tool_render_theme(style),
             state=state,
         )
-        if details is not None and typed_details is None:
-            object.__setattr__(ctx, "details", details)
         return render_tool_phase(renderer, ctx)
 
     def _tool_panel_line(
@@ -1014,74 +1024,12 @@ class _ToolLoopRenderer:
                 (path, plain),
                 (range_label, yellow),
             ]
-        if tool_name == "ls":
-            return [
-                ("ls", bold),
-                (" ", plain),
-                (str(data.get("path", ".")), plain),
-            ]
-        if tool_name == "grep":
-            return [
-                ("grep", bold),
-                (" ", plain),
-                (f'"{data.get("pattern", "")}"', plain),
-                (" ", plain),
-                (str(data.get("path", ".")), plain),
-            ]
-        if tool_name == "find":
-            return [
-                ("find", bold),
-                (" ", plain),
-                (f'"{data.get("pattern", "")}"', plain),
-                (" ", plain),
-                (str(data.get("path", ".")), plain),
-            ]
-        if tool_name in {"write", "edit"}:
-            return [
-                (tool_name, bold),
-                (" ", plain),
-                (str(data.get("path", "")), plain),
-            ]
+        header = pi_tool_call_header(tool_name, data)
+        if header is not None:
+            title, rest = header
+            return [(title, bold), (" ", plain), (rest, plain)]
         preview = self._argument_preview(arguments_json)
         return [(f"{tool_name}({preview})", bold)]
-
-    @staticmethod
-    def _header_data(arguments_json: str) -> dict[str, object]:
-        try:
-            data = json.loads(arguments_json)
-        except (json.JSONDecodeError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    def _format_pi_call_header(self, tool_name: str, arguments_json: str) -> str:
-        """Render a Pi-shape one-line tool header.
-
-        Built-in read/ls/grep/find/write/edit tools render as Pi-style
-        compact lines: ``read path[:start-end]``, ``ls path``,
-        ``grep "pattern" path``, ``find "pattern" path``. Unknown tools
-        fall back to a ``name(args)`` form so the user can still see the
-        invocation.
-        """
-
-        data = self._header_data(arguments_json)
-        if tool_name == "read":
-            path = data.get("path", "")
-            prefix = "read resource" if str(path).startswith("/") else "read"
-            range_label = self._read_range_label(data)
-            return f"{prefix} {path}{range_label} (ctrl+o to expand)"
-        if tool_name in {"grep", "find"}:
-            pattern = data.get("pattern", "")
-            path = data.get("path", ".")
-            return f'{tool_name} "{pattern}" {path}'
-        path_defaults = {
-            "ls": ".",
-            "write": "",
-            "edit": "",
-        }
-        if tool_name in path_defaults:
-            return f"{tool_name} {data.get('path', path_defaults[tool_name])}"
-        preview = self._argument_preview(arguments_json)
-        return f"{tool_name}({preview})"
 
     def _argument_preview(self, arguments_json: str) -> str:
         try:
@@ -1110,53 +1058,3 @@ class _ToolLoopRenderer:
         if not self._enabled:
             return text
         return f"{code}{text}{self._ANSI_RESET}"
-
-
-def _plain_tool_call_header(call: AgentToolCall) -> str:
-    """Return a concise tool-call label for the TUI history region."""
-
-    try:
-        data = json.loads(call.arguments_json.value)
-    except json.JSONDecodeError:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    path = data.get("path")
-    if call.tool_name == "read" and isinstance(path, str):
-        prefix = "read resource" if path.startswith("/") else "read"
-        return f"{prefix} {path}{_ToolLoopRenderer._read_range_label(data)}"
-    if call.tool_name == "ls" and (path is None or isinstance(path, str)):
-        # `path` is optional, as in Pi's `ls`.
-        return f"ls {path}" if path and path != "." else "ls"
-    if call.tool_name in {"grep", "find"}:
-        pattern = data.get("pattern")
-        root = path if isinstance(path, str) else "."
-        if isinstance(pattern, str):
-            return f'{call.tool_name} "{pattern}" {root}'
-    # The row renders behind a `$ ` prompt, so `bash` shows its command line,
-    # as Pi does, instead of an argument dump (`$ bash(command=...)`).
-    command = data.get("command")
-    if call.tool_name == "bash" and isinstance(command, str):
-        timeout = data.get("timeout")
-        if (
-            isinstance(timeout, int | float)
-            and not isinstance(timeout, bool)
-            and timeout
-        ):
-            return f"{command} (timeout {timeout:g}s)"
-        return command
-    if call.tool_name in {"write", "edit"} and isinstance(path, str):
-        return f"{call.tool_name} {path}"
-    preview = _argument_preview(data)
-    return f"{call.tool_name}({preview})"
-
-
-def _argument_preview(data: Mapping[str, Any]) -> str:
-    parts: list[str] = []
-    for key in sorted(data):
-        value = data[key]
-        rendered = json.dumps(value, sort_keys=True)
-        if len(rendered) > 40:
-            rendered = rendered[:39] + "…"
-        parts.append(f"{key}={rendered}")
-    return ", ".join(parts)

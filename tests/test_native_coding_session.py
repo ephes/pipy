@@ -575,6 +575,7 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         "repl_input",
         "diag",
         "apply_compaction",
+        "show_compaction",
         "extension_session_allows",
         "rebuild_messages_from_tree",
         "render_active_branch",
@@ -792,7 +793,6 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "diag",
             "redraw_custom_entries_for_active_branch",
             "extension_send_message",
-            "extension_render_details",
             "extension_ui_driver",
         },
         "BuiltinCommandInterpreter": {

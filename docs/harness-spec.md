@@ -703,19 +703,24 @@ legacy local-state stores kept as caches/fallbacks. See
 [settings-config.md](/settings-config/) for the full surface.
 
 `/model` is an executable interactive provider/model selector in the product
-TUI. Bare `/model` opens an in-frame selector (`TerminalUi.run_model_selector`)
-built from `NativeReplProviderState.model_options()`: each row shows the
-`provider/model` reference and its availability state (`[available]`, or
-`[unavailable: <reason>]` for missing credentials or a provider that does not
-advertise tool-call support, which tool-loop mode requires), the active
-selection is marked `(current)`, Up/Down move the highlight (wrapping), Enter
-chooses the highlighted row only when it is selectable, and Esc/Ctrl-C/Ctrl-D
-cancel. The selector runs no provider turn while it is open. On a successful
-choice the session calls `NativeReplProviderState.select_model` (the shared
-provider-state boundary), rebinds the live provider,
-keeps the in-memory conversation context (Pi `setModel`), rebinds the usage meter, refreshes
-the footer/status model label, and persists the non-secret default; the next
-provider turn is constructed with the new provider/model. Construction and
+TUI. Bare `/model` opens Pi's searchable `ModelSelectorComponent` port
+(`ui/components/search_selectors.py`, driven by
+`TerminalModalDriver.run_search_selector`) over the available models
+(`NativeReplProviderState.available_model_specs()`, Pi
+`getAvailableSnapshot`), with Pi's fuzzy search, the scoped/all toggle and
+the current/default markers; `/model <text>` switches directly when the text is
+an exact reference (Pi `findExactModelReferenceMatch`) and otherwise opens the
+selector with the text as the search (see `docs/tui-workflow.md`). Enter
+switches for the session and the save key also persists the non-secret
+default. The selector runs no provider turn while it is open. On a successful
+choice the session switches through `ProviderMutationEffects.switch_model`
+(the shared provider-state boundary), rebinds the live provider,
+keeps the in-memory conversation context (Pi `setModel`), rebinds the usage meter, and refreshes
+the footer/status model label; the next
+provider turn is constructed with the new provider/model. The settings
+dialog's "change provider/model" row still uses pipy's generic list
+(`TerminalUi.run_model_selector` over `model_options()`, with availability
+reasons). Construction and
 catalog spec resolution behind that boundary are owned by `ModelRuntime`
 (`native/repl_state.py`), which composes the merged provider catalog with the
 `provider_construction` boundary; its `construct` is total (every selection —
@@ -725,9 +730,9 @@ built-in `ds4`, and extension-registered providers (built through
 provider through that boundary, threading the settings-derived
 `ConstructionOptions`; there is no separate legacy provider factory), and the
 `select_model`/`model_options`/auth surface and its behavior
-are unchanged. A direct
-`/model <provider>/<model>` (or `<model>`) form switches without opening the
-selector and works in both the product TUI and the captured-stream fallback. A
+are unchanged. In the captured-stream fallback, which has no Pi counterpart, a direct
+`/model <provider>/<model>` (or `<model>`) keeps pipy's resolver and saves the
+default. A
 switch to a provider that does not advertise tool-call support is refused and
 the previous selection restored. Unavailable providers stay visible with a
 reason but cannot be chosen as if available. The selector reads and mutates only
@@ -847,7 +852,7 @@ cycling through the scoped/available set; `Ctrl+O` tool-output expansion and
 `hideThinkingBlock`); queued steering/follow-up during active turns
 (`Alt+Enter`/`Alt+Up`, a pending region, steering-then-follow-up drain order,
 steering interruption via the per-turn `CancelToken`); `Ctrl+V` clipboard image
-paste (owner-only temp file under an image reference root) and terminal
+paste (owner-only temp file, attached by absolute path) and terminal
 drag-drop file references; the `/scoped-models` multi-select overlay and
 `/hotkeys` overlay plus new actionable `/settings` rows; and the
 mouse-selection invariant (the renderer never enables xterm mouse-tracking
@@ -1425,14 +1430,13 @@ Boundaries:
   total context budget.
 - Each reference resolves through the `read` tool
   (`pipy_harness.native.file_references` calls `ReadTool`), reusing its
-  workspace resolution and `.git`/`.gitignore` refusal and Pi's `read` output:
-  the first 2000 lines or 50 KB, with a `[Showing lines …]` notice when the
-  file is longer. Since READ1 there is no size cap and no binary, non-UTF-8 or
-  secret-shaped refusal, as in Pi. No new reader or path policy is
-  introduced. The tool-loop REPL passes its `--read-root` reference roots, so
-  absolute references under a configured read-root resolve there.
-- Failures fail closed: missing, ignored, image and out-of-workspace
-  references, and references past the total context budget, load no content
+  path resolution (Pi's `resolveReadPath`: relative to the working directory
+  or absolute, `~` expanded, macOS screenshot name variants, no deny list,
+  READ2) and Pi's `read` output: the first 2000 lines or 50 KB, with a
+  `[Showing lines …]` notice when the file is longer. Since READ1 there is no
+  size cap and no binary, non-UTF-8 or secret-shaped refusal, as in Pi.
+- Failures fail closed: missing, directory and image references, and
+  references past the total context budget, load no content
   and produce a safe local diagnostic. One bad reference never blocks a good
   one.
 - The user's literal prompt text is preserved verbatim; bounded excerpts are
@@ -1457,13 +1461,11 @@ Boundaries (`pipy_harness.native.image_attachment`):
   (`MAX_IMAGE_ATTACHMENTS_PER_TURN = 4`), per image
   (`MAX_IMAGE_ATTACHMENT_BYTES = 5 MiB`), and in aggregate
   (`MAX_TOTAL_IMAGE_ATTACHMENT_BYTES = 16 MiB`).
-- Path policy is reused from the `read` tool (`resolve_tool_path` plus the
-  `.git`/cache-dir and `.gitignore` defenses), but the text reader's
-  generated-suffix rejection is deliberately *not* applied, since images
-  legitimately carry `.png`/`.jpg`/`.gif` suffixes.
+- Paths resolve like the `read` tool's (Pi `resolveReadPath`, READ2): any
+  path, relative to the working directory or absolute, with no deny list.
 - Type is validated by magic bytes (PNG/JPEG/GIF/WebP only). Arbitrary binary
-  or non-image content fails closed, as do missing, ignored, oversized, and
-  out-of-workspace references — each with a safe local diagnostic. One bad
+  or non-image content fails closed, as do missing and oversized
+  references — each with a safe local diagnostic. One bad
   attachment never blocks a good one.
 - Loaded images travel on `ProviderRequest.attachments` (base64 + media type +
   byte count + sha256). The Anthropic (`image`), OpenAI-Responses
@@ -1508,7 +1510,9 @@ with `zensical.toml`, `docs/index.md`, and local recipes is acceptable.
 `pipy_harness.native.agent.tools.ToolExecutor` is the UI-free synchronous
 boundary for one model-selected tool call. It receives a canonical
 `AgentToolCall`, a `ToolContext`, and a registry of `ToolPort` implementations;
-it owns lookup, JSON/schema validation, pipy-owned request-id allocation,
+it owns lookup, a tool's optional `prepare_arguments` (Pi's `prepareArguments`,
+run on the parsed arguments before validation; `edit` uses it to accept Pi's
+legacy argument shapes), JSON/schema validation, pipy-owned request-id allocation,
 invocation, live output propagation, exact malformed/error observations, and
 normalization into `AgentToolResultMessage`. Unexpected exceptions and invalid
 tool return types still propagate. A caller may inject a wait port for the
@@ -3235,7 +3239,8 @@ Slice 4.1b folds the three remaining tool-event renders into the same `reduce`,
 so it is the single owner of every agent-event-to-render-decision mapping:
 `ToolCallStarted` emits a `RenderToolCall` carrying the call, `ToolCallUpdated`
 emits a `StreamToolOutput` carrying the exact update chunk, and `ToolCallCompleted`
-emits a `RenderToolResult` forwarding `output_text`/`is_error`/`duration_seconds`.
+emits a `RenderToolResult` forwarding `output_text`/`is_error`/`duration_seconds`
+and the result's Pi `details` (TOOLS3).
 Tool events carry no display state, so they leave `UiState` untouched.
 
 `native.ui.rendering` holds the `AgentEventRenderer` protocol and the

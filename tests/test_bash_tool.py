@@ -28,9 +28,9 @@ from pipy_harness.native.tools.base import (
 )
 from pipy_harness.native.tools.bash import (
     BashTool,
-    _ByteTail,
     _stream_output,
     run_local_command,
+    shell_exit_code,
 )
 from pipy_harness.native.tools.output_accumulator import OutputAccumulator
 
@@ -70,8 +70,7 @@ def test_runs_a_command(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("hello world\n", encoding="utf-8")
     result = BashTool().invoke(_request({"command": "cat a.txt"}), _ctx(tmp_path))
     assert result.is_error is False
-    assert "hello world" in result.output_text
-    assert "exit code: 0" in result.output_text
+    assert result.output_text == "hello world\n"
     assert result.provider_correlation_id == "prov-1"
 
 
@@ -111,15 +110,44 @@ def test_combines_stdout_and_stderr(tmp_path: Path) -> None:
     assert "err" in result.output_text
 
 
-def test_nonzero_exit_is_not_a_tool_error(tmp_path: Path) -> None:
-    # A non-zero exit is a normal observation the model reacts to, not a
-    # malformed tool call; it must not trip the malformed streak.
+def test_nonzero_exit_is_an_error_with_pis_status(tmp_path: Path) -> None:
+    # Pi appends `Command exited with code N` and marks the result an error.
     result = BashTool().invoke(
         _request({"command": "echo boom; exit 3"}), _ctx(tmp_path)
     )
+    assert result.is_error is True
+    assert result.output_text == "boom\n\n\nCommand exited with code 3"
+
+
+def test_nonzero_exit_without_output_keeps_the_no_output_text(tmp_path: Path) -> None:
+    result = BashTool().invoke(_request({"command": "exit 1"}), _ctx(tmp_path))
+    assert result.is_error is True
+    assert result.output_text == "(no output)\n\nCommand exited with code 1"
+
+
+def test_success_without_output_is_no_output(tmp_path: Path) -> None:
+    result = BashTool().invoke(_request({"command": "true"}), _ctx(tmp_path))
     assert result.is_error is False
-    assert "exit code: 3" in result.output_text
-    assert "boom" in result.output_text
+    assert result.output_text == "(no output)"
+
+
+def test_a_signal_killed_shell_reports_128_plus_the_signal(tmp_path: Path) -> None:
+    result = BashTool().invoke(_request({"command": "kill -9 $$"}), _ctx(tmp_path))
+    assert result.is_error is True
+    assert result.output_text == "(no output)\n\nCommand exited with code 137"
+    assert shell_exit_code(-15) == 143
+    assert shell_exit_code(None) == 1
+    assert shell_exit_code(2) == 2
+
+
+def test_a_missing_working_directory_is_pis_error(tmp_path: Path) -> None:
+    gone = tmp_path / "gone"
+    result = BashTool().invoke(_request({"command": "true"}), _ctx(gone))
+    assert result.is_error is True
+    assert result.output_text == (
+        f"Working directory does not exist: {gone.resolve()}\n"
+        "Cannot execute bash commands."
+    )
 
 
 def test_runs_in_the_workspace_root(tmp_path: Path) -> None:
@@ -142,7 +170,7 @@ def test_bounds_large_output(tmp_path: Path) -> None:
         _ctx(tmp_path),
     )
     assert result.is_error is False
-    body = result.output_text.split("[output]\n", 1)[1]
+    body = result.output_text
     kept, notice = body.rsplit("\n\n", 1)
     assert kept.splitlines() == [str(n) for n in range(3001, 5001)]
     full = _notice_path(result.output_text)
@@ -159,7 +187,7 @@ def test_byte_limit_notice(tmp_path: Path) -> None:
         _request({"command": "for i in $(seq 1 1500); do printf '%099d\\n' $i; done"}),
         _ctx(tmp_path),
     )
-    body = result.output_text.split("[output]\n", 1)[1]
+    body = result.output_text
     kept, notice = body.rsplit("\n\n", 1)
     # 512 lines of 100 bytes minus the final newline fit in 51200 bytes.
     assert len(kept.splitlines()) == 512
@@ -175,7 +203,7 @@ def test_partial_last_line_notice(tmp_path: Path) -> None:
         _request({"command": "head -c 60000 /dev/zero | tr '\\0' x"}),
         _ctx(tmp_path),
     )
-    body = result.output_text.split("[output]\n", 1)[1]
+    body = result.output_text
     kept, notice = body.rsplit("\n\n", 1)
     assert kept == "x" * 51200
     full = _notice_path(result.output_text)
@@ -217,7 +245,15 @@ def test_times_out(tmp_path: Path) -> None:
         _request({"command": "sleep 30", "timeout": 1}), _ctx(tmp_path)
     )
     assert result.is_error is True
-    assert "timed out" in result.output_text.lower()
+    assert result.output_text == "Command timed out after 1 seconds"
+
+
+def test_times_out_after_output(tmp_path: Path) -> None:
+    result = BashTool().invoke(
+        _request({"command": "echo partial; sleep 30", "timeout": 1}), _ctx(tmp_path)
+    )
+    assert result.is_error is True
+    assert result.output_text == "partial\n\n\nCommand timed out after 1 seconds"
 
 
 def test_streams_output_incrementally_before_process_exits(tmp_path: Path) -> None:
@@ -256,7 +292,7 @@ def test_timeout_enforced_when_stdout_closed_early(tmp_path: Path) -> None:
     )
     elapsed = time.monotonic() - start
     assert result.is_error is True
-    assert "timed out" in result.output_text.lower()
+    assert result.output_text == "Command timed out after 1 seconds"
     assert elapsed < 5  # must not wait for the full 30s sleep
 
 
@@ -290,7 +326,7 @@ def test_cancellation_observed_when_stdout_closed_early(tmp_path: Path) -> None:
     result = holder[0]
     assert not isinstance(result, BaseException)
     assert result.is_error is True
-    assert "cancelled" in result.output_text.lower()
+    assert result.output_text == "started\n\n\nCommand aborted"
     assert elapsed < 5
 
 
@@ -354,28 +390,46 @@ def test_stream_flushes_incomplete_utf8_and_closes_stdout() -> None:
         stdout=subprocess.PIPE,
     )
     streamed: list[str] = []
-    store = _ByteTail(16)
+    stored: list[bytes] = []
+
+    class _Store:
+        def append(self, data: bytes) -> None:
+            stored.append(data)
 
     outcome = _stream_output(
         proc,
         sink=streamed.append,
         timeout=None,
-        store=store,
+        store=_Store(),
     )
 
     assert outcome == (False, False)
-    assert store.output() == "\ufffd"
+    assert b"".join(stored) == b"\xe2\x82"
     assert streamed == ["\ufffd"]
     assert proc.stdout is not None and proc.stdout.closed
     assert proc.returncode == 0
 
 
-def test_local_shell_shortcut_keeps_its_16kb_tail(tmp_path: Path) -> None:
-    # The `!` shortcut is out of TOOLS1's scope (TOOLS2): it keeps 16 KB.
+def test_local_shell_shortcut_keeps_pis_tail_and_a_temp_file(tmp_path: Path) -> None:
+    # Pi's bash-executor: truncateTail (2000 lines / 50 KB) plus a temp file.
     result = run_local_command("seq 1 20000", workspace_root=tmp_path)
     assert result.truncated is True
-    assert len(result.output.encode()) == 16 * 1024
-    assert result.output.endswith("20000\n")
+    assert result.output.splitlines() == [str(n) for n in range(18001, 20001)]
+    assert result.full_output_path is not None
+    full = Path(result.full_output_path)
+    assert full.name.startswith("pipy-bash-")
+    assert full.read_text() == "".join(f"{n}\n" for n in range(1, 20001))
+    full.unlink()
+
+
+def test_local_shell_shortcut_small_output_has_no_temp_file(tmp_path: Path) -> None:
+    result = run_local_command("seq 1 3; exit 4", workspace_root=tmp_path)
+    assert (result.output, result.truncated, result.full_output_path) == (
+        "1\n2\n3\n",
+        False,
+        None,
+    )
+    assert result.exit_code == 4
 
 
 def test_accumulator_drops_a_temp_file_it_could_not_write() -> None:

@@ -174,8 +174,10 @@ class CommandPolicy:
     """Execution policy for one substrate invocation.
 
     ``workspace_root`` must be an absolute directory. ``reference_roots`` are
-    additional absolute read roots (for example a sibling repo added with
-    ``--read-root``) against which absolute path arguments may resolve.
+    additional absolute read roots a caller may supply, against which absolute
+    path arguments may resolve. This allowlisted sandbox (verification and RPC
+    ``bash``) keeps pipy's path policy; the model-visible read tools follow
+    Pi's path resolution instead (READ2).
     """
 
     workspace_root: Path

@@ -731,8 +731,9 @@ class ToolResult:
 
     `content` is the provider-visible result text (bounded before it
     reaches the model). `details` is structured local state/metadata for
-    rendering or later hooks; it is not sent to the provider and not
-    archived by default. (Pi-shaped `content`/`details`; the richer
+    rendering or later hooks; it is not sent to the provider. Like Pi, the
+    session file stores it (a JSON object; a value that does not survive a
+    JSON round trip is dropped). (Pi-shaped `content`/`details`; the richer
     block-content + `terminate` shape arrives in a later slice.)
     """
 

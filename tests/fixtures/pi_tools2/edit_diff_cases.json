@@ -1,0 +1,340 @@
+[
+ {
+  "case": {
+   "kind": "diff",
+   "old": "a\nb\nc\n",
+   "new": "a\nB\nc\n"
+  },
+  "pi": {
+   "diff": " 1 a\n-2 b\n+2 B\n 3 c",
+   "firstChangedLine": 2
+  }
+ },
+ {
+  "case": {
+   "kind": "diff",
+   "old": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n",
+   "new": "line 1\nline 2\nline 3\nline 4\nline five\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 26\nline 27\nline 28\nline 29\nline 30\n"
+  },
+  "pi": {
+   "diff": "  1 line 1\n  2 line 2\n  3 line 3\n  4 line 4\n- 5 line 5\n+ 5 line five\n  6 line 6\n  7 line 7\n  8 line 8\n  9 line 9\n    ...\n 21 line 21\n 22 line 22\n 23 line 23\n 24 line 24\n-25 line 25\n 26 line 26\n 27 line 27\n 28 line 28\n 29 line 29\n    ...",
+   "firstChangedLine": 5
+  }
+ },
+ {
+  "case": {
+   "kind": "diff",
+   "old": "x\n",
+   "new": "x\ny\nz\n"
+  },
+  "pi": {
+   "diff": " 1 x\n+2 y\n+3 z",
+   "firstChangedLine": 2
+  }
+ },
+ {
+  "case": {
+   "kind": "diff",
+   "old": "a\nb\na\nb\n",
+   "new": "b\na\nb\na\n"
+  },
+  "pi": {
+   "diff": "-1 a\n 2 b\n 3 a\n 4 b\n+4 a",
+   "firstChangedLine": 1
+  }
+ },
+ {
+  "case": {
+   "kind": "diff",
+   "old": "no newline",
+   "new": "no newline\n"
+  },
+  "pi": {
+   "diff": "-1 no newline\n+1 no newline",
+   "firstChangedLine": 1
+  }
+ },
+ {
+  "case": {
+   "kind": "diff",
+   "old": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39\n40\n41\n42\n43\n44\n45\n46\n47\n48\n49\n50\n51\n52\n53\n54\n55\n56\n57\n58\n59\n60\n61\n62\n63\n64\n65\n66\n67\n68\n69\n70\n71\n72\n73\n74\n75\n76\n77\n78\n79\n80\n81\n82\n83\n84\n85\n86\n87\n88\n89\n90\n91\n92\n93\n94\n95\n96\n97\n98\n99\n100\n101\n102\n103\n104\n105\n106\n107\n108\n109\n110\n111\n112\n113\n114\n115\n116\n117\n118\n119\n",
+   "new": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39\n40\n41\n42\n43\n44\n45\n46\n47\n48\n49\n50\n51\n52\n53\n54\n55\n56\n57\n58\n59\n60\n61\n62\n63\n64\n65\n66\n67\n68\n69\n70\n71\n72\n73\n74\n75\n76\n77\n78\n79\n80\n81\n82\n83\n84\n85\n86\n87\n88\n89\n90\n91\n92\n93\n94\n95\n96\n97\n98\n99\n101\n102\n103\n104\n105\n106\n107\n108\n109\n110\n111\n112\n113\n114\n115\n116\n117\n118\n119\n"
+  },
+  "pi": {
+   "diff": "     ...\n  96 96\n  97 97\n  98 98\n  99 99\n-100 100\n 101 101\n 102 102\n 103 103\n 104 104\n     ...",
+   "firstChangedLine": 100
+  }
+ },
+ {
+  "case": {
+   "kind": "lines",
+   "old": "a\nb\nc\nd\n",
+   "new": "a\nc\nb\nd\n"
+  },
+  "pi": [
+   [
+    "a\n",
+    false,
+    false,
+    1
+   ],
+   [
+    "b\n",
+    false,
+    true,
+    1
+   ],
+   [
+    "c\n",
+    false,
+    false,
+    1
+   ],
+   [
+    "b\n",
+    true,
+    false,
+    1
+   ],
+   [
+    "d\n",
+    false,
+    false,
+    1
+   ]
+  ]
+ },
+ {
+  "case": {
+   "kind": "lines",
+   "old": "a\r\nb\n",
+   "new": "a\nb\r\n"
+  },
+  "pi": [
+   [
+    "a\r\nb\n",
+    false,
+    true,
+    2
+   ],
+   [
+    "a\nb\r\n",
+    true,
+    false,
+    2
+   ]
+  ]
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "hello world\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "world",
+     "newText": "there"
+    }
+   ]
+  },
+  "pi": {
+   "baseContent": "hello world\n",
+   "newContent": "hello there\n"
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "one\ntwo\nthree\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "one",
+     "newText": "1"
+    },
+    {
+     "oldText": "three",
+     "newText": "3"
+    }
+   ]
+  },
+  "pi": {
+   "baseContent": "one\ntwo\nthree\n",
+   "newContent": "1\ntwo\n3\n"
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "it\u2019s  \nfine\u2014ok\nkeep\u2019\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "it's\nfine-ok",
+     "newText": "done"
+    }
+   ]
+  },
+  "pi": {
+   "baseContent": "it\u2019s  \nfine\u2014ok\nkeep\u2019\n",
+   "newContent": "done\nkeep\u2019\n"
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\na\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "a",
+     "newText": "b"
+    }
+   ]
+  },
+  "pi": {
+   "error": "Found 2 occurrences of the text in f.txt. The text must be unique. Please provide more context to make it unique."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\nb\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "a",
+     "newText": "x"
+    },
+    {
+     "oldText": "a\nb",
+     "newText": "y"
+    }
+   ]
+  },
+  "pi": {
+   "error": "edits[0] and edits[1] overlap in f.txt. Merge them into one edit or target disjoint regions."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\nb\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "zzz",
+     "newText": "x"
+    }
+   ]
+  },
+  "pi": {
+   "error": "Could not find the exact text in f.txt. The old text must match exactly including all whitespace and newlines."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\nb\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "a",
+     "newText": "x"
+    },
+    {
+     "oldText": "zzz",
+     "newText": "y"
+    }
+   ]
+  },
+  "pi": {
+   "error": "Could not find edits[1] in f.txt. The oldText must match exactly including all whitespace and newlines."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\nb\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "",
+     "newText": "x"
+    }
+   ]
+  },
+  "pi": {
+   "error": "oldText must not be empty in f.txt."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\nb\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "a",
+     "newText": "a"
+    }
+   ]
+  },
+  "pi": {
+   "error": "No changes made to f.txt. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "a\nb\n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "a",
+     "newText": "a"
+    },
+    {
+     "oldText": "b",
+     "newText": "b"
+    }
+   ]
+  },
+  "pi": {
+   "error": "No changes made to f.txt. The replacements produced identical content."
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "  \n\u2014",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "  ",
+     "newText": "x"
+    }
+   ]
+  },
+  "pi": {
+   "baseContent": "  \n\u2014",
+   "newContent": "x\n\u2014"
+  }
+ },
+ {
+  "case": {
+   "kind": "apply",
+   "content": "  \nc\n  \n  \n",
+   "path": "f.txt",
+   "edits": [
+    {
+     "oldText": "  ",
+     "newText": "x"
+    }
+   ]
+  },
+  "pi": {
+   "error": "Found 4 occurrences of the text in f.txt. The text must be unique. Please provide more context to make it unique."
+  }
+ }
+]

@@ -46,8 +46,16 @@ Run compaction from the interactive session:
 ```
 
 If there is not enough history to compact, pipy reports that there is nothing to
-compact. Otherwise it reports how many earlier exchange groups were dropped from
-provider-visible context and how many recent groups were kept.
+compact. Otherwise the terminal UI redraws the chat like Pi's `compaction_end`
+handler: the scrollback is cleared, the kept messages are drawn again, and the
+`[compaction]` row follows them (`Compacted from N tokens`, Ctrl+O shows the
+summary). Automatic compaction redraws the same way; because pipy compacts
+before sending a prompt, the prompt being sent is drawn after the kept messages.
+The plain (non-terminal) REPL prints how many earlier exchange groups were
+dropped from provider-visible context and how many recent groups were kept;
+`--print`, `--mode json` and `--mode rpc` write nothing for a completed
+compaction (JSON and RPC carry `compaction_start`/`compaction_end`). Failures and
+cancellations are still reported.
 
 Generation failure or cancellation leaves the existing context intact. Escape or
 Ctrl-C can cancel summary work in the terminal. A successful summary is published

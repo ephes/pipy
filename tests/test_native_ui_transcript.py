@@ -145,13 +145,15 @@ def test_clear_working_repaints_only_when_something_cleared() -> None:
     assert harness.repaints == 2
 
 
-def test_add_tool_call_compacts_read_headers() -> None:
+def test_add_tool_call_keeps_the_shell_command_verbatim() -> None:
+    """``!`` rows only: model tool calls use ``start_tool``/``finish_tool``."""
+
     harness = _Harness()
     t = harness.component
-    t.add_tool_call("read src/x.py:1-40 (ctrl+o to expand)")
-    assert t.history_blocks[-1] == ("tool_read", ("read src/x.py",))
-    t.add_tool_call("bash: pytest -q")
-    assert t.history_blocks[-1] == ("tool", ("bash: pytest -q",))
+    t.add_tool_call("read src/x.py:1-40")
+    assert t.history_blocks[-1] == ("tool", ("read src/x.py:1-40",))
+    t.add_tool_call("pytest -q")
+    assert t.history_blocks[-1] == ("tool", ("pytest -q",))
 
 
 def test_append_tool_output_keeps_bounded_live_tail() -> None:

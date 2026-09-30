@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+
+import pytest
 
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.agent import (
@@ -33,9 +36,12 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
 )
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.local_shell_record import (
+    LocalShellRecord,
     format_local_shell_record,
     parse_local_shell_record,
+    shell_result_lines,
 )
 from pipy_harness.native.session_tree import (
     CompactionEntry,
@@ -150,6 +156,18 @@ class _Terminal:
         return [(kind, lines) for kind, lines in self.transcript.history_blocks]
 
 
+def _box(lines: tuple[str, ...]) -> list[tuple[str, str]]:
+    """``(background, text)`` of a tool row's non-blank lines, SGR removed."""
+
+    rows = []
+    for line in lines:
+        bg, _wrap, text = decode_tool_box_line(line)
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        if plain:
+            rows.append((bg, plain))
+    return rows
+
+
 def _live_rows(tmp_path: Path, drive: Any) -> list[tuple[str, tuple[str, ...]]]:
     terminal = _Terminal(tmp_path)
     drive(terminal.tool_renderer)
@@ -262,19 +280,22 @@ def test_restored_turn_rows_equal_the_rows_a_live_turn_commits(
 
     assert terminal.rows() == live
     kinds = [kind for kind, _ in live]
-    # A successful read shows only its call row, like the live turn.
+    # One Pi tool box per call; a collapsed read shows only its header.
     assert kinds == [
         "user",
         "assistant",
-        "tool",
-        "tool_result",
-        "tool_read",
-        "tool",
-        "tool_result",
+        "tool_box",
+        "tool_box",
+        "tool_box",
         "assistant",
     ]
-    assert live[3][1][0] == "... (4 earlier lines, ctrl+o to expand)"
-    assert live[6][1][-1] == "[error] tool reported a failure"
+    assert _box(live[2][1]) == [
+        ("success", "$ ls (timeout 5s)"),
+        ("success", "... (4 earlier lines, ctrl+o to expand)"),
+        *[("success", f"line {n}") for n in range(4, 9)],
+    ]
+    assert _box(live[3][1]) == [("success", "read a.txt")]
+    assert _box(live[4][1]) == [("error", "$ false"), ("error", "boom")]
 
 
 def test_a_call_without_a_result_renders_only_its_call_row(tmp_path: Path) -> None:
@@ -287,11 +308,10 @@ def test_a_call_without_a_result_renders_only_its_call_row(tmp_path: Path) -> No
 
     terminal.history.render_active_branch()
 
-    assert terminal.rows() == [
-        ("user", ("go",)),
-        ("tool", ("sleep 9",)),
-        ("user", ("again",)),
-    ]
+    rows = terminal.rows()
+    assert [kind for kind, _ in rows] == ["user", "tool_box", "user"]
+    # Pi keeps a call without a result pending.
+    assert _box(rows[1][1]) == [("pending", "$ sleep 9")]
 
 
 def test_a_result_after_an_intervening_entry_still_completes_its_call(
@@ -306,51 +326,106 @@ def test_a_result_after_an_intervening_entry_still_completes_its_call(
 
     terminal.history.render_active_branch()
 
-    assert terminal.rows() == [
-        ("user", ("go",)),
-        ("tool", ("ls",)),
-        ("tool_result", ("a.py",)),
-        ("custom", ("[plain]", "in between")),
-    ]
+    rows = terminal.rows()
+    assert [kind for kind, _ in rows] == ["user", "tool_box", "custom"]
+    assert _box(rows[1][1]) == [("success", "$ ls"), ("success", "a.py")]
+    assert rows[2] == ("custom", ("[plain]", "in between"))
+
+
+def _shell(
+    command: str,
+    output: str,
+    *,
+    exit_code: int | None = 0,
+    cancelled: bool = False,
+    path: str | None = None,
+) -> LocalShellRecord:
+    return LocalShellRecord(
+        command=command,
+        output=output,
+        exit_code=exit_code,
+        cancelled=cancelled,
+        truncated=path is not None,
+        full_output_path=path,
+    )
 
 
 def test_a_shell_record_renders_as_the_shell_rows(tmp_path: Path) -> None:
     terminal = _Terminal(tmp_path)
-    record = format_local_shell_record("ls tests", "exit code: 0", "a.py\nb.py")
-    terminal.tree.append_message(_user(record))
     terminal.tree.append_message(
-        _user(format_local_shell_record("false", "exit code: 1", "(no output)"))
+        _user(format_local_shell_record(_shell("ls tests", "a.py\nb.py")))
+    )
+    terminal.tree.append_message(
+        _user(format_local_shell_record(_shell("false", "", exit_code=1)))
     )
 
     terminal.history.render_active_branch()
 
+    # Pi's BashExecutionComponent: output, then `(exit N)` after a blank line.
     assert terminal.rows() == [
         ("tool", ("ls tests",)),
-        ("tool_result", ("exit code: 0", "a.py", "b.py")),
+        ("tool_result", ("a.py", "b.py")),
         ("tool", ("false",)),
-        (
-            "tool_result",
-            ("exit code: 1", "(no output)", "[error] tool reported a failure"),
-        ),
+        ("tool_result", ("", "(exit 1)")),
     ]
 
 
-def test_shell_record_parsing_is_exact() -> None:
-    text = format_local_shell_record("echo hi", "(cancelled by escape)", "")
-    parsed = parse_local_shell_record(text)
-    assert parsed is not None
-    assert (parsed.command, parsed.status_line, parsed.output) == (
-        "echo hi",
-        "(cancelled by escape)",
+def test_shell_rows_collapse_to_the_last_20_lines_and_follow_ctrl_o() -> None:
+    output = "\n".join(str(n) for n in range(1, 31))
+    record = _shell("seq 30", output, path="/tmp/pipy-bash-x.log")
+
+    collapsed = shell_result_lines(record, expanded=False)
+    expanded = shell_result_lines(record, expanded=True)
+
+    assert collapsed == (
+        *(str(n) for n in range(11, 31)),
         "",
+        "... 10 more lines (ctrl+o to expand)",
+        "Output truncated. Full output: /tmp/pipy-bash-x.log",
     )
-    assert not parsed.is_error
-    timed_out = parse_local_shell_record(
-        format_local_shell_record("sleep", "(timed out)", "x")
+    assert expanded[:30] == tuple(str(n) for n in range(1, 31))
+    assert expanded[30:] == (
+        "",
+        "(ctrl+o to collapse)",
+        "Output truncated. Full output: /tmp/pipy-bash-x.log",
     )
-    assert timed_out is not None and timed_out.is_error
-    assert parse_local_shell_record("I ran a shell command, honestly") is None
+    cancelled = _shell("sleep 9", "", exit_code=None, cancelled=True)
+    assert shell_result_lines(cancelled, expanded=False) == ("", "(cancelled)")
+
+
+def test_shell_record_text_is_pis_bash_execution_to_text() -> None:
+    assert format_local_shell_record(_shell("echo hi", "hi")) == (
+        "Ran `echo hi`\n```\nhi\n```"
+    )
+    assert format_local_shell_record(
+        _shell("sleep 9", "", exit_code=None, cancelled=True)
+    ) == ("Ran `sleep 9`\n(no output)\n\n(command cancelled)")
+    assert format_local_shell_record(
+        _shell("make", "err", exit_code=2, path="/tmp/f.log")
+    ) == (
+        "Ran `make`\n```\nerr\n```\n\nCommand exited with code 2"
+        "\n\n[Output truncated. Full output: /tmp/f.log]"
+    )
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _shell("echo hi", "hi"),
+        _shell("echo `x`", "a\n```\nb"),
+        _shell("false", "", exit_code=1),
+        _shell("sleep 9", "partial", exit_code=None, cancelled=True),
+        _shell("seq", "1\n2", exit_code=3, path="/tmp/pipy-bash-y.log"),
+    ],
+)
+def test_shell_record_parsing_round_trips(record: LocalShellRecord) -> None:
+    assert parse_local_shell_record(format_local_shell_record(record)) == record
+
+
+def test_shell_record_parsing_is_strict() -> None:
+    assert parse_local_shell_record("Ran `ls` and it was fine") is None
     assert parse_local_shell_record("plain user text") is None
+    assert parse_local_shell_record("Ran `ls`\n(no output)\n\nmore text") is None
 
 
 def test_summary_rows_are_collapsed_and_toggle_with_ctrl_o(tmp_path: Path) -> None:
@@ -364,28 +439,123 @@ def test_summary_rows_are_collapsed_and_toggle_with_ctrl_o(tmp_path: Path) -> No
 
     terminal.history.render_active_branch()
 
+    # Pi's summary components: a padded `customMessageBg` box, the label, a
+    # spacer, then the collapsed hint.
     rows = terminal.rows()
-    assert rows[0] == (
-        "custom",
-        ("[compaction]", "", "Compacted from 12,345 tokens (ctrl+o to expand)"),
-    )
-    assert rows[-1] == (
-        "custom",
-        ("[branch]", "", "Branch summary (ctrl+o to expand)"),
-    )
+    assert rows[0][0] == "tool_box"
+    assert [decode_tool_box_line(line)[0] for line in rows[0][1]] == [
+        *["custom"] * 5,
+        "none",
+    ]
+    assert _box(rows[0][1]) == [
+        ("custom", "[compaction]"),
+        ("custom", "Compacted from 12,345 tokens (ctrl+o to expand)"),
+    ]
+    assert _box(rows[-1][1]) == [
+        ("custom", "[branch]"),
+        ("custom", "Branch summary (ctrl+o to expand)"),
+    ]
 
     terminal.transcript.set_tools_expanded(True)
 
     rows = terminal.rows()
-    assert rows[0] == (
-        "custom",
-        ("[compaction]", "", "Compacted from 12,345 tokens", "", "## Goal", "fix it"),
+    assert _box(rows[0][1]) == [
+        ("custom", "[compaction]"),
+        ("custom", "Compacted from 12,345 tokens"),
+        ("custom", "## Goal"),
+        ("custom", "fix it"),
+    ]
+    assert _box(rows[-1][1]) == [
+        ("custom", "[branch]"),
+        ("custom", "Branch Summary"),
+        ("custom", "tried another way"),
+    ]
+    # Pi's full render clears the scrollback when rows above the view change.
+    assert terminal.scrollback_clears == 1
+    assert terminal.resets == 0
+
+
+def _row_texts(rows: list[tuple[str, tuple[str, ...]]]) -> list[str]:
+    """Each row's first non-blank text (tool boxes decoded, SGR removed)."""
+
+    texts = []
+    for kind, lines in rows:
+        if kind == "tool_box":
+            texts.append(_box(lines)[0][1])
+        else:
+            texts.append(next(line for line in lines if line))
+    return texts
+
+
+def test_compaction_redraw_draws_kept_rows_then_the_compaction_last(
+    tmp_path: Path,
+) -> None:
+    """Pi `compaction_end`: clear the chat, render `entries.slice(1)`, then
+    the compaction row at its chronological position."""
+
+    terminal = _Terminal(tmp_path)
+    terminal.transcript.submit_user_message("typed live")
+    terminal.tree.append_message(_user("dropped"))
+    kept = terminal.tree.append_message(_user("kept"))
+    terminal.tree.append_message(_assistant("answer"))
+    terminal.tree.append_compaction(
+        summary="S", first_kept_entry_id=kept.id, tokens_before=4321
     )
-    assert rows[-1] == (
+
+    assert terminal.history.render_after_compaction() is True
+
+    assert _row_texts(terminal.rows()) == ["kept", "answer", "[compaction]"]
+    assert _box(terminal.rows()[-1][1])[1] == (
         "custom",
-        ("[branch]", "", "Branch Summary", "", "tried another way"),
+        "Compacted from 4,321 tokens (ctrl+o to expand)",
     )
-    assert terminal.resets == 1
+    # The replaced conversation is redrawn with the scrollback cleared.
+    assert terminal.scrollback_clears == 1
+
+
+def test_compaction_redraw_draws_the_prompt_it_ran_for(tmp_path: Path) -> None:
+    """pipy compacts before a request: the prompt being sent is not recorded
+    yet, so the redraw draws it after the kept rows (Pi's kept rows end with
+    the latest prompt); a recorded prompt is not drawn twice."""
+
+    terminal = _Terminal(tmp_path)
+    old = terminal.tree.append_message(_user("old"))
+    terminal.tree.append_message(_assistant("reply"))
+    compaction = terminal.tree.append_compaction(
+        summary="S", first_kept_entry_id=old.id, tokens_before=10
+    )
+    pending = _user("being sent")
+
+    assert terminal.history.render_after_compaction(pending) is True
+    assert _row_texts(terminal.rows()) == [
+        "old",
+        "reply",
+        "being sent",
+        "[compaction]",
+    ]
+
+    recorded = terminal.tree.append_message(pending)
+    assert recorded.parent_id == compaction.id
+    terminal.history.render_after_compaction(pending)
+    assert _row_texts(terminal.rows()) == [
+        "old",
+        "reply",
+        "being sent",
+        "[compaction]",
+    ]
+
+
+def test_compaction_redraw_falls_back_without_a_recorded_compaction(
+    tmp_path: Path,
+) -> None:
+    terminal = _Terminal(tmp_path)
+    terminal.tree.append_message(_user("hello"))
+    terminal.transcript.submit_user_message("hello")
+
+    assert terminal.history.render_after_compaction(_user("x")) is False
+    # Nothing was redrawn: the caller shows its notice instead.
+    assert terminal.scrollback_clears == 0
+    assert _row_texts(terminal.rows()) == ["hello"]
 
 
 def test_rows_render_expanded_when_ctrl_o_is_on(tmp_path: Path) -> None:
@@ -400,7 +570,10 @@ def test_rows_render_expanded_when_ctrl_o_is_on(tmp_path: Path) -> None:
 
     terminal.history.render_active_branch()
 
-    assert terminal.rows()[-1] == ("tool_result", tuple(output.splitlines()))
+    assert _box(terminal.rows()[-1][1]) == [
+        ("success", "$ seq"),
+        *[("success", line) for line in output.splitlines()],
+    ]
 
 
 def test_live_and_restored_tool_results_toggle_with_ctrl_o(tmp_path: Path) -> None:
@@ -411,26 +584,24 @@ def test_live_and_restored_tool_results_toggle_with_ctrl_o(tmp_path: Path) -> No
     terminal.tool_renderer.render_tool_result(
         output_text=output, is_error=False, duration_seconds=1.25
     )
-    collapsed = (
-        "... (3 earlier lines, ctrl+o to expand)",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "",
-        "Took 1.2s",
-    )
-    assert terminal.rows()[-1] == ("tool_result", collapsed)
+    collapsed = [
+        ("success", "$ seq 8"),
+        ("success", "... (3 earlier lines, ctrl+o to expand)"),
+        *[("success", str(n)) for n in range(3, 8)],
+        # Pi's formatDuration rounds like JavaScript toFixed (1.25 -> 1.3).
+        ("success", "Took 1.3s"),
+    ]
+    assert _box(terminal.rows()[-1][1]) == collapsed
 
     terminal.transcript.set_tools_expanded(True)
-    assert terminal.rows()[-1] == (
-        "tool_result",
-        (*output.splitlines(), "", "Took 1.2s"),
-    )
+    assert _box(terminal.rows()[-1][1]) == [
+        ("success", "$ seq 8"),
+        *[("success", line) for line in output.splitlines()],
+        ("success", "Took 1.3s"),
+    ]
     terminal.transcript.set_tools_expanded(False)
-    assert terminal.rows()[-1] == ("tool_result", collapsed)
-    assert terminal.resets == 2
+    assert _box(terminal.rows()[-1][1]) == collapsed
+    assert terminal.scrollback_clears == 2
 
 
 def test_extension_entries_render_in_branch_order(tmp_path: Path) -> None:

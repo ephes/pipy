@@ -158,7 +158,6 @@ class _CodingSessionPreparation:
     settings: SettingsManager = field(repr=False)
     system_prompt: str = field(repr=False)
     system_prompt_sections: SystemPromptSections = field(repr=False)
-    reference_roots: tuple[Path, ...]
     discovery: WorkspaceInstructionDiscovery = field(repr=False)
     resolved_prompt: ResolvedSystemPrompt = field(repr=False)
 
@@ -192,7 +191,6 @@ class CodingSessionAdapter:
         error_stream: TextIO | None = None,
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
         input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
-        reference_roots: tuple[Path, ...] = (),
         resume_context: ResumeContext | None = None,
         resume_branch_label: str | None = None,
         native_session: "NativeSessionTree | None" = None,
@@ -252,16 +250,6 @@ class CodingSessionAdapter:
         self.error_stream = error_stream or sys.stderr
         self.instruction_loader = instruction_loader
         self.input_runtime = input_runtime
-        for root in reference_roots:
-            if not isinstance(root, Path):
-                raise ValueError(
-                    "CodingSessionAdapter reference_roots entries must be Path"
-                )
-            if not root.is_absolute():
-                raise ValueError(
-                    "CodingSessionAdapter reference_roots entries must be absolute"
-                )
-        self.reference_roots = tuple(reference_roots)
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -410,22 +398,12 @@ class CodingSessionAdapter:
             append_sources=self.append_system_prompt_sources,
             include_project_defaults=runtime_settings.project_trusted,
         )
-        # pipy's reference-roots lines stay in the untagged preamble.
         preamble = resolved_prompt.preamble
-        if self.reference_roots:
-            ref_lines = ["", "Reference roots (read-only, absolute paths):"]
-            for root in self.reference_roots:
-                ref_lines.append(f"- {root}")
-            preamble = preamble + "\n" + "\n".join(ref_lines)
         # Discover the workspace + global skills the model may load on demand.
         # The same loader the /skill command uses; obtained here (before the
-        # session runs) so the advertisement can enter the system prompt and the
-        # skill directories can widen the read-only reference roots.
+        # session runs) so the advertisement can enter the system prompt. The
+        # model reads a skill body by its absolute location with `read`.
         skills = self._discover_skill_files(cwd, runtime_settings)
-        # Add each discovered skill's PARENT DIRECTORY to the read-only reference
-        # roots so the model can `read` skill bodies, including global skills
-        # outside cwd. Bounded to discovered skill directories; deduped; absolute.
-        reference_roots = self._reference_roots_with_skill_dirs(skills)
         # Inject the Pi-shaped skill advertisement only when the read tool is in
         # the active provider-visible tool set (mirrors Pi's customPromptHasRead
         # gate); the model loads a skill body with that tool.
@@ -455,7 +433,6 @@ class CodingSessionAdapter:
             settings=runtime_settings,
             system_prompt=render_system_prompt(sections),
             system_prompt_sections=sections,
-            reference_roots=reference_roots,
             discovery=discovery,
             resolved_prompt=resolved_prompt,
         )
@@ -473,7 +450,6 @@ class CodingSessionAdapter:
             tool_registry=self.tool_registry,
             tool_budget=self.tool_budget,
             input_runtime=self.input_runtime,
-            reference_roots=context.reference_roots,
             system_prompt_sections=context.system_prompt_sections,
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
@@ -511,8 +487,7 @@ class CodingSessionAdapter:
 
         Uses the same workspace + global + package discovery and Pi-shaped
         enablement filters the tool-loop session applies, so the system-prompt
-        advertisement and the read-only reference roots match what `/skill`
-        can run. ``install_theme_registry=False`` avoids re-installing the
+        advertisement matches what `/skill` can run. ``install_theme_registry=False`` avoids re-installing the
         theme registry (the session installs it when it runs). When no settings
         manager was injected, falls back to the workspace settings, matching the
         session's own fallback.
@@ -538,24 +513,3 @@ class CodingSessionAdapter:
             enable_skill_commands=settings.get_enable_skill_commands(),
         )
         return resources.skills
-
-    def _reference_roots_with_skill_dirs(
-        self, skills: tuple[SkillFile, ...]
-    ) -> tuple[Path, ...]:
-        """Union the configured reference roots with discovered skill dirs.
-
-        Each discovered skill's parent directory is added (resolved, absolute,
-        deduped) so the read tool can load skill bodies — including global
-        skills outside cwd. Widening is bounded to skill directories; the
-        configured ``--read-root`` roots are preserved and kept first.
-        """
-
-        roots: list[Path] = list(self.reference_roots)
-        seen: set[Path] = {root.resolve() for root in roots}
-        for skill in skills:
-            skill_dir = skill.absolute_path.parent.resolve()
-            if skill_dir in seen:
-                continue
-            seen.add(skill_dir)
-            roots.append(skill_dir)
-        return tuple(roots)

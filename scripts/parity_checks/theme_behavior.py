@@ -119,6 +119,9 @@ def _isolate_theme_env() -> None:
     # Honored by default_native_theme_path(), so the picker's persist stays in a
     # temp file and never touches the real user theme store.
     os.environ["PIPY_NATIVE_THEME_PATH"] = str(Path(tempfile.mkdtemp()) / "theme.json")
+    # The picker also persists `theme` to the global settings file; keep that
+    # in a temp config home instead of the user's ~/.pipy/settings.json.
+    os.environ["PIPY_CONFIG_HOME"] = tempfile.mkdtemp()
 
 
 def _pick_ocean_via_settings_picker() -> bool:

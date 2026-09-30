@@ -33,7 +33,6 @@ from pipy_harness.native.extension_chrome_state import (
 from pipy_harness.native.extension_types import QueuedCustomMessage
 from pipy_harness.native.extensions.activation import _ExtensionCandidate
 from pipy_harness.native.extensions.contracts import _ExtensionRuntime
-from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.execution_projections import (
     build_candidate_extension_projection,
@@ -112,7 +111,6 @@ class ExtensionAttachInput:
     has_ui: bool
     notify_sink: Callable[[str, str], None]
     set_active_tools: Callable[[int, Sequence[str]], bool]
-    render_details: ToolRenderDetailsWriter
     project_trusted: bool
     tool_capabilities: NativeToolCapabilities
     chrome_sink: ExtensionChromeSink | None
@@ -279,7 +277,6 @@ def _build_projection_and_route(
         has_ui=inputs.has_ui,
         notify_sink=inputs.notify_sink,
         set_active_tools=inputs.set_active_tools,
-        render_details=inputs.render_details,
         project_trusted=inputs.project_trusted,
         prepare_capability=inputs.tool_capabilities.prepare_extensions,
         chrome=(

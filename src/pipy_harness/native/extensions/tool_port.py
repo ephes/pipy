@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from typing import TYPE_CHECKING, Protocol, TypeAlias
+from collections.abc import Callable, Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
@@ -15,22 +15,11 @@ from pipy_harness.native.tools.base import (
     ToolDefinition,
     ToolExecutionResult,
     ToolRequest,
+    json_safe_details,
 )
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import RegisteredTool
-
-ToolRenderDetails: TypeAlias = Mapping[str, object] | None
-ToolRenderDetailsSink: TypeAlias = MutableMapping[str, object | None]
-
-
-class ToolRenderDetailsWriter(Protocol):
-    """Write-only side of the render-details handoff."""
-
-    def __setitem__(
-        self, correlation_id: str, details: ToolRenderDetails, /
-    ) -> None: ...
-
 
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
@@ -65,7 +54,6 @@ class _ExtensionToolPort:
         notify_sink: Callable[[str, str], None] | None = None,
         set_active_tools_fn: Callable[[int, Sequence[str]], bool] | None = None,
         flags: Mapping[str, object] | None = None,
-        render_details_sink: ToolRenderDetailsWriter | None = None,
         project_trusted: bool = False,
     ) -> None:
         self._registered = registered
@@ -73,7 +61,6 @@ class _ExtensionToolPort:
         self._notify_sink = notify_sink
         self._set_active_tools_fn = set_active_tools_fn
         self._flags = dict(flags or {})
-        self._render_details_sink = render_details_sink
         self._project_trusted = bool(project_trusted)
         tool = registered.tool
         self._definition = ToolDefinition(
@@ -124,18 +111,14 @@ class _ExtensionToolPort:
         cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
         if len(content) > cap:
             content = content[: cap - 64] + "\n[pipy: extension tool output truncated]"
-        if (
-            self._render_details_sink is not None
-            and self._registered.tool.render_result is not None
-            and request.provider_correlation_id is not None
-        ):
-            details = result.details if isinstance(result, ToolResult) else None
-            self._render_details_sink[request.provider_correlation_id] = (
-                dict(details) if isinstance(details, Mapping) else None
-            )
+        # Pi stores `details` on the tool result and hands it to the result
+        # renderer; the JSON copy is what the session file keeps, so live and
+        # restored rows render from the same value.
+        details = result.details if isinstance(result, ToolResult) else None
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=content,
             is_error=False,
             provider_correlation_id=request.provider_correlation_id,
+            details=json_safe_details(details),
         )

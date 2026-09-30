@@ -7,29 +7,27 @@ dotfiles included, and the output capped at 50 KB. When the limit or the byte
 cap cuts the listing, a ``[500 entries limit reached. Use limit=1000 for
 more]`` style notice says so.
 
+The path resolves like Pi's ``resolveToCwd`` (READ2, see
+:mod:`pipy_harness.native.tools.path_utils`), and every entry is listed
+(``.git``, ignored and generated ones included); an entry whose ``stat``
+fails is skipped, as in Pi.
+
 Deviations from Pi, each tracked in ``docs/backlog.md``:
 
-- Paths resolve through pipy's shared ``resolve_tool_path`` (workspace plus
-  configured reference roots), and ``.git``, ``.gitignore`` matches and
-  generated entries are refused or left out (READ2). Their error texts stay
-  pipy's.
-- Entries sort by ``str.lower()`` code points; Pi's ``localeCompare`` orders
-  punctuation differently (TOOLS2).
+- Error texts stay pipy's.
+- Entries sort by :func:`~pipy_harness.native.tools.collation.ls_sort_key`, a
+  table-driven approximation of Node's ICU ``localeCompare``; characters
+  outside the measured table can order differently within one script.
 - ``limit`` is ``integer`` in pipy's schema subset, which has no ``number``.
 """
 
 from __future__ import annotations
 
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipy_harness.native.read_only_tool import (
-    ResolvedToolPath,
-    _is_ignored_or_generated,
-    _resolved_relative_label,
-    resolve_tool_path,
-)
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -37,6 +35,8 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.native.tools.collation import ls_sort_key
+from pipy_harness.native.tools.path_utils import resolve_to_cwd
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     format_size,
@@ -58,13 +58,6 @@ LS_TOOL_DESCRIPTION = (
 @dataclass(frozen=True, slots=True)
 class _LsFailure:
     message: str
-
-
-@dataclass(frozen=True, slots=True)
-class _LsTarget:
-    target: Path
-    root: Path
-    relative_prefix: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,11 +90,15 @@ class LsTool:
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         limit = request.arguments.get("limit")
         effective_limit = DEFAULT_LIMIT if limit is None else limit
-        target = self._resolve_target(request.arguments.get("path") or ".", context)
-        if isinstance(target, _LsFailure):
-            return self._error(request, target.message)
+        path_arg = request.arguments.get("path") or "."
+        if not isinstance(path_arg, str):
+            raise ToolArgumentError("ls", "path must be a string", field_path=("path",))
+        try:
+            target = resolve_to_cwd(path_arg, context.workspace_root)
+        except ValueError as exc:
+            return self._error(request, str(exc))
 
-        names = self._list_names(target.target)
+        names = self._list_names(target)
         if isinstance(names, _LsFailure):
             return self._error(request, names.message)
 
@@ -115,43 +112,15 @@ class LsTool:
             if row is not None:
                 rows.append(row)
 
+        output, details = _format_output(
+            rows, limit_reached=limit_reached, limit=effective_limit
+        )
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=_format_output(
-                rows, limit_reached=limit_reached, limit=effective_limit
-            ),
+            output_text=output,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
-
-    @staticmethod
-    def _resolve_target(
-        path_arg: object, context: ToolContext
-    ) -> _LsTarget | _LsFailure:
-        if path_arg == ".":
-            workspace = context.workspace_root.resolve()
-            return _LsTarget(workspace, workspace, "")
-        try:
-            if not isinstance(path_arg, str):
-                raise ValueError("path must be a string")
-            resolved = resolve_tool_path(
-                path_arg,
-                workspace_root=context.workspace_root,
-                reference_roots=context.reference_roots,
-            )
-        except ValueError as exc:
-            raise ToolArgumentError("ls", str(exc), field_path=("path",)) from None
-        if _is_ignored_or_generated(resolved.relative_label, resolved.root):
-            return _LsFailure("path is ignored or under .git/generated directories")
-        return LsTool._target_from_resolved(resolved)
-
-    @staticmethod
-    def _target_from_resolved(resolved: ResolvedToolPath) -> _LsTarget:
-        relative_prefix = (
-            resolved.relative_label.rstrip("/") + "/"
-            if resolved.relative_label not in {"", "."}
-            else ""
-        )
-        return _LsTarget(resolved.resolved, resolved.root, relative_prefix)
 
     @staticmethod
     def _list_names(target: Path) -> list[str] | _LsFailure:
@@ -164,25 +133,17 @@ class LsTool:
         except OSError as exc:
             return _LsFailure(f"Cannot read directory: {exc}")
         # Pi: a.toLowerCase().localeCompare(b.toLowerCase()).
-        return sorted(names, key=str.lower)
+        return sorted(names, key=ls_sort_key)
 
     @staticmethod
-    def _row(name: str, target: _LsTarget) -> str | None:
+    def _row(name: str, target: Path) -> str | None:
         """Return ``name`` or ``name/``, or ``None`` for a skipped entry."""
 
-        if _is_ignored_or_generated(target.relative_prefix + name, target.root):
-            return None
-        child = target.target / name
+        child = target / name
         try:
-            resolved_label = _resolved_relative_label(child.resolve(), target.root)
             # Pi stats each entry (following symlinks) and skips failures.
-            is_dir = child.is_dir()
-            child.stat()
+            is_dir = stat.S_ISDIR(child.stat().st_mode)
         except OSError:
-            return None
-        if resolved_label is None or _is_ignored_or_generated(
-            resolved_label, target.root
-        ):
             return None
         return name + "/" if is_dir else name
 
@@ -195,19 +156,26 @@ class LsTool:
         )
 
 
-def _format_output(rows: list[str], *, limit_reached: bool, limit: int) -> str:
+def _format_output(
+    rows: list[str], *, limit_reached: bool, limit: int
+) -> tuple[str, dict[str, object] | None]:
+    """The output and Pi's ``details`` (omitted when no limit was hit)."""
+
     if not rows:
-        return "(empty directory)"
+        return "(empty directory)", None
     truncation = truncate_head("\n".join(rows), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
+    details: dict[str, object] = {}
     if limit_reached:
         notices.append(f"{limit} entries limit reached. Use limit={limit * 2} for more")
+        details["entryLimitReached"] = limit
     if truncation.truncated:
         notices.append(f"{format_size(DEFAULT_MAX_BYTES)} limit reached")
+        details["truncation"] = truncation.to_details()
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output
+    return output, details or None
 
 
 __all__ = ["DEFAULT_LIMIT", "LS_TOOL_DESCRIPTION", "LsTool"]

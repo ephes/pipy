@@ -25,7 +25,10 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.local_shell_record import parse_local_shell_record
+from pipy_harness.native.local_shell_record import (
+    parse_local_shell_record,
+    shell_result_lines,
+)
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
     CompactionEntry,
@@ -35,6 +38,7 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
     SessionEntry,
 )
+from pipy_harness.native.tool_rows import SummaryBox
 from pipy_harness.native.ui.components.custom_entry_renderer import (
     CustomEntryRenderer,
     CustomEntryTerminalTarget,
@@ -48,38 +52,28 @@ from pipy_harness.native.ui.components.transcript import (
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
 
-_EXPAND_HINT = "ctrl+o"
 
-
-def compaction_summary_lines(
-    entry: CompactionEntry,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Pi ``CompactionSummaryMessageComponent`` text: (collapsed, expanded)."""
+def compaction_summary_box(entry: CompactionEntry) -> SummaryBox:
+    """Pi ``CompactionSummaryMessageComponent``'s texts."""
 
     tokens = f"{entry.tokens_before:,}"
-    collapsed = (
-        "[compaction]",
-        "",
-        f"Compacted from {tokens} tokens ({_EXPAND_HINT} to expand)",
+    return SummaryBox(
+        label="[compaction]",
+        collapsed=f"Compacted from {tokens} tokens (",
+        header=f"Compacted from {tokens} tokens",
+        summary=entry.summary,
     )
-    expanded = (
-        "[compaction]",
-        "",
-        f"Compacted from {tokens} tokens",
-        "",
-        *entry.summary.splitlines(),
+
+
+def branch_summary_box(entry: BranchSummaryEntry) -> SummaryBox:
+    """Pi ``BranchSummaryMessageComponent``'s texts."""
+
+    return SummaryBox(
+        label="[branch]",
+        collapsed="Branch summary (",
+        header="Branch Summary",
+        summary=entry.summary,
     )
-    return collapsed, expanded
-
-
-def branch_summary_lines(
-    entry: BranchSummaryEntry,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Pi ``BranchSummaryMessageComponent`` text: (collapsed, expanded)."""
-
-    collapsed = ("[branch]", "", f"Branch summary ({_EXPAND_HINT} to expand)")
-    expanded = ("[branch]", "", "Branch Summary", "", *entry.summary.splitlines())
-    return collapsed, expanded
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -99,8 +93,42 @@ class SessionHistoryRenderer:
         entries = self.session_tree().build_context_entries()
         self.transcript.replace_conversation(self.render_entries(entries))
 
-    def render_entries(self, entries: list[SessionEntry]) -> list[HistoryBlock]:
-        """Replay ``entries`` into a scratch transcript and return its rows."""
+    def render_after_compaction(
+        self, pending_user: AgentUserMessage | None = None
+    ) -> bool:
+        """Pi ``compaction_end``: redraw the chat after a completed compaction.
+
+        The kept entries are drawn, then the compaction row last, at its
+        chronological position (the context lists it first). pipy compacts
+        before a request, so the prompt being sent (``pending_user``) may not
+        be recorded yet; it is drawn after the kept entries unless the branch
+        already holds it, as Pi's kept entries end with the latest prompt.
+        ``False`` when the branch does not start with a compaction (it was not
+        recorded), so the caller can show its notice instead.
+        """
+
+        entries = self.session_tree().build_context_entries()
+        if not entries or not isinstance(entries[0], CompactionEntry):
+            return False
+        kept = entries[1:]
+        if pending_user is not None and any(
+            isinstance(entry, MessageEntry) and entry.message is pending_user
+            for entry in kept
+        ):
+            pending_user = None
+        blocks = self.render_entries(kept, pending_user=pending_user)
+        blocks.extend(self.render_entries(entries[:1]))
+        self.transcript.replace_conversation(blocks)
+        return True
+
+    def render_entries(
+        self,
+        entries: list[SessionEntry],
+        *,
+        pending_user: AgentUserMessage | None = None,
+    ) -> list[HistoryBlock]:
+        """Replay ``entries`` (then ``pending_user``) into a scratch transcript
+        and return its rows."""
 
         scratch = TranscriptComponent(
             self.paint_lock,
@@ -126,17 +154,17 @@ class SessionHistoryRenderer:
                     entry.message, renderer, scratch, results.get(index, {})
                 )
             elif isinstance(entry, CompactionEntry):
-                collapsed, expanded = compaction_summary_lines(entry)
-                scratch.add_summary(collapsed=collapsed, expanded=expanded)
+                scratch.add_summary_box(compaction_summary_box(entry))
             elif isinstance(entry, BranchSummaryEntry) and entry.summary:
-                collapsed, expanded = branch_summary_lines(entry)
-                scratch.add_summary(collapsed=collapsed, expanded=expanded)
+                scratch.add_summary_box(branch_summary_box(entry))
             elif isinstance(entry, CustomEntry):
                 projection = projection or custom.renderer_projection()
                 custom.add_rendered_custom_entry_to_terminal(entry, projection)
             elif isinstance(entry, CustomMessageEntry) and entry.display:
                 projection = projection or custom.renderer_projection()
                 custom.add_custom_message_entry_to_terminal(entry, projection)
+        if pending_user is not None:
+            _render_message(pending_user, renderer, scratch, {})
         return list(scratch.history_blocks)
 
 
@@ -178,11 +206,11 @@ def _render_message(
         if record is None:
             renderer.render_user_message(message.content.value)
             return
-        # The `!` shell shortcut's own rows: `$ command`, then status + output.
+        # The `!` shell shortcut's own rows: `$ command`, output, status.
         scratch.add_tool_call(record.command)
-        scratch.add_tool_result(
-            lines=[record.status_line, *(record.output.splitlines() or [""])],
-            is_error=record.is_error,
+        scratch.add_shell_result(
+            collapsed=shell_result_lines(record, expanded=False),
+            expanded=shell_result_lines(record, expanded=True),
         )
     elif isinstance(message, AgentAssistantMessage):
         _render_assistant(message, renderer, scratch, results)
@@ -221,5 +249,10 @@ def _render_assistant(
         result = results.get(call.provider_correlation_id)
         if result is not None:
             renderer.render_tool_result(
-                output_text=result.content.value, is_error=result.is_error
+                output_text=result.content.value,
+                is_error=result.is_error,
+                details=result.details,
             )
+        else:
+            # No stored result: the row stays pending, at its own position.
+            scratch.flush_pending_tool()
