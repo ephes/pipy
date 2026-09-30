@@ -430,7 +430,7 @@ def test_tui_edit_diff_renders_as_a_transcript_row_not_raw_stderr(
         provider_correlation_id="call-1",
         tool_name="edit",
         arguments_json=json.dumps(
-            {"path": "notes.txt", "old_string": "beta", "new_string": "gamma"}
+            {"path": "notes.txt", "edits": [{"oldText": "beta", "newText": "gamma"}]}
         ),
     )
     replies = [(call,), ()]
@@ -500,15 +500,14 @@ def test_tui_edit_diff_renders_as_a_transcript_row_not_raw_stderr(
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "alpha\ngamma\n"
-    assert "+++ b/notes.txt" not in error_stream.getvalue()
+    # Pi's display diff (generateDiffString), committed as a row.
+    assert "-2 beta" not in error_stream.getvalue()
     diff_blocks = [
         lines
         for kind, lines in ui.components.transcript.history_blocks
-        if kind == "tool_result" and "+++ b/notes.txt" in lines
+        if kind == "tool_result" and "-2 beta" in lines
     ]
-    assert len(diff_blocks) == 1
-    assert "-beta" in diff_blocks[0]
-    assert "+gamma" in diff_blocks[0]
+    assert diff_blocks == [(" 1 alpha", "-2 beta", "+2 gamma")]
 
 
 def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
@@ -708,7 +707,7 @@ def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
     calls = (
         ("bash", {"command": "python3 -m unittest", "timeout": 120}),
         ("bash", {"command": "ls tests"}),
-        ("edit", {"path": "core.py", "old_string": "a", "new_string": "b"}),
+        ("edit", {"path": "core.py", "edits": [{"oldText": "a", "newText": "b"}]}),
         ("write", {"path": "new.py", "content": "x = 1\n"}),
     )
     for index, (tool_name, arguments) in enumerate(calls):

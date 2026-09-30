@@ -1505,7 +1505,9 @@ with `zensical.toml`, `docs/index.md`, and local recipes is acceptable.
 `pipy_harness.native.agent.tools.ToolExecutor` is the UI-free synchronous
 boundary for one model-selected tool call. It receives a canonical
 `AgentToolCall`, a `ToolContext`, and a registry of `ToolPort` implementations;
-it owns lookup, JSON/schema validation, pipy-owned request-id allocation,
+it owns lookup, a tool's optional `prepare_arguments` (Pi's `prepareArguments`,
+run on the parsed arguments before validation; `edit` uses it to accept Pi's
+legacy argument shapes), JSON/schema validation, pipy-owned request-id allocation,
 invocation, live output propagation, exact malformed/error observations, and
 normalization into `AgentToolResultMessage`. Unexpected exceptions and invalid
 tool return types still propagate. A caller may inject a wait port for the

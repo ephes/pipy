@@ -171,7 +171,7 @@ row was dropped.
 | C8 | Workspace context (AGENTS.md/CLAUDE.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
 | C9 | System prompt composition | ✅ | `grep -q 'system_prompt' src/pipy_harness/native/workspace_context.py` |
 | C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/coding/session.py` |
-| C11 | .git default-deny + symlink resolution | ✅ | `grep -q '_resolved_relative_label' src/pipy_harness/native/read_only_tool.py` |
+| C11 | .git default-deny + symlink resolution (allowlisted command sandbox) | ✅ | `grep -q '_is_ignored_or_generated' src/pipy_harness/native/command_sandbox.py` |
 | C13 | JSON output mode | ✅ | `uv run pipy repl --help \| grep -q -- '--mode'` |
 | C14 | Streaming output (provider→stdout) | ✅ | `grep -q StreamChunkSink src/pipy_harness/native/provider.py && grep -q -- '--stream' src/pipy_harness/cli.py` |
 | C15 | Retry/backoff for transient provider errors | ✅ | `test -f src/pipy_harness/native/retry.py \|\| grep -rq 'RetryPolicy' src/pipy_harness/native/` |
@@ -272,8 +272,8 @@ runtime consumer and a behavior check that exercises it:
 All 49 rows are green. B7 (bash) uses a behavior check
 (`scripts/parity_checks/bash_behavior.py`) that resolves the tool from the
 production registry and proves it is a real shell matching Pi (a plain command
-runs, a pipeline runs, `.git` is readable, and a non-zero exit is surfaced as a
-normal observation). The former `/verify just-check` REPL command has been
+runs, a pipeline runs, `.git` is readable, and a non-zero exit is an error
+result ending in Pi's `Command exited with code N`). The former `/verify just-check` REPL command has been
 removed; the legacy verification module is no longer part of the user-facing
 parity surface.
 
@@ -323,7 +323,7 @@ archive boundary — never the raw command or output. (The former separate
 surface.) B7's Verify command is a behavior check
 (`scripts/parity_checks/bash_behavior.py`) that resolves the tool from
 `production_tool_registry` and proves it runs a plain command, a real-shell
-pipeline, a `.git` read, and surfaces a non-zero exit as a normal observation;
+pipeline, a `.git` read, and reports a non-zero exit as Pi's error result;
 a dormant unregistered helper cannot satisfy it.
 
 ## What Counts As "Big"
@@ -391,10 +391,11 @@ These pipy invariants are **NOT relaxed** by the parity push:
 - **Metadata-first archive.** No new feature may write raw prompts, model
   text, tool payloads, file contents, diffs, or auth material to the
   pipy session archive.
-- **`.git` default-deny** stays enforced for the read-only and mutation file
-  tools (`read`/`ls`/`grep`/`find`/`write`/`edit`); the `bash` real shell is the
-  deliberate exception, matching Pi.
-- **Symlink resolution** stays enforced for the file tools.
+- **`.git` default-deny** and **symlink resolution** stay enforced for the
+  allowlisted command sandbox (RPC `bash`) and the compatibility runtime's
+  explicit file excerpt tool. The model-driven file tools
+  (`read`/`ls`/`grep`/`find`/`write`/`edit`) follow Pi with no deny list
+  (READ2, READ2b), like the `bash` real shell.
 - **No new third-party schema validators.** Use `validate_arguments` from
   `tools/base.py`.
 

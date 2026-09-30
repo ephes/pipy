@@ -15,8 +15,9 @@ fails is skipped, as in Pi.
 Deviations from Pi, each tracked in ``docs/backlog.md``:
 
 - Error texts stay pipy's.
-- Entries sort by ``str.lower()`` code points; Pi's ``localeCompare`` orders
-  punctuation differently (TOOLS2).
+- Entries sort by :func:`~pipy_harness.native.tools.collation.ls_sort_key`, a
+  table-driven approximation of Node's ICU ``localeCompare``; characters
+  outside the measured table can order differently within one script.
 - ``limit`` is ``integer`` in pipy's schema subset, which has no ``number``.
 """
 
@@ -34,6 +35,7 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.native.tools.collation import ls_sort_key
 from pipy_harness.native.tools.path_utils import resolve_to_cwd
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
@@ -129,7 +131,7 @@ class LsTool:
         except OSError as exc:
             return _LsFailure(f"Cannot read directory: {exc}")
         # Pi: a.toLowerCase().localeCompare(b.toLowerCase()).
-        return sorted(names, key=str.lower)
+        return sorted(names, key=ls_sort_key)
 
     @staticmethod
     def _row(name: str, target: Path) -> str | None:

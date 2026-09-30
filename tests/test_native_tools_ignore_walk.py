@@ -17,11 +17,24 @@ import pytest
 from pipy_harness.native.tools import ToolContext, ToolRequest, make_tool_request_id
 from pipy_harness.native.tools.find import FindTool
 from pipy_harness.native.tools.grep import GrepTool
-from pipy_harness.native.tools.ignore_walk import compile_gitignore_line
+from pipy_harness.native.tools.ignore_walk import (
+    compile_gitignore_line,
+    global_excludes_path,
+)
 
 _FD = shutil.which("fd")
 _RG = shutil.which("rg")
 _GIT = shutil.which("git")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """pipy and the real binaries read the same (empty) global git config."""
+
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
 
 
 @pytest.mark.parametrize(
@@ -115,15 +128,20 @@ def _tool_env(tmp_path: Path) -> dict[str, str]:
     return env
 
 
-def _fd_files(search: Path, env: dict[str, str]) -> set[str]:
-    """Pi find.ts argv; files only (directories are compared via their files)."""
+def _fd_files(search: Path, env: dict[str, str], cwd: Path | None = None) -> set[str]:
+    """Pi find.ts argv; files only (directories are compared via their files).
+
+    ``cwd`` is the directory fd runs in (Pi's cwd, pipy's workspace root).
+    """
 
     assert _FD is not None
     args = [_FD, "--glob", "--color=never", "--hidden"]
     if not any((d / ".git").exists() for d in (search, *search.parents)):
         args.append("--no-require-git")
     args += ["--max-results", "1000", "--type", "f", "--", "*", str(search)]
-    out = subprocess.run(args, capture_output=True, text=True, env=env, check=True)
+    out = subprocess.run(
+        args, capture_output=True, text=True, env=env, cwd=cwd or search, check=True
+    )
     return {os.path.relpath(line, search) for line in out.stdout.splitlines()}
 
 
@@ -341,3 +359,77 @@ def test_linked_worktree_uses_the_main_repository_exclude_file(
     assert "excluded.txt" not in rg_expected
     assert _find_files(linked, linked) == fd_expected
     assert _fallback_files(linked, linked, monkeypatch) == rg_expected
+
+
+def _global_tree(tmp_path: Path) -> tuple[Path, Path]:
+    """A repository and a plain directory, plus a global excludes file."""
+
+    home = tmp_path / "home"
+    _write(home, ".gitconfig", "[core]\n\texcludesFile = ~/global-ignore\n")
+    _write(home, "global-ignore", "skip.txt\n/anch.txt\nsubd/\n!kept.log\n*.log\n")
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    plain = tmp_path / "plain"
+    for root in (repo, repo / "sub", plain):
+        for name in (
+            "skip.txt",
+            "anch.txt",
+            "keep.txt",
+            "subd/f.txt",
+            "a.log",
+            "kept.log",
+        ):
+            _write(root, name)
+    return repo, plain
+
+
+@pytest.mark.skipif(_FD is None or _RG is None, reason="fd or rg is not installed")
+@pytest.mark.parametrize("cwd_name", ["repo", "repo/sub", "home"])
+def test_global_excludes_match_fd_and_rg_in_a_repository(
+    tmp_path: Path, cwd_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _plain = _global_tree(tmp_path)
+    cwd = tmp_path / cwd_name
+    env = _tool_env(tmp_path)
+
+    fd_expected = _fd_files(repo, env, cwd)
+    rg_expected = _rg_files(repo, cwd, env)
+    assert "skip.txt" not in fd_expected
+    assert "skip.txt" not in rg_expected
+    assert _find_files(repo, cwd) == fd_expected
+    assert _fallback_files(repo, cwd, monkeypatch) == rg_expected
+
+
+@pytest.mark.skipif(_FD is None or _RG is None, reason="fd or rg is not installed")
+def test_global_excludes_outside_a_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _repo, plain = _global_tree(tmp_path)
+    env = _tool_env(tmp_path)
+
+    fd_expected = _fd_files(plain, env, plain)
+    rg_expected = _rg_files(plain, plain, env)
+    # fd --no-require-git applies them; rg outside a repository does not.
+    assert "skip.txt" not in fd_expected
+    assert "skip.txt" in rg_expected
+    assert _find_files(plain, plain) == fd_expected
+    assert _fallback_files(plain, plain, monkeypatch) == rg_expected
+
+
+def test_global_excludes_path_follows_the_ignore_crate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    config = home / ".config"
+    assert global_excludes_path() == config / "git" / "ignore"
+    _write(config, "git/config", "[core]\n  ExcludesFile = ~/x/~y\n")
+    assert global_excludes_path() == Path(f"{home}/x/{home}y")
+    # ~/.gitconfig wins over the XDG config.
+    _write(home, ".gitconfig", "[other]\nexcludesfile=/abs/path\n")
+    assert global_excludes_path() == Path("/abs/path")
+    # An empty XDG_CONFIG_HOME falls back to ~/.config.
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    (home / ".gitconfig").unlink()
+    assert global_excludes_path() == Path(f"{home}/x/{home}y")
+    (config / "git" / "config").unlink()
+    assert global_excludes_path() == home / ".config" / "git" / "ignore"

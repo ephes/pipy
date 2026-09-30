@@ -316,6 +316,9 @@ class ToolPort(Protocol):
     returns a provider-visible `ToolExecutionResult`. Validation against the
     schema is performed by the loop (see `validate_arguments`) before
     `invoke()` runs, so implementations receive already-validated arguments.
+    A tool may also define ``prepare_arguments(raw) -> raw``, which the
+    executor applies to the parsed arguments before validation (Pi's
+    ``prepareArguments``).
     """
 
     @property

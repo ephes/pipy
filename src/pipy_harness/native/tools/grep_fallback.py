@@ -97,8 +97,12 @@ class _GlobFilter:
 def _walk_files(search_path: Path, glob_filter: _GlobFilter | None) -> Iterator[Path]:
     """Yield the files rg would search below ``search_path``, in sorted order."""
 
+    # The fallback runs in the directory rg would run in.
     rules = WalkIgnore.for_search(
-        search_path, tool_file=RG_IGNORE_FILE, no_require_git_outside_repo=False
+        search_path,
+        tool_file=RG_IGNORE_FILE,
+        no_require_git_outside_repo=False,
+        cwd=Path.cwd(),
     )
     stack: list[tuple[Path, WalkIgnore]] = [(search_path, rules)]
     while stack:

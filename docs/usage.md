@@ -281,8 +281,8 @@ are bounded automatically.
 | `--theme PATH` | Load a theme TOML file or directory so it can be selected |
 | `--no-themes` | Disable package theme discovery; explicit and built-in themes remain available |
 
-`read`, `ls`, `grep` and `find` take any path, relative to `--cwd` or
-absolute, like Pi's tools; `write` and `edit` stay inside the workspace.
+`read`, `ls`, `grep`, `find`, `write` and `edit` take any path, relative to
+`--cwd` or absolute, like Pi's tools.
 
 ### Other useful options
 

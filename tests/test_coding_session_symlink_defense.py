@@ -1,10 +1,9 @@
 """Symlinks into `.git` for the model-driven tools.
 
-`write` and `edit` keep pipy's workspace policy: they resolve the candidate
-path and re-check `_is_ignored_or_generated` against the resolved relative
-label, so a symlink cannot reach `.git`. `read`, `ls`, `grep` and `find`
-follow Pi (READ2): no deny list, so they read through such a symlink like
-any other path, as Pi's tools (and rg/fd for a symlinked search root) do.
+Every tool follows Pi (READ2, READ2b): no deny list, so `read`, `ls`,
+`grep` and `find` read through such a symlink and `write` and `edit` write
+through it like any other path, as Pi's tools (and rg/fd for a symlinked
+search root) do. `bash` is a real shell with the same reach.
 """
 
 from __future__ import annotations
@@ -56,27 +55,22 @@ def test_read_tool_reads_through_a_symlink_into_dot_git(tmp_path: Path):
     assert result.output_text == "[user]\n  name = secret\n"
 
 
-def test_write_tool_refuses_symlinked_parent_into_dot_git(tmp_path: Path):
+def test_write_tool_writes_through_a_symlinked_parent_like_pi(tmp_path: Path):
     workspace = _git_workspace(tmp_path)
     tool = WriteTool()
     context = ToolContext(workspace_root=workspace)
 
     result = tool.invoke(
-        _request(
-            "write",
-            {"path": "git_dir_link/new.txt", "content": "ignored"},
-        ),
+        _request("write", {"path": "git_dir_link/new.txt", "content": "x"}),
         context,
     )
 
-    assert result.is_error is True
-    assert (
-        "ignored or under .git" in result.output_text or "parent" in result.output_text
-    )
-    assert not (workspace / ".git" / "new.txt").exists()
+    assert result.is_error is False
+    assert result.output_text == "Successfully wrote to git_dir_link/new.txt"
+    assert (workspace / ".git" / "new.txt").read_text(encoding="utf-8") == "x"
 
 
-def test_edit_tool_refuses_symlink_into_dot_git(tmp_path: Path):
+def test_edit_tool_edits_through_a_symlink_like_pi(tmp_path: Path):
     workspace = _git_workspace(tmp_path)
     tool = EditTool()
     context = ToolContext(workspace_root=workspace)
@@ -86,16 +80,18 @@ def test_edit_tool_refuses_symlink_into_dot_git(tmp_path: Path):
             "edit",
             {
                 "path": "gitconfig_link",
-                "old_string": "secret",
-                "new_string": "compromised",
+                "edits": [{"oldText": "secret", "newText": "changed"}],
             },
         ),
         context,
     )
 
-    assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
-    assert "secret" in (workspace / ".git" / "config").read_text(encoding="utf-8")
+    assert result.is_error is False
+    assert (workspace / ".git" / "config").read_text(encoding="utf-8") == (
+        "[user]\n  name = changed\n"
+    )
+    # The link itself stays a link.
+    assert (workspace / "gitconfig_link").is_symlink()
 
 
 def test_ls_tool_lists_a_symlinked_dot_git_directory(tmp_path: Path):
