@@ -88,6 +88,18 @@ def test_canonical_body_warns_about_hard_coded_tree_indices() -> None:
     assert not missing, f"canonical body lacks tree-index guard tokens: {missing}"
 
 
+# PTY evidence and gates polluted the real ~/.pipy and compared colourless
+# captures; the recipe doc must keep both guards.
+PTY_EVIDENCE = REPO_ROOT / "docs" / "parity-loop" / "pty-evidence.md"
+PTY_EVIDENCE_GUARD_TOKENS = ("PIPY_CONFIG_HOME", "env -u NO_COLOR", "slice-named")
+
+
+def test_pty_evidence_keeps_isolation_and_colour_guards() -> None:
+    text = PTY_EVIDENCE.read_text(encoding="utf-8")
+    missing = [tok for tok in PTY_EVIDENCE_GUARD_TOKENS if tok not in text]
+    assert not missing, f"pty-evidence.md lacks guard tokens: {missing}"
+
+
 def test_planning_docs_use_neutral_repo_owned_paths() -> None:
     text = BODY.read_text(encoding="utf-8")
     assert "docs/specs/" in text

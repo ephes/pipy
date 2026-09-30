@@ -19,3 +19,6 @@ Claude-specific notes:
   edits) without applying them. Use the Edit tool or a scratch Python script run
   by path, and pass repeated `--evidence-file` flags from a small sh wrapper
   script, not an unquoted `$VAR` (zsh does not word-split it).
+- Write/Edit decode printable `\u` escapes into literal characters: spell
+  non-ASCII constants as `chr(0x...)` and build tests that need backslash
+  escapes from a scratch Python script (`chr(92)`).

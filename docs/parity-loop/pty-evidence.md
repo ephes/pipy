@@ -11,8 +11,22 @@ behavior only a real model shows.
   `PIPY_NATIVE_SESSIONS_ROOT`, and `XDG_STATE_HOME` at scratch directories.
   Native session files do not use `PIPY_SESSION_DIR`; they follow
   `PIPY_NATIVE_SESSIONS_ROOT`.
+- Gates and tests follow the same rule: any new gate or test sets a temp
+  `PIPY_CONFIG_HOME`. `scripts/parity_checks/theme_behavior.py` wrote the real
+  `~/.pipy/settings.json` on every run until commit `52838467`.
 - The scratchpad is shared across concurrent agents: keep scripts and evidence
-  in a slice-named subdirectory.
+  in a slice-named subdirectory, and never overwrite another slice's helper
+  script.
+
+## Colour in tmux
+
+The shared tmux server environment can carry `NO_COLOR=1` and `TERM=dumb`
+(`tmux show-environment -g`). pipy captures then come out colourless while Pi
+still colours, and a background comparison silently compares nothing. Launch
+evidence sessions with
+`env -u NO_COLOR TERM=xterm-256color COLORTERM=truecolor`, and check that the
+`.ansi` capture contains ESC before comparing. A `tmux capture-pane -e` capture
+omits blank cells, so compare row backgrounds only on non-blank rows.
 
 ## Fake providers
 
