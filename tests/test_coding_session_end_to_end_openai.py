@@ -118,7 +118,9 @@ def test_openai_tool_loop_dispatches_read_and_returns_final_text(tmp_path: Path)
     assert isinstance(first_body["tools"], list)
     assert first_body["tools"][0]["type"] == "function"
     assert first_body["tools"][0]["name"] == "read"
-    assert first_body["input"] == [
+    # The leading prompt is the first input item (Pi).
+    assert first_body["input"][0]["role"] == "developer"
+    assert first_body["input"][1:] == [
         {
             "role": "user",
             "content": [{"type": "input_text", "text": "please read notes.txt"}],

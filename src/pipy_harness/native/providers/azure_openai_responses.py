@@ -308,7 +308,6 @@ class AzureOpenAIResponsesProvider:
             # Pi's AzureOpenAI v1 surface passes the deployment as the body
             # ``model`` field (buildParams: ``model: deploymentName``).
             "model": configuration.deployment,
-            "instructions": transcript.instructions,
             "input": responses_input(
                 request,
                 parse_error_class=AzureOpenAIResponseParseError,

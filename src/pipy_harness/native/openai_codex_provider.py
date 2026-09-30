@@ -85,6 +85,8 @@ OPENAI_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 OPENAI_CODEX_SCOPE = "openid profile email offline_access"
 OPENAI_CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 OPENAI_CODEX_RESPONSES_WS_URL = "wss://chatgpt.com/backend-api/codex/responses"
+# Pi ``openai-codex-responses.ts``: ``instructions`` when the prompt is empty.
+CODEX_DEFAULT_INSTRUCTIONS = "You are a helpful assistant."
 OPENAI_CODEX_JWT_AUTH_CLAIM = "https://api.openai.com/auth"
 OPENAI_CODEX_MIN_TOKEN_TTL_SECONDS = 60
 OPENAI_CODEX_API_LABEL_MAX_LENGTH = 64
@@ -949,6 +951,7 @@ def _responses_input_messages(
             or resolve_responses_transcript(request, ResponsesTranscriptOptions()),
             instruction_role=instruction_role,
             envelope_items=_envelope_to_input_items,
+            include_leading_prompt=False,
         )
     return [
         {
@@ -1273,7 +1276,8 @@ def _codex_request_body(
     )
     body: dict[str, Any] = {
         "model": provider.model_id,
-        "instructions": transcript.instructions,
+        # Pi-forced default: the Codex backend requires ``instructions``.
+        "instructions": transcript.leading_prompt or CODEX_DEFAULT_INSTRUCTIONS,
         "input": _responses_input_messages(
             request, transcript, provider.instruction_role
         ),

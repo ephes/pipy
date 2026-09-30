@@ -236,6 +236,8 @@ class SessionCommandEffects:
     show_compaction: Callable[[CodingCompactionOutcome, AgentUserMessage | None], None]
     extension_session_allows: Callable[..., bool]
     rebuild_messages_from_tree: Callable[[], None]
+    # Pi ``navigateTree`` restores the branch's declared tools.
+    restore_tools_from_transcript: Callable[[], None]
     # Pi renderInitialMessages: redraw the transcript from the active branch
     # after a session switch, fork, new session or tree navigation.
     render_active_branch: Callable[[], None]
@@ -378,6 +380,7 @@ class SessionCommandEffects:
         """
 
         self.rebuild_messages_from_tree()
+        self.restore_tools_from_transcript()
         self.render_active_branch()
 
     def _summarize_and_render(
@@ -385,6 +388,7 @@ class SessionCommandEffects:
     ) -> BranchSummarySelectionResult:
         result = self.summarize_branch(entry, directive)
         if result.handled and result.accepted:
+            self.restore_tools_from_transcript()
             self.render_active_branch()
         return result
 

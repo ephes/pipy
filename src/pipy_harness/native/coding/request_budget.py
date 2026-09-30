@@ -216,7 +216,10 @@ def _system_tokens(request: ProviderRequest) -> tuple[int, int]:
     messages = tuple(anchor.message for anchor in anchored)
     replay = current_system_message(messages)
     replay_text = system_message_text(replay) if replay is not None else ""
-    leading = system_message_text(messages[0]) if anchored[0].position == 0 else ""
+    # A session recorded before SYS1a has no leading message: all are later.
+    has_leading = anchored[0].position == 0
+    leading = system_message_text(messages[0]) if has_leading else ""
+    later = messages[1:] if has_leading else messages
     tail = (
         request.system_prompt[len(replay_text) :]
         if request.system_prompt.startswith(replay_text)
@@ -226,10 +229,14 @@ def _system_tokens(request: ProviderRequest) -> tuple[int, int]:
     tokens = max(_text_tokens(request.system_prompt), _text_tokens(leading + tail))
     advertised = {tool.name for tool in request.available_tools}
     kept = [
-        *(tool for tool in messages[0].tools_added if tool.name not in advertised),
-        *(tool for message in messages[1:] for tool in message.tools_added),
+        *(
+            tool
+            for tool in (messages[0].tools_added if has_leading else ())
+            if tool.name not in advertised
+        ),
+        *(tool for message in later for tool in message.tools_added),
     ]
-    for message in messages[1:]:
+    for message in later:
         tokens += _text_tokens(render_system_message_update(message))
     tokens += sum(
         _text_tokens(tool.name)
@@ -237,7 +244,7 @@ def _system_tokens(request: ProviderRequest) -> tuple[int, int]:
         + _text_tokens(tool.parameters_json)
         for tool in kept
     )
-    return tokens, len(messages) - 1 + len(kept)
+    return tokens, len(later) + len(kept)
 
 
 def _text_tokens(text: str) -> int:

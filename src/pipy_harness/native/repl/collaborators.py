@@ -278,6 +278,9 @@ class SessionCollaborators:
             show_compaction=show_compaction,
             extension_session_allows=self.extension_session_allows,
             rebuild_messages_from_tree=self.rebuild_messages_from_tree,
+            restore_tools_from_transcript=(
+                self.provider_mutation.restore_tools_from_transcript
+            ),
             render_active_branch=render_active_branch,
             sync_session_settings=self.provider_mutation.sync_session_settings,
             new_transition=new_transition,

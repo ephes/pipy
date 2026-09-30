@@ -136,10 +136,11 @@ class AgentAssistantMessage:
     state that providers never see again.
 
     ``usage``, ``provider`` and ``model`` record which model answered and what
-    the response cost (Pi ``AssistantMessage.usage/provider/model``). They
-    describe the turn rather than the conversation, so they take no part in
-    equality: two messages with the same content and tool calls are the same
-    history.
+    the response cost (Pi ``AssistantMessage.usage/provider/model``);
+    ``provider_thinking_level`` is the effort an Anthropic mid-conversation
+    effort model answered at (Pi ``providerThinkingLevel``). They describe
+    the turn rather than the conversation, so they take no part in equality:
+    two messages with the same content and tool calls are the same history.
     """
 
     content: ProductContent
@@ -149,6 +150,7 @@ class AgentAssistantMessage:
     usage: AgentMessageUsage | None = field(default=None, compare=False)
     provider: str | None = field(default=None, compare=False)
     model: str | None = field(default=None, compare=False)
+    provider_thinking_level: str | None = field(default=None, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 256 * 1024
 
     def __post_init__(self) -> None:
@@ -188,7 +190,7 @@ class AgentAssistantMessage:
 def _validate_turn_metadata(message: AgentAssistantMessage) -> None:
     if message.usage is not None and type(message.usage) is not AgentMessageUsage:
         raise TypeError("AgentAssistantMessage.usage must be AgentMessageUsage or None")
-    for field_name in ("provider", "model"):
+    for field_name in ("provider", "model", "provider_thinking_level"):
         value = getattr(message, field_name)
         if value is not None:
             require_non_empty_string(value, f"AgentAssistantMessage.{field_name}")

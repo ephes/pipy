@@ -261,6 +261,9 @@ class ProviderResult:
     error_type: str | None = None
     error_message: str | None = None
     tool_calls: tuple[ProviderToolCall, ...] = ()
+    # Pi ``AssistantMessage.providerThinkingLevel``: the effort an Anthropic
+    # mid-conversation effort model was asked for.
+    provider_thinking_level: str | None = None
 
 
 class NativeToolStatus(StrEnum):

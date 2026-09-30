@@ -117,8 +117,18 @@ def test_openai_provider_posts_responses_request_and_parses_output(tmp_path):
     assert posted["headers"]["Content-Type"] == "application/json"
     assert posted["body"] == {
         "model": "gpt-test",
-        "instructions": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
-        "input": "SAFE_GOAL_METADATA",
+        # Pi: the leading prompt is the first input item, and a request
+        # without messages sends its prompt as one user item.
+        "input": [
+            {
+                "role": "developer",
+                "content": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "SAFE_GOAL_METADATA"}],
+            },
+        ],
         "store": False,
     }
 

@@ -6,8 +6,11 @@
   },
   "body": {
     "model": "prod-deploy",
-    "instructions": "You are the pipy native assistant.",
     "input": [
+      {
+        "role": "developer",
+        "content": "You are the pipy native assistant."
+      },
       {
         "role": "user",
         "content": [

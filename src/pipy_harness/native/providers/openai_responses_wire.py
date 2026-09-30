@@ -6,11 +6,11 @@ speak the identical Responses request/response wire shape. This module owns the
 byte-identical translation in both directions:
 
 - :func:`resolve_responses_transcript` and :func:`responses_input` serialize
-  canonical ``ProviderRequest`` messages and later system messages into the
-  Responses ``input`` list (``function_call`` / ``function_call_output``
-  items, developer messages, anchored tool loads), with the legacy
-  single-turn string and message shapes. Codex reuses the transcript items
-  with its own envelope conversion.
+  canonical ``ProviderRequest`` messages and system messages into the
+  Responses ``input`` list (the leading prompt, ``function_call`` /
+  ``function_call_output`` items, developer messages, anchored tool loads).
+  Codex reuses the transcript items with its own envelope conversion and
+  sends the leading prompt as ``instructions``.
 - :func:`envelope_to_input_items` translates one ``AgentMessage`` envelope.
 - :func:`parse_response` / :func:`extract_final_text` turn a Responses response
   body into a :class:`ParsedResponse`.
@@ -90,9 +90,9 @@ class ResponsesTranscriptOptions:
 
 @dataclass(frozen=True, slots=True)
 class ResponsesTranscript:
-    """The ``instructions`` text, top-level tools and the ``input`` builder inputs."""
+    """The leading prompt, top-level tools and the ``input`` builder inputs."""
 
-    instructions: str
+    leading_prompt: str
     tools: tuple[ToolDefinition, ...]
     resolved: ResolvedTranscript
     tool_loading: str | None
@@ -126,16 +126,22 @@ def responses_transcript_items(
     *,
     instruction_role: str,
     envelope_items: Callable[[AgentMessage], list[dict[str, object]]],
+    include_leading_prompt: bool,
 ) -> list[dict[str, object]]:
     """Pi ``convertResponsesMessages`` over the resolved transcript.
 
-    A later system message first loads the tools it adds (when additions are
-    anchored), then, when its rendered update is not empty, becomes an
-    instruction-role message. ``msgIndex`` (the tool-search seed) counts every
-    converted message except an assistant turn that produced no items.
+    With ``include_leading_prompt`` (Pi ``includeSystemPrompt``, off for
+    Codex, which sends ``instructions``) a non-empty leading prompt is the
+    first item, in the instruction role. A later system message first loads
+    the tools it adds (when additions are anchored), then, when its rendered
+    update is not empty, becomes an instruction-role message. ``msgIndex``
+    (the tool-search seed) counts every converted message except an
+    assistant turn that produced no items.
     """
 
     items: list[dict[str, object]] = []
+    if include_leading_prompt and transcript.leading_prompt:
+        items.append({"role": instruction_role, "content": transcript.leading_prompt})
     msg_index = 0
     for item in transcript.resolved.items:
         if isinstance(item, AgentSystemMessage):
@@ -203,40 +209,38 @@ def responses_input(
     transcript: ResponsesTranscript | None = None,
     instruction_role: str = "developer",
     attach_images: bool = False,
-) -> str | list[dict[str, object]]:
+) -> list[dict[str, object]]:
     """Serialize a ``ProviderRequest`` into the Responses ``input`` payload.
 
-    ``transcript`` carries the resolved system messages
-    (:func:`resolve_responses_transcript`); without it the messages are sent
-    as they are. ``attach_images`` is the OpenAI-only extension: the current
-    user turn gains ``input_image`` blocks. Azure passes no images.
+    Pi ``convertResponsesMessages`` with ``includeSystemPrompt``: the
+    leading prompt is the first item (OpenAI and Azure send no
+    ``instructions``). ``transcript`` carries the resolved system messages
+    (:func:`resolve_responses_transcript`); without it the request collapses.
+    A request without messages sends its ``user_prompt`` as one user item.
+    ``attach_images`` is the OpenAI-only extension: the current user turn
+    gains ``input_image`` blocks. Azure passes no images.
     """
 
-    if request.messages:
-        if transcript is None:
-            transcript = resolve_responses_transcript(
-                request, ResponsesTranscriptOptions()
-            )
-        items = responses_transcript_items(
-            transcript,
-            instruction_role=instruction_role,
-            envelope_items=lambda envelope: envelope_to_input_items(
-                envelope, parse_error_class=parse_error_class
-            ),
-        )
-        if attach_images:
-            _attach_images(items, request)
-        return items
-    if attach_images and request.attachments:
-        single: list[dict[str, object]] = [
+    if transcript is None:
+        transcript = resolve_responses_transcript(request, ResponsesTranscriptOptions())
+    items = responses_transcript_items(
+        transcript,
+        instruction_role=instruction_role,
+        envelope_items=lambda envelope: envelope_to_input_items(
+            envelope, parse_error_class=parse_error_class
+        ),
+        include_leading_prompt=True,
+    )
+    if not request.messages:
+        items.append(
             {
                 "role": "user",
                 "content": [{"type": "input_text", "text": request.user_prompt}],
             }
-        ]
-        _attach_images(single, request)
-        return single
-    return request.user_prompt
+        )
+    if attach_images:
+        _attach_images(items, request)
+    return items
 
 
 def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:

@@ -329,8 +329,9 @@ uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap
 
 The first real provider is the OpenAI Responses API provider. It is selected
 explicitly, reads credentials from `OPENAI_API_KEY`, requires `--native-model`,
-uses pipy's internally built system prompt as the Responses API `instructions`
-field, uses the short native goal as `input`, and requests `store: false`:
+sends pipy's internally built system prompt as the first `input` item in the
+instruction role (Pi's shape, SYS1c) followed by the short native goal as a
+user item, and requests `store: false`:
 
 ```sh
 uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"

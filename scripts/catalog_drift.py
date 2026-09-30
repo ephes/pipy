@@ -72,6 +72,7 @@ TRACKED_COMPAT = (
     "supportsMidConvoSystemMessages",
     "supportsMidConvoToolAdditions",
     "supportsMidConvoToolChanges",
+    "supportsMidConvoEffort",
     "supportsDeveloperRole",
     "supportsExplicitPromptCacheMode",
     "supportsLongCacheRetention",

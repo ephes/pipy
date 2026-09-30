@@ -58,8 +58,8 @@ class ChatTranscriptOptions:
     Pi ``convertMessages`` (``openai-completions.ts:1185-1260``): later
     system messages stay in place when the model accepts them; with
     ``supportsMidConvoToolAdditions`` a message that adds tools first sends a
-    ``{role: "system", tools}`` message; the update text uses
-    ``instruction_role``. Pi's Mistral adapter has no tool additions and
+    ``{role: "system", tools}`` message; the leading prompt and the update
+    text use ``instruction_role``. Pi's Mistral adapter has no tool additions and
     always uses ``system``.
     """
 
@@ -81,7 +81,7 @@ def chat_transcript(
 ) -> ChatTranscript:
     """Translate a canonical ``ProviderRequest`` into Chat Completions messages.
 
-    Emits the system envelope, then either the canonical message list (with
+    Emits the leading prompt (when not empty), then either the canonical message list (with
     ``tool_calls``/``tool`` roles and any later system messages) or the
     single-turn payload built from ``system_prompt``/``user_prompt``.
     """
@@ -98,9 +98,13 @@ def chat_transcript(
             and options.supports_mid_convo_tool_additions
         ),
     )
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": resolved.leading_text}
-    ]
+    # Pi: the leading prompt uses the instruction role too, and an empty one
+    # sends no message.
+    messages: list[dict[str, Any]] = []
+    if resolved.leading_text:
+        messages.append(
+            {"role": options.instruction_role, "content": resolved.leading_text}
+        )
     if not request.messages:
         messages.append({"role": "user", "content": request.user_prompt})
         return ChatTranscript(messages, tools)

@@ -955,6 +955,7 @@ def _assistant_message(
         usage=usage,
         provider=request.provider_name or None,
         model=request.model_id or None,
+        provider_thinking_level=result.provider_thinking_level,
     )
 
 
@@ -1088,7 +1089,12 @@ def _validate_provider_result_scalars(result: ProviderResult) -> None:
     for field_name in ("started_at", "ended_at"):
         if type(getattr(result, field_name)) is not datetime:
             raise TypeError(f"ProviderResult.{field_name} must be an exact datetime")
-    for field_name in ("final_text", "error_type", "error_message"):
+    for field_name in (
+        "final_text",
+        "error_type",
+        "error_message",
+        "provider_thinking_level",
+    ):
         value = getattr(result, field_name)
         if value is not None and type(value) is not str:
             raise TypeError(

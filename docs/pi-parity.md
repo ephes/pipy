@@ -43,7 +43,12 @@ follow-ons are listed in [backlog.md](backlog.md).
   Bedrock collapse as in Pi. The prompt is recorded as Pi's tagged sections
   (`preamble`, `addendum`, `project_context`, `skills`, `cwd`)
   ([provider-catalog.md](provider-catalog.md#mid-conversation-system-messages)).
-  Remainder: backlog SYS1c.
+- **SYS1c:** the leading prompt has Pi's shape (Responses/Azure first input
+  item, Chat Completions instruction role, Codex's empty-prompt default);
+  sessions made before SYS1a send their state as a later message; `/tree`
+  restores the branch's declared tools; Anthropic mid-conversation effort
+  (`supportsMidConvoEffort`, `providerThinkingLevel`, `output_config` system
+  messages, `block_binding`, betas). Remainder: backlog SYS1c.
 
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare

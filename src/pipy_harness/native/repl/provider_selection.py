@@ -42,6 +42,7 @@ from pipy_harness.native.agent.provider_turn import (
 )
 from pipy_harness.native.agent.request import freeze_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.system_messages import current_system_message
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.compaction import (
     AutomaticCompactionContext,
@@ -690,6 +691,21 @@ class ProviderMutationEffects:
             if not self._generation_admitted_locked(generation_id):
                 return False
             return self.tool_capabilities.set_active_tools(tool_names)
+
+    def restore_tools_from_transcript(self) -> None:
+        """Pi ``_restoreToolsFromTranscript``, after ``/tree`` navigation.
+
+        The active branch's replayed system messages declare the tool set;
+        without any system message the tools stay as they are.
+        """
+
+        with self.ctl.session_tree_section() as tree:
+            anchors = tree.build_coding_context().system_anchors
+        current = current_system_message(message for _, message in anchors)
+        if current is not None:
+            self.tool_capabilities.restore_active_tools(
+                [tool.name for tool in current.tools_added]
+            )
 
     def extension_set_model(self, generation_id: int, reference: str) -> bool:
         """Prepare unlocked, atomically commit, then present one model switch."""

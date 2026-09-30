@@ -578,6 +578,7 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         "show_compaction",
         "extension_session_allows",
         "rebuild_messages_from_tree",
+        "restore_tools_from_transcript",
         "render_active_branch",
         "selected_model",
         "cache_read_rate",

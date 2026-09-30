@@ -1,7 +1,10 @@
 {
   "model": "gpt-5.1-codex",
-  "instructions": "You are the pipy native assistant.",
   "input": [
+    {
+      "role": "developer",
+      "content": "You are the pipy native assistant."
+    },
     {
       "role": "user",
       "content": [
