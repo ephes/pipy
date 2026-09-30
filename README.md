@@ -21,13 +21,13 @@ setup, architecture boundaries, validation, review, and privacy expectations.
 
 ## Install And Update
 
-The current release is 0.2.0 (see [`CHANGELOG.md`](CHANGELOG.md)). pipy is not
+The current release is 0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)). pipy is not
 published on PyPI or any other package index, so install it from a checkout of
 this repository:
 
 ```sh
 uv tool install .
-pipy --version   # pipy 0.2.0
+pipy --version   # pipy 0.3.0
 ```
 
 `uv tool install .` builds the checkout and installs the `pipy` and

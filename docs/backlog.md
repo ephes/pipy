@@ -4,6 +4,11 @@ Status: sole active task index, rewritten 2026-09-29.
 
 ## Status
 
+- **Release 0.3.0** (2026-09-30) collects the post-0.2.0 parity slices; see
+  `CHANGELOG.md`. Parity work is now in **maintenance mode** (owner decision
+  2026-09-30): prefer gaps a user can see, and run `just catalog-drift` and the
+  Pi comparison gates (`session_tree_pi_comparison.py`,
+  `automation_pi_comparison.py`) weekly.
 - **D0–D8 daily-use program: complete** (2026-09-09). It covered semantic
   compaction, product sessions, request budgets, retry, shared queue and RPC
   controls, RPC bash and cross-provider replay.

@@ -6,6 +6,60 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-30
+
+### Highlights
+
+A curated summary of the largest changes in this release; the full entries
+follow.
+
+- GPT-6.1 Sol (`gpt-6.1-sol`) on `openai`, `openai-codex` and
+  `github-copilot`, and the new default `openai-codex` model.
+- Sign in with ChatGPT for the `openai` provider: `/login openai` and
+  `/logout openai`.
+- Sessions survive trouble: provider retries follow Pi's auto-retry and are
+  shown with a countdown, an aborted or failed turn keeps its partial answer,
+  a tool result that overflows the context no longer wedges the session, and a
+  resumed session redraws its conversation and gets its model and thinking
+  level back.
+- Every assistant message stores its usage and cost, so totals survive resume
+  and model switches; `/session` prints Pi's `Session Info` with a `Cost`
+  section.
+- The built-in tools behave like Pi's: `read`, `ls`, `grep`, `find`, `write`,
+  `edit` and `@file` resolve paths like Pi with no deny list, `bash`, `grep`,
+  `find` and `ls` cut long output with Pi's limits and notices, `edit` takes
+  Pi's `edits[]`, and `bash` reports a non-zero exit as an error.
+- Tool calls are drawn as Pi's tool boxes with Pi's rows and colours, and the
+  default `pi` theme uses Pi's `dark` palette.
+- The `/model`, `/thinking` and `/resume` selectors and the slash menu use Pi's
+  fuzzy search.
+- The system prompt is Pi's (`<tools>`, `<rules>`, `<docs>` sections) and is
+  recorded in the transcript as system messages; models that accept
+  mid-conversation system messages get prompt and tool changes in place, so
+  the prompt cache prefix survives them, and Anthropic models that support it
+  get the thinking effort mid-conversation.
+- Reasoning is stored and replayed like Pi: the same model gets its thinking
+  back with provider signatures and encrypted reasoning, other models get it
+  as plain text.
+- Skills run as Pi's `/skill:<name> [args]` commands.
+
+### Breaking
+
+- `--read-root`, `PIPY_READ_ROOTS` and the automatic reference roots are
+  removed; the read tools open any path, including `.git`, ignored files and
+  paths outside the workspace.
+- `/skill <name>` and the bare `/skill` listing are removed; use
+  `/skill:<name>`. `enableSkillCommands: false` only hides the commands. A
+  skill without a frontmatter `name` is named after its directory.
+- `edit` takes `edits[]` of `{oldText, newText}`; `old_string`, `new_string`
+  and `replace_all` are gone.
+- `write` overwrites an existing file and creates parent directories.
+- `bash` reports a non-zero exit as an error ending in `Command exited with
+  code N`; the `exit code: N` / `[output]` framing is gone.
+- `grep`, `find` and `ls` take Pi's parameters and return Pi's output format.
+- `/model <ref>` switches only on an exact reference and only for the current
+  session; other text opens the model selector.
+
 ### Added
 
 - The default system prompt is now Pi's (`system-prompt.ts`, with pipy's name
@@ -253,6 +307,48 @@ entries oldest-first, and a version bump shows the new entries at startup.
     chrome, prompt echo or footer to stderr; a successful run leaves stderr
     empty.
 
+- The `bash`, `grep`, `find` and `ls` tools handle long output the way Pi's
+  do (TOOLS1, Pi `4df157433`), and take Pi's parameters and descriptions:
+  - `bash` keeps the last 2000 lines or 50 KB (was 16 KB), saves the full
+    output to a temp file (`pipy-bash-<id>.log` in the system temp directory)
+    and ends with `[Showing lines X-Y of N. Full output: <path>]`, which
+    `read` can open (READ2).
+  - `grep` takes a regex (or `literal`), `glob`, `ignoreCase`, `context` and
+    `limit` (default 100). Rows are `path:N: text` relative to the search
+    path, with `path-N- text` context lines; long lines are cut to 500
+    characters. It uses `rg` when installed, else a Python search with the
+    same rules. It no longer skips control-character or secret-shaped files.
+  - `find` matches like `fd --glob`: a pattern without `/` matches names at
+    any depth, smart case, directories end in `/`; `limit` defaults to 1000.
+  - `ls` takes an optional `path` and `limit` (default 500) and lists names
+    sorted case-insensitively, with `/` after directories.
+  - Every cut ends with Pi's notice, such as `[100 matches limit reached. Use
+    limit=200 for more, or refine pattern]` or `[50.0KB limit reached]`,
+    instead of `... (truncated)`. Empty results read `No matches found`,
+    `No files found matching pattern` or `(empty directory)`.
+
+- The system prompt and tool declarations are now part of the transcript, as
+  in Pi (`9e05370b2`, SYS1a). The first run of a session records a
+  `role: "system"` message:
+  - its only section, `preamble`, holds pipy's prompt;
+  - `toolsAdded` lists every tool the model can call.
+  Later runs record one only when the prompt or the tools change (section
+  patches, `toolsAdded`/`toolsRemoved`), and so does a tool change inside a
+  run. `--mode json` and `--mode rpc` emit it as
+  `message_start`/`message_end` after `turn_start` and before the user
+  message, and `agent_end.messages` starts with it. RPC `get_messages`
+  returns it. The session file stores it as a `message` entry. A compaction
+  entry stores the replayed state as `systemMessage` and replaces earlier
+  system messages with it. The TUI draws nothing for it, and `/tree` shows
+  `[system]`. Provider requests are unchanged: pipy sends the prompt out of
+  band and never sends later system messages, which is what Pi does for
+  models without mid-conversation system messages. `automation_pi_comparison.py`
+  passes against Pi `4df157433` again. Per-model mid-conversation
+  serialization and Anthropic mid-conversation effort are backlog SYS1b.
+
+- Ctrl+O now expands and collapses tool results already on screen, not only
+  the ones rendered afterwards.
+
 ### Removed
 
 - `--read-root`, the `PIPY_READ_ROOTS` environment variable, the automatic
@@ -287,51 +383,6 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `errorMessage`; `/tree` shows a stopped turn without text as
   `assistant: (aborted)`. The fake `fake-tools` model streams a partial
   answer before waiting when a prompt starts with `STREAMBLOCK`.
-
-### Changed
-
-- The `bash`, `grep`, `find` and `ls` tools handle long output the way Pi's
-  do (TOOLS1, Pi `4df157433`), and take Pi's parameters and descriptions:
-  - `bash` keeps the last 2000 lines or 50 KB (was 16 KB), saves the full
-    output to a temp file (`pipy-bash-<id>.log` in the system temp directory)
-    and ends with `[Showing lines X-Y of N. Full output: <path>]`, which
-    `read` can open (READ2).
-  - `grep` takes a regex (or `literal`), `glob`, `ignoreCase`, `context` and
-    `limit` (default 100). Rows are `path:N: text` relative to the search
-    path, with `path-N- text` context lines; long lines are cut to 500
-    characters. It uses `rg` when installed, else a Python search with the
-    same rules. It no longer skips control-character or secret-shaped files.
-  - `find` matches like `fd --glob`: a pattern without `/` matches names at
-    any depth, smart case, directories end in `/`; `limit` defaults to 1000.
-  - `ls` takes an optional `path` and `limit` (default 500) and lists names
-    sorted case-insensitively, with `/` after directories.
-  - Every cut ends with Pi's notice, such as `[100 matches limit reached. Use
-    limit=200 for more, or refine pattern]` or `[50.0KB limit reached]`,
-    instead of `... (truncated)`. Empty results read `No matches found`,
-    `No files found matching pattern` or `(empty directory)`.
-
-### Changed
-
-- The system prompt and tool declarations are now part of the transcript, as
-  in Pi (`9e05370b2`, SYS1a). The first run of a session records a
-  `role: "system"` message:
-  - its only section, `preamble`, holds pipy's prompt;
-  - `toolsAdded` lists every tool the model can call.
-  Later runs record one only when the prompt or the tools change (section
-  patches, `toolsAdded`/`toolsRemoved`), and so does a tool change inside a
-  run. `--mode json` and `--mode rpc` emit it as
-  `message_start`/`message_end` after `turn_start` and before the user
-  message, and `agent_end.messages` starts with it. RPC `get_messages`
-  returns it. The session file stores it as a `message` entry. A compaction
-  entry stores the replayed state as `systemMessage` and replaces earlier
-  system messages with it. The TUI draws nothing for it, and `/tree` shows
-  `[system]`. Provider requests are unchanged: pipy sends the prompt out of
-  band and never sends later system messages, which is what Pi does for
-  models without mid-conversation system messages. `automation_pi_comparison.py`
-  passes against Pi `4df157433` again. Per-model mid-conversation
-  serialization and Anthropic mid-conversation effort are backlog SYS1b.
-
-### Fixed
 
 - Provider retries are visible and follow Pi's agent-level auto-retry
   (DF1-F4, Pi `4df157433`):
@@ -375,8 +426,6 @@ entries oldest-first, and a version bump shows the new entries at startup.
   answered `session is not idle`. It depended on timing and also affected
   0.2.0.
 
-### Fixed
-
 - A resumed conversation is shown again. Startup with `-r`, `--continue` or
   `--session`, `/resume`, `/tree` navigation, `/fork`, `/clone`, `/new` and
   `/import` redraw the transcript from the active branch, as Pi does: user and
@@ -392,11 +441,6 @@ entries oldest-first, and a version bump shows the new entries at startup.
   cannot be used prints `pipy: Could not restore model …` at startup and keeps
   the default. Before, a resumed session started at the default thinking
   level and model.
-
-### Changed
-
-- Ctrl+O now expands and collapses tool results already on screen, not only
-  the ones rendered afterwards.
 
 ## [0.2.0] - 2026-09-29
 

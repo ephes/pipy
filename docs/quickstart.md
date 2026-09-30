@@ -19,7 +19,7 @@ uv run pipy --help
 uv run pipy
 ```
 
-pipy 0.2.0 is not published on PyPI or any other package index. Until an owned
+pipy 0.3.0 is not published on PyPI or any other package index. Until an owned
 distribution name exists, use the checkout install above rather than guessing a
 package name.
 
