@@ -383,8 +383,15 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      image check. Transcribe Pi arithmetic literally (Python slicing matches
      `Array.prototype.slice` for negative ends), but JS `toFixed` rounds ties up
      (1280 B is `1.3KB`): use `Decimal` `ROUND_HALF_UP` and pin a tie value.
-     For a binary Pi shells out to (rg, fd), measure and pin its rules and keep
-     its resource limits (`docs/parity-loop/porting-notes.md`).
+     For a binary Pi shells out to (rg, fd), keep its resource limits and write
+     the differential test against the real binary first; port the whole Node
+     contract of each builtin a helper calls (`fileURLToPath`, `path.join`,
+     UTF-16 strings) and diff against Pi's own TypeScript run by Node
+     (`docs/parity-loop/porting-notes.md`).
+   - Pi TUI component → inline-scrollback rows: list every input that changes
+     the drawing (result, Ctrl+O, width, async callbacks) before coding; keep the
+     row live until it settles, re-render on expand and resize, and run Pi async
+     work off the loop thread (porting-notes).
    - Provider-history filters: grep every `ProviderRequest(` with `messages=`,
      not only `materialize_provider_request` (compaction's
      `build_summary_request` bypasses it). A Pi JSON projection field must also
@@ -423,7 +430,9 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      `pricing_for`) and enumerate every adapter usage extractor against the Pi
      adapter that normalizes it (uncached input = prompt minus inclusive cache
      counters, reasoning inside output, Gemini thoughts added to output, cache
-     reads/writes per API) before pricing.
+     reads/writes per API) before pricing. Per-turn telemetry on
+     `AgentAssistantMessage` is `compare=False`; session totals sum every entry
+     on every branch like Pi `getEntries()` (porting-notes).
    - When a previously loaded-but-unused value becomes live input (models.json
      cost rates), re-check load-time validation against the consumer's
      invariants (negative, NaN/Infinity, `OverflowError` from `float(int)`) with
@@ -468,9 +477,10 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    asserts equality), so edits there, including `NATIVE_TOOL_LOOP_SYSTEM_PROMPT`,
    must keep its line count unchanged. Exercise UI, cost, tool-call, and
    restored-session behavior without live credentials in a real tmux PTY using
-   `docs/parity-loop/pty-evidence.md` (isolated env, fake-provider limits, local
-   completions stub, `pipy -r` model restore, offline real-Pi comparison, cheap
-   live `--mode json` checks with a pinned tool call).
+   `docs/parity-loop/pty-evidence.md` (isolated env — no gate, test or PTY run
+   may touch the real `~/.pipy` — colour-capable tmux env, fake-provider limits,
+   local completions stub, `pipy -r` model restore, offline real-Pi comparison,
+   cheap live `--mode json` checks with a pinned tool call).
    *Done-when:* code complete, focused tests written.
 6. **Update docs (part of the change).** Bring docs + release notes + the parity
    docs (`docs/parity-plan.md`, `docs/pi-mono-gap-audit.md`, `docs/backlog.md`)
