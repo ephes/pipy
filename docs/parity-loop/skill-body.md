@@ -90,8 +90,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    gap from the index, or accept an operator-supplied gap. Read-only investigation
    tasks are not implementation gaps. If neither is available, report that there
    is no eligible task and stop; do not promote an audit into implementation or
-   choose an old historical ranking automatically. Confirm the selected gap is
-   a single reviewable slice (decompose if not). *Done-when:* one named gap with a one-paragraph scope and the relevant
+   choose an old historical ranking automatically. Parity work is in
+   maintenance mode (owner decision, 2026-09-30): prefer gaps with user-visible
+   impact, such as new models or bugs found while dogfooding, over pixel or text
+   equivalence, and stop when a slice would mainly add deviation lists. Confirm
+   the gap is a single reviewable slice (decompose if not). *Done-when:* one
+   named gap with a one-paragraph scope and the relevant
    `~/src/pi-mono` reference path(s), or an explicit report that no eligible
    implementation gap exists.
 2. **Plan.** Read the pi-mono reference; write a short design/plan (what Pi does,
@@ -184,31 +188,11 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    exact implementation scope. If one named path is already Pi-correct, correct
    the gap-source docs and keep the slice limited to the path that actually
    diverges.
-   For an automation/session-event slice where Pi emits ONE event to every
-   subscriber (Pi `_emit` → all modes carry it, e.g. `agent_settled`), do NOT add
-   the event to the shared tool-loop `AutomationEmitter`. Some modes already
-   SYNTHESIZE that event at their own idle boundary — the RPC path synthesizes
-   `agent_settled` in `RpcServer.emit` with queue-aware suppression — so emitting
-   from the shared emitter double-emits on those paths. The faithful seam is
-   per-mode synthesis at each mode's own idle boundary: `--mode json` synthesizes
-   its own `agent_settled` in `run_json_mode` after the one-shot run returns, in a
-   `finally` (mirroring Pi's `_runAgentPrompt` finally so it fires on error too),
-   symmetric with how RPC owns its idle boundary. Do NOT trust a prior spec's
-   `Deferred` note that names the seam — the shipped RPC plan mis-suggested the
-   `AutomationEmitter` as the json seam, which would have regressed RPC. And run
-   the objective comparison gate (`scripts/parity_checks/automation_pi_comparison.py`,
-   real Pi via `pi_faux_event_driver.mts`) FIRST to capture the exact expected Pi
-   sequence before writing code — for this gap it was already RED (Pi ended
-   `agent_settled`, pipy at `agent_end`), giving proof of the terminator to match.
-   For a true-idle lifecycle hook inside a session, treat settlement as state of
-   the accepted run rather than a consequence of `agent_end`: mark settlement
-   pending immediately before the run dispatches `agent_start`, and clear it only
-   when the settled hook fires. The session's outer `finally` must emit any still-
-   pending hook before `session_shutdown`, so an unexpected mid-run exception
-   retains Pi-style settlement without fabricating `agent_end`. Pin completed-
-   fatal returns and unexpected exceptions as separate tests: the former still
-   emits `agent_end` before settlement, while the latter settles without an
-   invented `agent_end`; these are distinct control-flow edges.
+   For an automation/session-event slice (an event Pi emits to every subscriber,
+   such as `agent_settled`, or a true-idle hook), synthesize it per mode at each
+   mode's idle boundary, never in the shared `AutomationEmitter`, and capture
+   the exact Pi sequence with `automation_pi_comparison.py` before coding
+   (`docs/parity-loop/porting-notes.md`, "Automation and session events").
    For session persistence/history slices, check Pi's persistence timing first:
    Pi writes a session file lazily (first assistant flush) while pipy writes the
    tree eagerly, so append session-start entries such as `model_change` just
@@ -225,45 +209,27 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    (`create_product_session(tree=...)`), not only an ephemeral SDK session whose
    durable-origin refusals never fire: parametrize tests over persisted and
    ephemeral sessions and do a stub-provider PTY run before the plan is final.
-   For a catalog/model-data slice, take Pi-exact row values from Pi's generated
-   catalog, not from reading `generate-models.ts` overrides by hand or from the
-   installed `pi` release (which may predate the reference commit). The catalog
-   JSON under `packages/ai/src/providers/data/` is gitignored build output, so
-   regenerate it into scratch from `~/src/pi-mono/packages/ai` with
-   `node scripts/generate-models.ts --strict --json-only --json-output <scratch-dir>`
-   (a live models.dev fetch) and give the reviewer a filtered extract of the
-   touched rows as evidence. Run `just catalog-drift --pi-data <scratch-dir>`
-   (the freshly generated catalog, not the default path) before and after
-   editing `catalog_data.py` and expect 0 drift and 0 stale entries; record intentional
-   differences as allowlist deviations with reasons (a hand refresh of only the
-   rows you looked at leaves stale neighbours). A Pi-vs-pipy compat comparison
-   must cover every compat key pipy request construction reads (`grep
-   compat.get`), treat a missing key as distinct from `false` (Pi defaults differ
-   per key; `supportsLongCacheRetention` defaults to true), and normalize
-   order-independent fields such as input capabilities. When a catalog refresh adds explicit `null`
-   thinking-map entries (e.g. `off: null`, `minimal: null`), it makes Pi
-   SESSION-level behavior reachable, not just request shape: Pi seeds
-   `DEFAULT_THINKING_LEVEL` (`medium`) at startup and clamps the carried level on
-   `setModel` via `setThinkingLevel`, while its adapters never clamp an `off`
-   (`agent.ts` passes `reasoning: undefined`). Pin the startup default and the
-   model-switch clamp in the plan beside the request-shape rules, with tests for
-   both.
+   For a catalog/model-data slice, regenerate Pi's catalog into scratch, run
+   `just catalog-drift --pi-data <scratch-dir>` before and after editing
+   `catalog_data.py` (expect 0 drift, 0 stale), compare every compat key pipy
+   reads, and pin the startup thinking default and model-switch clamp
+   (porting-notes, "Catalog and model data").
    For a resource-discovery slice (skills, prompts, themes, extensions, context
    files), pin every Pi helper the walk calls, not only the top-level collector —
    e.g. `collectSkillEntries` also applies `addIgnoreRules`/`prefixIgnorePattern`
    — and enumerate every consumer of any shared root resolver the slice changes
    (e.g. `resolve_global_resource_root` also feeds `models.json` lookup), so a
-   root change cannot silently move an unrelated resource. When the slice starts
-   loading a new real-world file shape (e.g. `SKILL.md` from `.agents/skills`),
-   check that pipy's stdlib parsers handle that shape's common syntax before
-   coding, and add fixtures for it: pipy's frontmatter parser once read only
-   single-line values, so YAML block scalars (`description: >-`, with an optional
-   trailing comment) cost two code-review rounds.
-   For any provider request-shape slice, also pin caller-side request options
-   (such as `sessionId` and `cacheRetention`) per call site, not only the adapter
-   body: Pi's compaction and branch-summary calls pass no `sessionId`, so they get
-   a fresh routing id rather than the session's. Verify these per caller in the Pi
-   source instead of trusting a backlog or audit summary.
+   root change cannot silently move an unrelated resource. Before loading a new
+   file shape or porting a typed frontmatter field, run every scalar form
+   through Pi `parseFrontmatter` under Node and pin the matrix as a test
+   (porting-notes, "Frontmatter parsing").
+   Pin behavior per Pi call site, including request options such as `sessionId`
+   and `cacheRetention`, and check that each site is reachable from the CLI
+   path; never trust a backlog or audit summary. Pi's compaction and
+   branch-summary calls pass no `sessionId` (a fresh routing id), and Pi calls
+   `_restoreToolsFromTranscript` at construction only when
+   `initialActiveToolNames` is undefined, but `sdk.ts` always passes an array,
+   so the CLI restores tools on `/tree` navigation, not on resume.
    For a slice that changes a contract or state with several consumers, trace
    every consumer in the plan, not the first one found:
    - Built-in tool ports: grep every consumer hard-coding the old contract
@@ -282,8 +248,9 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      (`docs/parity-loop/porting-notes.md`).
    - Pi TUI component → inline-scrollback rows: list every input that changes
      the drawing (result, Ctrl+O, width, async callbacks) before coding; keep the
-     row live until it settles, re-render on expand and resize, and run Pi async
-     work off the loop thread (porting-notes).
+     row live until it settles, re-render on expand and resize, run Pi async
+     work off the loop thread, and keep each Pi text/thinking block boundary as
+     its own row, restored or streamed (porting-notes).
    - Provider-history filters: grep every `ProviderRequest(` with `messages=`,
      not only `materialize_provider_request` (compaction's
      `build_summary_request` bypasses it). A Pi JSON projection field must also
@@ -302,6 +269,10 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      prompt from the transcript replay (Pi `getCurrentSystemMessage` keeps Map
      order, so a later section goes last), and plan a live mid-session
      section-addition turn (resume with a new `--append-system-prompt`).
+     Render a section that depends on runtime state (active tools, loaded
+     skills) per run from session-owned state, after the input hooks, never
+     from a startup snapshot; test `/reload` and an input-hook
+     `set_active_tools` path.
    - Pi error-text classifiers: pipy messages are sanitized, so feed each
      adapter family's error type/code and transport retryable flags, and port
      Pi's earlier `isContextOverflow` veto (overflow text `50000` matches `500`).
@@ -319,16 +290,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      path: `get_available()`, the REPL `/model` options (`model_options`), and
      direct `/model <ref>` resolution (`_resolve_model_reference`), each with a
      per-row reason.
-   - Short-lived OAuth tokens (Copilot, ~30 min) expire under a provider bound
-     across turns: plan a per-request auth wrapper that snapshots the
-     credential on the owner thread (`AuthStore` is single-thread), refreshes
-     through a lock-protected cache holding no `AuthStore`, rebuilds the
-     adapter from the owner-thread `ResolvedConstruction` replacing only
-     `api_key`/`base_url`, and regenerates token-derived headers (models.json
-     `authHeader`). A product gate reading a capability off the bound
-     `ProviderPort` (`getattr`) must hold through every wrapper
-     (`PerRequestOAuthProvider` hides adapter fields): grep
-     `provider_construction` for wrappers and test through one.
+   - OAuth providers (porting-notes, "OAuth providers"): refresh short-lived
+     tokens per request through a wrapper; persist rotating refresh tokens
+     under `auth_file_lock` rather than in the in-memory cache; run the
+     callback listener on `ThreadingHTTPServer`; and never pass fixed flow
+     text through `sanitize_text` (it redacts "token" URLs), but sanitize
+     every value interpolated from outside.
    - Per-keystroke paths (autocomplete, argument completion) must never
      construct providers: construction runs credential `!command` helpers and
      extension factories. A user-typed regex must also catch `OverflowError` and
@@ -402,7 +369,8 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    `ulimit -n 4096; just check` before treating it as a code failure; still rerun
    any individually reported flaky PTY test to distinguish environmental
    pressure from a real regression. Run PTY gates under `timeout 600` (they can
-   hang uninterruptibly on macOS) and rerun once before investigating. Only when
+   hang uninterruptibly on macOS), never beside a review or other heavy job, and
+   rerun a failure once, alone, before investigating (pty-evidence). Only when
    green, run the different-family review over the **full diff — code and docs together**. The
    reviewer must be a single direct fresh context:
    no subagents, `Agent` tool, Task-style delegation, or parallel reviewer fanout.

@@ -36,6 +36,11 @@ PTY gates such as `scripts/parity_checks/tui_workflow_conformance.py` can hang
 in an uninterruptible state on macOS. Always run gates under `timeout 600`, and
 rerun a hung or failed gate once before investigating it.
 
+Do not run the `scripts/parity_checks` sweep at the same time as a code review
+or another heavy job. Under load, `tui_workflow_conformance.py` hit the 600 s
+timeout, and alone it passed well within it. Rerun a timed-out PTY gate alone
+before treating the timeout as a regression.
+
 ## Side-by-side tmux scripts
 
 - `tmux -t` falls back to a session-name prefix when no session has the exact
@@ -96,6 +101,14 @@ gives a tool-call trace. Models often sidestep the path under test: in TOOLS1
 the model piped `python3 gen.py` through `sed` itself instead of hitting the
 cut. Pin the exact tool call in the prompt, for example "the command string
 must be exactly X; never run it twice".
+
+Live `openai-codex` reasoning summaries are often empty at medium effort
+(`usage.reasoning` is 0 on simple prompts, and reasoning items carry an empty
+summary), so a thinking-render PTY comparison can show nothing by chance. Probe
+first with `--mode json` and count `thinking_delta` events, use a prompt that
+needs real reasoning, and rerun the side-by-side capture when a run produced no
+summary. Check replay acceptance on a turn whose stored message holds a signed
+reasoning item followed by a function call.
 
 ## Restored-session evidence (`pipy -r`)
 

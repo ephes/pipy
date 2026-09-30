@@ -163,6 +163,13 @@ changes the drawing: result arrival, Ctrl+O, terminal width, async callbacks.
 - Run Pi async work (the `computeEditsDiff` preview) on a worker thread and
   apply the result under the paint lock with a bounded join. Never run it on the
   loop thread: a FIFO path blocked the UI and the interrupt keys.
+- Keep every Pi block boundary of ordered message content. Pi draws each text
+  block as its own Markdown component and each consecutive thinking run as one
+  block, so restored and non-streamed rendering commits a new row per text
+  block instead of appending to the live assistant buffer.
+- A streaming-slot assembler correlates deltas by `output_index`, then by item
+  id. A delta that names an unknown item must never fall back to another open
+  slot.
 
 ## Line ceilings and audit pins
 
@@ -179,6 +186,13 @@ module.
   synthetic `CodingSession` fixture, and the field-count parameter.
 - Removing a message field needs a grep of `scripts/parity_checks` for
   `getattr`-style access, which fails silently instead of raising.
+- Value types shared by `models.py` and the canonical agent layer live under
+  `pipy_harness.native.agent` (e.g. `agent/content.py`): the agent closure
+  tests reject an agent module importing a non-agent module, and
+  `coding/request_budget.py` pins an exact import set. `models.py` may import
+  `agent.content` (the agent `__init__` chain never imports `models`). Expose
+  new data to a pinned consumer through a message method (`thinking_blocks()`)
+  instead of a new import.
 
 ## Resource guarantees of a Python stand-in
 
@@ -188,3 +202,97 @@ cap, and an in-process `re` search that could not stop a backtracking pattern.
 Run the fallback as a child process that streams the same JSON as the real
 binary. One reader then handles both engines, kills the child at the result
 limit, and kills it on `cancel_event`. Read files line by line.
+
+## Automation and session events
+
+- **One Pi event, per-mode synthesis.** When Pi emits one event to every
+  subscriber (Pi `_emit`, e.g. `agent_settled`), do not add it to the shared
+  tool-loop `AutomationEmitter`. RPC already synthesizes `agent_settled` in
+  `RpcServer.emit` with queue-aware suppression, so the shared emitter would
+  double-emit there. Synthesize per mode at that mode's idle boundary:
+  `--mode json` emits its own `agent_settled` in `run_json_mode` after the
+  one-shot run returns, in a `finally` (Pi `_runAgentPrompt` fires it on error
+  too). Do not trust a prior spec's `Deferred` note that names the seam: the
+  shipped RPC plan suggested the `AutomationEmitter`, which would have regressed
+  RPC. Run `scripts/parity_checks/automation_pi_comparison.py` (real Pi via
+  `pi_faux_event_driver.mts`) first to capture the exact Pi sequence.
+- **True-idle hooks.** Settlement is state of the accepted run, not a
+  consequence of `agent_end`: mark it pending just before the run dispatches
+  `agent_start`, and clear it only when the settled hook fires. The session's
+  outer `finally` emits a still-pending hook before `session_shutdown`, so an
+  unexpected mid-run exception settles without an invented `agent_end`. Test
+  completed-fatal returns (still emit `agent_end` first) and unexpected
+  exceptions separately.
+
+## Catalog and model data
+
+- Take Pi-exact row values from Pi's generated catalog, not from reading
+  `generate-models.ts` overrides by hand or from the installed `pi` release
+  (which may predate the reference commit). The catalog JSON under
+  `packages/ai/src/providers/data/` is gitignored build output: regenerate it
+  into scratch from `~/src/pi-mono/packages/ai` with
+  `node scripts/generate-models.ts --strict --json-only --json-output <scratch-dir>`
+  (a live models.dev fetch) and give the reviewer a filtered extract of the
+  touched rows.
+- Run `just catalog-drift --pi-data <scratch-dir>` before and after editing
+  `catalog_data.py` and expect 0 drift and 0 stale entries. Record intentional
+  differences as allowlist deviations with reasons; a hand refresh of only the
+  rows you looked at leaves stale neighbours.
+- A Pi-vs-pipy compat comparison covers every compat key pipy request
+  construction reads (`grep compat.get`), treats a missing key as distinct from
+  `false` (`supportsLongCacheRetention` defaults to true), and normalizes
+  order-independent fields such as input capabilities.
+- Explicit `null` thinking-map entries (`off: null`, `minimal: null`) make Pi
+  session behavior reachable: Pi seeds `DEFAULT_THINKING_LEVEL` (`medium`) at
+  startup and clamps the carried level on `setModel` via `setThinkingLevel`,
+  while its adapters never clamp an `off` (`agent.ts` passes
+  `reasoning: undefined`). Pin and test the startup default and the
+  model-switch clamp.
+
+## Frontmatter parsing
+
+pipy parses frontmatter with its own stdlib parser. Before porting a typed field
+(e.g. the YAML boolean `disable-model-invocation`, Pi `=== true`) or loading a
+new real-world file shape, run every scalar form through Pi `parseFrontmatter`
+under Node first: inline, quoted, block `|` and `>` (with an optional trailing
+comment), multi-line plain with blank and comment lines, and a continuation
+after an inline value. Pin the matrix as a test. Block scalars cost two review
+rounds in the skills slice; fixing forms one per round cost three in the
+prompt-sections slice.
+
+## OAuth providers
+
+- **Short-lived tokens.** Copilot tokens (~30 min) expire under a provider
+  bound across turns. Use a per-request auth wrapper that snapshots the
+  credential on the owner thread (`AuthStore` is single-thread), refreshes
+  through a lock-protected cache holding no `AuthStore`, rebuilds the adapter
+  from the owner-thread `ResolvedConstruction` replacing only
+  `api_key`/`base_url`, and regenerates token-derived headers (models.json
+  `authHeader`). A product gate reading a capability off the bound
+  `ProviderPort` (`getattr`) must hold through every wrapper
+  (`PerRequestOAuthProvider` hides adapter fields): grep
+  `provider_construction` for wrappers and test through one.
+- **Rotating refresh tokens.** When refresh rotates the refresh token, the
+  Copilot-style in-memory `OAuthCredentialCache` is wrong. Persist through
+  `auth_store.modify_stored_credential` under `auth_file_lock` (Pi
+  `resolveStoredOAuth`) and keep rotation lineage, so a stale owner snapshot
+  maps to the newest credential. `AuthStore.set`/`remove` are locked
+  single-key merges, so an owner write cannot revert a worker-persisted token.
+  Check Pi `toAuth`: a provider without `request_base_url` keeps the row's base
+  URL.
+- **Callback listener.** Use `ThreadingHTTPServer` (daemon threads,
+  `block_on_close` false) and close tracked connections on shutdown (Pi
+  `closeAllConnections`). A single-threaded `HTTPServer` blocks behind a
+  browser's idle pre-connection, so the real callback never arrives and
+  shutdown hangs. Guard the first-outcome-wins result with a lock and add an
+  idle-pre-connection regression test. The Codex `_LocalOAuthCallbackServer`
+  (`handle_request` once) still has the old shape.
+- **Printed flow text.** `sanitize_text`/`looks_sensitive` blank any string
+  containing token, credential or secret, so an authorize URL whose scope names
+  `chatgpt.tokens.use.direct` or "Exchanging authorization code for tokens..."
+  prints as `[REDACTED]` through the shared `_ExtensionOAuthCallbacks`. Print
+  fixed flow text with whitespace collapsed only, and sanitize every value
+  interpolated from outside (callback error query parameters, token-endpoint
+  response bodies): review reproduced `error=access_token%3DSECRET` reaching the
+  terminal. Test the REPL path with the real provider, not a stub, to see the
+  printed URL.

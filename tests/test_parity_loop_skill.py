@@ -48,6 +48,9 @@ REQUIRED_BODY_TOKENS = (
     "Pi reference field list",
     "optionality",
     "derived identifiers",
+    # Gap selection follows the 2026-09-30 maintenance-mode owner decision:
+    "maintenance mode",
+    "deviation lists",
 )
 
 PLACEHOLDER_TOKENS = ("TODO", "TBD", "FIXME", "XXX", "<placeholder>")
@@ -97,6 +100,8 @@ PTY_EVIDENCE_GUARD_TOKENS = (
     "slice-named",
     "timeout 600",
     "=name:",
+    "Rerun a timed-out PTY gate alone",
+    "thinking_delta",
 )
 
 
@@ -116,6 +121,22 @@ PORTING_NOTES_GUARD_TOKENS = (
     "available_thinking_levels",
     "Line ceilings and audit pins",
     "MEMBER_LIST",
+    "RpcServer.emit",
+    "generate-models.ts --strict --json-only",
+    "parseFrontmatter",
+    "PerRequestOAuthProvider",
+    "modify_stored_credential",
+    "ThreadingHTTPServer",
+    "access_token%3DSECRET",
+)
+# Sections the body points to by name; each must exist in both files.
+PORTING_NOTES_SECTIONS = (
+    "Completions `thinkingFormat`",
+    "Line ceilings and audit pins",
+    "Automation and session events",
+    "Catalog and model data",
+    "Frontmatter parsing",
+    "OAuth providers",
 )
 
 
@@ -124,8 +145,9 @@ def test_porting_notes_keep_rules_moved_out_of_body() -> None:
     missing = [tok for tok in PORTING_NOTES_GUARD_TOKENS if tok not in text]
     assert not missing, f"porting-notes.md lacks moved rules: {missing}"
     body = BODY.read_text(encoding="utf-8")
-    assert "Completions `thinkingFormat`" in body
-    assert "Line ceilings and audit pins" in body
+    for section in PORTING_NOTES_SECTIONS:
+        assert f"## {section}" in text, f"porting-notes.md lacks section {section}"
+        assert section in body, f"skill-body.md no longer points to {section}"
 
 
 def test_planning_docs_use_neutral_repo_owned_paths() -> None:
