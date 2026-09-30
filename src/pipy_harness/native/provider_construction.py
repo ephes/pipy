@@ -192,9 +192,10 @@ def resolve_construction(
     """Resolve auth + headers + routing + thinking for a catalog model.
 
     ``oauth_credential`` is a detached OAuth credential for a provider whose
-    request auth pipy derives per request (github-copilot). When given, and no
-    runtime key overrides it, its token is the API key and its base URL wins
-    over the row's (Pi ``toAuth`` + ``models.ts:857``).
+    request auth pipy derives per request (github-copilot, openai). When given,
+    and no runtime key overrides it, its token is the API key and a
+    provider-derived base URL (Copilot) wins over the row's (Pi ``toAuth`` +
+    ``models.ts:857``).
     """
 
     # ``base_url`` may carry ``{ENV_VAR}`` placeholders (Cloudflare embeds the
@@ -211,7 +212,9 @@ def resolve_construction(
             error=base_url_error,
         )
 
-    oauth = _oauth_request_auth(spec.provider_name, oauth_credential, runtime_api_key)
+    oauth = _oauth_request_auth(
+        spec.provider_name, oauth_credential, runtime_api_key, base_url
+    )
     if oauth is not None:
         base_url = oauth.base_url
     auth = resolve_request_auth(
@@ -310,25 +313,34 @@ _RESPONSES_FAMILIES = frozenset({"openai-responses", "azure-openai-responses"})
 @dataclass(frozen=True, slots=True)
 class _OAuthRequestAuth:
     api_key: str = field(repr=False)
-    base_url: str
+    base_url: str | None
 
 
 def _oauth_request_auth(
     provider_name: str,
     credential: Mapping[str, object] | None,
     runtime_api_key: str | None,
+    base_url: str | None,
 ) -> _OAuthRequestAuth | None:
-    """Pi ``toAuth`` for a per-request OAuth credential (runtime key wins)."""
+    """Pi ``toAuth`` for a per-request OAuth credential (runtime key wins).
+
+    A provider without ``request_base_url`` (Sign in with ChatGPT returns only
+    ``apiKey``) keeps ``base_url``, the row's resolved base URL.
+    """
 
     if credential is None or runtime_api_key:
         return None
     provider = get_oauth_provider(provider_name)
-    request_base_url = getattr(provider, "request_base_url", None)
-    if provider is None or not callable(request_base_url):
+    if provider is None:
         return None
+    request_base_url = getattr(provider, "request_base_url", None)
     return _OAuthRequestAuth(
         api_key=provider.get_api_key(credential),
-        base_url=str(request_base_url(credential)),
+        base_url=(
+            str(request_base_url(credential))
+            if callable(request_base_url)
+            else base_url
+        ),
     )
 
 
@@ -1222,6 +1234,7 @@ def _build_catalog_provider(
             model_id=resolved.model_id,
             api_key=resolved.api_key,
             endpoint=endpoint,
+            base_url=resolved.base_url,
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
@@ -1461,7 +1474,9 @@ class PerRequestOAuthProvider:
             fresh = self.credentials.fresh(self.resolved.provider_name, self.credential)
         except OAuthError:
             return f"OAuth refresh failed for {self.resolved.provider_name}."
-        oauth = _oauth_request_auth(self.resolved.provider_name, fresh, None)
+        oauth = _oauth_request_auth(
+            self.resolved.provider_name, fresh, None, self.resolved.base_url
+        )
         if oauth is None:
             return f"No OAuth provider for {self.resolved.provider_name}."
         headers = dict(self.resolved.headers)

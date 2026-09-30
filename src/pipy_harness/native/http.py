@@ -506,6 +506,13 @@ class ProviderHTTPError(Exception):
         self.metadata: dict[str, Any] = dict(metadata or {})
 
     @classmethod
+    def extra_error_metadata(cls, error: Mapping[str, Any]) -> dict[str, Any]:
+        """Provider-specific metadata from the body's ``error`` object."""
+
+        del error
+        return {}
+
+    @classmethod
     def from_http_error(cls, exc: urllib.error.HTTPError) -> Self:
         """Normalize a urllib ``HTTPError`` into this provider's status error.
 
@@ -531,6 +538,7 @@ class ProviderHTTPError(Exception):
                     metadata[spec.metadata_key] = (
                         sanitize_text(str(value)) if spec.sanitize else value
                     )
+            metadata.update(cls.extra_error_metadata(error))
         return cls(
             f"{cls.provider_label} request failed with HTTP status {exc.code}.",
             metadata=metadata,

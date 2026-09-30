@@ -322,6 +322,34 @@ openai-completions) construct from the catalog via `native/provider_construction
   persisted (Pi persists under a file lock); the 429 retry does not read
   `Retry-After`; Pi's xAI OAuth login and cost tiers are not ported; Copilot
   no longer uses a load-time `modify_models` base-URL rewrite (Pi removed it).
+- **OpenAI Sign in with ChatGPT** (`native/oauth_providers.py`
+  `OpenAIChatGPTOAuthProvider`, Pi `02eed88fd`): the `openai` provider is a
+  built-in OAuth provider next to `OPENAI_API_KEY`. `/login openai` runs Pi's
+  public-client PKCE flow (dynamic client registration, the issued `client_id`
+  from the callback, the `deviceId` setting as `ext_agent_host_id`, a
+  `127.0.0.1:1455` callback listener raced by a pasted redirect URL) and stores
+  `{type, access, refresh, expires (-3 min), clientId, scopes}` under `openai`.
+  A stored OAuth `openai` credential binds a `PerRequestOAuthProvider` like
+  Copilot, keeping the row's base URL (Pi `toAuth` returns only the key).
+  OpenAI rotates the refresh token, so `openai` is in
+  `PERSISTED_OAUTH_REFRESH_PROVIDERS`: `OAuthCredentialCache` refreshes it
+  through `auth_store.modify_stored_credential` under the `auth.json.lock`
+  file lock (Pi `resolveStoredOAuth`: re-check expiry under the lock, reuse a
+  credential another process refreshed, persist the rotated one), and
+  `AuthStore.set`/`remove` merge one key into the file under the same lock
+  (Pi `AuthStorage.modify`/`delete`), so an owner-thread write cannot revert a
+  rotated token. The Responses adapter omits `prompt_cache_retention` and
+  `prompt_cache_options` for Pi's `isChatGPTSignIn` (provider `openai`, base
+  URL exactly `https://api.openai.com/v1`, key not starting `sk-`); a
+  `subscription_sharing_usage_limit_exceeded` error names the code and the
+  provider's message and links to ChatGPT usage (after a space: pipy error
+  messages are one line); the retry classifier never retries that code and
+  retries `subscription_sharing_usage_unavailable`/`_user_unavailable`.
+  `is_using_subscription("openai")` follows the stored credential type.
+  Deviations: `agent_name_hint` is `pipy`; the line-based `/login` waits for
+  the callback on an empty line instead of racing it; pipy's `/login` still
+  has no auth-type selector or API-key dialog; Pi's provider display name
+  "OpenAI Codex (legacy)" has no pipy surface.
 - **ds4 reframe** (`native/ds4.py` + `docs/examples/ds4.models.json`): ds4 is a
   `models.json` custom provider; the `PIPY_DS4_BASE_URL`/`PIPY_DS4_API_KEY`
   env shim synthesizes the same entry.

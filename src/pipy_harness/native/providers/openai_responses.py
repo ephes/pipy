@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native._provider_helpers import (
     failed_provider_result,
@@ -38,10 +39,14 @@ from pipy_harness.native.providers.openai_responses_wire import (
     ResponsesTranscriptOptions,
     parse_response,
     resolve_responses_transcript,
+    response_error_metadata,
     responses_input,
 )
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_API_BASE_URL = "https://api.openai.com/v1"
+_CHATGPT_USAGE_LIMIT_CODE = "subscription_sharing_usage_limit_exceeded"
+_CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage"
 OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     # Pi ``openai-responses-shared.ts``: ``input_tokens_details.cache_write_tokens``.
@@ -109,10 +114,27 @@ class OpenAIResponsesProvider:
     session_affinity_format: str = "openai"
     supports_long_cache_retention: bool = True
     supports_explicit_prompt_cache_mode: bool = False
+    # The catalog row's resolved base URL (Pi ``model.baseUrl``); only catalog
+    # construction sets it. It feeds the Sign in with ChatGPT predicate.
+    base_url: str | None = None
 
     @property
     def name(self) -> str:
         return self.provider_name
+
+    def _is_chatgpt_sign_in(self) -> bool:
+        """Pi ``isChatGPTSignIn`` (``openai-responses.ts``).
+
+        OpenAI API keys start with ``sk-``; a different credential sent
+        directly to OpenAI is a Sign in with ChatGPT access token.
+        """
+
+        return (
+            self.provider_name == "openai"
+            and self.base_url == OPENAI_API_BASE_URL
+            and self.api_key is not None
+            and not self.api_key.startswith("sk-")
+        )
 
     def complete(
         self,
@@ -194,23 +216,39 @@ class OpenAIResponsesProvider:
             if response.status_code < 200 or response.status_code >= 300:
                 raise OpenAIHTTPStatusError(
                     f"OpenAI API request failed with HTTP status {response.status_code}.",
-                    metadata={"http_status": response.status_code},
+                    metadata={
+                        "http_status": response.status_code,
+                        **response_error_metadata(response.body),
+                        **usage_limit_error_metadata(response.body.get("error")),
+                    },
                 )
-            result = parse_response(
-                response.body,
-                parse_error_class=OpenAIResponseParseError,
-                response_label="OpenAI",
-                nested_usage_fields=OPENAI_NESTED_USAGE_FIELDS,
-                tool_call_provider_prefix="openai",
-            )
+            try:
+                result = parse_response(
+                    response.body,
+                    parse_error_class=OpenAIResponseParseError,
+                    response_label="OpenAI",
+                    nested_usage_fields=OPENAI_NESTED_USAGE_FIELDS,
+                    tool_call_provider_prefix="openai",
+                )
+            except OpenAIResponseParseError as exc:
+                exc.metadata.update(
+                    usage_limit_error_metadata(response.body.get("error"))
+                )
+                raise
         except OpenAIProviderError as exc:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
                 error_type=type(exc).__name__,
-                error_message=str(exc),
-                metadata=exc.metadata,
+                error_message=_usage_limit_error_message(str(exc), exc.metadata),
+                # The provider's error prose is used only for the usage-limit
+                # message above; metadata stays code/type only.
+                metadata={
+                    key: value
+                    for key, value in exc.metadata.items()
+                    if key != "api_error_message"
+                },
             )
 
         return ProviderResult(
@@ -270,12 +308,19 @@ class OpenAIResponsesProvider:
         request: ProviderRequest,
         retention: CacheRetention,
     ) -> None:
-        """Pi ``buildParams`` cache fields (``openai-responses.ts:309-316``)."""
+        """Pi ``buildParams`` cache fields (``openai-responses.ts:309-316``).
+
+        Sign in with ChatGPT rejects ``prompt_cache_retention`` and
+        ``prompt_cache_options``, so Pi omits them for that credential; the
+        ``prompt_cache_key`` stays.
+        """
 
         if retention != "none":
             key = clamp_openai_prompt_cache_key(request.session_id)
             if key is not None:
                 body["prompt_cache_key"] = key
+        if self._is_chatgpt_sign_in():
+            return
         if (
             retention == "long"
             and self.supports_long_cache_retention
@@ -311,6 +356,50 @@ class OpenAIResponsesProvider:
         return headers
 
 
+def usage_limit_error_metadata(error: object) -> dict[str, str]:
+    """The sanitized provider message of a usage-limit ``error`` object.
+
+    Only the shared-subscription usage-limit error keeps its provider prose
+    (for the visible message below); other provider error messages can echo
+    request content and are never lifted.
+    """
+
+    if not isinstance(error, Mapping) or error.get("code") != _CHATGPT_USAGE_LIMIT_CODE:
+        return {}
+    message = error.get("message")
+    if not isinstance(message, str) or not message:
+        return {}
+    return {"api_error_message": sanitize_text(message)}
+
+
+def _usage_limit_error_message(message: str, metadata: Mapping[str, Any]) -> str:
+    """Pi's ChatGPT usage link for a shared-subscription usage-limit error.
+
+    Sign in with ChatGPT shares the subscription's usage limit with other
+    apps; Pi appends a link to the ChatGPT usage page when the error text
+    names ``subscription_sharing_usage_limit_exceeded``. pipy's status message
+    does not carry the provider's words, so the code and the provider message
+    (both lifted into metadata) are added before the link.
+    """
+
+    code = metadata.get("api_error_code")
+    error_type = metadata.get("api_error_type")
+    text = " ".join(
+        part for part in (message, error_type, code) if isinstance(part, str)
+    )
+    if _CHATGPT_USAGE_LIMIT_CODE not in text:
+        return message
+    detail = _CHATGPT_USAGE_LIMIT_CODE
+    provider_message = metadata.get("api_error_message")
+    if isinstance(provider_message, str) and provider_message:
+        detail = f"{detail}: {provider_message}"
+    if detail not in message:
+        message = f"{message} {detail}"
+    # Pi starts the link on a new line; pipy's provider error messages are
+    # sanitized to a single line, so it follows after a space.
+    return f"{message} Check your ChatGPT usage: {_CHATGPT_USAGE_URL}"
+
+
 class OpenAIProviderError(ProviderHTTPError):
     """Base class for sanitized OpenAI provider errors."""
 
@@ -323,6 +412,10 @@ class OpenAIHTTPStatusError(OpenAIProviderError):
         ApiErrorField("type", "api_error_type", sanitize=False, allow_int=False),
         ApiErrorField("code", "api_error_code", sanitize=False, allow_int=False),
     )
+
+    @classmethod
+    def extra_error_metadata(cls, error: Mapping[str, Any]) -> dict[str, Any]:
+        return usage_limit_error_metadata(error)
 
 
 class OpenAITransportError(OpenAIProviderError):

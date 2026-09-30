@@ -1293,7 +1293,8 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
             "    fake/fake-native-bootstrap [available]",
             "    openai/gpt-5.5 [unavailable (auth-missing)]",
             "  read-only view; use /model to switch provider/model and "
-            "/login or /logout to manage openai-codex or github-copilot OAuth.",
+            "/login or /logout to manage openai, openai-codex or github-copilot "
+            "OAuth.",
         ]
     )
 
@@ -1366,8 +1367,8 @@ def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
     # Both auth commands match the /log prefix and render together.
     assert "login" in rendered
     assert "logout" in rendered
-    assert "Log in (openai-codex or github-copilot OAuth)" in rendered
-    assert "Log out (openai-codex or github-copilot OAuth)" in rendered
+    assert "Log in (openai, openai-codex or github-copilot OAuth)" in rendered
+    assert "Log out (openai, openai-codex or github-copilot OAuth)" in rendered
 
 
 def test_tui_slash_menu_shows_copy_command(tmp_path: Path):

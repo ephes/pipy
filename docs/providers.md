@@ -134,7 +134,8 @@ Common built-in sources:
 
 | Provider | Typical credential source |
 | --- | --- |
-| `openai`, `openai-completions` | `OPENAI_API_KEY` |
+| `openai` | `OPENAI_API_KEY`, or `/login openai` (Sign in with ChatGPT) |
+| `openai-completions` | `OPENAI_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `google` | `GOOGLE_API_KEY` or `GEMINI_API_KEY` |
@@ -146,6 +147,47 @@ Common built-in sources:
 | `openai-codex` | `pipy auth openai-codex login` or `/login openai-codex` |
 | `xai` | `XAI_API_KEY` |
 | `github-copilot` | `/login github-copilot`, or `COPILOT_GITHUB_TOKEN` |
+
+### OpenAI: Sign in with ChatGPT
+
+`/login openai` signs the `openai` provider in with a ChatGPT subscription
+instead of an API key, as Pi does. Pipy prints the OpenAI authorization URL,
+opens it in the browser, and starts a local callback listener on
+`127.0.0.1:1455` (`PI_OAUTH_CALLBACK_HOST` changes the listening host). Finish
+the sign-in in the browser, then press Enter: pipy takes the browser's
+callback. When the callback cannot reach pipy (for example over SSH), paste
+the final redirect URL (`http://127.0.0.1:1455/auth/callback?...`) instead.
+Pipy's `/login` reads lines, so it cannot notice the callback before you press
+Enter; Ctrl-C cancels the login.
+
+The login registers a pipy client for your ChatGPT account and names this
+installation with a stable device ID: the `deviceId` global setting, created
+on the first sign-in. The credential (access and refresh token, expiry, the
+issued client ID and the granted scopes) is stored in the pipy auth store under
+`openai`; a stored login takes precedence over `OPENAI_API_KEY`.
+`/logout openai` removes it and leaves the model selected when
+`OPENAI_API_KEY` still covers it.
+
+The access token is refreshed before a request when it has less than five
+minutes left. OpenAI replaces the refresh token on every refresh, so pipy
+writes the new credential back to the auth store under a file lock, and
+another pipy process that already refreshed it is reused rather than
+refreshed again.
+
+A request whose credential does not start with `sk-` and goes to
+`https://api.openai.com/v1` is treated as a ChatGPT token and sends no
+`prompt_cache_retention` or `prompt_cache_options` (pipy's OpenAI adapter sends
+no `max_output_tokens` or `temperature` either); `prompt_cache_key` and the
+session headers stay. Usage through this login counts against the ChatGPT
+subscription, so the footer marks its cost `(sub)`. When the subscription's
+shared usage limit is reached (`subscription_sharing_usage_limit_exceeded`),
+the error names the code and links to `https://chatgpt.com/settings/usage`, and
+pipy does not retry it; `subscription_sharing_usage_unavailable` and
+`subscription_sharing_user_unavailable` are retried like other temporary
+provider errors.
+
+Pi also renames the `openai-codex` provider to "OpenAI Codex (legacy)". Pipy
+lists providers by id, so nothing changes there.
 
 ### GitHub Copilot
 
@@ -441,4 +483,5 @@ still tracked:
 
 (Shipped: Vertex API-key (Express) auth via `GOOGLE_CLOUD_API_KEY`; the Anthropic
 adaptive-thinking request shape; Azure URL/api-version parity; the `xai` and
-`github-copilot` providers with `/login github-copilot`.)
+`github-copilot` providers with `/login github-copilot`; Sign in with ChatGPT
+for `openai` with `/login openai`.)

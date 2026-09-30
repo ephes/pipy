@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import threading
+import webbrowser
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +20,10 @@ from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.oauth_providers import GitHubCopilotOAuthProvider
+from pipy_harness.native.oauth_providers import (
+    GitHubCopilotOAuthProvider,
+    OpenAIChatGPTOAuthProvider,
+)
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     default_openai_codex_auth_path,
@@ -439,6 +443,14 @@ class NativeReplProviderState:
     copilot_oauth_factory: Callable[[], GitHubCopilotOAuthProvider] = (
         GitHubCopilotOAuthProvider
     )
+    chatgpt_oauth_factory: Callable[[], OpenAIChatGPTOAuthProvider] = (
+        OpenAIChatGPTOAuthProvider
+    )
+    # Pi ``LoginOptions.getDeviceId``: the settings manager's global
+    # ``deviceId`` (created on first use). ``None`` fails Sign in with ChatGPT.
+    device_id_provider: Callable[[], object] | None = None
+    # Pi's login dialog opens the authorization URL in the browser.
+    browser_opener: Callable[[str], object] = webbrowser.open
     persist_defaults: bool = True
     # Set by a selection change, drained by `flush_pending_default`
     # after the selection is live. Never written to disk inline.
@@ -993,6 +1005,10 @@ class NativeReplProviderState:
                 return self._copilot_login(
                     input_stream=input_stream, output_stream=output_stream
                 )
+            if provider == OpenAIChatGPTOAuthProvider.id:
+                return self._chatgpt_login(
+                    input_stream=input_stream, output_stream=output_stream
+                )
         return False, "pipy: unsupported login provider."
 
     def logout(self, provider_name: str) -> tuple[bool, str]:
@@ -1016,7 +1032,7 @@ class NativeReplProviderState:
             registered = catalog.extension_oauth_provider_for(provider)
             if registered is not None:
                 return self._extension_oauth_logout(registered)
-            if provider == GITHUB_COPILOT_PROVIDER:
+            if provider in (GITHUB_COPILOT_PROVIDER, OpenAIChatGPTOAuthProvider.id):
                 return self._stored_oauth_logout(provider)
         return False, "pipy: unsupported logout provider."
 
@@ -1061,6 +1077,64 @@ class NativeReplProviderState:
         store.set(GITHUB_COPILOT_PROVIDER, credentials)
         return True, "pipy: github-copilot OAuth login stored."
 
+    def _chatgpt_login(
+        self, *, input_stream: TextIO, output_stream: TextIO
+    ) -> tuple[bool, str]:
+        """Pi's Sign in with ChatGPT for ``openai`` through line callbacks.
+
+        Prints (and opens) the authorization URL, then reads one line: Enter
+        waits for the browser callback, a pasted redirect URL completes the
+        login manually. The stored credential replaces any stored ``openai``
+        entry; the token itself is never printed.
+        """
+
+        from pipy_harness.native.oauth_providers import OAuthError
+
+        callbacks = _ExtensionOAuthCallbacks(
+            input_stream=input_stream, output_stream=output_stream
+        )
+
+        # The flow's URL and messages are built-in text (the authorize URL's
+        # scope names ``chatgpt.tokens.use.direct``; progress says "Exchanging
+        # authorization code for tokens..."), which the secret-word redaction
+        # would blank out; control whitespace is still collapsed.
+        def notify(event: Mapping[str, object]) -> None:
+            if event.get("type") == "auth_url":
+                url = " ".join(str(event.get("url", "")).split())
+                instructions = " ".join(str(event.get("instructions", "")).split())
+                print(f"Open this URL in your browser:\n{url}", file=output_stream)
+                if instructions:
+                    print(instructions, file=output_stream)
+                try:
+                    self.browser_opener(url)
+                except Exception:  # noqa: BLE001 - the URL is printed anyway
+                    pass
+                return
+            message = " ".join(str(event.get("message", "")).split())
+            if message:
+                print(message, file=output_stream)
+
+        try:
+            credentials = self.chatgpt_oauth_factory().login(
+                prompt=callbacks.on_prompt,
+                notify=notify,
+                get_device_id=self.device_id_provider,
+            )
+        except OAuthError as err:
+            if str(err) == "Login cancelled":
+                return False, "pipy: openai login cancelled."
+            # The flow's messages are fixed text (the token endpoint's body is
+            # already redacted there); the secret-word redaction would blank
+            # out every "token"/"credential" message.
+            reason = " ".join(str(err).split())
+            return False, f"pipy: openai login failed: {reason}"
+        catalog = self._catalog
+        assert catalog is not None
+        store = catalog.auth_store
+        assert store is not None
+        store.set(OpenAIChatGPTOAuthProvider.id, credentials)
+        return True, "pipy: openai OAuth login stored."
+
     def _stored_oauth_logout(self, provider_name: str) -> tuple[bool, str]:
         catalog = self._catalog
         assert catalog is not None
@@ -1069,7 +1143,11 @@ class NativeReplProviderState:
         removed = store.remove(provider_name)
         with self._state_lock:
             selected_provider = self.selection.provider_name
-        if selected_provider == provider_name:
+        # Only a selection the logout left without auth moves; ``openai`` stays
+        # usable through ``OPENAI_API_KEY`` (Pi never moves the model).
+        if selected_provider == provider_name and not catalog.provider_available(
+            provider_name
+        ):
             self.reset_to_first_available_model(require_tool_calls=False)
         if removed:
             return True, f"pipy: {provider_name} OAuth credentials removed."

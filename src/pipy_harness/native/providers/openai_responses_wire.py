@@ -317,6 +317,20 @@ def envelope_to_input_items(
     raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
 
 
+def response_error_metadata(body: Mapping[str, Any]) -> dict[str, str]:
+    """``api_error_type``/``api_error_code`` from a Responses body's ``error``."""
+
+    error = body.get("error")
+    if not isinstance(error, Mapping):
+        return {}
+    metadata: dict[str, str] = {}
+    for source, target in (("type", "api_error_type"), ("code", "api_error_code")):
+        value = error.get(source)
+        if isinstance(value, str) and value:
+            metadata[target] = value
+    return metadata
+
+
 def parse_response(
     body: Mapping[str, Any],
     *,
@@ -335,6 +349,9 @@ def parse_response(
             metadata={
                 "provider_response_store_requested": False,
                 "response_status": response_status,
+                # A failed response's ``error`` code/type, which Pi's retry
+                # classifier and usage-limit link read from the error text.
+                **response_error_metadata(body),
             },
         )
 

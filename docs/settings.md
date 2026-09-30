@@ -163,6 +163,12 @@ sources remain deferred pending supply-chain policy.
 or `PIPY_OFFLINE=1` to disable startup network operations for a run. Auth
 credentials and API keys are handled outside `settings.json`.
 
+`deviceId` is this installation's stable ID (a UUID). Pipy creates it in the
+global `settings.json` the first time a login needs it (Sign in with ChatGPT
+sends it to OpenAI as the agent host ID) and reuses it afterwards. A
+`deviceId` in project settings is ignored, so a committed project file cannot
+give every clone the same ID.
+
 ## Project overrides
 
 When the project is untrusted, this entire scope is skipped without opening or

@@ -8,6 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Sign in with ChatGPT for the `openai` provider, as in Pi (Pi `02eed88fd`):
+  `/login openai` opens the OpenAI sign-in page, takes the browser callback
+  when you press Enter (or a pasted redirect URL) and stores the subscription
+  login in the auth store; `/logout openai` removes it. A new global
+  `deviceId` setting names the installation. The access token is refreshed
+  before a request and the rotated refresh token is written back under the
+  auth-file lock. Requests with a ChatGPT token omit `prompt_cache_retention`
+  and `prompt_cache_options`, the footer cost shows `(sub)`, the
+  `subscription_sharing_usage_limit_exceeded` error links to ChatGPT usage and
+  is not retried, and `subscription_sharing_usage_unavailable` /
+  `subscription_sharing_user_unavailable` are retried.
+
 - GPT-6.1 Sol (`gpt-6.1-sol`) on the `openai`, `openai-codex` and
   `github-copilot` providers, with Pi's rows (MC6, Pi `12c416e1a`): $2 input,
   $0.10 cached input, $2.50 cache writes, $10 output, 272K context (1.05M on
@@ -46,6 +58,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Auth store writes (`/login`, `/logout`) re-read `auth.json` under a file lock
+  and change only their provider's entry, as Pi's `AuthStorage` does, so a
+  credential another process or a token refresh wrote meanwhile is kept.
+  `/logout openai` and `/logout github-copilot` keep the selected model when an
+  environment key still covers its provider.
 - The system prompt is recorded as Pi's tagged sections (SYS1b): the untagged
   `preamble` (the default or custom prompt), then
   `<addendum>` (appended prompts, now wrapped in their tag), `<project_context>`,

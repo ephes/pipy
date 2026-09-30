@@ -106,6 +106,9 @@ _NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = re.compile(
             "out of budget",
             "quota exceeded",
             "billing",
+            # Sign in with ChatGPT: the subscription's shared usage limit,
+            # which resets after hours rather than seconds (Pi ``02eed88fd``).
+            "subscription_sharing_usage_limit_exceeded",
         )
     ),
     re.IGNORECASE,
@@ -156,6 +159,9 @@ _RETRYABLE_PROVIDER_ERROR_PATTERN = re.compile(
             "try your request again",
             "please retry your request",
             "ResourceExhausted",
+            # Sign in with ChatGPT: usage or user data temporarily unavailable.
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
         )
     ),
     re.IGNORECASE,
