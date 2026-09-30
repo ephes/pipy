@@ -70,44 +70,102 @@ class ChromePalette:
     # Pi's tool rows (dark theme `toolPendingBg`/`toolSuccessBg`/`toolErrorBg`
     # backgrounds and `toolOutput`, which also colours diff context lines).
     tool_pending_bg_truecolor: str = "48;2;52;56;58"
-    tool_pending_bg_fallback: str = "48;5;236"
+    tool_pending_bg_fallback: str = "48;5;237"
     tool_success_bg_truecolor: str = "48;2;37;65;49"
-    tool_success_bg_fallback: str = "48;5;22"
+    tool_success_bg_fallback: str = "48;5;23"
     tool_error_bg_truecolor: str = "48;2;91;40;42"
     tool_error_bg_fallback: str = "48;5;52"
     tool_output_truecolor: str = "38;2;157;165;169"
-    tool_output_fallback: str = "38;5;248"
+    tool_output_fallback: str = "38;5;145"
+    user_message_text_fallback: str = "37"
+    # Pi's `thinkingText` (reasoning, drawn italic); `None` uses
+    # `secondary_dim`.
+    thinking_text_truecolor: str | None = None
+    thinking_text_fallback: str | None = None
+    # Pi's `customMessageBg`: the box behind `[compaction]`/`[branch]` rows.
+    custom_message_bg_truecolor: str = "48;2;58;48;85"
+    custom_message_bg_fallback: str = "48;5;59"
+    # Pi's editor border colours (`getThinkingBorderColor` per thinking
+    # level, `getBashModeBorderColor`). `None` draws that border in
+    # `separator`.
+    thinking_off_truecolor: str | None = None
+    thinking_off_fallback: str | None = None
+    thinking_minimal_truecolor: str | None = None
+    thinking_minimal_fallback: str | None = None
+    thinking_low_truecolor: str | None = None
+    thinking_low_fallback: str | None = None
+    thinking_medium_truecolor: str | None = None
+    thinking_medium_fallback: str | None = None
+    thinking_high_truecolor: str | None = None
+    thinking_high_fallback: str | None = None
+    thinking_xhigh_truecolor: str | None = None
+    thinking_xhigh_fallback: str | None = None
+    thinking_max_truecolor: str | None = None
+    thinking_max_fallback: str | None = None
+    bash_mode_truecolor: str | None = None
+    bash_mode_fallback: str | None = None
 
 
-# The default "pi" palette reproduces the reference Pi terminal product: a
-# muted sage title, soft-yellow section labels, flat-gray secondary text, and
-# a soft-purple input separator. These values are the literals that previously
-# lived as module constants in chrome.py.
+# The default "pi" palette is Pi's `dark` theme (`theme/dark.json`), resolved
+# by Pi's own `theme.ts` in truecolor and 256-colour mode: `accent`,
+# `mdHeading` section labels, `dim`, `muted` secondary text, `thinkingText`,
+# `error`/`warning`/`success`, the `userMessageBg` bubble with
+# `userMessageText`, and the thinking-level editor borders. The title has no
+# Pi counterpart (Pi draws a logo); it is bold `accent`.
 _PI_PALETTE = ChromePalette(
     name="pi",
-    title_truecolor="1;38;2;138;190;183",
-    title_fallback="38;5;109",
-    accent_truecolor="38;2;138;190;183",
-    accent_fallback="38;5;109",
-    section_truecolor="38;2;240;198;116",
-    section_fallback="38;5;222",
-    dim_truecolor="38;2;102;102;102",
-    dim_fallback="38;5;241",
-    secondary_dim_truecolor="38;2;128;128;128",
-    secondary_dim_fallback="38;5;244",
-    error_truecolor="38;2;204;102;102",
-    error_fallback="38;5;167",
-    user_message_bg_truecolor="48;2;52;53;65",
-    user_message_bg_fallback="48;5;237",
-    user_message_text_truecolor="38;2;212;212;212",
+    title_truecolor="1;38;2;167;152;215",
+    title_fallback="1;38;5;140",
+    accent_truecolor="38;2;167;152;215",
+    accent_fallback="38;5;140",
+    section_truecolor="38;2;205;154;34",
+    section_fallback="38;5;172",
+    dim_truecolor="38;2;126;136;142",
+    dim_fallback="38;5;102",
+    secondary_dim_truecolor="38;2;157;165;169",
+    secondary_dim_fallback="38;5;145",
+    error_truecolor="38;2;234;127;129",
+    error_fallback="38;5;174",
+    user_message_bg_truecolor="48;2;33;59;73",
+    user_message_bg_fallback="48;5;23",
+    user_message_text_truecolor="38;2;222;224;225",
+    user_message_text_fallback="38;5;254",
     tool_command_bg_truecolor="48;2;40;50;40",
     tool_command_bg_fallback="48;5;235",
-    separator_truecolor="38;2;178;148;187",
-    separator_fallback="38;5;139",
-    success_truecolor="38;2;152;195;121",
-    success_fallback="32",
-    warning_truecolor="38;2;240;198;116",
-    warning_fallback="1;33",
+    separator_truecolor="38;2;108;118;123",
+    separator_fallback="38;5;66",
+    success_truecolor="38;2;104;183;141",
+    success_fallback="38;5;72",
+    warning_truecolor="38;2;205;154;34",
+    warning_fallback="38;5;172",
+    tool_pending_bg_truecolor="48;2;52;56;58",
+    tool_pending_bg_fallback="48;5;237",
+    tool_success_bg_truecolor="48;2;37;65;49",
+    tool_success_bg_fallback="48;5;23",
+    tool_error_bg_truecolor="48;2;91;40;42",
+    tool_error_bg_fallback="48;5;52",
+    tool_output_truecolor="38;2;157;165;169",
+    tool_output_fallback="38;5;145",
+    thinking_text_truecolor="38;2;150;160;164",
+    thinking_text_fallback="38;5;109",
+    custom_message_bg_truecolor="48;2;58;48;85",
+    custom_message_bg_fallback="48;5;59",
+    thinking_off_truecolor="38;2;108;118;123",
+    thinking_off_fallback="38;5;66",
+    thinking_minimal_truecolor="38;2;104;128;141",
+    thinking_minimal_fallback="38;5;66",
+    thinking_low_truecolor="38;2;84;137;164",
+    thinking_low_fallback="38;5;67",
+    thinking_medium_truecolor="38;2;97;133;204",
+    thinking_medium_fallback="38;5;68",
+    thinking_high_truecolor="38;2;151;118;229",
+    thinking_high_fallback="38;5;104",
+    thinking_xhigh_truecolor="38;2;222;84;193",
+    thinking_xhigh_fallback="38;5;169",
+    thinking_max_truecolor="38;2;254;84;98",
+    thinking_max_fallback="38;5;203",
+    bash_mode_truecolor="38;2;94;178;134",
+    bash_mode_fallback="38;5;72",
 )
 
 # A high-contrast scheme for low-vision / bright-terminal users: bold primary

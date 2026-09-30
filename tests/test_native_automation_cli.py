@@ -7,6 +7,7 @@ tool-capable fake provider (`--native-provider fake --native-model fake-tools`).
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 from pathlib import Path
@@ -126,6 +127,44 @@ def test_cli_print_mode_emits_final_text(
     assert "ROOT" in out
     # No JSON records in print mode — just the final text line.
     assert not out.lstrip().startswith("{")
+
+
+@pytest.mark.parametrize(
+    "mode_args", [["--print", "ROOT"], ["--mode", "json", "ROOT"], ["--mode", "rpc"]]
+)
+def test_cli_headless_modes_write_no_chrome_to_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    mode_args: list[str],
+) -> None:
+    """Pi's print, JSON and RPC modes write nothing to stderr but errors.
+
+    The startup chrome, the prompt echo, the plain renderer's rows and the
+    footer are display: a successful run leaves stderr empty.
+    """
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"type": "get_state"}\n'))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    work = _workspace(tmp_path)
+    exit_code = main(
+        [
+            "repl",
+            "--cwd",
+            str(work),
+            "--native-provider",
+            "fake",
+            "--native-model",
+            "fake-tools",
+            "--no-session",
+            *mode_args,
+        ]
+    )
+    assert exit_code == 0
+    captured = capfd.readouterr()
+    assert captured.out
+    assert captured.err == ""
 
 
 def test_json_trust_extension_reuses_activation_and_keeps_stdout_protocol_only(

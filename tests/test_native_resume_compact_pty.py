@@ -167,10 +167,9 @@ def test_pty_resume_and_compact(
                 wait_for_input_ready_after(err_chunks, f"DONE_{index}") is not None
             ), f"{label}: turn {index} did not return to ready input"
         os.write(in_master, b"/compact\n")
-        assert (
-            wait_for_input_ready_after(err_chunks, "compacted conversation context")
-            is not None
-        ), f"{label}: /compact did not return to ready input"
+        assert wait_for_input_ready_after(err_chunks, "Compacted from") is not None, (
+            f"{label}: /compact did not return to ready input"
+        )
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
     finally:
@@ -197,8 +196,9 @@ def test_pty_resume_and_compact(
     # The resumed banner must carry only safe labels — never prior summary text.
     assert "PRIOR_SUMMARY_SECRET_BODY" not in captured
 
-    # Coherent inline frame after compaction: the input separators are present
-    # and pinned in the lower portion of the window.
+    # Coherent inline frame after compaction: Pi redraws the chat (clearing
+    # the screen), so the `[compaction]` row sits above the editor, whose two
+    # borders enclose one input row.
     snapshot = parse_ansi_screen(captured, columns=columns, rows=rows)
     separator_rows = [
         index
@@ -206,4 +206,12 @@ def test_pty_resume_and_compact(
         if line.strip() and set(line.strip()) == {"─"}
     ]
     assert separator_rows, f"{label}: input frame separators missing after compaction"
-    assert max(separator_rows) >= rows - 6
+    assert separator_rows[1] - separator_rows[0] == 2, separator_rows
+    compaction_rows = [
+        index
+        for index, line in enumerate(snapshot.viewport)
+        if line.strip() == "[compaction]"
+    ]
+    assert compaction_rows and compaction_rows[-1] < separator_rows[0], (
+        f"{label}: the compaction row is not drawn above the editor"
+    )

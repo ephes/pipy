@@ -316,7 +316,7 @@ def test_summary_combines_prior_and_exact_dropped_prefix_then_reopens(
         )
 
     provider.on_complete = summarize
-    assert "compacted conversation" in effects.apply_compaction("manual")
+    assert "compacted conversation" in effects.apply_compaction("manual").notice
     assert effects.coding_state.messages == before[3:]
     assert all(
         actual is expected
@@ -441,7 +441,7 @@ def test_extension_veto_preserves_reason_and_invokes_no_summary(
         ),
     )
     assert (
-        effects.apply_compaction("manual")
+        effects.apply_compaction("manual").notice
         == "pipy: compact blocked by extension: keep full context"
     )
     assert provider.requests == [] and _published(effects) == before
@@ -723,9 +723,11 @@ def test_automatic_compaction_projects_reason_from_pressure_source(
         applied.append(args)
         return outcome
 
+    shown: list[tuple[object, ...]] = []
     scope = SimpleNamespace(
         compaction_event=lambda *args: events.append(args),
         apply_compaction=apply_compaction,
+        show_compaction=lambda *args: shown.append(args),
         terminal_ui=None,
         error_stream=None,
     )
@@ -758,6 +760,8 @@ def test_automatic_compaction_projects_reason_from_pressure_source(
     )
 
     assert returned is outcome
+    # The prompt being sent goes with the outcome (the redraw draws it).
+    assert shown == [(outcome, user)]
     lifecycle = applied[0][4]
     assert callable(lifecycle)
     lifecycle("start", None)
@@ -1039,7 +1043,7 @@ def test_manual_compaction_wrapper_settles_returned_input_outside_locks(
             effects.apply_compaction("manual")
         assert settlements == []
     else:
-        assert effects.apply_compaction("manual") == completion
+        assert effects.apply_compaction("manual") is outcome
         assert settlements == [
             "restore" if completion == "operator-abort" else "promote"
         ]

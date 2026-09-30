@@ -19,11 +19,12 @@ from functools import partial
 from pathlib import Path
 from typing import Literal, TextIO
 
-from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.agent import AgentUserMessage, ProductContent
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandOutcome,
 )
+from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.session_transition import (
@@ -230,7 +231,9 @@ class SessionCommandEffects:
     error_stream: TextIO
     repl_input: "TerminalUi | NativeReplInput"
     diag: Callable[[str], None]
-    apply_compaction: Callable[[str], str]
+    apply_compaction: Callable[[str], CodingCompactionOutcome]
+    # Pi `compaction_end`: redraw the chat, or show the outcome's notice.
+    show_compaction: Callable[[CodingCompactionOutcome, AgentUserMessage | None], None]
     extension_session_allows: Callable[..., bool]
     rebuild_messages_from_tree: Callable[[], None]
     # Pi renderInitialMessages: redraw the transcript from the active branch
@@ -269,7 +272,7 @@ class SessionCommandEffects:
             # Local-only: reduce provider-visible history while preserving the
             # shared manual/automatic compaction policy, extension gate, and
             # durable write ordering.
-            self.diag(self.apply_compaction("manual"))
+            self.show_compaction(self.apply_compaction("manual"), None)
         elif action is CodingCommandAction.SESSION_NAME:
             self._execute_name(command_outcome)
         elif action is CodingCommandAction.NEW_SESSION:

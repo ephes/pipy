@@ -186,11 +186,17 @@ prompt.
 
 ## Themes
 
-Pipy ships built-in chrome themes as code-defined palettes. Installed local-path
+Pipy ships built-in chrome themes as code-defined palettes. The default `pi`
+theme uses the colours of Pi's `dark` theme (accent, dim, muted, the user
+message background, tool and summary boxes), and the editor border follows the
+thinking level (`thinking_off_*` … `thinking_max_*`) or turns `bash_mode_*` while
+the input starts with `!`, as in Pi. Installed local-path
 and managed-git packages can contribute **additional** themes as `.toml` files
 in a package `themes/` directory. A theme file sets a `name` plus any subset of
 the palette's color fields; unspecified fields inherit the default palette, so a
-theme can override just a few colors:
+theme can override just a few colors. The border colours (`thinking_*`,
+`bash_mode_*`) and `thinking_text_*` are not inherited: a theme that sets none
+draws the border in its `separator` colour:
 
 ```toml
 name = "midnight"

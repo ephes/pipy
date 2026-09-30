@@ -459,7 +459,7 @@ def run_checks(base: Path) -> list[Check]:
         # shift+tab -> thinking cycle. Pi's gpt-5.5 thinking map has no
         # `minimal` (catalog refresh 23eb706), so off cycles straight to low.
         run.write(b"\x1b[Z")
-        think_ok = run.wait_for("thinking level: low")
+        think_ok = run.wait_for("Thinking level: low")
         run.write(b"\x10")  # ctrl+p -> model cycle
         model_ok = run.wait_for("selected model")
         cycle_no_turn = provider4.calls == 0
@@ -497,14 +497,14 @@ def run_checks(base: Path) -> list[Check]:
                 b"\x14", lambda: run.ui.components.transcript.thinking_hidden
             )
             and run.ui.components.transcript.thinking_hidden
-            and run.wait_for("thinking blocks: hidden")
+            and run.wait_for("Thinking blocks: hidden")
         )
         tools_ok = (
             run.toggle_until_flip(
                 b"\x0f", lambda: run.ui.components.transcript.tools_expanded
             )
             and run.ui.components.transcript.tools_expanded
-            and run.wait_for("tool output: expanded")
+            and run.wait_for("Tool output: expanded")
         )
         fold_no_turn = provider6.calls == 0
     captures.append(run.text())

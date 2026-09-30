@@ -15,10 +15,16 @@ from pipy_harness.native.ui.components.transcript import (
 
 
 def startup_history_blocks(
-    cwd: Path, include_workspace_defaults: bool
+    cwd: Path, include_workspace_defaults: bool, quiet: bool = False
 ) -> list[HistoryBlock]:
-    """Build the initial terminal history and loaded-resource sections."""
+    """Build the initial terminal history and loaded-resource sections.
 
+    ``quiet`` (the ``quietStartup`` setting, unless ``--verbose``) leaves out
+    the header and the listing, as Pi does; one blank row stays.
+    """
+
+    if quiet:
+        return [HistoryBlockTuple("normal", ("",))]
     raw_blocks: list[tuple[str, tuple[str, ...]]] = [
         ("normal", ("",)),
         ("title", (f" pipy v{pipy_version_label()}",)),
@@ -90,9 +96,11 @@ def startup_history_blocks(
                 (
                     f"  {', '.join(skills)}",
                     "",
-                    "",
                 ),
                 None,
             )
         )
+    if context or skills:
+        # Pi leaves a second blank row after the last listed section.
+        blocks.append(HistoryBlockTuple("normal", ("",)))
     return blocks

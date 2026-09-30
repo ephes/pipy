@@ -35,6 +35,7 @@ _TOOL_BOX_KINDS = {
     "pending": "tool_box_pending",
     "success": "tool_box_success",
     "error": "tool_box_error",
+    "custom": "tool_box_custom",
     "none": "tool_box_none",
 }
 _SAFE_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -46,7 +47,7 @@ class FrameLine:
 
     text: str
     kind: str = "normal"
-    meta: Mapping[str, int] | None = None
+    meta: Mapping[str, int | str] | None = None
 
     def __post_init__(self) -> None:
         if self.meta is not None:
@@ -122,6 +123,8 @@ class FrameSnapshot:
     working_warning: bool = False
     # The running tool call's row (encoded ``tool_box`` lines), drawn live.
     pending_tool: tuple[str, ...] = ()
+    # The thinking level the editor border shows (Pi `updateEditorBorderColor`).
+    thinking_level: str = "off"
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,7 +264,13 @@ def block_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
 
 
 _TOOL_BOX_TAG = "\x1f"
-_TOOL_BOX_BG_CODES = {"pending": "p", "success": "s", "error": "e", "none": "n"}
+_TOOL_BOX_BG_CODES = {
+    "pending": "p",
+    "success": "s",
+    "error": "e",
+    "custom": "c",
+    "none": "n",
+}
 _TOOL_BOX_BG_NAMES = {code: name for name, code in _TOOL_BOX_BG_CODES.items()}
 
 
@@ -334,7 +343,7 @@ def _block_prefix(kind: str) -> str:
         "tool_result": " ",
         "settings": " ",
         "custom": " ",
-        "notice": "pipy  ",
+        "notice": " ",
     }.get(kind, "")
 
 
@@ -343,7 +352,7 @@ def _leading_block_rows(kind: str) -> list[FrameLine]:
         return [FrameLine("", "user")]
     if kind == "tool":
         return [FrameLine("", "tool_result")]
-    if kind in {"reasoning", "notice", "settings", "custom"}:
+    if kind in {"reasoning", "settings", "custom"}:
         return [FrameLine("")]
     return []
 
@@ -386,6 +395,8 @@ def _line_kind_for_block(kind: str) -> str:
         "custom_message_custom": "custom_message_custom",
         "settings": "settings",
         "custom": "settings",
+        # Pi `showStatus`: `theme.fg("dim", message)`.
+        "notice": "dim",
     }.get(kind, "normal")
 
 
@@ -661,16 +672,15 @@ def _regions_height(regions: _LayoutRegions) -> int:
 def _assemble_regions(
     leading: tuple[FrameLine, ...], regions: _LayoutRegions, snapshot: FrameSnapshot
 ) -> tuple[FrameLine, ...]:
-    top = _input_separator(snapshot, label=False)
-    bottom = _input_separator(snapshot, label=True)
+    border = _input_separator(snapshot)
     return (
         *leading,
         *regions.header,
         *regions.pending,
         *regions.above,
-        top,
+        border,
         *regions.input_rows,
-        bottom,
+        border,
         *regions.menu,
         *regions.below,
         *regions.status,
@@ -678,14 +688,17 @@ def _assemble_regions(
     )
 
 
-def _input_separator(snapshot: FrameSnapshot, *, label: bool) -> FrameLine:
-    if not snapshot.input.text.lstrip().startswith("!"):
-        return FrameLine("─" * snapshot.width, "separator")
-    text = "─" * snapshot.width
-    tag = " ! bash "
-    if label and snapshot.width > len(tag) + 2:
-        text = "─" + tag + "─" * (snapshot.width - len(tag) - 1)
-    return FrameLine(text, "bash_separator")
+def _input_separator(snapshot: FrameSnapshot) -> FrameLine:
+    """Pi's editor border: ``bashMode`` for ``!`` input, else the level colour."""
+
+    return FrameLine(
+        "─" * snapshot.width,
+        "separator",
+        {
+            "level": snapshot.thinking_level,
+            "bash_mode": int(snapshot.input.text.lstrip().startswith("!")),
+        },
+    )
 
 
 def _finish_frame(
@@ -799,6 +812,7 @@ def style_line(line: FrameLine, style: ChromeStyle, width: int) -> str:
         "working_warning": _style_working_warning,
         "slash_menu": _style_menu_row,
         "input": _style_input,
+        "separator": _style_editor_border,
     }.get(line.kind)
     if special is not None:
         return special(line, style, width)
@@ -808,8 +822,6 @@ def style_line(line: FrameLine, style: ChromeStyle, width: int) -> str:
         "footer": style.dim,
         "controls": style.dim,
         "section": style.section_label,
-        "separator": style.separator,
-        "bash_separator": style.error,
         "reasoning": style.dim_italic,
         "error": style.error,
         "selector_title": style.section_label,
@@ -847,6 +859,17 @@ def _style_title(line: FrameLine, style: ChromeStyle, width: int) -> str:
     if text.startswith(" pipy v"):
         return f" {style.title('pipy')}{style.dim(text[len(' pipy') :])}"
     return style.title(text)
+
+
+def _style_editor_border(line: FrameLine, style: ChromeStyle, width: int) -> str:
+    del width
+    meta = line.meta or {}
+    level = meta.get("level")
+    return style.editor_border(
+        line.text.rstrip(),
+        level=level if isinstance(level, str) else "off",
+        bash_mode=bool(meta.get("bash_mode")),
+    )
 
 
 def _style_working(line: FrameLine, style: ChromeStyle, width: int) -> str:

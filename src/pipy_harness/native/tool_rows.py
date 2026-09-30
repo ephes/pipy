@@ -17,8 +17,9 @@ the lines Pi draws outside a box) and whether the frame renderer wraps them
 
 Deviations, documented in ``docs/tui-workflow.md``: no syntax highlighting
 (Pi's ``highlightCode`` uses highlight.js; lines Pi would highlight keep the
-terminal's default colour), no OSC 8 file links, no image blocks, and no
-ticking ``Elapsed`` while a ``bash`` call runs.
+terminal's default colour), no OSC 8 file links and no image blocks. A
+running ``bash`` row ticks ``Elapsed`` every second (the transcript owns
+the timer).
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ if TYPE_CHECKING:
     from pipy_harness.native.chrome import ChromeStyle
     from pipy_harness.native.extension_types import ExtensionTool
 
-RowBackground = Literal["pending", "success", "error", "none"]
+RowBackground = Literal["pending", "success", "error", "custom", "none"]
 
 #: Tools whose rows use Pi's built-in renderers (``createAllToolRenderers``).
 BUILTIN_RENDERED_TOOLS = frozenset(
@@ -137,6 +138,11 @@ class ToolRowState:
     result: ToolRowResult | None = None
     partial_output: str = ""
     duration_seconds: float | None = None
+    # Pi bash renderer `startedAt`/`endedAt` (monotonic seconds): set when a
+    # live call starts executing, never for a replayed one. `ended_at`
+    # freezes the `Elapsed` of a row committed without a result.
+    started_at: float | None = None
+    ended_at: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +180,7 @@ def row_theme(style: ChromeStyle) -> RowTheme:
     def pick(truecolor: str, fallback: str) -> str:
         return style.palette_code(truecolor, fallback)
 
-    text = pick(palette.user_message_text_truecolor, "37")
+    text = pick(palette.user_message_text_truecolor, palette.user_message_text_fallback)
     output = pick(palette.tool_output_truecolor, palette.tool_output_fallback)
     accent = pick(palette.accent_truecolor, palette.accent_fallback)
     error = pick(palette.error_truecolor, palette.error_fallback)
@@ -899,6 +905,7 @@ def _bash_result_rows(
     expanded: bool,
     partial: bool,
     width: int,
+    now: float,
 ) -> list[RowLine]:
     output = _js_trim(_text_output(result.content))
     details = result.details
@@ -930,6 +937,12 @@ def _bash_result_rows(
     if state.duration_seconds is not None and not partial:
         took = theme.fg("muted", f"Took {_format_duration(state.duration_seconds)}")
         rows.extend(_text_rows(f"\n{took}", bg))
+    elif partial and state.started_at is not None:
+        # Pi: `Elapsed` while partial, re-rendered every second.
+        end = state.ended_at if state.ended_at is not None else now
+        elapsed = max(0.0, end - state.started_at)
+        text = theme.fg("muted", f"Elapsed {_format_duration(elapsed)}")
+        rows.extend(_text_rows(f"\n{text}", bg))
     return rows
 
 
@@ -1045,6 +1058,8 @@ class RowRenderInputs:
     expand_key: str = "ctrl+o"
     # The `ToolRenderTheme` handed to extension renderers.
     extension_theme: object = None
+    # The monotonic clock reading a running `bash` row's `Elapsed` uses.
+    now: float = 0.0
 
 
 def _render_extension(
@@ -1096,7 +1111,9 @@ def render_tool_row(
 
     partial = state.result is None
     result = state.result
-    if result is None and state.partial_output:
+    if result is None and (state.partial_output or _bash_started(state)):
+        # Pi's bash tool sends an empty update as it starts, so its row shows
+        # the result part (`Elapsed`) before any output.
         result = ToolRowResult(state.partial_output, None, False)
     if is_builtin_edit(state):
         return (*_edit_rows(state, inputs.theme), RowLine("", "none"))
@@ -1109,6 +1126,59 @@ def render_tool_row(
     rows.append(RowLine("", bg))
     rows.append(RowLine("", "none"))
     return tuple(rows)
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryBox:
+    """A ``[compaction]``/``[branch]`` row's texts (Pi's summary components).
+
+    Kept instead of styled lines, so the row is drawn again with the active
+    theme on Ctrl+O and resize, like a tool row.
+    """
+
+    label: str
+    # The collapsed text before the `ctrl+o` hint.
+    collapsed: str
+    header: str
+    summary: str
+
+
+def render_summary_box(
+    box: SummaryBox, theme: RowTheme, *, expanded: bool, expand_key: str = "ctrl+o"
+) -> tuple[RowLine, ...]:
+    """Pi ``Box(1, 1)`` on ``customMessageBg``: the bold label, a spacer, then
+    the collapsed hint or the bold header and the summary (Pi renders the
+    expanded text as Markdown; pipy shows its lines as they are)."""
+
+    def text(value: str) -> str:
+        return theme.fg("customMessageText", value)
+
+    if expanded:
+        body = [theme.bold(text(box.header)), "", *map(text, box.summary.splitlines())]
+    else:
+        body = [text(box.collapsed) + theme.fg("dim", expand_key) + text(" to expand)")]
+    return (
+        RowLine("", "custom"),
+        RowLine(theme.fg("customMessageLabel", theme.bold(box.label)), "custom"),
+        RowLine("", "custom"),
+        *(RowLine(line, "custom") for line in body),
+        RowLine("", "custom"),
+        RowLine("", "none"),
+    )
+
+
+def _bash_started(state: ToolRowState) -> bool:
+    return (
+        state.extension is None
+        and state.tool_name == "bash"
+        and state.started_at is not None
+    )
+
+
+def is_running_builtin_bash(state: ToolRowState) -> bool:
+    """Whether the row is a live built-in ``bash`` call still running."""
+
+    return _bash_started(state) and state.result is None and state.ended_at is None
 
 
 def is_builtin_edit(state: ToolRowState) -> bool:
@@ -1183,6 +1253,7 @@ def _result_rows(
             expanded=expanded,
             partial=partial,
             width=inputs.width,
+            now=inputs.now,
         )
     if name == "read":
         text = _read_result(theme, state.args, result, key, expanded=expanded)
@@ -1245,6 +1316,7 @@ __all__ = [
     "RowLine",
     "RowRenderInputs",
     "RowTheme",
+    "SummaryBox",
     "ToolRowResult",
     "ToolRowState",
     "apply_edit_result",
@@ -1252,8 +1324,10 @@ __all__ = [
     "encode_rows",
     "format_tool_call_with_args",
     "is_builtin_edit",
+    "is_running_builtin_bash",
     "parse_arguments",
     "render_diff",
+    "render_summary_box",
     "render_tool_row",
     "row_theme",
 ]

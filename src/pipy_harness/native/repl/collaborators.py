@@ -22,6 +22,7 @@ from pipy_harness.native.agent import (
     AgentMessage,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentUserMessage,
     ProductContent,
 )
 from pipy_harness.native.agent.loop_policy import (
@@ -46,6 +47,7 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchResolution,
 )
 from pipy_harness.native.coding.compaction import (
+    CodingCompactionOutcome,
     PrivateSummaryEvents,
     build_summary_request,
     summary_text,
@@ -252,6 +254,9 @@ class SessionCollaborators:
         repl_input: "TerminalUi | NativeReplInput",
         *,
         render_active_branch: Callable[[], None],
+        show_compaction: Callable[
+            [CodingCompactionOutcome, AgentUserMessage | None], None
+        ],
         new_transition: Callable[[], ProductSessionTransitionResult] | None = None,
         resume_transition: Callable[[Path], ProductSessionTransitionResult]
         | None = None,
@@ -270,6 +275,7 @@ class SessionCollaborators:
             repl_input=repl_input,
             diag=self.diag,
             apply_compaction=self.provider_mutation.apply_compaction,
+            show_compaction=show_compaction,
             extension_session_allows=self.extension_session_allows,
             rebuild_messages_from_tree=self.rebuild_messages_from_tree,
             render_active_branch=render_active_branch,

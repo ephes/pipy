@@ -97,6 +97,28 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - `find` and `grep`'s Python fallback apply the global git excludes file
   (`core.excludesFile`, else `~/.config/git/ignore`) where rg and fd do.
 
+- The terminal UI follows Pi's look more closely (DF1-F7, Pi `1b347794e`):
+  - The default `pi` theme uses Pi's `dark` theme colours: accent, dim and
+    muted text, `[Context]` headings, errors, warnings, the blue user message
+    background, reasoning text and the tool boxes' 256-colour fallbacks. The
+    editor border takes the thinking level's colour and turns green while the
+    input starts with `!`; the ` ! bash ` label on the border is gone.
+  - `/compact` and automatic compaction redraw the chat as Pi does: the kept
+    messages, then the `[compaction]` row at once (a padded box in Pi's
+    summary colours, also for `[branch]` rows), instead of a
+    `compacted conversation context` notice.
+  - A running `bash` row shows `Elapsed Ns`, updated every second, until
+    `Took Ns` replaces it.
+  - Status lines lose the `pipy  pipy:` prefix and are dim, like Pi's; the
+    Ctrl+O, Ctrl+T, Shift+Tab and `/thinking` statuses use Pi's texts
+    (`Tool output: expanded`, `Thinking level: high`, …).
+  - Startup no longer leaves a stale editor frame above the header, and
+    `quietStartup` hides the header and resource listing in the terminal UI
+    too. The untrusted-project warning follows the restored session.
+  - `--print`, `--mode json` and `--mode rpc` no longer write the startup
+    chrome, prompt echo or footer to stderr; a successful run leaves stderr
+    empty.
+
 ### Removed
 
 - `--read-root`, the `PIPY_READ_ROOTS` environment variable, the automatic

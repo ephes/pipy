@@ -334,13 +334,7 @@ class _RequestPreparationEffects:
             else None,
             lifecycle,
         )
-        emit_diagnostic(
-            scope.terminal_ui.components.transcript
-            if scope.terminal_ui is not None
-            else None,
-            scope.error_stream,
-            outcome.notice,
-        )
+        scope.show_compaction(outcome, active_input.accepted_message)
         return outcome
 
     def _provider_request(
@@ -445,7 +439,7 @@ def _phase_a_unpack_and_prefill(
     scope: ReplLoopScope, *, read_fresh_input: bool
 ) -> _TurnScope:
     if read_fresh_input and scope.terminal_ui is None:
-        print_input_separator(scope.error_stream)
+        print_input_separator(scope.display_stream)
     turn = _TurnScope(scope=scope, footer_text=scope.coding_footer_text())
     prefill = scope.ctl.pending_prefill
     if prefill is None:

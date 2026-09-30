@@ -112,8 +112,8 @@ def test_renderer_clips_wraps_and_maps_styles_without_a_terminal() -> None:
     styled = style_line(wrapped[0], ChromeStyle(enabled=True), 20)
 
     assert all(len(row.text) <= 20 for row in wrapped)
-    assert styled.startswith("\x1b[38;5;244m ")
-    assert "\x1b[38;5;109m⠋\x1b[0m" in styled
+    assert styled.startswith("\x1b[38;5;145m ")
+    assert "\x1b[38;5;140m⠋\x1b[0m" in styled
 
 
 def test_paint_plan_commits_history_once_and_redraws_only_live_rows() -> None:

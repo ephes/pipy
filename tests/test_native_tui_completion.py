@@ -215,18 +215,29 @@ class TestAtPicker:
         assert not ui.components.autocomplete.autocomplete_open
 
 
+def _border_modes(ui: TerminalUi) -> list[object]:
+    """The bash-mode flag of each editor border row (Pi ``isBashMode``)."""
+
+    lines = ui.components.screen._frame_lines(width=80, height=24)  # noqa: SLF001 - frame rows with style metadata
+    return [
+        (line.meta or {}).get("bash_mode") for line in lines if line.kind == "separator"
+    ]
+
+
 class TestBashModeAffordance:
     def test_bang_buffer_marks_bash_mode(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "!ls")
         assert ui.components.input_editor.snapshot().text.lstrip().startswith("!")
-        assert "! bash" in _frame_text(ui)
+        # Pi colours both borders `bashMode` and draws no label.
+        assert _border_modes(ui) == [1, 1]
+        assert "! bash" not in _frame_text(ui)
 
     def test_plain_buffer_is_not_bash_mode(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "hello")
         assert not ui.components.input_editor.snapshot().text.lstrip().startswith("!")
-        assert "! bash" not in _frame_text(ui)
+        assert _border_modes(ui) == [0, 0]
 
 
 class TestPathCompletion:

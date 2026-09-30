@@ -164,8 +164,8 @@ class _ScriptedSettingsUi(TerminalUi):
     def paint(self) -> None:
         return
 
-    def start(self) -> None:
-        return
+    def start(self, *, quiet: bool = False) -> None:
+        del quiet
 
     def close(self) -> None:
         return
@@ -792,9 +792,8 @@ def test_settings_auth_failure_orders_suspend_rebind_notice_and_reopen(
     assert ui.trace[-1] == "dialog"
     assert ui.dialog_calls == 2
     notices = _notices(ui)
-    assert notices == [
-        f"pipy: openai-codex {action} failed with RuntimeError: [REDACTED]"
-    ]
+    # A chat status drops the stderr `pipy: ` prefix (Pi's statuses carry none).
+    assert notices == [f"openai-codex {action} failed with RuntimeError: [REDACTED]"]
     assert "sk-private" not in repr(result)
     assert provider.completions == 0
     assert result.user_turn_count == 0

@@ -53,7 +53,7 @@ def toggle_view_fold(
         emit_diagnostic(
             terminal_ui.components.transcript if terminal_ui is not None else None,
             error_stream,
-            f"pipy: tool output: {label}",
+            f"Tool output: {label}",
         )
         return
     # HOTKEY_TOGGLE_THINKING
@@ -76,7 +76,7 @@ def toggle_view_fold(
     emit_diagnostic(
         terminal_ui.components.transcript if terminal_ui is not None else None,
         error_stream,
-        f"pipy: thinking blocks: {label}",
+        f"Thinking blocks: {label}",
     )
 
 
@@ -108,7 +108,7 @@ def cycle_thinking_level_action(
     result = cycle_thinking_level()
     if result is None:
         emit_diagnostic(
-            transcript, error_stream, "pipy: current model does not support thinking."
+            transcript, error_stream, "Current model does not support thinking"
         )
         return
     if not result.success or result.snapshot is None:
@@ -121,5 +121,5 @@ def cycle_thinking_level_action(
     emit_diagnostic(
         transcript,
         error_stream,
-        f"pipy: thinking level: {result.snapshot.thinking_level}",
+        f"Thinking level: {result.snapshot.thinking_level}",
     )
