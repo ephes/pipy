@@ -67,6 +67,16 @@ class ChromePalette:
     success_fallback: str = "32"
     warning_truecolor: str = "38;2;229;192;123"
     warning_fallback: str = "33"
+    # Pi's tool rows (dark theme `toolPendingBg`/`toolSuccessBg`/`toolErrorBg`
+    # backgrounds and `toolOutput`, which also colours diff context lines).
+    tool_pending_bg_truecolor: str = "48;2;52;56;58"
+    tool_pending_bg_fallback: str = "48;5;236"
+    tool_success_bg_truecolor: str = "48;2;37;65;49"
+    tool_success_bg_fallback: str = "48;5;22"
+    tool_error_bg_truecolor: str = "48;2;91;40;42"
+    tool_error_bg_fallback: str = "48;5;52"
+    tool_output_truecolor: str = "38;2;157;165;169"
+    tool_output_fallback: str = "38;5;248"
 
 
 # The default "pi" palette reproduces the reference Pi terminal product: a

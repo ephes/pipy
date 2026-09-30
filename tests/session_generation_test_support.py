@@ -39,7 +39,6 @@ def build_test_projection(
             notify_sink=lambda *_args: None,
             set_active_tools_fn=lambda _generation_id, _names: True,
             flags=flags,
-            render_details_sink={},
             project_trusted=True,
         )
 

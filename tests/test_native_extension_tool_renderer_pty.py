@@ -80,7 +80,6 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
         chrome=ui.components.chrome.record,
         render_inputs=ui.components.screen.render_inputs,
         tool_renderers={"kv": tool},
-        render_details_sink={"c": {"k": "v"}},
     )
     renderer.render_tool_call(
         AgentToolCall(
@@ -89,7 +88,7 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
             arguments_json=ProductContent("{}"),
         )
     )
-    renderer.render_tool_result(output_text="x", is_error=False)
+    renderer.render_tool_result(output_text="x", is_error=False, details={"k": "v"})
     try:
         assert _wait_for(chunks, "KV-OK:v"), "custom tool row never rendered"
         captured = b"".join(chunks).decode("utf-8", "replace")

@@ -7,9 +7,9 @@ directories are created, and the file is created or overwritten with the
 content as UTF-8. The result is ``Successfully wrote to {path}``; a failure is
 the error text alone, as Pi's thrown errors are.
 
-The written content is also reported through ``ToolContext.stderr_sink`` as
-Pi's expanded write row shows it (the TUI commits it as the row below the
-call). Mutations of one file are serialized like Pi's
+The TUI's write row shows the content from the call arguments
+(:mod:`pipy_harness.native.tool_rows`). Mutations of one file are serialized
+like Pi's
 ``withFileMutationQueue`` (:mod:`pipy_harness.native.tools.file_mutation_queue`).
 """
 
@@ -91,10 +91,6 @@ class WriteTool:
             _write(path_arg, content, context)
         except _WriteFailure as exc:
             return _result(request, str(exc), is_error=True)
-        if context.stderr_sink is not None:
-            preview = write_preview(content)
-            if preview:
-                context.stderr_sink(preview)
         return _result(request, f"Successfully wrote to {path_arg}", is_error=False)
 
 
@@ -138,19 +134,6 @@ def _throw_if_aborted(context: ToolContext) -> None:
         raise _WriteFailure(OPERATION_ABORTED)
 
 
-def write_preview(content: str) -> str:
-    """The content as Pi's expanded write row shows it.
-
-    Pi's ``formatWriteCall``: ``\\r`` removed, tabs as three spaces, trailing
-    empty lines trimmed.
-    """
-
-    lines = content.replace("\r", "").replace("\t", "   ").split("\n")
-    while lines and lines[-1] == "":
-        lines.pop()
-    return "\n".join(lines)
-
-
 def _result(request: ToolRequest, text: str, *, is_error: bool) -> ToolExecutionResult:
     return ToolExecutionResult(
         tool_request_id=request.tool_request_id,
@@ -160,4 +143,4 @@ def _result(request: ToolRequest, text: str, *, is_error: bool) -> ToolExecution
     )
 
 
-__all__ = ["OPERATION_ABORTED", "WRITE_TOOL_DESCRIPTION", "WriteTool", "write_preview"]
+__all__ = ["OPERATION_ABORTED", "WRITE_TOOL_DESCRIPTION", "WriteTool"]

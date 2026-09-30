@@ -361,5 +361,6 @@ class ToolExecutor:
                     execution_result.provider_correlation_id
                     or call.provider_correlation_id
                 ),
+                details=execution_result.details,
             )
         )

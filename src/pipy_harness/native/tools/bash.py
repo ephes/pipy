@@ -181,14 +181,22 @@ class BashTool:
                 is_error=True,
             )
         text = output or "(no output)"
+        # Pi `formatOutput` details: set only when the output was truncated.
+        # (Pi's aborted/timed-out paths throw and so carry none.)
+        details: dict[str, object] | None = None
+        if snapshot.truncation.truncated:
+            details = {"truncation": snapshot.truncation.to_details()}
+            if snapshot.full_output_path is not None:
+                details["fullOutputPath"] = snapshot.full_output_path
         exit_code = shell_exit_code(proc.returncode)
         if exit_code != 0:
             return self._result(
                 request,
                 _append_status(text, f"Command exited with code {exit_code}"),
                 is_error=True,
+                details=details,
             )
-        return self._result(request, text, is_error=False)
+        return self._result(request, text, is_error=False, details=details)
 
     def _resolve_shell(self) -> str | None:
         if self.shell_path is not None:
@@ -198,13 +206,19 @@ class BashTool:
         )
 
     def _result(
-        self, request: ToolRequest, output_text: str, *, is_error: bool
+        self,
+        request: ToolRequest,
+        output_text: str,
+        *,
+        is_error: bool,
+        details: dict[str, object] | None = None,
     ) -> ToolExecutionResult:
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=output_text,
             is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
 

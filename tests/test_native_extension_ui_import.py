@@ -350,9 +350,6 @@ def _wrong_moved_importers(
 
 def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
     expected_owners = {
-        "ToolRenderDetails": "extensions/tool_port.py",
-        "ToolRenderDetailsSink": "extensions/tool_port.py",
-        "ToolRenderDetailsWriter": "extensions/tool_port.py",
         "_TOOL_OUTPUT_MAX_CHARS": "extensions/tool_port.py",
         "make_extension_context": "extensions/command_context.py",
         "_ExtensionToolPort": "extensions/tool_port.py",

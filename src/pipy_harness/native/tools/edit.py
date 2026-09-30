@@ -14,9 +14,10 @@ serialized like Pi's ``withFileMutationQueue``.
 calls it before schema validation, so an ``edits`` JSON string, a single edit
 object and the legacy top-level ``oldText``/``newText`` still work.
 
-The display diff (Pi ``generateDiffString``) is reported through
-``ToolContext.stderr_sink``; the TUI commits it as the row below the call.
-Pi's ``details.patch`` and ``firstChangedLine`` have no consumer in pipy.
+A success carries Pi's ``details``: the display diff (``generateDiffString``)
+and ``firstChangedLine``; the TUI's edit row draws the diff from it
+(:mod:`pipy_harness.native.tool_rows`). Pi's ``details.patch`` is not
+produced yet (TOOLS3b).
 """
 
 from __future__ import annotations
@@ -167,15 +168,19 @@ class EditTool:
             )
         edits = [Edit(str(item["oldText"]), str(item["newText"])) for item in raw_edits]
         try:
-            diff = _edit(path_arg, edits, context)
+            diff, first_changed_line = _edit(path_arg, edits, context)
         except EditError as exc:
             return _result(request, str(exc), is_error=True)
-        if context.stderr_sink is not None and diff:
-            context.stderr_sink(diff)
+        details: dict[str, object] = {"diff": diff}
+        # Pi's `firstChangedLine` is undefined (dropped by JSON) when nothing
+        # changed on a numbered line.
+        if first_changed_line is not None:
+            details["firstChangedLine"] = first_changed_line
         return _result(
             request,
             f"Successfully replaced {len(edits)} block(s) in {path_arg}.",
             is_error=False,
+            details=details,
         )
 
 
@@ -187,8 +192,13 @@ def _is_single_edit(value: object) -> bool:
     )
 
 
-def _edit(path_arg: str, edits: list[Edit], context: ToolContext) -> str:
-    """Apply ``edits``; return Pi's display diff. Raises :class:`EditError`."""
+def _edit(
+    path_arg: str, edits: list[Edit], context: ToolContext
+) -> tuple[str, int | None]:
+    """Apply ``edits``; return Pi's display diff and first changed line.
+
+    Raises :class:`EditError`.
+    """
 
     try:
         absolute = resolve_to_cwd(path_arg, context.workspace_root)
@@ -206,7 +216,7 @@ def _edit(path_arg: str, edits: list[Edit], context: ToolContext) -> str:
 
 def _edit_locked(
     absolute: Path, path_arg: str, edits: list[Edit], context: ToolContext
-) -> str:
+) -> tuple[str, int | None]:
     # Abort is checked after each step, never mid-operation, so the queue
     # stays held until the filesystem call has settled (as in Pi).
     _throw_if_aborted(context)
@@ -232,8 +242,7 @@ def _edit_locked(
     except OSError as exc:
         raise EditError(node_fs_message(exc, "open", str(absolute))) from None
     _throw_if_aborted(context)
-    diff, _first_changed_line = generate_diff_string(base, new)
-    return diff
+    return generate_diff_string(base, new)
 
 
 def _check_access(absolute: Path, path_arg: str) -> None:
@@ -265,12 +274,19 @@ def _throw_if_aborted(context: ToolContext) -> None:
         raise EditError(OPERATION_ABORTED)
 
 
-def _result(request: ToolRequest, text: str, *, is_error: bool) -> ToolExecutionResult:
+def _result(
+    request: ToolRequest,
+    text: str,
+    *,
+    is_error: bool,
+    details: dict[str, object] | None = None,
+) -> ToolExecutionResult:
     return ToolExecutionResult(
         tool_request_id=request.tool_request_id,
         output_text=text,
         is_error=is_error,
         provider_correlation_id=request.provider_correlation_id,
+        details=details,
     )
 
 

@@ -171,6 +171,7 @@ class _UnresolvedToolResultMessage:
     provider_correlation_id: str | None
     is_error: bool = False
     added_tool_names: tuple[str, ...] = ()
+    details: dict[str, Any] | None = None
 
 
 _StoredMessage = AgentTranscriptMessage | _UnresolvedToolResultMessage
@@ -317,29 +318,28 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
         if message.error_message is not None:
             assistant["error_message"] = message.error_message
         return _with_turn_metadata(assistant, message)
-    if isinstance(message, AgentToolResultMessage):
-        body = {
-            "role": "tool",
-            "tool_request_id": message.tool_request_id,
-            "output_text": message.content.value,
-            "is_error": message.is_error,
-            "provider_correlation_id": message.provider_correlation_id,
-        }
-        if message.added_tool_names:
-            body["added_tool_names"] = list(message.added_tool_names)
-        return body
-    if isinstance(message, _UnresolvedToolResultMessage):
-        body = {
-            "role": "tool",
-            "tool_request_id": message.tool_request_id,
-            "output_text": message.content,
-            "is_error": message.is_error,
-            "provider_correlation_id": message.provider_correlation_id,
-        }
-        if message.added_tool_names:
-            body["added_tool_names"] = list(message.added_tool_names)
-        return body
+    if isinstance(message, AgentToolResultMessage | _UnresolvedToolResultMessage):
+        return _tool_result_to_json(message)
     raise TypeError(f"unsupported message type: {type(message)!r}")
+
+
+def _tool_result_to_json(
+    message: AgentToolResultMessage | _UnresolvedToolResultMessage,
+) -> dict[str, Any]:
+    content = message.content
+    body: dict[str, Any] = {
+        "role": "tool",
+        "tool_request_id": message.tool_request_id,
+        "output_text": content if isinstance(content, str) else content.value,
+        "is_error": message.is_error,
+        "provider_correlation_id": message.provider_correlation_id,
+    }
+    if message.added_tool_names:
+        body["added_tool_names"] = list(message.added_tool_names)
+    # Pi ``ToolResultMessage.details``; omitted when the tool gave none.
+    if message.details is not None:
+        body["details"] = dict(message.details)
+    return body
 
 
 def _with_turn_metadata(
@@ -448,6 +448,9 @@ def _message_from_json(
             if provider_correlation_id
             else None
         )
+        raw_details = body.get("details")
+        if raw_details is not None and not isinstance(raw_details, dict):
+            raise ValueError("tool details must be an object")
         if provider_correlation_id and tool_name is not None:
             return AgentToolResultMessage(
                 tool_request_id=tool_request_id,
@@ -456,6 +459,7 @@ def _message_from_json(
                 is_error=is_error,
                 provider_correlation_id=provider_correlation_id,
                 added_tool_names=added_tool_names,
+                details=raw_details,
             )
         return _UnresolvedToolResultMessage(
             tool_request_id=tool_request_id,
@@ -463,6 +467,7 @@ def _message_from_json(
             provider_correlation_id=provider_correlation_id,
             is_error=is_error,
             added_tool_names=added_tool_names,
+            details=raw_details,
         )
     raise ValueError(f"unsupported message role: {role!r}")
 
@@ -1197,6 +1202,9 @@ def _strict_tool_message_from_json(message: dict[str, Any]) -> None:
         not isinstance(added_names, list)
         or any(type(name) is not str for name in added_names)
     ):
+        raise ValueError("native session tool result is invalid")
+    details = message.get("details")
+    if details is not None and not isinstance(details, dict):
         raise ValueError("native session tool result is invalid")
 
 

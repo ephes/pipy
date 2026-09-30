@@ -138,10 +138,12 @@ class ReadTool:
         )
         if isinstance(output, _ReadFailure):
             return self._error(request, output.message)
+        text, details = output
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=output,
+            output_text=text,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
     @staticmethod
@@ -182,8 +184,11 @@ def _image_message(mime_type: str) -> str:
 
 def _format_text(
     text: str, *, path: str, offset: int | None, limit: int | None
-) -> str | _ReadFailure:
+) -> tuple[str, dict[str, object] | None] | _ReadFailure:
     """Select and truncate lines exactly like Pi's `read` text branch.
+
+    Returns the output and Pi's ``details`` (``{truncation}`` when the line
+    or byte limit cut the output, else None).
 
     The offset/limit arithmetic is transcribed from Pi, including its
     JavaScript ``slice`` semantics for zero and negative values (Python
@@ -214,17 +219,21 @@ def _format_text(
             f"[Line {start_line_display} is {first_line_size}, exceeds "
             f"{format_size(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n "
             f"'{start_line_display}p' {path} | head -c {DEFAULT_MAX_BYTES}]"
-        )
+        ), {"truncation": truncation.to_details()}
     if truncation.truncated:
         end_line_display = start_line_display + truncation.output_lines - 1
         next_offset = end_line_display + 1
         shown = f"Showing lines {start_line_display}-{end_line_display} of {total_file_lines}"
+        details: dict[str, object] = {"truncation": truncation.to_details()}
         if truncation.truncated_by == "lines":
-            return f"{truncation.content}\n\n[{shown}. Use offset={next_offset} to continue.]"
+            return (
+                f"{truncation.content}\n\n[{shown}. Use offset={next_offset} to continue.]",
+                details,
+            )
         return (
             f"{truncation.content}\n\n[{shown} ({format_size(DEFAULT_MAX_BYTES)} "
             f"limit). Use offset={next_offset} to continue.]"
-        )
+        ), details
     if (
         user_limited_lines is not None
         and start_line + user_limited_lines < total_file_lines
@@ -234,8 +243,8 @@ def _format_text(
         return (
             f"{truncation.content}\n\n[{remaining} more lines in file. "
             f"Use offset={next_offset} to continue.]"
-        )
-    return truncation.content
+        ), None
+    return truncation.content, None
 
 
 __all__ = ["READ_TOOL_DESCRIPTION", "ReadTool"]

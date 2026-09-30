@@ -7,11 +7,9 @@ cases were run through ``generateDiffString``, jsdiff ``diffLines`` and
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import threading
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -42,21 +40,10 @@ _FIXTURES = json.loads(
 )
 
 
-def _sink(buffer: io.StringIO | None) -> Callable[[str], None] | None:
-    if buffer is None:
-        return None
-
-    def write(text: str) -> None:
-        buffer.write(text)
-
-    return write
-
-
 def _invoke(
     workspace: Path,
     arguments: dict[str, object],
     *,
-    sink: io.StringIO | None = None,
     cancel: threading.Event | None = None,
 ):
     tool = EditTool()
@@ -73,7 +60,6 @@ def _invoke(
         ),
         ToolContext(
             workspace_root=workspace,
-            stderr_sink=_sink(sink),
             cancel_event=cancel,
         ),
     )
@@ -142,14 +128,17 @@ def test_apply_edits_matches_pi(entry: dict) -> None:
 
 def test_edits_a_file(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("x = 1\ny = 2\n")
-    sink = io.StringIO()
 
-    result = _invoke(tmp_path, {"path": "a.py", **_one("y = 2", "y = 3")}, sink=sink)
+    result = _invoke(tmp_path, {"path": "a.py", **_one("y = 2", "y = 3")})
 
     assert result.is_error is False
     assert result.output_text == "Successfully replaced 1 block(s) in a.py."
     assert (tmp_path / "a.py").read_text() == "x = 1\ny = 3\n"
-    assert sink.getvalue() == " 1 x = 1\n-2 y = 2\n+2 y = 3"
+    # Pi `details`: the display diff and the first changed line (TOOLS3).
+    assert result.details == {
+        "diff": " 1 x = 1\n-2 y = 2\n+2 y = 3",
+        "firstChangedLine": 2,
+    }
 
 
 def test_multiple_disjoint_edits_apply_together(tmp_path: Path) -> None:

@@ -19,6 +19,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Tool calls in the terminal UI are drawn as Pi draws them (TOOLS3): one
+  padded box per call, grey while it runs, then green or red, with each
+  tool's own rows. A collapsed `read` shows `read <path>:<range>` (or
+  `[skill] <name>`, `read resource AGENTS.md`, `read docs …`); `grep` shows
+  15 lines and `find`/`ls` 20, with `[Truncated: …]` warnings; `write`
+  previews 10 lines of the content; `edit` shows its numbered diff in its box,
+  computed before the edit runs, with the changed words of a one-line edit
+  highlighted; `bash` shows `$ command`, the last 5 lines, a `[Full output: …]`
+  warning and `Took Ns`. The `$ ` prompt on non-bash rows, the
+  `[error] tool reported a failure` line and `Took` on non-bash rows are
+  gone. Ctrl+O now re-renders every tool row, extension-rendered ones
+  included, live and after a resume, and clears the scrollback like Pi.
+  Rows use Pi's `toolPendingBg`/`toolSuccessBg`/`toolErrorBg`/`toolOutput`
+  colours, which theme files can set (`tool_pending_bg_*`,
+  `tool_success_bg_*`, `tool_error_bg_*`, `tool_output_*`). There is no
+  syntax highlighting yet.
+- Tool results carry Pi's `details` and the session file stores them
+  (TOOLS3): truncation facts and limits for `read`/`grep`/`find`/`ls`/`bash`
+  (with `fullOutputPath`), `edit`'s `diff` and `firstChangedLine`, and an
+  extension tool's `ToolResult.details` (its JSON copy). They are never sent
+  to a provider, and restored rows draw from them.
 - The default `openai-codex` model is now `gpt-6.1-sol` (was `gpt-5.5`), as in
   Pi (MC6, Pi `12c416e1a`). `--native-provider openai-codex` without
   `--native-model` starts on it; the other defaults are unchanged.

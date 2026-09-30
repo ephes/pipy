@@ -137,10 +137,12 @@ class FindTool:
             results.append(relative)
             if effective_limit and len(results) >= effective_limit:
                 break
+        output, details = _format_output(results, limit=effective_limit)
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=_format_output(results, limit=effective_limit),
+            output_text=output,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
     @staticmethod
@@ -235,23 +237,30 @@ def _matcher(pattern: str) -> _Matcher:
     )
 
 
-def _format_output(results: list[str], *, limit: int) -> str:
+def _format_output(
+    results: list[str], *, limit: int
+) -> tuple[str, dict[str, object] | None]:
+    """The output and Pi's ``details`` (omitted when no limit was hit)."""
+
     if not results:
-        return "No files found matching pattern"
+        return "No files found matching pattern", None
     truncation = truncate_head("\n".join(results), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
+    details: dict[str, object] = {}
     # Pi: relativized.length >= effectiveLimit (always true for limit 0).
     if len(results) >= limit:
         notices.append(
             f"{limit} results limit reached. Use limit={limit * 2} for more, "
             "or refine pattern"
         )
+        details["resultLimitReached"] = limit
     if truncation.truncated:
         notices.append(f"{format_size(DEFAULT_MAX_BYTES)} limit reached")
+        details["truncation"] = truncation.to_details()
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output
+    return output, details or None
 
 
 __all__ = ["DEFAULT_LIMIT", "FIND_TOOL_DESCRIPTION", "FindTool"]

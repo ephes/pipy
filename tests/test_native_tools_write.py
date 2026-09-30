@@ -7,10 +7,8 @@ directories, creates or overwrites the file, answers `Successfully wrote to
 
 from __future__ import annotations
 
-import io
 import os
 import threading
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -24,25 +22,13 @@ from pipy_harness.native.tools import (
 from pipy_harness.native.tools.write import (
     WRITE_TOOL_DESCRIPTION,
     WriteTool,
-    write_preview,
 )
-
-
-def _sink(buffer: io.StringIO | None) -> Callable[[str], None] | None:
-    if buffer is None:
-        return None
-
-    def write(text: str) -> None:
-        buffer.write(text)
-
-    return write
 
 
 def _invoke(
     workspace: Path,
     arguments: dict[str, object],
     *,
-    sink: io.StringIO | None = None,
     cancel: threading.Event | None = None,
 ):
     return WriteTool().invoke(
@@ -53,7 +39,6 @@ def _invoke(
         ),
         ToolContext(
             workspace_root=workspace,
-            stderr_sink=_sink(sink),
             cancel_event=cancel,
         ),
     )
@@ -195,15 +180,10 @@ def test_an_aborted_call_writes_nothing(tmp_path: Path) -> None:
     assert not (tmp_path / "a.txt").exists()
 
 
-def test_the_side_output_is_the_written_content(tmp_path: Path) -> None:
-    sink = io.StringIO()
+def test_a_write_has_no_details(tmp_path: Path) -> None:
+    """Pi `write` returns `details: undefined`; its row draws the arguments."""
 
-    _invoke(tmp_path, {"path": "a.py", "content": "a\r\n\tb\n\n\n"}, sink=sink)
+    result = _invoke(tmp_path, {"path": "a.py", "content": "a\r\n\tb\n"})
 
-    assert sink.getvalue() == "a\n   b"
-
-
-def test_write_preview_follows_pi_display_rules() -> None:
-    assert write_preview("") == ""
-    assert write_preview("x\n\n") == "x"
-    assert write_preview("\tx\r\ny") == "   x\ny"
+    assert result.is_error is False
+    assert result.details is None

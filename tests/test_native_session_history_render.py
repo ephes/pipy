@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,6 +36,7 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
 )
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.local_shell_record import (
     LocalShellRecord,
     format_local_shell_record,
@@ -154,6 +156,18 @@ class _Terminal:
         return [(kind, lines) for kind, lines in self.transcript.history_blocks]
 
 
+def _box(lines: tuple[str, ...]) -> list[tuple[str, str]]:
+    """``(background, text)`` of a tool row's non-blank lines, SGR removed."""
+
+    rows = []
+    for line in lines:
+        bg, _wrap, text = decode_tool_box_line(line)
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        if plain:
+            rows.append((bg, plain))
+    return rows
+
+
 def _live_rows(tmp_path: Path, drive: Any) -> list[tuple[str, tuple[str, ...]]]:
     terminal = _Terminal(tmp_path)
     drive(terminal.tool_renderer)
@@ -266,19 +280,22 @@ def test_restored_turn_rows_equal_the_rows_a_live_turn_commits(
 
     assert terminal.rows() == live
     kinds = [kind for kind, _ in live]
-    # A successful read shows only its call row, like the live turn.
+    # One Pi tool box per call; a collapsed read shows only its header.
     assert kinds == [
         "user",
         "assistant",
-        "tool",
-        "tool_result",
-        "tool_read",
-        "tool",
-        "tool_result",
+        "tool_box",
+        "tool_box",
+        "tool_box",
         "assistant",
     ]
-    assert live[3][1][0] == "... (4 earlier lines, ctrl+o to expand)"
-    assert live[6][1][-1] == "[error] tool reported a failure"
+    assert _box(live[2][1]) == [
+        ("success", "$ ls (timeout 5s)"),
+        ("success", "... (4 earlier lines, ctrl+o to expand)"),
+        *[("success", f"line {n}") for n in range(4, 9)],
+    ]
+    assert _box(live[3][1]) == [("success", "read a.txt")]
+    assert _box(live[4][1]) == [("error", "$ false"), ("error", "boom")]
 
 
 def test_a_call_without_a_result_renders_only_its_call_row(tmp_path: Path) -> None:
@@ -291,11 +308,10 @@ def test_a_call_without_a_result_renders_only_its_call_row(tmp_path: Path) -> No
 
     terminal.history.render_active_branch()
 
-    assert terminal.rows() == [
-        ("user", ("go",)),
-        ("tool", ("sleep 9",)),
-        ("user", ("again",)),
-    ]
+    rows = terminal.rows()
+    assert [kind for kind, _ in rows] == ["user", "tool_box", "user"]
+    # Pi keeps a call without a result pending.
+    assert _box(rows[1][1]) == [("pending", "$ sleep 9")]
 
 
 def test_a_result_after_an_intervening_entry_still_completes_its_call(
@@ -310,12 +326,10 @@ def test_a_result_after_an_intervening_entry_still_completes_its_call(
 
     terminal.history.render_active_branch()
 
-    assert terminal.rows() == [
-        ("user", ("go",)),
-        ("tool", ("ls",)),
-        ("tool_result", ("a.py",)),
-        ("custom", ("[plain]", "in between")),
-    ]
+    rows = terminal.rows()
+    assert [kind for kind, _ in rows] == ["user", "tool_box", "custom"]
+    assert _box(rows[1][1]) == [("success", "$ ls"), ("success", "a.py")]
+    assert rows[2] == ("custom", ("[plain]", "in between"))
 
 
 def _shell(
@@ -446,7 +460,9 @@ def test_summary_rows_are_collapsed_and_toggle_with_ctrl_o(tmp_path: Path) -> No
         "custom",
         ("[branch]", "", "Branch Summary", "", "tried another way"),
     )
-    assert terminal.resets == 1
+    # Pi's full render clears the scrollback when rows above the view change.
+    assert terminal.scrollback_clears == 1
+    assert terminal.resets == 0
 
 
 def test_rows_render_expanded_when_ctrl_o_is_on(tmp_path: Path) -> None:
@@ -461,7 +477,10 @@ def test_rows_render_expanded_when_ctrl_o_is_on(tmp_path: Path) -> None:
 
     terminal.history.render_active_branch()
 
-    assert terminal.rows()[-1] == ("tool_result", tuple(output.splitlines()))
+    assert _box(terminal.rows()[-1][1]) == [
+        ("success", "$ seq"),
+        *[("success", line) for line in output.splitlines()],
+    ]
 
 
 def test_live_and_restored_tool_results_toggle_with_ctrl_o(tmp_path: Path) -> None:
@@ -472,26 +491,24 @@ def test_live_and_restored_tool_results_toggle_with_ctrl_o(tmp_path: Path) -> No
     terminal.tool_renderer.render_tool_result(
         output_text=output, is_error=False, duration_seconds=1.25
     )
-    collapsed = (
-        "... (3 earlier lines, ctrl+o to expand)",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "",
-        "Took 1.2s",
-    )
-    assert terminal.rows()[-1] == ("tool_result", collapsed)
+    collapsed = [
+        ("success", "$ seq 8"),
+        ("success", "... (3 earlier lines, ctrl+o to expand)"),
+        *[("success", str(n)) for n in range(3, 8)],
+        # Pi's formatDuration rounds like JavaScript toFixed (1.25 -> 1.3).
+        ("success", "Took 1.3s"),
+    ]
+    assert _box(terminal.rows()[-1][1]) == collapsed
 
     terminal.transcript.set_tools_expanded(True)
-    assert terminal.rows()[-1] == (
-        "tool_result",
-        (*output.splitlines(), "", "Took 1.2s"),
-    )
+    assert _box(terminal.rows()[-1][1]) == [
+        ("success", "$ seq 8"),
+        *[("success", line) for line in output.splitlines()],
+        ("success", "Took 1.3s"),
+    ]
     terminal.transcript.set_tools_expanded(False)
-    assert terminal.rows()[-1] == ("tool_result", collapsed)
-    assert terminal.resets == 2
+    assert _box(terminal.rows()[-1][1]) == collapsed
+    assert terminal.scrollback_clears == 2
 
 
 def test_extension_entries_render_in_branch_order(tmp_path: Path) -> None:

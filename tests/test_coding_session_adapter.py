@@ -511,7 +511,6 @@ def test_skill_advertisement_matches_canonical_read_visibility(
         adapter.tool_registry,
         {},
         workspace_root=tmp_path,
-        stderr_sink=lambda _text: None,
         filter_options=tool_filter_options,
         cancel_join_timeout_seconds=0.1,
     )

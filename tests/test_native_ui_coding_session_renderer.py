@@ -12,6 +12,8 @@ extension-renderer coverage lives in ``test_native_coding_session_terminal.py``,
 from __future__ import annotations
 
 import io
+import json
+import re
 import threading
 import time
 
@@ -21,10 +23,13 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
+
+_SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class _Harness:
@@ -61,6 +66,14 @@ class _Harness:
                 return self.transcript.working_text
             time.sleep(0.01)
         return self.transcript.working_text
+
+
+def _call(name: str, args: dict[str, object]) -> AgentToolCall:
+    return AgentToolCall(
+        provider_correlation_id=f"corr-{name}",
+        tool_name=name,
+        arguments_json=ProductContent(json.dumps(args)),
+    )
 
 
 def _tool_call(name: str) -> AgentToolCall:
@@ -132,56 +145,76 @@ def test_operator_abort_commits_the_aborted_notice() -> None:
     assert ("error", ("Operation aborted",)) in h.transcript.history_blocks
 
 
+def _rows(h: _Harness) -> list[list[tuple[str, str]]]:
+    """``(background, text)`` of each committed tool row's non-blank lines."""
+
+    rows = []
+    for kind, lines in h.transcript.history_blocks:
+        if kind != "tool_box":
+            continue
+        decoded = (decode_tool_box_line(line) for line in lines)
+        rows.append([(bg, _SGR.sub("", text)) for bg, _wrap, text in decoded if text])
+    return rows
+
+
 def test_read_result_is_collapsed_and_errors_are_not() -> None:
     h = _Harness()
-    h.renderer.render_tool_call(_tool_call("read"))
+    h.renderer.render_tool_call(_call("read", {"path": "a.txt"}))
     h.renderer.render_tool_result(output_text="line one\nline two", is_error=False)
-    kinds = [kind for kind, _lines in h.transcript.history_blocks]
-    assert "tool_result" not in kinds  # successful read collapses to its header
-
-    h.renderer.render_tool_call(_tool_call("read"))
+    h.renderer.render_tool_call(_call("read", {"path": "b.txt"}))
     h.renderer.render_tool_result(output_text="boom", is_error=True)
-    kinds = [kind for kind, _lines in h.transcript.history_blocks]
-    assert kinds.count("tool_result") == 1  # a failed read still shows output
 
-
-def test_ls_result_lines_drop_the_kind_prefixes() -> None:
-    h = _Harness()
-    h.renderer.render_tool_call(_tool_call("ls"))
-    h.renderer.render_tool_result(
-        output_text="file a.txt\ndirectory sub\nother pipe\nplain",
-        is_error=False,
-    )
-    result = [
-        lines for kind, lines in h.transcript.history_blocks if kind == "tool_result"
+    # Pi read: a collapsed success shows only its header; an error its text.
+    assert _rows(h) == [
+        [("success", "read a.txt")],
+        [("error", "read b.txt"), ("error", "boom")],
     ]
-    assert result == [("a.txt", "sub", "pipe", "plain")]
 
 
-def test_long_result_previews_unless_the_transcript_is_expanded() -> None:
+def test_ls_rows_show_the_output_under_the_header() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("ls", {"path": "src"}))
+    h.renderer.render_tool_result(output_text="a.txt\nsub/", is_error=False)
+    assert _rows(h) == [
+        [("success", "ls src"), ("success", "a.txt"), ("success", "sub/")]
+    ]
+
+
+def test_bash_previews_the_last_lines_unless_the_transcript_is_expanded() -> None:
     h = _Harness()
     output = "\n".join(f"line {n}" for n in range(1, 9))
-    h.renderer.render_tool_call(_tool_call("bash"))
+    h.renderer.render_tool_call(_call("bash", {"command": "seq"}))
     h.renderer.render_tool_result(output_text=output, is_error=False)
-    collapsed = next(
-        lines for kind, lines in h.transcript.history_blocks if kind == "tool_result"
-    )
-    assert collapsed[0] == "... (3 earlier lines, ctrl+o to expand)"
-    assert collapsed[1:] == ("line 4", "line 5", "line 6", "line 7", "line 8")
+    assert _rows(h)[0] == [
+        ("success", "$ seq"),
+        ("success", "... (3 earlier lines, ctrl+o to expand)"),
+        *[("success", f"line {n}") for n in range(4, 9)],
+    ]
 
     h.transcript.set_tools_expanded(True)
-    h.renderer.render_tool_call(_tool_call("bash"))
+    h.renderer.render_tool_call(_call("bash", {"command": "seq"}))
     h.renderer.render_tool_result(output_text=output, is_error=False)
-    expanded = [
-        lines for kind, lines in h.transcript.history_blocks if kind == "tool_result"
-    ][-1]
-    assert expanded == tuple(f"line {n}" for n in range(1, 9))
+    assert _rows(h)[-1] == [
+        ("success", "$ seq"),
+        *[("success", f"line {n}") for n in range(1, 9)],
+    ]
 
 
-def test_tool_output_streams_into_the_live_region() -> None:
+def test_tool_output_streams_into_the_pending_row() -> None:
+    """A running bash call shows its output in its pending box (Pi partial)."""
+
     h = _Harness()
-    h.renderer.render_tool_call(_tool_call("bash"))
+    h.renderer.render_tool_call(_call("bash", {"command": "just test"}))
     h.renderer.tool_output_sink("...... [ 50%]\n")
-    assert "[ 50%]" in h.transcript.tool_output_text
-    h.renderer.render_tool_result(output_text="done", is_error=False)
+    pending = [
+        (bg, _SGR.sub("", text))
+        for bg, _wrap, text in map(
+            decode_tool_box_line, h.transcript.pending_tool_lines
+        )
+        if text
+    ]
+    assert pending == [("pending", "$ just test"), ("pending", "...... [ 50%]")]
     assert h.transcript.tool_output_text == ""
+    h.renderer.render_tool_result(output_text="done", is_error=False)
+    assert h.transcript.pending_tool_lines == ()
+    assert _rows(h) == [[("success", "$ just test"), ("success", "done")]]

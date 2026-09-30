@@ -232,15 +232,11 @@ class NativeToolCapabilities:
         extension_registry: Mapping[str, ToolPort],
         *,
         workspace_root: Path,
-        stderr_sink: Callable[[str], None],
         filter_options: ToolFilterOptions,
         cancel_join_timeout_seconds: float,
         state_lock: "threading.RLock | None" = None,
     ) -> None:
-        self._context = ToolContext(
-            workspace_root=workspace_root,
-            stderr_sink=stderr_sink,
-        )
+        self._context = ToolContext(workspace_root=workspace_root)
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
         self._state_lock = state_lock if state_lock is not None else threading.RLock()
         self._state = ToolCapabilityState.build(

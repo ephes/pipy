@@ -3234,7 +3234,8 @@ Slice 4.1b folds the three remaining tool-event renders into the same `reduce`,
 so it is the single owner of every agent-event-to-render-decision mapping:
 `ToolCallStarted` emits a `RenderToolCall` carrying the call, `ToolCallUpdated`
 emits a `StreamToolOutput` carrying the exact update chunk, and `ToolCallCompleted`
-emits a `RenderToolResult` forwarding `output_text`/`is_error`/`duration_seconds`.
+emits a `RenderToolResult` forwarding `output_text`/`is_error`/`duration_seconds`
+and the result's Pi `details` (TOOLS3).
 Tool events carry no display state, so they leave `UiState` untouched.
 
 `native.ui.rendering` holds the `AgentEventRenderer` protocol and the

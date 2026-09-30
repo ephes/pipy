@@ -1155,7 +1155,6 @@ def _effects(
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
-        extension_render_details=cast(Any, lambda *_args: None),
         extension_ui_driver=driver,
     )
     return effects, ctl
@@ -1483,7 +1482,6 @@ def test_production_reload_restores_retired_chrome_after_candidate_reconcile_fai
         diag=diagnostics.append,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
-        extension_render_details=cast(Any, lambda *_args: None),
         extension_ui_driver=driver,
     )
 

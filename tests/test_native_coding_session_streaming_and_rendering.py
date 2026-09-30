@@ -253,25 +253,6 @@ def test_renderer_renders_pi_shape_tool_call_header():
     assert "↳" not in rendered
 
 
-def test_plain_ls_header_without_path():
-    # `path` is optional for `ls`; Pi's header shows `.` and the limit (TOOLS2).
-    from pipy_harness.native.tool_renderers import _plain_tool_call_header
-
-    def header(arguments: str) -> str:
-        return _plain_tool_call_header(
-            AgentToolCall(
-                provider_correlation_id="cc",
-                tool_name="ls",
-                arguments_json=ProductContent(arguments),
-            )
-        )
-
-    assert header("{}") == "ls ."
-    assert header('{"limit": 10}') == "ls . (limit 10)"
-    assert header('{"path": "."}') == "ls ."
-    assert header('{"path": "src"}') == "ls src"
-
-
 def test_renderer_renders_tool_result_error_tag():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)

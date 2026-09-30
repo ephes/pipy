@@ -110,6 +110,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | USAGE1 | Usage stored on every assistant message ([plan](specs/2026-09-30-usage1-message-usage-plan.md)). The loop records Pi's `usage` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` parts from `calculateCost`) and the answering `provider`/`model`; the session file and every JSON/RPC assistant message carry them. The footer, RPC `get_session_stats` and `/session` sum every stored assistant message on every branch (Pi `getSessionStats`), so totals survive resume and a model switch. The footer follows Pi's parts (uncached `↑`, latest-message `CH`, `formatTokens`); `/session` prints Pi's `Session Info` with `Messages`, `Tokens` and `Cost` (per-model breakdown, `Cache Re-billed`). Old sessions load unchanged. Follow-on USAGE1b | `feat/usage1-message-usage` |
 | READ2 | `read`, `ls`, `grep`, `find`, `@file` and `@image:` resolve paths like Pi's `resolveToCwd`/`resolveReadPath` ([plan](specs/2026-09-30-read2-path-policy-plan.md)): cwd-relative or absolute, `~`, `@` prefix, unicode spaces, macOS screenshot/NFD/curly-quote variants, no deny list. `grep`/`find` leave out only what `rg --hidden`/`fd --hidden` do (measured rules in `tools/ignore_walk.py`, differential tests against the binaries). `--read-root`, `PIPY_READ_ROOTS` and the `Reference roots` prompt block are removed. No documented security boundary covers the read tools (`bash` is a real shell); the allowlisted command sandbox keeps its own policy. Follow-on READ2b | `feat/read2-path-policy` |
 | TOOLS2 + READ2b | `write`, `edit` and `bash` follow Pi ([plan](specs/2026-09-30-tools2-write-edit-bash-plan.md)). `write`/`edit` resolve like `resolveToCwd` with no deny list or size cap; `write` makes parent directories and overwrites; `edit` takes `edits[]` with Pi's exact/fuzzy matching, BOM/CRLF handling, error texts and numbered diff (jsdiff `diffLines` ported); one file's mutations are serialized. `bash` ends a failure with `Command exited with code N` / `timed out` / `aborted` as an error. The `!` shortcut uses Pi's executor output (sanitized, 2000 lines / 50 KB, temp file), `bashExecutionToText` record and component rows. Pi's grep/find/ls/write/edit headers; `ls` sorts by a Node-measured ICU approximation; the global git excludes file applies to the Python walks. No documented boundary covers the mutation tools. Deviations: the no-terminal `!` keeps a 600 s bound; collation outside the measured table; follow-on TOOLS3 | `feat/tools2-write-edit-bash` |
+| TOOLS3 + DF1-F2b (part) | Tool rows follow Pi's `ToolExecutionComponent` and per-tool renderers ([plan](specs/2026-09-30-tools3-tool-rows-plan.md)): one box per call (pending, then success/error background), read/grep/find/ls/write/edit/bash collapsed and expanded texts, compact `read` classification, edit's diff preview and word-level highlights (jsdiff `diffWords` ported), bash's last-5-lines preview, warning footer and `Took` (bash only), extension renderers and Pi's generic fallbacks. Tool results carry and store Pi's `details` (truncation, limits, edit diff, extension details; never sent to providers). Ctrl+O re-renders every row, extension rows included, live and restored, clearing the scrollback like Pi's full render; the render-details sink and the tools' side output are removed. Deviations: no syntax highlighting, links or ticking `Elapsed`; follow-on TOOLS3b | `feat/tools3-renderers` |
 
 ## Follow-ons
 
@@ -121,27 +122,25 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   files as image attachments (resized). pipy tool results are text-only, so
   `read` returns an error for images. Porting needs image content in tool
   results across the provider adapters, the session tree and replay.
-- **TOOLS3, per-tool TUI rows:** every non-bash tool row still renders behind
-  the `$ ` prompt, and results use one generic body (last 5 lines, `[error]
-  tool reported a failure`). Pi's renderers differ per tool: `grep`/`find`/`ls`
-  show the first 15/20 lines with `[Truncated: …]` warnings, a successful
-  `write` shows nothing, `edit` draws its diff in a coloured box, `bash`
-  replaces the `Full output` notice with a warning footer, and `read`
-  classifies docs, skills and resources compactly. The RPC `bash` command
-  still runs through the allowlisted sandbox instead of Pi's executor.
-- **DF1-F2b, restored-history rendering gaps** (left by F2/F3, see the Done
-  table):
-  - Rows drawn by an extension tool's `render_call`/`render_result` keep the
-    expansion state of the moment they were rendered, live and restored
-    alike. Pi calls `setExpanded` on every `ToolExecutionComponent`.
-    Re-rendering needs the renderer inputs retained (args, per-call state,
-    result text, details).
+- **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
+  - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
+    OSC 8 file links, no ticking `Elapsed` in a running `bash` row;
+  - JSON/RPC `toolResult` messages and `tool_execution_end` carry no
+    `details`; Pi's thrown tool errors store `details: {}`, pipy stores none;
+  - `edit` stores no `details.patch` (jsdiff `createTwoFilesPatch`);
+  - a hallucinated tool name gets the generic `name key=value` row where Pi,
+    knowing no definition, prints the arguments as JSON;
+  - the RPC `bash` command still runs through the allowlisted sandbox
+    instead of Pi's executor.
+- **DF1-F2b, restored-history rendering gaps** (left by F2/F3; TOOLS3 closed
+  the extension-row expansion and tool-result details):
   - A live `/compact` or automatic compaction shows its notice; Pi redraws the
     chat, so the `[compaction]` row appears at once. pipy shows that row only
     after the next redraw (resume, tree navigation).
-  - Reasoning text, tool-result details and durations are not stored, so
-    restored history has no thinking blocks, extension result details or
-    `Took Ns`.
+  - Reasoning text is not stored, so restored history has no thinking
+    blocks (it touches the assistant message model and provider replay).
+    Durations are not stored in Pi either: a restored `bash` row has no
+    `Took` line in both.
 - **DF1-F4b, what F4 left of retries:** F4 is merged (plan:
   `docs/parity-loop/plans/f4-retry-visibility.md`). Every provider is retried
   with Pi's classifier, also after partial output. The TUI shows `Error: ...`
@@ -177,8 +176,6 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     serializes it into the summary input as `[Assistant]: …`.
 - **DF1-F7, TUI polish:**
   - Notices print `pipy  pipy: …`.
-  - Non-bash tool rows keep the `$ ` prompt. Pi shows `edit path`,
-    `find X in Y` and `grep /X/ in Y`.
   - `/model gpt-6-luna` resolves to the unauthenticated `openai` row.
   - The `/model` selector lists unavailable models; Pi lists only models with
     configured auth.
