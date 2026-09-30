@@ -244,25 +244,28 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - `/session` has no `Cache Warming` section and no styling; resume and
     `/model` restore still need a `model_change` although assistant messages
     now name their model.
-- **SYS1c, system-message remainder:** SYS1b (see Done) sends later system
-  messages to models whose compat accepts them and records Pi's tagged
-  `preamble`/`addendum`/`project_context`/`skills`/`cwd` sections. Still to
-  port from Pi:
-  - Anthropic mid-conversation effort (`supportsMidConvoEffort`,
-    `output_config` system messages before assistant turns, the per-message
-    `providerThinkingLevel`, adaptive `block_binding`, the
-    `mid-conversation-output-config`/`thinking-binding-controls` betas;
-    `4e69b0c28`);
-  - restoring the active tool set from the transcript at startup and after
-    `/tree` navigation (`_restoreToolsFromTranscript`);
+- **SYS1c, system-message remainder:** SYS1c
+  ([plan](specs/2026-09-30-sys1c-system-message-remainder-plan.md), branch
+  `feat/sys1c`) ported the leading prompt's shape (Responses/Azure first
+  input item, Chat Completions instruction role, empty prompt omitted, Codex's
+  empty-prompt default), sessions without a leading system message (made
+  before SYS1a), `_restoreToolsFromTranscript` on `/tree` navigation (Pi's
+  CLI never restores at startup: it always passes the configured tools) and
+  Anthropic mid-conversation effort (`supportsMidConvoEffort`,
+  `providerThinkingLevel`, `output_config` system messages, `block_binding`,
+  the two betas). Still to port from Pi:
   - the `tools`/`rules`/`docs` sections (tool prompt snippets and
     guidelines; with the "Skills and prompt" follow-on);
-  - the leading prompt's shape: Pi's openai-responses sends it as the first
-    input message in the instruction role (pipy: `instructions`), and Chat
-    Completions uses the instruction role (pipy: `system`); Codex's empty
-    prompt default;
-  - a session whose first system message is not the leading one (made
-    before SYS1a) collapses, where Pi sends the state as a later message.
+  - tool `strict` fields; Anthropic's other betas (fine-grained tool
+    streaming, interleaved thinking, server-side fallback) and temperature;
+  - OpenRouter Claude rows over the native Messages API (`4e69b0c28`), which
+    also carry `supportsMidConvoEffort`;
+  - `providerThinkingLevel` on streamed partials and on stopped (aborted or
+    failed) assistant messages;
+  - kept on purpose: Pi's Codex adapter on a model without
+    `supportsMidConvoSystemMessages` sends only the initial system message
+    as `instructions`, dropping later section updates; pipy sends the
+    replayed prompt.
 - **Thinking and model switches:** an extension `setThinkingLevel` does not
   rebuild the provider; `/model x:level` clamping; the 128k context fallback for
   a selection without a catalog row.

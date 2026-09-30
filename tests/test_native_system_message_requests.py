@@ -313,6 +313,7 @@ def test_catalog_rows_resolve_pi_compat_per_family() -> None:
         TranscriptCompat(
             supports_mid_convo_system_messages=True,
             supports_mid_convo_tool_changes=True,
+            supports_mid_convo_effort=True,
         )
     )
     assert resolve_transcript_compat(_row("anthropic", "claude-opus-4-7")) == (

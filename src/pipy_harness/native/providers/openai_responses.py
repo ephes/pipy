@@ -161,7 +161,6 @@ class OpenAIResponsesProvider:
         )
         body: dict[str, Any] = {
             "model": self.model_id,
-            "instructions": transcript.instructions,
             "input": responses_input(
                 request,
                 parse_error_class=OpenAIResponseParseError,

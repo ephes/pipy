@@ -418,7 +418,13 @@ The matching command family is:
 
 - `/session`: show current native session file, id, current leaf, message and
   token/cost counters when known.
-- `/tree`: navigate the current session tree in place.
+- `/tree`: navigate the current session tree in place. Like Pi's
+  `navigateTree` (`_restoreToolsFromTranscript`, SYS1c), navigation with or
+  without a branch summary restores the active tools the target branch's
+  system messages declare (only registered tools, narrowed by a configured
+  `--allow`/`--exclude` filter); a branch without system messages keeps the
+  current tools. Resume, `/new`, `/fork` and `/clone` keep the configured
+  tools, as Pi's CLI does.
 - `/fork`: create a new session file from a previous user message.
 - `/clone`: duplicate the current active branch into a new session file.
 - `/resume`: select another session file and switch to it.
@@ -572,6 +578,11 @@ Minimum entry types:
 
   A session written before SYS1 has no system message. Its next run writes
   the whole state as a later system message, which replays the same way.
+  A model that accepts mid-conversation system messages then gets no leading
+  prompt and that state as a later message, as in Pi (SYS1c).
+
+  An assistant answer from an Anthropic mid-conversation effort model stores
+  Pi's `providerThinkingLevel` (SYS1c).
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.

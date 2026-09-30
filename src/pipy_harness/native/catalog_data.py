@@ -164,6 +164,9 @@ _ADAPTIVE_MID_CONVO = {
     "supportsMidConvoSystemMessages": True,
     "supportsMidConvoToolChanges": True,
 }
+# Pi's verified mid-conversation effort rows (``output_config`` system
+# messages, adaptive ``block_binding``; Pi ``4e69b0c28``).
+_ADAPTIVE_MID_CONVO_EFFORT = {**_ADAPTIVE_MID_CONVO, "supportsMidConvoEffort": True}
 # ---- OpenAI Responses (api.openai.com) -------------------------------------
 _OPENAI_GPT_5_5 = {
     "off": "none",
@@ -226,7 +229,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_5_5,
         image=True,
-        compat=_ADAPTIVE_MID_CONVO,
+        compat=_ADAPTIVE_MID_CONVO_EFFORT,
         cost=(4.0, 20.0, 0.2, 5.0),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -240,7 +243,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_5_5,
         image=True,
-        compat=_ADAPTIVE_MID_CONVO,
+        compat=_ADAPTIVE_MID_CONVO_EFFORT,
         cost=(2.0, 10.0, 0.2, 2.5),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -254,7 +257,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
         image=True,
-        compat=_ADAPTIVE_MID_CONVO,
+        compat=_ADAPTIVE_MID_CONVO_EFFORT,
         cost=(10.0, 50.0, 0.25, 12.5),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -282,7 +285,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
         image=True,
-        compat=_ADAPTIVE_MID_CONVO,
+        compat=_ADAPTIVE_MID_CONVO_EFFORT,
         cost=(5.0, 25.0, 0.5, 6.25),
         context_window=1_000_000,
         max_tokens=128_000,

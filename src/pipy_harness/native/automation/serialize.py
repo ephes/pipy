@@ -93,6 +93,8 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
             assistant["provider"] = message.provider
         if message.model is not None:
             assistant["model"] = message.model
+        if message.provider_thinking_level is not None:
+            assistant["providerThinkingLevel"] = message.provider_thinking_level
         # Every Pi assistant message has ``usage``; one stored before usage
         # was recorded reads as zero.
         assistant["usage"] = usage_to_json(message.usage or AgentMessageUsage())

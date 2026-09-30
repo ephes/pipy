@@ -248,7 +248,7 @@ transcript. pipy does the same (SYS1a, SYS1b):
   the untagged `preamble` (pipy's default or custom prompt), then `addendum`, `project_context`, `skills` and `cwd`, each wrapped
   in a tag of its name, and pipy's `resume` block as a trailing custom
   section. Empty optional sections are left out. Pi's `tools`/`rules`/`docs`
-  sections are a backlog follow-on (SYS1c).
+  sections are a backlog follow-on (SYS1c remainder).
 - **Forced prompts.** A `before_agent_start` suffix is not recorded: it forces
   that run's prompt, and those requests collapse to it (Pi `16292398a`).
 - **Declarations.** They are the tools the session can execute. A
@@ -683,7 +683,10 @@ While a `prompt` run is in flight:
   `output`, `cacheRead`, `cacheWrite`, optional `cacheWrite1h`/`reasoning`,
   `totalTokens`, `cost{input,output,cacheRead,cacheWrite,total}`; zeros for
   an aborted turn or a message stored before USAGE1) and, when known, the
-  `provider` and `model` that answered. The streamed `message_update` partial
+  `provider` and `model` that answered. An answer from an Anthropic
+  mid-conversation effort model also carries Pi's `providerThinkingLevel`
+  (the effort it was asked for; SYS1c), which later requests replay. The
+  streamed `message_update` partial
   carries a zero `usage`. pipy does not emit Pi's `api`, `responseModel`,
   `responseId` or `timestamp`.
 - `prompt` itself may carry `streamingBehavior: "steer" | "followUp"` so a

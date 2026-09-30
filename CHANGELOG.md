@@ -43,9 +43,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
   A `before_agent_start` suffix or a `before_provider_request` prompt change
   forces the prompt for that request, which then collapses as before. The
   request budget counts the updates and every declaration kept on the wire.
+- Anthropic mid-conversation effort, as in Pi (SYS1c, Pi `4e69b0c28`): on
+  Claude Opus 5, Opus 5.5, Sonnet 5.5 and Fable 5.1 (`supportsMidConvoEffort`)
+  requests think adaptively with `block_binding`, send the effort as
+  `output_config` system messages (the current one last, and each earlier
+  answer's own before it) and add the `mid-conversation-output-config` and
+  `thinking-binding-controls` betas. Each answer records
+  `providerThinkingLevel`, stored in the session and emitted in JSON/RPC
+  messages.
+- `/tree` navigation restores the active tools the target branch declares,
+  as Pi's `navigateTree` does (SYS1c). Resume keeps the configured tools.
 
 ### Changed
 
+- The leading prompt has Pi's shape (SYS1c). OpenAI Responses and Azure send
+  it as the first `input` item in the instruction role instead of
+  `instructions`, and a request without messages sends a user item instead of
+  a bare string; Chat Completions sends it in the instruction role
+  (`developer` for reasoning models that accept it); an empty prompt sends no
+  message; Codex sends `"You are a helpful assistant."` when the prompt is
+  empty. A session made before SYS1a sends its prompt as a later system
+  message to models that accept one, as in Pi.
 - The system prompt is recorded as Pi's tagged sections (SYS1b): the untagged
   `preamble` (the default or custom prompt), then
   `<addendum>` (appended prompts, now wrapped in their tag), `<project_context>`,

@@ -259,6 +259,27 @@ class NativeToolCapabilities:
             self._state = replace(state, active_tool_names=normalized)
         return True
 
+    def restore_active_tools(self, names: Sequence[str]) -> None:
+        """Pi ``setActiveToolsByName`` from a transcript's declared tools.
+
+        Unlike :meth:`set_active_tools`, unknown names are dropped rather
+        than refused: Pi keeps only registered tools, and its registry
+        already excludes names a ``--allow``/``--exclude`` filter hides, so a
+        configured filter narrows the restored set too. Filtering and
+        assignment share one critical section.
+        """
+
+        with self._state_lock:
+            state = self._state
+            visible: Collection[str] = state.registry
+            if state.filter_configured:
+                visible = state.filter_options.provider_visible_names(
+                    builtin_names=state.builtin_registry,
+                    registered_names=state.registry,
+                )
+            restored = frozenset(name for name in names if name in visible)
+            self._state = replace(state, active_tool_names=restored)
+
     def prepare_extensions(
         self, mapping: Mapping[str, ToolPort]
     ) -> ToolCapabilityState:

@@ -206,19 +206,35 @@ def test_resolver_leading_text_is_the_first_message_plus_the_out_of_band_tail() 
     assert resolved.items == (USER, moved, CALL, RESULT)
 
 
-def test_resolver_collapses_a_forced_prompt_or_a_missing_leading_message() -> None:
+def test_resolver_collapses_a_forced_prompt_or_no_system_messages() -> None:
     forced = _request((3, ADD_GAMMA), system_prompt="forced prompt")
     assert (
         resolve_request_transcript(forced, supports_mid_convo=True).mid_convo is False
     )
 
-    legacy = _request((3, LEAD), lead=None)
-    assert (
-        resolve_request_transcript(legacy, supports_mid_convo=True).mid_convo is False
-    )
-
     bare = _request(lead=None)
     assert resolve_request_transcript(bare, supports_mid_convo=True).mid_convo is False
+
+
+def test_resolver_keeps_a_session_without_a_leading_message_in_place() -> None:
+    # A session recorded before SYS1a: its first system message follows old
+    # messages. Pi ``getInitialSystemMessage`` finds none, so there is no
+    # leading prompt and every system message is a later one.
+    legacy = _request((3, LEAD), lead=None)
+
+    resolved = resolve_request_transcript(legacy, supports_mid_convo=True)
+
+    assert resolved.mid_convo is True
+    assert resolved.has_leading is False
+    assert resolved.leading_text == ""
+    assert resolved.items == (*HISTORY, LEAD)
+    assert resolved.initial_tools == ()
+
+    summary = resolve_request_transcript(
+        _request((3, LEAD), lead=None, system_prompt=PROMPT + "\n\nsummary"),
+        supports_mid_convo=True,
+    )
+    assert summary.leading_text == "summary"
 
 
 def test_hidden_declarations_are_filtered_but_ordinary_removals_stay() -> None:
@@ -265,8 +281,11 @@ def test_tool_change_predicates_distinguish_redefinition_from_removal() -> None:
 def test_responses_flags_off_send_the_collapsed_request() -> None:
     body = _responses_body(_request((3, ADD_GAMMA)))
 
-    assert body["instructions"] == PROMPT
-    assert [item.get("type", item.get("role")) for item in body["input"]] == [
+    # Pi ``convertResponsesMessages``: the leading prompt is the first input
+    # item in the instruction role; there is no ``instructions`` field.
+    assert "instructions" not in body
+    assert body["input"][0] == {"role": "developer", "content": PROMPT}
+    assert [item.get("type", item.get("role")) for item in body["input"][1:]] == [
         "user",
         "function_call",
         "function_call_output",
@@ -287,9 +306,10 @@ def test_responses_anchor_additional_tools_and_send_developer_updates() -> None:
         supports_tool_search=True,
     )
 
-    assert body["instructions"] == PROMPT
+    assert "instructions" not in body
+    assert body["input"][0] == {"role": "developer", "content": PROMPT}
     assert body["tools"] == [_responses_tool(A), _responses_tool(B)]
-    assert body["input"][3:] == [
+    assert body["input"][4:] == [
         {
             "type": "additional_tools",
             "role": "developer",
@@ -324,7 +344,7 @@ def test_responses_removal_sends_current_tools_and_no_anchored_loads() -> None:
     )
 
     assert body["tools"] == [_responses_tool(A), _responses_tool(C)]
-    assert len(body["input"]) == 3
+    assert len(body["input"]) == 4
 
 
 def test_azure_reads_the_same_responses_flags() -> None:
@@ -430,7 +450,8 @@ def test_chat_completions_later_messages_and_kimi_tools_message() -> None:
         instruction_role="developer",
     )
 
-    assert body["messages"][0] == {"role": "system", "content": PROMPT}
+    # Pi: the leading prompt uses the instruction role too.
+    assert body["messages"][0] == {"role": "developer", "content": PROMPT}
     assert body["messages"][-2:] == [
         {
             "role": "system",
@@ -461,7 +482,7 @@ def test_chat_completions_without_tool_additions_sends_current_tools() -> None:
     )
 
     assert [message["role"] for message in body["messages"]] == [
-        "system",
+        "developer",
         "user",
         "assistant",
         "tool",

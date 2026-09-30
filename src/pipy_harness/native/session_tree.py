@@ -342,7 +342,8 @@ def _tool_result_to_json(
 def _with_turn_metadata(
     body: dict[str, Any], message: AgentAssistantMessage
 ) -> dict[str, Any]:
-    """Pi ``usage`` (in Pi's shape), ``provider`` and ``model`` when recorded."""
+    """Pi ``usage`` (in Pi's shape), ``provider``, ``model`` and
+    ``providerThinkingLevel`` when recorded."""
 
     if message.usage is not None:
         body["usage"] = usage_to_json(message.usage)
@@ -350,6 +351,8 @@ def _with_turn_metadata(
         body["provider"] = message.provider
     if message.model is not None:
         body["model"] = message.model
+    if message.provider_thinking_level is not None:
+        body["providerThinkingLevel"] = message.provider_thinking_level
     return body
 
 
@@ -357,11 +360,15 @@ def _turn_metadata_from_json(body: dict[str, Any]) -> dict[str, Any]:
     """Read back ``usage``/``provider``/``model``; entries before USAGE1 have none."""
 
     metadata: dict[str, Any] = {}
-    for key in ("provider", "model"):
+    for key, name in (
+        ("provider", "provider"),
+        ("model", "model"),
+        ("providerThinkingLevel", "provider_thinking_level"),
+    ):
         value = body.get(key)
         if value is not None and (not isinstance(value, str) or not value):
             raise ValueError(f"assistant {key} must be a non-empty string")
-        metadata[key] = value
+        metadata[name] = value
     raw_usage = body.get("usage")
     metadata["usage"] = None if raw_usage is None else usage_from_json(raw_usage)
     return metadata

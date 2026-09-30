@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,6 +13,7 @@ from pipy_harness.native._provider_helpers import (
     serialize_tool_for_anthropic,
     utc_now,
 )
+from pipy_harness.native.agent.messages import AgentAssistantMessage
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.http import (
     ApiErrorField,
@@ -50,6 +51,12 @@ from pipy_harness.native.tools.base import ToolDefinition
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 MID_CONVERSATION_TOOL_CHANGES_BETA = "mid-conversation-tool-changes-2026-07-01"
+# Pi ``getBetaFeatures`` for ``supportsMidConvoEffort`` rows (``4e69b0c28``).
+MID_CONVERSATION_OUTPUT_CONFIG_BETA = "mid-conversation-output-config-2026-07-01"
+THINKING_BINDING_CONTROLS_BETA = "thinking-binding-controls-2026-08-01"
+# Pi ``isAnthropicEffort``: the levels a recorded ``providerThinkingLevel``
+# may replay as.
+ANTHROPIC_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 # Pi ``DEFERRED_TOOL_PLACEHOLDER``: declared whenever native tool changes are
 # used, so the scaffolding Anthropic adds for ``defer_loading`` tools is in the
 # cached prefix from the first request. It is never activated.
@@ -148,6 +155,69 @@ def _apply_anthropic_thinking(
         body["thinking"] = {"type": "disabled"}
 
 
+def _apply_managed_effort_thinking(body: dict[str, Any]) -> None:
+    """Pi ``buildParams`` for mid-conversation effort models.
+
+    They always think adaptively so a thinking-block prefix mismatch is
+    dropped instead of failing the request; the top-level effort is Pi's
+    constant ``high`` and the active effort rides on the trailing
+    ``output_config`` system message.
+    """
+
+    body["thinking"] = {
+        "type": "adaptive",
+        "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
+        "block_binding": {"prefix_mismatch_behavior": "drop_block"},
+    }
+    body["output_config"] = {"effort": "high"}
+
+
+def insert_thinking_level_messages(
+    messages: list[dict[str, object]],
+    assistant_levels: list[str | None],
+    active_effort: str,
+) -> list[dict[str, object]]:
+    """Pi ``insertThinkingLevelMessages``.
+
+    ``assistant_levels`` holds, per serialized assistant message in order,
+    the effort it answered at (``None`` when it has none to replay). Each
+    recorded one is preceded by an ``output_config`` system message, and one
+    with the active effort ends the list.
+    """
+
+    levels = iter(assistant_levels)
+    result: list[dict[str, object]] = []
+    for message in messages:
+        if message.get("role") == "assistant":
+            level = next(levels, None)
+            if level is not None:
+                result.append(_effort_message(level))
+        result.append(message)
+    result.append(_effort_message(active_effort))
+    return result
+
+
+def _effort_message(effort: str) -> dict[str, object]:
+    return {"role": "system", "content": [], "output_config": {"effort": effort}}
+
+
+def _assistant_levels(items: Sequence[object], provider_name: str) -> list[str | None]:
+    """Pi ``convertMessages`` effort record: same provider, a valid level.
+
+    Only this adapter records ``provider_thinking_level``, so Pi's
+    ``api === "anthropic-messages"`` check is implied.
+    """
+
+    return [
+        item.provider_thinking_level
+        if item.provider == provider_name
+        and item.provider_thinking_level in ANTHROPIC_EFFORTS
+        else None
+        for item in items
+        if isinstance(item, AgentAssistantMessage)
+    ]
+
+
 @dataclass(frozen=True, slots=True)
 class _AnthropicTranscript:
     """The resolved transcript and tool lists of one Messages request."""
@@ -211,8 +281,14 @@ def _build_anthropic_request_body(
     adaptive: bool,
     cache_control: Mapping[str, str] | None = None,
     cache_control_on_tools: bool = True,
+    managed_effort: str | None = None,
+    provider_name: str = "anthropic",
 ) -> dict[str, Any]:
     """Build the Messages body, including Anthropic-specific thinking shapes.
+
+    ``managed_effort`` is the active effort of a mid-conversation effort
+    model (``None`` otherwise): it replaces the thinking shape and inserts
+    Pi's ``output_config`` system messages after the cache breakpoint.
 
     ``cache_control`` places Pi's prompt-cache breakpoints
     (``anthropic-messages.ts:1086-1145``, ``:1407-1432``): on the system block,
@@ -235,6 +311,12 @@ def _build_anthropic_request_body(
         cache_control,
         eligible_types=ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES,
     )
+    if managed_effort is not None:
+        messages = insert_thinking_level_messages(
+            messages,
+            _assistant_levels(transcript.resolved.items, provider_name),
+            managed_effort,
+        )
     body: dict[str, Any] = {"model": model_id, "max_tokens": max_tokens}
     system = system_blocks(transcript.resolved.leading_text, cache_control)
     if system is not None:
@@ -254,6 +336,9 @@ def _build_anthropic_request_body(
             serialized_tools.append(serialized)
         body["tools"] = serialized_tools
 
+    if managed_effort is not None:
+        _apply_managed_effort_thinking(body)
+        return body
     _apply_anthropic_thinking(
         body,
         adaptive=adaptive,
@@ -319,6 +404,10 @@ class AnthropicProvider:
     # with tool changes they add and remove tools natively.
     supports_mid_convo_system_messages: bool = False
     supports_mid_convo_tool_changes: bool = False
+    # Pi ``compat.supportsMidConvoEffort`` (``4e69b0c28``): the effort is
+    # sent per turn as ``output_config`` system messages and recorded on
+    # each answer (``provider_thinking_level``).
+    supports_mid_convo_effort: bool = False
     # Pi ``AnthropicMessagesCompat`` prompt-cache bits, resolved per flag by
     # catalog construction (``anthropic-messages.ts:207-213``): long (1h)
     # retention and tool breakpoints default on; session-affinity headers
@@ -386,6 +475,18 @@ class AnthropicProvider:
             if self.force_adaptive_thinking is not None
             else supports_adaptive_thinking(self.model_id)
         )
+        # Pi ``stream``: ``options.effort ?? "high"`` (the mapped level).
+        managed_effort = (
+            (
+                ANTHROPIC_ADAPTIVE_EFFORT.get(
+                    self.reasoning_effort, self.reasoning_effort
+                )
+                if self.reasoning_effort is not None
+                else "high"
+            )
+            if self.supports_mid_convo_effort
+            else None
+        )
         body = _build_anthropic_request_body(
             request,
             model_id=self.model_id,
@@ -398,16 +499,24 @@ class AnthropicProvider:
                 retention, long_ttl=self.supports_long_cache_retention
             ),
             cache_control_on_tools=self.supports_cache_control_on_tools,
+            managed_effort=managed_effort,
+            provider_name=self.name,
         )
         headers = self._request_headers(
             request, retention, has_explicit_authorization=has_explicit_authorization
         )
-        # Pi ``getBetaFeatures``: native tool changes need their beta unless a
-        # configured ``anthropic-beta`` header replaces the computed list.
-        if transcript.native_tool_changes and not any(
-            name.lower() == "anthropic-beta" for name in headers
-        ):
-            headers["anthropic-beta"] = MID_CONVERSATION_TOOL_CHANGES_BETA
+        # Pi ``getBetaFeatures``: mid-conversation effort and native tool
+        # changes need their betas (sent comma-joined) unless a configured
+        # ``anthropic-beta`` header replaces the computed list.
+        betas: list[str] = []
+        if managed_effort is not None:
+            betas.extend(
+                (MID_CONVERSATION_OUTPUT_CONFIG_BETA, THINKING_BINDING_CONTROLS_BETA)
+            )
+        if transcript.native_tool_changes:
+            betas.append(MID_CONVERSATION_TOOL_CHANGES_BETA)
+        if betas and not any(name.lower() == "anthropic-beta" for name in headers):
+            headers["anthropic-beta"] = ",".join(betas)
         headers = apply_provider_headers(request, headers)
 
         try:
@@ -451,6 +560,7 @@ class AnthropicProvider:
                 "stop_reason": result.stop_reason,
             },
             tool_calls=result.tool_calls,
+            provider_thinking_level=managed_effort,
         )
 
     def _request_headers(

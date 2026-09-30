@@ -675,6 +675,8 @@ class TranscriptCompat:
     supports_additional_tools: bool = False
     supports_mid_convo_tool_additions: bool = False
     supports_mid_convo_tool_changes: bool = False
+    # Anthropic ``supportsMidConvoEffort`` (Pi reads it as ``=== true``).
+    supports_mid_convo_effort: bool = False
     instruction_role: str = "system"
 
 
@@ -713,6 +715,7 @@ def resolve_transcript_compat(spec: NativeModelSpec) -> TranscriptCompat:
             supports_mid_convo_tool_changes=_compat_flag(
                 spec, "supportsMidConvoToolChanges"
             ),
+            supports_mid_convo_effort=_compat_flag(spec, "supportsMidConvoEffort"),
         )
     if spec.api == "mistral":
         # Pi ``mistral-conversations``: later messages use ``system``, no
@@ -1209,6 +1212,7 @@ def _build_catalog_provider(
             supports_mid_convo_tool_changes=(
                 resolved.transcript.supports_mid_convo_tool_changes
             ),
+            supports_mid_convo_effort=resolved.transcript.supports_mid_convo_effort,
             **_anthropic_prompt_cache_kwargs(resolved.anthropic_prompt_cache),
             **http_kwargs,
         )

@@ -103,9 +103,6 @@ Known deviations, owned by later slices:
 
 - **OpenRouter Claude rows.** Pi routes them through `anthropic-messages` over
   OpenRouter; pipy has no such transport.
-- **Anthropic mid-conversation managed effort.** On Pi rows with
-  `supportsMidConvoEffort`, Pi sends `output_config` effort system messages
-  before assistant turns (backlog SYS1c); pipy does not carry the flag.
 - **No clamp on an explicit `provider/model:level` suffix** (the plain REPL's
   `/model`, `--model`). Pi clamps it, while pipy passes it through. The TUI's
   `/model` takes no suffix: like Pi it matches exact references only.
@@ -130,6 +127,16 @@ precedes), but only when the bound adapter accepts them; the helpers in
 `Updated system prompt section "NAME":` or `Removed system prompt section
 "NAME".` text.
 
+The leading prompt (SYS1c, [plan](specs/2026-09-30-sys1c-system-message-remainder-plan.md))
+is shaped as in Pi on every path, collapsed or not: OpenAI Responses and Azure
+send it as the first `input` item in the instruction role and send no
+`instructions` (a request without messages sends its prompt as a user item,
+never a bare string); Codex keeps `instructions` and sends Pi's
+`"You are a helpful assistant."` when the prompt is empty; Chat Completions
+uses the instruction role (`developer` for a reasoning model with
+`supportsDeveloperRole`); Mistral uses `system`. An empty leading prompt sends
+no message.
+
 | API | Flags (explicit row value, default false) | Later system message |
 | --- | --- | --- |
 | openai-responses, azure-openai-responses, openai-codex-responses | `supportsMidConvoSystemMessages`, `supportsAdditionalTools`, `supportsToolSearch`, `supportsDeveloperRole` (default true) | tools it adds first (`additional_tools`, else a client `tool_search` pair seeded `system:<index>:<names>`), then a `developer` message (`system` for a non-reasoning model or `supportsDeveloperRole: false`) |
@@ -148,15 +155,32 @@ then the initial tools stay immediate (cache marker on the last), Pi's
 `mid-conversation-tool-changes-2026-07-01` beta unless an `anthropic-beta`
 header is configured.
 
-The request collapses (today's request) when the model lacks the flag, when a
-`before_agent_start` suffix or a `before_provider_request` prompt change
-forces the prompt, or when the session's first system message is not its
-leading message (a session made before SYS1a). Tools a request hook withheld
-are hidden from every system message. Known divergences, recorded as SYS1c in
-the backlog: pipy's Responses adapters send the leading prompt as
-`instructions` (Pi's openai-responses sends it as the first input message)
-and Chat Completions sends it as `system` (Pi uses the instruction role);
-tool `strict` fields and Anthropic's other betas are not sent.
+The request collapses (today's request) when the model lacks the flag, or
+when a `before_agent_start` suffix or a `before_provider_request` prompt
+change forces the prompt. A session whose first system message is not its
+leading message (made before SYS1a) has no leading prompt on a model with the
+flag: every system message is a later one, as in Pi (Codex then sends the
+default instructions, Anthropic no `system`, and additions load in place).
+Tools a request hook withheld are hidden from every system message.
+
+Anthropic mid-conversation effort (Pi `4e69b0c28`): on rows with
+`supportsMidConvoEffort` (`claude-opus-5`, `claude-opus-5-5`,
+`claude-sonnet-5-5`, `claude-fable-5-1`) the request always thinks adaptively
+with `block_binding: {prefix_mismatch_behavior: "drop_block"}` and a
+top-level `output_config.effort` of `high`; the active effort (the mapped
+thinking level, `high` when unset) is an `{role: "system", content: [],
+output_config: {effort}}` message at the end, and each earlier assistant
+answer from the same provider that recorded its effort
+(`providerThinkingLevel`, persisted on the message) is preceded by one with
+that effort. The `mid-conversation-output-config-2026-07-01` and
+`thinking-binding-controls-2026-08-01` betas lead the `anthropic-beta` list.
+
+Known divergences, recorded as SYS1c in the backlog: tool `strict` fields and
+Anthropic's other betas are not sent; a streamed partial or a stopped
+assistant message carries no `providerThinkingLevel`; Pi's Codex adapter on a
+model without `supportsMidConvoSystemMessages` sends only the initial system
+message as `instructions` (dropping later section updates), where pipy sends
+the replayed prompt.
 
 ### Catalog drift check
 

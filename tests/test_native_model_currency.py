@@ -393,22 +393,28 @@ def _sent_body(
     return http.requests[-1]["body"]
 
 
+# Pi ``supportsMidConvoEffort`` rows (SYS1c): always adaptive with
+# ``block_binding``, a constant top-level ``high``; the active effort rides on
+# the trailing ``output_config`` system message.
+_MANAGED = {
+    "type": "adaptive",
+    "display": "summarized",
+    "block_binding": {"prefix_mismatch_behavior": "drop_block"},
+}
+_MANAGED_ACTIVE = {
+    ("claude-opus-5-5", "max"): "max",
+    ("claude-sonnet-5-5", "xhigh"): "xhigh",
+    ("claude-opus-5-5", "off"): "high",
+}
+
+
 @pytest.mark.parametrize(
     ("model_id", "level", "thinking", "effort"),
     [
-        # Opus/Sonnet 5.5 and Opus 4.7: adaptive + max passthrough.
-        (
-            "claude-opus-5-5",
-            "max",
-            {"type": "adaptive", "display": "summarized"},
-            "max",
-        ),
-        (
-            "claude-sonnet-5-5",
-            "xhigh",
-            {"type": "adaptive", "display": "summarized"},
-            "xhigh",
-        ),
+        # Opus/Sonnet 5.5: managed effort.
+        ("claude-opus-5-5", "max", _MANAGED, "high"),
+        ("claude-sonnet-5-5", "xhigh", _MANAGED, "high"),
+        # Opus 4.7: adaptive + max passthrough.
         (
             "claude-opus-4-7",
             "max",
@@ -423,9 +429,10 @@ def _sent_body(
             {"type": "adaptive", "display": "summarized"},
             "low",
         ),
-        # off:null rows: Pi's `map.off !== null` gate sends no thinking field.
+        # off:null rows: Pi's `map.off !== null` gate sends no thinking field;
+        # a managed-effort row still thinks adaptively at ``high``.
         ("claude-fable-5", "off", None, None),
-        ("claude-opus-5-5", "off", None, None),
+        ("claude-opus-5-5", "off", _MANAGED, "high"),
         # sonnet-5 omits `off` -> explicit disabled.
         ("claude-sonnet-5", "off", {"type": "disabled"}, None),
         ("claude-opus-4-8", "off", {"type": "disabled"}, None),
@@ -444,6 +451,13 @@ def test_anthropic_thinking_wire(
         assert "output_config" not in body
     else:
         assert body["output_config"] == {"effort": effort}
+    active = _MANAGED_ACTIVE.get((model_id, level))
+    if active is not None:
+        assert body["messages"][-1] == {
+            "role": "system",
+            "content": [],
+            "output_config": {"effort": active},
+        }
 
 
 @pytest.mark.parametrize(

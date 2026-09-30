@@ -45,20 +45,24 @@ class ResolvedTranscript:
     ``leading_text`` is the leading system message's text (plus the
     out-of-band tail, pipy's compaction summary) and ``items`` interleaves
     the later system messages with the messages in transcript order.
-    ``system_messages`` are all of them, leading first, with hidden
-    declarations removed.
+    ``system_messages`` are all of them in order, with hidden declarations
+    removed; ``has_leading`` says whether the first one leads the transcript
+    (Pi ``getInitialSystemMessage``). A session recorded before system
+    messages existed has none leading: its first system message follows old
+    messages and is a later one.
     """
 
     leading_text: str
     items: tuple[TranscriptItem, ...]
     mid_convo: bool
     system_messages: tuple[AgentSystemMessage, ...] = ()
+    has_leading: bool = False
 
     @property
     def initial_tools(self) -> tuple[AgentToolDeclaration, ...]:
         """Pi ``getInitialSystemMessage(messages)?.toolsAdded ?? []``."""
 
-        return self.system_messages[0].tools_added if self.system_messages else ()
+        return self.system_messages[0].tools_added if self.has_leading else ()
 
 
 def resolve_request_transcript(
@@ -67,9 +71,12 @@ def resolve_request_transcript(
     """Keep later system messages in place when the model accepts them.
 
     Collapses (the request as sent before SYS1b) when the model does not
-    accept them, the request has none, the first one is not the leading
-    message (a session recorded before system messages existed), or the
-    out-of-band prompt does not extend their replay (a forced prompt).
+    accept them, the request has none, or the out-of-band prompt does not
+    extend their replay (a forced prompt). When the first one does not lead
+    (a session recorded before system messages existed) there is no leading
+    prompt and every system message is a later one, as in Pi; the
+    out-of-band tail (pipy's compaction summary) is then the whole leading
+    text.
     """
 
     collapsed = ResolvedTranscript(
@@ -78,7 +85,7 @@ def resolve_request_transcript(
         mid_convo=False,
     )
     anchored = request.system_messages
-    if not supports_mid_convo or not anchored or anchored[0].position != 0:
+    if not supports_mid_convo or not anchored:
         return collapsed
     messages = tuple(anchor.message for anchor in anchored)
     replay = current_system_message(messages)
@@ -87,8 +94,10 @@ def resolve_request_transcript(
         return collapsed
     tail = request.system_prompt[len(replay_text) :]
     visible = _without_hidden_declarations(messages, request.hidden_tool_names)
+    has_leading = anchored[0].position == 0
+    first_later = 1 if has_leading else 0
     items: list[TranscriptItem] = []
-    later = iter(zip(anchored[1:], visible[1:], strict=True))
+    later = iter(zip(anchored[first_later:], visible[first_later:], strict=True))
     pending = next(later, None)
     for index, message in enumerate(request.messages):
         while pending is not None and pending[0].position <= index:
@@ -99,10 +108,15 @@ def resolve_request_transcript(
         items.append(pending[1])
         pending = next(later, None)
     return ResolvedTranscript(
-        leading_text=system_message_text(visible[0]) + tail,
+        leading_text=(
+            system_message_text(visible[0]) + tail
+            if has_leading
+            else tail.removeprefix("\n\n")
+        ),
         items=tuple(items),
         mid_convo=True,
         system_messages=visible,
+        has_leading=has_leading,
     )
 
 

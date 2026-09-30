@@ -154,8 +154,18 @@ def test_success_returns_final_text(tmp_path):
     posted = client.requests[0]
     assert posted["body"] == {
         "model": "gpt-4o-deployment",
-        "instructions": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
-        "input": "SAFE_GOAL_METADATA",
+        # Pi: the leading prompt is the first input item, and a request
+        # without messages sends its prompt as one user item.
+        "input": [
+            {
+                "role": "developer",
+                "content": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "SAFE_GOAL_METADATA"}],
+            },
+        ],
         "store": False,
     }
 
@@ -232,6 +242,7 @@ def test_tool_result_round_trip(tmp_path):
     assert result.final_text == "done"
     posted = client.requests[0]
     assert posted["body"]["input"] == [
+        {"role": "developer", "content": "SYS"},
         {
             "role": "user",
             "content": [{"type": "input_text", "text": "please read README"}],

@@ -116,7 +116,8 @@ def test_openai_serializes_tools_in_responses_request(tmp_path: Path):
     assert result.status == HarnessStatus.SUCCEEDED
     body = client.requests[0]["body"]
     assert body["model"] == "gpt-test"
-    assert body["instructions"] == "SYS"
+    assert "instructions" not in body
+    assert body["input"][0] == {"role": "developer", "content": "SYS"}
     assert body["store"] is False
     assert isinstance(body["tools"], list)
     assert body["tools"][0]["type"] == "function"
@@ -124,10 +125,11 @@ def test_openai_serializes_tools_in_responses_request(tmp_path: Path):
     assert "description" in body["tools"][0]
     assert isinstance(body["tools"][0]["parameters"], dict)
     assert body["input"] == [
+        {"role": "developer", "content": "SYS"},
         {
             "role": "user",
             "content": [{"type": "input_text", "text": "please read"}],
-        }
+        },
     ]
 
 
@@ -207,7 +209,7 @@ def test_openai_serializes_tool_result_envelope(tmp_path: Path):
     result = provider.complete(request)
 
     assert result.status == HarnessStatus.SUCCEEDED
-    items = client.requests[0]["body"]["input"]
+    items = client.requests[0]["body"]["input"][1:]
     assert items[0] == {
         "role": "user",
         "content": [{"type": "input_text", "text": "read it"}],
@@ -463,7 +465,7 @@ def test_openai_includes_assistant_text_alongside_tool_calls(tmp_path: Path):
 
     provider.complete(request)
 
-    items = client.requests[0]["body"]["input"]
+    items = client.requests[0]["body"]["input"][1:]
     assert items[1] == {
         "role": "assistant",
         "content": [{"type": "output_text", "text": "let me read it"}],
@@ -585,8 +587,11 @@ def test_openai_legacy_callers_still_get_plain_completion(tmp_path: Path):
 
     body = client.requests[0]["body"]
     assert "tools" not in body
-    assert body["input"] == "hello"
-    assert body["instructions"] == "SYS"
+    assert "instructions" not in body
+    assert body["input"] == [
+        {"role": "developer", "content": "SYS"},
+        {"role": "user", "content": [{"type": "input_text", "text": "hello"}]},
+    ]
 
 
 def _system_messages(
