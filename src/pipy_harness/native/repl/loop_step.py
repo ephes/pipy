@@ -169,7 +169,6 @@ class _AcceptedInputEffects:
         return resolve_file_references(
             prompt,
             workspace_root=scope.cwd,
-            reference_roots=scope.file_reference_roots,
         )
 
     def resolve_image_attachments(self, prompt: str) -> ImageAttachmentResolution:
@@ -177,7 +176,6 @@ class _AcceptedInputEffects:
         return resolve_image_attachments(
             prompt,
             workspace_root=scope.cwd,
-            reference_roots=scope.image_reference_roots,
         )
 
     def system_prompt_suffix(self, base_prompt: str) -> str | None:

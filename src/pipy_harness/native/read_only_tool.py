@@ -650,8 +650,10 @@ def _is_relative_to(candidate: Path, workspace: Path) -> bool:
 class ResolvedToolPath:
     """A safely resolved tool path with its containing root.
 
-    Returned by `resolve_tool_path` for the bounded read-only model-driven
-    tool loop. `root` is the workspace or the matching reference root the
+    Returned by `resolve_tool_path`, the path policy of the allowlisted
+    command sandbox (`command_sandbox.py`); the model-visible read tools use
+    Pi's resolution in `tools/path_utils.py` instead (READ2). `root` is the
+    workspace or the matching reference root the
     candidate lives under. `relative_label` is the POSIX path relative to
     that root (used for `.gitignore`/`.git` checks and for the model-visible
     output). `display_label` is the user-facing label: the relative label

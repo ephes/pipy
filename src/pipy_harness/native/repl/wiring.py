@@ -235,7 +235,6 @@ class SessionWiringInput:
     native_session: NativeSessionTree | None
     prompt_history_store: PromptHistoryStore | None
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
-    reference_roots: tuple[Path, ...]
     resource_options: RuntimeResourceOptions
     resume_branch_label: str | None
     resume_context: ResumeContext | None
@@ -543,7 +542,6 @@ class _ExtensionPhase:
 
 @dataclass(frozen=True, slots=True)
 class _ProductPhase:
-    image_reference_roots: tuple[Path, ...]
     prompt_history_store: PromptHistoryStore
     renderer: _ToolLoopRenderer | TuiToolLoopRenderer
     started_at: datetime
@@ -844,7 +842,6 @@ def _compose_extension_phase(
         inputs.tool_registry,
         {},
         workspace_root=cwd,
-        reference_roots=inputs.reference_roots,
         stderr_sink=(
             terminal_ui.components.transcript.add_tool_side_output
             if terminal_ui is not None
@@ -1039,16 +1036,9 @@ def _compose_product_session(
     output_stream = inputs.output_stream
     error_stream = inputs.error_stream
     system_prompt = inputs.system_prompt
-    image_reference_roots = inputs.reference_roots
     if terminal_ui is not None:
         components = terminal_ui.components
         components.transcript.set_thinking_hidden(settings.get_hide_thinking_block())
-        clipboard_config = components.clipboard_images.config
-        if clipboard_config is not None:
-            image_reference_roots = (
-                *inputs.reference_roots,
-                clipboard_config.temp_dir,
-            )
     # Local-only persistent prompt-history store (independent of the
     # metadata-first session archive). Built once per session; the
     # ``/settings`` dialog toggles/clears it. When enabled, a fresh TUI
@@ -1174,7 +1164,6 @@ def _compose_product_session(
         project_trusted=settings.project_trusted,
     )
     return _ProductPhase(
-        image_reference_roots=image_reference_roots,
         prompt_history_store=prompt_history_store,
         renderer=renderer,
         started_at=started_at,
@@ -1802,7 +1791,6 @@ def _assemble_session_wiring(
     ctl = product.ctl
     renderer = product.renderer
     started_at = product.started_at
-    image_reference_roots = product.image_reference_roots
     prompt_history_store = product.prompt_history_store
     append_agent_message = product.append_agent_message
     base_system_prompt = product.base_system_prompt
@@ -1870,8 +1858,6 @@ def _assemble_session_wiring(
         cwd=cwd,
         started_at=started_at,
         base_system_prompt=base_system_prompt,
-        image_reference_roots=image_reference_roots,
-        file_reference_roots=inputs.reference_roots,
         abort_event=_runtime_abort_event(inputs, loop_controller),
         provider_state=inputs.provider_state,
         tool_budget=inputs.tool_budget,

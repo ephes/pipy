@@ -714,9 +714,8 @@ pipy target:
   system-prompt skill advertisement is now wired: when the `read` tool is
   available, discovered skills are advertised in the tool-loop system prompt as
   `<available_skills>` entries (per-skill name, description, and absolute
-  location, matching Pi's `formatSkillsForPrompt`), each skill's parent directory
-  is added to the read-only reference roots, and the model loads a skill body on
-  demand via the `read` tool.
+  location, matching Pi's `formatSkillsForPrompt`), and the model loads a skill
+  body on demand via the `read` tool, which opens any path (READ2).
 - A non-interactive form (flags / `--json`) so the conformance gate can assert
   enable/disable without a TTY.
 

@@ -23,7 +23,7 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 @dataclass(frozen=True, slots=True)
 class ClipboardConfig:
-    """One clipboard reader and the session-shared image reference root."""
+    """One clipboard reader and the session-shared pasted-image directory."""
 
     temp_dir: Path
     image_read: Callable[[], ImageClipboardResult]

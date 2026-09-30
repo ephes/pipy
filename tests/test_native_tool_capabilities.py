@@ -77,14 +77,12 @@ def _capabilities(
     builtins: tuple[_RecordingTool, ...] = (),
     extensions: tuple[_RecordingTool, ...] = (),
     options: ToolFilterOptions | None = None,
-    reference_roots: tuple[Path, ...] = (),
     stderr_sink: Callable[[str], None] | None = None,
 ) -> NativeToolCapabilities:
     return NativeToolCapabilities(
         {tool.name: tool for tool in builtins},
         {tool.name: tool for tool in extensions},
         workspace_root=tmp_path,
-        reference_roots=reference_roots,
         stderr_sink=stderr_sink or (lambda _text: None),
         filter_options=options or ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=0.1,
@@ -285,7 +283,6 @@ def test_execution_forwards_product_context_live_output_and_identity_domains(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path.resolve()
-    reference_root = (tmp_path / "reference").resolve()
     stderr_chunks: list[str] = []
     live_chunks: list[str] = []
     stderr_sink = stderr_chunks.append
@@ -293,7 +290,6 @@ def test_execution_forwards_product_context_live_output_and_identity_domains(
     capabilities = _capabilities(
         workspace,
         builtins=(tool,),
-        reference_roots=(reference_root,),
         stderr_sink=stderr_sink,
     )
 
@@ -304,7 +300,6 @@ def test_execution_forwards_product_context_live_output_and_identity_domains(
     assert outcome.result.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX)
     assert tool.requests[0].tool_request_id == outcome.result.tool_request_id
     assert tool.contexts[0].workspace_root == workspace
-    assert tool.contexts[0].reference_roots == (reference_root,)
     assert tool.contexts[0].stderr_sink is stderr_sink
     assert live_chunks == ["live:echo"]
 

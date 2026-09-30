@@ -76,8 +76,8 @@ cleanup (see §3 for the per-row status):**
   advertises skills in the system prompt *and* keeps a `/skill:name` expansion.
   pipy now also advertises discovered skills in the tool-loop system prompt
   (name + description + absolute location) when the `read` tool is available, and
-  the model loads a skill body on demand via `read` (skill directories are added
-  to the read-only reference roots). **Done** (2026-06-20).
+  the model loads a skill body on demand via `read` (which opens any path since
+  READ2). **Done** (2026-06-20).
 - `/theme` → **removed** (no alias). Pi has no `/theme`; theme selection now
   lives in the `/settings` dialog (a theme row + picker). The
   `--theme`/`--no-themes` load flags and `PIPY_THEME` are unchanged. **Done**
@@ -149,7 +149,7 @@ exception: a bare token equal to a subcommand name dispatches that subcommand
   transcript (use `/export` / `--export`). The removed flag emits guidance.
 
 **Kept as internal mechanisms (not parity features — de-emphasized in docs, no
-code change):** `--read-root(s)`, `--tool-budget`, `--input-runtime`, and the
+code change):** `--tool-budget`, `--input-runtime`, and the
 persistent prompt history are non-divergent internal conveniences, not Pi
 surfaces. (The pipy-only metadata `--resume RECORD` / `--branch LABEL` repl
 flags were retired on 2026-06-09 in favor of the native session tree.)
@@ -175,7 +175,7 @@ target, and the docs/specs must stop presenting them as product virtues.
 | **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Mixed: `/template` removed, **`/skill` KEPT** | **`/template` removed** (2026-06-20): prompt templates now register as their own `/<template-name>` slash commands (Pi's model). **`/skill` is KEPT** (parity, not divergence): Pi is not skill-command-free — it advertises skills in the system prompt *and* keeps a `/skill:name` expansion. pipy's own system-prompt skill advertisement is now wired (**done** 2026-06-20): discovered skills are advertised in the tool-loop system prompt (name + description + absolute location) when the `read` tool is available, and the model loads a skill body on demand via `read` (skill directories are added to the read-only reference roots). |
 | **`/help`** | grouped command reference | Realigned | **Removed** (2026-06-20): Pi has no `/help`; the alias was dropped outright. Use Pi's `/hotkeys`. |
 | **Hardcoded `ds4` built-in provider** | First local-model integration | Mostly realigned | ds4 is absent from the built-in catalog and resolves as a `models.json` custom-provider preset (`docs/examples/ds4.models.json`) or env shim. A legacy `--native-provider ds4` adapter path remains for compatibility while construction moves fully through the catalog ([provider-catalog.md](provider-catalog.md)). |
-| **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | Kept (internal) | **Decision 3 (2026-06-20): kept as a non-divergent internal mechanism, de-emphasized in docs — not presented as a parity feature.** No code change. |
+| **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | **Removed** (READ2, 2026-09-30) | Decision 3 (2026-06-20) kept it as an internal mechanism. READ2 gave `read`/`ls`/`grep`/`find` Pi's path resolution (any path), so the flag, `PIPY_READ_ROOTS`, the doc auto-discovery and the `Reference roots` prompt block had no effect left and were removed. |
 | **`--tool-budget`** | bounds the model loop | Kept (internal) | **Decision 3 (2026-06-20): kept as an internal mechanism, de-emphasized in docs — not a parity feature.** Pi bounds turns internally; pipy keeps the existing flag as an internal default. No code change. |
 | **`--input-runtime plain\|prompt-toolkit\|auto`** | pipy input-adapter selection | Kept (internal) | **Decision 3 (2026-06-20): kept as an internal implementation detail, de-emphasized in docs — not a documented parity feature.** No code change. |
 | **Archive sync / reflect / cross-agent learning guidance** | pipy learning/catalog layer (privacy-scoped) | No (as a parity item) | Not a Pi feature. Keep out of parity scope entirely; if retained at all it is an optional pipy utility, never a default that shapes the product session model. |

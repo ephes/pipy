@@ -87,74 +87,137 @@ def test_read_tool_returns_bounded_text_for_workspace_file(tmp_path: Path):
     assert result.tool_request_id == request.tool_request_id
 
 
-def test_read_tool_refuses_path_under_dot_git(tmp_path: Path):
-    git_dir = tmp_path / ".git"
-    git_dir.mkdir()
-    (git_dir / "config").write_text("[core]\n", encoding="utf-8")
-    tool = ReadTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": ".git/config"})
+def _read_in(workspace: Path, path: str) -> ToolExecutionResult:
+    return ReadTool().invoke(
+        _make_request({"path": path}), ToolContext(workspace_root=workspace)
+    )
 
-    result = tool.invoke(request, context)
+
+def test_read_tool_reads_git_ignored_and_generated_paths_like_pi(tmp_path: Path):
+    # READ2: Pi's read has no deny list: .git, .gitignore matches, generated
+    # directories and suffixes all read.
+    files = {
+        ".git/config": "[core]\n",
+        "ignored.txt": "ignored body\n",
+        "node_modules/pkg/index.js": "module.exports = 1\n",
+        "dist/bundle.min.js": "min\n",
+        "types.d.ts": "declare const x: number\n",
+        "yarn.lock": "lock\n",
+        "app.js.map": "{}\n",
+        ".pipy/cache.txt": "pipy cache\n",
+        ".venv/pyvenv.cfg": "home = /usr\n",
+        "secret_token.txt": "plain\n",
+    }
+    for relative, body in files.items():
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+
+    for relative, body in files.items():
+        result = _read_in(tmp_path, relative)
+        assert result.is_error is False, relative
+        assert result.output_text == body
+
+
+def test_read_tool_reads_absolute_path_outside_cwd(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "elsewhere" / "notes.md"
+    outside.parent.mkdir()
+    outside.write_text("outside body\n", encoding="utf-8")
+
+    result = _read_in(workspace, str(outside))
+
+    assert result.is_error is False
+    assert result.output_text == "outside body\n"
+
+
+def test_read_tool_resolves_parent_traversal_against_cwd(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (tmp_path / "sibling.txt").write_text("sibling body\n", encoding="utf-8")
+
+    result = _read_in(workspace, "../sibling.txt")
+
+    assert result.is_error is False
+    assert result.output_text == "sibling body\n"
+
+
+def test_read_tool_expands_home_and_strips_at_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "notes.txt").write_text("home body\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "local.txt").write_text("local body\n", encoding="utf-8")
+
+    assert _read_in(workspace, "~/notes.txt").output_text == "home body\n"
+    assert _read_in(workspace, "@local.txt").output_text == "local body\n"
+    assert _read_in(workspace, "@~/notes.txt").output_text == "home body\n"
+
+
+def test_read_tool_finds_macos_screenshot_name_variant(tmp_path: Path):
+    # macOS names screenshots with a narrow no-break space before AM/PM; the
+    # model types a plain space (Pi tryMacOSScreenshotPath).
+    name = "Screenshot 2026-09-30 at 10.15.00\u202fAM.txt"
+    (tmp_path / name).write_text("screenshot text\n", encoding="utf-8")
+
+    result = _read_in(tmp_path, "Screenshot 2026-09-30 at 10.15.00 AM.txt")
+
+    assert result.is_error is False
+    assert result.output_text == "screenshot text\n"
+
+
+def test_read_tool_reads_the_bash_full_output_temp_file(tmp_path: Path):
+    # TOOLS1: a truncated bash result names its full-output temp file in the
+    # system temp directory; READ2 lets read open it, as in Pi.
+    import re
+
+    from pipy_harness.native.tools.bash import BashTool
+
+    bash = BashTool().invoke(
+        ToolRequest(
+            tool_request_id=make_tool_request_id(),
+            tool_name="bash",
+            arguments={"command": "seq 1 3000"},
+        ),
+        ToolContext(workspace_root=tmp_path),
+    )
+    match = re.search(r"Full output: (\S+)\]$", bash.output_text)
+    assert match is not None, bash.output_text
+    full_path = Path(match.group(1))
+    try:
+        assert not full_path.is_relative_to(tmp_path)
+        result = ReadTool().invoke(
+            _make_request({"path": str(full_path), "offset": 1, "limit": 3}),
+            ToolContext(workspace_root=tmp_path),
+        )
+        assert result.is_error is False
+        assert result.output_text == (
+            "1\n2\n3\n\n[2998 more lines in file. Use offset=4 to continue.]"
+        )
+    finally:
+        full_path.unlink(missing_ok=True)
+
+
+def test_read_tool_reports_an_invalid_file_url_as_an_error(tmp_path: Path):
+    result = _read_in(tmp_path, "file://[broken/x.txt")
 
     assert result.is_error is True
-    assert "ignored or under .git" in result.output_text
+    assert result.output_text == "read error: Invalid URL: file://[broken/x.txt"
 
 
-def test_read_tool_allows_absolute_advertised_skill_reference_root(
-    tmp_path: Path,
-):
-    skills = tmp_path / ".pipy" / "skills"
-    skills.mkdir(parents=True)
-    target = skills / "parity-improve.md"
-    target.write_text("skill body\n", encoding="utf-8")
-    tool = ReadTool()
-    context = ToolContext(
-        workspace_root=tmp_path,
-        reference_roots=(skills.resolve(),),
-    )
-
-    allowed_absolute = tool.invoke(
-        _make_request({"path": str(target.resolve())}),
-        context,
-    )
-    allowed_relative = tool.invoke(
-        _make_request({"path": ".pipy/skills/parity-improve.md"}),
-        context,
-    )
-    other_ignored = tmp_path / ".pipy" / "cache.txt"
-    other_ignored.write_text("still blocked\n", encoding="utf-8")
-    denied_other_ignored = tool.invoke(
-        _make_request({"path": ".pipy/cache.txt"}),
-        context,
-    )
-
-    assert allowed_absolute.is_error is False
-    assert allowed_absolute.output_text == "skill body\n"
-    assert allowed_relative.is_error is False
-    assert allowed_relative.output_text == "skill body\n"
-    assert denied_other_ignored.is_error is True
-    assert "ignored or under .git" in denied_other_ignored.output_text
-
-
-def test_read_tool_refuses_absolute_path_via_argument_error(tmp_path: Path):
-    tool = ReadTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "/etc/passwd"})
-
+def test_read_tool_rejects_non_string_path(tmp_path: Path):
     with pytest.raises(ToolArgumentError) as info:
-        tool.invoke(request, context)
+        ReadTool().invoke(
+            _make_request({"path": 7}), ToolContext(workspace_root=tmp_path)
+        )
 
     assert info.value.field_path == ("path",)
-
-
-def test_read_tool_refuses_parent_traversal_via_argument_error(tmp_path: Path):
-    tool = ReadTool()
-    context = ToolContext(workspace_root=tmp_path)
-    request = _make_request({"path": "../secret.txt"})
-
-    with pytest.raises(ToolArgumentError):
-        tool.invoke(request, context)
 
 
 def test_read_tool_reports_missing_file(tmp_path: Path):

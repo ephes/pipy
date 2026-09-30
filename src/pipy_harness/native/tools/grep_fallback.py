@@ -12,12 +12,17 @@ The rules follow ripgrep's, with the differences the `grep` module lists:
 
 - ``re`` syntax instead of Rust regex (``re.escape`` for ``literal``);
 - ``glob`` as ``rg --glob`` applies it: case-sensitive; without ``/`` it
-  matches the file name at any depth, with ``/`` the path relative to the
+  matches the entry's name at any depth, with ``/`` the path relative to the
   root (the working directory); a leading ``!`` excludes matching files and
   directories; a file named as the search path is searched whatever the glob;
-- the walk visits directories in sorted order, does not follow symlinks, and
-  applies pipy's path policy (``.git``, the root ``.gitignore``, generated
-  paths);
+- the glob is an override checked before the ignore rules: a file matching
+  a positive glob is searched even when ignored, a file not matching it is
+  skipped, a directory matching it is entered even when ignored, and any
+  other directory (and, with a ``!`` glob, any non-matching entry) falls
+  through to the ignore rules;
+- the walk includes hidden entries and ``.git``, applies rg's ignore files
+  (:mod:`pipy_harness.native.tools.ignore_walk`), visits directories in
+  sorted order and does not follow symlinks;
 - a file whose first 64 KB hold a NUL byte is skipped (rg's binary rule), and
   a later NUL byte ends the search in that file. Files are read line by line.
 """
@@ -33,27 +38,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from pipy_harness.native.read_only_tool import (
-    _is_ignored_or_generated,
-    _resolved_relative_label,
-)
 from pipy_harness.native.tools.glob_match import GlobError, compile_glob
+from pipy_harness.native.tools.ignore_walk import RG_IGNORE_FILE, WalkIgnore
 
 _BINARY_PROBE_BYTES = 64 * 1024
 
 
 class _SearchError(Exception):
     pass
-
-
-def kept(file_path: Path, root: Path) -> bool:
-    """Apply pipy's path policy to one file or directory (READ2 keeps it)."""
-
-    try:
-        label = _resolved_relative_label(file_path.resolve(), root)
-    except OSError:
-        return False
-    return label is not None and not _is_ignored_or_generated(label, root)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,33 +83,50 @@ class _GlobFilter:
             return False
         return self.regex.match(relative) is not None
 
-    def keeps_file(self, path: Path) -> bool:
-        return not self._hit(path) if self.negated else self._hit(path)
+    def decide(self, path: Path, *, is_dir: bool) -> bool | None:
+        """Include (True), skip (False) or defer to the ignore rules (None)."""
 
-    def enters_directory(self, path: Path) -> bool:
-        # A whitelist glob never prunes directories; an exclusion does.
-        return not (self.negated and self._hit(path))
+        hit = self._hit(path)
+        if self.negated:
+            return False if hit else None
+        if hit:
+            return True
+        return None if is_dir else False
 
 
-def _walk_files(
-    search_path: Path, root: Path, glob_filter: _GlobFilter | None
-) -> Iterator[Path]:
-    for dirpath, dirnames, filenames in os.walk(search_path):
-        directory = Path(dirpath)
-        dirnames[:] = sorted(
-            name
-            for name in dirnames
-            if not (directory / name).is_symlink()
-            and kept(directory / name, root)
-            and (glob_filter is None or glob_filter.enters_directory(directory / name))
-        )
-        for name in sorted(filenames):
-            candidate = directory / name
-            if candidate.is_symlink() or not kept(candidate, root):
+def _walk_files(search_path: Path, glob_filter: _GlobFilter | None) -> Iterator[Path]:
+    """Yield the files rg would search below ``search_path``, in sorted order."""
+
+    rules = WalkIgnore.for_search(
+        search_path, tool_file=RG_IGNORE_FILE, no_require_git_outside_repo=False
+    )
+    stack: list[tuple[Path, WalkIgnore]] = [(search_path, rules)]
+    while stack:
+        directory, rules = stack.pop()
+        try:
+            names = sorted(os.listdir(directory))
+        except OSError:
+            continue
+        subdirs: list[Path] = []
+        for name in names:
+            entry = directory / name
+            if entry.is_symlink():
                 continue
-            if glob_filter is not None and not glob_filter.keeps_file(candidate):
+            is_dir = entry.is_dir()
+            decision = (
+                glob_filter.decide(entry, is_dir=is_dir)
+                if glob_filter is not None
+                else None
+            )
+            if decision is None:
+                decision = not rules.ignored(entry, is_dir=is_dir)
+            if not decision:
                 continue
-            yield candidate
+            if is_dir:
+                subdirs.append(entry)
+            else:
+                yield entry
+        stack.extend((subdir, rules.descend(subdir)) for subdir in reversed(subdirs))
 
 
 def _matching_lines(
@@ -158,7 +167,7 @@ def search(config: dict[str, object], out: TextIO) -> int:
     limit = int(str(config["limit"]))
 
     if search_path.is_dir():
-        files: Iterator[Path] = _walk_files(search_path, root, glob_filter)
+        files: Iterator[Path] = _walk_files(search_path, glob_filter)
     else:
         # rg searches a file named on the command line whatever the glob.
         files = iter([search_path])

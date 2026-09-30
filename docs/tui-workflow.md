@@ -274,8 +274,9 @@ splicing a candidate at a stale offset.
 `@`-prefixed token at the cursor and offers a scored list of workspace-relative
 paths. Because pipy adds no dependency for this and must not require `fd`, the candidate walk
 uses `os.scandir`/`os.walk` with a bounded breadth (depth and entry caps) and a
-default-deny of `.git` and other ignored roots, matching the existing
-`ReadTool`/`file_references` path policy. Ranking mirrors Pi's `scoreEntry`:
+default-deny of `.git` and other ignored roots (pipy's
+`_is_ignored_or_generated` list; since READ2 the `read` tool and `@file` no
+longer apply it). Ranking mirrors Pi's `scoreEntry`:
 case-insensitive exact filename (highest), filename prefix, filename substring,
 then full-path substring, with a directory bonus, dropping zero-score entries and
 sorting by descending score. It is explicitly exact/prefix/substring scoring, not
@@ -764,9 +765,10 @@ rather than only hiding chunks that keep arriving.
 - Honest affordances. Footer hints, the slash menu, the `@`/path popup, and the
   `/hotkeys` overlay advertise only what the dispatcher can actually do at the
   current state, matching pipy's existing honest-menu posture.
-- Path/image safety. The `@` picker, path completion, and drag/clipboard image
-  paste respect the existing workspace path policy, `.git`/ignored default-deny,
-  symlink/path-escape checks, and output bounds. Image bytes are written to
+- Path/image safety. The `@` picker and path completion respect the
+  workspace `.git`/ignored default-deny, symlink/path-escape checks, and
+  output bounds; the references they insert resolve like `read` (any path,
+  READ2). Image bytes are written to
   owner-only temp files and never enter the metadata archive.
 - Archive privacy is owned elsewhere. The TUI does not write the archive
   directly; persistence and redaction stay behind the native session-tree and
