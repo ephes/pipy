@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import math
 import os
@@ -1802,8 +1801,9 @@ def default_openai_codex_auth_path() -> Path:
 
 
 def create_authorization_flow() -> AuthorizationFlow:
-    verifier = _base64url(secrets.token_bytes(32))
-    challenge = _base64url(hashlib.sha256(verifier.encode("ascii")).digest())
+    from pipy_harness.native.oauth_providers import generate_pkce
+
+    verifier, challenge = generate_pkce()
     state = secrets.token_hex(16)
     params = {
         "response_type": "code",
@@ -2362,10 +2362,6 @@ def _extract_output_text_chunks(item: Mapping[str, Any]) -> list[str]:
         ):
             chunks.append(content_item["text"])
     return chunks
-
-
-def _base64url(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
 
 def _single_query_value(params: Mapping[str, list[str]], key: str) -> str | None:

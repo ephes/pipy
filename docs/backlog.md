@@ -281,16 +281,14 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   OpenRouter Claude rows need Anthropic Messages over OpenRouter.
 - **Providers:** xAI OAuth login; Copilot token persistence (Pi writes it back
   under a file lock) and `Retry-After` on 429.
-- **OpenAI Sign in with ChatGPT (Pi `02eed88fd`, `72abf01ba`):** Pi's `openai`
-  provider gained a ChatGPT-subscription OAuth login next to
-  `OPENAI_API_KEY` (a stable global `deviceId` setting is sent as the agent
-  host id). With a non-`sk-` credential on `api.openai.com`, the request omits
-  `prompt_cache_retention`, `prompt_cache_options`, `max_output_tokens` and
-  `temperature`; a `subscription_sharing_usage_limit_exceeded` error gains a
-  link to ChatGPT usage and is not retried, while
-  `subscription_sharing_usage_unavailable`/`_user_unavailable` are retried.
-  Pi also renames the `openai-codex` provider to "OpenAI Codex (legacy)".
-  Found by MC6; not ported.
+- **OpenAI Sign in with ChatGPT (Pi `02eed88fd`, `72abf01ba`):** done
+  2026-09-30 (`/login openai`, the global `deviceId`, persisted rotated
+  refresh under the auth-file lock, the omitted cache fields, the usage-limit
+  link and retry codes; plan `docs/plans/2026-09-30-openai-chatgpt-sign-in-plan.md`).
+  Still open: pipy's line-based `/login` has no Pi auth-type selector
+  ("Sign in with ChatGPT" / "Sign in with an API key") or API-key dialog, and
+  Pi's `PI_OAUTH_CALLBACK_HOST` is honoured only by this flow, not by the
+  Codex login.
 - **Skills and prompt:** template and command stores keep the symlink guard; a
   plain `.md` skill keeps its file stem; package skills load after the auto
   roots; not ported: `disable-model-invocation`, the bash-only skill

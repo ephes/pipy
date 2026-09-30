@@ -169,7 +169,7 @@ class ProviderCatalogState:
     )
 
     catalog: ModelCatalog = field(init=False)
-    # Refreshed per-request OAuth credentials (github-copilot). Holds no
+    # Refreshed per-request OAuth credentials (github-copilot, openai). Holds no
     # ``AuthStore`` reference and owns its own lock, so a provider turn on a
     # worker thread can refresh without touching the single-thread store.
     oauth_credentials: OAuthCredentialCache = field(
@@ -184,6 +184,9 @@ class ProviderCatalogState:
             self.models_json_path = default_models_json_path(self.env)
         if self.auth_store is None:
             self.auth_store = AuthStore()
+        # A rotated OAuth refresh token (Sign in with ChatGPT) is persisted to
+        # this store's file under the auth-file lock, never through the store.
+        self.oauth_credentials = OAuthCredentialCache(auth_path=self.auth_store.path)
         self.catalog = ModelCatalog(
             models_json_path=self.models_json_path,
             extra_providers=self._extra_providers(),
@@ -456,8 +459,9 @@ class ProviderCatalogState:
 
         True when the provider's stored credential is OAuth and the provider's
         OAuth definition is a subscription. Pi marks every built-in OAuth
-        provider pipy has (anthropic, github-copilot, openai-codex) as a
-        subscription; an extension provider declares ``oauth.is_subscription``.
+        provider pipy has (anthropic, github-copilot, openai-codex, and the
+        ``openai`` Sign in with ChatGPT login) as a subscription; an
+        extension provider declares ``oauth.is_subscription``.
         pipy's Codex login lives in its own OAuth file.
         """
 

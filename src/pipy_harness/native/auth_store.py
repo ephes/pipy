@@ -20,11 +20,14 @@ refresh tokens. Stdlib only (``json``/``subprocess``/``os``/``stat``).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import stat
 import subprocess
-from collections.abc import Callable, Mapping
+import threading
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -273,11 +276,7 @@ class AuthStore:
         self._load()
 
     def _read_data(self) -> dict[str, object]:
-        try:
-            body = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
-            return {}
-        return _detach_auth_data(body) if isinstance(body, dict) else {}
+        return _read_auth_file(self.path)
 
     def _load(self) -> None:
         self._data = self._read_data()
@@ -335,35 +334,108 @@ class AuthStore:
         return {str(name): _thaw_auth_value(value) for name, value in entry.items()}
 
     def set(self, provider: str, entry: Mapping[str, object]) -> None:
-        replacement = dict(self._data)
-        replacement[provider] = _detach_auth_value(entry)
-        self._data = replacement
+        """Pi ``AuthStorage.modify``: a locked single-key merge into the file.
+
+        The file is re-read under the auth-file lock, so an entry another
+        writer changed meanwhile (a rotated OAuth refresh token persisted by a
+        worker thread or another process) is kept, not reverted.
+        """
+
+        detached = _detach_auth_value(entry)
+        with auth_file_lock(self.path):
+            merged = _read_auth_file(self.path)
+            merged[provider] = detached
+            _write_auth_file(self.path, merged)
+        self._data = merged
         self._reload_identity = object()
-        self._persist()
 
     def remove(self, provider: str) -> bool:
-        if provider in self._data:
-            replacement = dict(self._data)
-            del replacement[provider]
-            self._data = replacement
-            self._reload_identity = object()
-            self._persist()
-            return True
-        return False
+        """Pi ``AuthStorage.delete``: a locked single-key removal."""
 
-    def _persist(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with auth_file_lock(self.path):
+            merged = _read_auth_file(self.path)
+            removed = provider in merged or provider in self._data
+            if not removed:
+                return False
+            merged.pop(provider, None)
+            _write_auth_file(self.path, merged)
+        self._data = merged
+        self._reload_identity = object()
+        return True
+
+
+_AUTH_FILE_THREAD_LOCK = threading.Lock()
+
+
+@contextmanager
+def auth_file_lock(path: Path) -> Iterator[None]:
+    """Exclusive lock over one ``auth.json`` across threads and processes.
+
+    Pi serializes auth-file changes with ``proper-lockfile``; pipy takes an
+    in-process lock plus ``fcntl.flock`` on an ``auth.json.lock`` sidecar.
+    """
+
+    with _AUTH_FILE_THREAD_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self.path.parent.chmod(0o700)
+            path.parent.chmod(0o700)
         except OSError:
             pass
-        temporary = self.path.with_name(f"{self.path.name}.partial")
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(_thaw_auth_value(self._data), handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        temporary.replace(self.path)
-        self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        lock_path = path.with_name(f"{path.name}.lock")
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _read_auth_file(path: Path) -> dict[str, object]:
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+    return _detach_auth_data(body) if isinstance(body, dict) else {}
+
+
+def _write_auth_file(path: Path, data: Mapping[str, object]) -> None:
+    temporary = path.with_name(f"{path.name}.partial")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(_thaw_auth_value(data), handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    temporary.replace(path)
+    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+def modify_stored_credential(
+    path: Path,
+    provider: str,
+    modify: Callable[[dict[str, object] | None], Mapping[str, object] | None],
+) -> dict[str, object] | None:
+    """Pi ``AuthStorage.modify`` for one provider entry of ``auth.json``.
+
+    Under the auth-file lock, reads the current entry, calls ``modify`` with it
+    and, when ``modify`` returns a replacement, writes only that key. Returns
+    the replacement, or the current entry when ``modify`` returns ``None``.
+    Thread-agnostic: it never touches an :class:`AuthStore` instance.
+    """
+
+    with auth_file_lock(path):
+        data = _read_auth_file(path)
+        entry = data.get(provider)
+        current = dict(entry) if isinstance(entry, dict) else None
+        replacement = modify(current)
+        if replacement is None:
+            return current
+        detached = _detach_auth_value(replacement)
+        assert isinstance(detached, dict)
+        data[provider] = detached
+        _write_auth_file(path, data)
+        return dict(detached)
 
 
 # --------------------------------------------------------------------------- #

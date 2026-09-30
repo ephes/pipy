@@ -207,9 +207,14 @@ def test_subscription_is_a_stored_oauth_login_of_a_subscription_provider(
     assert catalog.is_using_subscription("anthropic")
     catalog.auth_store.set("github-copilot", {"type": "oauth", "access": "a"})  # type: ignore[union-attr]
     assert catalog.is_using_subscription("github-copilot")
-    # An OAuth credential for a provider without a subscription login is not one.
+    # Sign in with ChatGPT is a subscription login (Pi ``02eed88fd``).
     catalog.auth_store.set("openai", {"type": "oauth", "access": "a"})  # type: ignore[union-attr]
+    assert catalog.is_using_subscription("openai")
+    catalog.auth_store.set("openai", {"type": "api_key", "key": "sk-k"})  # type: ignore[union-attr]
     assert not catalog.is_using_subscription("openai")
+    # An OAuth credential for a provider without a subscription login is not one.
+    catalog.auth_store.set("mistral", {"type": "oauth", "access": "a"})  # type: ignore[union-attr]
+    assert not catalog.is_using_subscription("mistral")
 
 
 def test_codex_login_file_is_a_subscription(tmp_path: Path) -> None:

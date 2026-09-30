@@ -273,14 +273,14 @@ _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,
         CodingCommandAction.LOGIN,
-        description="Log in (openai-codex or github-copilot OAuth)",
+        description="Log in (openai, openai-codex or github-copilot OAuth)",
     ),
     BuiltinCommandSpec(
         "/logout",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,
         CodingCommandAction.LOGOUT,
-        description="Log out (openai-codex or github-copilot OAuth)",
+        description="Log out (openai, openai-codex or github-copilot OAuth)",
     ),
 )
 

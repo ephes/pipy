@@ -2206,6 +2206,11 @@ def _tool_repl_adapter_for(
         construction_options=_construction_options_for(settings_manager),
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
+        device_id_provider=(
+            settings_manager.get_or_create_device_id
+            if settings_manager is not None
+            else None
+        ),
         model_runtime=ModelRuntime(catalog=catalog_state),
         thinking_level=_startup_thinking_level(cli_thinking, settings_manager),
         cli_selection=selection if cli_model_explicit else None,

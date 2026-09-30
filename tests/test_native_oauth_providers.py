@@ -34,10 +34,11 @@ class FakeTransport:
 FIXED_NOW_MS = 1_000_000_000_000
 
 
-def test_registry_lists_three_builtins():
+def test_registry_lists_four_builtins():
     assert get_oauth_provider_ids() == [
         "anthropic",
         "github-copilot",
+        "openai",
         "openai-codex",
     ]
     assert isinstance(get_oauth_provider("anthropic"), AnthropicOAuthProvider)

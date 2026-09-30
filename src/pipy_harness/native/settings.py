@@ -23,6 +23,7 @@ import stat
 import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -920,6 +921,23 @@ class SettingsManager:
         self, version: str, *, scope: str = SCOPE_GLOBAL
     ) -> None:
         self.set_value("lastChangelogVersion", version, scope=scope)
+
+    def get_or_create_device_id(self) -> object:
+        """Pi ``getOrCreateDeviceId``: this installation's stable ID.
+
+        Sent to OpenAI as the agent host ID by Sign in with ChatGPT. Created
+        (a random UUID) and saved to the global settings on first use. Project
+        settings are ignored so a committed project file cannot give every
+        clone the same ID. A non-empty stored value is returned as-is; the
+        login validates it.
+        """
+
+        with self._io_lock:
+            device_id = self.raw_scope(SCOPE_GLOBAL).get("deviceId")
+            if not device_id:
+                device_id = str(uuid.uuid4())
+                self.set_value("deviceId", device_id, scope=SCOPE_GLOBAL)
+            return device_id
 
     def get_collapse_changelog(self) -> bool:
         return self._get_bool("collapseChangelog", default=False)

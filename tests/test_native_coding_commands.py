@@ -1292,11 +1292,11 @@ def test_registry_carries_the_exact_advertised_descriptions() -> None:
     )
     assert (
         builtin_command_description("/login")
-        == "Log in (openai-codex or github-copilot OAuth)"
+        == "Log in (openai, openai-codex or github-copilot OAuth)"
     )
     assert (
         builtin_command_description("/logout")
-        == "Log out (openai-codex or github-copilot OAuth)"
+        == "Log out (openai, openai-codex or github-copilot OAuth)"
     )
     assert builtin_command_description("/model") == "Select provider/model"
     assert builtin_command_description("/scoped-models") == (
