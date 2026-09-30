@@ -263,6 +263,8 @@ class OpenAIResponsesProvider:
                 "response_status": result.response_status,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api="openai-responses",
         )
 
     def _apply_reasoning_fields(self, body: dict[str, Any]) -> None:

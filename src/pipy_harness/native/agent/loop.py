@@ -11,17 +11,24 @@ from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import require_bool
 from pipy_harness.native.agent.active_input import AgentActiveInput
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.assistant_blocks import (
+    PartialAssistantContent,
+    agent_blocks,
+    assistant_message,
+    stopped_assistant,
+)
+from pipy_harness.native.agent.content import (
+    ProductContent,
+    TextContent,
+    ThinkingContent,
+)
 from pipy_harness.native.agent.events import (
-    AgentEvent,
     AgentRunCompleted,
     AgentRunStarted,
-    AssistantTextDelta,
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
     ProviderFailed,
-    RetryScheduled,
     RunCancelled,
     SteeringConsumed,
     ToolCallCompleted,
@@ -43,6 +50,7 @@ from pipy_harness.native.agent.loop_policy import (
 )
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
+    AgentContentBlock,
     AgentMessage,
     AgentMessageUsage,
     AgentStopReason,
@@ -464,7 +472,7 @@ class AgentLoop:
                 turn_index,
             )
         assert preparation.snapshot is not None
-        partial = _PartialAssistantText(self._events, turn_index)
+        partial = PartialAssistantContent(self._events, turn_index)
         completion = self._provider_turn.complete(
             preparation.snapshot,
             partial,
@@ -477,7 +485,7 @@ class AgentLoop:
                 state,
                 completion,
                 turn_index,
-                partial.text,
+                partial.blocks(),
                 preparation.snapshot.request,
             )
         return self._settle_provider_result(
@@ -486,7 +494,7 @@ class AgentLoop:
             preparation.snapshot,
             completion.result,
             turn_index,
-            partial.text,
+            partial.blocks(),
         )
 
     @staticmethod
@@ -559,7 +567,7 @@ class AgentLoop:
         state: _RunState,
         completion: ProviderTurnOutcome,
         turn_index: int,
-        partial_text: str = "",
+        streamed: Sequence[TextContent | ThinkingContent] = (),
         request: ProviderRequest | None = None,
     ) -> _IterationDisposition:
         reason = completion.cancellation_reason
@@ -567,12 +575,23 @@ class AgentLoop:
         state.cancellation = reason
         # Pi keeps the aborted message with its partial content
         # (agent-loop.ts, stopReason "aborted") and persists it. Usage arrives
-        # with the finished response, so an aborted one has none.
-        aborted = _stopped_assistant(
-            partial_text,
+        # with the finished response, so an aborted one has none. The
+        # adapter's partial (blocks, tool calls, effort) wins over the deltas.
+        adapter_partial = completion.partial
+        aborted = stopped_assistant(
+            (
+                agent_blocks(adapter_partial.content_blocks)
+                if adapter_partial is not None and adapter_partial.content_blocks
+                else streamed
+            ),
             AgentStopReason.ABORTED,
             usage=AgentMessageUsage(),
             request=request,
+            provider_thinking_level=(
+                adapter_partial.provider_thinking_level
+                if adapter_partial is not None
+                else None
+            ),
         )
         self._events.emit(RunCancelled(reason))
         self._status.provider_cancellation_observed(reason)
@@ -590,7 +609,7 @@ class AgentLoop:
         snapshot: AgentProviderRequestSnapshot,
         result: ProviderResult,
         turn_index: int,
-        partial_text: str = "",
+        streamed: Sequence[TextContent | ThinkingContent] = (),
     ) -> _IterationDisposition:
         _validate_provider_result(result, snapshot)
         self._status.provider_result_observed(result)
@@ -608,13 +627,14 @@ class AgentLoop:
                 state,
                 provider_status,
                 turn_index,
-                partial_text or result.final_text or "",
+                _failed_blocks(result, streamed),
                 usage=usage,
                 request=snapshot.request,
+                provider_thinking_level=result.provider_thinking_level,
             )
         self._status.provider_succeeded(provider_status, state.tool_state)
         state.failure = None
-        assistant = _assistant_message(result, usage, snapshot.request)
+        assistant = assistant_message(result, usage, snapshot.request, streamed)
         self._events.emit(MessageCompleted(turn_index, assistant))
         self._append_message(state, assistant)
         if not assistant.tool_calls:
@@ -649,21 +669,23 @@ class AgentLoop:
         state: _RunState,
         status: AgentProviderStatusDecision,
         turn_index: int,
-        partial_text: str = "",
+        blocks: Sequence[AgentContentBlock] = (),
         *,
         usage: AgentMessageUsage,
         request: ProviderRequest,
+        provider_thinking_level: str | None = None,
     ) -> _IterationDisposition:
         failure = status.failure
         assert failure is not None
         state.failure = failure
         # Pi records a failed turn as stopReason "error" with its message.
-        failed = _stopped_assistant(
-            partial_text,
+        failed = stopped_assistant(
+            blocks,
             AgentStopReason.ERROR,
             failure.message.value,
             usage=usage,
             request=request,
+            provider_thinking_level=provider_thinking_level,
         )
         self._events.emit(ProviderFailed(failure, will_retry=status.will_retry))
         self._status.provider_failed(status, state.tool_state)
@@ -890,73 +912,17 @@ class AgentLoop:
         return AgentRunResult(AgentRunOutcome.SUCCEEDED, messages, usage)
 
 
-class _PartialAssistantText:
-    """Forward provider-turn events and record the text streamed so far.
+def _failed_blocks(
+    result: ProviderResult, streamed: Sequence[TextContent | ThinkingContent]
+) -> tuple[AgentContentBlock, ...]:
+    """What a failed turn keeps: the adapter's partial, the deltas, or its text."""
 
-    This is the content of Pi's partial assistant message: exactly the text
-    deltas the provider turn published. A scheduled retry starts a new
-    attempt, so it discards the failed attempt's text.
-    """
-
-    __slots__ = ("_chunks", "_sink", "_turn_index")
-
-    def __init__(self, sink: AgentEventSink, turn_index: int) -> None:
-        self._sink = sink
-        self._turn_index = turn_index
-        self._chunks: list[str] = []
-
-    def emit(self, event: AgentEvent) -> None:
-        self._sink.emit(event)
-        if isinstance(event, RetryScheduled):
-            self._chunks.clear()
-        elif (
-            isinstance(event, AssistantTextDelta)
-            and event.turn_index == self._turn_index
-        ):
-            self._chunks.append(event.delta.value)
-
-    @property
-    def text(self) -> str:
-        return "".join(self._chunks)
-
-
-def _stopped_assistant(
-    text: str,
-    stop_reason: AgentStopReason,
-    error_message: str | None = None,
-    *,
-    usage: AgentMessageUsage,
-    request: ProviderRequest | None,
-) -> AgentAssistantMessage:
-    return AgentAssistantMessage(
-        ProductContent(text[: AgentAssistantMessage.CONTENT_MAX_LENGTH]),
-        stop_reason=stop_reason,
-        error_message=error_message,
-        usage=usage,
-        provider=request.provider_name or None if request is not None else None,
-        model=request.model_id or None if request is not None else None,
-    )
-
-
-def _assistant_message(
-    result: ProviderResult, usage: AgentMessageUsage, request: ProviderRequest
-) -> AgentAssistantMessage:
-    calls = tuple(
-        AgentToolCall(
-            call.provider_correlation_id,
-            call.tool_name,
-            ProductContent(call.arguments_json),
-        )
-        for call in result.tool_calls
-    )
-    return AgentAssistantMessage(
-        ProductContent(result.final_text or ""),
-        calls,
-        usage=usage,
-        provider=request.provider_name or None,
-        model=request.model_id or None,
-        provider_thinking_level=result.provider_thinking_level,
-    )
+    if result.content_blocks:
+        return agent_blocks(result.content_blocks)
+    if streamed:
+        return tuple(streamed)
+    text = result.final_text or ""
+    return (TextContent(text),) if text else ()
 
 
 def _transform_tool_result(
@@ -1116,6 +1082,32 @@ def _validate_provider_result_tool_calls(result: ProviderResult) -> None:
         raise TypeError("ProviderResult.tool_calls must be an exact tuple")
     for call in result.tool_calls:
         _validate_provider_tool_call(call)
+    _validate_provider_result_blocks(result)
+
+
+def _validate_provider_result_blocks(result: ProviderResult) -> None:
+    """``content_blocks`` hold Pi blocks; a success's match its text and calls."""
+
+    if type(result.content_blocks) is not tuple:
+        raise TypeError("ProviderResult.content_blocks must be an exact tuple")
+    if result.api is not None and type(result.api) is not str:
+        raise TypeError("ProviderResult.api must be an exact string or None")
+    for block in result.content_blocks:
+        if type(block) is ProviderToolCall:
+            _validate_provider_tool_call(block)
+        elif type(block) not in (TextContent, ThinkingContent):
+            raise TypeError(
+                "ProviderResult.content_blocks must contain text, thinking or "
+                "tool-call blocks"
+            )
+    if result.status is not HarnessStatus.SUCCEEDED or not result.content_blocks:
+        return
+    calls = tuple(b for b in result.content_blocks if type(b) is ProviderToolCall)
+    text = "".join(b.text for b in result.content_blocks if type(b) is TextContent)
+    if calls != result.tool_calls or text != (result.final_text or ""):
+        raise ValueError(
+            "ProviderResult.content_blocks must match its final_text and tool_calls"
+        )
 
 
 def _validate_provider_tool_call(call: object) -> None:

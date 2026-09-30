@@ -685,9 +685,16 @@ While a `prompt` run is in flight:
   an aborted turn or a message stored before USAGE1) and, when known, the
   `provider` and `model` that answered. An answer from an Anthropic
   mid-conversation effort model also carries Pi's `providerThinkingLevel`
-  (the effort it was asked for; SYS1c), which later requests replay. The
-  streamed `message_update` partial
-  carries a zero `usage`. pipy does not emit Pi's `api`, `responseModel`,
+  (the effort it was asked for; SYS1c, also on an aborted or failed
+  answer), which later requests replay. The message's `content` is Pi's
+  ordered content: `thinking` blocks (with `thinkingSignature` and
+  `redacted` when set), `text` blocks (`textSignature`) and `toolCall`
+  blocks (`thoughtSignature`), and the message carries Pi's `api`. The
+  streamed `message_update` partial carries a zero `usage` and the text and
+  thinking streamed so far; a reasoning delta is a `thinking_delta` event
+  (pipy emits no `*_start`/`*_end` events). `message_start` carries no
+  `providerThinkingLevel`: pipy's Anthropic adapter picks the effort inside
+  its (non-streaming) request. pipy does not emit Pi's `responseModel`,
   `responseId` or `timestamp`.
 - `prompt` itself may carry `streamingBehavior: "steer" | "followUp"` so a
   prompt sent during an active run is treated as a steer or follow-up.

@@ -2,7 +2,7 @@
 
 These drive ``TranscriptComponent`` directly against counting effect callables
 (no terminal shell, no PTY) to prove commit/stream transitions, the Ctrl+T
-thinking-fold defer/reveal contract, the Ctrl+O expanded-flag rerender
+thinking-fold re-render (Pi ``updateThinkingBlockVisibility``), the Ctrl+O expanded-flag rerender
 bundling, custom-entry branch replacement, and the no-repaint verbs used by
 enclosing chrome transitions. Full-frame behavior stays covered by the
 existing TUI and real-PTY suites.
@@ -92,26 +92,53 @@ def test_reasoning_settles_into_history_when_visible() -> None:
     assert t.reasoning_text == ""
 
 
-def test_folded_reasoning_defers_and_unfolding_reveals() -> None:
+def test_folded_reasoning_commits_the_label_and_unfolding_rerenders() -> None:
+    # Pi renders a hidden thinking block as its label and re-renders every
+    # assistant message on Ctrl+T.
     harness = _Harness()
     t = harness.component
     t.set_thinking_hidden(True)
-    t.append_reasoning("DEFER-ME")
+    t.append_reasoning("FOLDED")
     t.settle_reasoning()
-    assert t.deferred_reasoning == ["DEFER-ME"]
-    assert "reasoning" not in _kinds(t)
-    repaints_before = harness.repaints
+    assert t.history_blocks[-1] == ("reasoning", (DEFAULT_HIDDEN_THINKING_LABEL,))
+    resets_before = harness.resets
     t.set_thinking_hidden(False)
-    assert t.deferred_reasoning == []
-    assert t.history_blocks[-1] == ("reasoning", ("DEFER-ME",))
-    assert harness.repaints == repaints_before + 1
+    assert t.history_blocks[-1] == ("reasoning", ("FOLDED",))
+    assert harness.resets == resets_before + 1
+    t.set_thinking_hidden(True)
+    assert t.history_blocks[-1] == ("reasoning", (DEFAULT_HIDDEN_THINKING_LABEL,))
+    assert harness.resets == resets_before + 2
 
 
-def test_set_thinking_hidden_without_deferred_reasoning_never_repaints() -> None:
+def test_hidden_label_change_rerenders_folded_rows() -> None:
+    harness = _Harness()
+    t = harness.component
+    t.add_reasoning("one")
+    t.set_thinking_hidden(True)
+    resets = harness.resets
+    t.set_hidden_thinking_label("Still thinking")
+    assert t.history_blocks[-1] == ("reasoning", ("Still thinking",))
+    assert harness.resets == resets + 1
+    t.set_thinking_hidden(False)
+    assert t.history_blocks[-1] == ("reasoning", ("one",))
+
+
+def test_add_reasoning_commits_pending_text_first() -> None:
+    harness = _Harness()
+    t = harness.component
+    t.append_assistant("answer so far")
+    t.add_reasoning("then **thinking**")
+    assert _kinds(t)[-2:] == ["assistant", "reasoning"]
+    assert t.history_blocks[-1] == ("reasoning", ("then thinking",))
+    assert t.assistant_text == ""
+
+
+def test_set_thinking_hidden_without_reasoning_rows_only_repaints() -> None:
     harness = _Harness()
     harness.component.set_thinking_hidden(True)
     harness.component.set_thinking_hidden(False)
-    assert harness.repaints == 0
+    assert harness.resets == 0
+    assert harness.repaints == 2
 
 
 def test_hidden_thinking_label_set_and_default_reset() -> None:

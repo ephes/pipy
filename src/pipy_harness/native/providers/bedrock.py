@@ -54,6 +54,12 @@ from pipy_harness.native.providers.anthropic_messages_wire import (
     system_blocks,
 )
 from pipy_harness.native.providers.openai_prompt_cache import resolve_cache_retention
+from pipy_harness.native.providers.replay_content import ReplayTarget
+
+# The catalog API of these rows, recorded on each answer for replay. pipy
+# sends the Anthropic Messages body over InvokeModel, so thinking replays
+# with the Anthropic rules.
+BEDROCK_API = "amazon-bedrock"
 
 BEDROCK_ENDPOINT_TEMPLATE = (
     "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/invoke"
@@ -179,7 +185,11 @@ def _build_bedrock_request_body(
         if bedrock_supports_prompt_caching(model_id)
         else None
     )
-    messages = messages_payload(request, parse_error_class=BedrockResponseParseError)
+    messages = messages_payload(
+        request,
+        parse_error_class=BedrockResponseParseError,
+        target=ReplayTarget.of(request, BEDROCK_API),
+    )
     apply_last_user_cache_breakpoint(messages, cache_control, eligible_types=None)
     body: dict[str, Any] = {
         "anthropic_version": anthropic_version,
@@ -420,6 +430,8 @@ class AmazonBedrockProvider:
                 "aws_region": self.region,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api=BEDROCK_API,
         )
 
     def _utc_now_for_signing(self) -> datetime:

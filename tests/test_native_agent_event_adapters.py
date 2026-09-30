@@ -83,6 +83,9 @@ class _RecordingRenderer:
     ) -> None:
         self.actions.append(("buffered", text, has_tool_calls))
 
+    def render_buffered_thinking(self, text: str) -> None:
+        self.actions.append(("buffered-thinking", text))
+
     def complete_assistant_message(self, *, has_tool_calls: bool) -> None:
         self.actions.append(("assistant-complete", has_tool_calls))
 
@@ -418,7 +421,8 @@ def test_automation_projection_silently_ignores_internal_bookkeeping() -> None:
     sink = _AutomationCollectingSink()
     adapter = AutomationAgentEventAdapter(sink)
 
-    adapter.emit(AssistantReasoningDelta(0, ProductContent("private reasoning")))
+    # Reasoning deltas are Pi ``thinking_delta`` updates now (reasoning
+    # storage); see test_native_reasoning_replay.py.
     adapter.emit(
         UsageUpdated(
             AgentUsage(input_tokens=12, output_tokens=4),

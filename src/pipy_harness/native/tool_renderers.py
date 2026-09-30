@@ -664,6 +664,11 @@ class _ToolLoopRenderer:
         if not has_tool_calls:
             print(text, file=self._output_stream)
 
+    def render_buffered_thinking(self, text: str) -> None:
+        """Render a non-streamed thinking run like a streamed one."""
+
+        self.handle_reasoning_chunk(text)
+
     def _user_message_panel_line(self, text: str) -> str:
         """Render the text row of the user-message bubble."""
 

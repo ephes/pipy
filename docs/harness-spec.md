@@ -2158,8 +2158,9 @@ privacy and failure semantics; the one-shot CLI runtime remains separate.
 
 Canonical `AgentAssistantMessage` tool calls and `AgentToolResultMessage`
 results keep the provider-returned correlation ID unchanged. The native session
-tree stores and reconstructs that raw identity so the dedicated Codex Responses
-adapter can split its `call_id|item_id` value during same-provider replay.
+tree stores and reconstructs that raw identity so the Responses adapters can
+split Pi's compound `call_id|item_id` value during replay (OpenAI, Azure and
+Codex all store it, as Pi does).
 Neither public reopen nor another session transition rewrites history for the
 selected target provider.
 
@@ -2178,17 +2179,20 @@ generate-content serializer uses it for both `functionCall.id` and
 `functionResponse.id`, covering Generative AI and Vertex; its parser preserves a
 returned nonempty `functionCall.id` as the raw canonical correlation and keeps
 the existing provider-prefix/index fallback when the field is absent. The
-generic OpenAI Responses serializer uses it for both `function_call.call_id`
-and `function_call_output.call_id`, covering direct OpenAI and Azure. The shared
-Chat Completions serializer uses it for assistant `tool_calls[].id` and result
-`tool_call_id`, covering OpenAI Chat, ds4, Mistral, OpenRouter and Cloudflare.
-The dedicated Codex adapter is intentionally excluded and retains its existing
-compound split behavior.
+shared OpenAI Responses serializer (OpenAI, Azure and Codex) applies it to the
+call part of the id for both `function_call.call_id` and
+`function_call_output.call_id`, and sends the item part as `function_call.id`
+the way Pi's `convertResponsesMessages` does: kept for the model that made
+it, `fc_<shortHash>` for another provider's compound id on a target that
+accepts them (Pi's `*_TOOL_CALL_PROVIDERS`), dropped otherwise and whenever it
+is not an `fc_` id. The shared Chat Completions serializer uses it for
+assistant `tool_calls[].id` and result `tool_call_id`, covering OpenAI Chat,
+ds4, Mistral, OpenRouter and Cloudflare.
 
 Executable acceptance proves safe passthrough; deterministic, distinct and
 idempotent unsafe mappings within the portable alphabet and length; paired
 projection through all four shared wire owners; Google returned-ID preservation
-and fallback; and unchanged Codex compound replay. One strict durable-tree
+and fallback; and the Responses compound split. One strict durable-tree
 reopen through a real Anthropic adapter with fake HTTP must prove that a stored
 Codex-style tool pair reaches the target with matching portable IDs and that no
 historical tool effect is executed again. Raw canonical messages, durable JSONL,

@@ -533,7 +533,8 @@ def test_bedrock_adaptive_markers_match_pi_runtime_list() -> None:
         ("openai", "gpt-6-sol", None, None),
         # Azure gpt-5.4 maps off to null
         ("azure-openai", "gpt-5.4", "off", None),
-        ("azure-openai", "gpt-5.4", "xhigh", {"effort": "xhigh"}),
+        # Azure: the same on-state summary (azure-openai-responses.ts:330-345)
+        ("azure-openai", "gpt-5.4", "xhigh", {"effort": "xhigh", "summary": "auto"}),
     ],
 )
 def test_responses_thinking_wire(
@@ -547,7 +548,7 @@ def test_responses_thinking_wire(
     assert body.get("reasoning") == reasoning
     # Pi requests the encrypted reasoning item with every on-state effort on
     # the Responses API; Azure's adapter is separate and unchanged.
-    on_state = provider == "openai" and reasoning is not None and "summary" in reasoning
+    on_state = reasoning is not None and "summary" in reasoning
     assert ("include" in body) is on_state
     if on_state:
         assert body["include"] == ["reasoning.encrypted_content"]

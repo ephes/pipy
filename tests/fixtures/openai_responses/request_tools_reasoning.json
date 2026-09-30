@@ -15,13 +15,17 @@
       ]
     },
     {
+      "type": "message",
       "role": "assistant",
       "content": [
         {
           "type": "output_text",
-          "text": "I'll read the file first."
+          "text": "I'll read the file first.",
+          "annotations": []
         }
-      ]
+      ],
+      "status": "completed",
+      "id": "msg_pi_1"
     },
     {
       "type": "function_call",

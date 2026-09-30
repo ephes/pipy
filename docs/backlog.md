@@ -138,8 +138,13 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **DF1-F2b, restored-history rendering gaps** (left by F2/F3; TOOLS3 closed
   the extension-row expansion and tool-result details, F7 the live compaction
   redraw):
-  - Reasoning text is not stored, so restored history has no thinking
-    blocks (it touches the assistant message model and provider replay).
+  - Reasoning storage ([plan](specs/2026-09-30-reasoning-storage-plan.md),
+    branch `feat/reasoning-storage`) stores Pi's ordered content with its
+    signatures and `api`, replays it per adapter and shows thinking on
+    resume. Left: Chat Completions and Mistral parse no reasoning
+    (`reasoning_content`/`reasoning`/`reasoning_text`, `reasoning_details`,
+    `requiresThinkingAsText`, `requiresReasoningContentOnAssistantMessages`,
+    Mistral thinking chunks); Pi's per-run mouse toggle of a thinking block.
     Durations are not stored in Pi either: a restored `bash` row has no
     `Took` line in both.
   - A resumed session shows no `Session compacted N times` status (Pi
@@ -177,6 +182,10 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     results; Pi's loop then records an empty aborted assistant.
   - Compaction and branch summaries drop a stopped turn's partial text; Pi
     serializes it into the summary input as `[Assistant]: …`.
+  - Partial thinking and partial tool calls are now stored (reasoning
+    storage); a partial call keeps its raw streamed argument text (Pi stores
+    `parseStreamingJson`'s object), and live, an aborted Codex turn draws no
+    row for its partial tool calls (resume draws them failed, as Pi).
 - **DF1-F7b, what F7 left of TUI polish** (see the F7 Done row):
   - Selectors: the F7b selectors slice
     ([plan](specs/2026-09-30-f7b-selectors-plan.md), branch
@@ -259,8 +268,10 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     streaming, interleaved thinking, server-side fallback) and temperature;
   - OpenRouter Claude rows over the native Messages API (`4e69b0c28`), which
     also carry `supportsMidConvoEffort`;
-  - `providerThinkingLevel` on streamed partials and on stopped (aborted or
-    failed) assistant messages;
+  - `providerThinkingLevel` on `message_start`: stopped (aborted or failed)
+    messages carry it since reasoning storage, but pipy's non-streaming
+    Anthropic adapter picks the effort inside its request, after the loop
+    emitted `message_start`;
   - kept on purpose: Pi's Codex adapter on a model without
     `supportsMidConvoSystemMessages` sends only the initial system message
     as `instructions`, dropping later section updates; pipy sends the

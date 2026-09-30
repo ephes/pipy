@@ -37,53 +37,6 @@ def safe_response_label(value: Any, *, default: str) -> str:
     return sanitized if sanitized != "[REDACTED]" else default
 
 
-def extract_responses_tool_calls(
-    value: Any, *, provider_prefix: str
-) -> tuple[Any, ...]:
-    """Parse OpenAI Responses-API ``function_call`` output items into `ProviderToolCall`s."""
-
-    from pipy_harness.native.models import ProviderToolCall
-
-    if not isinstance(value, list):
-        return ()
-    calls: list[ProviderToolCall] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") != "function_call":
-            continue
-        name = item.get("name")
-        arguments = item.get("arguments")
-        call_id = item.get("call_id")
-        if not isinstance(call_id, str) or not call_id:
-            candidate_id = item.get("id")
-            call_id = (
-                candidate_id if isinstance(candidate_id, str) and candidate_id else None
-            )
-        if not isinstance(name, str) or not name:
-            continue
-        if isinstance(arguments, Mapping):
-            arguments = json.dumps(arguments, sort_keys=True)
-        if not isinstance(arguments, str):
-            arguments = ""
-        correlation = call_id if call_id else f"{provider_prefix}-tool-{index}"
-        try:
-            calls.append(
-                ProviderToolCall(
-                    provider_correlation_id=correlation[
-                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
-                    ],
-                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
-                    arguments_json=arguments[
-                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
-                    ],
-                )
-            )
-        except ValueError:
-            continue
-    return tuple(calls)
-
-
 def extract_chat_completions_tool_calls(
     value: Any, *, provider_prefix: str
 ) -> tuple[Any, ...]:
@@ -179,9 +132,22 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
     if isinstance(envelope, AgentUserMessage):
         return {"role": "user", "content": envelope.content.value}
     if isinstance(envelope, AgentAssistantMessage):
+        from pipy_harness.native.agent.content import TextContent
+        from pipy_harness.native.providers.replay_content import (
+            transform_assistant_blocks,
+        )
+
         message: dict[str, Any] = {"role": "assistant"}
-        if envelope.content.value:
-            message["content"] = envelope.content.value
+        # Pi ``convertMessages``: the non-blank text blocks joined. No Chat
+        # Completions adapter stores thinking yet, so every thinking block
+        # is another model's and arrives here as text (the transform).
+        text = "".join(
+            block.text
+            for block in transform_assistant_blocks(envelope, None)
+            if isinstance(block, TextContent) and block.text.strip()
+        )
+        if text:
+            message["content"] = text
         if envelope.tool_calls:
             message["tool_calls"] = [
                 {

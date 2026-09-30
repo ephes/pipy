@@ -102,14 +102,15 @@ def test_text_delta_keeps_streamed_true_once_set() -> None:
     assert decisions == (StreamAssistantText(""),)
 
 
-def test_reasoning_delta_is_a_stateless_passthrough() -> None:
+def test_reasoning_delta_streams_and_marks_reasoning_streamed() -> None:
     start = UiState(assistant_active=True)
 
     state, decisions = reduce(
         start, AssistantReasoningDelta(0, ProductContent("thinking"))
     )
 
-    assert state == start
+    # Recorded so the completed message's thinking is not drawn twice.
+    assert state == UiState(assistant_active=True, reasoning_streamed=True)
     assert decisions == (StreamAssistantReasoning("thinking"),)
 
 

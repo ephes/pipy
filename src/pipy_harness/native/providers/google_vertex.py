@@ -56,7 +56,10 @@ from pipy_harness.native.providers.google_generate_content_wire import (
     parse_response,
     serialize_tool_for_gemini,
 )
+from pipy_harness.native.providers.replay_content import ReplayTarget
 
+# Pi ``Api`` of this adapter, recorded on each answer for replay.
+GOOGLE_VERTEX_API = "google-vertex"
 GOOGLE_VERTEX_ENDPOINT_TEMPLATE = (
     "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
     "locations/{location}/publishers/google/models/{model_id}:generateContent"
@@ -400,6 +403,7 @@ class GoogleVertexProvider:
             "contents": gemini_contents(
                 request,
                 parse_error_class=GoogleVertexResponseParseError,
+                target=ReplayTarget.of(request, GOOGLE_VERTEX_API),
             ),
         }
         if request.system_prompt:
@@ -481,6 +485,8 @@ class GoogleVertexProvider:
                 ),
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api=GOOGLE_VERTEX_API,
         )
 
 

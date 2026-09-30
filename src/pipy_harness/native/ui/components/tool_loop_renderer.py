@@ -289,8 +289,14 @@ class TuiToolLoopRenderer:
         """Render a non-streamed assistant completion from its canonical event."""
 
         del has_tool_calls
-        self._transcript.append_assistant(text)
+        self._transcript.add_assistant_block(text)
         self._streamed_any = True
+
+    def render_buffered_thinking(self, text: str) -> None:
+        """Draw a non-streamed thinking run in its place (Pi's thinking block)."""
+
+        self._stop_working(clear=True)
+        self._transcript.add_reasoning(text)
 
     def render_tool_call(self, call: AgentToolCall) -> None:
         """Start the call's row (Pi ``ToolExecutionComponent``), pending.

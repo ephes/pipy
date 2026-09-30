@@ -25,6 +25,24 @@ entries oldest-first, and a version bump shows the new entries at startup.
   system prompt; it still runs through its command. Without `read`, skills are
   advertised for loading with `bash`, as in Pi.
 
+- Reasoning is stored and replayed like Pi (DF1-F2b, DF1-F6b, SYS1c): an
+  assistant message keeps Pi's ordered content -- thinking blocks with their
+  provider signatures, text with its Responses message id and phase, tool
+  calls with Gemini thought signatures -- and the adapter API that answered.
+  The same model gets it back exactly (Anthropic signed and redacted
+  thinking, OpenAI Responses/Azure/Codex reasoning items with
+  `encrypted_content`, message ids and `fc_` item ids, Gemini
+  `thoughtSignature`s); any other model gets the thinking as plain text, as
+  Pi's `transformMessages` does. Azure now asks for the encrypted reasoning
+  (`include`, `summary: "auto"`). Gemini thought parts are no longer part of
+  the answer text. An aborted or failed turn keeps the thinking and tool
+  calls streamed so far and Anthropic's `providerThinkingLevel`. The TUI
+  draws thinking in block order for answers that were not streamed and on
+  resume, and Ctrl+T (or a new hidden-thinking label) re-renders every
+  thinking row, like Pi; the pipy-only deferred-reasoning buffer is gone.
+  JSON/RPC messages carry the thinking blocks and `api`, and partials stream
+  `thinking_delta` events.
+
 - Sign in with ChatGPT for the `openai` provider, as in Pi (Pi `02eed88fd`):
   `/login openai` opens the OpenAI sign-in page, takes the browser callback
   when you press Enter (or a pasted redirect URL) and stores the subscription

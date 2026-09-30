@@ -9,6 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from pipy_harness.native.agent.content import TextContent, ThinkingContent
 from pipy_harness.status import HarnessStatus
 
 if TYPE_CHECKING:
@@ -212,6 +213,8 @@ class ProviderToolCall:
     provider_correlation_id: str
     tool_name: str
     arguments_json: str
+    # Pi ``ToolCall.thoughtSignature`` (Gemini).
+    thought_signature: str | None = None
 
     PROVIDER_CORRELATION_ID_MAX_LENGTH: ClassVar[int] = 256
     TOOL_NAME_MAX_LENGTH: ClassVar[int] = 64
@@ -262,7 +265,32 @@ class ProviderResult:
     error_message: str | None = None
     tool_calls: tuple[ProviderToolCall, ...] = ()
     # Pi ``AssistantMessage.providerThinkingLevel``: the effort an Anthropic
-    # mid-conversation effort model was asked for.
+    # mid-conversation effort model was asked for (also on a failure).
+    provider_thinking_level: str | None = None
+    # Pi's ordered ``AssistantMessage.content`` when the adapter reports it:
+    # the answer on success, what was streamed before a failure otherwise.
+    # Its tool calls are the ones in ``tool_calls``. Empty means the text
+    # followed by the tool calls.
+    content_blocks: tuple[ProviderContentBlock, ...] = ()
+    # Pi ``AssistantMessage.api`` of the adapter that answered (replay uses it
+    # to tell the same model from another one).
+    api: str | None = None
+
+
+ProviderContentBlock = TextContent | ThinkingContent | ProviderToolCall
+"""One entry of a provider's ordered assistant output."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderPartial:
+    """What an adapter had streamed when its request was cancelled.
+
+    Attached to :class:`~pipy_harness.native.cancellation.ProviderCancelledError`
+    so the loop keeps Pi's partial aborted message (blocks and
+    ``providerThinkingLevel``).
+    """
+
+    content_blocks: tuple[ProviderContentBlock, ...] = ()
     provider_thinking_level: str | None = None
 
 

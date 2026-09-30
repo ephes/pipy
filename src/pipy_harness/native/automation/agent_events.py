@@ -50,7 +50,8 @@ class AutomationAgentEventAdapter:
 
     def __init__(self, sink: AutomationEventSink) -> None:
         self._sink = sink
-        self._partial_text = ""
+        # The streamed partial's blocks: (is_thinking, text), in order.
+        self._partial: list[tuple[bool, str]] = []
 
     def emit(self, event: AgentEvent) -> None:
         """Project one canonical event before accepting the next event."""
@@ -72,7 +73,7 @@ class AutomationAgentEventAdapter:
             ),
         ):
             return self._project_run_turn_message(event)
-        if isinstance(event, AssistantTextDelta):
+        if isinstance(event, (AssistantTextDelta, AssistantReasoningDelta)):
             return self._project_assistant_delta(event)
         if isinstance(event, (ToolCallStarted, ToolCallUpdated, ToolCallCompleted)):
             return self._project_tool_execution(event)
@@ -80,12 +81,11 @@ class AutomationAgentEventAdapter:
             if isinstance(event, RetryScheduled):
                 # The retried attempt starts over: its partial message must
                 # not carry the failed attempt's text.
-                self._partial_text = ""
+                self._partial = []
             return self._project_retry(event)
         if isinstance(
             event,
             (
-                AssistantReasoningDelta,
                 UsageUpdated,
                 SteeringConsumed,
                 FollowUpConsumed,
@@ -103,7 +103,7 @@ class AutomationAgentEventAdapter:
             return {"type": "turn_start"}
         if isinstance(event, MessageStarted):
             if isinstance(event.message, AgentAssistantMessage):
-                self._partial_text = ""
+                self._partial = []
             return {
                 "type": "message_start",
                 "message": serialize_message(event.message),
@@ -130,13 +130,26 @@ class AutomationAgentEventAdapter:
             "willRetry": event.result.will_retry,
         }
 
-    def _project_assistant_delta(self, event: AssistantTextDelta) -> PiAutomationEvent:
-        self._partial_text += event.delta.value
+    def _project_assistant_delta(
+        self, event: AssistantTextDelta | AssistantReasoningDelta
+    ) -> PiAutomationEvent:
+        # Consecutive deltas of one kind extend one block, like Pi's
+        # text/thinking blocks of the streamed partial.
+        thinking = isinstance(event, AssistantReasoningDelta)
+        if self._partial and self._partial[-1][0] is thinking:
+            self._partial[-1] = (thinking, self._partial[-1][1] + event.delta.value)
+        else:
+            self._partial.append((thinking, event.delta.value))
         # Pi's streamed partial carries stopReason "stop" until message_end,
         # and a usage object; pipy's usage arrives with the finished response.
         partial = {
             "role": "assistant",
-            "content": [{"type": "text", "text": self._partial_text}],
+            "content": [
+                {"type": "thinking", "thinking": text}
+                if is_thinking
+                else {"type": "text", "text": text}
+                for is_thinking, text in self._partial
+            ],
             "usage": usage_to_json(AgentMessageUsage()),
             "stopReason": "stop",
         }
@@ -144,8 +157,8 @@ class AutomationAgentEventAdapter:
             "type": "message_update",
             "message": partial,
             "assistantMessageEvent": {
-                "type": "text_delta",
-                "contentIndex": 0,
+                "type": "thinking_delta" if thinking else "text_delta",
+                "contentIndex": len(self._partial) - 1,
                 "delta": event.delta.value,
                 "partial": partial,
             },
