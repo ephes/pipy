@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import TextIO, cast
 
 import pipy_harness.native.repl.loop_step as _repl_loop_step
-import pipy_harness.native.tool_renderers as _tool_renderers
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
@@ -190,9 +189,6 @@ from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
-)
-from pipy_harness.native.tool_renderers import (
-    _ExtensionRenderDetailsSinks,
 )
 from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer as _ToolLoopRenderer,
@@ -510,7 +506,6 @@ def open_session_lifetime(
 @dataclass(frozen=True, slots=True)
 class _StartupPhase:
     cwd: Path
-    stderr_sink: Callable[[str], None]
     coding_state: CodingSessionState
     session_state_lock: SessionStateLock
     coding_effects: CodingEffectCoordinator
@@ -529,7 +524,6 @@ class _ExtensionPhase:
     terminal_ui: TerminalUi | None
     extension_notify: Callable[[str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
-    render_details: _ExtensionRenderDetailsSinks
     tool_capabilities: NativeToolCapabilities
     startup_projection: ExtensionProjection
     attachment: StartupGenerationAttachment
@@ -672,9 +666,6 @@ def _prepare_startup(
     error_stream = inputs.error_stream
     candidate = inputs.candidate
 
-    def _stderr_sink(text: str) -> None:
-        error_stream.write(text)
-
     coding_state = inputs.coding_state
     seed_provider = coding_state.provider
     initial_provider_name = inputs.provider_name or seed_provider.name
@@ -767,7 +758,6 @@ def _prepare_startup(
     extension_in_agent_turn = False
     return _StartupPhase(
         cwd=cwd,
-        stderr_sink=_stderr_sink,
         coding_state=coding_state,
         session_state_lock=session_state_lock,
         coding_effects=coding_effects,
@@ -835,18 +825,10 @@ def _compose_extension_phase(
         if terminal_ui is not None
         else None
     )
-    render_details = _tool_renderers._extension_render_details_sinks(
-        terminal_ui is not None
-    )
     tool_capabilities = NativeToolCapabilities(
         inputs.tool_registry,
         {},
         workspace_root=cwd,
-        stderr_sink=(
-            terminal_ui.components.transcript.add_tool_side_output
-            if terminal_ui is not None
-            else startup.stderr_sink
-        ),
         filter_options=inputs.tool_filter_options,
         cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
         state_lock=session_state_lock,
@@ -881,7 +863,6 @@ def _compose_extension_phase(
             set_active_tools=lambda generation_id, names: (
                 provider_binding.set_active_tools(generation_id, names)
             ),
-            render_details=render_details.writer,
             project_trusted=settings.project_trusted,
             tool_capabilities=tool_capabilities,
             chrome_sink=(
@@ -916,7 +897,6 @@ def _compose_extension_phase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
         extension_ui_driver=extension_ui_driver,
-        render_details=render_details,
         tool_capabilities=tool_capabilities,
         startup_projection=startup_projection,
         attachment=attached,
@@ -1027,7 +1007,6 @@ def _compose_product_session(
     package_roots = startup.package_roots
     workspace_resources = startup.workspace_resources
     terminal_ui = extension.terminal_ui
-    render_details = extension.render_details
     generation_ref = extension.generation_ref
     extension_notify = extension.extension_notify
     extension_ui_driver = extension.extension_ui_driver
@@ -1058,14 +1037,13 @@ def _compose_product_session(
             transcript=components.transcript,
             chrome=components.chrome.record,
             render_inputs=components.screen.render_inputs,
-            render_details_sink=render_details.tui,
+            cwd=startup.cwd,
             interrupt_key_text=partial(_interrupt_key_text, startup.keybindings),
         )
     else:
         renderer = _ToolLoopRenderer(
             output_stream=output_stream,
             error_stream=error_stream,
-            render_details_sink=render_details.captured,
         )
     # `session_start` fires once the session is set up (reason "startup");
     # `session_shutdown` fires when the run ends.
@@ -1630,7 +1608,6 @@ def _compose_commands(
     keybindings = startup.keybindings
     resource_options = startup.resource_options
     tool_capabilities = extension.tool_capabilities
-    render_details = extension.render_details
     renderer = product.renderer
     prompt_history_store = product.prompt_history_store
     emitter = runtime.emitter
@@ -1720,7 +1697,6 @@ def _compose_commands(
         emitter=emitter,
         resource_options=resource_options,
         tool_capabilities=tool_capabilities,
-        extension_render_details=render_details.writer,
     )
     builtin_interpreter = BuiltinCommandInterpreter(
         session_effects=session_command_effects,

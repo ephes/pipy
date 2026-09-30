@@ -79,6 +79,9 @@ class TranscriptFrameSource(Protocol):
     thinking_hidden: bool
     hidden_thinking_label: str
     tools_expanded: bool
+    pending_tool_lines: tuple[str, ...]
+
+    def refresh_tool_rows(self) -> None: ...
 
 
 class InputFrameSource(Protocol):
@@ -543,6 +546,7 @@ class Screen:
             overlay=overlay,
             cursor_visible=self._overlays.active is None,
             working_warning=transcript.working_warning,
+            pending_tool=tuple(transcript.pending_tool_lines),
         )
 
     def read_driver_key(self, key: str | None) -> str | None:
@@ -578,6 +582,9 @@ class Screen:
                 return
             if not self._driver.write_deferred("\x1b[2J\x1b[H"):
                 return
+            # Tool rows are drawn at a width (Pi re-renders every component at
+            # the new width), so redraw them before the frame repaints.
+            self._require_sources().transcript.refresh_tool_rows()
             self._reset_live_state()
             self._paint()
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -364,8 +365,16 @@ def _add_to_path(path: _Path, *, added: bool, removed: bool, old_inc: int) -> _P
     return _Path(path.old_pos + old_inc, DiffPart(1, added, removed, last))
 
 
+def _same(left: str, right: str) -> bool:
+    return left == right
+
+
 def _extract_common(
-    path: _Path, new_tokens: list[str], old_tokens: list[str], diagonal: int
+    path: _Path,
+    new_tokens: list[str],
+    old_tokens: list[str],
+    diagonal: int,
+    equals: Callable[[str, str], bool] = _same,
 ) -> int:
     old_pos = path.old_pos
     new_pos = old_pos - diagonal
@@ -373,7 +382,7 @@ def _extract_common(
     while (
         new_pos + 1 < len(new_tokens)
         and old_pos + 1 < len(old_tokens)
-        and old_tokens[old_pos + 1] == new_tokens[new_pos + 1]
+        and equals(old_tokens[old_pos + 1], new_tokens[new_pos + 1])
     ):
         new_pos += 1
         old_pos += 1
@@ -385,7 +394,10 @@ def _extract_common(
 
 
 def _build_values(
-    last: DiffPart | None, new_tokens: list[str], old_tokens: list[str]
+    last: DiffPart | None,
+    new_tokens: list[str],
+    old_tokens: list[str],
+    join: Callable[[list[str]], str] = "".join,
 ) -> list[DiffPart]:
     components: list[DiffPart] = []
     while last is not None:
@@ -395,12 +407,12 @@ def _build_values(
     new_pos = old_pos = 0
     for component in components:
         if not component.removed:
-            component.value = "".join(new_tokens[new_pos : new_pos + component.count])
+            component.value = join(new_tokens[new_pos : new_pos + component.count])
             new_pos += component.count
             if not component.added:
                 old_pos += component.count
         else:
-            component.value = "".join(old_tokens[old_pos : old_pos + component.count])
+            component.value = join(old_tokens[old_pos : old_pos + component.count])
             old_pos += component.count
     return components
 
@@ -408,9 +420,15 @@ def _build_values(
 class _Walk:
     """The state of jsdiff's ``diffWithOptionsObj`` walk."""
 
-    def __init__(self, old_tokens: list[str], new_tokens: list[str]) -> None:
+    def __init__(
+        self,
+        old_tokens: list[str],
+        new_tokens: list[str],
+        equals: Callable[[str, str], bool] = _same,
+    ) -> None:
         self.old_tokens = old_tokens
         self.new_tokens = new_tokens
+        self.equals = equals
         self.best: dict[int, _Path | None] = {}
         self.min_diagonal = -(len(old_tokens) + len(new_tokens) + 1)
         self.max_diagonal = len(old_tokens) + len(new_tokens) + 1
@@ -446,7 +464,9 @@ class _Walk:
         else:
             assert remove_path is not None
             base = _add_to_path(remove_path, added=False, removed=True, old_inc=1)
-        new_pos = _extract_common(base, self.new_tokens, self.old_tokens, diagonal)
+        new_pos = _extract_common(
+            base, self.new_tokens, self.old_tokens, diagonal, self.equals
+        )
         if self.done(base, new_pos):
             return base
         self.best[diagonal] = base
@@ -460,22 +480,36 @@ class _Walk:
 def diff_lines(old: str, new: str) -> list[DiffPart]:
     """jsdiff ``diffLines(old, new)`` with no options."""
 
-    old_tokens = _tokenize_lines(old)
-    new_tokens = _tokenize_lines(new)
-    walk = _Walk(old_tokens, new_tokens)
+    return diff_tokens(_tokenize_lines(old), _tokenize_lines(new))
+
+
+def diff_tokens(
+    old_tokens: list[str],
+    new_tokens: list[str],
+    *,
+    equals: Callable[[str, str], bool] = _same,
+    join: Callable[[list[str]], str] = "".join,
+) -> list[DiffPart]:
+    """jsdiff ``Diff.diffWithOptionsObj`` over non-empty tokens.
+
+    ``equals`` and ``join`` are the subclass's ``equals``/``join`` (the line
+    diff uses plain equality and concatenation, the word diff its own).
+    """
+
+    walk = _Walk(old_tokens, new_tokens, equals)
     root = _Path(-1, None)
     walk.best[0] = root
-    new_pos = _extract_common(root, new_tokens, old_tokens, 0)
+    new_pos = _extract_common(root, new_tokens, old_tokens, 0, equals)
     if walk.done(root, new_pos):
-        return _build_values(root.last, new_tokens, old_tokens)
+        return _build_values(root.last, new_tokens, old_tokens, join)
     for edit_length in range(1, len(old_tokens) + len(new_tokens) + 1):
         diagonal = max(walk.min_diagonal, -edit_length)
         while diagonal <= min(walk.max_diagonal, edit_length):
             finished = walk.step(diagonal)
             if finished is not None:
-                return _build_values(finished.last, new_tokens, old_tokens)
+                return _build_values(finished.last, new_tokens, old_tokens, join)
             diagonal += 2
-    raise AssertionError("diff_lines did not converge")  # pragma: no cover
+    raise AssertionError("diff_tokens did not converge")  # pragma: no cover
 
 
 class _DiffWriter:
@@ -568,6 +602,7 @@ __all__ = [
     "apply_edits_to_normalized_content",
     "detect_line_ending",
     "diff_lines",
+    "diff_tokens",
     "fuzzy_find_text",
     "generate_diff_string",
     "normalize_for_fuzzy_match",

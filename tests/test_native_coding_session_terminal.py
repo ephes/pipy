@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -33,6 +34,7 @@ from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
+from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.frame_renderer import visible_len as _visible_len_allow_sgr
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.overlay_state import ModelSelectorOption, SettingsRow
@@ -107,6 +109,17 @@ class _TtyBuffer:
 
     def getvalue(self) -> str:
         return self._buffer.getvalue()
+
+
+def _strip_sgr(text: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
+def _plain_rows(lines: tuple[str, ...]) -> list[str]:
+    """A tool row's non-blank lines without styling."""
+
+    texts = (_strip_sgr(decode_tool_box_line(line)[2]) for line in lines)
+    return [text for text in texts if text]
 
 
 def _ui(tmp_path: Path) -> TerminalUi:
@@ -500,14 +513,14 @@ def test_tui_edit_diff_renders_as_a_transcript_row_not_raw_stderr(
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "alpha\ngamma\n"
-    # Pi's display diff (generateDiffString), committed as a row.
+    # Pi's display diff (generateDiffString), drawn in the edit row's box.
     assert "-2 beta" not in error_stream.getvalue()
-    diff_blocks = [
-        lines
+    edit_rows = [
+        _plain_rows(lines)
         for kind, lines in ui.components.transcript.history_blocks
-        if kind == "tool_result" and "-2 beta" in lines
+        if kind == "tool_box"
     ]
-    assert diff_blocks == [(" 1 alpha", "-2 beta", "+2 gamma")]
+    assert edit_rows == [["edit notes.txt", " 1 alpha", "-2 beta", "+2 gamma"]]
 
 
 def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
@@ -670,13 +683,14 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
         transcript=ui.components.transcript,
         chrome=ui.components.chrome.record,
         render_inputs=ui.components.screen.render_inputs,
+        cwd=tmp_path,
     )
 
     renderer.render_tool_call(
         AgentToolCall(
             provider_correlation_id="call_read",
             tool_name="read",
-            arguments_json=ProductContent('{"path": "docs/backlog.md", "limit": 5}'),
+            arguments_json=ProductContent('{"path": "notes/plan.md", "limit": 5}'),
         )
     )
     renderer.render_tool_result(
@@ -685,12 +699,14 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
-    assert "read docs/backlog.md" in frame
+    frame = _strip_sgr(
+        "\n".join(ui.components.screen.render_lines(width=72, height=20))
+    )
+    # Pi `formatReadCall`: the range stays; collapsed, no content, no duration.
+    assert "read notes/plan.md:1-5" in frame
     assert "$ read" not in frame
-    assert ":1-5" not in frame
     assert "line one" not in frame
-    assert "Took 0.2s" not in frame
+    assert "Took" not in frame
 
 
 def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
@@ -703,6 +719,7 @@ def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
         transcript=ui.components.transcript,
         chrome=ui.components.chrome.record,
         render_inputs=ui.components.screen.render_inputs,
+        cwd=tmp_path,
     )
     calls = (
         ("bash", {"command": "python3 -m unittest", "timeout": 120}),
@@ -721,17 +738,19 @@ def test_tui_tool_call_rows_show_commands_and_paths_not_argument_dumps(
         renderer.render_tool_result(output_text="ok", is_error=False)
 
     headers = [
-        lines[0]
+        _plain_rows(lines)[0]
         for kind, lines in ui.components.transcript.history_blocks
-        if kind == "tool"
+        if kind == "tool_box"
     ]
     assert headers == [
-        "python3 -m unittest (timeout 120s)",
-        "ls tests",
+        "$ python3 -m unittest (timeout 120s)",
+        "$ ls tests",
         "edit core.py",
         "write new.py",
     ]
-    frame = "\n".join(ui.components.screen.render_lines(width=72, height=40))
+    frame = _strip_sgr(
+        "\n".join(ui.components.screen.render_lines(width=72, height=40))
+    )
     assert "$ python3 -m unittest (timeout 120s)" in frame
     assert "bash(" not in frame
     assert "edit(" not in frame
@@ -759,11 +778,15 @@ def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Pa
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui.components.screen.render_lines(width=72, height=20))
-    assert "$ ls" in frame
-    assert "one" in frame
-    assert "two" in frame
-    assert "Took 0.2s" in frame
+    frame = _strip_sgr(
+        "\n".join(ui.components.screen.render_lines(width=72, height=20))
+    )
+    assert "ls ." in frame
+    assert "$ ls" not in frame
+    assert "file one" in frame
+    assert "file two" in frame
+    # Pi shows a duration only on bash rows.
+    assert "Took" not in frame
 
 
 def test_tui_streams_tool_output_into_live_region(tmp_path: Path):

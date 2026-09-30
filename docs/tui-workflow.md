@@ -524,15 +524,13 @@ a forward-looking render-mode toggle plus a re-render of the live history the UI
 still owns, not a mutation of bytes already in the host terminal's scrollback.
 Add two pipy-owned view flags on `TerminalUi`:
 
-- `tools_expanded` (toggled by `ctrl+o`): when collapsed (default), tool-result
-  blocks render the existing bounded preview (the last five lines behind
-  `... (N earlier lines, ctrl+o to expand)`); when expanded, they render the
-  full retained tool output up to the existing output bound. Plain tool results
-  (live and restored), `[compaction]`/`[branch]` summary rows and rich
-  extension message/entry rows keep their inputs, so a toggle re-renders them
-  in place and redraws the frame, like Pi's `setExpanded` on every component.
-  Rows drawn by an extension tool's `render_call`/`render_result` keep the form
-  they were committed with (DF1-F2b in `docs/backlog.md`).
+- `tools_expanded` (toggled by `ctrl+o`): switches every tool row between
+  Pi's collapsed and expanded renderer output (see "Tool rows" below).
+  Tool rows (live and restored, built-in and extension-rendered),
+  `[compaction]`/`[branch]` summary rows and rich extension message/entry
+  rows keep their inputs, so a toggle re-renders them and redraws the screen
+  with the terminal scrollback cleared (Pi's full render,
+  `\x1b[2J\x1b[H\x1b[3J`), like Pi's `setExpanded` on every component.
 - `thinking_hidden` (toggled by `ctrl+t`): hides or shows reasoning/thinking
   blocks for subsequent and live rendering, persisted in the non-secret local
   settings store, with a `Thinking blocks: hidden|visible` status.
@@ -540,6 +538,49 @@ Add two pipy-owned view flags on `TerminalUi`:
 Both toggles run no provider turn and mutate only renderer view state plus the
 non-secret settings file. When the tree selector is open, `ctrl+o`/`ctrl+t`
 follow the session-tree spec's filter semantics instead.
+
+## Tool Rows (TOOLS3)
+
+**Pi reference:** `ToolExecutionComponent`
+(`modes/interactive/components/tool-execution.ts`), the built-in renderers in
+`core/tools/renderers/{read,grep,find,ls,write,edit,bash}.ts`,
+`core/tools/render-utils.ts` and `components/diff.ts` (pi-mono `1b347794e`).
+
+Every model tool call is one row (`native/tool_rows.py`): a box with one
+column of padding and a blank row above and below, on Pi's
+`toolPendingBg` while the call runs, then `toolSuccessBg` or `toolErrorBg`.
+The running call's row is drawn in the live region (the inline scrollback
+cannot change printed rows) and committed once when its result arrives; a
+running `bash` call shows its streamed output in that box. Each tool draws
+with Pi's renderer:
+
+| Tool | Collapsed | Expanded |
+| --- | --- | --- |
+| `read` | `read <path>:<range>`; nothing else unless an error. `SKILL.md` reads show `[skill] <dir>`, `AGENTS.md`/`CLAUDE.md` reads `read resource <path>`, reads of pipy's own `README.md`/`docs/`/`examples/` `read docs <path>`, each with `(ctrl+o to expand)` | the header and every line, plus `[Truncated: …]` / `[First line exceeds …]` |
+| `grep` | 15 lines, `... (N more lines, ctrl+o to expand)` | every line |
+| `find`, `ls` | 20 lines | every line |
+| `write` | `write <path>`, the first 10 content lines, `... (N more lines, T total, ctrl+o to expand)`; a success adds nothing | every content line |
+| `edit` | its own box: the header, then the diff (numbered, context muted, removed red, added green, changed words of a one-line edit inverted) or the error | the same |
+| `bash` | `$ <command>`, the last 5 wrapped lines behind `... (N earlier lines, ctrl+o to expand)`, a `[Full output: … Truncated: …]` warning, `Took Ns` | every line |
+| extension tool | its `render_call`/`render_result` lines; without them `name key=value …` and the first 10 result lines | the renderers' expanded output; `key: value` lines |
+
+`grep`/`find`/`ls` add `[Truncated: N matches limit, 50.0KB limit, some lines
+truncated]` from the result's `details` in both states. A live `edit` computes
+its diff on a worker thread as the call starts (Pi's asynchronous preview; a
+slow or blocking file never holds the UI, and the result waits at most 0.5 s
+for it); the result's `details.diff` replaces it, a preview that arrives after
+the result is dropped, and a restored `edit` draws the stored diff. A terminal
+resize redraws every tool row at the new width, as Pi re-renders. Only `bash` shows a
+duration, and only live: Pi does not store it. An extension tool's renderers
+run again on every redraw with the retained arguments, per-call `state`,
+result and `details`, and get the box's content width (two columns less than
+the terminal).
+
+Deviations: no syntax highlighting (Pi uses highlight.js; lines Pi would
+highlight keep the terminal's default colour), no OSC 8 file links, no
+ticking `Elapsed` while `bash` runs, and colours other than the box
+backgrounds and `toolOutput` come from pipy's palette. The captured (non-TTY)
+renderer keeps its line-oriented blocks.
 
 ## Queued Steering / Follow-Up During Active Turns
 

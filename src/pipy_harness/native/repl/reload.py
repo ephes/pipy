@@ -41,7 +41,6 @@ from pipy_harness.native.extensions.activation import (
 from pipy_harness.native.extensions.flag_tokens import (
     parse_extension_flag_tokens,
 )
-from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.project_trust import (
@@ -152,7 +151,6 @@ class ReloadCommandEffects:
     extension_send_message: Callable[
         [str, str, bool, "Mapping[str, object]", object | None], object
     ]
-    extension_render_details: ToolRenderDetailsWriter
     extension_ui_driver: _LiveExtensionUiDriver | None = None
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
@@ -285,7 +283,6 @@ class ReloadCommandEffects:
                 has_ui=self.terminal_ui is not None,
                 notify_sink=self.provider_mutation.extension_notify,
                 set_active_tools=self.provider_mutation.extension_set_active_tools,
-                render_details=self.extension_render_details,
                 project_trusted=self.settings.project_trusted,
                 tool_capabilities=self.tool_capabilities,
                 chrome_sink=chrome_candidate,

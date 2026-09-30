@@ -55,6 +55,8 @@ from pipy_harness.native.workspace_context import (
 )
 
 _CHROME_SGR_RE = _re.compile(r"\x1b\[[0-9;]*m")
+# A full reset (`\x1b[m`, `\x1b[0m`) or a default-background code (`49`).
+_CHROME_FULL_RESET_RE = _re.compile(r"\x1b\[(?:0?|(?:[0-9;]*;)?(?:0|49)(?:;[0-9;]*)?)m")
 
 
 def _visible_len_no_sgr(text: str) -> int:
@@ -207,23 +209,37 @@ class ChromeStyle:
             return f"\x1b[{bg}m{padding}\x1b[0m"
         return f"\x1b[{bg}m{text}\x1b[0m\x1b[{bg}m{padding}\x1b[0m"
 
-    def tool_read(self, text: str, *, width: int) -> str:
+    def tool_box(self, text: str, *, bg: str, width: int) -> str:
+        """One row of a Pi tool box: pre-styled ``text`` on its background.
+
+        ``bg`` is ``pending``/``success``/``error`` (Pi ``toolPendingBg`` /
+        ``toolSuccessBg`` / ``toolErrorBg``) or ``none`` (edit's result lines
+        below its box). The row is padded to ``width``; a full SGR reset inside
+        the text re-opens the background, like Pi's ``applyBackgroundToLine``
+        keeps the box colour behind every cell.
+        """
+
         if not self.enabled:
             return text
-        bg = self.palette_code(
-            self.palette.tool_command_bg_truecolor,
-            self.palette.tool_command_bg_fallback,
-        )
-        leading = text[: len(text) - len(text.lstrip(" "))]
-        visible = text[len(leading) :]
-        verb, separator, rest = visible.partition(" ")
-        padding = " " * max(0, width - len(text))
-        return (
-            f"\x1b[{bg}m"
-            f"{leading}\x1b[{self.palette.title_truecolor}m{verb}\x1b[0m"
-            f"\x1b[{bg}m"
-            f"{separator}{rest}{padding}\x1b[0m"
-        )
+        visible = _visible_len_no_sgr(text)
+        padding = " " * max(0, width - visible)
+        if bg == "none":
+            return f"{text}\x1b[0m{padding}"
+        palette = self.palette
+        truecolor, fallback = {
+            "pending": (
+                palette.tool_pending_bg_truecolor,
+                palette.tool_pending_bg_fallback,
+            ),
+            "success": (
+                palette.tool_success_bg_truecolor,
+                palette.tool_success_bg_fallback,
+            ),
+            "error": (palette.tool_error_bg_truecolor, palette.tool_error_bg_fallback),
+        }.get(bg, (palette.tool_pending_bg_truecolor, palette.tool_pending_bg_fallback))
+        code = f"\x1b[{self.palette_code(truecolor, fallback)}m"
+        body = _CHROME_FULL_RESET_RE.sub(lambda match: match.group(0) + code, text)
+        return f"{code}{body}{padding}\x1b[0m"
 
     def menu_row(self, text: str) -> str:
         if not self.enabled:

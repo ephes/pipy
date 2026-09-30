@@ -224,5 +224,10 @@ def _render_assistant(
         result = results.get(call.provider_correlation_id)
         if result is not None:
             renderer.render_tool_result(
-                output_text=result.content.value, is_error=result.is_error
+                output_text=result.content.value,
+                is_error=result.is_error,
+                details=result.details,
             )
+        else:
+            # No stored result: the row stays pending, at its own position.
+            scratch.flush_pending_tool()

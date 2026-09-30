@@ -63,7 +63,6 @@ from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import dispatch_tool_call_hooks
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
-from pipy_harness.native.extensions.tool_port import ToolRenderDetailsWriter
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.prompt_history import PromptHistoryStore
@@ -351,7 +350,6 @@ class SessionCollaborators:
         emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
         resource_options: RuntimeResourceOptions,
         tool_capabilities: NativeToolCapabilities,
-        extension_render_details: ToolRenderDetailsWriter,
     ) -> ReloadCommandEffects:
         """Assemble the phased reload executor from authoritative owners."""
 
@@ -375,7 +373,6 @@ class SessionCollaborators:
             diag=self.diag,
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
             extension_send_message=self.custom_renderer.extension_send_message,
-            extension_render_details=extension_render_details,
         )
 
     def rebuild_messages_from_tree(self) -> None:

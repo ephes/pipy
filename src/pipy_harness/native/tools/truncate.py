@@ -36,6 +36,23 @@ class TruncationResult:
     max_lines: int
     max_bytes: int
 
+    def to_details(self) -> dict[str, object]:
+        """The object Pi stores as ``details.truncation`` (camelCase)."""
+
+        return {
+            "content": self.content,
+            "truncated": self.truncated,
+            "truncatedBy": self.truncated_by,
+            "totalLines": self.total_lines,
+            "totalBytes": self.total_bytes,
+            "outputLines": self.output_lines,
+            "outputBytes": self.output_bytes,
+            "lastLinePartial": self.last_line_partial,
+            "firstLineExceedsLimit": self.first_line_exceeds_limit,
+            "maxLines": self.max_lines,
+            "maxBytes": self.max_bytes,
+        }
+
 
 def _byte_length(text: str) -> int:
     return len(text.encode("utf-8"))

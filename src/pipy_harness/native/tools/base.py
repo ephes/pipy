@@ -37,6 +37,7 @@ Anything outside this subset raises a clear error at definition time.
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import uuid
@@ -228,6 +229,9 @@ class ToolExecutionResult:
     output_text: str
     is_error: bool = False
     provider_correlation_id: str | None = None
+    # Pi ``AgentToolResult.details``: structured data for renderers and the
+    # session file, never sent to a provider. A JSON object or None.
+    details: Mapping[str, Any] | None = None
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
@@ -256,18 +260,39 @@ class ToolExecutionResult:
                 "ToolExecutionResult.provider_correlation_id must be a non-empty "
                 "string or None"
             )
+        if self.details is not None and not is_json_object(self.details):
+            raise ValueError("ToolExecutionResult.details must be a JSON object")
+
+
+def is_json_object(value: object) -> bool:
+    """Whether ``value`` is a mapping that JSON encodes as an object."""
+
+    if not isinstance(value, Mapping) or any(type(key) is not str for key in value):
+        return False
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def json_safe_details(value: object) -> dict[str, Any] | None:
+    """A detached JSON copy of ``value`` when it is a JSON object, else None.
+
+    Pi writes ``details`` to the session file through ``JSON.stringify``;
+    pipy keeps only what survives the same round trip, so live rows and
+    restored rows render from the same value.
+    """
+
+    if not is_json_object(value):
+        return None
+    copied = json.loads(json.dumps(value, allow_nan=False))
+    return copied if isinstance(copied, dict) else None
 
 
 @dataclass(frozen=True, slots=True)
 class ToolContext:
     """Environment passed to one tool invocation.
-
-    `stderr_sink` is an optional callable that mutation tools (`write`,
-    `edit`) use to report unified diffs: the loop's `error_stream` in the
-    line-oriented REPL, a transcript row in the TUI (whose raw-mode terminal
-    must never be written to directly). The default is `None`, in which case mutation tools fall back to
-    discarding the diff. The archive boundary is unrelated; diffs never
-    cross it from inside the tool.
 
     `output_sink` is an optional callable that long-running tools (`bash`)
     use to stream incremental command output to the loop's live UI region as
@@ -287,7 +312,6 @@ class ToolContext:
     """
 
     workspace_root: Path
-    stderr_sink: Callable[[str], None] | None = field(default=None)
     output_sink: Callable[[str], None] | None = field(default=None)
     cancel_event: threading.Event | None = field(default=None)
     extension_generation_id: int | None = field(default=None)
@@ -297,8 +321,6 @@ class ToolContext:
             raise ValueError("ToolContext.workspace_root must be a Path")
         if not self.workspace_root.is_absolute():
             raise ValueError("ToolContext.workspace_root must be absolute")
-        if self.stderr_sink is not None and not callable(self.stderr_sink):
-            raise ValueError("ToolContext.stderr_sink must be callable or None")
         if self.output_sink is not None and not callable(self.output_sink):
             raise ValueError("ToolContext.output_sink must be callable or None")
         if self.cancel_event is not None and not hasattr(self.cancel_event, "is_set"):

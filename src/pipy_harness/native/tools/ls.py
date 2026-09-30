@@ -112,12 +112,14 @@ class LsTool:
             if row is not None:
                 rows.append(row)
 
+        output, details = _format_output(
+            rows, limit_reached=limit_reached, limit=effective_limit
+        )
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=_format_output(
-                rows, limit_reached=limit_reached, limit=effective_limit
-            ),
+            output_text=output,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
     @staticmethod
@@ -154,19 +156,26 @@ class LsTool:
         )
 
 
-def _format_output(rows: list[str], *, limit_reached: bool, limit: int) -> str:
+def _format_output(
+    rows: list[str], *, limit_reached: bool, limit: int
+) -> tuple[str, dict[str, object] | None]:
+    """The output and Pi's ``details`` (omitted when no limit was hit)."""
+
     if not rows:
-        return "(empty directory)"
+        return "(empty directory)", None
     truncation = truncate_head("\n".join(rows), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
+    details: dict[str, object] = {}
     if limit_reached:
         notices.append(f"{limit} entries limit reached. Use limit={limit * 2} for more")
+        details["entryLimitReached"] = limit
     if truncation.truncated:
         notices.append(f"{format_size(DEFAULT_MAX_BYTES)} limit reached")
+        details["truncation"] = truncation.to_details()
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output
+    return output, details or None
 
 
 __all__ = ["DEFAULT_LIMIT", "LS_TOOL_DESCRIPTION", "LsTool"]

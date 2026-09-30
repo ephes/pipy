@@ -15,6 +15,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from pipy_harness.native.ansi_wrap import wrap_text_with_ansi
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 
@@ -26,10 +27,16 @@ _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
 _MIN_INPUT_ROWS = 1
 _INPUT_NEWLINE_GLYPH = "⏎"
-_PENDING_TOOL_KINDS = frozenset({"tool", "tool_read", "tool_result"})
-_CUSTOM_BLOCK_KINDS = frozenset(
-    {"tool_call_custom", "tool_result_custom", "custom_message_custom"}
-)
+_PENDING_TOOL_KINDS = frozenset({"tool", "tool_result", "tool_box"})
+_CUSTOM_BLOCK_KINDS = frozenset({"custom_message_custom"})
+# A Pi tool row: each line carries its background and wrap mode
+# (`tool_rows.encode_rows`).
+_TOOL_BOX_KINDS = {
+    "pending": "tool_box_pending",
+    "success": "tool_box_success",
+    "error": "tool_box_error",
+    "none": "tool_box_none",
+}
 _SAFE_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -113,6 +120,8 @@ class FrameSnapshot:
     cursor_visible: bool
     # Pi's retry loader colours its spinner ``warning`` instead of ``accent``.
     working_warning: bool = False
+    # The running tool call's row (encoded ``tool_box`` lines), drawn live.
+    pending_tool: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,9 +253,47 @@ def pad_text(text: str, width: int) -> str:
 def block_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
     """Wrap and frame one raw block without observing or mutating UI state."""
 
+    if block.kind == "tool_box":
+        return _tool_box_lines(block, width)
     if block.kind in _CUSTOM_BLOCK_KINDS:
         return _custom_block_lines(block, width)
     return _regular_block_lines(block, width)
+
+
+_TOOL_BOX_TAG = "\x1f"
+_TOOL_BOX_BG_CODES = {"pending": "p", "success": "s", "error": "e", "none": "n"}
+_TOOL_BOX_BG_NAMES = {code: name for name, code in _TOOL_BOX_BG_CODES.items()}
+
+
+def encode_tool_box_line(text: str, bg: str, *, wrap: bool) -> str:
+    """One ``tool_box`` line: its background, wrap mode and styled text."""
+
+    code = _TOOL_BOX_BG_CODES.get(bg, "n")
+    return f"{_TOOL_BOX_TAG}{code}{'w' if wrap else 'c'}{text}"
+
+
+def decode_tool_box_line(line: str) -> tuple[str, bool, str]:
+    """``(bg, wrap, text)`` of one ``tool_box`` line (untagged: none, wrap)."""
+
+    if len(line) >= 3 and line[0] == _TOOL_BOX_TAG:
+        return _TOOL_BOX_BG_NAMES.get(line[1], "none"), line[2] != "c", line[3:]
+    return "none", True, line
+
+
+def _tool_box_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
+    """Rows of a Pi tool box: one column of padding each side, like Pi's Box."""
+
+    content_width = max(1, width - 2)
+    rows: list[FrameLine] = []
+    for line in block.lines:
+        bg, wrap, text = decode_tool_box_line(line)
+        kind = _TOOL_BOX_KINDS.get(bg, "tool_box_none")
+        safe = sanitize_custom_text(text)
+        pieces = wrap_text_with_ansi(safe, content_width) if wrap else [safe]
+        rows.extend(
+            FrameLine(clip_custom_text(f" {piece}", width), kind) for piece in pieces
+        )
+    return tuple(rows)
 
 
 def _custom_block_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
@@ -256,8 +303,7 @@ def _custom_block_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
         for line in block.lines
     )
     rows.append(FrameLine("", "tool_result"))
-    if block.kind in {"tool_result_custom", "custom_message_custom"}:
-        rows.append(FrameLine(""))
+    rows.append(FrameLine(""))
     return tuple(rows)
 
 
@@ -285,7 +331,6 @@ def _block_prefix(kind: str) -> str:
         "working_warning": " ",
         "error": " ",
         "tool": " $ ",
-        "tool_read": " ",
         "tool_result": " ",
         "settings": " ",
         "custom": " ",
@@ -296,7 +341,7 @@ def _block_prefix(kind: str) -> str:
 def _leading_block_rows(kind: str) -> list[FrameLine]:
     if kind == "user":
         return [FrameLine("", "user")]
-    if kind in {"tool", "tool_read"}:
+    if kind == "tool":
         return [FrameLine("", "tool_result")]
     if kind in {"reasoning", "notice", "settings", "custom"}:
         return [FrameLine("")]
@@ -308,8 +353,6 @@ def _trailing_block_rows(kind: str) -> tuple[FrameLine, ...]:
         return FrameLine("", "user"), FrameLine("")
     if kind == "tool":
         return (FrameLine("", "tool_result"),)
-    if kind == "tool_read":
-        return FrameLine("", "tool_result"), FrameLine("")
     if kind == "tool_result":
         return FrameLine(""), FrameLine("")
     if kind in {
@@ -339,10 +382,7 @@ def _line_kind_for_block(kind: str) -> str:
         "error": "error",
         "reasoning": "reasoning",
         "tool": "tool",
-        "tool_read": "tool_read",
         "tool_result": "tool_result",
-        "tool_call_custom": "tool_call_custom",
-        "tool_result_custom": "tool_result_custom",
         "custom_message_custom": "custom_message_custom",
         "settings": "settings",
         "custom": "settings",
@@ -474,6 +514,8 @@ def _transient_lines(snapshot: FrameSnapshot) -> tuple[FrameLine, ...]:
             else tuple(snapshot.reasoning_text.splitlines()) or ("",)
         )
         blocks.append(FrameBlock("reasoning", reasoning))
+    if snapshot.pending_tool:
+        blocks.append(FrameBlock("tool_box", snapshot.pending_tool))
     if snapshot.tool_output_text:
         raw = tuple(snapshot.tool_output_text.splitlines()) or ("",)
         cap = len(raw) + 1 if snapshot.tools_expanded else _TOOL_STREAM_LIVE_LINES
@@ -786,14 +828,14 @@ def _style_width_kind(
 ) -> str:
     if kind == "tool":
         return style.tool_command(text, width=width)
-    if kind == "tool_read":
-        return style.tool_read(text, width=width)
     if kind == "tool_result":
         return style.tool_result(text, width=width)
     if kind == "user":
         return style.user_message(text, width=width)
     if kind in _CUSTOM_BLOCK_KINDS or kind == "chrome_custom":
         return style.tool_custom(raw, width=width)
+    if kind.startswith("tool_box_"):
+        return style.tool_box(raw, bg=kind[len("tool_box_") :], width=width)
     return text
 
 

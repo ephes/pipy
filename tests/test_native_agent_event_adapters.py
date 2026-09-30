@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 import pytest
@@ -104,8 +104,11 @@ class _RecordingRenderer:
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
+        details: Mapping[str, object] | None = None,
     ) -> None:
-        self.actions.append(("tool-complete", output_text, is_error, duration_seconds))
+        self.actions.append(
+            ("tool-complete", output_text, is_error, duration_seconds, details)
+        )
 
 
 class _AutomationCollectingSink:
@@ -126,6 +129,7 @@ def test_rendering_projection_owns_streamed_buffered_and_tool_output() -> None:
         ProductContent("result"),
         "provider-call",
         is_error=True,
+        details={"truncation": {"truncated": True}},
     )
 
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
@@ -158,7 +162,8 @@ def test_rendering_projection_owns_streamed_buffered_and_tool_output() -> None:
         ("assistant-complete", True),
         ("tool-start", call),
         ("tool-update", "progress"),
-        ("tool-complete", "result", True, 0.25),
+        # The result's Pi `details` reach the renderer (TOOLS3).
+        ("tool-complete", "result", True, 0.25, {"truncation": {"truncated": True}}),
     ]
 
 

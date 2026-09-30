@@ -672,7 +672,6 @@ def _provider_mutation_fixture(
         production_tool_registry(),
         {},
         workspace_root=tmp_path,
-        stderr_sink=lambda _text: None,
         filter_options=ToolFilterOptions.empty(),
         cancel_join_timeout_seconds=1.0,
         state_lock=session_lock,

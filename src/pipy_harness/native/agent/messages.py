@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pipy_harness.native.agent._validation import (
     require_bool,
@@ -204,9 +204,14 @@ class AgentToolResultMessage:
     provider_correlation_id: str
     is_error: bool = False
     added_tool_names: tuple[str, ...] = ()
+    # Pi ``ToolResultMessage.details``: stored and rendered, never sent to a
+    # provider, so it takes no part in history equality.
+    details: Mapping[str, Any] | None = field(default=None, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
+        if self.details is not None and not isinstance(self.details, Mapping):
+            raise TypeError("AgentToolResultMessage.details must be a mapping or None")
         require_non_empty_string(
             self.tool_request_id, "AgentToolResultMessage.tool_request_id"
         )

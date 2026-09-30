@@ -792,7 +792,6 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "diag",
             "redraw_custom_entries_for_active_branch",
             "extension_send_message",
-            "extension_render_details",
             "extension_ui_driver",
         },
         "BuiltinCommandInterpreter": {

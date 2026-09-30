@@ -30,10 +30,7 @@ from pipy_harness.native.extensions.contracts import (
     HookHandler,
     _ExtensionRuntime,
 )
-from pipy_harness.native.extensions.tool_port import (
-    ToolRenderDetailsWriter,
-    _ExtensionToolPort,
-)
+from pipy_harness.native.extensions.tool_port import _ExtensionToolPort
 from pipy_harness.native.repl.turn_leaves import pricing_for
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
@@ -174,7 +171,6 @@ def build_projected_extension_tool_port(
     notify_sink: Callable[[str, str], None],
     set_active_tools: Callable[[int, Sequence[str]], bool],
     flags: Mapping[str, object],
-    render_details: ToolRenderDetailsWriter,
     project_trusted: bool,
 ) -> ToolPort:
     """Construct one detached projection port without touching live state."""
@@ -185,7 +181,6 @@ def build_projected_extension_tool_port(
         notify_sink=notify_sink,
         set_active_tools_fn=set_active_tools,
         flags=flags,
-        render_details_sink=render_details,
         project_trusted=project_trusted,
     )
 
@@ -199,7 +194,6 @@ def build_candidate_extension_projection(
     has_ui: bool,
     notify_sink: Callable[[str, str], None],
     set_active_tools: Callable[[int, Sequence[str]], bool],
-    render_details: ToolRenderDetailsWriter,
     project_trusted: bool,
     prepare_capability: Callable[[Mapping[str, ToolPort]], ToolCapabilityState],
     chrome: ExtensionChromeHandle | None,
@@ -215,7 +209,6 @@ def build_candidate_extension_projection(
             notify_sink=notify_sink,
             set_active_tools=set_active_tools,
             flags=frozen_flags,
-            render_details=render_details,
             project_trusted=project_trusted,
         )
 

@@ -173,10 +173,12 @@ class GrepTool:
             matches = _search(options, location, context.cancel_event)
         except _GrepFailure as exc:
             return self._error(request, str(exc))
+        output, details = _format_output(matches, options, location)
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
-            output_text=_format_output(matches, options, location),
+            output_text=output,
             provider_correlation_id=request.provider_correlation_id,
+            details=details,
         )
 
     @staticmethod
@@ -452,9 +454,13 @@ class _Formatter:
         return block
 
 
-def _format_output(matches: _Matches, options: _Options, location: _Location) -> str:
+def _format_output(
+    matches: _Matches, options: _Options, location: _Location
+) -> tuple[str, dict[str, object] | None]:
+    """The output and Pi's ``details`` (omitted when no limit was hit)."""
+
     if not matches.items:
-        return "No matches found"
+        return "No matches found", None
     formatter = _Formatter(location, options.context)
     rows: list[str] = []
     for match in matches.items:
@@ -462,21 +468,25 @@ def _format_output(matches: _Matches, options: _Options, location: _Location) ->
     truncation = truncate_head("\n".join(rows), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
+    details: dict[str, object] = {}
     if matches.limit_reached:
         notices.append(
             f"{options.limit} matches limit reached. Use limit={options.limit * 2} "
             "for more, or refine pattern"
         )
+        details["matchLimitReached"] = options.limit
     if truncation.truncated:
         notices.append(f"{format_size(DEFAULT_MAX_BYTES)} limit reached")
+        details["truncation"] = truncation.to_details()
     if formatter.lines_truncated:
         notices.append(
             f"Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool "
             "to see full lines"
         )
+        details["linesTruncated"] = True
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output
+    return output, details or None
 
 
 __all__ = ["DEFAULT_LIMIT", "GREP_TOOL_DESCRIPTION", "GrepTool"]
