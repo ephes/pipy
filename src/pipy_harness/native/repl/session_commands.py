@@ -43,7 +43,6 @@ from pipy_harness.native.session_tree_commands import (
     apply_tree_selection,
     delete_native_session,
     entry_preview,
-    format_session_status,
     handle_tree_command,
     list_all_native_sessions,
     list_native_sessions,
@@ -51,6 +50,7 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
     visible_tree_entries,
 )
+from pipy_harness.native.session_usage import format_session_info
 from pipy_harness.native.tui import TerminalUi
 
 
@@ -248,13 +248,23 @@ class SessionCommandEffects:
     current_session_dir: Callable[[], Path]
     resolve_session_file: Callable[[str], Path | None]
     summarize_branch: Callable[[SessionEntry, str], BranchSummarySelectionResult]
+    # Pi /session: the selected ``(provider, model)`` and a row's cache-read
+    # price ($/M), which the Cost section's breakdown and re-billed cache use.
+    selected_model: Callable[[], tuple[str, str]]
+    cache_read_rate: Callable[[str, str], float]
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Execute one outcome from the closed session-command family."""
 
         action = command_outcome.action
         if action is CodingCommandAction.SHOW_SESSION_STATUS:
-            self.diag(format_session_status(self.ctl.session_tree))
+            self.diag(
+                format_session_info(
+                    self.ctl.session_tree,
+                    selected_model=self.selected_model(),
+                    cache_read_rate=self.cache_read_rate,
+                )
+            )
         elif action is CodingCommandAction.COMPACT:
             # Local-only: reduce provider-visible history while preserving the
             # shared manual/automatic compaction policy, extension gate, and

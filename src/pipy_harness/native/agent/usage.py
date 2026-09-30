@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
+from pipy_harness.native.agent.messages import AgentMessageUsage, AgentUsageCost
 from pipy_harness.native.agent.results import AgentUsage
 
 
@@ -22,10 +23,20 @@ class AgentProviderUsageSample:
     # Pi ``Usage.cacheWrite1h``: the 1h-retention part of ``cache_write_tokens``.
     # Priced at 2x base input; not accumulated as its own counter.
     cache_write_1h_tokens: int = 0
+    # Whether the provider reported these counters at all: Pi leaves
+    # ``Usage.reasoning``/``cacheWrite1h`` undefined when it did not.
+    reports_reasoning: bool = False
+    reports_cache_write_1h: bool = False
 
     def __post_init__(self) -> None:
         for field_name in self.__dataclass_fields__:
             value = getattr(self, field_name)
+            if field_name.startswith("reports_"):
+                if type(value) is not bool:
+                    raise TypeError(
+                        f"AgentProviderUsageSample.{field_name} must be a bool"
+                    )
+                continue
             if not isinstance(value, int) or isinstance(value, bool):
                 raise TypeError(
                     f"AgentProviderUsageSample.{field_name} must be an integer"
@@ -49,6 +60,8 @@ class AgentProviderUsageSample:
             cache_write_tokens=_coerce_int(usage.get("cache_write_tokens")),
             total_tokens=_coerce_int(usage.get("total_tokens")),
             cache_write_1h_tokens=_coerce_int(usage.get("cache_write_1h_tokens")),
+            reports_reasoning=usage.get("reasoning_tokens") is not None,
+            reports_cache_write_1h=usage.get("cache_write_1h_tokens") is not None,
         )
 
     @property
@@ -239,6 +252,12 @@ class AgentUsageAccumulator:
         self.cost_usd = 0.0
         self._pricing = pricing
         self._reload_identity = object()
+
+    @property
+    def pricing(self) -> AgentTokenPricing | None:
+        """The rates this accumulator prices with (``None`` prices at zero)."""
+
+        return self._pricing
 
     @property
     def cache_hit_percent(self) -> float | None:
@@ -440,7 +459,28 @@ def _turn_cost(
     cache_write_tokens: int,
     cache_write_1h_tokens: int = 0,
 ) -> float:
-    """One turn's cost with Pi ``calculateCost`` semantics.
+    """One turn's total cost with Pi ``calculateCost`` semantics."""
+
+    return turn_cost_parts(
+        pricing,
+        uncached_input_tokens=uncached_input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        cache_write_1h_tokens=cache_write_1h_tokens,
+    ).total
+
+
+def turn_cost_parts(
+    pricing: AgentTokenPricing,
+    *,
+    uncached_input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+    cache_write_1h_tokens: int = 0,
+) -> AgentUsageCost:
+    """One turn's cost per token class, Pi ``calculateCost`` (``models.ts``).
 
     The tier is chosen by the whole prompt (uncached input plus cache reads and
     writes); 1h cache writes cost twice the tier's input rate.
@@ -451,10 +491,77 @@ def _turn_cost(
     )
     long_write = min(cache_write_1h_tokens, cache_write_tokens)
     short_write = cache_write_tokens - long_write
-    return (
-        uncached_input_tokens * rates.input_per_million
-        + output_tokens * rates.output_per_million
-        + cache_read_tokens * rates.cache_read_per_million
-        + short_write * rates.cache_write_per_million
-        + long_write * rates.input_per_million * 2
+    input_cost = (rates.input_per_million / 1_000_000.0) * uncached_input_tokens
+    output_cost = (rates.output_per_million / 1_000_000.0) * output_tokens
+    cache_read_cost = (rates.cache_read_per_million / 1_000_000.0) * cache_read_tokens
+    cache_write_cost = (
+        rates.cache_write_per_million * short_write
+        + rates.input_per_million * 2 * long_write
     ) / 1_000_000.0
+    return AgentUsageCost(
+        input=input_cost,
+        output=output_cost,
+        cache_read=cache_read_cost,
+        cache_write=cache_write_cost,
+        total=input_cost + output_cost + cache_read_cost + cache_write_cost,
+    )
+
+
+def uncached_input_tokens(sample: AgentProviderUsageSample) -> int:
+    """Pi ``Usage.input``: prompt tokens neither read from nor written to cache."""
+
+    if _cache_counters_are_separate(
+        input_tokens=sample.input_tokens,
+        output_tokens=sample.output_tokens,
+        cache_read_tokens=sample.cache_read_tokens,
+        cache_write_tokens=sample.cache_write_tokens,
+        total_tokens=sample.total_tokens,
+    ):
+        return sample.input_tokens
+    return max(
+        0, sample.input_tokens - sample.cache_read_tokens - sample.cache_write_tokens
+    )
+
+
+def message_usage(
+    sample: AgentProviderUsageSample, pricing: AgentTokenPricing | None
+) -> AgentMessageUsage:
+    """Pi ``Usage`` for one response: normalized counters plus its cost.
+
+    ``totalTokens`` is the provider's total when it sent one, else the sum of
+    the four counters (what Pi's adapters compute). No pricing prices at zero.
+    """
+
+    input_tokens = uncached_input_tokens(sample)
+    cost = (
+        AgentUsageCost()
+        if pricing is None
+        else turn_cost_parts(
+            pricing,
+            uncached_input_tokens=input_tokens,
+            output_tokens=sample.output_tokens,
+            cache_read_tokens=sample.cache_read_tokens,
+            cache_write_tokens=sample.cache_write_tokens,
+            cache_write_1h_tokens=sample.cache_write_1h_tokens,
+        )
+    )
+    total_tokens = (
+        sample.total_tokens
+        if sample.total_tokens > 0
+        else input_tokens
+        + sample.output_tokens
+        + sample.cache_read_tokens
+        + sample.cache_write_tokens
+    )
+    return AgentMessageUsage(
+        input=input_tokens,
+        output=sample.output_tokens,
+        cache_read=sample.cache_read_tokens,
+        cache_write=sample.cache_write_tokens,
+        total_tokens=total_tokens,
+        cost=cost,
+        reasoning=sample.reasoning_tokens if sample.reports_reasoning else None,
+        cache_write_1h=(
+            sample.cache_write_1h_tokens if sample.reports_cache_write_1h else None
+        ),
+    )

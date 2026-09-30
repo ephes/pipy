@@ -578,40 +578,6 @@ def render_tree_lines(
 
 
 # ---------------------------------------------------------------------------
-# Status formatting
-# ---------------------------------------------------------------------------
-
-
-def format_session_status(tree: NativeSessionTree) -> str:
-    header = tree.get_header()
-    leaf = tree.get_leaf_id() or "(root)"
-    message_count = sum(1 for e in tree.get_entries() if isinstance(e, MessageEntry))
-    branch_count = _branch_count(tree)
-    # name and the workspace-derived path are user-controlled; sanitize them so
-    # the status line cannot inject terminal escape sequences.
-    path_label = (
-        sanitize_label_text(str(tree.path)) if tree.path is not None else "(ephemeral)"
-    )
-    name = sanitize_label_text(tree.name) if tree.name else "(unnamed)"
-    # ids/leaf come from a (possibly externally-written) session file; sanitize
-    # them too so the status line cannot inject terminal escape sequences.
-    return (
-        "pipy native session: "
-        f"name={name} id={sanitize_label_text(header.id[:8])} "
-        f"leaf={sanitize_label_text(leaf[:8])} "
-        f"messages={message_count} branches={branch_count} file={path_label}"
-    )
-
-
-def _branch_count(tree: NativeSessionTree) -> int:
-    """Number of leaf nodes (entries with no children) in the tree."""
-
-    parent_ids = {e.parent_id for e in tree.get_entries() if e.parent_id is not None}
-    leaves = [e for e in tree.get_entries() if e.id not in parent_ids]
-    return max(1, len(leaves))
-
-
-# ---------------------------------------------------------------------------
 # Resume listing
 # ---------------------------------------------------------------------------
 

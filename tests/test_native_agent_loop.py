@@ -497,7 +497,8 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
     assert outcome.result.usage == AgentUsage(
         input_tokens=5,
         output_tokens=2,
-        cost_usd=9 / 1_000_000,
+        # Pi calculateCost: (rate / 1e6) * tokens per class, then the sum.
+        cost_usd=(1.0 / 1_000_000) * 5 + (2.0 / 1_000_000) * 2,
     )
     assert [message.content.value for message in outcome.final_history] == [
         "hello",

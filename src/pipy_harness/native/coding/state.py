@@ -16,6 +16,7 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentMessageUsage,
     AgentStopReason,
     AgentToolCall,
     AgentToolResultMessage,
@@ -122,20 +123,10 @@ class CodingSessionUsageSnapshot:
 
     usage: AgentUsage
     last_total_tokens: int
-    cache_hit_percent: float | None
-    # Pi ``Usage.input`` summed: prompt tokens neither read from nor written to
-    # the cache (RPC ``get_session_stats`` ``tokens.input``).
-    uncached_input_tokens: int = 0
 
     def __post_init__(self) -> None:
         _require_agent_usage(self.usage, "usage")
         _require_non_negative_int(self.last_total_tokens, "last_total_tokens")
-        _require_non_negative_int(self.uncached_input_tokens, "uncached_input_tokens")
-        if self.cache_hit_percent is not None:
-            if type(self.cache_hit_percent) is not float:
-                raise TypeError("cache_hit_percent must be an exact float or None")
-            if not isfinite(self.cache_hit_percent) or self.cache_hit_percent < 0:
-                raise ValueError("cache_hit_percent must be finite and nonnegative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -522,8 +513,6 @@ class CodingSessionState:
             return CodingSessionUsageSnapshot(
                 usage=self._usage_accumulator.agent_usage(),
                 last_total_tokens=self._usage_accumulator.last_total_tokens,
-                cache_hit_percent=self._usage_accumulator.cache_hit_percent,
-                uncached_input_tokens=self._usage_accumulator.uncached_input_tokens,
             )
 
     def begin_run(
@@ -1090,6 +1079,12 @@ def _require_assistant_message(
         raise TypeError(f"{field_name}.stop_reason must be an AgentStopReason")
     if message.error_message is not None and type(message.error_message) is not str:
         raise TypeError(f"{field_name}.error_message must be an exact string")
+    if message.usage is not None and type(message.usage) is not AgentMessageUsage:
+        raise TypeError(f"{field_name}.usage must be an exact AgentMessageUsage")
+    for attribution in ("provider", "model"):
+        value = getattr(message, attribution)
+        if value is not None and type(value) is not str:
+            raise TypeError(f"{field_name}.{attribution} must be an exact string")
 
 
 def _require_tool_result_message(

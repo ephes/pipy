@@ -1393,6 +1393,7 @@ def _start_chrome(
             terminal_ui.components.chrome.footer if terminal_ui is not None else None
         ),
         repl_runtime=repl_input,
+        session_tree=lambda: product.ctl.session_tree,
     )
     if terminal_ui is None:
         print_startup_chrome(

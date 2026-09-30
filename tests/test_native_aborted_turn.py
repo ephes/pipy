@@ -40,12 +40,14 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     provider_replay_messages,
 )
+from pipy_harness.native.agent.messages import AgentMessageUsage
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.request import (
     AgentProviderRequestSnapshot,
     snapshot_provider_request,
 )
 from pipy_harness.native.agent.results import AgentFailure, AgentTurnOutcome
+from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.agent_loop_policy import materialize_provider_request
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
@@ -65,6 +67,10 @@ from pipy_harness.native.providers.google_generate_content_wire import (
 from pipy_harness.native.providers.openai_responses_wire import responses_input
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.session_tree_commands import entry_preview
+
+# Every Pi assistant message carries ``usage`` (USAGE1); these carry none.
+ZERO_USAGE = usage_to_json(AgentMessageUsage())
+
 
 PARTIAL = "PARTIAL-ABORTED-TEXT"
 FAILED_PARTIAL = "PARTIAL-FAILED-TEXT"
@@ -425,6 +431,10 @@ def test_session_persists_the_abort_and_the_next_request_skips_it(
     assert ends[0]["message"] == {
         "role": "assistant",
         "content": [{"type": "text", "text": PARTIAL}],
+        "provider": "f6-fixture",
+        "model": "fixture-model",
+        # An aborted turn has no usage yet (USAGE1).
+        "usage": ZERO_USAGE,
         "stopReason": "aborted",
     }
     agent_end = next(e for e in automation.events if e["type"] == "agent_end")

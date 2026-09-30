@@ -50,6 +50,7 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
     StaticNativeReplProviderState,
 )
+from pipy_harness.native.session_tree import NativeSessionTree
 
 
 def _catalog(
@@ -290,6 +291,7 @@ def _footer(tmp_path: Path, provider_state: object) -> _ChromeFooterEffects:
         error_stream=None,  # type: ignore[arg-type]
         footer=None,
         repl_runtime=_Runtime(),  # type: ignore[arg-type]
+        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
     )
 
 

@@ -122,14 +122,39 @@ def test_format_bottom_status_line_uses_pi_cache_labels() -> None:
         effort_label="high",
         tokens_in=212_000,
         tokens_out=11_000,
-        tokens_reasoning=15,
         tokens_cache_read=3_500_000,
         cache_hit_percent=99.0,
     )
     line = chrome.format_bottom_status_line(120, fields)
     assert line.startswith("↑212k ↓11k R3.5M CH99.0%")
-    assert "R15" not in line
     assert "$3.157 (sub) 40.8%/272k (auto)" in line
+
+
+def test_format_bottom_status_line_follows_pi_footer_parts() -> None:
+    """Pi footer.ts: each count only when non-zero, formatTokens, and CH only
+    with cache activity."""
+
+    def line(**tokens: object) -> str:
+        fields = chrome.BottomStatusFields(
+            cwd_label="",
+            cost_usd=0.0,
+            using_subscription=False,
+            context_used_pct=1.0,
+            context_budget_label="272k",
+            context_budget_suffix="auto",
+            provider_name="p",
+            model_id="m",
+            effort_label="",
+            **tokens,  # type: ignore[arg-type]
+        )
+        return chrome.format_bottom_status_line(120, fields)
+
+    assert line(tokens_out=12).startswith("↓12 1.0%")
+    assert line(tokens_in=11_500, tokens_out=2_000).startswith("↑12k ↓2.0k ")
+    assert line(tokens_in=10, cache_hit_percent=50.0).startswith("↑10 1.0%")
+    assert line(tokens_cache_write=5, cache_hit_percent=0.0).startswith("W5 CH0.0% ")
+    assert line(tokens_cache_read=5, cache_hit_percent=None).startswith("R5 1.0%")
+    assert line().startswith("1.0%/272k")
 
 
 def test_discover_loaded_resource_names_returns_local_and_global(

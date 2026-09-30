@@ -469,6 +469,26 @@ model shows `• <level>`, or `• thinking off` when the level is off or unset.
 non-reasoning model shows no segment. The old hard-coded `high`/`default`
 labels are gone.
 
+The footer's token and cost parts follow Pi's `footer.ts` (USAGE1). They sum
+the usage stored on every assistant message of the session file, so they keep
+their values after `pipy -r` and a `/model` switch. Each part appears only when
+it is non-zero: `↑` uncached input, `↓` output, `R` cache reads, `W` cache
+writes, then `CH<rate>%`, the latest message's cache hit rate, when the session
+has cache activity, then `$cost`. Counts use Pi's `formatTokens` (`1.5k`,
+`12k`, `3.5M`). The context meter is unchanged: it reads the live session's last
+response and estimates after a resume (Pi reads the last stored assistant
+usage; backlog USAGE1b).
+
+`/session` prints Pi's `Session Info` block: `Name` (when set), `File` (or
+`In-memory`), `ID`, the `Messages` counts (every message entry on every
+branch), `Tokens` (`Input` is the whole prompt, split into `Cached` with the hit
+rate and `Uncached` with the cache writes when there is cache activity;
+`Output`; `Total`) and, when there is a cost or re-billed cache, `Cost`: the
+total, one line per `provider/model` (unless the only line is the selected
+model) and `Cache Re-billed` (Pi `computeCacheWaste`). Pi's `Cache Warming`
+section is left out because pipy has no cache warming. The block is plain
+text; Pi styles its headings.
+
 Deviations: the selector has no fuzzy search box, and `/thinking` has no
 argument completion. Pipy's selectors and slash commands have neither yet.
 

@@ -306,6 +306,7 @@ _CODING_STATE_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentAssistantMessage",
         "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.messages.AgentMessageUsage",
         "pipy_harness.native.agent.messages.AgentStopReason",
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
@@ -639,6 +640,9 @@ _AGENT_USAGE_ALLOWED_DIRECT_IMPORTS = frozenset(
         "dataclasses.dataclass",
         "math",
         "math.isfinite",
+        "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentMessageUsage",
+        "pipy_harness.native.agent.messages.AgentUsageCost",
         "pipy_harness.native.agent.results",
         "pipy_harness.native.agent.results.AgentUsage",
     }

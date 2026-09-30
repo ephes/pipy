@@ -24,7 +24,6 @@ from pipy_harness.native.session_tree_commands import (
     BranchSummarySelectionResult,
     TreeCommandOutcome,
     apply_tree_selection,
-    format_session_status,
     handle_tree_command,
     list_native_sessions,
     render_tree_lines,
@@ -145,14 +144,6 @@ def test_render_tree_lines_marks_active_path(tmp_path: Path) -> None:
     assert "MAIN" in text
     # The active leaf path is marked.
     assert any("*" in line for line in lines)
-
-
-def test_format_session_status_reports_safe_fields(tmp_path: Path) -> None:
-    tree = _seed(tmp_path)
-    tree.append_session_info("conformance-tree")
-    status = format_session_status(tree)
-    assert "conformance-tree" in status
-    assert tree.session_id[:8] in status
 
 
 def test_resolve_startup_session_modes(tmp_path: Path) -> None:

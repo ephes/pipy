@@ -30,7 +30,11 @@ from pipy_harness.native.agent.events import (
     RetryCompleted,
     RetryScheduled,
 )
-from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentStopReason
+from pipy_harness.native.agent.messages import (
+    AgentAssistantMessage,
+    AgentMessageUsage,
+    AgentStopReason,
+)
 from pipy_harness.native.agent.provider_retry import (
     ProviderManagedRetryPolicy,
     is_context_overflow_error_text,
@@ -42,6 +46,7 @@ from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentUsageAccumulator,
 )
+from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.coding.session import CodingSession
@@ -58,6 +63,9 @@ from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.rendering import RenderingAgentEventAdapter
 from pipy_harness.native.ui.screen import ScreenRenderInputs
 from pipy_harness.native.ui.state import FinishRetry, ScheduleRetry, UiState, reduce
+
+# Every Pi assistant message carries ``usage`` (USAGE1); these carry none.
+ZERO_USAGE = usage_to_json(AgentMessageUsage())
 
 
 def _failure(message: str) -> AgentFailure:
@@ -408,6 +416,7 @@ def test_automation_partial_restarts_after_a_scheduled_retry() -> None:
     assert emitted[3]["message"] == {
         "role": "assistant",
         "content": [{"type": "text", "text": "Full"}],
+        "usage": ZERO_USAGE,
         "stopReason": "stop",
     }
     assert emitted[4] == {"type": "auto_retry_end", "success": True, "attempt": 1}
@@ -439,8 +448,6 @@ def test_footer_context_does_not_jump_after_a_failed_turn(tmp_path: Path) -> Non
     snapshot = CodingSessionUsageSnapshot(
         usage=usage.agent_usage(),
         last_total_tokens=usage.last_total_tokens,
-        cache_hit_percent=None,
-        uncached_input_tokens=usage.uncached_input_tokens,
     )
     effects = object.__new__(_ChromeFooterEffects)
     budget = _context_budget_for("openai-codex", "gpt-5.5", declared_window=272_000)

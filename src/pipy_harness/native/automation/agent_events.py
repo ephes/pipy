@@ -15,6 +15,7 @@ from __future__ import annotations
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentEvent,
+    AgentMessageUsage,
     AgentRunCompleted,
     AgentRunStarted,
     AssistantReasoningDelta,
@@ -34,6 +35,7 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.native.automation.serialize import (
     parse_tool_arguments,
@@ -130,10 +132,12 @@ class AutomationAgentEventAdapter:
 
     def _project_assistant_delta(self, event: AssistantTextDelta) -> PiAutomationEvent:
         self._partial_text += event.delta.value
-        # Pi's streamed partial carries stopReason "stop" until message_end.
+        # Pi's streamed partial carries stopReason "stop" until message_end,
+        # and a usage object; pipy's usage arrives with the finished response.
         partial = {
             "role": "assistant",
             "content": [{"type": "text", "text": self._partial_text}],
+            "usage": usage_to_json(AgentMessageUsage()),
             "stopReason": "stop",
         }
         return {

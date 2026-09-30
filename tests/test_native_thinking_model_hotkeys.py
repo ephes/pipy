@@ -85,6 +85,7 @@ def _footer(
         error_stream=io.StringIO(),
         footer=None,
         repl_runtime=_Runtime(),
+        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
     )
 
 

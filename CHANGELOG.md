@@ -25,6 +25,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Session cost and token totals are kept (USAGE1, Pi `1b347794e`). Every
+  assistant message now stores its usage (uncached input, output, cache reads
+  and writes, total tokens and the cost per part, priced from the model's
+  catalog row) and the provider and model that answered. The footer, `/session`
+  and `--mode rpc` `get_session_stats` sum the stored messages of the whole
+  session, every branch included, so the totals no longer reset on `pipy -r` or
+  a `/model` switch. The footer shows Pi's parts: `↑` is uncached input, each
+  count appears only when non-zero, `CH` is the latest response's cache hit
+  rate, and counts use Pi's format (`12k`). `/session` prints Pi's
+  `Session Info` block with message counts, tokens (cached and uncached input)
+  and a `Cost` section with a per-model breakdown and re-billed cache.
+  `--mode json`/`--mode rpc` assistant messages carry Pi's `usage` object and
+  `provider`/`model`. Sessions stored before this change load unchanged and
+  count as zero.
 - An aborted or failed turn is no longer lost (DF1-F6, Pi `4df157433`). The
   assistant message is kept with the text streamed so far and a stop reason
   (`aborted`, or `error` with its message), stored in the session and shown

@@ -82,7 +82,7 @@ from pipy_harness.native.repl.reload import ImplicitTrustState, ReloadCommandEff
 from pipy_harness.native.repl.session_commands import SessionCommandEffects
 from pipy_harness.native.repl.session_transfer import TransferCommandEffects
 from pipy_harness.native.repl.session_transition import ProductSessionTransitionResult
-from pipy_harness.native.repl.turn_leaves import provider_turn_inputs
+from pipy_harness.native.repl.turn_leaves import pricing_for, provider_turn_inputs
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
@@ -281,7 +281,20 @@ class SessionCollaborators:
             current_session_dir=self.current_session_dir,
             resolve_session_file=self.resolve_session_file,
             summarize_branch=self.select_with_branch_summary,
+            selected_model=self.selected_model,
+            cache_read_rate=self.cache_read_rate,
         )
+
+    def selected_model(self) -> tuple[str, str]:
+        """The live ``(provider, model)`` selection (Pi ``session.model``)."""
+
+        return self.coding_state.provider_name, self.coding_state.model_id
+
+    def cache_read_rate(self, provider: str, model: str) -> float:
+        """The row's cache-read price in $/M tokens; 0 without a row."""
+
+        pricing = pricing_for(self.provider_state, provider, model)
+        return 0.0 if pricing is None else pricing.cache_read_per_million
 
     def provider_configuration_command_effects(
         self,

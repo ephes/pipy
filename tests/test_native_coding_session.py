@@ -520,6 +520,7 @@ def test_footer_paths_read_constant_time_state_scalars(
         error_stream=io.StringIO(),
         footer=None,
         repl_runtime=cast(Any, None),
+        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
     )
     monkeypatch.setattr(chrome, "chrome_width", lambda _stream: 120)
     footer = footer_effects._footer_text(
@@ -577,6 +578,8 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         "extension_session_allows",
         "rebuild_messages_from_tree",
         "render_active_branch",
+        "selected_model",
+        "cache_read_rate",
         "sync_session_settings",
         "new_transition",
         "resume_transition",
