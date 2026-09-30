@@ -637,10 +637,15 @@ def test_shared_preparation_matches_stream_prompt_and_lifetime(
     ) is load_instructions
     assert ("PREPARATION_PRIVATE_SYSTEM" in context.system_prompt) is (trusted is True)
     assert "PREPARATION_PRIVATE_APPEND" in context.system_prompt
-    assert ("<name>project-skill</name>" in context.system_prompt) is (
-        trusted is True and read_visible
+    # Pi advertises skills with `read`, or with `bash` when `read` is hidden.
+    assert ("<name>project-skill</name>" in context.system_prompt) is (trusted is True)
+    assert "<name>explicit-skill</name>" in context.system_prompt
+    assert (
+        "Use the read tool to load a skill's file" in context.system_prompt
+    ) is read_visible
+    assert ("Use bash to load a skill's file" in context.system_prompt) is (
+        not read_visible
     )
-    assert ("<name>explicit-skill</name>" in context.system_prompt) is read_visible
     # READ2: no reference roots; the pipy-only system-prompt block is gone.
     assert "Reference roots" not in context.system_prompt
     assert context.settings.get_compaction_enabled() is (trusted is not True)

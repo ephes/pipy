@@ -16,11 +16,9 @@ The helpers mirror the conventions pinned by
 missing files never raise, per-file body loads are bounded with a
 deterministic marker, and the global root resolves through the shared
 config-home chain (`PIPY_CONFIG_HOME`, `${XDG_CONFIG_HOME}/pipy`, `~/.pipy`
-when present, `~/.config/pipy`). Skill roots follow symlinks like Pi. The flat
-template and command stores keep pipy's containment guard: the store must not
-be a symlink and a file symlink must resolve inside it.
+when present, `~/.config/pipy`). Every store follows symlinks like Pi.
 
-Safety policy (in addition to byte caps and flat-store containment):
+Safety policy (in addition to byte caps):
 candidate files are skipped silently when the filename looks secret
 (`pipy_harness.capture.looks_sensitive`), when the loaded head bytes
 contain a NUL byte (binary content), or when the bare filename is a
@@ -99,6 +97,7 @@ class _RawResourceFile:
     byte_length: int
     truncated: bool
     absolute_path: Path
+    disable_model_invocation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +122,7 @@ class _LoadedResourceCandidate:
     byte_length: int
     head: bytes
     truncated: bool
+    disable_model_invocation: bool = False
 
 
 def resolve_global_resource_root(
@@ -176,9 +176,10 @@ def discover_resource_files(
     example, `skills` or `templates`). `global_subdir` is the path relative to
     the global resource root. `package_roots` lists concrete `PackageRoot`s
     contributed by installed local-path or managed git packages; they are
-    searched after the workspace and global dirs. `explicit_paths` are per-run
-    CLI paths (files or directories) searched before the defaults so an explicit
-    CLI resource wins a name collision. When `include_defaults` is false,
+    searched first, before the workspace and global dirs. `explicit_paths` are
+    per-run CLI paths (files or directories) searched last, as Pi merges
+    `--skill`/`--prompt-template` paths after its resolved resources, so a
+    default resource wins a name collision. When `include_defaults` is false,
     workspace/global/package discovery is skipped but explicit paths still load,
     matching Pi's
     `--no-skills`/`--no-prompt-templates` behavior. Each package root may carry
@@ -194,18 +195,16 @@ def discover_resource_files(
     - Package dirs are the explicit `package_roots`, in order.
     - Both dirs are stat-globbed for `*.md` files one level deep; no
       recursion.
-    - Workspace files come first in the returned list, then global
-      files. Within each source the iteration order is sorted by file
-      name so the result is deterministic.
+    - Package files come first in the returned list, then workspace,
+      global and CLI files. Within each source the iteration order is
+      sorted by file name so the result is deterministic.
     - Results are deduplicated by canonical (`Path.resolve()`) path.
       The first occurrence wins.
     - Each file loads at most `per_file_byte_cap` bytes into its body;
       a longer file is truncated with a deterministic marker and
       `truncated=True`. `byte_length` and `sha256` always describe the
       on-disk file, with hashing streamed in bounded chunks.
-    - Skill roots follow symlinks like Pi. In the flat stores a symlink must
-      resolve inside the source directory it was found in; one that escapes
-      is skipped silently.
+    - Every store follows symlinks like Pi.
     - Candidate files are skipped silently when the filename looks
       secret, when the loaded head bytes are binary (contain a NUL
       byte), or when the bare filename is a generated/ignored artifact.
@@ -287,6 +286,20 @@ def discover_resource_files(
     return raw_files, cap_reached
 
 
+def read_resource_body(path: Path) -> str | None:
+    """A resource file's text without its frontmatter, or ``None`` if unreadable.
+
+    Pi's `_expandSkillCommand` reads the skill file again at invocation
+    (`stripFrontmatter(readFileSync(...))`), not the body loaded at discovery.
+    """
+
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _parse_frontmatter(content, fallback_name=path.stem).body
+
+
 def _validate_resource_byte_caps(per_file_byte_cap: int, total_byte_cap: int) -> None:
     if per_file_byte_cap < 1:
         raise ValueError(f"per_file_byte_cap must be >= 1; got {per_file_byte_cap}")
@@ -307,9 +320,46 @@ def _assemble_resource_sources(
     include_global_defaults: bool,
     include_package_defaults: bool,
 ) -> list[_ResourceSource]:
-    """Assemble CLI and default sources in their first-wins search order."""
+    """Assemble the sources in Pi's first-wins search order.
+
+    Pi `resource-loader.ts` merges the package manager's resources (packages,
+    then the auto roots, project before user) before the `--skill` /
+    `--prompt-template` paths (`additionalSkillPaths`, merged last), and the
+    loaders keep the first resource of a name.
+    """
 
     sources: list[_ResourceSource] = []
+    if include_defaults and include_package_defaults:
+        sources.extend(
+            _ResourceSource(
+                path=root.path,
+                kind="package",
+                ignore_root=root.path,
+                package_filters=tuple(root.filters),
+                explicit_file=False,
+            )
+            for root in package_roots
+        )
+    if include_defaults and include_workspace_defaults:
+        sources.append(
+            _ResourceSource(
+                path=(resolved_workspace / WORKSPACE_PIPY_DIR_NAME / workspace_subdir),
+                kind="workspace",
+                ignore_root=resolved_workspace,
+                package_filters=(),
+                explicit_file=False,
+            )
+        )
+    if include_defaults and include_global_defaults:
+        sources.append(
+            _ResourceSource(
+                path=global_root / global_subdir,
+                kind="global",
+                ignore_root=global_root,
+                package_filters=(),
+                explicit_file=False,
+            )
+        )
     for explicit in explicit_paths:
         path = explicit.expanduser()
         if not path.is_absolute():
@@ -323,40 +373,6 @@ def _assemble_resource_sources(
                 package_filters=(),
                 explicit_file=explicit_file,
             )
-        )
-    if not include_defaults:
-        return sources
-
-    if include_workspace_defaults:
-        sources.append(
-            _ResourceSource(
-                path=(resolved_workspace / WORKSPACE_PIPY_DIR_NAME / workspace_subdir),
-                kind="workspace",
-                ignore_root=resolved_workspace,
-                package_filters=(),
-                explicit_file=False,
-            )
-        )
-    if include_global_defaults:
-        sources.append(
-            _ResourceSource(
-                path=global_root / global_subdir,
-                kind="global",
-                ignore_root=global_root,
-                package_filters=(),
-                explicit_file=False,
-            )
-        )
-    if include_package_defaults:
-        sources.extend(
-            _ResourceSource(
-                path=root.path,
-                kind="package",
-                ignore_root=root.path,
-                package_filters=tuple(root.filters),
-                explicit_file=False,
-            )
-            for root in package_roots
         )
     return sources
 
@@ -472,26 +488,13 @@ def _screen_resource_candidates(
     source: _ResourceSource,
     seen_paths: set[Path],
 ) -> Iterator[tuple[Path, Path]]:
-    """Resolve candidates and enforce filename safety (and flat containment).
+    """Resolve candidates and enforce filename safety.
 
-    Skill layouts ("pi"/"agents") follow symlinks like Pi `collectSkillEntries`
-    and `loadSkills`: a symlinked root, skill directory, or skill file loads
-    from wherever it points. The flat template/command stores keep pipy's
-    containment guard: the store must not be a symlink and a file symlink must
-    resolve inside it.
+    Every store follows symlinks like Pi: skill layouts ("pi"/"agents") like
+    `collectSkillEntries`/`loadSkills`, and the flat template/command stores
+    like `loadTemplatesFromDir`, which stats a symlinked file wherever it
+    points.
     """
-
-    contained = source.layout == "flat"
-    try:
-        if contained and source.path.is_symlink() and not source.explicit_file:
-            return
-        containment_root = (
-            source.path.parent.expanduser().resolve()
-            if source.explicit_file
-            else source.path.expanduser().resolve()
-        )
-    except OSError:
-        return
 
     if source.explicit_file:
         candidates = [source.path]
@@ -502,9 +505,7 @@ def _screen_resource_candidates(
     for candidate in candidates:
         try:
             resolved_candidate = candidate.resolve()
-            if contained:
-                resolved_candidate.relative_to(containment_root)
-        except (OSError, ValueError):
+        except OSError:
             continue
         if resolved_candidate in seen_paths:
             continue
@@ -534,13 +535,15 @@ def _load_resource_candidate(
     content = head.decode("utf-8", errors="replace")
     if truncated:
         content += PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
-    # Pi `loadSkillFromFile` names a `SKILL.md` after its directory.
-    fallback_name = (
-        candidate.parent.name
-        if skill_discovery and candidate.name == SKILL_FILE_NAME
-        else candidate.stem
+    # Pi `loadSkillFromFile` names a skill without a frontmatter `name` after
+    # its directory, a `SKILL.md` and a plain `.md` file alike.
+    fallback_name = candidate.parent.name if skill_discovery else candidate.stem
+    frontmatter = _parse_frontmatter(content, fallback_name=fallback_name)
+    name, description, body = (
+        frontmatter.name,
+        frontmatter.description,
+        frontmatter.body,
     )
-    name, description, body = _parse_frontmatter(content, fallback_name=fallback_name)
     return _LoadedResourceCandidate(
         candidate=candidate,
         resolved_path=resolved_candidate,
@@ -550,6 +553,7 @@ def _load_resource_candidate(
         byte_length=byte_length,
         head=head,
         truncated=truncated,
+        disable_model_invocation=frontmatter.disable_model_invocation,
     )
 
 
@@ -596,6 +600,7 @@ def _materialize_resource_candidate(
         byte_length=loaded.byte_length,
         truncated=loaded.truncated,
         absolute_path=loaded.resolved_path,
+        disable_model_invocation=loaded.disable_model_invocation,
     )
 
 
@@ -905,17 +910,31 @@ _LABEL_PREFIXES: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _Frontmatter:
+    name: str
+    description: str
+    body: str
+    disable_model_invocation: bool = False
+
+
+# YAML 1.2 core-schema booleans (Pi parses frontmatter with `yaml`); a quoted
+# "true" is a string and does not disable model invocation.
+_YAML_TRUE: frozenset[str] = frozenset({"true", "True", "TRUE"})
+
+
 def _parse_frontmatter(
     content: str,
     *,
     fallback_name: str,
-) -> tuple[str, str, str]:
-    """Return `(name, description, body)` extracted from `content`.
+) -> _Frontmatter:
+    """Return the name, description, body and flags extracted from `content`.
 
     The frontmatter is the block delimited by a leading line equal to
     `---` and a trailing line equal to `---`. Only `key: value` lines
     are honored; everything else inside the block is ignored. The
-    parser recognizes only `name` and `description`. When no
+    parser recognizes `name`, `description` and Pi's boolean
+    `disable-model-invocation`. When no
     frontmatter is present, the body is the full content,
     `name` falls back to `fallback_name`, and `description` is empty.
 
@@ -927,15 +946,45 @@ def _parse_frontmatter(
     fallback_name = _sanitize_label(fallback_name) or fallback_name
     lines = content.splitlines(keepends=False)
     if not lines or lines[0].rstrip("\r") != "---":
-        return fallback_name, "", content
+        return _Frontmatter(fallback_name, "", content)
     end_index = _frontmatter_end_index(lines)
     if end_index is None:
-        return fallback_name, "", content
-    name, description = _parse_frontmatter_fields(
-        lines[1:end_index], fallback_name=fallback_name
-    )
+        return _Frontmatter(fallback_name, "", content)
+    fields = _frontmatter_top_level_fields(lines[1:end_index])
+    name, description = _parse_frontmatter_fields(fields, fallback_name=fallback_name)
     body = _reconstruct_frontmatter_body(content, lines[end_index + 1 :])
-    return name, description, body
+    disabled = _yaml_flag_is_true(lines[1:end_index], "disable-model-invocation")
+    return _Frontmatter(name, description, body, disabled)
+
+
+def _yaml_flag_is_true(lines: list[str], key: str) -> bool:
+    """Whether top-level ``key`` is the YAML boolean ``true`` (the last one wins).
+
+    A plain scalar may continue on indented lines; a block scalar (``|``/``>``)
+    or a quoted value is a string, so it never counts.
+    """
+
+    value: bool = False
+    for index, raw_line in enumerate(lines):
+        line = raw_line.rstrip("\r")
+        if line[:1] in (" ", "\t") or ":" not in line:
+            continue
+        name, _, rest = line.partition(":")
+        if name.strip().lower() != key:
+            continue
+        rest = _TRAILING_COMMENT.sub("", rest.strip())
+        parts = [rest] if rest else []
+        # The plain scalar continues on indented lines, across blank and
+        # comment-only ones.
+        for follow in lines[index + 1 :]:
+            follow = follow.rstrip("\r")
+            if not follow.strip() or follow.lstrip().startswith("#"):
+                continue
+            if follow[:1] not in (" ", "\t"):
+                break
+            parts.append(_TRAILING_COMMENT.sub("", follow.strip()))
+        value = " ".join(parts) in _YAML_TRUE
+    return value
 
 
 def _frontmatter_end_index(lines: list[str]) -> int | None:
@@ -946,7 +995,7 @@ def _frontmatter_end_index(lines: list[str]) -> int | None:
 
 
 def _parse_frontmatter_fields(
-    lines: list[str],
+    top_level_fields: list[tuple[str, str]],
     *,
     fallback_name: str,
 ) -> tuple[str, str]:
@@ -960,7 +1009,7 @@ def _parse_frontmatter_fields(
     """
 
     fields: dict[str, str] = {}
-    for key, value in _frontmatter_top_level_fields(lines):
+    for key, value in top_level_fields:
         if key in ("name", "description"):
             fields[key] = _sanitize_label(_unquote(value))
     name = fields.get("name") or fallback_name

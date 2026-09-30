@@ -28,17 +28,15 @@ def tool_loop_command_names(
 ) -> tuple[str, ...]:
     """Tool-loop slash-menu command set, honest to what can execute.
 
-    The static built-in set is augmented with the ``/skill`` resource
-    entry point (which always at least lists), every discovered prompt
+    The static built-in set is augmented with every discovered prompt
     template registered as its own ``/<name>`` command (Pi shape), every
-    discovered, non-reserved custom ``/<name>`` command, and any activated
-    extension ``/<name>`` commands (appended last, never shadowing a
-    built-in or custom command).
+    discovered, non-reserved custom ``/<name>`` command, any activated
+    extension ``/<name>`` commands (never shadowing a built-in or custom
+    command), then Pi's ``/skill:<name>`` commands when skill commands are
+    enabled (Pi lists them after the extension commands).
     """
 
     names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
-    insert_at = (names.index("/model") + 1) if "/model" in names else len(names)
-    names[insert_at:insert_at] = ["/skill"]
     for slash_name in resources.template_slash_names():
         if slash_name not in names:
             names.append(slash_name)
@@ -46,6 +44,9 @@ def tool_loop_command_names(
         if slash_name not in names:
             names.append(slash_name)
     for slash_name in extension_command_names:
+        if slash_name not in names:
+            names.append(slash_name)
+    for slash_name in resources.skill_slash_names():
         if slash_name not in names:
             names.append(slash_name)
     return tuple(names)
@@ -67,7 +68,7 @@ def tool_loop_command_descriptions(
     description, matching what runs.
     """
 
-    descriptions: dict[str, str] = {}
+    descriptions: dict[str, str] = resources.skill_descriptions()
     if extension_descriptions:
         descriptions.update(extension_descriptions)
     descriptions.update(resources.custom_command_descriptions())

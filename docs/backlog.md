@@ -217,7 +217,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     condensed list that Ctrl+O expands.
   - `!` rows keep pipy's boxed style; Pi's `BashExecutionComponent` draws
     `bashMode` borders and a bold `$ command`.
-  - The expanded compaction and branch summaries are not Markdown-rendered.
+  - The expanded compaction and branch summaries and the expanded `[skill]`
+    box are not Markdown-rendered (Pi renders them with `Markdown`).
   - pipy compacts before sending a prompt, so an automatic `[compaction]` row
     comes before that prompt's answer; Pi compacts after the answer (or
     after an overflow error) and draws the row after it.
@@ -254,8 +255,6 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   Anthropic mid-conversation effort (`supportsMidConvoEffort`,
   `providerThinkingLevel`, `output_config` system messages, `block_binding`,
   the two betas). Still to port from Pi:
-  - the `tools`/`rules`/`docs` sections (tool prompt snippets and
-    guidelines; with the "Skills and prompt" follow-on);
   - tool `strict` fields; Anthropic's other betas (fine-grained tool
     streaming, interleaved thinking, server-side fallback) and temperature;
   - OpenRouter Claude rows over the native Messages API (`4e69b0c28`), which
@@ -289,11 +288,33 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   ("Sign in with ChatGPT" / "Sign in with an API key") or API-key dialog, and
   Pi's `PI_OAUTH_CALLBACK_HOST` is honoured only by this flow, not by the
   Codex login.
-- **Skills and prompt:** template and command stores keep the symlink guard; a
-  plain `.md` skill keeps its file stem; package skills load after the auto
-  roots; not ported: `disable-model-invocation`, the bash-only skill
-  advertisement and Pi's `<tools>`/`<rules>`/`<docs>` prompt sections
-  (`<cwd>` shipped with SYS1b).
+- **Skills and prompt:** done 2026-09-30 on branch
+  `feat/prompt-sections-skills`
+  ([plan](specs/2026-09-30-prompt-sections-skills-plan.md)): Pi's default
+  prompt with its `tools`/`rules`/`docs` sections (rebuilt for each run's
+  active tools, pinned against Pi's output under Node),
+  `disable-model-invocation`, the bash skill advertisement, `/skill:name`
+  with Pi's skill block and its `[skill]` box, `.md` skill naming, Pi's
+  package-first / CLI-last resource order and symlinked templates and
+  commands. Left for later slices:
+  - skill and prompt-template discovery still skips secret-shaped,
+    generated and binary files and stops at pipy's 64 KiB per-file /
+    256 KiB total caps; Pi's loaders have none of these screens;
+  - Pi's bash guideline names `PI_*` session environment variables that
+    pipy's bash tool does not set (pipy acts as Pi with
+    `exposeSessionEnvironment: false`);
+  - extension tools have no `promptSnippet`/`promptGuidelines`, and
+    `before_agent_start` gets no `systemPromptOptions`;
+  - Pi also refreshes the sections before each turn inside a run; pipy
+    rebuilds them per run;
+  - `/reload` rebuilds the `skills` section, but the `project_context` and
+    `addendum` sections keep the session-start files (Pi's
+    `_rebuildSystemPrompt` re-reads both);
+  - package extensions and themes still load at the lowest precedence (Pi
+    resolves package resources before the auto roots for every kind);
+  - settings `skills`/`prompts` path entries; the wheel does not ship the
+    README and docs the `docs` section names; skill descriptions are cut at
+    256 characters and `<location>` is the resolved path.
 - **Timing display:** response time and tok/s (tau `7b96883`) and tau's
   reactive model/thinking preview stay pipy product decisions; Pi has neither.
 - **Repo hygiene:** done 2026-09-29. The three merged remote branches were

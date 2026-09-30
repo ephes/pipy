@@ -442,16 +442,18 @@ def _runtime_composition_checks(base: Path) -> list[Check]:
             )
         )
 
-        # Deterministic precedence: workspace `dup` wins over the package `dup`.
+        # Deterministic precedence: Pi resolves package resources before the
+        # auto roots, so the package `dup` wins over the workspace `dup`.
         dup_skills = [s for s in resources.skills if s.name == "dup"]
         first_dup = dup_skills[0] if dup_skills else None
         checks.append(
             Check(
                 "deterministic_precedence",
                 first_dup is not None
-                and "WORKSPACE-DUP-BODY" in first_dup.body
-                and not first_dup.path_label.startswith("<package>/"),
-                "a workspace resource wins a name collision with a package one",
+                and "PACKAGE-DUP-BODY" in first_dup.body
+                and first_dup.path_label.startswith("<package>/")
+                and len(dup_skills) == 1,
+                "a package resource wins a name collision with a workspace one (Pi)",
             )
         )
 

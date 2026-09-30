@@ -275,10 +275,9 @@ class ReplLoopScope:
     settings: SettingsManager
     cwd: Path
     started_at: datetime
-    base_system_prompt: str
-    # Pi's tagged sections ``base_system_prompt`` renders (the transcript
-    # records them).
-    base_system_sections: tuple[tuple[str, str], ...]
+    # Pi's tagged prompt sections for the next run (the transcript records
+    # them; Pi rebuilds them for the active tools before a request).
+    system_sections: Callable[[], tuple[tuple[str, str], ...]]
     abort_event: "threading.Event | _AbortCallbackSignal | None"
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
     tool_budget: int

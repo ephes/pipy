@@ -76,9 +76,13 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
-from pipy_harness.native.session import NATIVE_TOOL_LOOP_SYSTEM_PROMPT
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
+from pipy_harness.native.system_prompt_sections import (
+    BUILTIN_TOOL_PROMPTS,
+    SystemPromptTemplate,
+    render_system_prompt,
+)
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import (
@@ -1228,21 +1232,30 @@ def test_production_tool_inventories_match_exact_pi_manifest() -> None:
         "edit",
         "bash",
     )
-    prompt_tool_section = NATIVE_TOOL_LOOP_SYSTEM_PROMPT.split(
-        "Available tools:\n", maxsplit=1
-    )[1].split("\n\n", maxsplit=1)[0]
+    sections = dict(SystemPromptTemplate(cwd="/w").sections(tuple(registry)))
+    prompt_tool_section = sections["tools"].split("\n\n", maxsplit=1)[0]
     prompt_names = tuple(
-        name
+        line.removeprefix("<tools>\n").removeprefix("- ").split(":", maxsplit=1)[0]
         for line in prompt_tool_section.splitlines()
-        for name in line.removeprefix("- ").split(":", maxsplit=1)[0].split("/")
     )
+    prompt = render_system_prompt(tuple(sections.items()))
 
     assert tuple(registry) == expected
     assert tuple(tool.definition.name for tool in registry.values()) == expected
     assert extension_reserved_tool_names() == expected
-    assert prompt_names == expected
-    assert "edit_diff" not in NATIVE_TOOL_LOOP_SYSTEM_PROMPT
-    assert "truncate" not in NATIVE_TOOL_LOOP_SYSTEM_PROMPT
+    assert tuple(BUILTIN_TOOL_PROMPTS) == (
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls",
+    )
+    assert set(BUILTIN_TOOL_PROMPTS) == set(expected)
+    assert prompt_names == ("<tools>", *expected)
+    assert "edit_diff" not in prompt
+    assert "truncate" not in prompt
 
 
 @pytest.mark.parametrize("removed_name", ["truncate", "edit_diff"])

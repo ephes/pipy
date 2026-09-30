@@ -90,7 +90,7 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
-from pipy_harness.native.resources import DISPATCH_LIST, dispatch_resource_command
+from pipy_harness.native.resources import dispatch_resource_command
 from pipy_harness.native.session_generation import SessionGenerationSnapshot
 from pipy_harness.native.session_tree import (
     NativeSessionTree,
@@ -680,10 +680,6 @@ class SessionCollaborators:
         )
         if resource_dispatch is None:
             return None
-        if resource_dispatch.kind == DISPATCH_LIST:
-            return ResourceDispatchResolution(
-                ResourceDispatchKind.LIST, resource_dispatch.message
-            )
         if resource_dispatch.is_reject:
             return ResourceDispatchResolution(
                 ResourceDispatchKind.REJECT, resource_dispatch.message

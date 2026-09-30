@@ -11,7 +11,7 @@ import io
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -189,7 +189,12 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
 )
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.system_prompt_sections import sections_for_prompt
+from pipy_harness.native.system_prompt_sections import (
+    SystemPromptSections,
+    SystemPromptSource,
+    SystemPromptTemplate,
+    sections_for_prompt,
+)
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
@@ -209,6 +214,27 @@ from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRend
 from pipy_harness.native.version_check import pipy_version
 
 
+def _system_sections_source(
+    source: SystemPromptSource,
+    fixed: SystemPromptSections,
+    tool_capabilities: NativeToolCapabilities,
+    ctl: RunControlState,
+) -> Callable[[], SystemPromptSections]:
+    """Each run's prompt sections (Pi rebuilds them for the active tools).
+
+    A template renders for the live active tool names and the session's
+    current skills, so an extension `set_active_tools` or a `/reload` changes
+    the next run's `tools`/`rules`/`skills` sections (Pi `_rebuildSystemPrompt`);
+    fixed sections (a caller that passed only a prompt) stay as given.
+    """
+
+    if isinstance(source, SystemPromptTemplate):
+        return lambda: replace(source, skills=ctl.workspace_resources.skills).sections(
+            tuple(definition.name for definition in tool_capabilities.definitions())
+        )
+    return lambda: fixed
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SessionWiringInput:
     candidate: _ExtensionCandidate
@@ -217,7 +243,7 @@ class SessionWiringInput:
     output_stream: TextIO
     error_stream: TextIO
     system_prompt: str
-    system_prompt_sections: tuple[tuple[str, str], ...]
+    system_prompt_sections: SystemPromptSource
     provider_name: str | None
     model_id: str | None
     build_terminal_ui: Callable[..., TerminalUi | None]
@@ -544,8 +570,7 @@ class _ProductPhase:
     prompt_history_store: PromptHistoryStore
     renderer: _ToolLoopRenderer | TuiToolLoopRenderer
     started_at: datetime
-    base_system_prompt: str
-    base_system_sections: tuple[tuple[str, str], ...]
+    base_system_sections: SystemPromptSections
     ctl: RunControlState
     product_session: CodingProductSessionCoordinator
     append_agent_message: Callable[[AgentTranscriptMessage], None]
@@ -1143,10 +1168,6 @@ def _compose_product_session(
     # from a ``/tree`` user-message selection back into the next prompt
     # (rehydrated editor in the live TUI). ``ctl.tree_filter_mode`` is the
     # active ``/tree`` filter; both are seeded in the ``ctl`` constructor.
-    # Mutable safe summary suffix appended to the system prompt after a
-    # /compact or auto-compaction; the base system prompt itself is never
-    # mutated. base_system_prompt already carries any resume seed block.
-    base_system_prompt = system_prompt
 
     def append_agent_message(message: AgentTranscriptMessage) -> None:
         # Keep guarded live acceptance and its selected-tree append in one
@@ -1172,9 +1193,10 @@ def _compose_product_session(
         prompt_history_store=prompt_history_store,
         renderer=renderer,
         started_at=started_at,
-        base_system_prompt=base_system_prompt,
-        base_system_sections=sections_for_prompt(
-            system_prompt, inputs.system_prompt_sections
+        base_system_sections=(
+            ()
+            if isinstance(inputs.system_prompt_sections, SystemPromptTemplate)
+            else sections_for_prompt(system_prompt, inputs.system_prompt_sections)
         ),
         ctl=ctl,
         product_session=product_session,
@@ -1854,7 +1876,6 @@ def _assemble_session_wiring(
     started_at = product.started_at
     prompt_history_store = product.prompt_history_store
     append_agent_message = product.append_agent_message
-    base_system_prompt = product.base_system_prompt
     emitter = runtime.emitter
     usage_publisher = runtime.usage_publisher
     input_queued_input_port = runtime.input_queued_input_port
@@ -1919,8 +1940,12 @@ def _assemble_session_wiring(
         settings=settings,
         cwd=cwd,
         started_at=started_at,
-        base_system_prompt=base_system_prompt,
-        base_system_sections=product.base_system_sections,
+        system_sections=_system_sections_source(
+            inputs.system_prompt_sections,
+            product.base_system_sections,
+            extension.tool_capabilities,
+            ctl,
+        ),
         abort_event=_runtime_abort_event(inputs, loop_controller),
         provider_state=inputs.provider_state,
         tool_budget=inputs.tool_budget,

@@ -229,7 +229,7 @@ def test_pty_unsafe_resource_is_rejected_without_provider_turn(
     _seed_command(tmp_path)
 
     def interact(in_master: int, err_chunks: list[bytes]) -> None:
-        os.write(in_master, b"/skill nope\n")
+        os.write(in_master, b"/skill:nope\n")
         assert (
             wait_for_input_ready_after(err_chunks, "no skill named 'nope'") is not None
         ), "rejection did not return to ready input"

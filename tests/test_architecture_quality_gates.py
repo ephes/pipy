@@ -114,7 +114,7 @@ _SIZE_RATCHET = {
 # Nothing else under `native/` may quietly become the next god file while the
 # named two are being burned down. Set at today's largest non-ratcheted module
 # (`session.py`).
-_NATIVE_FILE_CEILING = 2488
+_NATIVE_FILE_CEILING = 2452
 
 
 def _line_count(path: Path) -> int:

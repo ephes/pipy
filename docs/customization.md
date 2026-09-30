@@ -53,11 +53,12 @@ extensions and `models.json` all use this one root. Pipy intentionally uses
 Symlinks in skill roots are followed like Pi: a skill directory or file
 symlinked into `~/.pipy/skills/`, `~/.agents/skills/` or a `--skill` path loads
 from wherever it points, and so does one in a trusted project's `.pipy/skills/`
-or `.agents/skills/`. The template and command stores still skip a symlink that
-points outside the store.
+or `.agents/skills/`. The template and command stores follow symlinks too.
 
-Workspace resources are discovered first, then global, then package resources at
-the lowest precedence.
+Skills and prompt templates are searched in Pi's order: package resources
+first, then workspace, then global, then the `--skill`/`--prompt-template`
+paths; the first of a name wins. Package extensions and themes still sit at the
+lowest precedence.
 
 ### Filtering and disabling resources
 
@@ -97,13 +98,18 @@ specialized workflow the model loads on demand. Pipy follows Pi's
 progressive-disclosure model: at startup, each discovered skill's **name and
 description** are advertised in the tool-loop system prompt (along with the
 skill's absolute location), and the model loads the full body on demand with the
-`read` tool. Only the descriptions stay in context; the bodies load when needed.
+`read` tool (or with `bash` when `read` is not active). Only the descriptions
+stay in context; the bodies load when needed. A skill whose frontmatter sets
+`disable-model-invocation: true` is left out of the system prompt and runs only
+through its `/skill:<name>` command.
 
 Pipy discovers skills in Pi's layout:
 
-- A directory that contains a `SKILL.md` is one skill. The skill is named after
-  the directory unless the frontmatter sets `name`. Pipy does not look inside
-  that directory for more skills.
+- A directory that contains a `SKILL.md` is one skill. Pipy does not look
+  inside that directory for more skills.
+- A skill is named after the directory holding its file unless the frontmatter
+  sets `name`. This holds for a plain `.md` skill too, as in Pi: an unnamed
+  `.pipy/skills/lint.md` is called `skills`, so give plain files a `name`.
 - Other directories are searched recursively. Entries whose names start with
   `.` are skipped, and so is `node_modules`.
 - Plain `*.md` files count as skills only in some places:
@@ -113,9 +119,14 @@ Pipy discovers skills in Pi's layout:
 - `.gitignore`, `.ignore` and `.fdignore` files inside a skills directory hide
   the entries they match.
 - A skill needs a non-empty `description`. Pipy skips a file without one.
+- When two skills share a name, the first one found wins. Pipy searches, like
+  Pi: installed packages, then `.pipy/skills/`, the project `.agents/skills/`
+  directories, `<root>/skills/`, `~/.agents/skills/`, and the `--skill` paths
+  last. Prompt templates use the same order (packages, project, global, then
+  `--prompt-template` paths).
 
-Add a skill as `.pipy/skills/<name>/SKILL.md` or `.pipy/skills/<name>.md` in your
-project, as `.agents/skills/<name>/SKILL.md` to share it with other agents, or as
+Add a skill as `.pipy/skills/<name>/SKILL.md` (or a `.pipy/skills/<name>.md`
+with a `name`) in your project, as `.agents/skills/<name>/SKILL.md` to share it with other agents, or as
 `<root>/skills/<name>/SKILL.md` globally:
 
 ```markdown
@@ -135,20 +146,23 @@ opens any path, so a skill body can also point at sibling files.
 
 ### Skill commands
 
-`/skill` lists the discovered skills (names and descriptions only). `/skill
-<name>` loads one immediately without a provider turn:
+Each skill is a `/skill:<name>` command, as in Pi. It reads the skill file
+again, and sends its body to the model inside a `<skill>` block, followed by any
+text you type after the name:
 
 ```text
-/skill                # list available skills
-/skill lint-fix       # load the lint-fix skill body
+/skill:lint-fix                    # run the lint-fix skill
+/skill:lint-fix only src/app.py    # the text after the name follows the skill
 ```
 
-Skill commands are registered when `enableSkillCommands` is `true` (the
-default); set it to `false` in `settings.json` to register no skill commands and
-list none.
+The TUI draws the block collapsed as `[skill] lint-fix (ctrl+o to expand)`;
+Ctrl+O shows the skill text, and the text you typed follows as your message. A
+resumed session draws it the same way.
 
-> Pipy uses `/skill <name>` (a single `/skill` command with an argument), where
-> Pi uses per-skill `/skill:name` commands. The capability is the same.
+The slash menu lists the skill commands, with their descriptions, when
+`enableSkillCommands` is `true` (the default). Setting it to `false` only hides
+them from the menu; the skills stay in the system prompt and a typed
+`/skill:<name>` still runs, as in Pi.
 
 ## Prompt templates
 

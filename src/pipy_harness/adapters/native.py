@@ -27,7 +27,6 @@ from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProvi
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session import (
-    NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
     NativeHarnessCompatibilityRuntime,
@@ -38,14 +37,15 @@ from pipy_harness.native.session_resume import (
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
-from pipy_harness.native.skills import SkillFile, skills_section_body
+from pipy_harness.native.skills import SkillFile
 from pipy_harness.native.system_prompt_inputs import (
     ResolvedSystemPrompt,
     resolve_system_prompt,
 )
 from pipy_harness.native.system_prompt_sections import (
-    SystemPromptSections,
-    build_system_prompt_sections,
+    DEFAULT_PREAMBLE,
+    SystemPromptSource,
+    SystemPromptTemplate,
     render_system_prompt,
 )
 from pipy_harness.native.tool import ToolPort
@@ -157,7 +157,7 @@ class _CodingSessionPreparation:
     provider: ProviderPort = field(repr=False)
     settings: SettingsManager = field(repr=False)
     system_prompt: str = field(repr=False)
-    system_prompt_sections: SystemPromptSections = field(repr=False)
+    system_prompt_sections: SystemPromptSource = field(repr=False)
     discovery: WorkspaceInstructionDiscovery = field(repr=False)
     resolved_prompt: ResolvedSystemPrompt = field(repr=False)
 
@@ -391,23 +391,20 @@ class CodingSessionAdapter:
         # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
         # auto-discovery) to the base prompt before workspace context is added.
         resolved_prompt = resolve_system_prompt(
-            NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
+            DEFAULT_PREAMBLE,
             cwd=cwd,
             config_home=resolve_config_home(),
             system_prompt_source=self.system_prompt_source,
             append_sources=self.append_system_prompt_sources,
             include_project_defaults=runtime_settings.project_trusted,
         )
-        preamble = resolved_prompt.preamble
         # Discover the workspace + global skills the model may load on demand.
-        # The same loader the /skill command uses; obtained here (before the
+        # The same loader `/skill:<name>` uses; obtained here (before the
         # session runs) so the advertisement can enter the system prompt. The
-        # model reads a skill body by its absolute location with `read`.
+        # model reads a skill file by its absolute location with `read` (or
+        # `bash`, Pi's second loader).
         skills = self._discover_skill_files(cwd, runtime_settings)
-        # Inject the Pi-shaped skill advertisement only when the read tool is in
-        # the active provider-visible tool set (mirrors Pi's customPromptHasRead
-        # gate); the model loads a skill body with that tool.
-        read_tool_visible = "read" in self.tool_filter_options.provider_visible_names(
+        visible = self.tool_filter_options.provider_visible_names(
             builtin_names=self.tool_registry,
             registered_names=self.tool_registry,
         )
@@ -418,21 +415,28 @@ class CodingSessionAdapter:
             resume_block = compose_resume_system_block(self.resume_context)
             if self.resume_branch_label:
                 resume_block += f" Branch: {self.resume_branch_label}."
-        # Pi's tagged sections; the prompt is their rendering.
-        sections = build_system_prompt_sections(
-            preamble=preamble,
+        # Pi's tagged sections, rebuilt for each run's active tools; the
+        # prompt is their rendering (here for the built-ins before extensions
+        # load).
+        template = SystemPromptTemplate(
+            cwd=str(cwd),
+            custom_preamble=(
+                resolved_prompt.preamble if resolved_prompt.replaced else None
+            ),
             addendum=resolved_prompt.addendum,
             project_context=render_project_context_body(discovery),
-            skills=skills_section_body(skills) if read_tool_visible else "",
-            cwd=str(cwd),
+            skills=skills,
             resume=resume_block,
+        )
+        sections = template.sections(
+            tuple(name for name in self.tool_registry if name in visible)
         )
         return _CodingSessionPreparation(
             cwd=cwd,
             provider=provider,
             settings=runtime_settings,
             system_prompt=render_system_prompt(sections),
-            system_prompt_sections=sections,
+            system_prompt_sections=template,
             discovery=discovery,
             resolved_prompt=resolved_prompt,
         )

@@ -152,6 +152,9 @@ class CodingAcceptedTurn:
     provider_user_input: str
     turn_attachments: tuple[ProviderImageAttachment, ...]
     agent_system_prompt: str
+    # The run's base prompt (what `before_agent_start` saw); a different
+    # `agent_system_prompt` is a forced prompt.
+    base_system_prompt: str = ""
 
     def __post_init__(self) -> None:
         if type(self.turn_user_message) is not AgentUserMessage:
@@ -214,7 +217,7 @@ class CodingAcceptedInputPreparer:
         user_input: str,
         resource_provider_text: str | None,
         selected_provider_content: ProductContent | None,
-        base_system_prompt: str,
+        base_system_prompt: str | Callable[[], str],
     ) -> CodingAcceptedTurn:
         turn_attachments: tuple[ProviderImageAttachment, ...] = ()
         if resource_provider_text is not None:
@@ -264,7 +267,11 @@ class CodingAcceptedInputPreparer:
         # system prompt. Computed before the next-turn-context read to preserve
         # the exact hook ordering; the injected suffix is appended exactly once
         # with a single newline. The injected text is provider-visible but not
-        # added to the metadata archive.
+        # added to the metadata archive. A callable base is rendered here, after
+        # the input hooks, so it lists the tools they left active (Pi builds
+        # the prompt after `input` handlers).
+        if callable(base_system_prompt):
+            base_system_prompt = base_system_prompt()
         agent_system_prompt = base_system_prompt
         system_prompt_suffix = self._system_prompt_suffix(base_system_prompt)
         if system_prompt_suffix:
@@ -284,4 +291,5 @@ class CodingAcceptedInputPreparer:
             provider_user_input=provider_user_input,
             turn_attachments=turn_attachments,
             agent_system_prompt=agent_system_prompt,
+            base_system_prompt=base_system_prompt,
         )

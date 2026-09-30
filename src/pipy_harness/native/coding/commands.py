@@ -149,12 +149,11 @@ class ResourceDispatchKind(StrEnum):
     """Closed classification of a workspace-resource command dispatch.
 
     The composition root maps a concrete resource dispatch onto exactly one of
-    these before the headless controller interprets the precedence: ``LIST`` and
-    ``REJECT`` are consumed locally (diagnostic + footer), while ``RUN`` records
-    the invocation counter and carries the bounded provider-visible text.
+    these before the headless controller interprets the precedence: ``REJECT``
+    is consumed locally (diagnostic + footer), while ``RUN`` records the
+    invocation counter and carries the bounded provider-visible text.
     """
 
-    LIST = "list"
     REJECT = "reject"
     RUN = "run"
 

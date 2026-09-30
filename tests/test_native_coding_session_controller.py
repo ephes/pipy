@@ -671,22 +671,6 @@ def test_provider_content_falls_straight_through_to_run() -> None:
     assert effects.extension_dispatches == [""]
 
 
-def test_resource_list_is_consumed_locally() -> None:
-    effects = _FakeCommandEffects(
-        resource=ResourceDispatchResolution(ResourceDispatchKind.LIST, "the list")
-    )
-
-    resolution = _dispatch(
-        command_text="/skills", user_input="/skills", effects=effects
-    )
-
-    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
-    assert effects.diagnostics == ["the list"]
-    assert effects.footer_calls == 1
-    assert effects.extension_dispatches == []
-    assert effects.resource_invocations == 0
-
-
 def test_resource_reject_is_consumed_locally() -> None:
     effects = _FakeCommandEffects(
         resource=ResourceDispatchResolution(ResourceDispatchKind.REJECT, "nope")

@@ -1,0 +1,615 @@
+{
+  "paths": {
+    "readme": "<pi>/packages/coding-agent/README.md",
+    "docs": "<pi>/packages/coding-agent/docs",
+    "examples": "<pi>/packages/coding-agent/examples"
+  },
+  "cases": {
+    "pi_default": {
+      "input": {
+        "selectedTools": [
+          "read",
+          "bash",
+          "edit",
+          "write"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "bash": [
+            "You can inspect PI_* environment variables for current model and session details."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        }
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Use bash for file operations like ls, rg, find\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "pipy_default": {
+      "input": {
+        "selectedTools": [
+          "read",
+          "ls",
+          "grep",
+          "find",
+          "write",
+          "edit",
+          "bash"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        }
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n- read: Read file contents\n- ls: List directory contents\n- grep: Search file contents for patterns (respects .gitignore)\n- find: Find files by glob pattern (respects .gitignore)\n- write: Create or overwrite files\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- bash: Execute bash commands (ls, grep, find, etc.)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Use read to examine files instead of cat or sed.\n- Use write only for new files or complete rewrites.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "bash_only_skills": {
+      "input": {
+        "selectedTools": [
+          "bash"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        },
+        "skills": [
+          {
+            "name": "lint",
+            "description": "Lint & fix <code> \"quoted\" 'single'",
+            "filePath": "/skills/lint/SKILL.md",
+            "baseDir": "/skills/lint",
+            "sourceInfo": {
+              "path": "/skills/lint/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          },
+          {
+            "name": "hidden",
+            "description": "Only by command",
+            "filePath": "/skills/hidden/SKILL.md",
+            "baseDir": "/skills/hidden",
+            "sourceInfo": {
+              "path": "/skills/hidden/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": true
+          },
+          {
+            "name": "deploy",
+            "description": "Deploy the app",
+            "filePath": "/skills/deploy.md",
+            "baseDir": "/skills",
+            "sourceInfo": {
+              "path": "/skills/deploy.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          }
+        ]
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n- bash: Execute bash commands (ls, grep, find, etc.)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Use bash for file operations like ls, rg, find\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "skills",
+          "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>lint</name>\n    <description>Lint &amp; fix &lt;code&gt; &quot;quoted&quot; &apos;single&apos;</description>\n    <location>/skills/lint/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>deploy</name>\n    <description>Deploy the app</description>\n    <location>/skills/deploy.md</location>\n  </skill>\n</available_skills>\n</skills>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "read_skills_context": {
+      "input": {
+        "selectedTools": [
+          "read",
+          "edit"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        },
+        "skills": [
+          {
+            "name": "lint",
+            "description": "Lint & fix <code> \"quoted\" 'single'",
+            "filePath": "/skills/lint/SKILL.md",
+            "baseDir": "/skills/lint",
+            "sourceInfo": {
+              "path": "/skills/lint/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          },
+          {
+            "name": "hidden",
+            "description": "Only by command",
+            "filePath": "/skills/hidden/SKILL.md",
+            "baseDir": "/skills/hidden",
+            "sourceInfo": {
+              "path": "/skills/hidden/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": true
+          },
+          {
+            "name": "deploy",
+            "description": "Deploy the app",
+            "filePath": "/skills/deploy.md",
+            "baseDir": "/skills",
+            "sourceInfo": {
+              "path": "/skills/deploy.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          }
+        ],
+        "appendSystemPrompt": "APPENDED",
+        "contextFiles": [
+          {
+            "path": "/w/AGENTS.md",
+            "content": "Root rules"
+          },
+          {
+            "path": "/w/sub/AGENTS.md",
+            "content": "Sub rules"
+          }
+        ]
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n- read: Read file contents\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Use read to examine files instead of cat or sed.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "addendum",
+          "<addendum>\nAPPENDED\n</addendum>"
+        ],
+        [
+          "project_context",
+          "<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/w/AGENTS.md\">\nRoot rules\n</project_instructions>\n\n<project_instructions path=\"/w/sub/AGENTS.md\">\nSub rules\n</project_instructions>\n</project_context>"
+        ],
+        [
+          "skills",
+          "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>lint</name>\n    <description>Lint &amp; fix &lt;code&gt; &quot;quoted&quot; &apos;single&apos;</description>\n    <location>/skills/lint/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>deploy</name>\n    <description>Deploy the app</description>\n    <location>/skills/deploy.md</location>\n  </skill>\n</available_skills>\n</skills>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "no_tools": {
+      "input": {
+        "selectedTools": [],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        },
+        "skills": [
+          {
+            "name": "lint",
+            "description": "Lint & fix <code> \"quoted\" 'single'",
+            "filePath": "/skills/lint/SKILL.md",
+            "baseDir": "/skills/lint",
+            "sourceInfo": {
+              "path": "/skills/lint/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          },
+          {
+            "name": "hidden",
+            "description": "Only by command",
+            "filePath": "/skills/hidden/SKILL.md",
+            "baseDir": "/skills/hidden",
+            "sourceInfo": {
+              "path": "/skills/hidden/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": true
+          },
+          {
+            "name": "deploy",
+            "description": "Deploy the app",
+            "filePath": "/skills/deploy.md",
+            "baseDir": "/skills",
+            "sourceInfo": {
+              "path": "/skills/deploy.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          }
+        ]
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "custom_prompt": {
+      "input": {
+        "customPrompt": "CUSTOM",
+        "selectedTools": [
+          "read",
+          "bash"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        },
+        "skills": [
+          {
+            "name": "lint",
+            "description": "Lint & fix <code> \"quoted\" 'single'",
+            "filePath": "/skills/lint/SKILL.md",
+            "baseDir": "/skills/lint",
+            "sourceInfo": {
+              "path": "/skills/lint/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          },
+          {
+            "name": "hidden",
+            "description": "Only by command",
+            "filePath": "/skills/hidden/SKILL.md",
+            "baseDir": "/skills/hidden",
+            "sourceInfo": {
+              "path": "/skills/hidden/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": true
+          },
+          {
+            "name": "deploy",
+            "description": "Deploy the app",
+            "filePath": "/skills/deploy.md",
+            "baseDir": "/skills",
+            "sourceInfo": {
+              "path": "/skills/deploy.md",
+              "source": "local"
+            },
+            "disableModelInvocation": false
+          }
+        ],
+        "appendSystemPrompt": "APPENDED"
+      },
+      "sections": [
+        [
+          "preamble",
+          "CUSTOM"
+        ],
+        [
+          "addendum",
+          "<addendum>\nAPPENDED\n</addendum>"
+        ],
+        [
+          "skills",
+          "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>lint</name>\n    <description>Lint &amp; fix &lt;code&gt; &quot;quoted&quot; &apos;single&apos;</description>\n    <location>/skills/lint/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>deploy</name>\n    <description>Deploy the app</description>\n    <location>/skills/deploy.md</location>\n  </skill>\n</available_skills>\n</skills>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "unknown_tool_only": {
+      "input": {
+        "selectedTools": [
+          "mytool"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        }
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    },
+    "all_hidden_skills": {
+      "input": {
+        "selectedTools": [
+          "read"
+        ],
+        "toolSnippets": {
+          "read": "Read file contents",
+          "bash": "Execute bash commands (ls, grep, find, etc.)",
+          "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+          "write": "Create or overwrite files",
+          "grep": "Search file contents for patterns (respects .gitignore)",
+          "find": "Find files by glob pattern (respects .gitignore)",
+          "ls": "List directory contents"
+        },
+        "toolGuidelines": {
+          "read": [
+            "Use read to examine files instead of cat or sed."
+          ],
+          "edit": [
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+          ],
+          "write": [
+            "Use write only for new files or complete rewrites."
+          ]
+        },
+        "skills": [
+          {
+            "name": "hidden",
+            "description": "Only by command",
+            "filePath": "/skills/hidden/SKILL.md",
+            "baseDir": "/skills/hidden",
+            "sourceInfo": {
+              "path": "/skills/hidden/SKILL.md",
+              "source": "local"
+            },
+            "disableModelInvocation": true
+          }
+        ]
+      },
+      "sections": [
+        [
+          "preamble",
+          "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+        ],
+        [
+          "tools",
+          "<tools>\n- read: Read file contents\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>"
+        ],
+        [
+          "rules",
+          "<rules>\n- Use read to examine files instead of cat or sed.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>"
+        ],
+        [
+          "docs",
+          "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: <pi>/packages/coding-agent/README.md\n- Additional docs: <pi>/packages/coding-agent/docs\n- Examples: <pi>/packages/coding-agent/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>"
+        ],
+        [
+          "cwd",
+          "<cwd>\nC:/w/proj\n</cwd>"
+        ]
+      ]
+    }
+  }
+}

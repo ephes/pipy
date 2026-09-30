@@ -47,8 +47,8 @@ in [TUI Workflow](tui-workflow.md) and [Settings & Config](settings-config.md).
 ## Slash commands
 
 Type `/` in the editor to open command completion. Extensions can register
-custom commands, skills are available through `/skill`, and prompt templates are
-invoked as their own `/<template-name>` commands.
+custom commands, each skill is a `/skill:<name>` command, and prompt templates
+are invoked as their own `/<template-name>` commands.
 
 | Command | Description |
 | --- | --- |
@@ -72,7 +72,7 @@ invoked as their own `/<template-name>` commands.
 | `/reload` | Reload settings, keybindings, extensions, skills, prompts, themes, and context files |
 | `/hotkeys` | Show keyboard shortcuts |
 | `/changelog` | Display version history |
-| `/skill` | List/load discovered skills |
+| `/skill:<name> [args]` | Run a discovered skill (the text after the name follows it) |
 | `/quit`, `/exit` | Quit pipy |
 
 Pipy intentionally removed earlier pipy-only command wrappers such as `/clear`,
@@ -144,12 +144,20 @@ wherever it points, like Pi. Treat them as untrusted input.
 Use context files for project conventions, commands, safety rules, and
 preferences. Disable loading with `--no-context-files` or `-nc`.
 
+The default system prompt is Pi's, with pipy's name: a short preamble, the
+active tools with one-line descriptions (`<tools>`), the rules those tools add
+(`<rules>`), where pipy's own docs live (`<docs>`), then the appended prompt,
+context files, skills and working directory. The tool and rule sections follow
+the tools active for each prompt.
+
 Replace or append to the default system prompt with CLI flags:
 
 ```bash
 pipy --system-prompt ./SYSTEM.md
 pipy --append-system-prompt ./APPEND_SYSTEM.md
 ```
+
+A replaced prompt drops the tool, rule and docs sections, as in Pi.
 
 Pipy also auto-discovers `.pipy/SYSTEM.md` and `.pipy/APPEND_SYSTEM.md`, then
 matching config-directory files, when the flags are omitted.

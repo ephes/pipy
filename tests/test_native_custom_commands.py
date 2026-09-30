@@ -151,9 +151,10 @@ def test_dedupes_by_canonical_path(tmp_path: Path) -> None:
     assert commands[0].name == "shared"
 
 
-def test_refuses_symlinked_workspace_commands_dir_outside_workspace(
+def test_follows_symlinked_workspace_commands_dir_outside_workspace(
     tmp_path: Path,
 ) -> None:
+    # The flat stores follow symlinks like Pi's `loadTemplatesFromDir`.
     workspace = _make_workspace(tmp_path)
     outside_dir = tmp_path / "outside-commands"
     _write_command(
@@ -161,7 +162,7 @@ def test_refuses_symlinked_workspace_commands_dir_outside_workspace(
         filename="leak.md",
         name="leak",
         description="outside",
-        body="outside body must not load\n",
+        body="outside body loads\n",
     )
     pipy_dir = workspace / ".pipy"
     pipy_dir.mkdir()
@@ -169,15 +170,15 @@ def test_refuses_symlinked_workspace_commands_dir_outside_workspace(
 
     commands, _ = _discover(workspace)
 
-    assert commands == []
+    assert [command.name for command in commands] == ["leak"]
 
 
-def test_refuses_symlink_outside_workspace(tmp_path: Path) -> None:
+def test_follows_symlink_outside_workspace(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     outside_dir = tmp_path / "outside"
     outside_dir.mkdir()
     secret = outside_dir / "secret.md"
-    secret.write_text("never load me\n", encoding="utf-8")
+    secret.write_text("outside body\n", encoding="utf-8")
 
     commands_dir = workspace / ".pipy" / "commands"
     commands_dir.mkdir(parents=True)
@@ -193,8 +194,8 @@ def test_refuses_symlink_outside_workspace(tmp_path: Path) -> None:
 
     commands, _ = _discover(workspace)
 
-    assert all(command.name != "leak" for command in commands)
-    assert all("never load me" not in command.body for command in commands)
+    leak = next(command for command in commands if command.name == "leak")
+    assert leak.body == "outside body\n"
     assert any(command.name == "legitimate" for command in commands)
 
 

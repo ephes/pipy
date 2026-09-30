@@ -1,7 +1,7 @@
 """Unit tests for the runtime resource registry and dispatcher.
 
 These pin the pure dispatch contract used by the product tool-loop session:
-list / run / reject / pass-through, fail-closed behaviour for unknown
+run / reject / pass-through (Pi's `/skill:<name> [args]` skill block), fail-closed behaviour for unknown
 or unsafe resources, reserved-name collision handling, and the
 archive-safe metadata projection (no body, description, or expanded
 text).
@@ -14,7 +14,6 @@ from pathlib import Path
 from pipy_harness.native.coding.command_registry import builtin_command_names
 from pipy_harness.native.resources import (
     DISPATCH_COMMAND_RUN,
-    DISPATCH_LIST,
     DISPATCH_REJECT,
     DISPATCH_SKILL_RUN,
     DISPATCH_TEMPLATE_RUN,
@@ -97,12 +96,12 @@ def test_custom_command_slash_names_excludes_reserved(tmp_path: Path) -> None:
 def test_reserved_command_names_covers_full_registry_plus_adjuncts() -> None:
     # RESERVED_COMMAND_NAMES is derived from the single declarative-registry
     # source (every built-in ``/…`` name + alias, without the slash) unioned with
-    # the ``skill`` and ``theme`` resource adjuncts. This is the widened Phase 3.2
+    # the ``theme`` resource adjunct (skills are ``/skill:<name>``). This is the widened Phase 3.2
     # advertising-completeness set: every built-in the kernel can classify is
     # reserved, not just the subset advertised in the completion menus.
     registry_names = {name.lstrip("/") for name in builtin_command_names()}
     assert registry_names <= RESERVED_COMMAND_NAMES
-    assert RESERVED_COMMAND_NAMES == registry_names | {"skill", "theme"}
+    assert RESERVED_COMMAND_NAMES == registry_names | {"theme"}
     # Built-ins that were absent from the pre-3.2 hardcoded reserved set are now
     # reserved (they can never be shadowed / advertised by a colliding resource).
     for widened in ("reload", "tree", "new", "fork", "session", "compact", "export"):
@@ -171,20 +170,26 @@ def test_dispatch_passthrough_for_non_resource(tmp_path: Path) -> None:
     assert dispatch_resource_command("/model", resources) is None
 
 
-def test_skill_bare_lists(tmp_path: Path) -> None:
+def test_bare_skill_is_not_a_command(tmp_path: Path) -> None:
+    # Pi has no `/skill` command; pipy's `/skill` listing is gone.
     resources = _resources(tmp_path)
-    result = dispatch_resource_command("/skill", resources)
-    assert result is not None and result.kind == DISPATCH_LIST
-    assert "lint" in result.message
-    assert "Apply the project" not in result.message  # body never leaks
+    assert dispatch_resource_command("/skill", resources) is None
+    assert dispatch_resource_command("/skill lint", resources) is None
 
 
-def test_skill_run_returns_body_and_safe_metadata(tmp_path: Path) -> None:
+def test_skill_run_sends_pis_skill_block_and_safe_metadata(tmp_path: Path) -> None:
     resources = _resources(tmp_path)
-    result = dispatch_resource_command("/skill lint", resources)
+    skill = next(s for s in resources.skills if s.name == "lint")
+    location = skill.absolute_path
+    result = dispatch_resource_command("/skill:lint", resources)
     assert result is not None and result.kind == DISPATCH_SKILL_RUN
-    assert result.provider_text is not None
-    assert "Apply the project's lint rules." in result.provider_text
+    # Pi `_expandSkillCommand`: frontmatter stripped, body trimmed.
+    assert result.provider_text == (
+        f'<skill name="lint" location="{location}">\n'
+        f"References are relative to {location.parent}.\n\n"
+        "Apply the project's lint rules.\n</skill>"
+    )
+    assert result.message == ""
     meta = result.safe_metadata
     assert meta is not None
     assert meta["name"] == "lint"
@@ -201,18 +206,55 @@ def test_skill_run_returns_body_and_safe_metadata(tmp_path: Path) -> None:
     assert "Apply the project" not in str(meta)
 
 
-def test_skill_unknown_rejects(tmp_path: Path) -> None:
+def test_skill_arguments_follow_the_block(tmp_path: Path) -> None:
     resources = _resources(tmp_path)
-    result = dispatch_resource_command("/skill nope", resources)
-    assert result is not None and result.kind == DISPATCH_REJECT
-    assert result.provider_text is None
+    result = dispatch_resource_command("/skill:lint  fix src/app.py ", resources)
+    assert result is not None and result.provider_text is not None
+    assert result.provider_text.endswith("\n</skill>\n\nfix src/app.py")
 
 
-def test_skill_empty_body_rejects(tmp_path: Path) -> None:
+def test_skill_is_read_again_at_invocation(tmp_path: Path) -> None:
     resources = _resources(tmp_path)
-    result = dispatch_resource_command("/skill empty", resources)
+    skill = next(s for s in resources.skills if s.name == "lint")
+    skill.absolute_path.write_text(
+        "---\nname: lint\ndescription: Run linters\n---\nEDITED\n", encoding="utf-8"
+    )
+    result = dispatch_resource_command("/skill:lint", resources)
+    assert result is not None and result.provider_text is not None
+    assert "\n\nEDITED\n</skill>" in result.provider_text
+
+
+def test_skill_unknown_or_unreadable_rejects(tmp_path: Path) -> None:
+    resources = _resources(tmp_path)
+    result = dispatch_resource_command("/skill:nope", resources)
     assert result is not None and result.kind == DISPATCH_REJECT
     assert result.provider_text is None
+    next(s for s in resources.skills if s.name == "lint").absolute_path.unlink()
+    result = dispatch_resource_command("/skill:lint", resources)
+    assert result is not None and result.kind == DISPATCH_REJECT
+
+
+def test_skill_empty_body_sends_an_empty_block(tmp_path: Path) -> None:
+    # Pi sends the block even when the skill has no body.
+    resources = _resources(tmp_path)
+    result = dispatch_resource_command("/skill:empty", resources)
+    assert result is not None and result.kind == DISPATCH_SKILL_RUN
+    assert result.provider_text is not None
+    assert result.provider_text.endswith(".\n\n\n</skill>")
+
+
+def test_skill_commands_setting_hides_menu_entries_only(tmp_path: Path) -> None:
+    resources = _resources(tmp_path)
+    assert resources.skill_slash_names() == ("/skill:empty", "/skill:lint")
+    assert resources.skill_descriptions()["/skill:lint"] == "Run linters"
+    hidden = resources.with_enablement(enable_skill_commands=False)
+    assert hidden.skill_slash_names() == ()
+    assert hidden.skill_descriptions() == {}
+    # Pi `enableSkillCommands` only hides the commands: the skills stay
+    # (system prompt) and a typed `/skill:<name>` still expands.
+    assert hidden.skills == resources.skills
+    result = dispatch_resource_command("/skill:lint", hidden)
+    assert result is not None and result.kind == DISPATCH_SKILL_RUN
 
 
 def test_template_run_expands_arguments(tmp_path: Path) -> None:
@@ -258,9 +300,7 @@ def test_no_resources_dispatch_is_inert(tmp_path: Path) -> None:
         include_workspace_defaults=True,
     )
     assert resources.has_any() is False
-    # /skill still responds locally (empty listing), never None.
-    skill_result = dispatch_resource_command("/skill", resources)
-    assert skill_result is not None and skill_result.kind == DISPATCH_LIST
+    assert dispatch_resource_command("/skill", resources) is None
     # /template is no longer a built-in; it passes through like any unknown
     # command (templates are invoked as /<name>).
     assert dispatch_resource_command("/template", resources) is None
@@ -292,9 +332,10 @@ def test_control_bytes_in_name_and_description_are_stripped(tmp_path: Path) -> N
     skill = resources.skills[0]
     assert "\x1b" not in skill.name and "\x1b" not in skill.description
     assert "\x07" not in skill.description
-    listing = dispatch_resource_command("/skill", resources)
-    assert listing is not None
-    assert "\x1b" not in listing.message
+    assert all(
+        "\x1b" not in key + value
+        for key, value in resources.skill_descriptions().items()
+    )
 
 
 def test_control_bytes_in_custom_command_description_are_stripped(
@@ -339,7 +380,7 @@ def test_whitespace_named_command_is_not_advertised_or_dispatched(
     assert dispatch_resource_command("/deploy now", resources) is None
 
 
-def test_multi_word_skill_name_loads_from_full_argument(tmp_path: Path) -> None:
+def test_multi_word_skill_name_is_not_a_command(tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
     _write_raw(
         workspace / ".pipy" / "skills",
@@ -352,6 +393,7 @@ def test_multi_word_skill_name_loads_from_full_argument(tmp_path: Path) -> None:
         home_dir=workspace,
         include_workspace_defaults=True,
     )
-    result = dispatch_resource_command("/skill code review", resources)
-    assert result is not None and result.kind == DISPATCH_SKILL_RUN
-    assert result.provider_text is not None and "REVIEWBODY" in result.provider_text
+    # Pi splits `/skill:<name>` at the first space, so `code review` cannot
+    # run: `/skill:code review` looks up `code` with the argument `review`.
+    result = dispatch_resource_command("/skill:code review", resources)
+    assert result is not None and result.kind == DISPATCH_REJECT

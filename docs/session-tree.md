@@ -566,11 +566,13 @@ Minimum entry types:
   whole state; later runs write only changes, as `sections` patches (`null`
   removes one) and `toolsAdded`/`toolsRemoved`. Replaying them in order yields
   the current prompt and tools. The prompt is Pi's tagged sections (SYS1b):
-  `preamble`, then the optional `addendum`, `project_context` and `skills`,
-  `cwd`, and pipy's optional `resume`:
+  `preamble`, then Pi's `tools`, `rules` and `docs` (the default prompt only),
+  the optional `addendum`, `project_context` and `skills`, `cwd`, and pipy's
+  optional `resume`. `tools`, `rules` and `skills` follow the active tools, so
+  a later run whose tools changed patches them:
 
   ```json
-  {"type":"message","id":"a0b1c2d3","parentId":"…","timestamp":"…","message":{"role":"system","content":"","sections":{"preamble":"You are pipy-native, …","cwd":"<cwd>\n/path/to/workspace\n</cwd>"},"toolsAdded":[{"name":"read","description":"…","parameters":{"type":"object"}}]}}
+  {"type":"message","id":"a0b1c2d3","parentId":"…","timestamp":"…","message":{"role":"system","content":"","sections":{"preamble":"You are an expert coding assistant operating inside pipy, …","tools":"<tools>\n…\n</tools>","rules":"<rules>\n…\n</rules>","docs":"<docs>\n…\n</docs>","cwd":"<cwd>\n/path/to/workspace\n</cwd>"},"toolsAdded":[{"name":"read","description":"…","parameters":{"type":"object"}}]}}
   ```
 
   A tool result no longer stores `added_tool_names` (SYS1b): a tool that

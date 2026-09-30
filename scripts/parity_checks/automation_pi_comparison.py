@@ -12,7 +12,8 @@ and asserts the two implementations agree on the observable session semantics:
 - the assistant's final text and the concatenation of its streamed text deltas;
 - `agent_end` semantics (`willRetry` and the run's message roles, which start
   with Pi's leading system message since `9e05370b2`);
-- the leading system message's shape (empty `content`, `sections` starting
+- the leading system message's shape (empty `content`, the section names (Pi's
+  `preamble`, `tools`, `rules`, `docs`, `cwd`), `sections` starting
   with `preamble` and ending with the tagged `cwd`, every other section
   wrapped in its tag, `toolsAdded` declarations);
 - the key sets of the assistant `usage` object and its `cost` (USAGE1);
@@ -281,6 +282,8 @@ def _system_message_shape(agent_end: dict) -> dict:
     return {
         "content": message.get("content"),
         "first_section": next(iter(sections), None),
+        # Pi's default prompt: preamble, tools, rules, docs, ..., cwd.
+        "section_names": list(sections),
         # Pi's buildSystemPromptSections ends with `cwd` and wraps every
         # section but `preamble` in a tag of its name (SYS1b).
         "last_section": next(reversed(sections), None),

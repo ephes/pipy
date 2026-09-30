@@ -13,7 +13,7 @@ Usage (typically under tmux):
 
 The scripted provider echoes a fixed acknowledgement for any turn, which is
 enough to prove that a package-contributed skill/prompt body actually reaches
-a provider turn when invoked as `/skill <name>` or as the prompt template's own
+a provider turn when invoked as `/skill:<name>` or as the prompt template's own
 slash command (for example `/plan`).
 """
 

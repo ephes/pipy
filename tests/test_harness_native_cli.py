@@ -2074,9 +2074,10 @@ def test_construction_options_reject_explicit_null_timeouts_before_instantiation
 
 
 def _make_skill(cwd, name: str) -> None:
-    skills_dir = cwd / ".pipy" / "skills"
+    # A `SKILL.md` directory: Pi names a skill without `name` after its directory.
+    skills_dir = cwd / ".pipy" / "skills" / name
     skills_dir.mkdir(parents=True, exist_ok=True)
-    (skills_dir / f"{name}.md").write_text(
+    (skills_dir / "SKILL.md").write_text(
         f"---\ndescription: {name} skill\n---\n# {name}\n\nbody\n", encoding="utf-8"
     )
 
@@ -2187,7 +2188,7 @@ def test_cli_config_disabled_skill_dropped_from_registration(tmp_path) -> None:
     assert "review" not in names
 
 
-def test_cli_config_enable_skill_commands_false_drops_all_skills(tmp_path) -> None:
+def test_cli_config_enable_skill_commands_false_hides_skill_commands(tmp_path) -> None:
     from pipy_harness.native.resources import WorkspaceResources
 
     _make_skill(tmp_path, "review")
@@ -2196,7 +2197,9 @@ def test_cli_config_enable_skill_commands_false_drops_all_skills(tmp_path) -> No
     ).with_enablement(
         enable_skill_commands=False,
     )
-    assert resources.skill_names() == ()
+    # Pi `enableSkillCommands` hides `/skill:<name>`; the skill stays loaded.
+    assert resources.skill_names() == ("review",)
+    assert resources.skill_slash_names() == ()
 
 
 def test_cli_version_prints_version(capfd) -> None:

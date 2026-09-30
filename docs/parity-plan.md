@@ -72,12 +72,11 @@ cleanup (see §3 for the per-row status):**
 - `/read` `/ask-file` `/propose-file` `/apply-proposal` → **removed** with the
   no-tool REPL (the single tool-loop product session uses model-visible
   `read`/`edit`/`write`/`bash`).
-- `/skill` → **kept** (parity, not divergence): Pi is not skill-command-free — it
-  advertises skills in the system prompt *and* keeps a `/skill:name` expansion.
-  pipy now also advertises discovered skills in the tool-loop system prompt
-  (name + description + absolute location) when the `read` tool is available, and
-  the model loads a skill body on demand via `read` (which opens any path since
-  READ2). **Done** (2026-06-20).
+- `/skill <name>` → **replaced** (2026-09-30) by Pi's `/skill:<name> [args]`
+  with its `<skill>` block and `[skill]` box. pipy advertises discovered skills
+  in the tool-loop system prompt (name + description + absolute location) when
+  the `read` (or else `bash`) tool is active, and the model loads a skill body on
+  demand (READ2 opens any path).
 - `/theme` → **removed** (no alias). Pi has no `/theme`; theme selection now
   lives in the `/settings` dialog (a theme row + picker). The
   `--theme`/`--no-themes` load flags and `PIPY_THEME` are unchanged. **Done**
@@ -172,7 +171,7 @@ target, and the docs/specs must stop presenting them as product virtues.
 | **`/clear`** | Local conversation reset | No | **Removed** (2026-06-20): Pi has no `/clear`; the deprecated alias was dropped outright (no notice). Use Pi's `/new`. |
 | **`/status`** | Local state readout | No | **Removed** (2026-06-20): Pi has no `/status`; the deprecated alias was dropped outright (no notice). Use Pi's `/session`. |
 | **`/theme` slash command** | pipy theme switcher | Realigned | **Removed** (2026-06-20): Pi has theme selection inside `/settings`, not a `/theme` command. Theme selection now lives in the `/settings` dialog (a theme row + picker); the `/theme` command was dropped outright (no alias). `--theme`/`--no-themes` load flags and `PIPY_THEME` are unchanged. |
-| **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Mixed: `/template` removed, **`/skill` KEPT** | **`/template` removed** (2026-06-20): prompt templates now register as their own `/<template-name>` slash commands (Pi's model). **`/skill` is KEPT** (parity, not divergence): Pi is not skill-command-free — it advertises skills in the system prompt *and* keeps a `/skill:name` expansion. pipy's own system-prompt skill advertisement is now wired (**done** 2026-06-20): discovered skills are advertised in the tool-loop system prompt (name + description + absolute location) when the `read` tool is available, and the model loads a skill body on demand via `read` (skill directories are added to the read-only reference roots). |
+| **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Both removed | **`/template` removed** (2026-06-20): prompt templates now register as their own `/<template-name>` slash commands (Pi's model). **`/skill <name>` replaced** (2026-09-30) by Pi's `/skill:<name> [args]` and its `<skill>` block. pipy's own system-prompt skill advertisement is now wired (**done** 2026-06-20): discovered skills are advertised in the tool-loop system prompt (name + description + absolute location) when the `read` tool is available, and the model loads a skill body on demand via `read` (skill directories are added to the read-only reference roots). |
 | **`/help`** | grouped command reference | Realigned | **Removed** (2026-06-20): Pi has no `/help`; the alias was dropped outright. Use Pi's `/hotkeys`. |
 | **Hardcoded `ds4` built-in provider** | First local-model integration | Mostly realigned | ds4 is absent from the built-in catalog and resolves as a `models.json` custom-provider preset (`docs/examples/ds4.models.json`) or env shim. A legacy `--native-provider ds4` adapter path remains for compatibility while construction moves fully through the catalog ([provider-catalog.md](provider-catalog.md)). |
 | **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | **Removed** (READ2, 2026-09-30) | Decision 3 (2026-06-20) kept it as an internal mechanism. READ2 gave `read`/`ls`/`grep`/`find` Pi's path resolution (any path), so the flag, `PIPY_READ_ROOTS`, the doc auto-discovery and the `Reference roots` prompt block had no effect left and were removed. |
@@ -270,7 +269,7 @@ use cases); and the `/template` wrapper was dropped in favor of `/<name>`
 template commands; and the pipy-only `/clear`, `/status`, `/help`, and `/theme`
 commands were removed outright (no deprecation shims) under the no-deprecation
 policy (`AGENTS.md`). The two earlier realignment follow-ups are now done: the
-system-prompt skill advertisement is wired (`/skill` kept) and theme selection
+system-prompt skill advertisement is wired (skills now run as `/skill:<name>`) and theme selection
 moved inside `/settings`.
 
 ## 6. Definition of "real parity done"

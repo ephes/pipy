@@ -442,10 +442,11 @@ them; `/hotkeys` covers keyboard shortcuts):
   keybindings, and resources), `/changelog` (release notes)
 - `/login [openai-codex]`, `/logout [openai-codex]`,
   `/model [<provider>/<model>]`, `/scoped-models`
-- `/skill [<name>]` — list workspace/global skills, or load one named skill's
-  instruction body as a bounded provider turn. Discovered skills are also
-  advertised in the system prompt (name, description, and absolute location)
-  so the model can load a skill body on demand with the `read` tool.
+- `/skill:<name> [args]` — run a skill as Pi does: its body goes to the model
+  in a `<skill>` block, drawn as a collapsible `[skill]` box. Discovered skills
+  are also advertised in the system prompt (name, description, and absolute
+  location) so the model can load a skill body on demand with `read` (or
+  `bash`).
 - `/export`, `/import`, `/share` (see "Product export, import, and share"),
   `/copy` (copy the last answer to the clipboard)
 - `/new`, `/session`, `/name`, `/tree`, `/resume`, `/fork`, `/clone` (native
@@ -466,16 +467,20 @@ by 64 KiB per file and 256 KiB total.
 ### Runtime resources: skills, prompt templates, custom commands
 
 The product REPL loads three bounded resource kinds from pipy-owned Markdown
-stores, workspace-first then global (`<workspace>/.pipy/{skills,templates,commands}/`
-then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
+stores in Pi's order: installed packages, then the workspace
+(`<workspace>/.pipy/{skills,templates,commands}/`), then the global
+`<config>/{skills,templates,commands}/`, then `--skill`/`--prompt-template`
+paths (`<config>` where `<config>` resolves through
 `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.pipy` when present →
 `~/.config/pipy`). Each `*.md`
 file may carry optional `---` frontmatter with `name` and `description`; the
 body is the instruction/template text.
 
-- `/skill <name>` loads a skill body as a bounded provider turn; `/skill`
-  lists available skills. Discovered skills are also advertised in the system
-  prompt so the model can load a skill body on demand with the `read` tool.
+- `/skill:<name> [args]` sends a skill as Pi's `<skill>` block followed by
+  the arguments. Discovered skills are also advertised in the system prompt so
+  the model can load a skill body on demand with `read` (or `bash`); a skill
+  with `disable-model-invocation: true` is left out of it. A skill without a
+  frontmatter `name` is named after its directory, as in Pi.
   Skills also come from project `.agents/skills/` (cwd up to the git root) and
   `~/.agents/skills/`. Every skill root uses Pi's layout: a directory with a
   `SKILL.md` is one skill, and a skill needs a `description` (see
@@ -488,8 +493,8 @@ body is the instruction/template text.
   completion. Unknown/unsafe/empty resources fail closed with no provider turn.
 
 Discovery rejects secret-shaped filenames, binary content, generated /
-`.gitignore`-matched filenames, oversized bodies (64 KiB/file, 256 KiB total),
-and symlink-escapes. This is deliberately not a general extension API — only
+`.gitignore`-matched filenames and oversized bodies (64 KiB/file, 256 KiB
+total); symlinks are followed like Pi. This is deliberately not a general extension API — only
 these three kinds load, through the existing provider/session/tool/archive
 boundaries. Resource bodies, expanded prompts, and command text never enter
 the metadata archive or prompt history; only safe counters/labels (name, path

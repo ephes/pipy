@@ -105,7 +105,7 @@ them only for deeper design detail.
 6. **Customization and package docs.** **Shipped:**
    [Customization](customization.md) covers skills, prompt templates, custom
    slash commands, and chrome themes — discovery roots, per-run source flags,
-   settings filters, and `/skill`/template/command invocation. [Pipy Packages](packages.md)
+   settings filters, and `/skill:<name>`/template/command invocation. [Pipy Packages](packages.md)
    covers installed package sources, install/remove/list/config/update workflows,
    package layout, filtering, and current local-path/managed-git limitations.
    Both pages cross-link extensions ([extension-api.md](extension-api.md)) and

@@ -109,9 +109,11 @@ def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:
     assert records[4] == {"type": "message_end", "message": system}
     assert system["role"] == "system"
     assert system["content"] == ""
-    assert list(system["sections"]) == ["preamble", "cwd"]
+    assert list(system["sections"]) == ["preamble", "tools", "rules", "docs", "cwd"]
     assert system["sections"]["cwd"].startswith("<cwd>\n")
-    assert system["sections"]["preamble"].startswith("You are pipy-native")
+    assert system["sections"]["preamble"].startswith(
+        "You are an expert coding assistant"
+    )
     assert [tool["name"] for tool in system["toolsAdded"]]
     assert all(
         set(tool) == {"name", "description", "parameters"}
