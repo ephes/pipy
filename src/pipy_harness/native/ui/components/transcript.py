@@ -50,8 +50,10 @@ from pipy_harness.native.extensions.custom_payloads import (
 )
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.tool_rows import (
+    BoxRow,
     EditPreview,
     RowRenderInputs,
+    SkillInvocationBox,
     SummaryBox,
     ToolRowResult,
     ToolRowState,
@@ -59,7 +61,7 @@ from pipy_harness.native.tool_rows import (
     encode_rows,
     is_builtin_edit,
     is_running_builtin_bash,
-    render_summary_box,
+    render_box_row,
     render_tool_row,
     row_theme,
 )
@@ -525,7 +527,8 @@ class TranscriptComponent:
             self.history_blocks = [
                 HistoryBlockTuple(block[0], self._tool_row_lines(state), state)
                 if isinstance(
-                    state := getattr(block, "state", None), ToolRowState | SummaryBox
+                    state := getattr(block, "state", None),
+                    ToolRowState | SummaryBox | SkillInvocationBox,
                 )
                 else block
                 for block in self.history_blocks
@@ -574,13 +577,11 @@ class TranscriptComponent:
         self.pending_tool_lines = ()
         return True
 
-    def _tool_row_lines(self, state: ToolRowState | SummaryBox) -> tuple[str, ...]:
+    def _tool_row_lines(self, state: ToolRowState | BoxRow) -> tuple[str, ...]:
         style = chrome_style_for(self._render_inputs.stream)
-        if isinstance(state, SummaryBox):
+        if isinstance(state, SummaryBox | SkillInvocationBox):
             return encode_rows(
-                render_summary_box(
-                    state, row_theme(style), expanded=self.tools_expanded
-                )
+                render_box_row(state, row_theme(style), expanded=self.tools_expanded)
             )
         inputs = RowRenderInputs(
             expanded=self.tools_expanded,
@@ -657,11 +658,12 @@ class TranscriptComponent:
             self.history_blocks.append(HistoryBlockTuple("tool_result", lines, state))
         self._repaint()
 
-    def add_summary_box(self, box: SummaryBox) -> None:
-        """Commit a collapsible compaction or branch summary box.
+    def add_summary_box(self, box: BoxRow) -> None:
+        """Commit a collapsible summary or skill-invocation box.
 
-        Pi's summary components draw a padded ``customMessageBg`` box; like a
-        tool row it is drawn again on Ctrl+O and resize, with the active theme.
+        Pi's summary and skill components draw a padded ``customMessageBg``
+        box; like a tool row it is drawn again on Ctrl+O and resize, with the
+        active theme.
         """
 
         with self._paint_lock:
@@ -887,7 +889,7 @@ class TranscriptComponent:
                 changed = changed or next_lines != lines
                 rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
                 continue
-            if isinstance(state, ToolRowState | SummaryBox):
+            if isinstance(state, ToolRowState | SummaryBox | SkillInvocationBox):
                 # Pi `setExpanded` on every ToolExecutionComponent and summary.
                 next_lines = self._tool_row_lines(state)
                 changed = changed or next_lines != lines

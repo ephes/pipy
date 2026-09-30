@@ -3,24 +3,26 @@
 A `skill` is a Markdown file with YAML frontmatter declaring `name` and a
 required `description` (Pi `loadSkillFromFile` drops a skill without one).
 Discovery mirrors Pi (`package-manager.ts` auto skill roots and
-`collectSkillEntries`, reference `4df157433`), in first-wins order:
+`collectSkillEntries`, `resource-loader.ts` `mergePaths`, reference
+`1b347794e`), in first-wins order:
 
-1. per-run `--skill` paths;
+1. installed package skill directories;
 2. `<workspace>/.pipy/skills/` (Pi `.pi/skills`), trusted projects only;
 3. `.agents/skills/` in the workspace and each ancestor up to the git
    repository root, trusted projects only, excluding `~/.agents/skills`;
 4. `<global-root>/skills/` (Pi `~/.pi/agent/skills`);
 5. `~/.agents/skills/`;
-6. installed package skill directories.
+6. per-run `--skill` paths (Pi merges `additionalSkillPaths` last).
 
 Every root uses Pi's layout: a directory holding `SKILL.md` is one skill
-(named after the directory unless the frontmatter names it) and is not
-descended further; `.`-prefixed entries and `node_modules` are skipped;
-plain `*.md` files count at the root of `.pipy/skills`/global/CLI/package
-roots and below the root of `.agents/skills` roots; `.gitignore`,
-`.ignore` and `.fdignore` rules apply. The body is the skill instruction
-text that the runtime injects as a bounded provider-visible message when
-the user loads the skill through the `/skill <name>` slash command.
+and is not descended further; `.`-prefixed entries and `node_modules` are
+skipped; plain `*.md` files count at the root of
+`.pipy/skills`/global/CLI/package roots and below the root of
+`.agents/skills` roots; `.gitignore`, `.ignore` and `.fdignore` rules
+apply. A skill without a frontmatter `name` is named after its directory,
+a `SKILL.md` and a plain `.md` alike. `disable-model-invocation: true`
+keeps a skill out of the system prompt; `/skill:<name>` still runs it
+(`pipy_harness.native.resources`).
 
 Symlinks are followed in every skill root, like Pi (`collectSkillEntries`
 stats through a symlinked file or directory); the project roots only load for
@@ -47,6 +49,7 @@ Public API:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +77,10 @@ SKILLS_SYSTEM_BLOCK_HEADER_LINES: tuple[str, ...] = (
     "When a skill file references a relative path, resolve it against the "
     "skill directory (parent of SKILL.md / dirname of the path) and use "
     "that absolute path in tool commands.",
+)
+# Pi's second header line when `bash` (not `read`) is the loader tool.
+SKILLS_BASH_LOADER_LINE: str = (
+    "Use bash to load a skill's file when the task matches its description."
 )
 # Pi wraps the block in its `skills` system-prompt section tag.
 SKILLS_SECTION_TAG: str = "skills"
@@ -109,6 +116,9 @@ class SkillFile:
     byte_length: int
     truncated: bool
     absolute_path: Path
+    # Pi `disable-model-invocation: true`: the skill runs only by command and
+    # is left out of the system prompt's `<available_skills>`.
+    disable_model_invocation: bool = False
 
 
 def discover_workspace_skills(
@@ -169,6 +179,7 @@ def discover_workspace_skills(
             byte_length=raw.byte_length,
             truncated=raw.truncated,
             absolute_path=raw.absolute_path,
+            disable_model_invocation=raw.disable_model_invocation,
         )
         for raw in raw_files
     ]
@@ -182,8 +193,9 @@ def find_skill_by_name(
     """Return the first skill whose `name` matches `name`.
 
     The match is case-sensitive. Names come from the parsed
-    frontmatter, with the file stem as a fallback when the frontmatter
-    omits `name`. Returns `None` when no skill matches.
+    frontmatter, with the file's directory name as a fallback when the
+    frontmatter omits `name` (Pi `loadSkillFromFile`). Returns `None` when
+    no skill matches.
     """
 
     for skill in skills:
@@ -229,15 +241,23 @@ def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
     return f"\n\n<{SKILLS_SECTION_TAG}>\n{body}\n</{SKILLS_SECTION_TAG}>"
 
 
-def skills_section_body(skills: Sequence[SkillFile]) -> str:
-    """Pi ``formatSkillsForPrompt``: the ``skills`` section body, or ``""``."""
+def skills_section_body(skills: Sequence[SkillFile], loader_tool: str = "read") -> str:
+    """Pi ``formatSkillsForPrompt``: the ``skills`` section body, or ``""``.
 
-    if not skills:
+    Skills with ``disable-model-invocation`` are left out; ``loader_tool``
+    (``read`` or ``bash``, the first of them that is active) picks the
+    header's loading instruction.
+    """
+
+    visible = [skill for skill in skills if not skill.disable_model_invocation]
+    if not visible:
         return ""
     lines: list[str] = list(SKILLS_SYSTEM_BLOCK_HEADER_LINES)
+    if loader_tool != "read":
+        lines[1] = SKILLS_BASH_LOADER_LINE
     lines.append("")
     lines.append("<available_skills>")
-    for skill in skills:
+    for skill in visible:
         lines.append("  <skill>")
         lines.append(f"    <name>{_escape_xml(skill.name)}</name>")
         lines.append(f"    <description>{_escape_xml(skill.description)}</description>")
@@ -247,6 +267,38 @@ def skills_section_body(skills: Sequence[SkillFile]) -> str:
         lines.append("  </skill>")
     lines.append("</available_skills>")
     return "\n".join(lines)
+
+
+# Pi `parseSkillBlock` (`agent-session.ts`), anchored at both ends like the JS
+# regex without flags.
+_SKILL_BLOCK = re.compile(
+    r'<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n</skill>'
+    r"(?:\n\n([\s\S]+))?"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedSkillBlock:
+    """A user message sent by ``/skill:<name> [args]`` (Pi ``ParsedSkillBlock``)."""
+
+    name: str
+    location: str
+    content: str
+    user_message: str | None
+
+
+def parse_skill_block(text: str) -> ParsedSkillBlock | None:
+    """Pi ``parseSkillBlock``: the skill block of a user message, or ``None``."""
+
+    match = _SKILL_BLOCK.fullmatch(text)
+    if match is None:
+        return None
+    return ParsedSkillBlock(
+        name=match[1],
+        location=match[2],
+        content=match[3],
+        user_message=(match[4] or "").strip() or None,
+    )
 
 
 def safe_skill_metadata(skills: Sequence[SkillFile]) -> list[dict[str, object]]:

@@ -1167,6 +1167,65 @@ def render_summary_box(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class SkillInvocationBox:
+    """A ``/skill:<name>`` user message's block (Pi ``SkillInvocationMessageComponent``)."""
+
+    name: str
+    content: str
+
+
+BoxRow = SummaryBox | SkillInvocationBox
+
+
+def render_skill_invocation_box(
+    box: SkillInvocationBox,
+    theme: RowTheme,
+    *,
+    expanded: bool,
+    expand_key: str = "ctrl+o",
+) -> tuple[RowLine, ...]:
+    """Pi's ``Box(1, 1)`` on ``customMessageBg``.
+
+    Collapsed: ``[skill] name (ctrl+o to expand)`` on one line. Expanded: the
+    bold label, then the bold name, a blank line and the skill text (Pi renders
+    it as Markdown; pipy shows its lines as they are, like the summaries).
+    """
+
+    def text(value: str) -> str:
+        return theme.fg("customMessageText", value)
+
+    if expanded:
+        body = [
+            theme.fg("customMessageLabel", theme.bold("[skill]")),
+            theme.bold(text(box.name)),
+            "",
+            *map(text, box.content.splitlines()),
+        ]
+    else:
+        body = [
+            theme.fg("customMessageLabel", theme.bold("[skill]") + " ")
+            + text(box.name)
+            + theme.fg("dim", f" ({expand_key} to expand)")
+        ]
+    return (
+        RowLine("", "custom"),
+        *(RowLine(line, "custom") for line in body),
+        RowLine("", "custom"),
+        RowLine("", "none"),
+    )
+
+
+def render_box_row(
+    box: BoxRow, theme: RowTheme, *, expanded: bool
+) -> tuple[RowLine, ...]:
+    """Draw a summary or skill-invocation box."""
+
+    if isinstance(box, SkillInvocationBox):
+        return render_skill_invocation_box(box, theme, expanded=expanded)
+    return render_summary_box(box, theme, expanded=expanded)
+
+
 def _bash_started(state: ToolRowState) -> bool:
     return (
         state.extension is None

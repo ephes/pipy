@@ -8,6 +8,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The default system prompt is now Pi's (`system-prompt.ts`, with pipy's name
+  and docs): a short preamble, then Pi's `<tools>` (one line per active tool),
+  `<rules>` (the rules the active tools add, then Pi's two defaults) and
+  `<docs>` (where pipy's README, docs and examples live) sections, before the
+  appended prompt, context files, skills and working directory. The tool,
+  rule and skill sections are rebuilt for each prompt from the active tools,
+  so an extension that changes them sends only the changed sections. A
+  replaced prompt drops the three new sections, as in Pi.
+- Skills run as Pi's `/skill:<name> [args]` commands: the skill file is read
+  again and sent as Pi's `<skill>` block, followed by the text after the name,
+  and the TUI draws it as Pi's collapsible `[skill] <name> (ctrl+o to expand)`
+  box, live and on resume. The slash menu lists the skills with their
+  descriptions.
+- Skill frontmatter `disable-model-invocation: true` keeps a skill out of the
+  system prompt; it still runs through its command. Without `read`, skills are
+  advertised for loading with `bash`, as in Pi.
+
 - Sign in with ChatGPT for the `openai` provider, as in Pi (Pi `02eed88fd`):
   `/login openai` opens the OpenAI sign-in page, takes the browser callback
   when you press Enter (or a pasted redirect URL) and stores the subscription
@@ -68,6 +85,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- `/skill <name>` and the bare `/skill` listing are gone; use
+  `/skill:<name>`. `enableSkillCommands: false` now only hides the skill
+  commands from the menu, as in Pi: the skills stay in the system prompt and a
+  typed `/skill:<name>` still runs.
+- A skill without a frontmatter `name` is named after its directory, a plain
+  `.md` file included (Pi): an unnamed `.pipy/skills/lint.md` is now `skills`.
+- Skills and prompt templates are searched in Pi's order: installed packages
+  first, then the project and global directories, then `--skill` /
+  `--prompt-template` paths, so a default resource wins a name clash.
+- Prompt-template and custom-command stores follow symlinks like Pi.
 - The leading prompt has Pi's shape (SYS1c). OpenAI Responses and Azure send
   it as the first `input` item in the instruction role instead of
   `instructions`, and a request without messages sends a user item instead of

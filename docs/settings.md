@@ -151,7 +151,7 @@ settings layers as other preferences and is not discovered provider capability.
 | `skills` | string array | Skill path patterns. |
 | `prompts` | string array | Prompt-template path patterns. |
 | `themes` | string array | Theme path patterns. |
-| `enableSkillCommands` | boolean | Register skills as slash-command resources. |
+| `enableSkillCommands` | boolean | List skills as `/skill:<name>` commands in the slash menu. |
 
 Resource arrays support include/exclude patterns as used by `pipy config`.
 Local-path and managed-git package sources are supported; PyPI/npm package

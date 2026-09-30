@@ -5,7 +5,7 @@ so no terminal UI) through the real dispatch boundary, proving that:
 
 - a skill / template / custom command produces the intended bounded
   provider-visible message (the expanded/instruction text);
-- listing and rejection issue no provider turn and fail closed;
+- rejection issues no provider turn and fails closed;
 - prompt history and the returned metadata result never receive the
   resource body or expanded prompt.
 """
@@ -110,20 +110,20 @@ def _run(tmp_path, monkeypatch, script, *, history=None):
     return provider, result
 
 
-def test_tool_loop_runs_skill_template_command_and_lists_and_rejects(
-    tmp_path, monkeypatch
-):
+def test_tool_loop_runs_skill_template_command_and_rejects(tmp_path, monkeypatch):
     _seed(tmp_path)
     # The template is invoked by its own name (Pi shape); no /template wrapper.
+    # A skill runs as Pi's `/skill:<name>`; the bare `/skill` is not a command.
     script = (
-        "/skill\n/skill lint\n/review the auth module\n/deploy staging\n/skill nope\n"
+        "/skill\n/skill:lint\n/review the auth module\n/deploy staging\n/skill:nope\n"
     )
     provider, result = _run(tmp_path, monkeypatch, script)
 
-    # Three runs => three provider turns; list + reject issue none.
+    # Three runs => three provider turns; the unknown and bare commands none.
     user_prompts = [request.user_prompt for request in provider.requests]
     assert len(user_prompts) == 3
-    assert "SKILL_BODY_lint_rules" in user_prompts[0]
+    assert user_prompts[0].startswith('<skill name="lint" location="')
+    assert "\n\nSKILL_BODY_lint_rules\n</skill>" in user_prompts[0]
     assert user_prompts[1].strip() == "TEMPLATE_review the auth module now"
     assert user_prompts[2].strip() == "COMMAND_deploy_for staging"
 
@@ -139,7 +139,7 @@ def test_tool_loop_resource_runs_never_touch_history(tmp_path, monkeypatch):
     _seed(tmp_path)
     history = PromptHistoryStore(path=tmp_path / "history.txt")
     history.set_enabled(True)
-    script = "/skill lint\n/review X\n/deploy Y\nplain prompt\n"
+    script = "/skill:lint\n/review X\n/deploy Y\nplain prompt\n"
     _provider, result = _run(tmp_path, monkeypatch, script, history=history)
 
     # Only the genuine prompt is persisted to local history; resource
@@ -165,10 +165,12 @@ def test_tool_loop_menu_command_set_is_honest(tmp_path, monkeypatch):
         include_workspace_defaults=True,
     )
     names = tool_loop_command_names(resources)
-    # /skill stays; the discovered template and custom command are advertised
-    # as their own /<name> entries (Pi shape).
-    for executable in ("/hotkeys", "/model", "/skill", "/review", "/deploy"):
+    # The discovered template and custom command are advertised as their own
+    # /<name> entries and the skill as Pi's /skill:<name>, listed last.
+    for executable in ("/hotkeys", "/model", "/skill:lint", "/review", "/deploy"):
         assert executable in names
+    assert names[-1] == "/skill:lint"
+    assert "/skill" not in names
     # The pipy-only /template wrapper command is gone.
     assert "/template" not in names
     # No-tool-only commands never appear in the tool-loop menu.

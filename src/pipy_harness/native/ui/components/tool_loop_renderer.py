@@ -36,9 +36,11 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.extension_types import ExtensionTool
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.skills import parse_skill_block
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
+    SkillInvocationBox,
     ToolRowResult,
     ToolRowState,
     compute_edit_preview,
@@ -266,7 +268,20 @@ class TuiToolLoopRenderer:
             )
 
     def render_user_message(self, text: str) -> None:
-        self._transcript.submit_user_message(text)
+        """Draw a user message; a ``/skill:<name>`` block is Pi's skill box.
+
+        Like Pi's ``SkillInvocationMessageComponent``, the block is drawn
+        collapsed (Ctrl+O expands it) and the arguments after it follow as a
+        normal user message, live and when a session is resumed.
+        """
+
+        block = parse_skill_block(text)
+        if block is None:
+            self._transcript.submit_user_message(text)
+            return
+        self._transcript.add_summary_box(SkillInvocationBox(block.name, block.content))
+        if block.user_message:
+            self._transcript.submit_user_message(block.user_message)
 
     def render_buffered_assistant_text(
         self, text: str, *, has_tool_calls: bool

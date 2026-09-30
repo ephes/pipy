@@ -463,13 +463,13 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
     ws = root / "ws13"
     skills_dir = ws / ".pipy" / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
-    # Pi `loadSkillFromFile` drops a skill without a description.
-    (skills_dir / "review.md").write_text(
-        "---\ndescription: Review skill\n---\n# review\n", encoding="utf-8"
-    )
-    (skills_dir / "draft.md").write_text(
-        "---\ndescription: Draft skill\n---\n# draft\n", encoding="utf-8"
-    )
+    # Pi `loadSkillFromFile` drops a skill without a description and names one
+    # without `name` after its directory.
+    for name, description in (("review", "Review skill"), ("draft", "Draft skill")):
+        (skills_dir / name).mkdir(exist_ok=True)
+        (skills_dir / name / "SKILL.md").write_text(
+            f"---\ndescription: {description}\n---\n# {name}\n", encoding="utf-8"
+        )
     cfg = root / "cfg13"
     cfg.mkdir(parents=True, exist_ok=True)
     settings_path = cfg / "settings.json"
@@ -511,12 +511,12 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
             )
             .skill_names()
         )
-        gated = (
-            WorkspaceResources.discover(ws, include_workspace_defaults=True)
-            .with_enablement(enable_skill_commands=False)
-            .skill_names()
-            == ()
-        )
+        # Pi `enableSkillCommands: false` hides the `/skill:<name>` commands;
+        # the skills stay loaded (system prompt, typed commands).
+        hidden = WorkspaceResources.discover(
+            ws, include_workspace_defaults=True
+        ).with_enablement(enable_skill_commands=False)
+        gated = hidden.skill_slash_names() == () and "draft" in hidden.skill_names()
     finally:
         if prior_home is None:
             os.environ.pop("PIPY_CONFIG_HOME", None)

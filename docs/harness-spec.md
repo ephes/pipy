@@ -486,9 +486,9 @@ do not create provider turns or archive auth material.
 > are removed outright (no deprecation aliases or notices), matching Pi — use
 > `/new`, `/session`, `/hotkeys`, and theme selection in the `/settings` dialog;
 > the pipy-only `/template` wrapper is dropped (prompt templates are invokable as
-> their own `/<template-name>` commands). `/skill` is **kept**, and pipy now
-> advertises discovered skills in the tool-loop system prompt (loaded on demand
-> via the `read` tool); theme selection moved into `/settings` (see
+> their own `/<template-name>` commands). Skills run as Pi's `/skill:<name>`
+> commands, and pipy advertises discovered skills in the tool-loop system prompt
+> (loaded on demand via the `read` tool, or `bash` without it); theme selection moved into `/settings` (see
 > [parity-plan.md](/parity-plan/) §3). The historical prose below documents the
 > now-removed no-tool shell and its decision trail; read it as a record, not the
 > current product surface.
@@ -511,9 +511,10 @@ reflects that selection.
 Local slash commands such as `/hotkeys`, `/reload`, `/changelog`, `/model`,
 `/scoped-models`, `/settings`, `/login`, `/logout`, `/copy`, `/compact`,
 `/export`, `/import`, `/share`, `/session`, `/name`, `/new`, `/tree`, `/resume`,
-`/fork`, `/clone`, and `/skill` are handled without invoking a provider unless
+`/fork`, and `/clone` are handled without invoking a provider unless
 their command contract explicitly starts a model turn. Prompt templates and
-custom commands register as their own `/<name>` commands. Unsupported slash
+custom commands register as their own `/<name>` commands, and each skill as
+Pi's `/skill:<name>`. Unsupported slash
 commands fail closed with a diagnostic that omits raw command text. `/help`,
 `/clear`, `/status`, `/theme`, and `/template` are not supported commands; their
 Pi-shaped replacements are `/hotkeys`, `/new`, `/session`, the `/settings`
@@ -545,8 +546,10 @@ provider path and no new privacy policy.
 
 Discovery (`pipy_harness.native._resource_files` + the `skills`,
 `prompt_templates`, and `custom_commands` loaders) reads `*.md` files one level
-deep from pipy-owned stores, workspace-first then global: `<workspace>/.pipy/{skills,templates,commands}/`
-then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
+deep from pipy-owned stores, in Pi's order: installed package directories,
+then `<workspace>/.pipy/{skills,templates,commands}/`, then
+`<config>/{skills,templates,commands}/`, then `--skill`/`--prompt-template`
+paths, where `<config>` resolves through
 `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.pipy` when present →
 `~/.config/pipy` (the same resolver as `workspace_context`). Results dedupe by canonical path (first wins). Optional
 `---`-delimited frontmatter declares `name` and `description`; the body is the
@@ -555,19 +558,21 @@ files whose name looks secret (`capture.looks_sensitive`), whose loaded head
 bytes contain a NUL (binary), or whose bare filename is a generated/`.gitignore`-matched
 artifact (`read_only_tool._is_ignored_or_generated`, applied to the filename so
 the pipy-owned `.pipy/` parent is not itself treated as ignored). Per-file and
-total byte caps bound the body with a deterministic truncation marker. Skill
-roots follow symlinks like Pi; the template and command stores must not be
-symlinks and their file symlinks must resolve inside the store.
+total byte caps bound the body with a deterministic truncation marker. Every
+store follows symlinks like Pi (`collectSkillEntries`, `loadTemplatesFromDir`).
+A skill without a frontmatter `name` is named after its directory, and
+`disable-model-invocation: true` keeps it out of the system prompt.
 
 `dispatch_resource_command` runs **after** the built-in command handlers, so a
 custom command can never shadow a built-in (collisions are dropped from
 discovery). Outcomes:
 
-- `/skill` with no argument prints a local listing (names + descriptions only;
-  no bodies) and issues no provider turn. (`/skill` is **kept** — it is
-  parity-consistent with Pi's `/skill:name` expansion; see
-  [parity-plan.md](/parity-plan/) §3.)
-- `/skill <name>` loads the skill body. Prompt templates are invokable as their
+- `/skill:<name> [args]` reads the skill file again and sends Pi's
+  `<skill name="…" location="…">` block (`References are relative to <dir>.`,
+  the body without frontmatter) followed by the arguments
+  (`_expandSkillCommand`). The TUI draws it as Pi's collapsible `[skill]` box,
+  live and on resume. `enableSkillCommands: false` only hides the commands
+  from the slash menu. Prompt templates are invokable as their
   own `/<template-name> [args]` commands — the pipy-only `/template` wrapper has
   been **removed** (Pi has no literal `/template`; it invokes templates as
   `/<name>` directly). A template `/<name> [args]` and a workspace/global custom
@@ -576,8 +581,8 @@ discovery). Outcomes:
   arguments; a placeholder-free body with arguments appends them as inserted
   prompt text). Each becomes one bounded provider-visible message through the
   same provider boundary as a genuine prompt.
-- Unknown, unsafe, or empty resources fail closed: a diagnostic is printed and
-  no provider turn is issued.
+- Unknown or unreadable skills, and unsafe or empty templates and commands,
+  fail closed: a diagnostic is printed and no provider turn is issued.
 
 Privacy: the resource body, expanded prompt, and command text are never
 archived. Resource lifecycle metadata is limited to safe fields

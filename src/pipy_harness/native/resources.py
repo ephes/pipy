@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 from pipy_harness.native._resource_files import (
     CLI_PATH_LABEL_PREFIX,
+    read_resource_body,
     safe_resource_metadata,
 )
 from pipy_harness.native.coding.command_registry import builtin_command_names
@@ -54,15 +55,15 @@ from pipy_harness.native.skills import (
     find_skill_by_name,
 )
 
-SKILL_RESOURCE_COMMAND = "/skill"
+# Pi's skill command prefix: ``/skill:<name> [args]``.
+SKILL_COMMAND_PREFIX = "skill:"
 
 # Resource-owned adjunct command names (without the leading slash) that are
 # advertised in slash discovery but are not declarative-registry built-ins:
-# ``skill`` (the ``/skill`` resource command) and ``theme`` (the theme picker).
-# They are reserved explicitly so a custom command, prompt template, or
-# extension can never shadow them even though the command registry does not own
-# them.
-_RESOURCE_ADJUNCT_COMMAND_NAMES: frozenset[str] = frozenset({"skill", "theme"})
+# ``theme`` (the theme picker). It is reserved explicitly so a custom command,
+# prompt template, or extension can never shadow it even though the command
+# registry does not own it.
+_RESOURCE_ADJUNCT_COMMAND_NAMES: frozenset[str] = frozenset({"theme"})
 
 # Built-in slash-command names (without the leading slash) that a custom
 # command or prompt template may never shadow. Derived from the single
@@ -81,7 +82,6 @@ RESERVED_COMMAND_NAMES: frozenset[str] = (
 )
 
 # Dispatch kinds.
-DISPATCH_LIST = "list"
 DISPATCH_SKILL_RUN = "skill_run"
 DISPATCH_TEMPLATE_RUN = "template_run"
 DISPATCH_COMMAND_RUN = "command_run"
@@ -114,8 +114,6 @@ def _is_executable_command_token(name: str) -> bool:
 class ResourceDispatch:
     """Outcome of dispatching one typed line against the resources.
 
-    - ``kind == DISPATCH_LIST``: print ``message`` locally; no provider
-      turn.
     - ``kind in _RUN_KINDS``: send ``provider_text`` as a bounded
       provider-visible message; record ``safe_metadata`` for the
       archive. ``provider_text`` is never empty for a run.
@@ -149,6 +147,8 @@ class WorkspaceResources:
     skills_cap_reached: bool
     templates_cap_reached: bool
     commands_cap_reached: bool
+    # Pi `enableSkillCommands`: whether `/skill:<name>` commands are listed.
+    skill_commands_enabled: bool = True
 
     @classmethod
     def discover(
@@ -228,15 +228,14 @@ class WorkspaceResources:
         disk). Explicit per-run CLI resources (`--skill` /
         `--prompt-template`) are session overrides for `+/-pattern` filters and
         remain enabled even when a persisted pattern disables the same resource
-        name. `enable_skill_commands=False` is still a hard command-surface
-        disable for skills.
+        name. `enable_skill_commands=False` only hides the `/skill:<name>`
+        menu entries, like Pi: the skills still reach the system prompt and a
+        typed `/skill:<name>` still runs.
         """
 
         from pipy_harness.native.resource_enablement import is_resource_enabled
 
-        if not enable_skill_commands:
-            kept_skills: tuple[SkillFile, ...] = ()
-        elif skills_patterns:
+        if skills_patterns:
             kept_skills = tuple(
                 s
                 for s in self.skills
@@ -261,6 +260,8 @@ class WorkspaceResources:
             skills_cap_reached=self.skills_cap_reached,
             templates_cap_reached=self.templates_cap_reached,
             commands_cap_reached=self.commands_cap_reached,
+            skill_commands_enabled=self.skill_commands_enabled
+            and enable_skill_commands,
         )
 
     def has_any(self) -> bool:
@@ -268,6 +269,22 @@ class WorkspaceResources:
 
     def skill_names(self) -> tuple[str, ...]:
         return tuple(skill.name for skill in self.skills)
+
+    def skill_slash_names(self) -> tuple[str, ...]:
+        """Pi's ``/skill:<name>`` commands, when skill commands are enabled."""
+
+        if not self.skill_commands_enabled:
+            return ()
+        return tuple(f"/{SKILL_COMMAND_PREFIX}{skill.name}" for skill in self.skills)
+
+    def skill_descriptions(self) -> dict[str, str]:
+        """Map ``/skill:<name>`` to the skill's description (Pi's menu text)."""
+
+        return {
+            f"/{SKILL_COMMAND_PREFIX}{skill.name}": skill.description
+            for skill in self.skills
+            if self.skill_commands_enabled
+        }
 
     def template_names(self) -> tuple[str, ...]:
         return tuple(template.name for template in self.templates)
@@ -353,23 +370,6 @@ def _is_cli_resource_label(path_label: str) -> bool:
     return path_label.startswith(CLI_PATH_LABEL_PREFIX)
 
 
-def format_skills_listing(skills: Sequence[SkillFile]) -> str:
-    """Local listing text for ``/skill`` (no provider turn).
-
-    Only names and descriptions appear; bodies never leak.
-    """
-
-    if not skills:
-        return "pipy: no skills found. Add Markdown files under .pipy/skills/."
-    lines = ["pipy: available skills (load with /skill <name>):"]
-    for skill in skills:
-        if skill.description:
-            lines.append(f"  {skill.name}: {skill.description}")
-        else:
-            lines.append(f"  {skill.name}")
-    return "\n".join(lines)
-
-
 def _split_command(stripped: str) -> tuple[str, str]:
     """Split ``/foo bar baz`` into (``foo``, ``bar baz``)."""
 
@@ -408,41 +408,48 @@ def _command_metadata(command: CustomSlashCommand) -> dict[str, object]:
     return meta
 
 
+def skill_block(skill: SkillFile, body: str, arguments: str) -> str:
+    """Pi ``_expandSkillCommand``: the ``<skill>`` block, then the arguments."""
+
+    location = skill.absolute_path
+    block = (
+        f'<skill name="{skill.name}" location="{location}">\n'
+        f"References are relative to {location.parent}.\n\n{body.strip()}\n</skill>"
+    )
+    return f"{block}\n\n{arguments}" if arguments else block
+
+
 def _dispatch_skill_command(
+    name: str,
     arguments: str,
     resources: WorkspaceResources,
 ) -> ResourceDispatch:
-    if not arguments:
-        return ResourceDispatch(
-            kind=DISPATCH_LIST,
-            message=format_skills_listing(resources.skills),
-        )
-    # A skill takes no arguments, so the whole argument string is the
-    # skill name. This lets multi-word skill names (which the listing
-    # shows) actually load, keeping the listing honest.
-    target = arguments.strip()
-    skill = find_skill_by_name(resources.skills, target)
+    """Pi ``/skill:<name> [args]``: send the skill file as a ``<skill>`` block.
+
+    Like Pi, the file is read again at invocation and its frontmatter
+    stripped; the block runs whether or not skill commands are listed.
+    """
+
+    skill = find_skill_by_name(resources.skills, name)
     if skill is None:
         return ResourceDispatch(
             kind=DISPATCH_REJECT,
-            message=(
-                f"pipy: no skill named {target!r}. Run /skill to list available skills."
-            ),
-            resource_label=f"skill:{target}",
+            message=f"pipy: no skill named {name!r}.",
+            resource_label=f"skill:{name}",
         )
-    if not skill.body.strip():
+    body = read_resource_body(skill.absolute_path)
+    if body is None:
         return ResourceDispatch(
             kind=DISPATCH_REJECT,
-            message=(f"pipy: skill {skill.name!r} has no instruction body to load."),
+            message=f"pipy: could not read skill {skill.name!r}.",
             safe_metadata=_skill_metadata(skill),
             resource_label=f"skill:{skill.name}",
         )
     return ResourceDispatch(
         kind=DISPATCH_SKILL_RUN,
-        provider_text=skill.body,
+        provider_text=skill_block(skill, body, arguments),
         safe_metadata=_skill_metadata(skill),
         resource_label=f"skill:{skill.name}",
-        message=f"pipy: loaded skill {skill.name!r}.",
     )
 
 
@@ -520,8 +527,10 @@ def dispatch_resource_command(
         return None
     name_token, arguments = _split_command(stripped)
 
-    if name_token == "skill":
-        return _dispatch_skill_command(arguments, resources)
+    if name_token.startswith(SKILL_COMMAND_PREFIX):
+        return _dispatch_skill_command(
+            name_token.removeprefix(SKILL_COMMAND_PREFIX), arguments, resources
+        )
 
     # Otherwise: a prompt template or custom command invocation. Only claim
     # the line when the name resolves to a discovered, non-reserved resource;

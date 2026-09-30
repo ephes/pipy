@@ -106,7 +106,7 @@ def test_explicit_skill_and_template_survive_persisted_disable_filters(
     assert resources.template_names() == ("explicit-template",)
 
 
-def test_explicit_skill_does_not_override_skill_command_disable(
+def test_skill_command_disable_hides_explicit_skill_commands_only(
     tmp_path: Path,
 ) -> None:
     workspace = _workspace(tmp_path)
@@ -123,7 +123,9 @@ def test_explicit_skill_does_not_override_skill_command_disable(
         include_skills_defaults=False,
     ).with_enablement(enable_skill_commands=False)
 
-    assert resources.skill_names() == ()
+    # Pi `enableSkillCommands` hides `/skill:<name>`; the skill stays loaded.
+    assert resources.skill_names() == ("explicit",)
+    assert resources.skill_slash_names() == ()
 
 
 def test_explicit_extension_file_loads_when_defaults_disabled(

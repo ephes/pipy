@@ -87,6 +87,7 @@ from pipy_harness.native.session_generation import (
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.system_prompt_sections import SystemPromptSource
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
@@ -126,8 +127,8 @@ class CodingSession:
     tool_budget: int = 50
     workspace_root: Path | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
-    # Pi's tagged sections of the prompt ``run`` gets (wiring checks them).
-    system_prompt_sections: tuple[tuple[str, str], ...] = ()
+    # Pi's tagged sections of ``run``'s prompt, or the template of each run's.
+    system_prompt_sections: SystemPromptSource = ()
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = (
         None
     )

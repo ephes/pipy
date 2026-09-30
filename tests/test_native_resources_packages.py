@@ -40,7 +40,7 @@ def _discover(workspace: Path, package_roots, home_dir: Path) -> WorkspaceResour
     )
 
 
-def test_package_skill_discovered_after_workspace(tmp_path: Path) -> None:
+def test_package_skill_discovered_before_workspace(tmp_path: Path) -> None:
     workspace = _ws(tmp_path)
     (workspace / ".pipy" / "skills" / "ws.md").write_text(
         _SKILL.format(name="ws-skill", desc="workspace"), encoding="utf-8"
@@ -54,7 +54,8 @@ def test_package_skill_discovered_after_workspace(tmp_path: Path) -> None:
     roots = resolve_package_roots([str(pkg)], workspace)
     resources = _discover(workspace, roots, tmp_path)
 
-    assert resources.skill_names() == ("ws-skill", "pkg-skill")
+    # Pi resolves package resources before the auto roots.
+    assert resources.skill_names() == ("pkg-skill", "ws-skill")
 
 
 def test_package_prompt_discovered(tmp_path: Path) -> None:
@@ -101,11 +102,12 @@ def test_package_skill_name_collision_is_deduped(tmp_path: Path) -> None:
     roots = resolve_package_roots([str(pkg)], workspace)
     resources = _discover(workspace, roots, tmp_path)
 
-    # Name-deduped (first wins): exactly one "dup", and it is the workspace one.
+    # Name-deduped (first wins): exactly one "dup", and it is the package one
+    # (Pi resolves package resources before the auto roots).
     names = resources.skill_names()
     assert names.count("dup") == 1
     dup = next(s for s in resources.skills if s.name == "dup")
-    assert not dup.path_label.startswith("<package>/")
+    assert dup.path_label.startswith("<package>/")
 
 
 def test_per_package_filter_scopes_to_that_package(tmp_path: Path) -> None:
@@ -130,23 +132,23 @@ def test_per_package_filter_scopes_to_that_package(tmp_path: Path) -> None:
 
 
 def test_large_name_duplicate_does_not_halt_discovery(tmp_path: Path) -> None:
-    # Regression: a large later package resource whose NAME duplicates an
-    # earlier one must be name-deduped (skipped) WITHOUT tripping the total
-    # byte cap and halting discovery of subsequent distinct resources.
+    # Regression: a large later resource whose NAME duplicates an earlier one
+    # must be name-deduped (skipped) WITHOUT tripping the total byte cap and
+    # halting discovery of subsequent distinct resources.
     workspace = _ws(tmp_path)
+    # A huge duplicate-named workspace skill (would exceed the total cap if
+    # it were counted) sorts before "keep.md"; the package's "dup" comes first.
     (workspace / ".pipy" / "skills" / "dup.md").write_text(
-        _SKILL.format(name="dup", desc="workspace"), encoding="utf-8"
-    )
-    pkg = tmp_path / "pkg"
-    (pkg / "skills").mkdir(parents=True)
-    # A huge duplicate-named package skill (would exceed the total cap if
-    # it were counted) sorts before "keep.md".
-    (pkg / "skills" / "dup.md").write_text(
         "---\nname: dup\ndescription: d\n---\n" + ("x" * 5000) + "\n",
         encoding="utf-8",
     )
-    (pkg / "skills" / "keep.md").write_text(
-        _SKILL.format(name="keep", desc="package"), encoding="utf-8"
+    (workspace / ".pipy" / "skills" / "keep.md").write_text(
+        _SKILL.format(name="keep", desc="workspace"), encoding="utf-8"
+    )
+    pkg = tmp_path / "pkg"
+    (pkg / "skills").mkdir(parents=True)
+    (pkg / "skills" / "dup.md").write_text(
+        _SKILL.format(name="dup", desc="package"), encoding="utf-8"
     )
 
     roots = resolve_package_roots([str(pkg)], workspace)

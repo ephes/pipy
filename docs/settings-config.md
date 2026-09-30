@@ -706,13 +706,12 @@ pipy target:
   than deleting discovered paths — at the chosen scope (global or project). The
   existing `pipy_harness.native.resources` loader applies those enable/disable
   patterns and package filters when deciding what to register.
-- `enableSkillCommands` (default true) gates registering skills as
-  `/skill:<name>` commands. (`/skill` is kept — the 2026-06-20 top-level CLI
-  cleanup retired the pipy-only `/template` wrapper but kept `/skill` as
-  parity-consistent with Pi; see [parity-plan.md](/parity-plan/) §3. Prompt
-  templates are invokable as their own `/<template-name>` commands.) pipy's own
-  system-prompt skill advertisement is now wired: when the `read` tool is
-  available, discovered skills are advertised in the tool-loop system prompt as
+- `enableSkillCommands` (default true) gates listing skills as
+  `/skill:<name>` commands in the slash menu. As in Pi, it only hides them: a
+  typed `/skill:<name>` still runs and the skills stay in the system prompt.
+  (Prompt templates are invokable as their own `/<template-name>` commands.)
+  pipy's own system-prompt skill advertisement is wired: when the `read` tool
+  (or else `bash`) is active, discovered skills are advertised in the tool-loop system prompt as
   `<available_skills>` entries (per-skill name, description, and absolute
   location, matching Pi's `formatSkillsForPrompt`), and the model loads a skill
   body on demand via the `read` tool, which opens any path (READ2).
@@ -732,8 +731,8 @@ into the relevant settings array (via
 `WorkspaceResources.with_enablement` applies those directives at session startup
 so a disabled skill/prompt is dropped from what is registered (last matching
 directive wins; bare source-path entries are ignored for enablement and remain
-for the extension/distribution track). `enableSkillCommands=false` drops all
-skills from registration. The interactive `pi config`-style TUI selector and
+for the extension/distribution track). `enableSkillCommands=false` hides the
+`/skill:<name>` menu entries. The interactive `pi config`-style TUI selector and
 package/`PackageSource` per-source filters remain on the extension/distribution
 track.
 
@@ -1075,8 +1074,8 @@ surface works. It must verify:
 13. Resource enablement: disabling a skill/prompt/theme via `pipy config`
     persists a `-pattern` entry (not a path removal) into the right settings
     array and removes it from what `resources.py` registers; re-enabling writes a
-    `+pattern` and restores it; `enableSkillCommands=false` stops `/skill:<name>`
-    registration. The conformance fixture explicitly enables workspace-default
+    `+pattern` and restores it; `enableSkillCommands=false` hides the
+    `/skill:<name>` menu entries. The conformance fixture explicitly enables workspace-default
     discovery because it models a trusted synthetic workspace; production
     discovery remains fail-closed until the product trust boundary opts in.
 14. `/reload` re-reads settings + keybindings + resources + theme, re-applies

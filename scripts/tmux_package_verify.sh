@@ -11,7 +11,7 @@
 #   3. proves via the package runtime APIs that the package theme is selectable,
 #   4. asserts via capture-pane that:
 #        - the startup `[Skills]` chrome lists the package skill `greet`,
-#        - `/skill greet` and the package prompt command `/plan` reach the
+#        - `/skill:greet` and the package prompt command `/plan` reach the
 #          provider turn,
 #        - the package extension command `/demo-hello` runs.
 #
@@ -97,7 +97,7 @@ tmux new-session -d -s "$SESSION" -x 110 -y 40 \
 wait_for "startup [Skills] lists package skill" "greet" 60
 
 # 4b. Skill + prompt template commands both reach the provider.
-tmux send-keys -t "$SESSION" "/skill greet" C-m
+tmux send-keys -t "$SESSION" "/skill:greet" C-m
 wait_for "package skill reaches provider" "demo-pack provider turn 1 acknowledged." 20
 tmux send-keys -t "$SESSION" "/plan" C-m
 wait_for "package prompt reaches provider" "demo-pack provider turn 2 acknowledged." 20

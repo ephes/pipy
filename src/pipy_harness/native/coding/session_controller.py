@@ -90,10 +90,10 @@ _NOT_HANDLED_COMMAND_NOTICE = (
     "/changelog, /model, /thinking, /scoped-models, /settings, /trust, "
     "/login, /logout, /copy, /compact, /export, /import, "
     "/share, /session, /name, "
-    "/new, /tree, /resume, /fork, /clone, /skill, "
+    "/new, /tree, /resume, /fork, /clone, "
     "/exit, /quit "
     "(plus any workspace prompt templates and custom "
-    "commands as /<name>, and activated extension "
+    "commands as /<name>, skills as /skill:<name>, and activated extension "
     "commands). Other prompts are sent to the model."
 )
 
@@ -1514,24 +1514,21 @@ def _dispatch_resource_command(
     command_text: str,
     effects: CodingCommandEffects,
 ) -> tuple[CommandDispatchResolution | None, str | None]:
-    """Route LIST/REJECT locally and return RUN's provider-visible text."""
+    """Route REJECT locally and return RUN's provider-visible text."""
 
     resource = effects.dispatch_resource(command_text)
     if resource is None:
         return None, None
     if type(resource) is not ResourceDispatchResolution:
         raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
-    if resource.kind is ResourceDispatchKind.LIST:
-        effects.emit_diagnostic(resource.message)
-        effects.refresh_footer()
-        return CommandDispatchResolution.continue_loop(), None
     if resource.kind is ResourceDispatchKind.REJECT:
         effects.emit_diagnostic(resource.message)
         effects.refresh_footer()
         return CommandDispatchResolution.continue_loop(), None
     effects.record_resource_invocation()
     provider_text = resource.provider_text or ""
-    effects.emit_diagnostic(resource.message)
+    if resource.message:
+        effects.emit_diagnostic(resource.message)
     return None, provider_text
 
 

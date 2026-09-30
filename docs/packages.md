@@ -167,7 +167,7 @@ extensions are disabled.
 
 Installed package resources are loaded on startup and after `/reload` according
 to the active settings and per-run resource flags. Skills appear in the startup
-skills section and can be opened through `/skill`; prompt templates become their
+skills section and run as `/skill:<name>`; prompt templates become their
 own slash commands; themes become selectable in `/settings`; extensions can
 register commands, tools, UI hooks, model/provider contributions, and other
 supported extension surfaces.

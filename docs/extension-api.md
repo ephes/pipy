@@ -1470,9 +1470,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     through a file-based loader + overlay registry
     (`theme_files.build_theme_registry` + `themes.set_active_theme_registry`) so
     a package theme becomes selectable via the `/settings` Theme picker (or
-    `PIPY_THEME` / settings) and re-colors the chrome. All four
-    kinds sit at lowest precedence (a workspace/global resource wins a name
-    collision) and honor the `+/-pattern` filters; package resources are
+    `PIPY_THEME` / settings) and re-colors the chrome. Package skills and
+    prompts come first, as in Pi (a package resource wins a name collision);
+    extensions and themes sit at lowest precedence. All four honor the
+    `+/-pattern` filters; package resources are
     included in `/reload` and `pipy config` discovery. The example package lives
     at `docs/examples/packages/demo-pack/` with a live tmux proof
     (`scripts/tmux_package_verify.sh`). The package gate proves spec "Package

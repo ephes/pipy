@@ -206,6 +206,7 @@ def test_follows_symlink_outside_workspace(tmp_path: Path) -> None:
     outside = _write_skill(
         outside_dir,
         filename="shared.md",
+        name="linked",
         description="kept outside",
         body="outside body\n",
     )
@@ -216,7 +217,9 @@ def test_follows_symlink_outside_workspace(tmp_path: Path) -> None:
         (skills_dir / "linked.md").symlink_to(outside)
     except OSError as exc:
         pytest.skip(f"symlink creation unavailable: {exc}")
-    _write_skill(skills_dir, filename="legitimate.md", description="real")
+    _write_skill(
+        skills_dir, filename="legitimate.md", name="legitimate", description="real"
+    )
 
     skills, _ = _discover(workspace, home_dir=tmp_path / "home")
 
@@ -233,7 +236,10 @@ def test_follows_global_symlink_outside_resource_dir(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     global_root = tmp_path / "global-pipy"
     target = _write_skill(
-        global_root, filename="elsewhere.md", description="outside skills dir"
+        global_root,
+        filename="elsewhere.md",
+        name="linked",
+        description="outside skills dir",
     )
 
     skills_dir = global_root / "skills"
@@ -259,7 +265,7 @@ def test_broken_skill_symlink_is_skipped(tmp_path: Path) -> None:
         (skills_dir / "dangling.md").symlink_to(tmp_path / "missing.md")
     except OSError as exc:
         pytest.skip(f"symlink creation unavailable: {exc}")
-    _write_skill(skills_dir, filename="real.md")
+    _write_skill(skills_dir, filename="real.md", name="real")
 
     skills, _ = _discover(workspace, home_dir=tmp_path / "home")
 
@@ -322,7 +328,7 @@ def test_frontmatter_parsed_with_name_and_description(tmp_path: Path) -> None:
         description="Explain the highlighted code",
         body="please explain\n",
     )
-    # A file without a frontmatter name falls back to the filename stem.
+    # A file without a frontmatter name is named after its directory (Pi).
     _write_skill(
         skills_dir, filename="plain.md", description="Plain", body="just a body\n"
     )
@@ -336,8 +342,8 @@ def test_frontmatter_parsed_with_name_and_description(tmp_path: Path) -> None:
     assert explain.description == "Explain the highlighted code"
     assert "please explain" in explain.body
     assert "---" not in explain.body
-    assert "plain" in by_name
-    assert "just a body" in by_name["plain"].body
+    assert "skills" in by_name
+    assert "just a body" in by_name["skills"].body
     assert "undescribed" not in by_name
 
 

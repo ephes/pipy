@@ -508,8 +508,9 @@ def test_untrusted_resource_provenance_keeps_global_package_and_cli(
         explicit_skill_paths=(explicit_skill,),
         explicit_prompt_template_paths=(explicit_prompt,),
     )
-    assert resources.skill_names() == ("explicit-skill", "global-skill")
-    assert resources.template_names() == ("explicit-prompt", "global-prompt")
+    # Pi merges `--skill` paths after the resolved resources.
+    assert resources.skill_names() == ("global-skill", "explicit-skill")
+    assert resources.template_names() == ("global-prompt", "explicit-prompt")
     assert resources.custom_command_slash_names() == ("/global-command",)
 
     (workspace / ".pipy" / "extensions").mkdir()

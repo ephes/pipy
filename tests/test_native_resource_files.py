@@ -1,7 +1,7 @@
 """Safety-policy tests for the shared resource-file discovery loader.
 
 These pin the per-candidate safety screen added on top of the byte-cap
-and symlink-containment rules: secret-shaped filenames, binary
+rules: secret-shaped filenames, binary
 content, and generated/ignored filenames are skipped silently, while
 legitimate neighbours still load. The skills loader is used as the
 concrete entry point; the policy lives in `_resource_files` and is
@@ -38,10 +38,15 @@ def _skills_dir(tmp_path: Path) -> Path:
     return skills_dir
 
 
-def _write(directory: Path, filename: str, body: str = "real body\n") -> None:
+def _write(
+    directory: Path, filename: str, body: str = "real body\n", *, named: bool = True
+) -> None:
     # A description is required for a skill to load (Pi `loadSkillFromFile`),
-    # so every fixture has one and only the safety screen can skip it.
-    body = f"---\ndescription: fixture\n---\n{body}"
+    # so every fixture has one and only the safety screen can skip it. A
+    # plain `.md` skill without a `name` is named after its directory (Pi),
+    # so the fixtures name themselves after their file.
+    name = f"name: {Path(filename).stem}\n" if named else ""
+    body = f"---\n{name}description: fixture\n---\n{body}"
     (directory / filename).write_text(body, encoding="utf-8")
 
 
@@ -121,7 +126,7 @@ def test_control_character_filename_without_frontmatter_is_skipped(
 ) -> None:
     skills_dir = _skills_dir(tmp_path)
     # No frontmatter name, so the name would otherwise fall back to the raw stem.
-    _write(skills_dir, "\x1b.md", "just a body\n")
+    _write(skills_dir, "\x1b.md", "just a body\n", named=False)
     _write(skills_dir, "lint.md")
 
     skills, _ = _discover(skills_dir.parent.parent)
@@ -152,5 +157,4 @@ def test_control_character_command_filename_is_not_advertised(tmp_path: Path) ->
     )
     assert resources.commands == ()
     assert resources.custom_command_slash_names() == ()
-    listing = dispatch_resource_command("/skill", resources)
-    assert listing is not None and "\x1b" not in listing.message
+    assert dispatch_resource_command("/\x1b", resources) is None

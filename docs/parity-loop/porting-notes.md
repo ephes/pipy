@@ -171,8 +171,9 @@ Check the pins in `tests/test_architecture_quality_gates.py` and
 module.
 
 - `src/pipy_harness/native/session.py` sits exactly at its ceiling (the audit
-  asserts equality), so edits there, including
-  `NATIVE_TOOL_LOOP_SYSTEM_PROMPT`, keep the line count unchanged.
+  asserts equality), so edits there keep the line count unchanged; a slice
+  that shrinks it lowers both pins. The tool-loop prompt text lives in
+  `system_prompt_sections.py` (Pi's `system-prompt.ts`).
 - A new `CodingSession` field keeps `coding/session.py` at its 399-line ceiling
   (offset the added lines) and updates three audit pins: `MEMBER_LIST`, the
   synthetic `CodingSession` fixture, and the field-count parameter.

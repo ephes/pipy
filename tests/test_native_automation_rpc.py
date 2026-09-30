@@ -907,7 +907,13 @@ def test_get_state_and_get_messages(client) -> None:
     roles = [m["role"] for m in msgs["data"]["messages"]]
     # Pi `buildSessionContext`: the leading system message is part of it.
     assert roles == ["system", "user", "assistant"]
-    assert list(msgs["data"]["messages"][0]["sections"]) == ["preamble", "cwd"]
+    assert list(msgs["data"]["messages"][0]["sections"]) == [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "cwd",
+    ]
     assert data["messageCount"] == 3
 
     client.send({"id": "stats", "type": "get_session_stats"})

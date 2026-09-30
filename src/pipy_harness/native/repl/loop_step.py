@@ -124,6 +124,7 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.settings import retry_policy_from_settings
+from pipy_harness.native.system_prompt_sections import render_system_prompt
 from pipy_harness.native.tools import ToolDefinition
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
@@ -369,7 +370,7 @@ class _RequestPreparationEffects:
         # ``16292398a``). Otherwise the prompt is the transcript's replay (Pi
         # ``collapseSystemMessages`` order), and only a provider that accepts
         # mid-conversation system messages gets the messages themselves.
-        if accepted_turn.agent_system_prompt == scope.base_system_prompt:
+        if accepted_turn.agent_system_prompt == accepted_turn.base_system_prompt:
             with scope.ctl.session_tree_section() as tree:
                 persisted = tree.build_coding_context()
             anchored = request_system_messages(
@@ -677,7 +678,7 @@ def _phase_e_accepted_input(
         user_input=resolution.user_input,
         resource_provider_text=resolution.resource_provider_text,
         selected_provider_content=resolution.selected_provider_content,
-        base_system_prompt=scope.base_system_prompt,
+        base_system_prompt=lambda: render_system_prompt(scope.system_sections()),
     )
     return _AcceptedRun(
         turn_input=turn_input,
@@ -735,10 +736,11 @@ def _phase_f2_run_and_settle(
     scope.ctl.agent_settled_pending = True
     with scope.ctl.session_tree_section() as tree:
         transcript = tree.build_context().messages
-    # The transcript records the base prompt's tagged sections; a
-    # ``before_agent_start`` suffix forces the run's prompt without being
-    # recorded (Pi ``16292398a``).
-    system_prompt = system_prompt_input(transcript, scope.base_system_sections)
+    # The transcript records the prompt's tagged sections, rebuilt for the
+    # tools active now (after the run's input hooks, as Pi's
+    # ``prepareNextTurn``); a ``before_agent_start`` suffix forces the run's
+    # prompt without being recorded (Pi ``16292398a``).
+    system_prompt = system_prompt_input(transcript, scope.system_sections())
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,

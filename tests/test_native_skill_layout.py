@@ -91,7 +91,8 @@ def test_pi_layout_takes_plain_md_only_at_the_root(tmp_path: Path) -> None:
 
     skills = _discover(workspace, home=home, config_home=config)
 
-    assert sorted(s.name for s in skills) == ["inner", "top"]
+    # Pi names a plain `.md` without `name` after its directory (`skills`).
+    assert sorted(s.name for s in skills) == ["inner", "skills"]
 
 
 def test_agents_layout_takes_plain_md_only_below_the_root(tmp_path: Path) -> None:
@@ -103,7 +104,8 @@ def test_agents_layout_takes_plain_md_only_below_the_root(tmp_path: Path) -> Non
 
     skills = _discover(workspace, home=home, config_home=config)
 
-    assert sorted(s.name for s in skills) == ["deep", "tool"]
+    # `group/deep.md` is named after its directory, like a `SKILL.md`.
+    assert sorted(s.name for s in skills) == ["group", "tool"]
     assert ".agents/skills/tool/SKILL.md" in {s.path_label for s in skills}
 
 
@@ -223,7 +225,8 @@ def test_ignore_files_apply_to_the_skill_walk(tmp_path: Path) -> None:
 
     skills = _discover(workspace, home=home, config_home=config)
 
-    assert sorted(s.name for s in skills) == ["draft-keep", "keep-me", "kept"]
+    # `draft-keep.md` loads, named after its directory (`skills`).
+    assert sorted(s.name for s in skills) == ["keep-me", "kept", "skills"]
 
 
 def test_symlinked_skill_directory_outside_the_root_is_followed(
