@@ -1,9 +1,9 @@
 # Parity-Loop Porting Notes
 
-Reference notes for the parity loop's Phase 2 plan (`skill-body.md`): measured
-behavior of external tools and Node builtins that Pi relies on and pipy
-emulates, plus porting patterns that cost review rounds. Pin each rule that
-applies in the plan before review.
+Reference notes for the parity loop's Phase 2 plan and Phase 5 implementation
+(`skill-body.md`): measured behavior of external tools and Node builtins that
+Pi relies on and pipy emulates, plus porting patterns that cost review rounds.
+Pin each rule that applies in the plan before review.
 
 ## Emulating rg and fd
 
@@ -53,6 +53,85 @@ trip (surrogate pairs join, lone surrogates become U+FFFD) and encode it before
 opening the file. Per-fragment fixes and open-then-encode cost two review rounds
 (data loss, then split pairs).
 
+## Completions `thinkingFormat` and compat flags
+
+Rules the openai-completions reasoning slices paid for in review rounds. Pin
+each one that applies per variant in the plan.
+
+- **Resolve each compat flag independently.** Pi `getCompat` resolves every
+  field on its own (explicit `compat.<flag>` wins, else that flag's
+  `detectCompat` predicate). Port each secondary flag as its own bounded
+  predicate (explicit bool, else the exclusion list); never default it to true
+  because the format flag "implies" it. Example: explicit
+  `compat.thinkingFormat="deepseek"` on a base URL excluded from
+  `supportsReasoningEffort` (isGrok/isZai/isMoonshot/isTogether/
+  isCloudflareAiGateway/isNvidia/isAntLing) emits `thinking:{type:enabled}` with
+  no `reasoning_effort`; test that mismatch.
+- **Not every variant has a secondary flag.** The `enable_thinking` family
+  (`zai`, `qwen`, `qwen-chat-template`) emits only
+  `enable_thinking = !!options.reasoningEffort` (openai-completions.ts:556-563)
+  and never reads `supportsReasoningEffort`. The omission is structural, not an
+  exclusion: test the inverse (explicit `supportsReasoningEffort=true` still
+  omits `reasoning_effort`). `qwen-chat-template` also forces a literal
+  `preserve_thinking: true` in both reasoning states.
+- **Port detection rungs at their Pi position.** The `thinkingFormat` chain is
+  isDeepSeek > isZai > isTogether > isAntLing > isOpenRouter. Appending a rung
+  after one that comes later in Pi changes collision rows; add a precedence test
+  (a together provider on an openrouter.ai URL gets the together shape).
+  Explicit-only variants (`qwen`, `qwen-chat-template`, `string-thinking`; no
+  rung in openai-completions.ts:1126-1136) need only the request-shape `elif` in
+  `provider_construction`, no resolver change; set `compat={thinkingFormat: ...}`
+  in test specs. `ant-ling` has a rung and needs the precedence test.
+- **Check each branch's value expression for a `?? level` fallback.**
+  deepseek/together/openrouter/string-thinking use
+  `model.thinkingLevelMap?.[level] ?? level`; `ant-ling`
+  (openai-completions.ts:581-585) does a raw lookup with no fallback and emits
+  nothing when off or unset. pipy `reasoning_value` falls back to the raw level,
+  so a no-fallback branch needs its own lookup helper and a no-map test.
+- **Three `off` states.** For branches mirroring
+  `model.thinkingLevelMap?.off !== null` plus `?? "none"`: a missing `off` emits
+  `"none"`, a string emits the string, explicit `off: null` suppresses the
+  field. Gate with key membership; `dict.get("off")` conflates missing and
+  `None`.
+- **Default-branch leak.** `map_thinking_level` keys off map keys and ignores
+  `model.reasoning`, so a branch gated `and bool(spec.reasoning)` falls through
+  to the default `reasoning_effort` for a non-reasoning model with a
+  `thinkingLevelMap`. Let the branch consume all its `thinking_format` cases,
+  check reasoning inside the value helper, and test that neither field is
+  emitted. zai/together/qwen still carry this latent divergence.
+- **New stored levels clamp per provider.** A stored level such as `max` that
+  survives a model switch needs a provider-scoped clamp-then-map where Pi clamps
+  (`clampThinkingLevel`, openai-codex-responses.ts:468), not a global clamp:
+  `max` on a Codex model without `max` becomes `xhigh`, or `high` when neither is
+  mapped. Effort is omitted only for unset/off.
+- **Available levels are not map keys.** Pi `getSupportedThinkingLevels`
+  (models.ts:410-419) treats unmapped ordinary levels as identity-supported and
+  requires only `xhigh`/`max` to be mapped; explicit `None` removes a level. Use
+  an `available_thinking_levels` helper with those semantics for cycles and
+  clamps, not `supported_thinking_levels`. A hand-authored row whose Pi map is
+  partial must spell out the identity levels (`gpt-6-sol`
+  `{xhigh, max, minimal:low}` needs explicit `low`/`medium`/`high`).
+
+## Rendering Pi's own code under Node
+
+Node 26 runs Pi's TypeScript with
+`node --import <pi-mono>/packages/coding-agent/src/experimental/source-resolver.ts script.mts`.
+
+- **TUI components.** Call `initTheme('dark')` and
+  `setKeybindings(new KeybindingsManager())` (`core/keybindings.ts`), pass a
+  stub runtime/TUI (`{requestRender(){}}`), feed keys through `handleInput`,
+  and pin the stripped rows as a test fixture. F7 caught every column width,
+  blank row and hint text this way without PTY iterations. Then check colours
+  per cell in tmux with Pi forced to `{"theme":"dark"}` in
+  `PI_CODING_AGENT_DIR/settings.json`; Pi's default system theme emits
+  16-colour codes.
+- **Palette.** Generate Pi's exact SGR codes from its own `theme.ts`
+  (`loadThemeFromPath(dark.json, 'truecolor'|'256color')`, then `theme.fg`/`bg`
+  per token) instead of converting okhsl by hand, and compare PTY captures row
+  by row on text plus every span's fg/bg/bold. The theme is a render input:
+  styled rows kept in history must restyle on Ctrl+O and resize, not cache
+  palette-baked strings.
+
 ## Per-turn telemetry and session totals
 
 - Declare per-turn metadata on `AgentAssistantMessage` (usage, provider, model)
@@ -84,6 +163,21 @@ changes the drawing: result arrival, Ctrl+O, terminal width, async callbacks.
 - Run Pi async work (the `computeEditsDiff` preview) on a worker thread and
   apply the result under the paint lock with a bounded join. Never run it on the
   loop thread: a FIFO path blocked the UI and the interrupt keys.
+
+## Line ceilings and audit pins
+
+Check the pins in `tests/test_architecture_quality_gates.py` and
+`tests/test_god_file_decomposition_final_audit.py` before editing a native
+module.
+
+- `src/pipy_harness/native/session.py` sits exactly at its ceiling (the audit
+  asserts equality), so edits there, including
+  `NATIVE_TOOL_LOOP_SYSTEM_PROMPT`, keep the line count unchanged.
+- A new `CodingSession` field keeps `coding/session.py` at its 399-line ceiling
+  (offset the added lines) and updates three audit pins: `MEMBER_LIST`, the
+  synthetic `CodingSession` fixture, and the field-count parameter.
+- Removing a message field needs a grep of `scripts/parity_checks` for
+  `getattr`-style access, which fails silently instead of raising.
 
 ## Resource guarantees of a Python stand-in
 

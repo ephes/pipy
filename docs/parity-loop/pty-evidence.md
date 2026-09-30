@@ -26,7 +26,39 @@ still colours, and a background comparison silently compares nothing. Launch
 evidence sessions with
 `env -u NO_COLOR TERM=xterm-256color COLORTERM=truecolor`, and check that the
 `.ansi` capture contains ESC before comparing. A `tmux capture-pane -e` capture
-omits blank cells, so compare row backgrounds only on non-blank rows.
+omits blank cells, so compare row backgrounds only on non-blank rows. To get
+Pi's exact colours for comparison, see "Rendering Pi's own code under Node" in
+`porting-notes.md`.
+
+## Running PTY gates
+
+PTY gates such as `scripts/parity_checks/tui_workflow_conformance.py` can hang
+in an uninterruptible state on macOS. Always run gates under `timeout 600`, and
+rerun a hung or failed gate once before investigating it.
+
+## Side-by-side tmux scripts
+
+- `tmux -t` falls back to a session-name prefix when no session has the exact
+  name: once `q-pi` has exited (or was already cleaned up),
+  `tmux kill-session -t q-pi` kills `q-pipy` and silently loses the pipy
+  capture. Name sessions so neither is a prefix of the other (`pi-<tag>` /
+  `pipy-<tag>`), and target panes as `=name:` for `capture-pane` and
+  `send-keys`.
+- `send-keys` needs `-l --` for text that starts with `-`.
+- Pause after Escape before the next key, or both apps read an Alt sequence.
+- Pi's argument popup takes Enter to apply the completion without submitting,
+  so `/model <text>` plus Enter does not run the command while the popup is
+  open: send Escape, pause, then Enter.
+
+## Scrollback artefacts: record the bytes
+
+A `capture-pane` frame can show rows the terminal already erased. To diagnose
+an inline-TUI scrollback artefact, record the exact bytes (run pipy under
+`script -q <file>` inside tmux), replay them into a fresh pane with `cat`, and
+read `tmux display -p '#{cursor_x},#{cursor_y}'`. F7's "stale editor frame" was
+a paint before `TerminalUi.start()` plus tmux scroll-on-clear: `ESC[J` issued
+from row 0 pushes the screen into history. The fix deferred paints until the
+startup rows exist (Pi renders on `nextTick`); the erase sequence was fine.
 
 ## Fake providers
 
