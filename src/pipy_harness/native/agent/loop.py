@@ -44,6 +44,7 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentMessageUsage,
     AgentStopReason,
     AgentSystemMessage,
     AgentToolCall,
@@ -91,8 +92,13 @@ from pipy_harness.native.agent.usage import (
     AgentTokenPricing,
     AgentTokenPricingTier,
     AgentUsageAccumulator,
+    message_usage,
 )
-from pipy_harness.native.models import ProviderResult, ProviderToolCall
+from pipy_harness.native.models import (
+    ProviderRequest,
+    ProviderResult,
+    ProviderToolCall,
+)
 from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.status import HarnessStatus
 
@@ -465,7 +471,11 @@ class AgentLoop:
             raise TypeError("provider turn must return ProviderTurnOutcome")
         if completion.result is None:
             return self._settle_provider_cancellation(
-                state, completion, turn_index, partial.text
+                state,
+                completion,
+                turn_index,
+                partial.text,
+                preparation.snapshot.request,
             )
         return self._settle_provider_result(
             state,
@@ -547,13 +557,20 @@ class AgentLoop:
         completion: ProviderTurnOutcome,
         turn_index: int,
         partial_text: str = "",
+        request: ProviderRequest | None = None,
     ) -> _IterationDisposition:
         reason = completion.cancellation_reason
         assert reason is not None
         state.cancellation = reason
         # Pi keeps the aborted message with its partial content
-        # (agent-loop.ts, stopReason "aborted") and persists it.
-        aborted = _stopped_assistant(partial_text, AgentStopReason.ABORTED)
+        # (agent-loop.ts, stopReason "aborted") and persists it. Usage arrives
+        # with the finished response, so an aborted one has none.
+        aborted = _stopped_assistant(
+            partial_text,
+            AgentStopReason.ABORTED,
+            usage=AgentMessageUsage(),
+            request=request,
+        )
         self._events.emit(RunCancelled(reason))
         self._status.provider_cancellation_observed(reason)
         self._events.emit(MessageCompleted(turn_index, aborted))
@@ -574,7 +591,10 @@ class AgentLoop:
     ) -> _IterationDisposition:
         _validate_provider_result(result, snapshot)
         self._status.provider_result_observed(result)
-        self._publish_usage(state, result)
+        sample = self._publish_usage(state, result)
+        # Pi prices each response from the request's model (``calculateCost``)
+        # and stores the usage on the assistant message.
+        usage = message_usage(sample, state.usage.pricing)
         provider_status = normalize_provider_status(
             result,
             provider_name=snapshot.request.provider_name,
@@ -586,10 +606,12 @@ class AgentLoop:
                 provider_status,
                 turn_index,
                 partial_text or result.final_text or "",
+                usage=usage,
+                request=snapshot.request,
             )
         self._status.provider_succeeded(provider_status, state.tool_state)
         state.failure = None
-        assistant = _assistant_message(result)
+        assistant = _assistant_message(result, usage, snapshot.request)
         self._events.emit(MessageCompleted(turn_index, assistant))
         self._append_message(state, assistant)
         if not assistant.tool_calls:
@@ -602,7 +624,9 @@ class AgentLoop:
             state, active_input, snapshot, assistant, turn_index
         )
 
-    def _publish_usage(self, state: _RunState, result: ProviderResult) -> None:
+    def _publish_usage(
+        self, state: _RunState, result: ProviderResult
+    ) -> AgentProviderUsageSample:
         sample = AgentProviderUsageSample.from_mapping(result.usage)
         # Pi takes context usage only from a successful response.
         counts_for_context = result.status is HarnessStatus.SUCCEEDED
@@ -615,6 +639,7 @@ class AgentLoop:
                 counts_for_context,
             )
         )
+        return sample
 
     def _settle_provider_failure(
         self,
@@ -622,13 +647,20 @@ class AgentLoop:
         status: AgentProviderStatusDecision,
         turn_index: int,
         partial_text: str = "",
+        *,
+        usage: AgentMessageUsage,
+        request: ProviderRequest,
     ) -> _IterationDisposition:
         failure = status.failure
         assert failure is not None
         state.failure = failure
         # Pi records a failed turn as stopReason "error" with its message.
         failed = _stopped_assistant(
-            partial_text, AgentStopReason.ERROR, failure.message.value
+            partial_text,
+            AgentStopReason.ERROR,
+            failure.message.value,
+            usage=usage,
+            request=request,
         )
         self._events.emit(ProviderFailed(failure, will_retry=status.will_retry))
         self._status.provider_failed(status, state.tool_state)
@@ -889,15 +921,23 @@ def _stopped_assistant(
     text: str,
     stop_reason: AgentStopReason,
     error_message: str | None = None,
+    *,
+    usage: AgentMessageUsage,
+    request: ProviderRequest | None,
 ) -> AgentAssistantMessage:
     return AgentAssistantMessage(
         ProductContent(text[: AgentAssistantMessage.CONTENT_MAX_LENGTH]),
         stop_reason=stop_reason,
         error_message=error_message,
+        usage=usage,
+        provider=request.provider_name or None if request is not None else None,
+        model=request.model_id or None if request is not None else None,
     )
 
 
-def _assistant_message(result: ProviderResult) -> AgentAssistantMessage:
+def _assistant_message(
+    result: ProviderResult, usage: AgentMessageUsage, request: ProviderRequest
+) -> AgentAssistantMessage:
     calls = tuple(
         AgentToolCall(
             call.provider_correlation_id,
@@ -906,7 +946,13 @@ def _assistant_message(result: ProviderResult) -> AgentAssistantMessage:
         )
         for call in result.tool_calls
     )
-    return AgentAssistantMessage(ProductContent(result.final_text or ""), calls)
+    return AgentAssistantMessage(
+        ProductContent(result.final_text or ""),
+        calls,
+        usage=usage,
+        provider=request.provider_name or None,
+        model=request.model_id or None,
+    )
 
 
 def _transform_tool_result(

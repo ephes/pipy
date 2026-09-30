@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -450,7 +450,7 @@ def test_reload_usage_fallback_clears_usage_without_clearing_provider_failure() 
     assert state._usage_accumulator is prepared.replacement
     assert state._usage_accumulator is not accumulator
     assert state.usage_snapshot() == CodingSessionUsageSnapshot(
-        usage=AgentUsage(), last_total_tokens=0, cache_hit_percent=None
+        usage=AgentUsage(), last_total_tokens=0
     )
     assert state.provider_failure is failure
     assert accumulator.agent_usage().output_tokens == 500_002
@@ -974,8 +974,6 @@ def test_usage_and_unresolved_provider_failure_are_typed_state() -> None:
     assert usage_snapshot == CodingSessionUsageSnapshot(
         usage=failed.usage,
         last_total_tokens=1_600_000,
-        cache_hit_percent=0.0,
-        uncached_input_tokens=1_000_000,
     )
     assert failed.provider_failure is failure
 
@@ -1066,7 +1064,7 @@ def test_negative_usage_samples_are_rejected_before_state_mutation(
     state = _state()
     before_result = state.result_snapshot()
     before_usage = state.usage_snapshot()
-    sample = AgentProviderUsageSample(**{field_name: -1})
+    sample = AgentProviderUsageSample(**cast(dict[str, Any], {field_name: -1}))
 
     with pytest.raises(ValueError, match=f"sample.{field_name} must not be negative"):
         state.absorb_usage(sample)
@@ -1363,7 +1361,6 @@ def test_snapshots_reject_corrupted_nested_content_and_usage_fields() -> None:
         CodingSessionUsageSnapshot(
             usage=usage,
             last_total_tokens=0,
-            cache_hit_percent=None,
         )
 
 
@@ -1383,10 +1380,6 @@ def test_provider_binding_and_usage_snapshot_reject_invalid_substitutions() -> N
         replace(usage_snapshot, last_total_tokens=True)
     with pytest.raises(ValueError, match="must not be negative"):
         replace(usage_snapshot, last_total_tokens=-1)
-    with pytest.raises(TypeError, match="exact float or None"):
-        replace(usage_snapshot, cache_hit_percent=cast(float, 1))
-    with pytest.raises(ValueError, match="finite and nonnegative"):
-        replace(usage_snapshot, cache_hit_percent=float("nan"))
 
 
 def test_coding_state_shares_the_session_mutex_when_bound() -> None:

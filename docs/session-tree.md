@@ -631,6 +631,20 @@ Rules to match Pi:
   funnel (`materialize_provider_request`) and the compaction summary request
   drop it, like Pi's `transformMessages`. `/tree` shows a stopped turn without
   text as `assistant: (aborted)` or `assistant: <error message>`.
+- Every assistant message the agent loop writes carries Pi's `usage` object
+  (`input` = uncached prompt, `output`, `cacheRead`, `cacheWrite`, optional
+  `cacheWrite1h` and `reasoning` when the provider reported them,
+  `totalTokens`, and `cost` with `input`/`output`/`cacheRead`/`cacheWrite`/
+  `total` priced from the row's catalog cost with Pi `calculateCost`), plus the
+  `provider` and `model` that answered (USAGE1). An aborted turn stores zero
+  usage; a failed one stores the failed response's usage. Entries written
+  before USAGE1 have none of these keys and load unchanged; they count as
+  zero. The footer totals, RPC `get_session_stats` and `/session` sum the
+  usage of every assistant entry in the file, on every branch and including
+  history a compaction dropped from the context (Pi `getSessionStats`), so
+  the totals survive a resume and a model switch and restart only with a new
+  session. Compaction and branch summaries record no usage (Pi stores theirs
+  on the entry).
 - System messages (Pi `buildSessionContext`) are part of `build_context()`,
   which RPC `get_messages` serves. A compaction contributes its `systemMessage`
   checkpoint before its summary, and the retained entries before the

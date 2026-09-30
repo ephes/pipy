@@ -17,6 +17,7 @@ from typing import Any
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentMessageUsage,
     AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
@@ -24,6 +25,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
 )
 from pipy_harness.native.agent.system_messages import system_message_to_json
+from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
@@ -86,8 +88,15 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
             "content": assistant_content_blocks(
                 message.content.value, message.tool_calls
             ),
-            "stopReason": assistant_stop_reason(message),
         }
+        if message.provider is not None:
+            assistant["provider"] = message.provider
+        if message.model is not None:
+            assistant["model"] = message.model
+        # Every Pi assistant message has ``usage``; one stored before usage
+        # was recorded reads as zero.
+        assistant["usage"] = usage_to_json(message.usage or AgentMessageUsage())
+        assistant["stopReason"] = assistant_stop_reason(message)
         if message.error_message is not None:
             assistant["errorMessage"] = message.error_message
         return assistant

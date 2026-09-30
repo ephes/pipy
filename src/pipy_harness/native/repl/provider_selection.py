@@ -68,7 +68,6 @@ from pipy_harness.native.coding.state import (
     CodingModelMutation,
     CodingProviderBinding,
     CodingSessionState,
-    CodingSessionUsageSnapshot,
 )
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_types import ExtensionModelRuntimeControl
@@ -193,11 +192,6 @@ class RpcProviderConfigurationPort:
 
     def available_models(self) -> tuple[NativeModelSelection, ...]:
         return self._effects._rpc_available_models()
-
-    def usage_snapshot(self) -> CodingSessionUsageSnapshot:
-        """The live session usage the footer shows, as an immutable value."""
-
-        return self._effects.coding_state.usage_snapshot()
 
     def set_model(self, selection: NativeModelSelection) -> RpcConfigurationResult:
         return self._effects._rpc_set_model(selection, self._commit_if_true_idle)

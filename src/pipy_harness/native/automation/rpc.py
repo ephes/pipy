@@ -55,6 +55,7 @@ from pipy_harness.native.command_sandbox import (
 from pipy_harness.native.repl.session_transition import (
     ProductSessionTransitionError,
 )
+from pipy_harness.native.session_usage import session_stats
 
 # Sentinel distinguishing "omit the response data field" from an explicit
 # ``data: null`` (Pi's `... | null` data contract, e.g. cycle_model).
@@ -1044,45 +1045,9 @@ class NativeRpcServer:
         self._respond(cid, "get_messages", {"messages": messages})
 
     def _cmd_get_session_stats(self, cid: str | None, command: dict[str, Any]) -> None:
-        messages = self._messages()
-        serialized = [serialize_message(m) for m in messages]
-        user = sum(1 for m in serialized if m["role"] == "user")
-        assistant = sum(1 for m in serialized if m["role"] == "assistant")
-        tool_results = sum(1 for m in serialized if m["role"] == "toolResult")
-        tool_calls = sum(
-            1
-            for m in serialized
-            if m["role"] == "assistant"
-            for block in m["content"]
-            if block.get("type") == "toolCall"
-        )
-        tree_path = getattr(self._tree, "path", None)
-        # Pi SessionStats tokens/cost. pipy's totals are the live session
-        # accumulator (the footer's), which a model bind replaces; Pi sums
-        # persisted per-message usage over the whole session file.
-        snapshot = self._configuration_port().usage_snapshot()
-        usage = snapshot.usage
-        tokens = {
-            "input": snapshot.uncached_input_tokens,
-            "output": usage.output_tokens,
-            "cacheRead": usage.cache_read_tokens,
-            "cacheWrite": usage.cache_write_tokens,
-        }
-        self._respond(
-            cid,
-            "get_session_stats",
-            {
-                "sessionFile": str(tree_path) if tree_path else None,
-                "sessionId": self._tree.session_id,
-                "userMessages": user,
-                "assistantMessages": assistant,
-                "toolCalls": tool_calls,
-                "toolResults": tool_results,
-                "totalMessages": len(serialized),
-                "tokens": {**tokens, "total": sum(tokens.values())},
-                "cost": usage.cost_usd,
-            },
-        )
+        # Pi getSessionStats: every stored entry of the session file (all
+        # branches, compacted history included) and its per-message usage.
+        self._respond(cid, "get_session_stats", session_stats(self._tree))
 
     def _cmd_get_last_assistant_text(
         self, cid: str | None, command: dict[str, Any]

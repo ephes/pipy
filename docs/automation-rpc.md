@@ -207,9 +207,9 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"message_end","message":{"role":"system","content":"","sections":{"preamble":"..."},"toolsAdded":[...]}}
 {"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
 {"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
-{"type":"message_start","message":{"role":"assistant","content":[],"stopReason":"stop"}}
+{"type":"message_start","message":{"role":"assistant","content":[],"usage":{...},"stopReason":"stop"}}
 {"type":"message_update","message":{...},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"SEEN:ROOT","partial":{...}}}
-{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}],"stopReason":"stop"}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}],"provider":"fake","model":"fake-tools","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{...}},"stopReason":"stop"}}
 {"type":"turn_end","message":{...},"toolResults":[]}
 {"type":"agent_end","messages":[...],"willRetry":false}
 {"type":"agent_settled"}
@@ -257,8 +257,7 @@ transcript. pipy does the same (SYS1a):
   serialization is backlog SYS1b.
 - **RPC.** `get_messages` returns the stored system messages (after a
   compaction, its checkpoint first). `get_session_stats.totalMessages` counts
-  them too; like every pipy stats counter, it counts the active context rather
-  than Pi's stored entries (backlog USAGE1).
+  them too, over every stored entry as Pi does.
 
 ## (b) `--mode rpc`: Headless Stdin/Stdout JSONL Protocol
 
@@ -484,9 +483,13 @@ which is in-scope full-content for this surface).
 `SessionStats` (`get_session_stats`): `sessionFile`, `sessionId`,
 `userMessages`, `assistantMessages`, `toolCalls`, `toolResults`,
 `totalMessages`, `tokens: { input, output, cacheRead, cacheWrite, total }`,
-`cost`, `contextUsage?`. pipy fills `tokens` and `cost` from the live session
-usage (COST1): `input` is uncached input and `cost` uses the row's catalog
-rates. pipy omits `contextUsage`.
+`cost`, `contextUsage?`. As in Pi's `getSessionStats`, every counter and total
+covers every stored entry of the session file: all branches, and history a
+compaction dropped from the context (USAGE1). `tokens`/`cost` sum the `usage`
+stored on each assistant message (`input` is uncached input; `cost` uses the
+row's catalog rates, COST1), so they survive a resume and a model switch.
+pipy omits `contextUsage`, and records no usage for compaction or branch
+summaries.
 
 `BashResult` (`bash`): `output: string` (combined stdout+stderr, possibly
 truncated), `exitCode: number | undefined`, `cancelled: boolean`,
@@ -671,6 +674,13 @@ While a `prompt` run is in flight:
   and `errorMessage`. Every assistant message carries `stopReason` (`stop`,
   `toolUse`, `aborted` or `error`). The stopped message is stored in the
   session and returned by `get_messages`, but never sent to a provider again.
+  Every assistant message also carries Pi's `usage` object (`input`,
+  `output`, `cacheRead`, `cacheWrite`, optional `cacheWrite1h`/`reasoning`,
+  `totalTokens`, `cost{input,output,cacheRead,cacheWrite,total}`; zeros for
+  an aborted turn or a message stored before USAGE1) and, when known, the
+  `provider` and `model` that answered. The streamed `message_update` partial
+  carries a zero `usage`. pipy does not emit Pi's `api`, `responseModel`,
+  `responseId` or `timestamp`.
 - `prompt` itself may carry `streamingBehavior: "steer" | "followUp"` so a
   prompt sent during an active run is treated as a steer or follow-up.
 
@@ -1276,6 +1286,8 @@ the streaming-delta granularity and asserts the two agree on:
 - the leading system message's shape: empty `content`, `sections` starting
   with `preamble`, and `toolsAdded` declarations. The prompt text and tool set
   differ by design;
+- the key sets of the assistant `usage` object and its `cost`, on the streamed
+  partial and on `message_end` (USAGE1);
 - durable session-tree reconstruction on the pipy side (the native session tree
   rebuilds the same system+user+assistant transcript the event stream
   describes).

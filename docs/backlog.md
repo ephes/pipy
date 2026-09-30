@@ -107,6 +107,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | DF1-F2/F3 | Resume shows and restores the session ([plan](specs/2026-09-29-f2-f3-resume-restore-plan.md)). Startup `-r`/`--continue`/`--session`, `/resume`, `/tree` navigation, `/fork`, `/clone`, `/new` and `/import` redraw the transcript from `build_context_entries()` (Pi `renderInitialMessages`), clearing the scrollback like Pi; `[compaction]`/`[branch]` rows and plain tool results follow Ctrl+O. A new branch records `model_change` and `thinking_level_change` with its first message, every model switch records `model_change` (and a clamped level), and opening a session restores its model and thinking level unless the CLI pins them (Pi `core/sdk.ts:194-263`). Deviations: model restore needs a `model_change` (pipy assistant messages name no model); a runtime fallback keeps the live model; `/new` keeps the live model and level. Follow-on DF1-F2b | `fix/f2-f3-resume-restore` |
 | SYS1a | Pi system messages in the transcript ([plan](specs/2026-09-29-sys1-system-messages-plan.md)). The first run records `role: "system"` with the prompt as the `preamble` section and every tool in `toolsAdded`; later runs and in-run tool changes record only changes. JSON/RPC events, `agent_end.messages`, `get_messages`, the session file and the compaction checkpoint (`systemMessage`) carry it; the TUI draws nothing, `/tree` shows `[system]`. Provider requests are unchanged (Pi's collapse path). `automation_pi_comparison.py` is green. Remainder: SYS1b | `feat/sys1-system-messages` |
 | DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Deviations: no partial thinking or tool calls stored; follow-on DF1-F6b | `fix/f6-aborted-turn` |
+| USAGE1 | Usage stored on every assistant message ([plan](specs/2026-09-30-usage1-message-usage-plan.md)). The loop records Pi's `usage` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` parts from `calculateCost`) and the answering `provider`/`model`; the session file and every JSON/RPC assistant message carry them. The footer, RPC `get_session_stats` and `/session` sum every stored assistant message on every branch (Pi `getSessionStats`), so totals survive resume and a model switch. The footer follows Pi's parts (uncached `↑`, latest-message `CH`, `formatTokens`); `/session` prints Pi's `Session Info` with `Messages`, `Tokens` and `Cost` (per-model breakdown, `Cache Re-billed`). Old sessions load unchanged. Follow-on USAGE1b | `feat/usage1-message-usage` |
 
 ## Follow-ons
 
@@ -198,9 +199,19 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Publishing:** choose and own a PyPI distribution name, then add a
   publish workflow with SHA-pinned actions. Until then
   `pipy update self` refuses, and the README documents the checkout install.
-- **USAGE1:** per-message usage in JSON/RPC messages and the session tree,
-  resumed-session totals, Pi's `/session` Cost section, totals across a model
-  switch, and Pi's footer token semantics (uncached `↑`, latest-message `CH`).
+- **USAGE1b, what USAGE1 left of Pi's usage** (see the USAGE1 Done row):
+  - the context meter and RPC `contextUsage` still read the live session's
+    last response and estimate after a resume; Pi `getContextUsage` reads the
+    last valid assistant usage on the branch (after the latest compaction);
+  - compaction and branch summaries record no `usage` (Pi stores it on the
+    entry and counts it); there are no `usage` entries (Pi cache warming);
+  - assistant messages have no `api`, `responseModel`, `responseId` or
+    `timestamp`; the `/session` breakdown keys on the requested model;
+  - the streamed partial keeps `stopReason: "stop"` where Pi now sends
+    `pending`, and has no `provider`/`model`;
+  - `/session` has no `Cache Warming` section and no styling; resume and
+    `/model` restore still need a `model_change` although assistant messages
+    now name their model.
 - **SYS1b, system messages to providers:** SYS1a (see Done) records Pi's
   system messages in the transcript but still sends every model the prompt
   out of band (Pi's collapse path). Still to port from Pi `9e05370b2`:
@@ -216,9 +227,7 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - restoring the active tool set from the transcript on resume
     (`_restoreToolsFromTranscript`);
   - Pi's tagged prompt sections (`tools`/`rules`/`docs`/`addendum`/
-    `project_context`/`skills`/`cwd`) in place of pipy's single `preamble`;
-  - `get_session_stats` counting stored message entries as Pi does (all pipy
-    counters count the active context; see USAGE1).
+    `project_context`/`skills`/`cwd`) in place of pipy's single `preamble`.
 - **Thinking and model switches:** an extension `setThinkingLevel` does not
   rebuild the provider; `/model x:level` clamping; no fuzzy
   search in selectors or `/thinking` completion; the 128k context fallback for

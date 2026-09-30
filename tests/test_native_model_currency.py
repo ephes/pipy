@@ -32,6 +32,7 @@ from pipy_harness.native.provider_construction import (
 )
 from pipy_harness.native.provider_registry import DEFAULT_NATIVE_MODELS
 from pipy_harness.native.providers.google_generative_ai import _build_thinking_config
+from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.thinking import available_thinking_levels
 
 # Pi defaultModelPerProvider, mapped onto pipy's provider names
@@ -674,6 +675,7 @@ def test_footer_meter_uses_the_resolved_models_json_row(tmp_path: Path) -> None:
         error_stream=io.StringIO(),
         footer=None,
         repl_runtime=_Runtime(),
+        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
     )
     declared = effects._declared_context_window("anthropic", "claude-sonnet-4-5")
     assert declared == 200_000

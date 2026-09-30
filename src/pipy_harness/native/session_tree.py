@@ -56,6 +56,7 @@ from pipy_harness.native.agent.system_messages import (
     system_message_from_json,
     system_message_to_json,
 )
+from pipy_harness.native.agent.usage_json import usage_from_json, usage_to_json
 
 CURRENT_SESSION_VERSION = 1
 
@@ -315,7 +316,7 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
             assistant["stop_reason"] = message.stop_reason.value
         if message.error_message is not None:
             assistant["error_message"] = message.error_message
-        return assistant
+        return _with_turn_metadata(assistant, message)
     if isinstance(message, AgentToolResultMessage):
         body = {
             "role": "tool",
@@ -339,6 +340,34 @@ def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
             body["added_tool_names"] = list(message.added_tool_names)
         return body
     raise TypeError(f"unsupported message type: {type(message)!r}")
+
+
+def _with_turn_metadata(
+    body: dict[str, Any], message: AgentAssistantMessage
+) -> dict[str, Any]:
+    """Pi ``usage`` (in Pi's shape), ``provider`` and ``model`` when recorded."""
+
+    if message.usage is not None:
+        body["usage"] = usage_to_json(message.usage)
+    if message.provider is not None:
+        body["provider"] = message.provider
+    if message.model is not None:
+        body["model"] = message.model
+    return body
+
+
+def _turn_metadata_from_json(body: dict[str, Any]) -> dict[str, Any]:
+    """Read back ``usage``/``provider``/``model``; entries before USAGE1 have none."""
+
+    metadata: dict[str, Any] = {}
+    for key in ("provider", "model"):
+        value = body.get(key)
+        if value is not None and (not isinstance(value, str) or not value):
+            raise ValueError(f"assistant {key} must be a non-empty string")
+        metadata[key] = value
+    raw_usage = body.get("usage")
+    metadata["usage"] = None if raw_usage is None else usage_from_json(raw_usage)
+    return metadata
 
 
 def _ancestor_tool_name(
@@ -397,6 +426,7 @@ def _message_from_json(
                 None if raw_stop_reason is None else AgentStopReason(raw_stop_reason)
             ),
             error_message=raw_error_message,
+            **_turn_metadata_from_json(body),
         )
     if role == "tool":
         raw_added_tool_names = body.get("added_tool_names")

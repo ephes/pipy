@@ -38,8 +38,10 @@ if TYPE_CHECKING:
         CodingSessionUsageSnapshot,
     )
     from pipy_harness.native.package_resources import PackageRoot
+    from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.ui.components.footer import FooterComponent
 
+from pipy_harness.native.session_usage import format_tokens, to_fixed, usage_totals
 from pipy_harness.native.themes import (
     DEFAULT_PALETTE,
     ChromePalette,
@@ -470,7 +472,6 @@ class BottomStatusFields:
     effort_label: str
     tokens_in: int = 0
     tokens_out: int = 0
-    tokens_reasoning: int = 0
     tokens_cache_read: int = 0
     tokens_cache_write: int = 0
     cache_hit_percent: float | None = None
@@ -491,6 +492,8 @@ class _ChromeFooterEffects:
     error_stream: TextIO
     footer: FooterComponent | None
     repl_runtime: _ReplRuntime
+    # The live session tree (it is replaced by /new, /resume and /fork).
+    session_tree: Callable[[], NativeSessionTree]
 
     def _declared_context_window(self, provider_name: str, model_id: str) -> int | None:
         """The resolved catalog row's declared window (models.json aware)."""
@@ -562,10 +565,12 @@ class _ChromeFooterEffects:
             tool_invocation_count=tool_invocation_count,
             user_turn_count=user_turn_count,
         )
-        usage = usage_snapshot.usage if usage_snapshot is not None else None
+        # Pi footer: totals over every stored assistant message of the
+        # session, so they survive resume and a model switch.
+        totals = usage_totals(self.session_tree().get_entries())
         fields = BottomStatusFields(
             cwd_label="",
-            cost_usd=(usage.cost_usd if usage is not None else 0.0),
+            cost_usd=totals.cost,
             using_subscription=self._using_subscription(provider_name),
             context_used_pct=used_pct,
             context_budget_label=budget.budget_label,
@@ -573,14 +578,11 @@ class _ChromeFooterEffects:
             provider_name=provider_name,
             model_id=model_id,
             effort_label=self._effort_label(provider_name, model_id),
-            tokens_in=(usage.input_tokens if usage else 0),
-            tokens_out=(usage.output_tokens if usage else 0),
-            tokens_reasoning=(usage.reasoning_tokens if usage else 0),
-            tokens_cache_read=(usage.cache_read_tokens if usage else 0),
-            tokens_cache_write=(usage.cache_write_tokens if usage else 0),
-            cache_hit_percent=(
-                usage_snapshot.cache_hit_percent if usage_snapshot is not None else None
-            ),
+            tokens_in=totals.input,
+            tokens_out=totals.output,
+            tokens_cache_read=totals.cache_read,
+            tokens_cache_write=totals.cache_write,
+            cache_hit_percent=totals.latest_cache_hit_rate,
         )
         status_line = format_bottom_status_line(
             max(20, chrome_width(error_stream)), fields
@@ -698,28 +700,26 @@ def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
     cost is non-zero or the provider is used through a subscription.
     """
 
-    tokens_prefix = ""
+    # Pi footer.ts: each count only when non-zero, then the latest message's
+    # cache hit rate when the session has cache activity.
+    parts: list[str] = []
+    if fields.tokens_in:
+        parts.append(f"↑{format_tokens(fields.tokens_in)}")
+    if fields.tokens_out:
+        parts.append(f"↓{format_tokens(fields.tokens_out)}")
+    if fields.tokens_cache_read:
+        parts.append(f"R{format_tokens(fields.tokens_cache_read)}")
+    if fields.tokens_cache_write:
+        parts.append(f"W{format_tokens(fields.tokens_cache_write)}")
     if (
-        fields.tokens_in
-        or fields.tokens_out
-        or fields.tokens_cache_read
-        or fields.tokens_cache_write
-    ):
-        parts = [
-            f"↑{_short_token_count(fields.tokens_in)}",
-            f"↓{_short_token_count(fields.tokens_out)}",
-        ]
-        if fields.tokens_cache_read:
-            parts.append(f"R{_short_token_count(fields.tokens_cache_read)}")
-        if fields.tokens_cache_write:
-            parts.append(f"W{_short_token_count(fields.tokens_cache_write)}")
-        if fields.cache_hit_percent is not None:
-            parts.append(f"CH{min(max(fields.cache_hit_percent, 0.0), 100.0):.1f}%")
-        tokens_prefix = " ".join(parts) + " "
+        fields.tokens_cache_read or fields.tokens_cache_write
+    ) and fields.cache_hit_percent is not None:
+        parts.append(f"CH{to_fixed(fields.cache_hit_percent, 1)}%")
+    tokens_prefix = " ".join(parts) + " " if parts else ""
     cost_prefix = ""
     if fields.cost_usd or fields.using_subscription:
         sub = " (sub)" if fields.using_subscription else ""
-        cost_prefix = f"${fields.cost_usd:.3f}{sub} "
+        cost_prefix = f"${to_fixed(fields.cost_usd, 3)}{sub} "
     left = (
         f"{tokens_prefix}{cost_prefix}"
         f"{fields.context_used_pct:.1f}%/{fields.context_budget_label}"
@@ -740,16 +740,6 @@ def _justify_status_line(left: str, right: str, width: int) -> str:
         return combined
     padding = width - len(left) - len(right)
     return f"{left}{' ' * padding}{right}"
-
-
-def _short_token_count(value: int) -> str:
-    if value >= 1_000_000:
-        rendered = value / 1_000_000
-        return f"{rendered:.1f}M" if not rendered.is_integer() else f"{int(rendered)}M"
-    if value >= 1_000:
-        rendered = value / 1000
-        return f"{rendered:.1f}k" if not rendered.is_integer() else f"{int(rendered)}k"
-    return str(value)
 
 
 def print_startup_chrome(

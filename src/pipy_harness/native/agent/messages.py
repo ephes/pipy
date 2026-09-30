@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
+from math import isfinite
 from typing import ClassVar
 
 from pipy_harness.native.agent._validation import (
     require_bool,
     require_non_empty_string,
+    require_non_negative_int,
 )
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
@@ -67,21 +69,90 @@ class AgentStopReason(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class AgentUsageCost:
+    """Pi ``Usage.cost``: dollars per token class and their total."""
+
+    input: float = 0.0
+    output: float = 0.0
+    cache_read: float = 0.0
+    cache_write: float = 0.0
+    total: float = 0.0
+
+    def __post_init__(self) -> None:
+        for field_name in ("input", "output", "cache_read", "cache_write", "total"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"AgentUsageCost.{field_name} must be numeric")
+            if not isfinite(value) or value < 0:
+                raise ValueError(
+                    f"AgentUsageCost.{field_name} must be finite and nonnegative"
+                )
+            object.__setattr__(self, field_name, float(value))
+
+
+@dataclass(frozen=True, slots=True)
+class AgentMessageUsage:
+    """Pi ``Usage`` stored on one assistant message.
+
+    ``input`` is the uncached prompt (neither read from nor written to the
+    cache). ``reasoning`` (part of ``output``) and ``cache_write_1h`` (part of
+    ``cache_write``) are ``None`` unless the provider reported them.
+    """
+
+    input: int = 0
+    output: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
+    total_tokens: int = 0
+    cost: AgentUsageCost = AgentUsageCost()
+    reasoning: int | None = None
+    cache_write_1h: int | None = None
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "input",
+            "output",
+            "cache_read",
+            "cache_write",
+            "total_tokens",
+        ):
+            require_non_negative_int(
+                getattr(self, field_name), f"AgentMessageUsage.{field_name}"
+            )
+        for field_name in ("reasoning", "cache_write_1h"):
+            value = getattr(self, field_name)
+            if value is not None:
+                require_non_negative_int(value, f"AgentMessageUsage.{field_name}")
+        if type(self.cost) is not AgentUsageCost:
+            raise TypeError("AgentMessageUsage.cost must be an AgentUsageCost")
+
+
+@dataclass(frozen=True, slots=True)
 class AgentAssistantMessage:
     """One assembled assistant message and its tool intents.
 
     A message with a ``stop_reason`` is an aborted or failed turn: it keeps
     the streamed partial text, never carries tool calls, and is transcript
     state that providers never see again.
+
+    ``usage``, ``provider`` and ``model`` record which model answered and what
+    the response cost (Pi ``AssistantMessage.usage/provider/model``). They
+    describe the turn rather than the conversation, so they take no part in
+    equality: two messages with the same content and tool calls are the same
+    history.
     """
 
     content: ProductContent
     tool_calls: tuple[AgentToolCall, ...] = ()
     stop_reason: AgentStopReason | None = None
     error_message: str | None = None
+    usage: AgentMessageUsage | None = field(default=None, compare=False)
+    provider: str | None = field(default=None, compare=False)
+    model: str | None = field(default=None, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 256 * 1024
 
     def __post_init__(self) -> None:
+        _validate_turn_metadata(self)
         if self.stop_reason is not None and type(self.stop_reason) is not (
             AgentStopReason
         ):
@@ -112,6 +183,15 @@ class AgentAssistantMessage:
             raise TypeError(
                 "AgentAssistantMessage.tool_calls must contain AgentToolCall values"
             )
+
+
+def _validate_turn_metadata(message: AgentAssistantMessage) -> None:
+    if message.usage is not None and type(message.usage) is not AgentMessageUsage:
+        raise TypeError("AgentAssistantMessage.usage must be AgentMessageUsage or None")
+    for field_name in ("provider", "model"):
+        value = getattr(message, field_name)
+        if value is not None:
+            require_non_empty_string(value, f"AgentAssistantMessage.{field_name}")
 
 
 @dataclass(frozen=True, slots=True)

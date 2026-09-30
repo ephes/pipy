@@ -14,6 +14,7 @@ and asserts the two implementations agree on the observable session semantics:
   with Pi's leading system message since `9e05370b2`);
 - the leading system message's shape (empty `content`, `sections` starting
   with `preamble`, `toolsAdded` declarations);
+- the key sets of the assistant `usage` object and its `cost` (USAGE1);
 - durable session-tree reconstruction: pipy's native session tree (the product
   source of truth) rebuilds the same system+user+assistant transcript the
   event stream describes.
@@ -221,7 +222,44 @@ def _run_comparison(pi_events: list[dict], pipy_events: list[dict]) -> list[Chec
             f"pi={pi_shape} pipy={pipy_shape}",
         )
     )
+
+    pi_usage = _assistant_usage_shape(pi_events)
+    pipy_usage = _assistant_usage_shape(pipy_events)
+    checks.append(
+        Check(
+            "assistant_usage_shape_matches",
+            pi_usage == pipy_usage and bool(pi_usage.get("message_end")),
+            f"pi={pi_usage} pipy={pipy_usage}",
+        )
+    )
     return checks
+
+
+def _assistant_usage_shape(events: list[dict]) -> dict:
+    """Key sets of the assistant ``usage`` (and ``usage.cost``) Pi emits.
+
+    Every Pi assistant message -- the streamed partial and ``message_end`` --
+    carries ``usage`` (USAGE1). Token counts differ by provider, so only the
+    shape is compared; the faux provider reports no optional counters.
+    """
+
+    def shape(message: dict) -> list[list[str]]:
+        usage = message.get("usage")
+        if not isinstance(usage, dict):
+            return []
+        return [sorted(usage), sorted(usage.get("cost") or {})]
+
+    result: dict[str, list[list[str]]] = {}
+    for event in events:
+        if event.get("type") == "message_end":
+            message = event.get("message", {})
+            if message.get("role") == "assistant":
+                result["message_end"] = shape(message)
+        elif event.get("type") == "message_update":
+            partial = event.get("assistantMessageEvent", {}).get("partial", {})
+            if partial.get("role") == "assistant":
+                result["partial"] = shape(partial)
+    return result
 
 
 def _system_message_shape(agent_end: dict) -> dict:

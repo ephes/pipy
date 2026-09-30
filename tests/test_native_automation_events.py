@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pipy_harness.native.agent.messages import AgentMessageUsage
+from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
@@ -26,6 +28,9 @@ from pipy_harness.native.tools import (
     ToolExecutionResult,
     ToolRequest,
 )
+
+# Every Pi assistant message carries ``usage`` (USAGE1); these carry none.
+ZERO_USAGE = usage_to_json(AgentMessageUsage())
 
 
 class _CollectingSink:
@@ -179,6 +184,7 @@ def test_message_start_has_empty_assistant_content(tmp_path: Path) -> None:
     assert message_start["message"] == {
         "role": "assistant",
         "content": [],
+        "usage": ZERO_USAGE,
         "stopReason": "stop",
     }
 

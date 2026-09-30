@@ -71,6 +71,8 @@ def test_provider_usage_sample_preserves_mapping_coercion_and_effective_total() 
         output_tokens=7,
         reasoning_tokens=3,
         total_tokens=9,
+        # Pi leaves ``Usage.reasoning`` undefined unless it was reported.
+        reports_reasoning=True,
     )
     assert sample.effective_total_tokens == 9
     assert AgentProviderUsageSample.from_mapping(None).effective_total_tokens == 0

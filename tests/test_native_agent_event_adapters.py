@@ -41,6 +41,8 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.messages import AgentMessageUsage
+from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.agent_adapters import (
     AppendProductMessage,
     NativeProductSessionActionSink,
@@ -53,6 +55,10 @@ from pipy_harness.native.agent_adapters import (
 from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.ui import RenderingAgentEventAdapter
+
+# Every Pi assistant message carries ``usage`` (USAGE1); these carry none.
+ZERO_USAGE = usage_to_json(AgentMessageUsage())
+
 
 _PRIVATE_ARGUMENTS = "PIPY_PRIVATE_ADAPTER_ARGUMENTS_2835"
 
@@ -330,13 +336,19 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
     assert sink.events == [
         {
             "type": "message_start",
-            "message": {"role": "assistant", "content": [], "stopReason": "stop"},
+            "message": {
+                "role": "assistant",
+                "content": [],
+                "usage": ZERO_USAGE,
+                "stopReason": "stop",
+            },
         },
         {
             "type": "message_update",
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "first"}],
+                "usage": ZERO_USAGE,
                 "stopReason": "stop",
             },
             "assistantMessageEvent": {
@@ -346,6 +358,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
                 "partial": {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "first"}],
+                    "usage": ZERO_USAGE,
                     "stopReason": "stop",
                 },
             },
@@ -355,6 +368,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "first second"}],
+                "usage": ZERO_USAGE,
                 "stopReason": "stop",
             },
             "assistantMessageEvent": {
@@ -364,6 +378,7 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
                 "partial": {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "first second"}],
+                    "usage": ZERO_USAGE,
                     "stopReason": "stop",
                 },
             },
@@ -477,6 +492,7 @@ def test_automation_projection_preserves_lifecycle_retry_and_terminal_shapes() -
             "message": {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "answer"}],
+                "usage": ZERO_USAGE,
                 "stopReason": "stop",
             },
             "toolResults": [],
@@ -491,6 +507,7 @@ def test_automation_projection_preserves_lifecycle_retry_and_terminal_shapes() -
                 {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "answer"}],
+                    "usage": ZERO_USAGE,
                     "stopReason": "stop",
                 },
             ],
