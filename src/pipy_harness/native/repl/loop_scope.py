@@ -269,6 +269,9 @@ class ReplLoopScope:
     cwd: Path
     started_at: datetime
     base_system_prompt: str
+    # Pi's tagged sections ``base_system_prompt`` renders (the transcript
+    # records them).
+    base_system_sections: tuple[tuple[str, str], ...]
     # `image_reference_roots` is *derived* from `file_reference_roots` under a
     # different clipboard policy; both are consumed a dozen lines apart under
     # the same `reference_roots=` parameter name, so they keep distinct names.

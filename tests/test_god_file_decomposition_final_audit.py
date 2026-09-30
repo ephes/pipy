@@ -72,6 +72,7 @@ MEMBER_LIST = {
         "resume_branch_label",
         "resume_context",
         "settings_manager",
+        "system_prompt_sections",
         "tool_budget",
         "tool_filter_options",
         "tool_registry",
@@ -1505,6 +1506,7 @@ class CodingSession:
     workspace_root: object
     input_runtime: str
     reference_roots: tuple[object, ...]
+    system_prompt_sections: tuple[object, ...]
     provider_state: object
     clipboard_copy: object
     clipboard_image_read: object
@@ -2348,7 +2350,7 @@ def test_field_inventory_rejects_a_second_definition_owner(tmp_path: Path) -> No
     [
         ("TerminalUi", "pipy_harness/native/tui.py", 9),
         ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 12),
-        ("CodingSession", "pipy_harness/native/coding/session.py", 24),
+        ("CodingSession", "pipy_harness/native/coding/session.py", 25),
     ],
 )
 def test_field_inventory_resolves_inherited_dataclass_fields_and_rejects_drift(

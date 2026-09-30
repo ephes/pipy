@@ -11,11 +11,12 @@ from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.models import ProviderRequest, ProviderSystemMessage
 from pipy_harness.native.tools.base import ToolDefinition
 
 
@@ -79,6 +80,21 @@ def snapshot_provider_request(
         request.available_tools,
         available_tool_names,
     )
+    final_names = {tool.name for tool in final_tools}
+    # Pi ``_hiddenDeclarations``: tools this transform withheld stay out of
+    # every system message a mid-conversation adapter sends.
+    hidden = tuple(
+        dict.fromkeys(
+            (
+                *request.hidden_tool_names,
+                *(
+                    tool.name
+                    for tool in request.available_tools
+                    if tool.name not in final_names
+                ),
+            )
+        )
+    )
     final_request = freeze_provider_request(
         replace(
             request,
@@ -86,6 +102,14 @@ def snapshot_provider_request(
             user_prompt=final_user_prompt,
             messages=request.messages if messages is None else messages,
             available_tools=final_tools,
+            # A replaced prompt is forced (Pi ``16292398a``): the request
+            # collapses to it instead of sending system messages.
+            system_messages=(
+                request.system_messages
+                if final_system_prompt == request.system_prompt
+                else ()
+            ),
+            hidden_tool_names=hidden,
         )
     )
     return AgentProviderRequestSnapshot(
@@ -270,6 +294,7 @@ def _validate_provider_request_values(request: ProviderRequest) -> None:
     if request.tool_observation is not None:
         raise TypeError("ProviderRequest.tool_observation is not an agent-loop input")
     _validate_messages(request.messages)
+    _validate_system_transcript(request)
     if type(request.available_tools) is not tuple:
         raise TypeError("ProviderRequest.available_tools must be an exact tuple")
     _validate_attachments(request.attachments)
@@ -348,6 +373,31 @@ def _validate_message(message: object) -> None:
     raise TypeError("ProviderRequest.messages contains a non-canonical message")
 
 
+def _validate_system_transcript(request: ProviderRequest) -> None:
+    if type(request.hidden_tool_names) is not tuple or any(
+        type(name) is not str or not name for name in request.hidden_tool_names
+    ):
+        raise TypeError("ProviderRequest.hidden_tool_names must be exact names")
+    anchored: object = request.system_messages
+    message_count = len(request.messages)
+    if type(anchored) is not tuple:
+        raise TypeError("ProviderRequest.system_messages must be an exact tuple")
+    previous = 0
+    for anchor in anchored:
+        if type(anchor) is not ProviderSystemMessage:
+            raise TypeError(
+                "ProviderRequest.system_messages must contain ProviderSystemMessage"
+            )
+        if type(anchor.message) is not AgentSystemMessage:
+            raise TypeError("ProviderSystemMessage.message must be AgentSystemMessage")
+        position = anchor.position
+        if type(position) is not int or not previous <= position <= message_count:
+            raise ValueError(
+                "ProviderSystemMessage positions must be ordered within the messages"
+            )
+        previous = position
+
+
 def _validate_attachments(attachments: object) -> None:
     if type(attachments) is not tuple:
         raise TypeError("ProviderRequest.attachments must be an exact tuple")
@@ -403,10 +453,6 @@ def validate_agent_tool_result_message(result: object) -> None:
     validate_product_content(result.content, "AgentToolResultMessage.content")
     if type(result.is_error) is not bool:
         raise TypeError("AgentToolResultMessage.is_error must be an exact bool")
-    if type(result.added_tool_names) is not tuple or any(
-        type(name) is not str or not name for name in result.added_tool_names
-    ):
-        raise TypeError("AgentToolResultMessage.added_tool_names must be exact names")
 
 
 def validate_product_content(content: object, field_name: str) -> None:

@@ -228,10 +228,10 @@ is no double emit in either mode.
 ### System messages
 
 Pi `9e05370b2` records the system prompt and the tool declarations in the
-transcript. pipy does the same (SYS1a):
+transcript. pipy does the same (SYS1a, SYS1b):
 
 ```json
-{"role":"system","content":"","sections":{"preamble":"<pipy system prompt>"},"toolsAdded":[{"name":"read","description":"…","parameters":{…}}]}
+{"role":"system","content":"","sections":{"preamble":"<pipy system prompt>","cwd":"<cwd>\n/path/to/workspace\n</cwd>"},"toolsAdded":[{"name":"read","description":"…","parameters":{…}}]}
 ```
 
 - **When.** The first run of a session emits one with the whole prompt and
@@ -244,17 +244,23 @@ transcript. pipy does the same (SYS1a):
   A tool change inside a run (for example a tool loaded by another tool)
   emits a tools-only system message after that turn's `turn_start`. Fields
   that would be empty are omitted, and pipy messages carry no `timestamp`.
-- **Sections.** pipy's prompt is one string, so it is the single untagged Pi
-  `preamble` section. Pi's tagged `tools`/`rules`/`docs`/`cwd` sections are a
-  backlog follow-on.
+- **Sections.** The prompt is Pi's ordered sections (`buildSystemPromptSections`):
+  the untagged `preamble` (pipy's default or custom prompt and its reference
+  roots), then `addendum`, `project_context`, `skills` and `cwd`, each wrapped
+  in a tag of its name, and pipy's `resume` block as a trailing custom
+  section. Empty optional sections are left out. Pi's `tools`/`rules`/`docs`
+  sections are a backlog follow-on (SYS1c).
+- **Forced prompts.** A `before_agent_start` suffix is not recorded: it forces
+  that run's prompt, and those requests collapse to it (Pi `16292398a`).
 - **Declarations.** They are the tools the session can execute. A
-  `before_provider_request` hook that narrows a request's tools, or replaces
-  its system prompt, changes that request only, like Pi's request-time
-  projections.
-- **Provider requests are unchanged.** pipy sends the replayed prompt as the
-  system prompt and never sends later system messages. This is what Pi does
-  for models without `supportsMidConvoSystemMessages`. Per-model mid-conversation
-  serialization is backlog SYS1b.
+  `before_provider_request` hook that narrows a request's tools hides them
+  from that request's system messages too; one that replaces the system
+  prompt forces it. Both are request-time projections, like Pi's.
+- **Provider requests.** A model whose catalog row (or `models.json` compat)
+  sets `supportsMidConvoSystemMessages` receives later system messages in
+  place; every other model gets the replayed prompt out of band, as before
+  (Pi's `collapseSystemMessages`). See
+  [provider-catalog.md](provider-catalog.md) for the per-API shapes.
 - **RPC.** `get_messages` returns the stored system messages (after a
   compaction, its checkpoint first). `get_session_stats.totalMessages` counts
   them too, over every stored entry as Pi does.
@@ -1284,8 +1290,9 @@ the streaming-delta granularity and asserts the two agree on:
 - `agent_end` semantics (`willRetry` and the run's message roles, which start
   with the leading system message);
 - the leading system message's shape: empty `content`, `sections` starting
-  with `preamble`, and `toolsAdded` declarations. The prompt text and tool set
-  differ by design;
+  with `preamble` and ending with the tagged `cwd`, every other section
+  wrapped in its tag, and `toolsAdded` declarations. The prompt text and tool
+  set differ by design;
 - the key sets of the assistant `usage` object and its `cost`, on the streamed
   partial and on `message_end` (USAGE1);
 - durable session-tree reconstruction on the pipy side (the native session tree

@@ -14,7 +14,6 @@ from pipy_harness.native._provider_helpers import (
     utc_now,
 )
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonHTTPClient,
@@ -40,9 +39,26 @@ from pipy_harness.native.providers.anthropic_messages_wire import (
     system_blocks,
 )
 from pipy_harness.native.providers.openai_prompt_cache import resolve_cache_retention
+from pipy_harness.native.providers.transcript import (
+    ResolvedTranscript,
+    declaration_definition,
+    declared_tools,
+    has_tool_redefinitions,
+    resolve_request_transcript,
+)
 from pipy_harness.native.tools.base import ToolDefinition
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+MID_CONVERSATION_TOOL_CHANGES_BETA = "mid-conversation-tool-changes-2026-07-01"
+# Pi ``DEFERRED_TOOL_PLACEHOLDER``: declared whenever native tool changes are
+# used, so the scaffolding Anthropic adds for ``defer_loading`` tools is in the
+# cached prefix from the first request. It is never activated.
+DEFERRED_TOOL_PLACEHOLDER: Mapping[str, object] = {
+    "name": "__pi_deferred_placeholder__",
+    "description": "Reserved placeholder. Never available. Never call this.",
+    "input_schema": {"type": "object", "properties": {}, "required": []},
+    "defer_loading": True,
+}
 ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
 # Default per-effort thinking token budgets (Pi's amazon-bedrock.ts default
 # budgets, the universally-valid ``budget_tokens`` path). Claude's budget path
@@ -132,13 +148,64 @@ def _apply_anthropic_thinking(
         body["thinking"] = {"type": "disabled"}
 
 
+@dataclass(frozen=True, slots=True)
+class _AnthropicTranscript:
+    """The resolved transcript and tool lists of one Messages request."""
+
+    resolved: ResolvedTranscript
+    native_tool_changes: bool
+    immediate_tools: tuple[ToolDefinition, ...]
+    deferred_tools: tuple[ToolDefinition, ...]
+
+
+def _anthropic_transcript(
+    request: ProviderRequest,
+    *,
+    supports_mid_convo_system_messages: bool,
+    supports_mid_convo_tool_changes: bool,
+) -> _AnthropicTranscript:
+    """Pi ``buildParams`` tool selection (``anthropic-messages.ts:1043-1145``).
+
+    Native tool changes reference tools by name, so a redefined name cannot
+    be expressed, and Anthropic rejects a tool list where every tool is
+    deferred: they need an initial tool and no redefinition. Then the initial
+    tools stay immediate and every later declaration (removed ones included)
+    is deferred, surfaced by its ``tool_addition`` block, so the tool list
+    only grows. Otherwise the current tools are sent.
+    """
+
+    resolved = resolve_request_transcript(
+        request, supports_mid_convo=supports_mid_convo_system_messages
+    )
+    initial = resolved.initial_tools
+    native = (
+        resolved.mid_convo
+        and supports_mid_convo_tool_changes
+        and bool(initial)
+        and not has_tool_redefinitions(resolved.system_messages)
+    )
+    if not native:
+        return _AnthropicTranscript(resolved, False, tuple(request.available_tools), ())
+    initial_names = {tool.name for tool in initial}
+    later = tuple(
+        declaration_definition(tool)
+        for tool in declared_tools(resolved.system_messages)
+        if tool.name not in initial_names
+    )
+    return _AnthropicTranscript(
+        resolved,
+        True,
+        tuple(declaration_definition(tool) for tool in initial),
+        later,
+    )
+
+
 def _build_anthropic_request_body(
     request: ProviderRequest,
     *,
     model_id: str,
     max_tokens: int,
-    immediate_tools: tuple[ToolDefinition, ...],
-    deferred_tools: tuple[ToolDefinition, ...],
+    transcript: _AnthropicTranscript,
     reasoning_effort: str | None,
     thinking_disabled: bool,
     adaptive: bool,
@@ -151,14 +218,15 @@ def _build_anthropic_request_body(
     (``anthropic-messages.ts:1086-1145``, ``:1407-1432``): on the system block,
     on the last immediate tool (never a ``defer_loading`` one; skipped when
     ``cache_control_on_tools`` is off), and on the last block of a trailing
-    user message. That is at most three of Anthropic's four breakpoints.
+    user or system message. That is at most three of Anthropic's four
+    breakpoints.
     """
 
-    deferred_tool_names = frozenset(tool.name for tool in deferred_tools)
     messages = messages_payload(
         request,
         parse_error_class=AnthropicResponseParseError,
-        deferred_tool_names=deferred_tool_names,
+        items=transcript.resolved.items,
+        native_tool_changes=transcript.native_tool_changes,
         attach_images=True,
         coalesce_tool_results=True,
     )
@@ -168,17 +236,19 @@ def _build_anthropic_request_body(
         eligible_types=ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES,
     )
     body: dict[str, Any] = {"model": model_id, "max_tokens": max_tokens}
-    system = system_blocks(request.system_prompt, cache_control)
+    system = system_blocks(transcript.resolved.leading_text, cache_control)
     if system is not None:
         body["system"] = system
     body["messages"] = messages
-    if request.available_tools:
+    if transcript.immediate_tools:
         serialized_tools = [
-            serialize_tool_for_anthropic(tool) for tool in immediate_tools
+            serialize_tool_for_anthropic(tool) for tool in transcript.immediate_tools
         ]
-        if serialized_tools and cache_control is not None and cache_control_on_tools:
+        if cache_control is not None and cache_control_on_tools:
             serialized_tools[-1]["cache_control"] = dict(cache_control)
-        for tool in deferred_tools:
+        if transcript.native_tool_changes:
+            serialized_tools.append(dict(DEFERRED_TOOL_PLACEHOLDER))
+        for tool in transcript.deferred_tools:
             serialized = serialize_tool_for_anthropic(tool)
             serialized["defer_loading"] = True
             serialized_tools.append(serialized)
@@ -244,7 +314,11 @@ class AnthropicProvider:
     # construction (always a bool there). ``None`` — only for a directly
     # constructed adapter — falls back to the id-marker predicate.
     force_adaptive_thinking: bool | None = None
-    supports_tool_references: bool = False
+    # Pi ``AnthropicMessagesCompat`` system-message bits (SYS1b), resolved per
+    # flag by catalog construction: later system messages stay in place, and
+    # with tool changes they add and remove tools natively.
+    supports_mid_convo_system_messages: bool = False
+    supports_mid_convo_tool_changes: bool = False
     # Pi ``AnthropicMessagesCompat`` prompt-cache bits, resolved per flag by
     # catalog construction (``anthropic-messages.ts:207-213``): long (1h)
     # retention and tool breakpoints default on; session-affinity headers
@@ -293,16 +367,11 @@ class AnthropicProvider:
                 ),
             )
 
-        immediate_tools, deferred_tools = split_deferred_tools(
+        transcript = _anthropic_transcript(
             request,
-            enabled=self.supports_tool_references,
+            supports_mid_convo_system_messages=self.supports_mid_convo_system_messages,
+            supports_mid_convo_tool_changes=self.supports_mid_convo_tool_changes,
         )
-        # Anthropic requires at least one immediate definition when tools are
-        # present. Pi falls back to the ordinary list when every current tool
-        # would otherwise be deferred.
-        if not immediate_tools and deferred_tools:
-            immediate_tools = deferred_tools
-            deferred_tools = ()
         # Anthropic-native thinking. Pi switches the adaptive Claude models
         # (``compat.forceAdaptiveThinking``: Opus 4.6+, Opus/Sonnet 5.x, Sonnet
         # 4.6, Fable/Mythos 5) to the adaptive shape (``type: adaptive`` +
@@ -321,8 +390,7 @@ class AnthropicProvider:
             request,
             model_id=self.model_id,
             max_tokens=self.max_tokens,
-            immediate_tools=immediate_tools,
-            deferred_tools=deferred_tools,
+            transcript=transcript,
             reasoning_effort=self.reasoning_effort,
             thinking_disabled=self.thinking_disabled,
             adaptive=adaptive,
@@ -334,6 +402,12 @@ class AnthropicProvider:
         headers = self._request_headers(
             request, retention, has_explicit_authorization=has_explicit_authorization
         )
+        # Pi ``getBetaFeatures``: native tool changes need their beta unless a
+        # configured ``anthropic-beta`` header replaces the computed list.
+        if transcript.native_tool_changes and not any(
+            name.lower() == "anthropic-beta" for name in headers
+        ):
+            headers["anthropic-beta"] = MID_CONVERSATION_TOOL_CHANGES_BETA
         headers = apply_provider_headers(request, headers)
 
         try:

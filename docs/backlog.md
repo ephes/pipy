@@ -108,6 +108,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | SYS1a | Pi system messages in the transcript ([plan](specs/2026-09-29-sys1-system-messages-plan.md)). The first run records `role: "system"` with the prompt as the `preamble` section and every tool in `toolsAdded`; later runs and in-run tool changes record only changes. JSON/RPC events, `agent_end.messages`, `get_messages`, the session file and the compaction checkpoint (`systemMessage`) carry it; the TUI draws nothing, `/tree` shows `[system]`. Provider requests are unchanged (Pi's collapse path). `automation_pi_comparison.py` is green. Remainder: SYS1b | `feat/sys1-system-messages` |
 | DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Deviations: no partial thinking or tool calls stored; follow-on DF1-F6b | `fix/f6-aborted-turn` |
 | USAGE1 | Usage stored on every assistant message ([plan](specs/2026-09-30-usage1-message-usage-plan.md)). The loop records Pi's `usage` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` parts from `calculateCost`) and the answering `provider`/`model`; the session file and every JSON/RPC assistant message carry them. The footer, RPC `get_session_stats` and `/session` sum every stored assistant message on every branch (Pi `getSessionStats`), so totals survive resume and a model switch. The footer follows Pi's parts (uncached `↑`, latest-message `CH`, `formatTokens`); `/session` prints Pi's `Session Info` with `Messages`, `Tokens` and `Cost` (per-model breakdown, `Cache Re-billed`). Old sessions load unchanged. Follow-on USAGE1b | `feat/usage1-message-usage` |
+| SYS1b | System messages reach providers ([plan](specs/2026-09-30-sys1b-provider-system-messages-plan.md)). Catalog compat flags from Pi's data (`supportsMidConvoSystemMessages`, `supportsAdditionalTools`, `supportsMidConvoToolChanges`, `supportsDeveloperRole`; `supportsMidConvoToolAdditions` via `models.json`); requests carry the session's anchored system messages for adapters that accept them: Responses/Azure/Codex developer messages with `additional_tools`/`tool_search` loads, Chat Completions/Mistral, Anthropic held `system` messages with `tool_addition`/`tool_removal`, placeholder and beta; Google/Bedrock collapse. Tagged prompt sections; `added_tool_names` and `supportsToolReferences` removed (Pi). Remainder: SYS1c | `feat/sys1b-provider-system-messages` |
 
 ## Follow-ons
 
@@ -212,22 +213,26 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - `/session` has no `Cache Warming` section and no styling; resume and
     `/model` restore still need a `model_change` although assistant messages
     now name their model.
-- **SYS1b, system messages to providers:** SYS1a (see Done) records Pi's
-  system messages in the transcript but still sends every model the prompt
-  out of band (Pi's collapse path). Still to port from Pi `9e05370b2`:
-  - the compat flags `supportsMidConvoSystemMessages`,
-    `supportsMidConvoToolAdditions` and `supportsMidConvoToolChanges`, and
-    per-adapter serialization of later system messages (Anthropic
-    `tool_addition`/`tool_removal`, OpenAI Responses/Codex developer messages
-    and `additional_tools`, Chat Completions, Google, Bedrock, Mistral);
+- **SYS1c, system-message remainder:** SYS1b (see Done) sends later system
+  messages to models whose compat accepts them and records Pi's tagged
+  `preamble`/`addendum`/`project_context`/`skills`/`cwd` sections (so the
+  `<cwd>` part of "Skills and prompt" and the Anthropic deferred-tool
+  placeholder under "Prompt cache" are done). Still to port from Pi:
   - Anthropic mid-conversation effort (`supportsMidConvoEffort`,
-    `output_config` system messages, `4e69b0c28`);
-  - replacing `AgentToolResultMessage.added_tool_names` deferred-tool loads
-    with transcript `toolsAdded` (Pi removed `addedToolNames`);
-  - restoring the active tool set from the transcript on resume
-    (`_restoreToolsFromTranscript`);
-  - Pi's tagged prompt sections (`tools`/`rules`/`docs`/`addendum`/
-    `project_context`/`skills`/`cwd`) in place of pipy's single `preamble`.
+    `output_config` system messages before assistant turns, the per-message
+    `providerThinkingLevel`, adaptive `block_binding`, the
+    `mid-conversation-output-config`/`thinking-binding-controls` betas;
+    `4e69b0c28`);
+  - restoring the active tool set from the transcript at startup and after
+    `/tree` navigation (`_restoreToolsFromTranscript`);
+  - the `tools`/`rules`/`docs` sections (tool prompt snippets and
+    guidelines; with the "Skills and prompt" follow-on);
+  - the leading prompt's shape: Pi's openai-responses sends it as the first
+    input message in the instruction role (pipy: `instructions`), and Chat
+    Completions uses the instruction role (pipy: `system`); Codex's empty
+    prompt default;
+  - a session whose first system message is not the leading one (made
+    before SYS1a) collapses, where Pi sends the state as a later message.
 - **Thinking and model switches:** an extension `setThinkingLevel` does not
   rebuild the provider; `/model x:level` clamping; no fuzzy
   search in selectors or `/thinking` completion; the 128k context fallback for

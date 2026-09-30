@@ -1324,25 +1324,6 @@ def test_result_snapshot_rejects_mutable_nested_message_substitutions() -> None:
             usage=AgentUsage(),
         )
 
-    result = AgentToolResultMessage(
-        "pipy-tool-request-1",
-        "read",
-        ProductContent("result"),
-        "provider-call",
-    )
-    object.__setattr__(
-        result,
-        "added_tool_names",
-        cast(tuple[str, ...], ["mutable"]),
-    )
-    with pytest.raises(TypeError, match="added_tool_names must be an exact tuple"):
-        CodingSessionResultSnapshot(
-            provider_name="provider",
-            model_id="model",
-            messages=(result,),
-            usage=AgentUsage(),
-        )
-
 
 def test_snapshots_reject_corrupted_nested_content_and_usage_fields() -> None:
     content = ProductContent("user")

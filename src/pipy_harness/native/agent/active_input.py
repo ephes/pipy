@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import (
     AgentMessage,
+    AgentSystemMessage,
     AgentUserMessage,
 )
 
@@ -18,10 +19,17 @@ class AgentActiveInput:
 
     The accepted message is located by object identity, so history compaction
     may shift its index without changing the request overlay position.
+
+    ``turn_system_message`` is the system message the loop declares at the
+    start of the turn being prepared (Pi ``declareToolChanges``). The loop
+    emits and persists it after preparation, so a request view anchors it
+    itself: before the accepted message on the first turn, after the history
+    on later turns.
     """
 
     accepted_message: AgentUserMessage
     request_overlay: tuple[AgentUserMessage, ...] = ()
+    turn_system_message: AgentSystemMessage | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.accepted_message, AgentUserMessage):
@@ -33,6 +41,10 @@ class AgentActiveInput:
             raise TypeError(
                 "request_overlay must be a tuple of AgentUserMessage values"
             )
+        if self.turn_system_message is not None and not isinstance(
+            self.turn_system_message, AgentSystemMessage
+        ):
+            raise TypeError("turn_system_message must be AgentSystemMessage or None")
 
     def request_messages(
         self, history: Sequence[AgentMessage]
@@ -48,6 +60,11 @@ class AgentActiveInput:
             + self.request_overlay
             + messages[insertion_index:]
         )
+
+    def accepted_index(self, history: Sequence[AgentMessage]) -> int:
+        """The accepted message's index in ``history`` (and its request view)."""
+
+        return self._anchored_history(history)[1]
 
     def transformed_request_messages(
         self,

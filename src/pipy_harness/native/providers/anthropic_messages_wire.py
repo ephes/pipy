@@ -11,7 +11,7 @@ envelope). This module owns the byte-identical translation in both directions:
   with the legacy single-turn shape.
 - :func:`envelope_to_message` translates one ``AgentMessage`` envelope.
 - :func:`convert_tool_result` turns one tool-result envelope into a
-  ``tool_result`` block (plus any deferred ``tool_reference`` siblings).
+  ``tool_result`` block.
 - :func:`anthropic_cache_control`, :func:`system_blocks` and
   :func:`apply_last_user_cache_breakpoint` place Pi's prompt-cache markers
   (each adapter decides where they apply).
@@ -29,9 +29,9 @@ parameters here:
 - the human-readable response label used in parse-error messages
   (``response_label``, e.g. ``"Anthropic"`` vs ``"Bedrock"``); and
 - the Anthropic-only message extensions Bedrock omits: consecutive
-  tool-result coalescing (``coalesce_tool_results``), deferred
-  ``tool_reference`` emission (``deferred_tool_names``), and image-attachment
-  blocks (``attach_images``). Bedrock passes none of them and gets the plain
+  tool-result coalescing (``coalesce_tool_results``), later system messages
+  (``items``/``native_tool_changes``), and image-attachment blocks
+  (``attach_images``). Bedrock passes none of them and gets the plain
   per-envelope translation.
 
 Auth, URL/region resolution, SigV4 signing, thinking mapping, and the two
@@ -42,16 +42,19 @@ modules.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentMessage,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.http import ProviderHTTPError, extract_anthropic_usage
 from pipy_harness.native.models import (
     CacheRetention,
@@ -72,9 +75,11 @@ class ParsedAnthropicMessagesResponse:
 
 
 # Last-block types Pi's Anthropic adapter marks with the conversation
-# breakpoint (``anthropic-messages.ts:1407-1432``). ``tool_addition``/
-# ``tool_removal`` belong to Pi's native tool changes, which pipy lacks.
-ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES = frozenset({"text", "image", "tool_result"})
+# breakpoint (``anthropic-messages.ts:1407-1432``), including a trailing
+# system message's native tool changes.
+ANTHROPIC_CACHEABLE_LAST_BLOCK_TYPES = frozenset(
+    {"text", "image", "tool_result", "tool_addition", "tool_removal"}
+)
 
 
 def anthropic_cache_control(
@@ -117,7 +122,7 @@ def apply_last_user_cache_breakpoint(
     *,
     eligible_types: frozenset[str] | None,
 ) -> None:
-    """Mark the last block of the last message when that message is a user turn.
+    """Mark the last block of the last message when it is a user or system turn.
 
     ``eligible_types`` limits which last-block types take the marker (Pi's
     Anthropic rule); ``None`` accepts any block (Pi's Bedrock cache point is
@@ -127,7 +132,7 @@ def apply_last_user_cache_breakpoint(
     if cache_control is None or not items:
         return
     last = items[-1]
-    if last.get("role") != "user":
+    if last.get("role") not in ("user", "system"):
         return
     content = last.get("content")
     if isinstance(content, str):
@@ -149,71 +154,89 @@ def messages_payload(
     request: ProviderRequest,
     *,
     parse_error_class: type[ProviderHTTPError],
-    deferred_tool_names: frozenset[str] = frozenset(),
+    items: Sequence[AgentMessage | AgentSystemMessage] | None = None,
+    native_tool_changes: bool = False,
     attach_images: bool = False,
     coalesce_tool_results: bool = False,
 ) -> list[dict[str, object]]:
     """Serialize a ``ProviderRequest`` into the Anthropic ``messages`` payload.
 
-    ``coalesce_tool_results``, ``deferred_tool_names``, and ``attach_images`` are
-    the Anthropic-only message extensions: when enabled, consecutive tool
-    results collapse into one user turn (carrying any deferred
-    ``tool_reference`` blocks and their sibling text), and the current user turn
-    gains base64 ``image`` blocks. Bedrock passes none of them and gets the
-    plain per-envelope translation with no coalescing or image attachment.
+    ``items`` is the resolved transcript (later system messages interleaved;
+    ``providers/transcript.py``), defaulting to the request's messages.
+    ``coalesce_tool_results`` and ``attach_images`` are the Anthropic-only
+    extensions: consecutive tool results collapse into one user turn, and the
+    current user turn gains base64 ``image`` blocks. Bedrock passes neither.
+
+    A later system message (Pi ``convertMessages``) becomes a ``system``-role
+    message: its rendered update as a text block and, with native tool
+    changes, ``tool_removal`` then ``tool_addition`` blocks. It is held and
+    emitted directly before the next assistant message or at the end, since
+    Anthropic rejects anything between a ``tool_use`` and its results.
     """
 
-    if request.messages:
-        if coalesce_tool_results:
-            items: list[dict[str, object]] = []
-            loaded_tool_names: set[str] = set()
-            index = 0
-            while index < len(request.messages):
-                envelope = request.messages[index]
-                if not isinstance(envelope, AgentToolResultMessage):
-                    items.append(
-                        envelope_to_message(
-                            envelope, parse_error_class=parse_error_class
-                        )
-                    )
-                    index += 1
-                    continue
-                tool_results: list[dict[str, object]] = []
-                sibling_content: list[dict[str, object]] = []
-                while index < len(request.messages) and isinstance(
-                    request.messages[index], AgentToolResultMessage
-                ):
-                    tool_result = request.messages[index]
-                    assert isinstance(tool_result, AgentToolResultMessage)
-                    result, siblings = convert_tool_result(
-                        tool_result,
-                        deferred_tool_names=deferred_tool_names,
-                        loaded_tool_names=loaded_tool_names,
-                    )
-                    tool_results.append(result)
-                    sibling_content.extend(siblings)
-                    index += 1
-                items.append(
-                    {
-                        "role": "user",
-                        "content": [*tool_results, *sibling_content],
-                    }
-                )
-        else:
-            items = [
-                envelope_to_message(envelope, parse_error_class=parse_error_class)
-                for envelope in request.messages
-            ]
-    else:
-        items = [
+    transcript = tuple(request.messages) if items is None else tuple(items)
+    if not transcript:
+        payload: list[dict[str, object]] = [
             {
                 "role": "user",
                 "content": [{"type": "text", "text": request.user_prompt}],
             }
         ]
+    else:
+        payload = []
+        pending: list[dict[str, object]] = []
+        index = 0
+        while index < len(transcript):
+            item = transcript[index]
+            index += 1
+            if isinstance(item, AgentSystemMessage):
+                message = _system_message(item, native_tool_changes)
+                if message is not None:
+                    pending.append(message)
+                continue
+            if isinstance(item, AgentAssistantMessage):
+                payload.extend(pending)
+                pending.clear()
+            if coalesce_tool_results and isinstance(item, AgentToolResultMessage):
+                results = [convert_tool_result(item)]
+                while index < len(transcript) and isinstance(
+                    transcript[index], AgentToolResultMessage
+                ):
+                    following = transcript[index]
+                    assert isinstance(following, AgentToolResultMessage)
+                    results.append(convert_tool_result(following))
+                    index += 1
+                payload.append({"role": "user", "content": results})
+                continue
+            payload.append(
+                envelope_to_message(item, parse_error_class=parse_error_class)
+            )
+        payload.extend(pending)
     if attach_images:
-        _attach_images(items, request)
-    return items
+        _attach_images(payload, request)
+    return payload
+
+
+def _system_message(
+    message: AgentSystemMessage, native_tool_changes: bool
+) -> dict[str, object] | None:
+    blocks: list[dict[str, object]] = []
+    text = render_system_message_update(message)
+    if text:
+        blocks.append({"type": "text", "text": text})
+    if native_tool_changes:
+        blocks.extend(
+            {"type": "tool_removal", "tool": {"type": "tool_reference", "name": name}}
+            for name in message.tools_removed
+        )
+        blocks.extend(
+            {
+                "type": "tool_addition",
+                "tool": {"type": "tool_reference", "name": tool.name},
+            }
+            for tool in message.tools_added
+        )
+    return {"role": "system", "content": blocks} if blocks else None
 
 
 def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:
@@ -283,47 +306,21 @@ def envelope_to_message(
             )
         return {"role": "assistant", "content": content}
     if isinstance(envelope, AgentToolResultMessage):
-        result, siblings = convert_tool_result(
-            envelope,
-            deferred_tool_names=frozenset(),
-            loaded_tool_names=set(),
-        )
-        return {"role": "user", "content": [result, *siblings]}
+        return {"role": "user", "content": [convert_tool_result(envelope)]}
     raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
 
 
-def convert_tool_result(
-    envelope: AgentToolResultMessage,
-    *,
-    deferred_tool_names: frozenset[str],
-    loaded_tool_names: set[str],
-) -> tuple[dict[str, object], list[dict[str, object]]]:
-    """Convert one tool-result envelope into a ``tool_result`` block.
+def convert_tool_result(envelope: AgentToolResultMessage) -> dict[str, object]:
+    """Convert one tool-result envelope into a ``tool_result`` block."""
 
-    Returns the block plus any sibling content blocks. When a result activates a
-    deferred tool for the first time, the block carries ``tool_reference`` blocks
-    and the result text moves into a sibling ``text`` block.
-    """
-
-    references: list[dict[str, object]] = []
-    for name in envelope.added_tool_names:
-        if name not in deferred_tool_names or name in loaded_tool_names:
-            continue
-        loaded_tool_names.add(name)
-        references.append({"type": "tool_reference", "tool_name": name})
     block: dict[str, object] = {
         "type": "tool_result",
         "tool_use_id": portable_tool_correlation_id(envelope.provider_correlation_id),
-        "content": references if references else envelope.content.value,
+        "content": envelope.content.value,
     }
     if envelope.is_error:
         block["is_error"] = True
-    siblings: list[dict[str, object]] = (
-        [{"type": "text", "text": envelope.content.value}]
-        if references and envelope.content.value.strip()
-        else []
-    )
-    return block, siblings
+    return block
 
 
 def parse_response(

@@ -15,7 +15,7 @@ import json
 import threading
 import urllib.error
 from collections.abc import Iterator, Mapping, MutableMapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from email.message import Message
 from email.utils import formatdate
 from pathlib import Path
@@ -30,8 +30,10 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.messages import AgentSystemMessage
+from pipy_harness.native.agent.system_messages import tool_declaration
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
-from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.models import ProviderRequest, ProviderSystemMessage
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     OpenAICodexCredentials,
@@ -684,11 +686,18 @@ def test_tool_search_body_and_derived_id_are_stable_across_attempts(
         metadata={"phase": "headers", "retryable": True, "transport": "sse"},
     )
     client = _SequenceHTTPClient([first, _success_response()])
+    loader = ToolDefinition(
+        name="loader",
+        description="loader",
+        input_schema={"type": "object", "properties": {}},
+    )
     late_tool = ToolDefinition(
         name="late_tool",
         description="late tool",
         input_schema={"type": "object", "properties": {}},
     )
+    # SYS1b: the tool the loader added is declared by a later transcript
+    # system message, anchored after the loader's result.
     request = ProviderRequest(
         system_prompt="sys",
         user_prompt="load",
@@ -709,13 +718,27 @@ def test_tool_search_body_and_derived_id_are_stable_across_attempts(
                 tool_name="loader",
                 content=ProductContent("loaded"),
                 provider_correlation_id="call_loader|fc_loader",
-                added_tool_names=("late_tool",),
             ),
         ),
-        available_tools=(late_tool,),
+        available_tools=(loader, late_tool),
+        system_messages=(
+            ProviderSystemMessage(
+                0,
+                AgentSystemMessage(
+                    sections=(("preamble", "sys"),),
+                    tools_added=(tool_declaration(loader),),
+                ),
+            ),
+            ProviderSystemMessage(
+                2, AgentSystemMessage(tools_added=(tool_declaration(late_tool),))
+            ),
+        ),
     )
 
-    provider = _provider(client, supports_tool_search=True)
+    provider = replace(
+        _provider(client, supports_tool_search=True),
+        supports_mid_convo_system_messages=True,
+    )
     if prepared_attempts:
         prepared = provider.prepare_completion(request)
         first_result = prepared.complete_attempt(ProviderAttemptAllowance(1, 2))
@@ -731,7 +754,7 @@ def test_tool_search_body_and_derived_id_are_stable_across_attempts(
         for item in client.bodies[0]["input"]
         if item.get("type") == "tool_search_call"
     ]
-    assert search_ids == ["pi_tool_load_frjjneqko5wi"]
+    assert search_ids == ["pi_tool_load_1x3ncrr1tyw2uk"]
 
 
 @pytest.mark.parametrize(

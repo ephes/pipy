@@ -104,8 +104,8 @@ Known deviations, owned by later slices:
 - **OpenRouter Claude rows.** Pi routes them through `anthropic-messages` over
   OpenRouter; pipy has no such transport.
 - **Anthropic mid-conversation managed effort.** On Pi rows with
-  `supportsMidConvoEffort`, Pi sends `configuration_update` system messages
-  (backlog SYS1b).
+  `supportsMidConvoEffort`, Pi sends `output_config` effort system messages
+  before assistant turns (backlog SYS1c); pipy does not carry the flag.
 - **No clamp on an explicit `/model provider/model:level` suffix.** Pi clamps
   it, while pipy passes it through.
 - **The Responses on-state keeps pipy's `{effort}` shape.** Pi adds
@@ -114,6 +114,48 @@ Known deviations, owned by later slices:
   models are not carried.** `NativeModelCost.tiers` and `models.json`
   `cost.tiers` exist and price sessions (COST1), but the built-in rows have no
   tier data until the catalog sync (MC5) brings Pi's.
+
+### Mid-conversation system messages
+
+SYS1b ports Pi `9e05370b2`'s provider side of transcript system messages
+([plan](specs/2026-09-30-sys1b-provider-system-messages-plan.md)). A request
+carries the session's system messages next to its history
+(`ProviderRequest.system_messages`, each anchored before the message it
+precedes), but only when the bound adapter accepts them; the helpers in
+`native/providers/transcript.py` port Pi's `resolveTranscript`,
+`collapseSystemMessages`, `resolveTranscriptTools` and
+`renderSystemMessageUpdate`. The first system message is the leading prompt
+(plus pipy's out-of-band compaction summary); a later one renders as
+`Updated system prompt section "NAME":` or `Removed system prompt section
+"NAME".` text.
+
+| API | Flags (explicit row value, default false) | Later system message |
+| --- | --- | --- |
+| openai-responses, azure-openai-responses, openai-codex-responses | `supportsMidConvoSystemMessages`, `supportsAdditionalTools`, `supportsToolSearch`, `supportsDeveloperRole` (default true) | tools it adds first (`additional_tools`, else a client `tool_search` pair seeded `system:<index>:<names>`), then a `developer` message (`system` for a non-reasoning model or `supportsDeveloperRole: false`) |
+| openai-completions, cloudflare-workers-ai | `supportsMidConvoSystemMessages`, `supportsMidConvoToolAdditions`, `supportsDeveloperRole` (Pi `detectCompat`) | `{role: "system", tools}` for added tools, then the update in the instruction role |
+| mistral | `supportsMidConvoSystemMessages` | a `system` message |
+| anthropic-messages | `supportsMidConvoSystemMessages`, `supportsMidConvoToolChanges` | a `system`-role message held until the next assistant turn: the update text, then `tool_removal`/`tool_addition` blocks when native tool changes apply |
+| google-*, bedrock | none | collapsed, as in Pi |
+
+Tools: when later additions can be anchored (no removal or redeclaration in
+the transcript), the top-level `tools` keep the leading message's tools and
+later ones load in place; otherwise they are the request's current tools.
+Anthropic's native tool changes need an initial tool and no redefinition;
+then the initial tools stay immediate (cache marker on the last), Pi's
+`__pi_deferred_placeholder__` follows, every later declaration is sent with
+`defer_loading`, and the request adds the
+`mid-conversation-tool-changes-2026-07-01` beta unless an `anthropic-beta`
+header is configured.
+
+The request collapses (today's request) when the model lacks the flag, when a
+`before_agent_start` suffix or a `before_provider_request` prompt change
+forces the prompt, or when the session's first system message is not its
+leading message (a session made before SYS1a). Tools a request hook withheld
+are hidden from every system message. Known divergences, recorded as SYS1c in
+the backlog: pipy's Responses adapters send the leading prompt as
+`instructions` (Pi's openai-responses sends it as the first input message)
+and Chat Completions sends it as `system` (Pi uses the instruction role);
+tool `strict` fields and Anthropic's other betas are not sent.
 
 ### Catalog drift check
 
@@ -446,17 +488,13 @@ Remaining adapter/product follow-ons:
   (amazon-bedrock.ts:943-949) — it has no disabled shape — and pipy's bedrock
   adapter already omits `thinking` when no effort is resolved, so it is already
   Pi-correct.
-- Cache-friendly deferred tools have shipped on the catalog/product
-  path. Explicit Boolean `compat.supportsToolReferences` wins; otherwise only
-  first-party non-Haiku Claude 4.5+ ids enable the feature. Additive extension-
-  tool activation persists a tool-result load point, late definitions carry
-  `defer_loading: true`, and the marked result emits `tool_reference` while its
-  ordinary output moves to sibling text. Old/Haiku/custom-default models keep
-  the complete ordinary tool list. For OpenAI Responses and Codex Responses,
-  explicit Boolean `compat.supportsToolSearch` defaults false; supported rows
-  keep late definitions out of top-level `tools` and add completed client
-  `tool_search_call`/`tool_search_output` items after the marked result. Kimi
-  Chat Completions deferred tools remain a separate provider-owned slice.
+- Tools loaded mid-conversation follow Pi `9e05370b2` (SYS1b): the next
+  turn's system message declares them, and adapters for models with the
+  mid-conversation flags load them in place (see
+  [Mid-conversation system messages](#mid-conversation-system-messages)).
+  Pi removed the older tool-result markers (`addedToolNames`) and
+  `supportsToolReferences`; pipy did the same, so models without the flags
+  receive the current tools as ordinary definitions.
 - Azure URL/api-version parity has shipped: the azure adapter now matches Pi's
   `AzureOpenAI` SDK v1 surface. The default api-version is `v1` (overridable by
   `AZURE_OPENAI_API_VERSION`); Azure-host base URLs (`*.openai.azure.com`,
@@ -893,7 +931,12 @@ session is priced from the resolved row with Pi's `calculateCost`; see
 - Anthropic Messages compat: `supportsEagerToolInputStreaming`,
   `supportsLongCacheRetention`, `sendSessionAffinityHeaders`,
   `supportsCacheControlOnTools`, `forceAdaptiveThinking`,
-  `supportsToolReferences`.
+  `supportsMidConvoSystemMessages`, `supportsMidConvoToolChanges`.
+- Mid-conversation system messages on the other APIs:
+  `supportsMidConvoSystemMessages` everywhere Pi reads it, plus
+  `supportsAdditionalTools`, `supportsToolSearch` and `supportsDeveloperRole`
+  (Responses, Azure, Codex) and `supportsMidConvoToolAdditions` and
+  `supportsDeveloperRole` (Chat Completions, Cloudflare).
 
 ### Routing
 

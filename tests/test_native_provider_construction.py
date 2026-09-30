@@ -1357,6 +1357,50 @@ def _resolve(spec, tmp_path, env, *, thinking_level=None, models_json_auth=None)
     )
 
 
+def test_mid_convo_compat_flags_reach_each_adapter_family(tmp_path):
+    """SYS1b: each Pi compat flag resolves on its own and reaches the adapter."""
+
+    anthropic = build_provider(
+        _resolve(
+            _anthropic_spec(
+                compat={
+                    "supportsMidConvoSystemMessages": True,
+                    "supportsMidConvoToolChanges": True,
+                }
+            ),
+            tmp_path,
+            {"ANTHROPIC_API_KEY": "ak"},
+        ),
+        http_client=CapturingHTTPClient(),
+    )
+    assert anthropic.supports_mid_convo_system_messages is True
+    assert anthropic.supports_mid_convo_tool_changes is True
+    plain = build_provider(
+        _resolve(_anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"}),
+        http_client=CapturingHTTPClient(),
+    )
+    assert plain.supports_mid_convo_system_messages is False
+    assert plain.supports_mid_convo_tool_changes is False
+
+    responses = build_provider(
+        _resolve(
+            _responses_spec(
+                compat={
+                    "supportsMidConvoSystemMessages": True,
+                    "supportsAdditionalTools": True,
+                    "supportsDeveloperRole": False,
+                }
+            ),
+            tmp_path,
+            {"OPENAI_API_KEY": "sk"},
+        ),
+        http_client=CapturingHTTPClient(),
+    )
+    assert responses.supports_mid_convo_system_messages is True
+    assert responses.supports_additional_tools is True
+    assert responses.instruction_role == "system"
+
+
 def test_anthropic_catalog_construction(tmp_path):
     # claude-sonnet-4-5 is a non-adaptive reasoning model, so it keeps the
     # budget_tokens thinking path (adaptive models are covered separately below).
@@ -1454,41 +1498,6 @@ def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):
     assert sent["headers"]["x-api-key"] == "mk"
     assert sent["headers"]["X-Acme"] == "1"
     assert provider.name == "acme"
-
-
-def test_anthropic_tool_reference_compat_resolution(tmp_path):
-    cases = (
-        (_anthropic_spec(model_id="claude-sonnet-4-5"), True),
-        (_anthropic_spec(model_id="claude-opus-4-7"), True),
-        (_anthropic_spec(model_id="claude-haiku-4-5"), False),
-        (_anthropic_spec(model_id="claude-sonnet-4-1"), False),
-        (_anthropic_spec(model_id="claude-opus-4-20250514"), False),
-        (_anthropic_spec(provider_name="proxy"), False),
-        (
-            _anthropic_spec(
-                provider_name="proxy",
-                model_id="custom-model",
-                compat={"supportsToolReferences": True},
-            ),
-            True,
-        ),
-        (
-            _anthropic_spec(
-                model_id="claude-opus-4-7",
-                compat={"supportsToolReferences": False},
-            ),
-            False,
-        ),
-    )
-    for spec, expected in cases:
-        resolved = _resolve(
-            spec,
-            tmp_path,
-            {"ANTHROPIC_API_KEY": "ak"},
-        )
-        assert resolved.supports_tool_references is expected
-        provider = build_provider(resolved, http_client=CapturingHTTPClient())
-        assert provider.supports_tool_references is expected
 
 
 def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):

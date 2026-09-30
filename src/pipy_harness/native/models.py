@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from pipy_harness.status import HarnessStatus
 
 if TYPE_CHECKING:
-    from pipy_harness.native.agent import AgentMessage
+    from pipy_harness.native.agent import AgentMessage, AgentSystemMessage
     from pipy_harness.native.image_attachment import ProviderImageAttachment
     from pipy_harness.native.tools.base import ToolDefinition
 
@@ -132,6 +132,20 @@ CacheRetention = Literal["none", "short", "long"]
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderSystemMessage:
+    """One transcript system message anchored in a request's history.
+
+    It sits directly before ``ProviderRequest.messages[position]`` (at the
+    end when ``position == len(messages)``). Adapters for models that accept
+    mid-conversation system messages keep it there (Pi ``resolveTranscript``);
+    every other adapter collapses them (``providers/transcript.py``).
+    """
+
+    position: int
+    message: "AgentSystemMessage"
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderRequest:
     """Request sent across the native provider port.
 
@@ -171,6 +185,15 @@ class ProviderRequest:
     # Pi ``StreamOptions.cacheRetention``; ``None`` is the provider default.
     # Private summary calls force ``"none"`` (Pi ``completeSummarization``).
     cache_retention: CacheRetention | None = None
+    # The transcript's system messages (Pi ``TranscriptContext``), leading
+    # first, anchored in ``messages``. When set, ``system_prompt`` is their
+    # replayed text plus an out-of-band tail (the compaction summary). Empty
+    # means the collapse path: ``system_prompt`` and ``available_tools`` only.
+    system_messages: tuple[ProviderSystemMessage, ...] = ()
+    # Tools a ``before_provider_request`` hook withheld from this request
+    # (Pi ``_hiddenDeclarations``): their declarations are hidden from every
+    # system message a mid-conversation adapter sends.
+    hidden_tool_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,7 @@
 [
   {"kind": "deviation", "match": "openai-completions/*", "field": "api", "reason": "pipy-only provider that serves Pi's openai rows over Chat Completions; Pi serves them over openai-responses."},
   {"kind": "deviation", "match": "openai-completions/*", "field": "compat.supportsToolSearch", "reason": "Tool search is a Responses feature; the Chat Completions provider does not send it."},
+  {"kind": "deviation", "match": "openai-completions/*", "field": "compat.supportsAdditionalTools", "reason": "Message-anchored additional_tools is a Responses feature; the Chat Completions provider does not send it."},
   {"kind": "deviation", "match": "openai-codex/*", "field": "baseUrl", "reason": "pipy's Codex base URL includes the /codex path; Pi's adapter appends it."},
   {"kind": "deviation", "match": "google/*", "field": "baseUrl", "reason": "pipy's Google adapter appends /v1beta itself."},
   {"kind": "deviation", "match": "google-vertex/*", "field": "baseUrl", "reason": "pipy uses the global Vertex host; Pi templates the {location} region into it."},

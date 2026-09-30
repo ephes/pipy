@@ -2,7 +2,8 @@
 
 Ports of Pi ``packages/ai/src/utils/transcript.ts`` (``getCurrentTools``,
 ``getCurrentSystemMessage``, ``getToolStateChanges``, ``toToolDeclaration``),
-``packages/ai/src/utils/text.ts`` (``getSystemMessageText``),
+``packages/ai/src/utils/text.ts`` (``getSystemMessageText``,
+``renderSystemMessageUpdate``),
 ``packages/coding-agent/src/core/system-prompt.ts``
 (``diffSystemPromptSections``) and the tool part of
 ``packages/agent/src/agent-loop.ts`` ``declareToolChanges``. Pure functions:
@@ -16,11 +17,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import (
+    AgentMessage,
     AgentSystemMessage,
     AgentToolDeclaration,
 )
+from pipy_harness.native.models import ProviderSystemMessage
 from pipy_harness.native.tools.base import ToolDefinition
 
 SystemSections = tuple[tuple[str, str | None], ...]
@@ -203,6 +207,24 @@ def system_message_text(message: AgentSystemMessage) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+def render_system_message_update(message: AgentSystemMessage) -> str:
+    """Pi ``renderSystemMessageUpdate``: a later message for the model.
+
+    Section changes are framed by name; tool fields are not rendered.
+    """
+
+    parts: list[str] = []
+    if message.content.value:
+        parts.append(message.content.value)
+    for name, text in message.sections:
+        parts.append(
+            f'Removed system prompt section "{name}".'
+            if text is None
+            else f'Updated system prompt section "{name}":\n\n{text}'
+        )
+    return "\n\n".join(parts)
+
+
 def diff_sections(
     previous: SystemSections,
     current: Sequence[tuple[str, str]],
@@ -271,3 +293,75 @@ def declare_tool_changes(
     if not added and not removed:
         return None
     return AgentSystemMessage(tools_added=added, tools_removed=removed)
+
+
+def replayed_system_prompt(
+    anchored: Sequence[ProviderSystemMessage], fallback: str
+) -> str:
+    """The prompt a collapsed request sends (Pi ``collapseSystemMessages``).
+
+    Replaying the system messages keeps Pi's section order: a section added
+    by a later patch follows the ones the model already had. Without system
+    messages the ``fallback`` prompt stands.
+    """
+
+    replay = current_system_message(anchor.message for anchor in anchored)
+    return system_message_text(replay) if replay is not None else fallback
+
+
+def request_system_messages(
+    history: Sequence[AgentMessage],
+    persisted: Sequence[AgentMessage],
+    persisted_anchors: Sequence[tuple[int, AgentSystemMessage]],
+    active_input: AgentActiveInput,
+    turn_index: int,
+) -> tuple[ProviderSystemMessage, ...]:
+    """Anchor the transcript's system messages in one request's messages.
+
+    Pi builds each request from the persisted session projection. pipy's
+    ``history`` is the run's coding history; ``persisted`` and
+    ``persisted_anchors`` are the session's coding messages and system
+    anchors. The run's messages not yet persisted follow them, so when
+    ``persisted`` is not a prefix of ``history`` the request gets none (the
+    collapse path). The turn's own system message is anchored before the
+    accepted message on the first turn and after the history on later ones.
+    Positions are in the request's frame: the transient overlay follows the
+    accepted message.
+    """
+
+    if tuple(history[: len(persisted)]) != tuple(persisted):
+        return ()
+    accepted = active_input.accepted_index(history)
+    overlay = len(active_input.request_overlay)
+
+    def frame(position: int) -> int:
+        return position + overlay if position > accepted else position
+
+    anchored = [
+        ProviderSystemMessage(frame(position), message)
+        for position, message in persisted_anchors
+    ]
+    if active_input.turn_system_message is not None:
+        position = accepted if turn_index == 0 else len(history) + overlay
+        anchored.append(
+            ProviderSystemMessage(position, active_input.turn_system_message)
+        )
+    return tuple(anchored)
+
+
+def remap_system_messages(
+    anchored: Sequence[ProviderSystemMessage],
+    kept: Sequence[bool],
+) -> tuple[ProviderSystemMessage, ...]:
+    """Re-anchor system messages after dropping ``messages[i]`` where not ``kept[i]``.
+
+    A position becomes the number of kept messages before it, so each system
+    message stays after the same surviving messages.
+    """
+
+    prefix = [0]
+    for keep in kept:
+        prefix.append(prefix[-1] + (1 if keep else 0))
+    return tuple(
+        replace(anchor, position=prefix[anchor.position]) for anchor in anchored
+    )

@@ -53,7 +53,6 @@ def test_estimate_includes_each_native_request_component() -> None:
                 "read",
                 ProductContent("done"),
                 "call",
-                added_tool_names=("next",),
             ),
         ),
         available_tools=(ToolDefinition("read", "files", {"type": "object"}),),
@@ -64,14 +63,14 @@ def test_estimate_includes_each_native_request_component() -> None:
         "message_tokens": 3,
         "tool_tokens": 10,
         "tool_call_tokens": 5,
-        "tool_result_tokens": 14,
+        "tool_result_tokens": 12,
         "image_tokens": 4096,
         "framing_tokens": 80,
-        "safety_tokens": 1053,
+        "safety_tokens": 1052,
         "output_reserve": 32,
     }
-    assert estimate.input_tokens == 5262
-    assert estimate.total_tokens == 5294
+    assert estimate.input_tokens == 5259
+    assert estimate.total_tokens == 5291
 
 
 @pytest.mark.parametrize(

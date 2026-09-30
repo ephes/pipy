@@ -577,7 +577,7 @@ def test_untrusted_system_prompt_skips_project_but_keeps_global_and_explicit(
         config_home=config,
         include_project_defaults=False,
     )
-    assert result.base_prompt == "GLOBAL"
+    assert result.preamble == "GLOBAL"
     explicit = resolve_system_prompt(
         "DEFAULT",
         cwd=workspace,
@@ -585,7 +585,7 @@ def test_untrusted_system_prompt_skips_project_but_keeps_global_and_explicit(
         system_prompt_source="EXPLICIT",
         include_project_defaults=False,
     )
-    assert explicit.base_prompt == "EXPLICIT"
+    assert explicit.preamble == "EXPLICIT"
 
 
 def test_trust_cli_flags_are_available_through_top_level_and_last_wins() -> None:

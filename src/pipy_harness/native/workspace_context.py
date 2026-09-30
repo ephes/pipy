@@ -538,6 +538,15 @@ def render_project_context_section(discovery: WorkspaceInstructionDiscovery) -> 
     context file was discovered.
     """
 
+    body = render_project_context_body(discovery)
+    if not body:
+        return ""
+    return f"<{PROJECT_CONTEXT_SECTION_TAG}>\n{body}\n</{PROJECT_CONTEXT_SECTION_TAG}>"
+
+
+def render_project_context_body(discovery: WorkspaceInstructionDiscovery) -> str:
+    """Pi ``renderProjectContext``: the section body, or ``""`` without files."""
+
     if not discovery.instructions:
         return ""
     blocks = [PROJECT_CONTEXT_INTRO]
@@ -546,8 +555,7 @@ def render_project_context_section(discovery: WorkspaceInstructionDiscovery) -> 
         blocks.append(
             f'<project_instructions path="{path}">\n{entry.content}\n</project_instructions>'
         )
-    body = "\n\n".join(blocks)
-    return f"<{PROJECT_CONTEXT_SECTION_TAG}>\n{body}\n</{PROJECT_CONTEXT_SECTION_TAG}>"
+    return "\n\n".join(blocks)
 
 
 def compose_system_prompt(

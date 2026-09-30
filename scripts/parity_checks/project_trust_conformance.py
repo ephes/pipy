@@ -191,7 +191,7 @@ def _resource_check(root: Path) -> Check:
         "resource_provenance",
         sources_ok
         and ext_names == ["global"]
-        and "project" not in prompt.base_prompt.lower(),
+        and "project" not in (prompt.preamble + prompt.addendum).lower(),
         "workspace blocked; global/explicit retained",
     )
 

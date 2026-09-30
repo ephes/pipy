@@ -374,7 +374,7 @@ def check_11_system_prompt(root: Path) -> tuple[bool, str]:
         system_prompt_source="CUSTOM",
         append_sources=["EXTRA"],
     )
-    composed = res.base_prompt == "CUSTOM\n\nEXTRA"
+    composed = (res.preamble, res.addendum) == ("CUSTOM", "EXTRA")
     # unreadable file -> warn + literal fallback.
     warned: list[str] = []
     res2 = resolve_system_prompt(
@@ -384,7 +384,7 @@ def check_11_system_prompt(root: Path) -> tuple[bool, str]:
         system_prompt_source=str(root),
         warn=warned.append,
     )
-    fallback = res2.base_prompt == str(root) and bool(warned)
+    fallback = res2.preamble == str(root) and bool(warned)
     # body not in safe metadata.
     no_body = "CUSTOM" not in json.dumps(res.safe_metadata())
     # reaches ProviderRequest.system_prompt via the product (adapter) path.

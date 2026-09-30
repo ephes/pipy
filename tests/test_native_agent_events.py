@@ -97,7 +97,6 @@ def _event_examples() -> tuple[AgentEvent, ...]:
         "read",
         ProductContent("private tool output"),
         provider_correlation_id="provider-call-1",
-        added_tool_names=("write",),
     )
     usage = AgentUsage(input_tokens=4, output_tokens=2, reasoning_tokens=1)
     failure = AgentFailure("ProviderUnavailable", ProductContent("private error"), True)
@@ -152,20 +151,18 @@ def test_message_lifecycle_covers_non_streamed_and_streamed_messages() -> None:
     assert MessageStarted(0, empty_assistant).message is empty_assistant
 
 
-def test_tool_identity_and_added_tool_history_remain_distinct() -> None:
+def test_tool_identity_domains_remain_distinct() -> None:
     call = AgentToolCall("provider-call", "read", ProductContent("{}"))
     result = AgentToolResultMessage(
         "pipy-tool-1",
         "read",
         ProductContent("result"),
         provider_correlation_id=call.provider_correlation_id,
-        added_tool_names=("write", "bash"),
     )
 
     assert call.provider_correlation_id == "provider-call"
     assert result.tool_request_id == "pipy-tool-1"
     assert result.provider_correlation_id == "provider-call"
-    assert result.added_tool_names == ("write", "bash")
 
 
 def test_usage_event_is_explicitly_cumulative_and_preserves_last_turn_total() -> None:
@@ -295,20 +292,6 @@ def test_cancelled_run_result_is_self_contained() -> None:
     [
         lambda: AgentAssistantMessage(ProductContent("x"), cast(Any, [])),
         lambda: AgentAssistantMessage(ProductContent("x"), cast(Any, {})),
-        lambda: AgentToolResultMessage(
-            "call",
-            "read",
-            ProductContent("x"),
-            "provider-call",
-            added_tool_names=cast(Any, []),
-        ),
-        lambda: AgentToolResultMessage(
-            "call",
-            "read",
-            ProductContent("x"),
-            "provider-call",
-            added_tool_names=cast(Any, {}),
-        ),
         lambda: AgentRunResult(AgentRunOutcome.SUCCEEDED, cast(Any, [])),
         lambda: AgentRunResult(AgentRunOutcome.SUCCEEDED, cast(Any, {})),
         lambda: TurnCompleted(
@@ -400,13 +383,6 @@ def test_content_message_and_result_shapes_reject_invalid_runtime_types(
             "call", "", ProductContent("result"), "provider-call"
         ),
         lambda: AgentToolResultMessage("call", "read", ProductContent("result"), ""),
-        lambda: AgentToolResultMessage(
-            "call",
-            "read",
-            ProductContent("result"),
-            "provider-call",
-            added_tool_names=("",),
-        ),
         lambda: AgentFailure("", ProductContent("error")),
     ],
 )

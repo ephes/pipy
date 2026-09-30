@@ -318,46 +318,6 @@ def test_anthropic_image_last_block_takes_the_breakpoint(tmp_path: Path) -> None
     assert content[1]["cache_control"] == EPHEMERAL
 
 
-def test_anthropic_deferred_tools_mark_the_last_immediate_tool(
-    tmp_path: Path,
-) -> None:
-    messages = (
-        AgentUserMessage(content=ProductContent("load")),
-        AgentAssistantMessage(
-            content=ProductContent(""),
-            tool_calls=(AgentToolCall("call_base", "base", ProductContent("{}")),),
-        ),
-        AgentToolResultMessage(
-            tool_request_id="pipy-tool-load",
-            tool_name="base",
-            content=ProductContent("loaded"),
-            provider_correlation_id="call_base",
-            added_tool_names=("late",),
-        ),
-    )
-    provider, client = _anthropic(
-        model_id="claude-opus-4-7", supports_tool_references=True
-    )
-    provider.complete(
-        _request(
-            tmp_path,
-            messages=messages,
-            tools=(_tool("base"), _tool("other"), _tool("late")),
-        )
-    )
-    body = client.requests[0]["body"]
-    assert [
-        (tool["name"], tool.get("defer_loading"), tool.get("cache_control"))
-        for tool in body["tools"]
-    ] == [("base", None, None), ("other", None, EPHEMERAL), ("late", True, None)]
-    # The displaced result text is the last block and carries the breakpoint.
-    assert body["messages"][-1]["content"][-1] == {
-        "type": "text",
-        "text": "loaded",
-        "cache_control": EPHEMERAL,
-    }
-
-
 def test_anthropic_never_exceeds_four_breakpoints(tmp_path: Path) -> None:
     provider, client = _anthropic()
     provider.complete(_request(tmp_path, cache_retention="long"))

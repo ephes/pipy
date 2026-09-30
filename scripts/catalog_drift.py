@@ -68,7 +68,11 @@ ABSENT = "<absent>"
 TRACKED_COMPAT = (
     "forceAdaptiveThinking",
     "supportsToolSearch",
-    "supportsToolReferences",
+    "supportsAdditionalTools",
+    "supportsMidConvoSystemMessages",
+    "supportsMidConvoToolAdditions",
+    "supportsMidConvoToolChanges",
+    "supportsDeveloperRole",
     "supportsExplicitPromptCacheMode",
     "supportsLongCacheRetention",
     "supportsCacheControlOnTools",

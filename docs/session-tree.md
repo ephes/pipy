@@ -559,11 +559,16 @@ Minimum entry types:
   declarations with Pi's field names. The first run of a session writes the
   whole state; later runs write only changes, as `sections` patches (`null`
   removes one) and `toolsAdded`/`toolsRemoved`. Replaying them in order yields
-  the current prompt and tools. pipy's prompt is the single `preamble` section:
+  the current prompt and tools. The prompt is Pi's tagged sections (SYS1b):
+  `preamble`, then the optional `addendum`, `project_context` and `skills`,
+  `cwd`, and pipy's optional `resume`:
 
   ```json
-  {"type":"message","id":"a0b1c2d3","parentId":"…","timestamp":"…","message":{"role":"system","content":"","sections":{"preamble":"You are pipy-native, …"},"toolsAdded":[{"name":"read","description":"…","parameters":{"type":"object"}}]}}
+  {"type":"message","id":"a0b1c2d3","parentId":"…","timestamp":"…","message":{"role":"system","content":"","sections":{"preamble":"You are pipy-native, …","cwd":"<cwd>\n/path/to/workspace\n</cwd>"},"toolsAdded":[{"name":"read","description":"…","parameters":{"type":"object"}}]}}
   ```
+
+  A tool result no longer stores `added_tool_names` (SYS1b): a tool that
+  another tool loads is declared by the next turn's system message.
 
   A session written before SYS1 has no system message. Its next run writes
   the whole state as a later system message, which replays the same way.
@@ -652,9 +657,12 @@ Rules to match Pi:
   replays them (Pi `session-manager.ts:506`). The transcript render
   (`build_context_entries()`) drops them the same way and draws nothing for a
   system message; `/tree` shows it as `[system]`. `build_coding_context()`
-  never contains one: provider history is user, assistant and tool messages,
-  and the prompt travels as the request's system prompt (Pi's collapse path
-  for models without mid-conversation system messages).
+  keeps provider history to user, assistant and tool messages and returns the
+  system messages beside them as `system_anchors`, each anchored before the
+  message it precedes (the compaction checkpoint at 0). A request for a
+  model that accepts mid-conversation system messages carries them in place
+  (SYS1b); every other request sends the replayed prompt as its system prompt
+  (Pi's collapse path).
 
 When `retainedUserEntryId` is present, reconstruction instead retains that exact
 actual user message once plus the suffix beginning at `firstKeptEntryId`.

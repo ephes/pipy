@@ -38,10 +38,15 @@ from pipy_harness.native.session_resume import (
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
-from pipy_harness.native.skills import SkillFile, compose_skills_system_block
+from pipy_harness.native.skills import SkillFile, skills_section_body
 from pipy_harness.native.system_prompt_inputs import (
     ResolvedSystemPrompt,
     resolve_system_prompt,
+)
+from pipy_harness.native.system_prompt_sections import (
+    SystemPromptSections,
+    build_system_prompt_sections,
+    render_system_prompt,
 )
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -50,8 +55,8 @@ from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionDiscovery,
     WorkspaceInstructionLoader,
-    compose_system_prompt,
     empty_workspace_instruction_loader,
+    render_project_context_body,
     workspace_instruction_safe_metadata,
 )
 
@@ -152,6 +157,7 @@ class _CodingSessionPreparation:
     provider: ProviderPort = field(repr=False)
     settings: SettingsManager = field(repr=False)
     system_prompt: str = field(repr=False)
+    system_prompt_sections: SystemPromptSections = field(repr=False)
     reference_roots: tuple[Path, ...]
     discovery: WorkspaceInstructionDiscovery = field(repr=False)
     resolved_prompt: ResolvedSystemPrompt = field(repr=False)
@@ -404,12 +410,13 @@ class CodingSessionAdapter:
             append_sources=self.append_system_prompt_sources,
             include_project_defaults=runtime_settings.project_trusted,
         )
-        base_prompt = resolved_prompt.base_prompt
+        # pipy's reference-roots lines stay in the untagged preamble.
+        preamble = resolved_prompt.preamble
         if self.reference_roots:
             ref_lines = ["", "Reference roots (read-only, absolute paths):"]
             for root in self.reference_roots:
                 ref_lines.append(f"- {root}")
-            base_prompt = base_prompt + "\n" + "\n".join(ref_lines)
+            preamble = preamble + "\n" + "\n".join(ref_lines)
         # Discover the workspace + global skills the model may load on demand.
         # The same loader the /skill command uses; obtained here (before the
         # session runs) so the advertisement can enter the system prompt and the
@@ -426,24 +433,28 @@ class CodingSessionAdapter:
             builtin_names=self.tool_registry,
             registered_names=self.tool_registry,
         )
-        if read_tool_visible:
-            composed_system_prompt = compose_system_prompt(
-                base_prompt, discovery
-            ) + compose_skills_system_block(skills)
-        else:
-            composed_system_prompt = compose_system_prompt(base_prompt, discovery)
+        resume_block = ""
         if self.resume_context is not None:
             # Seed the resumed tool-loop session with only the safe
             # metadata-only resume block; no prior prompts/output/summary text.
-            block = compose_resume_system_block(self.resume_context)
+            resume_block = compose_resume_system_block(self.resume_context)
             if self.resume_branch_label:
-                block += f" Branch: {self.resume_branch_label}."
-            composed_system_prompt = f"{composed_system_prompt}\n\n{block}"
+                resume_block += f" Branch: {self.resume_branch_label}."
+        # Pi's tagged sections; the prompt is their rendering.
+        sections = build_system_prompt_sections(
+            preamble=preamble,
+            addendum=resolved_prompt.addendum,
+            project_context=render_project_context_body(discovery),
+            skills=skills_section_body(skills) if read_tool_visible else "",
+            cwd=str(cwd),
+            resume=resume_block,
+        )
         return _CodingSessionPreparation(
             cwd=cwd,
             provider=provider,
             settings=runtime_settings,
-            system_prompt=composed_system_prompt,
+            system_prompt=render_system_prompt(sections),
+            system_prompt_sections=sections,
             reference_roots=reference_roots,
             discovery=discovery,
             resolved_prompt=resolved_prompt,
@@ -463,6 +474,7 @@ class CodingSessionAdapter:
             tool_budget=self.tool_budget,
             input_runtime=self.input_runtime,
             reference_roots=context.reference_roots,
+            system_prompt_sections=context.system_prompt_sections,
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
             native_session=self.native_session,

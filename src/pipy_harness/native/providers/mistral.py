@@ -26,7 +26,8 @@ from pipy_harness.native.http import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
-    chat_messages,
+    ChatTranscriptOptions,
+    chat_transcript,
     extract_mistral_usage,
     parse_response,
 )
@@ -71,6 +72,9 @@ class MistralProvider:
     # mapped thinking value (Mistral's OpenAI-compatible ``reasoning_effort``).
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    # Pi ``MistralConversationsCompat.supportsMidConvoSystemMessages`` (SYS1b):
+    # later system messages stay in place as ``system`` messages.
+    supports_mid_convo_system_messages: bool = False
 
     @property
     def name(self) -> str:
@@ -112,14 +116,21 @@ class MistralProvider:
                 ),
             )
 
+        transcript = chat_transcript(
+            request,
+            ChatTranscriptOptions(
+                supports_mid_convo_system_messages=(
+                    self.supports_mid_convo_system_messages
+                ),
+            ),
+        )
         body: dict[str, Any] = {
             "model": self.model_id,
-            "messages": chat_messages(request),
+            "messages": transcript.messages,
         }
-        if request.available_tools:
+        if transcript.tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool)
-                for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool) for tool in transcript.tools
             ]
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort

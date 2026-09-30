@@ -44,10 +44,6 @@ from pipy_harness.native.cancellation import (
     ProviderCancelledError,
     _safe_close,
 )
-from pipy_harness.native.deferred_tools import (
-    responses_tool_search_items,
-    split_deferred_tools,
-)
 from pipy_harness.native.http import (
     ProviderHTTPError,
     decode_json_object,
@@ -66,6 +62,12 @@ from pipy_harness.native.provider import (
 from pipy_harness.native.providers.openai_prompt_cache import (
     clamp_openai_prompt_cache_key,
 )
+from pipy_harness.native.providers.openai_responses_wire import (
+    ResponsesTranscript,
+    ResponsesTranscriptOptions,
+    resolve_responses_transcript,
+    responses_transcript_items,
+)
 from pipy_harness.native.retry import (
     DEFAULT_RETRIABLE_STATUSES,
     RetryPolicy,
@@ -75,7 +77,6 @@ from pipy_harness.native.settings import (
     DEFAULT_HTTP_IDLE_TIMEOUT_MS,
     DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
 )
-from pipy_harness.native.tools.base import ToolDefinition
 
 OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OPENAI_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
@@ -856,6 +857,10 @@ class OpenAICodexResponsesProvider:
     )
     supports_tool_calls: bool = True
     supports_tool_search: bool = False
+    # Pi's Codex system-message compat (SYS1b), resolved from the catalog row.
+    supports_mid_convo_system_messages: bool = False
+    supports_additional_tools: bool = False
+    instruction_role: str = "developer"
     # Mapped reasoning effort for the request's ``reasoning.effort`` field. Set by
     # the REPL provider boundary from the current model + thinking level (clamped
     # and mapped); ``None`` omits ``effort`` and keeps the Pi-forced summary only.
@@ -935,23 +940,16 @@ class OpenAICodexResponsesProvider:
 
 def _responses_input_messages(
     request: ProviderRequest,
-    *,
-    deferred_tools: Mapping[str, ToolDefinition] | None = None,
+    transcript: ResponsesTranscript | None = None,
+    instruction_role: str = "developer",
 ) -> list[dict[str, object]]:
     if request.messages:
-        items: list[dict[str, object]] = []
-        loaded_tool_names: set[str] = set()
-        for envelope in request.messages:
-            items.extend(_envelope_to_input_items(envelope))
-            if isinstance(envelope, AgentToolResultMessage) and deferred_tools:
-                items.extend(
-                    responses_tool_search_items(
-                        envelope,
-                        deferred_tools=deferred_tools,
-                        loaded_tool_names=loaded_tool_names,
-                    )
-                )
-        return items
+        return responses_transcript_items(
+            transcript
+            or resolve_responses_transcript(request, ResponsesTranscriptOptions()),
+            instruction_role=instruction_role,
+            envelope_items=_envelope_to_input_items,
+        )
     return [
         {
             "role": "user",
@@ -1263,16 +1261,21 @@ def _codex_request_body(
     request: ProviderRequest,
     codex_session_id: str | None = None,
 ) -> dict[str, Any]:
-    immediate_tools, deferred_tools = split_deferred_tools(
+    transcript = resolve_responses_transcript(
         request,
-        enabled=provider.supports_tool_search,
+        ResponsesTranscriptOptions(
+            supports_mid_convo_system_messages=(
+                provider.supports_mid_convo_system_messages
+            ),
+            supports_additional_tools=provider.supports_additional_tools,
+            supports_tool_search=provider.supports_tool_search,
+        ),
     )
     body: dict[str, Any] = {
         "model": provider.model_id,
-        "instructions": request.system_prompt,
+        "instructions": transcript.instructions,
         "input": _responses_input_messages(
-            request,
-            deferred_tools={tool.name: tool for tool in deferred_tools},
+            request, transcript, provider.instruction_role
         ),
         "store": False,
         "stream": True,
@@ -1287,8 +1290,10 @@ def _codex_request_body(
         del body["prompt_cache_key"]
     if body["reasoning"] is None:
         del body["reasoning"]
-    if immediate_tools:
-        body["tools"] = [serialize_tool_for_responses(tool) for tool in immediate_tools]
+    if transcript.tools:
+        body["tools"] = [
+            serialize_tool_for_responses(tool) for tool in transcript.tools
+        ]
     return body
 
 

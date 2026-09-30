@@ -157,6 +157,13 @@ _CLAUDE_5_5 = {
 }
 _CLAUDE_MAX_ONLY = {**_ORDINARY_IDENTITY, "max": "max"}
 _ADAPTIVE = {"forceAdaptiveThinking": True}
+# Pi's generated rows that accept mid-conversation system messages with
+# native ``tool_addition``/``tool_removal`` blocks (SYS1b).
+_ADAPTIVE_MID_CONVO = {
+    **_ADAPTIVE,
+    "supportsMidConvoSystemMessages": True,
+    "supportsMidConvoToolChanges": True,
+}
 # ---- OpenAI Responses (api.openai.com) -------------------------------------
 _OPENAI_GPT_5_5 = {
     "off": "none",
@@ -195,11 +202,15 @@ _GEMINI_3_FLASH = {
 }
 _GEMINI_3_PRO = {**_GEMINI_3_FLASH, "minimal": None}
 _OPENAI_TOOLS = {"supportsToolSearch": True}
+# Pi's verified mid-conversation developer-message rows (SYS1b); most also
+# load later tools with message-anchored ``additional_tools``.
+_OPENAI_MID_CONVO = {**_OPENAI_TOOLS, "supportsMidConvoSystemMessages": True}
+_OPENAI_TOOL_LOADS = {**_OPENAI_MID_CONVO, "supportsAdditionalTools": True}
 # Pi's generator (``applyOpenAIExplicitPromptCacheMetadata``) marks every
 # ``openai`` / ``openai-responses`` row that bills cache writes (GPT-5.6+) as
 # accepting ``prompt_cache_options``.
 _OPENAI_TOOLS_EXPLICIT_CACHE = {
-    **_OPENAI_TOOLS,
+    **_OPENAI_TOOL_LOADS,
     "supportsExplicitPromptCacheMode": True,
 }
 
@@ -215,7 +226,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_5_5,
         image=True,
-        compat=_ADAPTIVE,
+        compat=_ADAPTIVE_MID_CONVO,
         cost=(4.0, 20.0, 0.2, 5.0),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -229,7 +240,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_5_5,
         image=True,
-        compat=_ADAPTIVE,
+        compat=_ADAPTIVE_MID_CONVO,
         cost=(2.0, 10.0, 0.2, 2.5),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -243,7 +254,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
         image=True,
-        compat=_ADAPTIVE,
+        compat=_ADAPTIVE_MID_CONVO,
         cost=(10.0, 50.0, 0.25, 12.5),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -257,7 +268,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
         image=True,
-        compat=_ADAPTIVE,
+        compat=_ADAPTIVE_MID_CONVO,
         cost=(10.0, 50.0, 1.0, 12.5),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -271,7 +282,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_NO_OFF_XHIGH_MAX,
         image=True,
-        compat=_ADAPTIVE,
+        compat=_ADAPTIVE_MID_CONVO,
         cost=(5.0, 25.0, 0.5, 6.25),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -299,7 +310,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CLAUDE_XHIGH_MAX,
         image=True,
-        compat=_ADAPTIVE,
+        compat=_ADAPTIVE_MID_CONVO,
         cost=(5.0, 25.0, 0.5, 6.25),
         context_window=1_000_000,
         max_tokens=128_000,
@@ -498,7 +509,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_5_5,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         cost=(5.0, 30.0, 0.5, 0.0),
         context_window=272_000,
         max_tokens=128_000,
@@ -511,7 +522,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_OPENAI_GPT_5_5,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         cost=(2.5, 15.0, 0.25, 0.0),
         context_window=272_000,
         max_tokens=128_000,
@@ -559,7 +570,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CODEX_GPT_6_NO_OFF,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         cost=(2.0, 10.0, 0.1, 2.5),
         context_window=272_000,
         max_tokens=128_000,
@@ -572,7 +583,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CODEX_GPT_6,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         cost=(2.0, 10.0, 0.2, 2.5),
         context_window=272_000,
         max_tokens=128_000,
@@ -585,7 +596,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CODEX_GPT_6,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         cost=(0.1, 0.5, 0.01, 0.125),
         context_window=272_000,
         max_tokens=128_000,
@@ -598,7 +609,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CODEX_GPT_6_NO_OFF,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         cost=(10.0, 50.0, 1.0, 12.5),
         context_window=272_000,
         max_tokens=128_000,
@@ -611,7 +622,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         thinking=_CODEX_XHIGH,
         image=True,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_MID_CONVO,
         cost=(5.0, 30.0, 0.5, 0.0),
         context_window=272_000,
         max_tokens=128_000,
@@ -638,7 +649,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-codex-responses",
         reasoning=True,
         thinking=_CODEX_XHIGH_MAX,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         image=True,
         cost=(4.0, 20.0, 0.4, 5.0),
         context_window=272_000,
@@ -651,7 +662,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-codex-responses",
         reasoning=True,
         thinking=_CODEX_XHIGH_MAX,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         image=True,
         cost=(2.0, 12.0, 0.2, 2.5),
         context_window=272_000,
@@ -664,7 +675,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-codex-responses",
         reasoning=True,
         thinking=_CODEX_XHIGH_MAX,
-        compat=_OPENAI_TOOLS,
+        compat=_OPENAI_TOOL_LOADS,
         image=True,
         cost=(0.2, 1.2, 0.02, 0.25),
         context_window=272_000,
@@ -685,6 +696,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         cost=(5.0, 30.0, 0.5, 0.0),
         context_window=272_000,
         max_tokens=128_000,
+        compat={"supportsMidConvoSystemMessages": True},
     ),
     _m(
         "openai-completions",
@@ -765,6 +777,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         cost=(0.65, 3.41, 0.15, 0.0),
         context_window=262_144,
         max_tokens=235_929,
+        compat={"supportsDeveloperRole": False},
     ),
     _m(
         "openrouter",
@@ -1093,6 +1106,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         cost=(0.95, 4.0, 0.16, 0.0),
         context_window=262_144,
         max_tokens=256_000,
+        compat={"supportsDeveloperRole": False},
     ),
     _m(
         "cloudflare",

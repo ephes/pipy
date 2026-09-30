@@ -164,10 +164,7 @@ class NativeToolCapabilitySnapshot:
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         extension_generation_id: int | None = None,
     ) -> ToolExecutionOutcome:
-        visible_before = tuple(
-            definition.name for definition in _definitions_for(self.state, None)
-        )
-        outcome = self.state.executor.execute(
+        return self.state.executor.execute(
             call,
             replace(
                 self.owner._context,
@@ -176,29 +173,6 @@ class NativeToolCapabilitySnapshot:
             ),
             wait_for_interrupt=wait_for_interrupt,
         )
-        state_after = self.owner.state
-        visible_after = tuple(
-            definition.name for definition in _definitions_for(state_after, None)
-        )
-        if (
-            state_after.executor is self.state.executor
-            and call.tool_name in self.state.extension_registry
-            and not outcome.result.is_error
-            and set(visible_before).issubset(visible_after)
-        ):
-            before_names = set(visible_before)
-            added_tool_names = tuple(
-                name for name in visible_after if name not in before_names
-            )
-            if added_tool_names:
-                outcome = replace(
-                    outcome,
-                    result=replace(
-                        outcome.result,
-                        added_tool_names=added_tool_names,
-                    ),
-                )
-        return outcome
 
     def error_result(
         self,

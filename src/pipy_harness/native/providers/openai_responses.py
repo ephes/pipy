@@ -14,7 +14,6 @@ from pipy_harness.native._provider_helpers import (
     utc_now,
 )
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonHTTPClient,
@@ -36,7 +35,9 @@ from pipy_harness.native.providers.openai_prompt_cache import (
     resolve_cache_retention,
 )
 from pipy_harness.native.providers.openai_responses_wire import (
+    ResponsesTranscriptOptions,
     parse_response,
+    resolve_responses_transcript,
     responses_input,
 )
 
@@ -94,6 +95,13 @@ class OpenAIResponsesProvider:
     reasoning_summary: str | None = None
     include_encrypted_reasoning: bool = False
     supports_tool_search: bool = False
+    # Pi's mid-conversation system-message compat (SYS1b), resolved per flag
+    # by catalog construction: later system messages stay in place, later
+    # tools load as ``additional_tools`` items, and later messages use
+    # ``instruction_role``.
+    supports_mid_convo_system_messages: bool = False
+    supports_additional_tools: bool = False
+    instruction_role: str = "developer"
     # Pi ``OpenAIResponsesCompat`` prompt-cache bits, resolved from the catalog
     # row at construction (``openai-responses.ts:68-80``): the session-affinity
     # header format (``openai`` | ``openai-nosession`` | ``openrouter``),
@@ -141,26 +149,33 @@ class OpenAIResponsesProvider:
                 ),
             )
 
-        immediate_tools, deferred_tools = split_deferred_tools(
+        transcript = resolve_responses_transcript(
             request,
-            enabled=self.supports_tool_search,
+            ResponsesTranscriptOptions(
+                supports_mid_convo_system_messages=(
+                    self.supports_mid_convo_system_messages
+                ),
+                supports_additional_tools=self.supports_additional_tools,
+                supports_tool_search=self.supports_tool_search,
+            ),
         )
         body: dict[str, Any] = {
             "model": self.model_id,
-            "instructions": request.system_prompt,
+            "instructions": transcript.instructions,
             "input": responses_input(
                 request,
                 parse_error_class=OpenAIResponseParseError,
-                deferred_tools={tool.name: tool for tool in deferred_tools},
+                transcript=transcript,
+                instruction_role=self.instruction_role,
                 attach_images=True,
             ),
             "store": False,
         }
         retention = resolve_cache_retention(request.cache_retention)
         self._apply_prompt_cache_fields(body, request, retention)
-        if immediate_tools:
+        if transcript.tools:
             body["tools"] = [
-                serialize_tool_for_responses(tool) for tool in immediate_tools
+                serialize_tool_for_responses(tool) for tool in transcript.tools
             ]
         self._apply_reasoning_fields(body)
         headers = self._request_headers(

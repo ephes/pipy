@@ -35,9 +35,15 @@ follow-ons are listed in [backlog.md](backlog.md).
 - **SYS1a:** Pi's system messages (`9e05370b2`) are in the transcript: events,
   `agent_end.messages`, the session tree and the compaction checkpoint
   ([automation-rpc.md](automation-rpc.md#system-messages)).
-  `automation_pi_comparison.py` passes. Providers still receive the prompt
-  out of band, as Pi does for models without mid-conversation system messages
-  (backlog SYS1b).
+  `automation_pi_comparison.py` passes.
+- **SYS1b:** models whose compat accepts mid-conversation system messages
+  receive them in place (OpenAI Responses/Azure/Codex developer messages with
+  `additional_tools`/`tool_search` loads, Chat Completions and Mistral,
+  Anthropic `system` messages with `tool_addition`/`tool_removal`); Google and
+  Bedrock collapse as in Pi. The prompt is recorded as Pi's tagged sections
+  (`preamble`, `addendum`, `project_context`, `skills`, `cwd`)
+  ([provider-catalog.md](provider-catalog.md#mid-conversation-system-messages)).
+  Remainder: backlog SYS1c.
 
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare

@@ -108,7 +108,6 @@ def _tool_history_request(tmp_path: Path, model_id: str) -> ProviderRequest:
                 tool_name="read",
                 content=ProductContent("port = 8080"),
                 provider_correlation_id="toolu_read_1",
-                added_tool_names=(),
             ),
         ),
         available_tools=(_read_tool(),),

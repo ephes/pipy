@@ -24,6 +24,9 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.messages import AgentSystemMessage
+from pipy_harness.native.agent.system_messages import tool_declaration
+from pipy_harness.native.models import ProviderSystemMessage
 from pipy_harness.native.providers.openai_responses import (
     JsonResponse,
     OpenAIResponsesProvider,
@@ -196,7 +199,6 @@ def test_openai_serializes_tool_result_envelope(tmp_path: Path):
                 tool_name="read",
                 content=ProductContent("<file contents>"),
                 provider_correlation_id="call_abc",
-                added_tool_names=("read",),
             ),
         ),
         available_tools=(ReadTool().definition,),
@@ -231,6 +233,7 @@ def test_openai_places_deferred_tools_at_result_marker(tmp_path: Path) -> None:
         api_key="sk-test",
         http_client=client,
         supports_tool_search=True,
+        supports_mid_convo_system_messages=True,
     )
     provider.complete(
         ProviderRequest(
@@ -251,15 +254,12 @@ def test_openai_places_deferred_tools_at_result_marker(tmp_path: Path) -> None:
                     tool_name="loader",
                     content=ProductContent("loaded"),
                     provider_correlation_id="call_loader",
-                    added_tool_names=(
-                        "late_tool",
-                        "later_tool",
-                        "late_tool",
-                        "missing_tool",
-                    ),
                 ),
             ),
             available_tools=(_tool("loader"), _tool("late_tool"), _tool("later_tool")),
+            system_messages=_system_messages(
+                ("loader",), (2, ("late_tool", "later_tool"))
+            ),
         )
     )
 
@@ -269,14 +269,14 @@ def test_openai_places_deferred_tools_at_result_marker(tmp_path: Path) -> None:
         {"type": "function_call_output", "call_id": "call_loader", "output": "loaded"},
         {
             "type": "tool_search_call",
-            "call_id": "pi_tool_load_dulyo1k6qd28",
+            "call_id": "pi_tool_load_1gq8sya10t3lyb",
             "execution": "client",
             "status": "completed",
             "arguments": {"query": "late_tool later_tool", "limit": 2},
         },
         {
             "type": "tool_search_output",
-            "call_id": "pi_tool_load_dulyo1k6qd28",
+            "call_id": "pi_tool_load_1gq8sya10t3lyb",
             "execution": "client",
             "status": "completed",
             "tools": [
@@ -303,6 +303,7 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
         api_key="sk-test",
         http_client=client,
         supports_tool_search=True,
+        supports_mid_convo_system_messages=True,
     )
     provider.complete(
         ProviderRequest(
@@ -323,7 +324,6 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
                     tool_name="loader",
                     content=ProductContent("first loaded"),
                     provider_correlation_id="call_first",
-                    added_tool_names=("late_tool", "shared_tool"),
                 ),
                 AgentAssistantMessage(
                     content=ProductContent(""),
@@ -336,7 +336,6 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
                     tool_name="loader",
                     content=ProductContent("second loaded"),
                     provider_correlation_id="call_second",
-                    added_tool_names=("shared_tool", "later_tool"),
                 ),
             ),
             available_tools=(
@@ -344,6 +343,12 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
                 _tool("late_tool"),
                 _tool("shared_tool"),
                 _tool("later_tool"),
+            ),
+            # Each turn declares only what the transcript does not have yet.
+            system_messages=_system_messages(
+                ("loader",),
+                (2, ("late_tool", "shared_tool")),
+                (4, ("later_tool",)),
             ),
         )
     )
@@ -356,10 +361,10 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
         if item.get("type") in {"tool_search_call", "tool_search_output"}
     ]
     assert [item["call_id"] for item in searches] == [
-        "pi_tool_load_14aec2a1ydkqv2",
-        "pi_tool_load_14aec2a1ydkqv2",
-        "pi_tool_load_hvb69z1li7qa9",
-        "pi_tool_load_hvb69z1li7qa9",
+        "pi_tool_load_1ijxum0992w0x",
+        "pi_tool_load_1ijxum0992w0x",
+        "pi_tool_load_18q5pdcir1a51",
+        "pi_tool_load_18q5pdcir1a51",
     ]
     assert searches[0]["arguments"] == {
         "query": "late_tool shared_tool",
@@ -379,8 +384,9 @@ def test_openai_tool_search_unsupported_and_all_deferred_matrix(tmp_path: Path) 
         tool_name="loader",
         content=ProductContent("loaded"),
         provider_correlation_id="call_loader",
-        added_tool_names=("late_tool",),
     )
+    # Pi anchors additions even when the leading message declares no tool:
+    # the top level is then empty.
     for supported, expected_top_level, expected_search in (
         (False, ["late_tool"], False),
         (True, [], True),
@@ -391,6 +397,7 @@ def test_openai_tool_search_unsupported_and_all_deferred_matrix(tmp_path: Path) 
             api_key="sk-test",
             http_client=client,
             supports_tool_search=supported,
+            supports_mid_convo_system_messages=True,
         ).complete(
             ProviderRequest(
                 system_prompt="SYS",
@@ -400,6 +407,7 @@ def test_openai_tool_search_unsupported_and_all_deferred_matrix(tmp_path: Path) 
                 cwd=tmp_path,
                 messages=(marker,),
                 available_tools=(_tool("late_tool"),),
+                system_messages=_system_messages((), (1, ("late_tool",))),
             )
         )
         body = client.requests[0]["body"]
@@ -579,3 +587,30 @@ def test_openai_legacy_callers_still_get_plain_completion(tmp_path: Path):
     assert "tools" not in body
     assert body["input"] == "hello"
     assert body["instructions"] == "SYS"
+
+
+def _system_messages(
+    leading_tools: tuple[str, ...], *later: tuple[int, tuple[str, ...]]
+) -> tuple[ProviderSystemMessage, ...]:
+    """A leading system message plus later tool additions (SYS1b)."""
+
+    return (
+        ProviderSystemMessage(
+            0,
+            AgentSystemMessage(
+                sections=(("preamble", "SYS"),),
+                tools_added=tuple(
+                    tool_declaration(_tool(name)) for name in leading_tools
+                ),
+            ),
+        ),
+        *(
+            ProviderSystemMessage(
+                position,
+                AgentSystemMessage(
+                    tools_added=tuple(tool_declaration(_tool(name)) for name in names)
+                ),
+            )
+            for position, names in later
+        ),
+    )

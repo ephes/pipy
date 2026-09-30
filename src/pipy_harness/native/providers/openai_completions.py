@@ -40,7 +40,8 @@ from pipy_harness.native.provider import (
     copilot_dynamic_headers,
 )
 from pipy_harness.native.providers.chat_completions_wire import (
-    chat_messages,
+    ChatTranscriptOptions,
+    chat_transcript,
     extract_chat_completions_usage,
     parse_response,
 )
@@ -106,6 +107,11 @@ class OpenAIChatCompletionsProvider:
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     extra_body: Mapping[str, Any] = field(default_factory=dict)
     reasoning_effort: str | None = None
+    # Pi's mid-conversation system-message compat (SYS1b), resolved per flag
+    # by catalog construction.
+    supports_mid_convo_system_messages: bool = False
+    supports_mid_convo_tool_additions: bool = False
+    instruction_role: str = "system"
 
     @property
     def name(self) -> str:
@@ -180,15 +186,26 @@ class OpenAIChatCompletionsProvider:
         if isinstance(configuration, ProviderResult):
             return configuration
 
+        transcript = chat_transcript(
+            request,
+            ChatTranscriptOptions(
+                supports_mid_convo_system_messages=(
+                    self.supports_mid_convo_system_messages
+                ),
+                supports_mid_convo_tool_additions=(
+                    self.supports_mid_convo_tool_additions
+                ),
+                instruction_role=self.instruction_role,
+            ),
+        )
         body: dict[str, Any] = {
             "model": configuration.model_id,
-            "messages": chat_messages(request),
+            "messages": transcript.messages,
             "stream": False,
         }
-        if request.available_tools:
+        if transcript.tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool)
-                for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool) for tool in transcript.tools
             ]
         # Catalog-resolved routing/compat (e.g. OpenRouter ``provider`` block,
         # Vercel ``providerOptions``) and the mapped thinking value.

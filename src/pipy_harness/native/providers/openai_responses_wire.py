@@ -5,9 +5,12 @@ and the Azure OpenAI Responses adapter (``providers/azure_openai_responses``)
 speak the identical Responses request/response wire shape. This module owns the
 byte-identical translation in both directions:
 
-- :func:`responses_input` serializes canonical ``ProviderRequest`` messages into
-  the Responses ``input`` list (``function_call`` / ``function_call_output``
-  items), with the legacy single-turn string and message shapes.
+- :func:`resolve_responses_transcript` and :func:`responses_input` serialize
+  canonical ``ProviderRequest`` messages and later system messages into the
+  Responses ``input`` list (``function_call`` / ``function_call_output``
+  items, developer messages, anchored tool loads), with the legacy
+  single-turn string and message shapes. Codex reuses the transcript items
+  with its own envelope conversion.
 - :func:`envelope_to_input_items` translates one ``AgentMessage`` envelope.
 - :func:`parse_response` / :func:`extract_final_text` turn a Responses response
   body into a :class:`ParsedResponse`.
@@ -15,8 +18,7 @@ byte-identical translation in both directions:
 The two adapters differ only where they genuinely differ, threaded through as
 parameters here:
 
-- the OpenAI-only deferred-tools / image-attachment extension
-  (``deferred_tools`` + ``attach_images``); Azure passes neither;
+- the OpenAI-only image-attachment extension (``attach_images``);
 - the per-provider parse-error class (``parse_error_class``);
 - the human-readable response label used in parse-error messages
   (``response_label``, e.g. ``"OpenAI"`` vs ``"Azure OpenAI"``);
@@ -29,20 +31,32 @@ error hierarchies stay in the adapter modules.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import extract_responses_tool_calls
+from pipy_harness.native._provider_helpers import (
+    extract_responses_tool_calls,
+    serialize_tool_for_responses,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentMessage,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.deferred_tools import responses_tool_search_items
+from pipy_harness.native.agent.system_messages import render_system_message_update
+from pipy_harness.native.deferred_tools import short_hash
 from pipy_harness.native.http import ProviderHTTPError, extract_responses_usage
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.providers.transcript import (
+    ResolvedTranscript,
+    declaration_definition,
+    request_tools,
+    resolve_request_transcript,
+)
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.base import ToolDefinition
 
@@ -57,36 +71,159 @@ class ParsedResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class ResponsesTranscriptOptions:
+    """One Responses adapter's mid-conversation system-message compat.
+
+    Pi ``convertResponsesMessages`` options: whether later system messages
+    stay in place, how anchored tool additions load (message-anchored
+    ``additional_tools`` first, else a client ``tool_search`` pair), and the
+    role later messages use (``developer`` for reasoning models unless
+    ``supportsDeveloperRole`` is false).
+    """
+
+    supports_mid_convo_system_messages: bool = False
+    supports_additional_tools: bool = False
+    supports_tool_search: bool = False
+    instruction_role: str = "developer"
+
+
+@dataclass(frozen=True, slots=True)
+class ResponsesTranscript:
+    """The ``instructions`` text, top-level tools and the ``input`` builder inputs."""
+
+    instructions: str
+    tools: tuple[ToolDefinition, ...]
+    resolved: ResolvedTranscript
+    tool_loading: str | None
+
+
+def resolve_responses_transcript(
+    request: ProviderRequest, options: ResponsesTranscriptOptions
+) -> ResponsesTranscript:
+    """Pi ``resolveTranscript`` + ``resolveTranscriptTools`` for a Responses body."""
+
+    resolved = resolve_request_transcript(
+        request, supports_mid_convo=options.supports_mid_convo_system_messages
+    )
+    tools, anchors = request_tools(
+        resolved,
+        request,
+        supports_additions=(
+            options.supports_additional_tools or options.supports_tool_search
+        ),
+    )
+    tool_loading = None
+    if anchors:
+        tool_loading = (
+            "additional_tools" if options.supports_additional_tools else "tool_search"
+        )
+    return ResponsesTranscript(resolved.leading_text, tools, resolved, tool_loading)
+
+
+def responses_transcript_items(
+    transcript: ResponsesTranscript,
+    *,
+    instruction_role: str,
+    envelope_items: Callable[[AgentMessage], list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    """Pi ``convertResponsesMessages`` over the resolved transcript.
+
+    A later system message first loads the tools it adds (when additions are
+    anchored), then, when its rendered update is not empty, becomes an
+    instruction-role message. ``msgIndex`` (the tool-search seed) counts every
+    converted message except an assistant turn that produced no items.
+    """
+
+    items: list[dict[str, object]] = []
+    msg_index = 0
+    for item in transcript.resolved.items:
+        if isinstance(item, AgentSystemMessage):
+            items.extend(
+                _system_tool_additions(transcript.tool_loading, item, msg_index)
+            )
+            text = render_system_message_update(item)
+            if text:
+                items.append({"role": instruction_role, "content": text})
+            msg_index += 1
+            continue
+        converted = envelope_items(item)
+        items.extend(converted)
+        if converted or not isinstance(item, AgentAssistantMessage):
+            msg_index += 1
+    return items
+
+
+def _system_tool_additions(
+    tool_loading: str | None, message: AgentSystemMessage, msg_index: int
+) -> list[dict[str, object]]:
+    if tool_loading is None or not message.tools_added:
+        return []
+    tools = [declaration_definition(tool) for tool in message.tools_added]
+    if tool_loading == "additional_tools":
+        return [
+            {
+                "type": "additional_tools",
+                "role": "developer",
+                "tools": [serialize_tool_for_responses(tool) for tool in tools],
+            }
+        ]
+    names = [tool.name for tool in tools]
+    seed = f"system:{msg_index}:" + ",".join(names)
+    call_id = f"pi_tool_load_{short_hash(seed)}"
+    return [
+        {
+            "type": "tool_search_call",
+            "call_id": call_id,
+            "execution": "client",
+            "status": "completed",
+            "arguments": {"query": " ".join(names), "limit": len(names)},
+        },
+        {
+            "type": "tool_search_output",
+            "call_id": call_id,
+            "execution": "client",
+            "status": "completed",
+            "tools": [
+                {
+                    **serialize_tool_for_responses(tool),
+                    "strict": False,
+                    "defer_loading": True,
+                }
+                for tool in tools
+            ],
+        },
+    ]
+
+
 def responses_input(
     request: ProviderRequest,
     *,
     parse_error_class: type[ProviderHTTPError],
-    deferred_tools: Mapping[str, ToolDefinition] | None = None,
+    transcript: ResponsesTranscript | None = None,
+    instruction_role: str = "developer",
     attach_images: bool = False,
 ) -> str | list[dict[str, object]]:
     """Serialize a ``ProviderRequest`` into the Responses ``input`` payload.
 
-    ``deferred_tools`` and ``attach_images`` are the OpenAI-only extension: when
-    provided/enabled the message stream gains the completed client tool-search
-    pair for deferred tools and the current user turn gains ``input_image``
-    blocks. Azure passes neither and gets the plain Responses translation.
+    ``transcript`` carries the resolved system messages
+    (:func:`resolve_responses_transcript`); without it the messages are sent
+    as they are. ``attach_images`` is the OpenAI-only extension: the current
+    user turn gains ``input_image`` blocks. Azure passes no images.
     """
 
     if request.messages:
-        items: list[dict[str, object]] = []
-        loaded_tool_names: set[str] = set()
-        for envelope in request.messages:
-            items.extend(
-                envelope_to_input_items(envelope, parse_error_class=parse_error_class)
+        if transcript is None:
+            transcript = resolve_responses_transcript(
+                request, ResponsesTranscriptOptions()
             )
-            if deferred_tools and isinstance(envelope, AgentToolResultMessage):
-                items.extend(
-                    responses_tool_search_items(
-                        envelope,
-                        deferred_tools=deferred_tools,
-                        loaded_tool_names=loaded_tool_names,
-                    )
-                )
+        items = responses_transcript_items(
+            transcript,
+            instruction_role=instruction_role,
+            envelope_items=lambda envelope: envelope_to_input_items(
+                envelope, parse_error_class=parse_error_class
+            ),
+        )
         if attach_images:
             _attach_images(items, request)
         return items

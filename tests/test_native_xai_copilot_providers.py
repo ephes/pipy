@@ -19,6 +19,7 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest
+from pipy_harness.native._provider_helpers import failed_provider_result, utc_now
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolCall,
@@ -29,8 +30,10 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.auth_store import AuthStore, env_api_key
 from pipy_harness.native.catalog import build_builtin_catalog
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.http import JsonResponse
 from pipy_harness.native.image_attachment import ProviderImageAttachment
+from pipy_harness.native.models import ProviderResult
 from pipy_harness.native.oauth_providers import (
     GitHubCopilotOAuthProvider,
     OAuthCredentialCache,
@@ -922,3 +925,75 @@ def test_repl_model_lists_and_selection_follow_copilot_account(
     assert "not available for this github-copilot account" in message
     ok, message = repl_state.select_model(f"{COPILOT}/gpt-5.4")
     assert ok, message
+
+
+def test_oauth_wrapper_exposes_mid_convo_compat_to_the_product(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SYS1b: the per-request OAuth wrapper reports its adapter's compat.
+
+    The product attaches transcript system messages only to a provider that
+    accepts them, so the wrapper must expose the resolved flag.
+    """
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    store = AuthStore(path=tmp_path / "auth.json")
+    store.set(COPILOT, _copilot_credential())
+    # Pi's Copilot gpt-5.4 row accepts mid-conversation system messages.
+    provider = ModelRuntime(catalog=_catalog_state(tmp_path, store)).construct(
+        NativeModelSelection(COPILOT, "gpt-5.4"),
+        thinking_level=None,
+        options=ConstructionOptions(),
+    )
+    assert isinstance(provider, PerRequestOAuthProvider)
+    assert provider.supports_mid_convo_system_messages is True
+    off_dir = tmp_path / "off"
+    off_dir.mkdir()
+    off_state = _catalog_state(
+        off_dir,
+        store,
+        {
+            "providers": {
+                COPILOT: {
+                    "modelOverrides": {
+                        "gpt-5.4": {"compat": {"supportsMidConvoSystemMessages": False}}
+                    }
+                }
+            }
+        },
+    )
+    assert off_state.error is None
+    off = ModelRuntime(catalog=off_state).construct(
+        NativeModelSelection(COPILOT, "gpt-5.4"),
+        thinking_level=None,
+        options=ConstructionOptions(),
+    )
+    assert isinstance(off, PerRequestOAuthProvider)
+    assert off.supports_mid_convo_system_messages is False
+
+    seen: list[ProviderRequest] = []
+
+    def _record(
+        self: PerRequestOAuthProvider, request: ProviderRequest, **_: Any
+    ) -> ProviderResult:
+        seen.append(request)
+        return failed_provider_result(
+            request,
+            provider_name=self.name,
+            started_at=utc_now(),
+            error_type="Stop",
+            error_message="stop",
+        )
+
+    monkeypatch.setattr(PerRequestOAuthProvider, "complete", _record)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    CodingSession(provider=provider).run(
+        workspace_root=workspace,
+        input_stream=io.StringIO("hi\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    # The product anchored the session's leading system message.
+    assert seen
+    assert [anchor.position for anchor in seen[0].system_messages] == [0]

@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.agent import AgentToolResultMessage
 from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
@@ -142,6 +141,8 @@ def test_duplicate_tool_name_disables_second(tmp_path: Path) -> None:
 class _StubProvider:
     name = "stub"
     model_id = "stub-model"
+    # Accepts later system messages, so requests carry the transcript's.
+    supports_mid_convo_system_messages = True
 
     def __init__(self, results: list[ProviderResult]) -> None:
         self._results = list(results)
@@ -198,7 +199,7 @@ def test_model_can_call_an_extension_tool(tmp_path, monkeypatch) -> None:
     assert "echo:hi there" in joined
 
 
-def test_extension_tool_additive_activation_marks_its_result(
+def test_extension_tool_additive_activation_is_declared_at_the_next_turn(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
@@ -245,34 +246,39 @@ def test_extension_tool_additive_activation_marks_its_result(
         "loader",
         "late_tool",
     ]
-    marked = [
-        message
-        for message in provider.requests[1].messages
-        if isinstance(message, AgentToolResultMessage) and message.added_tool_names
-    ]
-    assert len(marked) == 1
-    assert marked[0].added_tool_names == ("late_tool",)
+    # Pi 9e05370b2: the next turn's system message declares the new tool,
+    # anchored after the loader's result.
+    second = provider.requests[1]
+    later = second.system_messages[1:]
+    assert [anchor.position for anchor in later] == [len(second.messages)]
+    assert [tool.name for tool in later[0].message.tools_added] == ["late_tool"]
+    assert later[0].message.tools_removed == ()
 
 
-def test_extension_tool_replacement_and_failure_do_not_mark_results(
+def test_extension_tool_replacement_and_failure_declare_the_tool_delta(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    # Pi declares every change to the executable tools at the next turn start,
+    # whatever the tool returned: a replacement removes and adds, a failed
+    # call that widened the set still adds.
     cases = (
         (
             "replacement",
             "['late_tool']",
             "return ToolResult(content='replaced')",
             ["late_tool"],
+            (["late_tool"], ("loader",)),
         ),
         (
             "failure",
             "['loader', 'late_tool']",
             "raise RuntimeError('boom')",
             ["loader", "late_tool"],
+            (["late_tool"], ()),
         ),
     )
-    for case_name, active_expression, outcome, expected_tools in cases:
+    for case_name, active_expression, outcome, expected_tools, delta in cases:
         workspace = tmp_path / case_name
         ext = workspace / ".pipy" / "extensions"
         ext.mkdir(parents=True)
@@ -315,10 +321,11 @@ def test_extension_tool_replacement_and_failure_do_not_mark_results(
         assert [
             tool.name for tool in provider.requests[1].available_tools
         ] == expected_tools
-        assert not any(
-            getattr(message, "added_tool_names", ())
-            for message in provider.requests[1].messages
-        )
+        later = provider.requests[1].system_messages[-1].message
+        assert (
+            [tool.name for tool in later.tools_added],
+            later.tools_removed,
+        ) == delta
 
 
 def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:

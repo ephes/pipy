@@ -1841,8 +1841,15 @@ and the live `scripts/tmux_answer_verify.sh`.
     current active set. Native session JSONL preserves the summary-safe tool
     names for resume/provider switching. Gate:
     `scripts/parity_checks/extension_live_session_conformance.py --json` plus
-    focused Anthropic construction/request tests.
-31. OpenAI Responses dynamic tool search — **landed**: explicit Boolean
+    focused Anthropic construction/request tests. **Superseded by SYS1b**
+    (Pi `9e05370b2` removed the markers): the next turn's transcript system
+    message declares the added tools, and models with
+    `supportsMidConvoToolChanges` load them with `tool_addition` blocks
+    ([provider-catalog.md](provider-catalog.md#mid-conversation-system-messages)).
+31. OpenAI Responses dynamic tool search — **superseded by SYS1b**: tool
+    search now loads tools a later system message adds, on models with
+    `supportsMidConvoSystemMessages` (and `additional_tools` first when the
+    model supports it). The original landing: explicit Boolean
     `compat.supportsToolSearch` opts selected Responses models in (default
     false). Their top-level `tools` keeps only immediate definitions; each
     marked `function_call_output` is followed by a deterministic completed

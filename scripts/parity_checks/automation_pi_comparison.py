@@ -13,7 +13,8 @@ and asserts the two implementations agree on the observable session semantics:
 - `agent_end` semantics (`willRetry` and the run's message roles, which start
   with Pi's leading system message since `9e05370b2`);
 - the leading system message's shape (empty `content`, `sections` starting
-  with `preamble`, `toolsAdded` declarations);
+  with `preamble` and ending with the tagged `cwd`, every other section
+  wrapped in its tag, `toolsAdded` declarations);
 - the key sets of the assistant `usage` object and its `cost` (USAGE1);
 - durable session-tree reconstruction: pipy's native session tree (the product
   source of truth) rebuilds the same system+user+assistant transcript the
@@ -266,8 +267,9 @@ def _system_message_shape(agent_end: dict) -> dict:
     """The leading system message's Pi discriminators (pipy has no timestamp).
 
     Pi `9e05370b2`: empty `content`, the prompt as named `sections` starting
-    with `preamble`, and every tool as a `{name, description, parameters}`
-    declaration in `toolsAdded`. Prompt text and tool sets differ by design.
+    with `preamble` and ending with the tagged `cwd`, and every tool as a
+    `{name, description, parameters}` declaration in `toolsAdded`. Prompt
+    text and tool sets differ by design.
     """
 
     messages = agent_end.get("messages", [])
@@ -279,6 +281,14 @@ def _system_message_shape(agent_end: dict) -> dict:
     return {
         "content": message.get("content"),
         "first_section": next(iter(sections), None),
+        # Pi's buildSystemPromptSections ends with `cwd` and wraps every
+        # section but `preamble` in a tag of its name (SYS1b).
+        "last_section": next(reversed(sections), None),
+        "sections_tagged": all(
+            text.startswith(f"<{name}>\n") and text.endswith(f"\n</{name}>")
+            for name, text in sections.items()
+            if name != "preamble"
+        ),
         "tools_have_declarations": bool(tools)
         and all({"name", "description", "parameters"} <= set(tool) for tool in tools),
         "has_tools_removed": "toolsRemoved" in message,

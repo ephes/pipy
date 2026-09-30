@@ -247,8 +247,9 @@ extension-lifecycle slices.
    channel after the higher-priority provider-owned dynamic-tool slices.
 5. **Cache-friendly dynamic tool loading** — provider-agnostic load points,
    Anthropic `tool_reference`, and OpenAI/Codex Responses client tool search
-   **shipped** 2026-07-17. Kimi Chat Completions remains the next independent
-   provider-owned slice.
+   **shipped** 2026-07-17, then replaced by Pi's transcript system messages
+   (SYS1b, 2026-09-30): later tool declarations load in place per adapter,
+   including the Chat Completions `{role: "system", tools}` message.
 6. **Package/update realignment** — make bare update self-only and add `--all`.
    Project-local `config -l` and its trust integration already ship. Remote
    PyPI/npm execution remains behind a supply-chain policy.
