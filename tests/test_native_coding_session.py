@@ -575,6 +575,7 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         "repl_input",
         "diag",
         "apply_compaction",
+        "show_compaction",
         "extension_session_allows",
         "rebuild_messages_from_tree",
         "render_active_branch",

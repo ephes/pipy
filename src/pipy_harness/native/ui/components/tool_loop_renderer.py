@@ -300,6 +300,9 @@ class TuiToolLoopRenderer:
             args=args,
             cwd=self._cwd,
             extension=extension,
+            # Pi's bash renderer records `startedAt` once execution starts;
+            # a replayed call never started here.
+            started_at=None if self._replaying else self._transcript.now(),
         )
         self._transcript.start_tool(state)
         self._preview_thread = None

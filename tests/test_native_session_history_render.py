@@ -439,30 +439,123 @@ def test_summary_rows_are_collapsed_and_toggle_with_ctrl_o(tmp_path: Path) -> No
 
     terminal.history.render_active_branch()
 
+    # Pi's summary components: a padded `customMessageBg` box, the label, a
+    # spacer, then the collapsed hint.
     rows = terminal.rows()
-    assert rows[0] == (
-        "custom",
-        ("[compaction]", "", "Compacted from 12,345 tokens (ctrl+o to expand)"),
-    )
-    assert rows[-1] == (
-        "custom",
-        ("[branch]", "", "Branch summary (ctrl+o to expand)"),
-    )
+    assert rows[0][0] == "tool_box"
+    assert [decode_tool_box_line(line)[0] for line in rows[0][1]] == [
+        *["custom"] * 5,
+        "none",
+    ]
+    assert _box(rows[0][1]) == [
+        ("custom", "[compaction]"),
+        ("custom", "Compacted from 12,345 tokens (ctrl+o to expand)"),
+    ]
+    assert _box(rows[-1][1]) == [
+        ("custom", "[branch]"),
+        ("custom", "Branch summary (ctrl+o to expand)"),
+    ]
 
     terminal.transcript.set_tools_expanded(True)
 
     rows = terminal.rows()
-    assert rows[0] == (
-        "custom",
-        ("[compaction]", "", "Compacted from 12,345 tokens", "", "## Goal", "fix it"),
-    )
-    assert rows[-1] == (
-        "custom",
-        ("[branch]", "", "Branch Summary", "", "tried another way"),
-    )
+    assert _box(rows[0][1]) == [
+        ("custom", "[compaction]"),
+        ("custom", "Compacted from 12,345 tokens"),
+        ("custom", "## Goal"),
+        ("custom", "fix it"),
+    ]
+    assert _box(rows[-1][1]) == [
+        ("custom", "[branch]"),
+        ("custom", "Branch Summary"),
+        ("custom", "tried another way"),
+    ]
     # Pi's full render clears the scrollback when rows above the view change.
     assert terminal.scrollback_clears == 1
     assert terminal.resets == 0
+
+
+def _row_texts(rows: list[tuple[str, tuple[str, ...]]]) -> list[str]:
+    """Each row's first non-blank text (tool boxes decoded, SGR removed)."""
+
+    texts = []
+    for kind, lines in rows:
+        if kind == "tool_box":
+            texts.append(_box(lines)[0][1])
+        else:
+            texts.append(next(line for line in lines if line))
+    return texts
+
+
+def test_compaction_redraw_draws_kept_rows_then_the_compaction_last(
+    tmp_path: Path,
+) -> None:
+    """Pi `compaction_end`: clear the chat, render `entries.slice(1)`, then
+    the compaction row at its chronological position."""
+
+    terminal = _Terminal(tmp_path)
+    terminal.transcript.submit_user_message("typed live")
+    terminal.tree.append_message(_user("dropped"))
+    kept = terminal.tree.append_message(_user("kept"))
+    terminal.tree.append_message(_assistant("answer"))
+    terminal.tree.append_compaction(
+        summary="S", first_kept_entry_id=kept.id, tokens_before=4321
+    )
+
+    assert terminal.history.render_after_compaction() is True
+
+    assert _row_texts(terminal.rows()) == ["kept", "answer", "[compaction]"]
+    assert _box(terminal.rows()[-1][1])[1] == (
+        "custom",
+        "Compacted from 4,321 tokens (ctrl+o to expand)",
+    )
+    # The replaced conversation is redrawn with the scrollback cleared.
+    assert terminal.scrollback_clears == 1
+
+
+def test_compaction_redraw_draws_the_prompt_it_ran_for(tmp_path: Path) -> None:
+    """pipy compacts before a request: the prompt being sent is not recorded
+    yet, so the redraw draws it after the kept rows (Pi's kept rows end with
+    the latest prompt); a recorded prompt is not drawn twice."""
+
+    terminal = _Terminal(tmp_path)
+    old = terminal.tree.append_message(_user("old"))
+    terminal.tree.append_message(_assistant("reply"))
+    compaction = terminal.tree.append_compaction(
+        summary="S", first_kept_entry_id=old.id, tokens_before=10
+    )
+    pending = _user("being sent")
+
+    assert terminal.history.render_after_compaction(pending) is True
+    assert _row_texts(terminal.rows()) == [
+        "old",
+        "reply",
+        "being sent",
+        "[compaction]",
+    ]
+
+    recorded = terminal.tree.append_message(pending)
+    assert recorded.parent_id == compaction.id
+    terminal.history.render_after_compaction(pending)
+    assert _row_texts(terminal.rows()) == [
+        "old",
+        "reply",
+        "being sent",
+        "[compaction]",
+    ]
+
+
+def test_compaction_redraw_falls_back_without_a_recorded_compaction(
+    tmp_path: Path,
+) -> None:
+    terminal = _Terminal(tmp_path)
+    terminal.tree.append_message(_user("hello"))
+    terminal.transcript.submit_user_message("hello")
+
+    assert terminal.history.render_after_compaction(_user("x")) is False
+    # Nothing was redrawn: the caller shows its notice instead.
+    assert terminal.scrollback_clears == 0
+    assert _row_texts(terminal.rows()) == ["hello"]
 
 
 def test_rows_render_expanded_when_ctrl_o_is_on(tmp_path: Path) -> None:

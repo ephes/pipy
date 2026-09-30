@@ -83,7 +83,7 @@ def test_chrome_style_for_resolves_env_theme(monkeypatch: pytest.MonkeyPatch) ->
     assert style.palette == resolve_palette(alternates[0])
 
 
-def test_settings_theme_pi_renders_pi_yellow_sections(
+def test_settings_theme_pi_renders_pi_heading_sections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression: a stale non-pi settings theme turns section labels blue."""
@@ -97,7 +97,7 @@ def test_settings_theme_pi_renders_pi_yellow_sections(
     style = chrome_style_for(_TTYStream())
 
     assert os.environ[THEME_ENV_VAR] == DEFAULT_THEME_NAME
-    assert style.section_label("[Context]") == "\x1b[38;2;240;198;116m[Context]\x1b[0m"
+    assert style.section_label("[Context]") == "\x1b[38;2;205;154;34m[Context]\x1b[0m"
 
 
 def test_chrome_style_for_uses_fallback_for_plain_256color_term(
@@ -111,12 +111,12 @@ def test_chrome_style_for_uses_fallback_for_plain_256color_term(
 
     assert style.enabled
     assert style.truecolor is False
-    assert style.title("pipy") == "\x1b[38;5;109mpipy\x1b[0m"
-    assert style.section_label("[Context]") == "\x1b[38;5;222m[Context]\x1b[0m"
-    assert style.dim("details") == "\x1b[38;5;241mdetails\x1b[0m"
-    assert style.secondary_dim("more") == "\x1b[38;5;244mmore\x1b[0m"
-    assert style.separator("──") == "\x1b[38;5;139m──\x1b[0m"
-    assert style.user_message("hi", width=4).startswith("\x1b[48;5;237m")
+    assert style.title("pipy") == "\x1b[1;38;5;140mpipy\x1b[0m"
+    assert style.section_label("[Context]") == "\x1b[38;5;172m[Context]\x1b[0m"
+    assert style.dim("details") == "\x1b[38;5;102mdetails\x1b[0m"
+    assert style.secondary_dim("more") == "\x1b[38;5;145mmore\x1b[0m"
+    assert style.separator("──") == "\x1b[38;5;66m──\x1b[0m"
+    assert style.user_message("hi", width=4).startswith("\x1b[48;5;23m")
     assert style.tool_command("$ ls", width=4).startswith("\x1b[48;5;235m")
 
 
@@ -131,8 +131,8 @@ def test_chrome_style_for_uses_truecolor_when_explicitly_advertised(
 
     assert style.enabled
     assert style.truecolor
-    assert style.separator("──") == "\x1b[38;2;178;148;187m──\x1b[0m"
-    assert style.user_message("hi", width=4).startswith("\x1b[48;2;52;53;65m")
+    assert style.separator("──") == "\x1b[38;2;108;118;123m──\x1b[0m"
+    assert style.user_message("hi", width=4).startswith("\x1b[48;2;33;59;73m")
     assert style.tool_command("$ ls", width=4).startswith("\x1b[48;2;40;50;40m")
 
 
@@ -147,7 +147,7 @@ def test_chrome_style_for_uses_truecolor_for_direct_term(
 
     assert style.enabled
     assert style.truecolor
-    assert style.separator("──") == "\x1b[38;2;178;148;187m──\x1b[0m"
+    assert style.separator("──") == "\x1b[38;2;108;118;123m──\x1b[0m"
 
 
 def test_chrome_style_for_no_color_forces_plain_even_with_theme(

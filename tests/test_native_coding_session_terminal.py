@@ -256,6 +256,8 @@ class _ExitOnlyUi:
                 paint_lock=paint_lock,
                 close=self.close,
                 external_io_suspension=noop_scope,
+                defer_paints=noop,
+                set_border_level_source=lambda _source: None,
             ),
             overlays=SimpleNamespace(),
             input_editor=self.input_editor,
@@ -271,7 +273,8 @@ class _ExitOnlyUi:
     def set_footer_text(self, text: str) -> None:
         del text
 
-    def start(self) -> None:
+    def start(self, *, quiet: bool = False) -> None:
+        del quiet
         self.started = True
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
@@ -349,8 +352,8 @@ def test_tui_styles_only_working_spinner_with_accent(tmp_path: Path):
         width=40,
     )
 
-    assert styled.startswith("\x1b[38;5;244m \x1b[0m\x1b[38;5;109m⠋\x1b[0m")
-    assert "\x1b[38;5;244m Working...\x1b[0m" in styled
+    assert styled.startswith("\x1b[38;5;145m \x1b[0m\x1b[38;5;140m⠋\x1b[0m")
+    assert "\x1b[38;5;145m Working...\x1b[0m" in styled
 
 
 def test_tui_keeps_input_row_stable_when_working_line_settles(
@@ -1171,7 +1174,7 @@ def test_tui_reasoning_row_emits_italic_escape(
     ui.components.screen.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
-    assert "\x1b[3;38;2;128;128;128m Thinking about this.\x1b[0m" in output
+    assert "\x1b[3;38;2;150;160;164m Thinking about this.\x1b[0m" in output
 
 
 def test_tui_reasoning_row_drops_italic_under_no_color(
@@ -1244,7 +1247,7 @@ def test_tui_tool_result_uses_pi_command_background(
     )
     result = snapshot.find("result line")[0]
     assert result.attr.bg == "40;50;40"
-    assert result.attr.fg == "128;128;128"
+    assert result.attr.fg == "157;165;169"
 
 
 def test_tui_tool_panel_matches_pi_spacing_and_text_spans(

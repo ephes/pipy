@@ -7,6 +7,7 @@ owned by ``RunControlState`` and the collaborators assembled here.
 
 from __future__ import annotations
 
+import io
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -22,6 +23,7 @@ from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentEventSink,
     AgentTranscriptMessage,
+    AgentUserMessage,
     ProductContent,
 )
 from pipy_harness.native.agent.provider_turn import (
@@ -557,6 +559,8 @@ class _RuntimePhase:
     # Redraws the transcript from the active branch (Pi renderInitialMessages);
     # a no-op without a terminal.
     render_active_branch: Callable[[], None]
+    # Shows a compaction outcome (Pi `compaction_end`: a chat redraw).
+    show_compaction: Callable[[CodingCompactionOutcome, AgentUserMessage | None], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -792,16 +796,10 @@ def _compose_extension_phase(
         keybindings_manager=keybindings,
         include_workspace_defaults=settings.project_trusted,
     )
-    if (
-        terminal_ui is not None
-        and not settings.project_trusted
-        and has_trust_requiring_project_resources(cwd)
-    ):
-        terminal_ui.components.transcript.add_notice(
-            "This project is not trusted. Project .pipy resources and "
-            "packages are ignored. Use /trust to save a trust decision, "
-            "then restart pipy."
-        )
+    if terminal_ui is not None:
+        # Pi renders once the startup components are in place; an earlier
+        # paint would leave an editor frame above the header.
+        terminal_ui.components.screen.defer_paints()
 
     def _extension_notify(_kind: str, message: str) -> None:
         safe_message = "\n".join(
@@ -941,6 +939,28 @@ def _prepare_startup_extension_consumers(
         )
 
 
+class _DiscardedDisplay(io.TextIOBase):
+    """A text sink for display writes the headless modes do not show."""
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+    def isatty(self) -> bool:
+        return False
+
+
+def _display_stream(inputs: SessionWiringInput) -> TextIO:
+    """Where display-only output goes: stderr, or nowhere when headless.
+
+    ``--print``, ``--mode json`` and ``--mode rpc`` all set an automation
+    observer; diagnostics keep ``inputs.error_stream``.
+    """
+
+    if inputs.automation_observer is not None:
+        return cast(TextIO, _DiscardedDisplay())
+    return inputs.error_stream
+
+
 def _interrupt_key_text(keybindings: KeybindingsManager) -> str:
     """Pi ``keyText("app.interrupt")``: the bound keys joined with ``/``."""
 
@@ -1013,7 +1033,6 @@ def _compose_product_session(
     agent_settled_pending = extension.agent_settled_pending
     extension_in_agent_turn = startup.extension_in_agent_turn
     output_stream = inputs.output_stream
-    error_stream = inputs.error_stream
     system_prompt = inputs.system_prompt
     if terminal_ui is not None:
         components = terminal_ui.components
@@ -1043,7 +1062,7 @@ def _compose_product_session(
     else:
         renderer = _ToolLoopRenderer(
             output_stream=output_stream,
-            error_stream=error_stream,
+            error_stream=_display_stream(inputs),
         )
     # `session_start` fires once the session is set up (reason "startup");
     # `session_shutdown` fires when the run ends.
@@ -1266,6 +1285,7 @@ def _compose_runtime_adapters(
             custom_renderer.extension_send_message,
         )
     )
+    history = _history_renderer(terminal_ui, product.renderer, ctl, custom_renderer)
     return _RuntimePhase(
         emitter=emitter,
         usage_publisher=usage_publisher,
@@ -1275,22 +1295,29 @@ def _compose_runtime_adapters(
         coding_input_queue=coding_input_queue,
         loop_controller=loop_controller,
         custom_renderer=custom_renderer,
-        render_active_branch=_history_render(
-            terminal_ui, product.renderer, ctl, custom_renderer
+        render_active_branch=(
+            history.render_active_branch if history is not None else _no_history_render
+        ),
+        show_compaction=partial(
+            _show_compaction,
+            history,
+            terminal_ui,
+            error_stream,
+            headless=inputs.automation_observer is not None,
         ),
     )
 
 
-def _history_render(
+def _history_renderer(
     terminal_ui: TerminalUi | None,
     renderer: _ToolLoopRenderer | TuiToolLoopRenderer,
     ctl: RunControlState,
     custom_renderer: CustomEntryRenderer,
-) -> Callable[[], None]:
-    """The active-branch transcript redraw, or a no-op without a terminal."""
+) -> SessionHistoryRenderer | None:
+    """The transcript's session-history renderer, or ``None`` without one."""
 
     if terminal_ui is None or not isinstance(renderer, TuiToolLoopRenderer):
-        return _no_history_render
+        return None
     return SessionHistoryRenderer(
         session_tree=lambda: ctl.session_tree,
         transcript=terminal_ui.components.transcript,
@@ -1298,11 +1325,45 @@ def _history_render(
         render_inputs=terminal_ui.components.screen.render_inputs,
         tool_renderer=renderer,
         custom_renderer=custom_renderer,
-    ).render_active_branch
+    )
 
 
 def _no_history_render() -> None:
     """Headless sessions have no transcript to redraw."""
+
+
+def _show_compaction(
+    history: SessionHistoryRenderer | None,
+    terminal_ui: TerminalUi | None,
+    error_stream: TextIO,
+    outcome: CodingCompactionOutcome,
+    pending_user: AgentUserMessage | None,
+    *,
+    headless: bool,
+) -> None:
+    """Show a compaction outcome like Pi's ``compaction_end`` handler.
+
+    A completed compaction redraws the chat with the ``[compaction]`` row
+    last and draws no notice; ``pending_user`` is the prompt an automatic
+    compaction runs for. The headless modes write nothing for it (Pi's print
+    mode is silent, JSON/RPC carry the events). Failures, cancellations and
+    the plain REPL keep the notice.
+    """
+
+    completed = outcome.result is not None and not outcome.persistence_failed
+    if (
+        completed
+        and history is not None
+        and history.render_after_compaction(pending_user)
+    ):
+        return
+    if completed and headless:
+        return
+    emit_diagnostic(
+        terminal_ui.components.transcript if terminal_ui is not None else None,
+        error_stream,
+        outcome.notice,
+    )
 
 
 def _rebuild_replaced_session(
@@ -1333,7 +1394,9 @@ def _start_chrome(
     terminal_ui = extension.terminal_ui
     startup_commands = extension.startup_commands
     input_stream = inputs.input_stream
-    error_stream = inputs.error_stream
+    # Startup chrome, the prompt echo and the footer are display; the
+    # headless modes write none of it (Pi's print/json/rpc modes).
+    error_stream = _display_stream(inputs)
     repl_input = (
         terminal_ui
         if terminal_ui is not None
@@ -1382,10 +1445,20 @@ def _start_chrome(
         terminal_ui.components.chrome.footer.set_builtin_text(
             footer.coding_footer_text()
         )
-        terminal_ui.start()
+        terminal_ui.components.screen.set_border_level_source(footer.border_level)
+        terminal_ui.start(
+            quiet=settings.get_quiet_startup() and not inputs.verbose_startup
+        )
         # The opened session's active branch (Pi renderInitialMessages): user,
         # assistant, tool, summary and extension rows, after the startup chrome.
         runtime.render_active_branch()
+        if not settings.project_trusted and has_trust_requiring_project_resources(cwd):
+            # Pi `renderProjectTrustWarningIfNeeded`, after the session rows.
+            terminal_ui.components.transcript.add_notice(
+                "This project is not trusted. Project .pipy resources and "
+                "packages are ignored. Use /trust to save a trust decision, "
+                "then restart pipy."
+            )
         if inputs.resume_context is not None:
             # Safe resumed-state notice committed to scrollback at startup:
             # prior session id, provider, model, turn count, finalized time
@@ -1574,7 +1647,7 @@ def _compose_collaborators(
     # EOF. Chrome re-emits it after each submission.
     if footer.legacy_footer_enabled():
         footer._print_footer(
-            error_stream,
+            footer.error_stream,
             cwd=cwd,
             provider_name=coding_state.provider_name,
             model_id=coding_state.model_id,
@@ -1622,6 +1695,7 @@ def _compose_commands(
     session_command_effects = collaborators.session_command_effects(
         repl_input,
         render_active_branch=runtime.render_active_branch,
+        show_compaction=runtime.show_compaction,
         new_transition=(
             None
             if terminal_leases is None
@@ -1826,6 +1900,7 @@ def _assemble_session_wiring(
         loop_controller=loop_controller,
         terminal_ui=terminal_ui,
         error_stream=error_stream,
+        display_stream=footer.error_stream,
         coding_state=coding_state,
         repl_input=repl_input,
         renderer=renderer,
@@ -1854,6 +1929,7 @@ def _assemble_session_wiring(
         coding_footer_text=footer.coding_footer_text,
         refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
         apply_compaction=provider_mutation.compact_context,
+        show_compaction=runtime.show_compaction,
         declared_context_window=provider_mutation.declared_context_window,
         cycle_thinking_level=provider_mutation.cycle_thinking_level,
         append_agent_message=append_agent_message,

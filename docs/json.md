@@ -14,7 +14,9 @@ uv run pipy repl --mode json "Summarize this repository"
 - stdout contains only LF-delimited JSON objects. Split on `\n`; payload strings
   may contain escaped newlines.
 - stderr carries diagnostics, warnings, and provider/setup errors that are not
-  session events.
+  session events. As in Pi, no startup chrome, prompt echo or footer is
+  written there; a successful run leaves stderr empty (also for `--print`
+  and `--mode rpc`).
 - The first stdout object is the native session header:
 
   ```json

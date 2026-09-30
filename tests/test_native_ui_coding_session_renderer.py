@@ -16,6 +16,7 @@ import json
 import re
 import threading
 import time
+from collections.abc import Callable
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -41,17 +42,41 @@ class _Harness:
         self.render_inputs = ScreenRenderInputs(
             lambda: 80, io.StringIO(), self._expanded
         )
+        # A fake clock and a ticker the test drives (Pi's 1 s `setInterval`).
+        self.now = 100.0
+        self.ticks: list[Callable[[], None]] = []
+        self.cancelled = 0
         self.transcript = TranscriptComponent(
             PaintLock(threading.RLock()),
             self._repaint,
             reset_scrollback=lambda: None,
             render_inputs=self.render_inputs,
+            clock=lambda: self.now,
+            schedule_ticker=self._schedule_ticker,
         )
         self.renderer = TuiToolLoopRenderer(
             transcript=self.transcript,
             chrome=self.chrome,
             render_inputs=self.render_inputs,
         )
+
+    def _schedule_ticker(self, tick: Callable[[], None]) -> Callable[[], None]:
+        self.ticks.append(tick)
+
+        def cancel() -> None:
+            self.cancelled += 1
+            self.ticks.remove(tick)
+
+        return cancel
+
+    def pending_rows(self) -> list[tuple[str, str]]:
+        return [
+            (bg, _SGR.sub("", text))
+            for bg, _wrap, text in map(
+                decode_tool_box_line, self.transcript.pending_tool_lines
+            )
+            if text
+        ]
 
     def _expanded(self) -> bool:
         return self.transcript.tools_expanded
@@ -206,15 +231,71 @@ def test_tool_output_streams_into_the_pending_row() -> None:
     h = _Harness()
     h.renderer.render_tool_call(_call("bash", {"command": "just test"}))
     h.renderer.tool_output_sink("...... [ 50%]\n")
-    pending = [
-        (bg, _SGR.sub("", text))
-        for bg, _wrap, text in map(
-            decode_tool_box_line, h.transcript.pending_tool_lines
-        )
-        if text
+    assert h.pending_rows() == [
+        ("pending", "$ just test"),
+        ("pending", "...... [ 50%]"),
+        ("pending", "Elapsed 0.0s"),
     ]
-    assert pending == [("pending", "$ just test"), ("pending", "...... [ 50%]")]
     assert h.transcript.tool_output_text == ""
     h.renderer.render_tool_result(output_text="done", is_error=False)
     assert h.transcript.pending_tool_lines == ()
     assert _rows(h) == [[("success", "$ just test"), ("success", "done")]]
+
+
+def test_running_bash_row_ticks_elapsed_until_the_result() -> None:
+    """Pi's bash renderer: `Elapsed` from the start, re-rendered every second."""
+
+    h = _Harness()
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 3"}))
+    # Pi's bash tool sends an empty update first: the row shows `Elapsed`
+    # before any output.
+    assert h.pending_rows() == [
+        ("pending", "$ sleep 3"),
+        ("pending", "Elapsed 0.0s"),
+    ]
+    assert len(h.ticks) == 1
+    repaints = h.repaints
+    h.now += 1.04
+    h.ticks[0]()
+    assert h.pending_rows()[-1] == ("pending", "Elapsed 1.0s")
+    assert h.repaints == repaints + 1
+    h.now += 62
+    h.ticks[0]()
+    assert h.pending_rows()[-1] == ("pending", "Elapsed 1m 3s")
+    h.renderer.render_tool_result(output_text="", is_error=False, duration_seconds=63.2)
+    # The result stops the ticker; the row shows `Took`.
+    assert h.ticks == [] and h.cancelled == 1
+    assert _rows(h) == [[("success", "$ sleep 3"), ("success", "Took 1m 3s")]]
+
+
+def test_flushed_bash_row_freezes_elapsed_and_stops_ticking() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 9"}))
+    h.now += 2.5
+    h.transcript.flush_pending_tool()
+    assert h.ticks == [] and h.cancelled == 1
+    h.now += 30
+    h.transcript.set_tools_expanded(True)
+    assert _rows(h) == [[("pending", "$ sleep 9"), ("pending", "Elapsed 2.5s")]]
+
+
+def test_other_tools_and_replayed_bash_rows_do_not_tick() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("read", {"path": "a.txt"}))
+    assert h.ticks == []
+    assert h.pending_rows() == [("pending", "read a.txt")]
+    h.renderer.render_tool_result(output_text="x", is_error=False)
+    replay = h.renderer.detached(h.transcript)
+    replay.render_tool_call(_call("bash", {"command": "seq 3"}))
+    # A restored call never started here: no `Elapsed`, no ticker (Pi has no
+    # `startedAt` without `executionStarted`).
+    assert h.ticks == []
+    assert h.pending_rows() == [("pending", "$ seq 3")]
+
+
+def test_a_new_session_render_stops_the_ticker() -> None:
+    h = _Harness()
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 9"}))
+    h.transcript.replace_conversation([])
+    assert h.ticks == [] and h.cancelled == 1
+    assert h.transcript.pending_tool is None

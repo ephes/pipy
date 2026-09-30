@@ -303,7 +303,7 @@ class ProviderConfigurationCommandEffects:
             )
             return
         if not persist:
-            self._notice(f"pipy: thinking level: {level}")
+            self._notice(f"Thinking level: {level}")
             return
         try:
             self.settings.set_value("defaultThinkingLevel", level)
@@ -312,7 +312,7 @@ class ProviderConfigurationCommandEffects:
                 f"pipy: thinking level: {level} (could not save default: {exc})"
             )
             return
-        self._notice(f"pipy: default thinking level: {level}")
+        self._notice(f"Default thinking level: {level}")
 
     def _scoped_models(self, command_outcome: CodingCommandOutcome) -> None:
         # Local-only: view/set/clear the enabledModels patterns constraining

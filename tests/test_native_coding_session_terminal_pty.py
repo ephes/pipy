@@ -2986,7 +2986,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
         os.write(in_master, b"\x1b[Z")
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking level: low", after=low_start
+                err_chunks, "Thinking level: low", after=low_start
             )
             is not None
         ), f"{label}: shift+tab did not return to ready input"
@@ -2996,7 +2996,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
         os.write(in_master, b"\x1b[Z")
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking level: medium", after=medium_start
+                err_chunks, "Thinking level: medium", after=medium_start
             )
             is not None
         ), f"{label}: second shift+tab did not return to ready input"
@@ -3076,7 +3076,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         os.write(in_master, b"\x14")  # ctrl+t toggles thinking visibility
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking blocks: hidden", after=hidden_start
+                err_chunks, "Thinking blocks: hidden", after=hidden_start
             )
             is not None
         ), f"{label}: ctrl+t did not return to ready input"
@@ -3085,7 +3085,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         os.write(in_master, b"\x14")  # toggle back
         assert (
             wait_for_input_ready_after(
-                err_chunks, "thinking blocks: visible", after=visible_start
+                err_chunks, "Thinking blocks: visible", after=visible_start
             )
             is not None
         ), f"{label}: second ctrl+t did not return to ready input"
@@ -3093,7 +3093,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         os.write(in_master, b"\x0f")  # ctrl+o expands tool output
         assert (
             wait_for_input_ready_after(
-                err_chunks, "tool output: expanded", after=expanded_start
+                err_chunks, "Tool output: expanded", after=expanded_start
             )
             is not None
         ), f"{label}: ctrl+o did not return to ready input"
@@ -3825,7 +3825,7 @@ def test_pty_manual_compaction_cancellation_preserves_steering_and_follow_up(
     captured = _run_editor_pty(
         monkeypatch, tmp_path, provider, drive, native_session=tree
     )
-    assert "pipy: compaction cancelled." in captured
+    assert "compaction cancelled." in captured
     assert provider.user_prompts == [
         "Provide the combined context summary now.",
         "manual steering",

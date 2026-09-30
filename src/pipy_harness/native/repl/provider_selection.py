@@ -1239,7 +1239,7 @@ class ProviderMutationEffects:
         )
         return spec.declared_context_window if spec is not None else None
 
-    def apply_compaction(self, trigger: str) -> str:
+    def apply_compaction(self, trigger: str) -> CodingCompactionOutcome:
         """Settle manual input: this command has no later canonical settlement.
 
         Restore operator-aborted input for editing; otherwise release queued
@@ -1255,7 +1255,7 @@ class ProviderMutationEffects:
                 pending.restore_pending_to_editor()
             else:
                 pending.promote_pending_to_drain()
-        return outcome.notice
+        return outcome
 
     def compact_context(  # noqa: C901 - ordered failure/stale settlement matrix
         self,

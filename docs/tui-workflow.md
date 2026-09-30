@@ -561,7 +561,7 @@ with Pi's renderer:
 | `find`, `ls` | 20 lines | every line |
 | `write` | `write <path>`, the first 10 content lines, `... (N more lines, T total, ctrl+o to expand)`; a success adds nothing | every content line |
 | `edit` | its own box: the header, then the diff (numbered, context muted, removed red, added green, changed words of a one-line edit inverted) or the error | the same |
-| `bash` | `$ <command>`, the last 5 wrapped lines behind `... (N earlier lines, ctrl+o to expand)`, a `[Full output: … Truncated: …]` warning, `Took Ns` | every line |
+| `bash` | `$ <command>`, the last 5 wrapped lines behind `... (N earlier lines, ctrl+o to expand)`, a `[Full output: … Truncated: …]` warning, `Elapsed Ns` (updated every second) while it runs, then `Took Ns` | every line |
 | extension tool | its `render_call`/`render_result` lines; without them `name key=value …` and the first 10 result lines | the renderers' expanded output; `key: value` lines |
 
 `grep`/`find`/`ls` add `[Truncated: N matches limit, 50.0KB limit, some lines
@@ -571,15 +571,16 @@ slow or blocking file never holds the UI, and the result waits at most 0.5 s
 for it); the result's `details.diff` replaces it, a preview that arrives after
 the result is dropped, and a restored `edit` draws the stored diff. A terminal
 resize redraws every tool row at the new width, as Pi re-renders. Only `bash` shows a
-duration, and only live: Pi does not store it. An extension tool's renderers
+duration, and only live: Pi does not store it. A running `bash` row shows
+`Elapsed Ns` from the moment it starts, re-rendered every second (Pi's bash
+renderer `setInterval`), until the result replaces it with `Took Ns`. An extension tool's renderers
 run again on every redraw with the retained arguments, per-call `state`,
 result and `details`, and get the box's content width (two columns less than
 the terminal).
 
 Deviations: no syntax highlighting (Pi uses highlight.js; lines Pi would
-highlight keep the terminal's default colour), no OSC 8 file links, no
-ticking `Elapsed` while `bash` runs, and colours other than the box
-backgrounds and `toolOutput` come from pipy's palette. The captured (non-TTY)
+highlight keep the terminal's default colour) and no OSC 8 file links. The
+default `pi` theme uses Pi's `dark` colours. The captured (non-TTY)
 renderer keeps its line-oriented blocks.
 
 ## Queued Steering / Follow-Up During Active Turns

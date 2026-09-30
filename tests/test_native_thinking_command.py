@@ -268,7 +268,7 @@ class TestThinkingCommand:
 
         assert state.current_thinking_level() == "high"
         assert getattr(effects.coding_state.provider, "reasoning_effort") == "high"
-        assert transcript.notices == ["pipy: thinking level: high"]
+        assert transcript.notices == ["Thinking level: high"]
         assert _thinking_levels(tree) == ["high"]
         assert modals.calls == []
         assert _saved_default(settings) is None
@@ -309,7 +309,7 @@ class TestThinkingCommand:
         assert [option.label.split()[-1] for option in options][:1] == ["reasoning"]
         assert current_index == 2  # off, low, medium
         assert state.current_thinking_level() == "high"
-        assert transcript.notices == ["pipy: thinking level: high"]
+        assert transcript.notices == ["Thinking level: high"]
         assert _thinking_levels(tree) == ["high"]
         assert _saved_default(settings) is None
 
@@ -324,7 +324,7 @@ class TestThinkingCommand:
         assert state.current_thinking_level() == "low"
         assert _saved_default(settings) == "low"
         assert settings.get_default_thinking_level() == "low"
-        assert transcript.notices == ["pipy: default thinking level: low"]
+        assert transcript.notices == ["Default thinking level: low"]
 
     def test_selector_cancel_changes_nothing(self, tmp_path: Path) -> None:
         command, effects, state, tree, settings, transcript, _modals, _err = (

@@ -400,7 +400,7 @@ class TerminalUi:
             return False
         return hasattr(input_stream, "fileno")
 
-    def start(self) -> None:
+    def start(self, *, quiet: bool = False) -> None:
         """Initialize the shell history and paint the first frame.
 
         The TUI runs inline (no alternate screen): startup chrome and every
@@ -410,11 +410,11 @@ class TerminalUi:
 
         components = self.components
         transcript = components.transcript
-        if not transcript.history_blocks:
-            transcript.seed_history(
-                startup_history_blocks(self.cwd, self.include_workspace_defaults)
-            )
+        transcript.seed_history(
+            startup_history_blocks(self.cwd, self.include_workspace_defaults, quiet)
+        )
         components.driver.install_resize_handler()
+        components.screen.resume_paints()
         components.screen.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:

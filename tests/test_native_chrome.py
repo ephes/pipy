@@ -317,14 +317,14 @@ def test_print_bottom_status_block_emits_two_dim_rows() -> None:
     assert rows == ["/tmp/foo", "$0.000 (sub) ..."]
 
 
-def test_dim_italic_truecolor_combines_italic_with_secondary_dim() -> None:
+def test_dim_italic_truecolor_uses_pi_thinking_text() -> None:
     style = chrome.ChromeStyle(enabled=True, truecolor=True)
-    assert style.dim_italic("thinking") == "\x1b[3;38;2;128;128;128mthinking\x1b[0m"
+    assert style.dim_italic("thinking") == "\x1b[3;38;2;150;160;164mthinking\x1b[0m"
 
 
-def test_dim_italic_fallback_combines_italic_with_dim() -> None:
+def test_dim_italic_fallback_uses_pi_thinking_text() -> None:
     style = chrome.ChromeStyle(enabled=True, truecolor=False)
-    assert style.dim_italic("thinking") == "\x1b[3;38;5;244mthinking\x1b[0m"
+    assert style.dim_italic("thinking") == "\x1b[3;38;5;109mthinking\x1b[0m"
 
 
 def test_dim_italic_disabled_returns_plain_text() -> None:

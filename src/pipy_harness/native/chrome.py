@@ -21,7 +21,7 @@ import re as _re
 import shutil
 import textwrap
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TextIO
@@ -116,14 +116,14 @@ class ChromeStyle:
         )
 
     def dim_italic(self, text: str) -> str:
-        # Italic + secondary dim, mirroring the captured-stream fallback
-        # renderer so streamed reasoning reads as Pi's italic prose voice.
+        # Reasoning: italic in Pi's `thinkingText` (secondary dim for themes
+        # that set none).
         if not self.enabled:
             return text
-        code = (
-            self.palette.secondary_dim_truecolor
-            if self.truecolor
-            else self.palette.secondary_dim_fallback
+        palette = self.palette
+        code = self.palette_code(
+            palette.thinking_text_truecolor or palette.secondary_dim_truecolor,
+            palette.thinking_text_fallback or palette.secondary_dim_fallback,
         )
         return f"\x1b[3;{code}m{text}\x1b[0m"
 
@@ -142,6 +142,18 @@ class ChromeStyle:
             text, self.palette.separator_truecolor, self.palette.separator_fallback
         )
 
+    def editor_border(self, text: str, *, level: str, bash_mode: bool) -> str:
+        """Pi's editor border: ``bashMode`` for ``!`` input, else the
+        thinking level's colour (``getThinkingBorderColor``); ``separator``
+        when the theme sets neither."""
+
+        name = "bash_mode" if bash_mode else f"thinking_{level}"
+        mode = "truecolor" if self.truecolor else "fallback"
+        code = getattr(self.palette, f"{name}_{mode}", None)
+        if code is None:
+            return self.separator(text)
+        return self._wrap(text, code, code)
+
     def user_message(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
@@ -152,9 +164,11 @@ class ChromeStyle:
         padded = text + (" " * max(0, width - len(text)))
         if text == "":
             return f"\x1b[{bg}m{padded}\x1b[0m"
-        return (
-            f"\x1b[{bg}m\x1b[{self.palette.user_message_text_truecolor}m{padded}\x1b[0m"
+        fg = self.palette_code(
+            self.palette.user_message_text_truecolor,
+            self.palette.user_message_text_fallback,
         )
+        return f"\x1b[{bg}m\x1b[{fg}m{padded}\x1b[0m"
 
     def tool_command(self, text: str, *, width: int) -> str:
         if not self.enabled:
@@ -213,8 +227,9 @@ class ChromeStyle:
         """One row of a Pi tool box: pre-styled ``text`` on its background.
 
         ``bg`` is ``pending``/``success``/``error`` (Pi ``toolPendingBg`` /
-        ``toolSuccessBg`` / ``toolErrorBg``) or ``none`` (edit's result lines
-        below its box). The row is padded to ``width``; a full SGR reset inside
+        ``toolSuccessBg`` / ``toolErrorBg``), ``custom`` (``customMessageBg``,
+        the summary rows) or ``none`` (edit's result lines below its box).
+        The row is padded to ``width``; a full SGR reset inside
         the text re-opens the background, like Pi's ``applyBackgroundToLine``
         keeps the box colour behind every cell.
         """
@@ -236,6 +251,10 @@ class ChromeStyle:
                 palette.tool_success_bg_fallback,
             ),
             "error": (palette.tool_error_bg_truecolor, palette.tool_error_bg_fallback),
+            "custom": (
+                palette.custom_message_bg_truecolor,
+                palette.custom_message_bg_fallback,
+            ),
         }.get(bg, (palette.tool_pending_bg_truecolor, palette.tool_pending_bg_fallback))
         code = f"\x1b[{self.palette_code(truecolor, fallback)}m"
         body = _CHROME_FULL_RESET_RE.sub(lambda match: match.group(0) + code, text)
@@ -498,6 +517,16 @@ class _ReplRuntime(Protocol):
     runtime_label: str
 
 
+@dataclass(slots=True)
+class _EditorBorderLevel:
+    """The thinking level the editor border shows, set with the footer text.
+
+    The paint reads it without taking the provider state's lock.
+    """
+
+    level: str = "off"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _ChromeFooterEffects:
     """Own footer composition and project live coding state into terminal chrome."""
@@ -510,6 +539,25 @@ class _ChromeFooterEffects:
     repl_runtime: _ReplRuntime
     # The live session tree (it is replaced by /new, /resume and /fork).
     session_tree: Callable[[], NativeSessionTree]
+    border: _EditorBorderLevel = field(default_factory=_EditorBorderLevel)
+
+    def border_level(self) -> str:
+        """Pi ``updateEditorBorderColor``'s level (``thinkingLevel || "off"``)."""
+
+        return self.border.level
+
+    def _thinking_level(self, provider_name: str, model_id: str) -> str:
+        """The live level, ``off`` for a model without reasoning (Pi clamps)."""
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return "off"
+        spec = state.model_runtime.resolve_spec(
+            NativeModelSelection(provider_name, model_id)
+        )
+        if spec is None or not spec.reasoning:
+            return "off"
+        return state.current_thinking_level() or "off"
 
     def _declared_context_window(self, provider_name: str, model_id: str) -> int | None:
         """The resolved catalog row's declared window (models.json aware)."""
@@ -663,6 +711,9 @@ class _ChromeFooterEffects:
 
     def coding_footer_text(self) -> str:
         coding_state = self.coding_state
+        self.border.level = self._thinking_level(
+            coding_state.provider_name, coding_state.model_id
+        )
         return self._footer_text(
             cwd=self.cwd,
             provider_name=coding_state.provider_name,
