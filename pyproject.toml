@@ -1,6 +1,6 @@
 [project]
 name = "pipy"
-version = "0.2.0"
+version = "0.3.0"
 description = "Native Python coding agent with TUI, providers, tools, extensions, and headless automation."
 readme = "README.md"
 requires-python = ">=3.11"
