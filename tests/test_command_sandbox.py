@@ -17,8 +17,6 @@ import time
 from pathlib import Path
 from typing import Any, Never
 
-import pytest
-
 from pipy_harness.native.command_sandbox import (
     TRUNCATION_MARKER,
     CommandPolicy,
@@ -227,10 +225,10 @@ def test_cancellation_kills_the_started_process_group_and_reaps_child(
     assert result.exit_code is None
 
     # The shell and its child were in the fresh process group; both have been
-    # terminated before ``run_command`` returns.
+    # killed before ``run_command`` returns. The orphaned child is reaped by
+    # init asynchronously and stays visible as a zombie until then, so poll.
     for pid in (shell_pid, child_pid):
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+        _assert_process_gone(pid)
 
 
 def _start_term_ignoring_descendant(
