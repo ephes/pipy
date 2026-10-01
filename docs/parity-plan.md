@@ -12,6 +12,12 @@ surface is an implementation target. Old targets, rankings and next-step wording
 below are historical inventory, not work authorization. Reload reconciliation
 and the architecture programs are complete.
 
+The owner reaffirmed selected daily-use parity on 2026-10-01. The established
+Pi coding agent remains the reference; MCP/codemode is a separate feature-scope
+decision, and Pi's experimental durable runtime is a separate architecture
+watch track. See [the current scope decision](backlog.md#upstream-scope-decision-2026-10-01)
+and UP1 in the backlog for the pending upstream drift audit.
+
 ## Policy for selected surfaces
 
 For a selected feature, Pi remains the reference for command names, flags and

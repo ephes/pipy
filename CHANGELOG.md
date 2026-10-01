@@ -6,6 +6,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Documentation
+
+- Recorded the upstream parity scope: retain the established Pi coding agent
+  as the daily-use reference, queue a drift audit, and track MCP/codemode and
+  the experimental durable runtime as separate scope decisions.
+
 ## [0.3.0] - 2026-09-30
 
 ### Highlights

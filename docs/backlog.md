@@ -1,6 +1,7 @@
 # Pipy backlog
 
-Status: sole active task index, rewritten 2026-09-29.
+Status: sole active task index, rewritten 2026-09-29; upstream scope decision
+updated 2026-10-01.
 
 ## Status
 
@@ -15,10 +16,10 @@ Status: sole active task index, rewritten 2026-09-29.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
-- **Remaining queue:** DF1 is partially done (openai-codex live; see its
-  row in [Done](#done-2026-09-29)). READ1, the most important follow-on DF1
-  found, is done. RL1 prepared release 0.2.0, so the active queue is empty;
-  pick the next item from [Follow-ons](#follow-ons).
+- **Remaining queue:** UP1 audits established-agent drift since the September
+  baseline; see [Active queue](#active-queue). DF1 still lacks live evidence for
+  other providers; remaining implementation deviations are in
+  [Follow-ons](#follow-ons).
 - **Tests:** `uv run --frozen pytest --co` collects 6,614 tests on
   `release/0.2.0` (6,576 on `chore/df1-dogfooding`).
 - **Not verified live.** openai-codex has live evidence for `gpt-6-sol` at
@@ -28,8 +29,10 @@ Status: sole active task index, rewritten 2026-09-29.
   the two models (DF1). Anthropic 5.x, xAI, Copilot, Bedrock and Google have no
   credentials here. They and cross-provider answer quality are still covered by
   fake-transport tests only.
-- **Pi comparison gates:** `session_tree_pi_comparison.py` and
-  `automation_pi_comparison.py` pass against Pi (the latter since SYS1a).
+- **Pi comparison gates:** recorded passes for `session_tree_pi_comparison.py`
+  and `automation_pi_comparison.py` predate UP1 (the latter since SYS1a).
+  They do not establish a pass at `a4715ec9b`; UP1 must rerun both and record
+  the exact checked endpoint.
 
 This document owns direction, order and task IDs. A queue item is a bounded
 work order. It does not override a current runtime contract (see
@@ -83,8 +86,57 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
-The queue is empty. Promote a follow-on into a numbered item here when a user
-need makes it matter. Effort: S ≈ one focused slice, M ≈ two or three slices.
+### UP1 — Refresh the established Pi agent comparison (S)
+
+Owner-approved 2026-10-01. Audit the established coding agent's changes from
+`4df157433` to inspected upstream `a4715ec9b` (package version 0.99.2), using
+commit/source evidence rather than release numbers. Run `just catalog-drift`
+and the session-tree and automation Pi comparison gates. Record the checked
+endpoint, results and remaining selected-surface gaps before updating the
+evidence baseline. Promote material daily-use differences into bounded slices;
+do not implement every upstream feature as part of this audit.
+
+Other implementation items remain unqueued. Promote a follow-on into a numbered
+item when a user need makes it matter. Effort: S ≈ one focused slice,
+M ≈ two or three slices.
+
+## Upstream scope decision (2026-10-01)
+
+The owner agreed to retain the **established Pi coding agent** as the reference
+for selected daily-use parity and keep pipy-native as the Python product
+runtime. Maintenance mode continues. Full coverage of every current Pi surface
+would require a separately approved expansion of the program.
+
+Source inspection of Pi `a4715ec9b` found the following; this is a planning
+assessment, not a completed rebaseline or a fresh parity-gate result:
+
+- Pi's release changed 0.87.1 directly to 0.99.0, but the September baseline
+  already included unreleased features. The version jump is not a measure of
+  newly outstanding work. GPT-6.1 Sol and OpenAI ChatGPT sign-in have already
+  landed in pipy 0.3.0.
+- **MCP / codemode / tool search** remains the next substantial feature-scope
+  decision, separate from UP1. OAuth, tool naming, discovery, exposure and
+  reload behavior are still changing upstream. Revisit around 2026-10-13;
+  selection requires a bounded plan and any dependency decisions.
+- **Virtual models and classifier operations** are separate coverage decisions;
+  current realignment does not establish parity for them. Image generation
+  remains deferred.
+- **Pi durable execution** is a separate architecture watch track. Pi added an
+  experimental SQLite-backed coding-agent TUI (`5609b0d6c`) over `pi-durable`,
+  with persisted task progress, interrupted-run recovery, owned subagents,
+  per-conversation agents and a live task graph. Pipy's persistent JSONL
+  conversation tree does not provide equivalent task checkpoint/recovery
+  semantics. The experimental TUI still lacks the resume picker, forks/tree
+  navigation, images and `/login`; it is not the established-agent parity target.
+  Reassess when its contracts stabilize or a user need requires it. Adoption
+  needs an explicit architecture program, including recovery, cancellation,
+  storage and product-session compatibility decisions.
+
+UP1 should also triage smaller established-agent changes such as provider/model
+CLI validation, provider retry and tool-schema handling, extension validation
+and tool previews. Compare each with pipy's implementation before calling it a
+gap. This decision does not authorize MCP implementation, parallel tools or a
+durable-runtime migration.
 
 ## Done (2026-09-29)
 
@@ -341,7 +393,13 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 Revisit these when an active item needs them or the Pi surface stabilizes.
 
 - **Pi MCP / codemode / tool search** (`8562bcf66`, 2026-09-29). This is L and
-  still moving. Revisit in about two weeks.
+  still moving. Revisit around 2026-10-13 as a feature-scope decision; see
+  [Upstream scope decision](#upstream-scope-decision-2026-10-01).
+- **Pi durable execution and experimental TUI** (`5609b0d6c`): a separate
+  architecture watch track, not the established-agent parity target. Reassess
+  when contracts stabilize or a user need requires it; see the scope decision.
+- **Virtual models and classifier operations:** separate feature-scope
+  decisions, not covered by the completed realignment.
 - **Strict tool schemas** (Pi 0.86.0): only once a primary provider needs
   capability-gated constraints.
 - **Per-model image input limits and resize** (Pi `f5c946480`).
