@@ -908,29 +908,45 @@ def test_pty_long_input_soft_wraps_typing_paste_and_cursor_insert(
     typed = "typed-wrap-" * 13
     pasted = "paste-wrap-" * 12
 
-    def assert_wrapped_editor(chunks: list[bytes], needle: str) -> None:
+    def editor_frame(chunks: list[bytes]) -> tuple[list[str], list[str]] | None:
         snapshot = parse_ansi_screen(
             b"".join(chunks).decode("utf-8", errors="replace"),
             columns=columns,
             rows=rows,
         )
         separators = _separator_rows(snapshot.viewport)
-        assert len(separators) >= 2, f"{label}: input separators missing"
+        if len(separators) < 2:
+            return None
         top, bottom = separators[-2], separators[-1]
-        input_lines = snapshot.viewport[top + 1 : bottom]
+        return snapshot.viewport[top + 1 : bottom], snapshot.viewport[bottom + 1 :]
+
+    def assert_wrapped_editor(chunks: list[bytes], text: str) -> None:
+        # The repeated test strings are periodic, so the raw-stream tail match
+        # can fire while echo is still in flight. Treat it as a cheap gate, then
+        # wait until the parsed editor shows the whole input.
+        assert _wait_for(chunks, text[-24:]), f"{label}: long input never rendered"
+        frame: tuple[list[str], list[str]] | None = None
+
+        def editor_shows_text() -> bool:
+            nonlocal frame
+            frame = editor_frame(chunks)
+            return frame is not None and text in "".join(
+                line.rstrip() for line in frame[0]
+            )
+
+        assert _wait_for_predicate(editor_shows_text), (
+            f"{label}: wrapped input text never rendered"
+        )
+        assert frame is not None
+        input_lines, below = frame
         assert len(input_lines) >= 2, f"{label}: long input did not soft-wrap"
-        joined = "".join(line.rstrip() for line in input_lines)
-        assert needle in joined, f"{label}: wrapped input text missing"
-        assert any(line.strip() for line in snapshot.viewport[bottom + 1 :]), (
+        assert any(line.strip() for line in below), (
             f"{label}: footer rows missing below wrapped input"
         )
 
     def drive(in_master: int, chunks: list[bytes]) -> None:
         os.write(in_master, typed.encode("utf-8"))
-        assert _wait_for(chunks, typed[-24:]), (
-            f"{label}: typed long input never rendered"
-        )
-        assert_wrapped_editor(chunks, typed[:40])
+        assert_wrapped_editor(chunks, typed)
         # Move left inside the wrapped prompt, insert a marker, then submit. The
         # provider receiving that exact prompt proves cursor movement still maps
         # to the logical buffer rather than the visual rows.
@@ -940,10 +956,7 @@ def test_pty_long_input_soft_wraps_typing_paste_and_cursor_insert(
             f"{label}: typed prompt never submitted"
         )
         os.write(in_master, f"\x1b[200~{pasted}\x1b[201~".encode("utf-8"))
-        assert _wait_for(chunks, pasted[-24:]), (
-            f"{label}: pasted long input never rendered"
-        )
-        assert_wrapped_editor(chunks, pasted[:40])
+        assert_wrapped_editor(chunks, pasted)
         os.write(in_master, b"\n")
         assert _wait_for(chunks, "TURN_2_DONE"), (
             f"{label}: pasted prompt never submitted"
