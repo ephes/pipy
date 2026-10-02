@@ -1,7 +1,7 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-01.
+updated 2026-10-02.
 
 ## Status
 
@@ -16,8 +16,8 @@ updated 2026-10-01.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
-- **Remaining queue:** UP1 audits established-agent drift since the September
-  baseline; see [Active queue](#active-queue). DF1 still lacks live evidence for
+- **Remaining queue:** UP1 completed a selected-surface audit through Pi 1.0;
+  see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
   [Follow-ons](#follow-ons).
 - **Tests:** `uv run --frozen pytest --co` collects 6,614 tests on
@@ -29,10 +29,9 @@ updated 2026-10-01.
   the two models (DF1). Anthropic 5.x, xAI, Copilot, Bedrock and Google have no
   credentials here. They and cross-provider answer quality are still covered by
   fake-transport tests only.
-- **Pi comparison gates:** recorded passes for `session_tree_pi_comparison.py`
-  and `automation_pi_comparison.py` predate UP1 (the latter since SYS1a).
-  They do not establish a pass at `a4715ec9b`; UP1 must rerun both and record
-  the exact checked endpoint.
+- **Pi comparison gates:** session-tree and automation comparisons passed on
+  2026-10-02 against `b271b0a52` (Pi 1.0 plus unreleased fixes). Catalog drift
+  was CLEAN for 97 shared rows; see the [UP1 audit](pi-1.0-audit.md).
 
 This document owns direction, order and task IDs. A queue item is a bounded
 work order. It does not override a current runtime contract (see
@@ -86,15 +85,14 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
-### UP1 — Refresh the established Pi agent comparison (S)
+### UP1 — Refresh the established Pi agent comparison (completed 2026-10-02)
 
-Owner-approved 2026-10-01. Audit the established coding agent's changes from
-`4df157433` to inspected upstream `a4715ec9b` (package version 0.99.2), using
-commit/source evidence rather than release numbers. Run `just catalog-drift`
-and the session-tree and automation Pi comparison gates. Record the checked
-endpoint, results and remaining selected-surface gaps before updating the
-evidence baseline. Promote material daily-use differences into bounded slices;
-do not implement every upstream feature as part of this audit.
+Inspected established-agent changes from `4df157433` through Pi 1.0.0
+(`a13d35a74`), plus current upstream `b271b0a52`. The catalog, session-tree
+and automation gates passed at the current checkout. The
+[audit](pi-1.0-audit.md) records coverage, retained differences and deferred
+candidates. Adopted header-only startup and capacity-error retry; MCP,
+codemode and durable execution retain their existing scope boundaries.
 
 Other implementation items remain unqueued. Promote a follow-on into a numbered
 item when a user need makes it matter. Effort: S ≈ one focused slice,

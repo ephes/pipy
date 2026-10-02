@@ -92,7 +92,7 @@ The notes call out the most important limits.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `theme` | string | Active chrome theme name. Can also be changed in `/settings`. |
-| `quietStartup` | boolean | Hide verbose startup/resource chrome. `--verbose` overrides for one run. |
+| `quietStartup` | boolean or `"header"` | `true` hides startup chrome; `"header"` keeps version/key hints and hides details. `--verbose` restores full chrome for one run. |
 | `collapseChangelog` | boolean | Show condensed changelog output. |
 | `editorPaddingX` | number | Input editor horizontal padding, `0`-`3`. |
 | `autocompleteMaxVisible` | number | Visible autocomplete rows, `3`-`20`. |

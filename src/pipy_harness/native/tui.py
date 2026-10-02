@@ -400,7 +400,7 @@ class TerminalUi:
             return False
         return hasattr(input_stream, "fileno")
 
-    def start(self, *, quiet: bool = False) -> None:
+    def start(self, *, quiet: bool | str = False) -> None:
         """Initialize the shell history and paint the first frame.
 
         The TUI runs inline (no alternate screen): startup chrome and every

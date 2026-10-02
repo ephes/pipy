@@ -218,6 +218,7 @@ def test_admission_runs_after_delay_and_rejection_closes_trace(tmp_path: Path) -
         # Pi never retries quota/billing exhaustion or a context overflow,
         # even when the text also carries retry-pattern digits.
         _failure(error_message="429 insufficient_quota"),
+        _failure(error_message="Selected model is at capacity: insufficient_quota"),
         _failure(
             metadata={"retryable": True},
             error_message="Codex error: 50000 tokens exceeds the context window",
@@ -237,6 +238,7 @@ def test_eligibility_rejects_non_transient_failures(result: ProviderResult) -> N
         _failure(usage={}),
         # Pi's text classifier over the message and the lifted API labels.
         _failure(metadata=None, error_message="HTTP status 503."),
+        _failure(metadata=None, error_message="Selected model is at capacity"),
         _failure(
             metadata={"http_status": 529, "api_error_type": "overloaded_error"},
             error_message="Anthropic API request failed with HTTP status 529.",

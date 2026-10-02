@@ -1271,3 +1271,12 @@ def test_compaction_budget_snapshot_defaults_zero_reserve_and_exact_guard(
     manager.set_value("compaction.contextWindow", 0)
     with pytest.raises(ValueError, match="positive integer"):
         manager.capture_compaction_budget_settings()
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [("header", "header"), (True, True), (False, False), ("invalid", False)],
+)
+def test_quiet_startup_modes(tmp_path: Path, value: object, expected: object) -> None:
+    manager = _manager(tmp_path, overrides={"quietStartup": value})
+    assert manager.get_quiet_startup() == expected

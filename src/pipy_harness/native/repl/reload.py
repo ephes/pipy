@@ -374,10 +374,13 @@ class ReloadCommandEffects:
             self.redraw_custom_entries_for_active_branch()
         for scope, detail in self.settings.load_errors().items():
             self.diag(f"pipy: kept prior {scope} settings ({detail}).")
-        if self.verbose_startup or not self.settings.get_quiet_startup():
+        if self.verbose_startup or self.settings.get_quiet_startup() is not True:
             print_startup_chrome(
                 self.error_stream,
                 cwd=self.cwd,
+                quiet=False
+                if self.verbose_startup
+                else self.settings.get_quiet_startup(),
                 include_workspace_defaults=self.settings.project_trusted,
             )
         return maybe_save_implicit_trust_after_reload(

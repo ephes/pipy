@@ -50,6 +50,10 @@ PI_DOC_TOPICS = (
     ("pi packages", "docs/packages.md"),
     ("environment variables", "docs/environment-variables.md"),
     ("MCP servers", "docs/mcp.md"),
+    (
+        "codemode scripts and non-LLM models such as classifiers and image models",
+        "docs/codemode.md",
+    ),
 )
 
 

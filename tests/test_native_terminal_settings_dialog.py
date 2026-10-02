@@ -164,7 +164,7 @@ class _ScriptedSettingsUi(TerminalUi):
     def paint(self) -> None:
         return
 
-    def start(self, *, quiet: bool = False) -> None:
+    def start(self, *, quiet: bool | str = False) -> None:
         del quiet
 
     def close(self) -> None:

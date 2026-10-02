@@ -260,7 +260,8 @@ retried for **every** provider when `retry.enabled` is on (the default):
 
 - **What is retried:** Pi's `isRetryableAssistantError` patterns over the
   error message plus the API error labels pipy lifts from the error body:
-  overloaded (e.g. an Anthropic 529 `overloaded_error`), rate limits, HTTP
+  overloaded (e.g. an Anthropic 529 `overloaded_error`), "Selected model is
+  at capacity", rate limits, HTTP
   429/500/502/503/504/520/524, service unavailable, server/internal errors,
   network, connection, socket and timeout failures, closed WebSockets, early
   stream ends, and "you can retry your request". Failures a provider marks as

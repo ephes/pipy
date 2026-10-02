@@ -6,7 +6,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Added
+
+- `quietStartup: "header"` keeps startup version and key hints while hiding
+  details and resource listings. `--verbose` restores the full display.
+
+### Fixed
+
+- Provider errors saying "Selected model is at capacity" now use the existing
+  bounded retry policy; quota and billing exhaustion remain non-retryable.
+
 ### Documentation
+
+- Audited Pi 1.0 selected surfaces, reran the catalog/session comparison gates,
+  and refreshed the pinned upstream system-prompt documentation topics.
 
 - Recorded the upstream parity scope: retain the established Pi coding agent
   as the daily-use reference, queue a drift audit, and track MCP/codemode and

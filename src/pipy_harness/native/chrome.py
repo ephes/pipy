@@ -831,7 +831,7 @@ def print_startup_chrome(
     error_stream: TextIO,
     *,
     cwd: Path,
-    quiet: bool = False,
+    quiet: bool | str = False,
     include_workspace_defaults: bool = False,
 ) -> None:
     """Render the Pi-parity compact startup chrome on `error_stream`.
@@ -847,10 +847,10 @@ def print_startup_chrome(
     trust; global resources and trust-exempt context remain visible otherwise.
 
     When ``quiet`` is set (the ``quietStartup`` setting), the verbose startup
-    banner is suppressed entirely, matching Pi's quiet-startup behavior.
+    banner is suppressed entirely. ``"header"`` keeps version and key hints.
     """
 
-    if quiet:
+    if quiet is True:
         return
     style = chrome_style_for(error_stream)
     width = chrome_width(error_stream)
@@ -880,6 +880,9 @@ def print_startup_chrome(
         width=width,
         style=style.dim,
     )
+    if quiet == "header":
+        print(file=error_stream)
+        return
     _print_wrapped(
         error_stream,
         " ",

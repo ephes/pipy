@@ -374,3 +374,22 @@ def test_failed_or_unrecorded_compaction_keeps_its_notice(headless: bool) -> Non
     assert _show(_completed(), history=declined, tui=True, headless=False)[0] == [
         _completed().notice
     ]
+
+
+def test_header_startup_keeps_hints_without_resources(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("x")
+    blocks = startup_history_blocks(tmp_path, True, "header")
+    assert [block[0] for block in blocks] == ["normal", "title", "controls", "normal"]
+    text = "\n".join(line for block in blocks for line in block[1])
+    assert "pipy v" in text and "ctrl+p model" in text
+    assert "[Context]" not in text and "Pipy can explain" not in text
+
+    from pipy_harness.native.chrome import print_startup_chrome
+
+    stream = io.StringIO()
+    print_startup_chrome(
+        stream, cwd=tmp_path, quiet="header", include_workspace_defaults=True
+    )
+    text = stream.getvalue()
+    assert "pipy v" in text and "escape interrupt" in text
+    assert "[Context]" not in text and "Pipy can explain" not in text

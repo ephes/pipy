@@ -330,11 +330,14 @@ def test_cli_offline_sets_startup_network_guards(tmp_path, monkeypatch) -> None:
     assert os.environ[PIPY_SKIP_VERSION_CHECK_ENV] == "1"
 
 
-def test_cli_verbose_overrides_quiet_startup(tmp_path, capfd, monkeypatch) -> None:
+@pytest.mark.parametrize("quiet", [True, "header"])
+def test_cli_verbose_overrides_quiet_startup(
+    tmp_path, capfd, monkeypatch, quiet
+) -> None:
     config_home = tmp_path / "config"
     config_home.mkdir()
     (config_home / "settings.json").write_text(
-        json.dumps({"quietStartup": True}), encoding="utf-8"
+        json.dumps({"quietStartup": quiet}), encoding="utf-8"
     )
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
     monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
@@ -342,7 +345,7 @@ def test_cli_verbose_overrides_quiet_startup(tmp_path, capfd, monkeypatch) -> No
     quiet_exit = main(["--no-session", "--cwd", str(tmp_path)])
     quiet_captured = capfd.readouterr()
     assert quiet_exit == 0
-    assert "pipy v" not in quiet_captured.err
+    assert ("pipy v" in quiet_captured.err) == (quiet == "header")
 
     monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
     verbose_exit = main(["--verbose", "--no-session", "--cwd", str(tmp_path)])

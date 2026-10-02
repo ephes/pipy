@@ -1462,7 +1462,7 @@ def _start_chrome(
         print_startup_chrome(
             error_stream,
             cwd=cwd,
-            quiet=settings.get_quiet_startup() and not inputs.verbose_startup,
+            quiet=False if inputs.verbose_startup else settings.get_quiet_startup(),
             include_workspace_defaults=settings.project_trusted,
         )
         if inputs.resume_context is not None:
@@ -1480,7 +1480,7 @@ def _start_chrome(
         )
         terminal_ui.components.screen.set_border_level_source(footer.border_level)
         terminal_ui.start(
-            quiet=settings.get_quiet_startup() and not inputs.verbose_startup
+            quiet=False if inputs.verbose_startup else settings.get_quiet_startup()
         )
         # The opened session's active branch (Pi renderInitialMessages): user,
         # assistant, tool, summary and extension rows, after the startup chrome.

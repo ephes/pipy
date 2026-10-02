@@ -727,8 +727,11 @@ class SettingsManager:
     def get_theme(self) -> str | None:
         return self._get_str("theme")
 
-    def get_quiet_startup(self) -> bool:
-        return self._get_bool("quietStartup")
+    def get_quiet_startup(self) -> bool | Literal["header"]:
+        value = self._get("quietStartup")
+        if value == "header":
+            return "header"
+        return value if isinstance(value, bool) else False
 
     def get_hide_thinking_block(self) -> bool:
         return self._get_bool("hideThinkingBlock")

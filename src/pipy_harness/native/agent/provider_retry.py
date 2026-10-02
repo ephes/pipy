@@ -117,6 +117,7 @@ _RETRYABLE_PROVIDER_ERROR_PATTERN = re.compile(
     "|".join(
         (
             "overloaded",
+            "Selected model is at capacity",
             "currently experiencing high demand",
             "rate.?limit",
             "too many requests",
