@@ -18,6 +18,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Documentation
 
+- Queued a Python-codemode isolation spike and first-slice plan, with MCP and
+  parallel execution retained as separate follow-ons.
+
 - Audited Pi 1.0 selected surfaces, reran the catalog/session comparison gates,
   and refreshed the pinned upstream system-prompt documentation topics.
 

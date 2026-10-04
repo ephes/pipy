@@ -1,7 +1,7 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-02.
+updated 2026-10-04.
 
 ## Status
 
@@ -16,7 +16,8 @@ updated 2026-10-02.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
-- **Remaining queue:** UP1 completed a selected-surface audit through Pi 1.0;
+- **Remaining queue:** CM1 plans a bounded Python codemode slice. UP1
+  completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
   [Follow-ons](#follow-ons).
@@ -85,6 +86,24 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
+### CM1 — Python codemode: isolation spike and first-slice plan (M)
+
+Owner-requested 2026-10-04. Use Python scripts to compose existing tools and
+filter results within one model turn. Python syntax is an intentional
+difference from Pi's JavaScript; pipy-native remains the product runtime.
+See the [light plan](specs/2026-10-04-python-codemode-plan.md).
+
+Start with an isolation feasibility spike and a written execution contract.
+Then select a bounded implementation slice: built-in tools, sequential nested
+calls, explicit text output, cancellation and resource limits, with the
+existing tool-policy and session boundaries preserved. Runtime/backend,
+platform support and dependency choices remain open until the spike. This
+queues planning, not a commitment to a particular sandbox or delivery date.
+
+MCP, parallel calls, persistent script state, images and classifier operations
+remain separate follow-ons. The earlier combined MCP/codemode deferral is
+superseded only for this Python-codemode planning item.
+
 ### UP1 — Refresh the established Pi agent comparison (completed 2026-10-02)
 
 Inspected established-agent changes from `4df157433` through Pi 1.0.0
@@ -112,7 +131,9 @@ assessment, not a completed rebaseline or a fresh parity-gate result:
   already included unreleased features. The version jump is not a measure of
   newly outstanding work. GPT-6.1 Sol and OpenAI ChatGPT sign-in have already
   landed in pipy 0.3.0.
-- **MCP / codemode / tool search** remains the next substantial feature-scope
+- **MCP / codemode / tool search** (Python-codemode planning split out as
+  CM1 on 2026-10-04; MCP/tool search retain this deferral) was the next
+  substantial feature-scope
   decision, separate from UP1. OAuth, tool naming, discovery, exposure and
   reload behavior are still changing upstream. Revisit around 2026-10-13;
   selection requires a bounded plan and any dependency decisions.
@@ -390,8 +411,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 
 Revisit these when an active item needs them or the Pi surface stabilizes.
 
-- **Pi MCP / codemode / tool search** (`8562bcf66`, 2026-09-29). This is L and
-  still moving. Revisit around 2026-10-13 as a feature-scope decision; see
+- **Pi MCP / tool search** (`8562bcf66`, 2026-09-29). This is L and
+  still moving. Python codemode planning is now CM1, without MCP. Revisit MCP
+  around 2026-10-13 as a feature-scope decision; see
   [Upstream scope decision](#upstream-scope-decision-2026-10-01).
 - **Pi durable execution and experimental TUI** (`5609b0d6c`): a separate
   architecture watch track, not the established-agent parity target. Reassess
