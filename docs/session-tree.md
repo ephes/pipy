@@ -603,7 +603,8 @@ Minimum entry types:
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.
 - `compaction`: in-place context compaction summary with `firstKeptEntryId`,
-  `tokensBefore`, optional `retainedUserEntryId` for a noncontiguous retained
+  `tokensBefore` (Pi's estimated context tokens before the cut; older entries
+  hold a byte count), optional `retainedUserEntryId` for a noncontiguous retained
   user plus suffix, and optional `systemMessage`: the replayed prompt and tool
   state at the boundary (Pi `CompactionEntry.systemMessage`). It is absent on
   older entries and when the branch has no system state.

@@ -90,6 +90,8 @@ class TuiToolLoopRenderer:
         self._interrupt_key_text = interrupt_key_text or (lambda: "escape")
         self._clock = clock
         self._retry: _RetryCountdown | None = None
+        # Pi ``CompactionStatusIndicator`` label while a summary request runs.
+        self._compaction_label: str | None = None
         self._streamed_any = False
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
@@ -171,6 +173,8 @@ class TuiToolLoopRenderer:
         when it reaches zero, so the normal working row returns then.
         """
 
+        if self._compaction_label is not None:
+            return (self._compaction_label, False)
         retry = self._retry
         if retry is not None:
             remaining = retry.deadline - self._clock()
@@ -186,7 +190,11 @@ class TuiToolLoopRenderer:
 
     def show_working(self) -> None:
         self._stop_working(clear=True)
-        if not self._chrome.working_visible and self._retry is None:
+        if (
+            not self._chrome.working_visible
+            and self._retry is None
+            and self._compaction_label is None
+        ):
             return
         stop_event = threading.Event()
         self._stop_working_event = stop_event
@@ -266,6 +274,26 @@ class TuiToolLoopRenderer:
                 f"Retry failed after {attempt} attempts: "
                 f"{final_error or 'Unknown error'}"
             )
+
+    def start_compaction(self, reason: str) -> None:
+        """Pi ``compaction_start``: the compaction loader replaces the row."""
+
+        # Pi's ``overflow`` reason follows a provider overflow error; pipy's
+        # automatic reasons both name a preflight cut, so both auto-compact.
+        cancel_hint = f"({self._interrupt_key_text()} to cancel)"
+        if reason == "manual":
+            label = f"Compacting context... {cancel_hint}"
+        else:
+            label = f"Auto-compacting... {cancel_hint}"
+        self._stop_working(clear=True)
+        self._compaction_label = label
+        self.show_working()
+
+    def finish_compaction(self) -> None:
+        """Pi ``compaction_end``: drop the loader."""
+
+        self._compaction_label = None
+        self._stop_working(clear=True)
 
     def render_user_message(self, text: str) -> None:
         """Draw a user message; a ``/skill:<name>`` block is Pi's skill box.

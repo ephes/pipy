@@ -659,6 +659,7 @@ _AGENT_HISTORY_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentAssistantMessage",
         "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.messages.AgentSystemMessage",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
         "pipy_harness.native.agent.messages.AgentUserMessage",
     }

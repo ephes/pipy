@@ -105,7 +105,7 @@ generation, reload publication gate, terminal state, expected live selection,
 and coding provider binding before committing the in-memory rebind. A stale,
 gated, terminal, failed-construction, or superseded candidate returns `False`
 and cannot change the selection or coding context. A successful switch keeps
-in-memory provider history (Pi `setModel`), resets usage, retains
+in-memory provider history (Pi `setModel`) and session usage totals, retains
 compaction/provider-failure state, and is visible to the current turn when called from
 `before_agent_start`. A refused tool-incompatible target leaves the provider
 selection, the thinking level (an explicit `:level` or a clamp to the target's
@@ -470,9 +470,9 @@ and custom models (which cost nothing unless they set `cost`).
 - RPC `get_session_stats` returns the same totals: `tokens.input` is uncached
   input, `total` sums input, output and both cache counters, and `cost` is the
   dollar total.
-- The totals cover the live session since the model was last selected. A
-  model switch or re-login starts them at zero, and a resumed session starts at
-  zero, because pipy does not yet store usage per message (Pi does).
+- The totals sum usage stored on every assistant message in the session,
+  including all branches and compacted history, as Pi does. They survive model
+  switches, re-login and resume, and reset only with a new session.
 
 ## Follow-ons
 

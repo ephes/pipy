@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from .messages import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolResultMessage,
     AgentUserMessage,
 )
@@ -316,6 +317,77 @@ def _message_bytes(message: AgentMessage) -> int:
 
 def _messages_bytes(messages: Sequence[AgentMessage]) -> int:
     return sum(_message_bytes(message) for message in messages)
+
+
+def estimate_message_tokens(message: AgentMessage) -> int:
+    """Pi ``estimateTokens``: characters divided by four, rounded up."""
+
+    chars = len(message.content.value)
+    if isinstance(message, AgentAssistantMessage):
+        chars += sum(len(block.thinking) for block in message.thinking_blocks())
+        chars += sum(
+            len(call.tool_name) + len(call.arguments_json.value)
+            for call in message.tool_calls
+        )
+    return -(-chars // 4)
+
+
+def estimate_system_message_tokens(message: AgentSystemMessage) -> int:
+    """Pi ``estimateTokens`` for a system message: text, sections, tools."""
+
+    chars = len(message.content.value)
+    chars += sum(len(text) for _, text in message.sections if text)
+    chars += sum(
+        len(tool.name) + len(tool.description) + len(tool.parameters_json)
+        for tool in message.tools_added
+    )
+    return -(-chars // 4)
+
+
+def estimate_context_tokens(
+    messages: Sequence[AgentMessage],
+    *,
+    trust_usage: bool = True,
+    system: AgentSystemMessage | None = None,
+) -> int:
+    """Pi ``estimateContextTokens``: last valid usage plus trailing estimates.
+
+    The last assistant message that completed with nonzero usage supplies its
+    total, which already covers the system prompt; later messages are
+    estimated. Without such a message, or when ``trust_usage`` is false
+    because a compaction replaced the context that usage measured (Pi
+    ``estimateProjectedContextTokens``), every message and the current
+    ``system`` message are estimated.
+    """
+
+    start = 0
+    usage_tokens = 0
+    if trust_usage:
+        for index in range(len(messages) - 1, -1, -1):
+            message = messages[index]
+            if (
+                isinstance(message, AgentAssistantMessage)
+                and message.stop_reason is None
+                and message.usage is not None
+                and _usage_context_tokens(message) > 0
+            ):
+                usage_tokens = _usage_context_tokens(message)
+                start = index + 1
+                break
+    if not usage_tokens and system is not None:
+        usage_tokens = estimate_system_message_tokens(system)
+    return usage_tokens + sum(
+        estimate_message_tokens(message) for message in messages[start:]
+    )
+
+
+def _usage_context_tokens(message: AgentAssistantMessage) -> int:
+    # Pi ``calculateContextTokens``.
+    usage = message.usage
+    assert usage is not None
+    return usage.total_tokens or (
+        usage.input + usage.output + usage.cache_read + usage.cache_write
+    )
 
 
 def _user_group_boundaries(messages: Sequence[AgentMessage]) -> list[int]:

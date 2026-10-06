@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import TextIO
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.agent import AgentSystemMessage, ProductContent
 from pipy_harness.native.agent.history import (
     AgentHistoryCompaction,
     compact_agent_history,
     compact_agent_history_tool_cycles,
+    estimate_context_tokens,
 )
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
@@ -269,6 +270,40 @@ class _CompactionWork:
     publication_epoch: int
     retry_policy: ProviderManagedRetryPolicy | None
     keeps_no_prior_entries: bool = False
+    tokens_before: int = 0
+
+
+def _context_tokens_before(
+    context: CodingCompactionSnapshot, system: AgentSystemMessage | None
+) -> int:
+    """Pi ``tokensBefore``: the projected context estimate before the cut.
+
+    Usage measured before an earlier compaction no longer describes the
+    context, so a context that carries a summary is estimated in full.
+    """
+
+    summary = context.summary_suffix
+    estimate = estimate_context_tokens(
+        context.messages, trust_usage=not summary, system=system
+    )
+    return estimate + -(-len(summary) // 4)
+
+
+def _captured_system_message(
+    tree: NativeSessionTree, pending: AgentSystemMessage | None
+) -> AgentSystemMessage | None:
+    """The branch's system state plus an automatic cut's pending turn update.
+
+    The current turn's system message is persisted after preparation, so an
+    automatic cut folds it in to estimate the context the request carries.
+    """
+
+    messages: list[AgentSystemMessage] = [
+        message for _, message in tree.build_coding_context().system_anchors
+    ]
+    if pending is not None:
+        messages.append(pending)
+    return current_system_message(messages)
 
 
 class _StaleCompactionRetry(RuntimeError):
@@ -332,6 +367,9 @@ class ProviderMutationEffects:
     mutation_io_lock: "threading.RLock"
     provider_turn_executor: ProviderTurnExecutor
     abort_event: threading.Event | _AbortCallbackSignal | None
+    # Pi's compaction status indicator for manual `/compact`: called with the
+    # trigger when the summary request starts and with ``None`` when it ends.
+    compaction_loader: Callable[[str | None], None] | None = None
     # Session-tree appends committed but not yet written, in commit order: a
     # thinking level (``thinking_level_change``) or a model selection
     # (``model_change``). Pushed and drained only under ``mutation_io_lock``: a
@@ -1305,7 +1343,13 @@ class ProviderMutationEffects:
         ``compact_context`` directly and retains canonical settlement.
         """
 
-        outcome = self.compact_context(trigger)
+        loader = self.compaction_loader
+        outcome = self.compact_context(
+            trigger,
+            lifecycle=None
+            if loader is None
+            else lambda phase, _outcome: loader(trigger if phase == "start" else None),
+        )
         if self.terminal_ui is not None:
             pending = self.terminal_ui.components.pending_messages
             if outcome.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT:
@@ -1321,13 +1365,18 @@ class ProviderMutationEffects:
         keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
         automatic_context: AutomaticCompactionContext | None = None,
         lifecycle: Callable[[str, CodingCompactionOutcome | None], None] | None = None,
+        pending_system_message: AgentSystemMessage | None = None,
         custom_instructions: ProductContent | None = None,
         project_persistence_failure: bool = False,
     ) -> CodingCompactionOutcome:
         """Generate privately, then conditionally accept and persist one summary."""
 
         prepared = self._prepare_compaction_budget(
-            trigger, budget, keep_recent_groups, automatic_context
+            trigger,
+            budget,
+            keep_recent_groups,
+            automatic_context,
+            pending_system_message,
         )
         if isinstance(prepared, CodingCompactionOutcome):
             return prepared
@@ -1449,7 +1498,7 @@ class ProviderMutationEffects:
                             durable_summary=ProductContent(summary),
                             dropped_group_count=work.cut.dropped_group_count,
                             dropped_message_count=work.cut.dropped_message_count,
-                            measure_before=work.cut.bytes_before,
+                            measure_before=work.tokens_before,
                             first_kept_entry_id=work.first_kept_entry_id,
                             retained_user_entry_id=work.retained_user_entry_id,
                             keeps_no_prior_entries=work.keeps_no_prior_entries,
@@ -1530,6 +1579,7 @@ class ProviderMutationEffects:
         budget: RequestBudget | None,
         keep_recent_groups: int,
         automatic_context: AutomaticCompactionContext | None,
+        pending_system_message: AgentSystemMessage | None,
     ) -> tuple[_CompactionWork, RequestBudget] | CodingCompactionOutcome:
         decision = self.extension_operations.session_allows(
             "compact", operation="compact", trigger=trigger
@@ -1544,7 +1594,11 @@ class ProviderMutationEffects:
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
                 work = self._capture_compaction_locked(
-                    trigger, keep_recent_groups, budget, automatic_context
+                    trigger,
+                    keep_recent_groups,
+                    budget,
+                    automatic_context,
+                    pending_system_message,
                 )
                 if budget is None:
                     try:
@@ -1612,6 +1666,7 @@ class ProviderMutationEffects:
         keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
         budget: RequestBudget | None = None,
         automatic_context: AutomaticCompactionContext | None = None,
+        pending_system_message: AgentSystemMessage | None = None,
     ) -> _CompactionWork | CodingCompactionOutcome:
         if (
             self.ctl.coding_effects.terminal
@@ -1651,6 +1706,9 @@ class ProviderMutationEffects:
             self.ctl.generation_ref.publication_epoch,
             None,
             keeps_no_prior_entries,
+            _context_tokens_before(
+                context, _captured_system_message(tree, pending_system_message)
+            ),
         )
 
     def _resolve_durable_origins(

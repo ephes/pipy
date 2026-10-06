@@ -46,10 +46,16 @@ Run compaction from the interactive session:
 ```
 
 If there is not enough history to compact, pipy reports that there is nothing to
-compact. Otherwise the terminal UI redraws the chat like Pi's `compaction_end`
+compact. Otherwise the terminal UI shows Pi's
+`Compacting context... (escape to cancel)` loader while the summary request
+runs (`Auto-compacting...` for automatic compaction), then redraws the chat like Pi's `compaction_end`
 handler: the scrollback is cleared, the kept messages are drawn again, and the
 `[compaction]` row follows them (`Compacted from N tokens`, Ctrl+O shows the
-summary). Automatic compaction redraws the same way; because pipy compacts
+summary). N is Pi's context estimate before the cut: the last completed
+assistant message's usage plus a four-characters-per-token estimate of later
+messages. After an earlier compaction, pipy estimates the whole context (system
+message, summary and messages) because it does not record which messages
+followed that compaction; Pi still trusts usage recorded after it. Automatic compaction redraws the same way; because pipy compacts
 before sending a prompt, the prompt being sent is drawn after the kept messages.
 The plain (non-terminal) REPL prints how many earlier exchange groups were
 dropped from provider-visible context and how many recent groups were kept;
@@ -235,8 +241,6 @@ and tool hooks continue to deny `set_model` by returning `False`.
 - A failed automatic summary leaves the threshold condition unchanged. A later
   provider iteration can therefore attempt another summary and repeat the bounded
   failure notice. Retry policy and auxiliary attempt accounting remain later work.
-- The terminal currently shows no working indicator during summary generation;
-  Escape and Ctrl-C still cancel it.
 - A removed range whose summary input is still over the window after tool-result
   truncation (a large paste, large tool-call arguments, many results) cannot be
   summarized, so later prompts stay refused until `/new`. Pi has the same limit;

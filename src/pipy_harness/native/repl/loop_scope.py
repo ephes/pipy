@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, TextIO
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentFailure,
+    AgentSystemMessage,
     AgentTranscriptMessage,
     AgentUserMessage,
 )
@@ -302,6 +303,7 @@ class ReplLoopScope:
             int,
             AutomaticCompactionContext | None,
             Callable[[str, CodingCompactionOutcome | None], None] | None,
+            AgentSystemMessage | None,
         ],
         CodingCompactionOutcome,
     ]

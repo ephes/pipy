@@ -15,6 +15,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 - Provider errors saying "Selected model is at capacity" now use the existing
   bounded retry policy; quota and billing exhaustion remain non-retryable.
+- Compaction records `tokensBefore` as Pi's context-token estimate instead of
+  the byte size of the dropped history, so `Compacted from N tokens` matches
+  the footer's context figure. Existing session entries keep their old value.
+- The terminal shows Pi's `Compacting context... (escape to cancel)` loader
+  during manual `/compact` and `Auto-compacting...` during automatic
+  compaction; previously nothing was shown while the summary ran.
 
 ### Documentation
 

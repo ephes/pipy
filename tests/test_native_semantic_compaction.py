@@ -17,6 +17,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentMessage,
+    AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
     AgentTranscriptMessage,
@@ -712,6 +713,7 @@ def test_automatic_compaction_projects_reason_from_pressure_source(
     from pipy_harness.native.repl import loop_step
 
     user = AgentUserMessage(ProductContent("accepted"))
+    pending = AgentSystemMessage(ProductContent("turn update"))
     baseline = ProviderRequest(
         "system", "accepted", "fake", "fake", tmp_path, messages=(user,)
     )
@@ -756,7 +758,7 @@ def test_automatic_compaction_projects_reason_from_pressure_source(
         RequestBudget(context_window, 1),
         True,
         baseline,
-        AgentActiveInput(user),
+        AgentActiveInput(user, turn_system_message=pending),
     )
 
     assert returned is outcome
@@ -773,6 +775,8 @@ def test_automatic_compaction_projects_reason_from_pressure_source(
     assert events[-1][2] is outcome
     assert applied and applied[0][0] == "auto"
     assert (applied[0][3] is None) == (context_window is None)
+    # Both pressure sources estimate the turn's pending system update.
+    assert applied[0][5] is pending
 
 
 @pytest.mark.parametrize(
@@ -1030,9 +1034,11 @@ def test_manual_compaction_wrapper_settles_returned_input_outside_locks(
     outcome = CodingCompactionOutcome(completion, reason)
 
     def compact(
-        _owner: ProviderMutationEffects, trigger: str
+        _owner: ProviderMutationEffects, trigger: str, lifecycle: object = None
     ) -> CodingCompactionOutcome:
         assert trigger == "manual"
+        # Without a terminal loader the manual wrapper passes no lifecycle.
+        assert lifecycle is None
         if completion == "persistence-error":
             raise OSError("persistence failed after acceptance")
         return outcome
@@ -1047,3 +1053,55 @@ def test_manual_compaction_wrapper_settles_returned_input_outside_locks(
         assert settlements == [
             "restore" if completion == "operator-abort" else "promote"
         ]
+
+
+def test_manual_compaction_drives_the_terminal_loader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pipy_harness.native.coding.compaction import CodingCompactionOutcome
+
+    effects, _provider = _fixture(tmp_path)
+    calls: list[str | None] = []
+    effects = replace(effects, compaction_loader=calls.append)
+    outcome = CodingCompactionOutcome("done")
+
+    def compact(
+        _owner: ProviderMutationEffects,
+        trigger: str,
+        lifecycle: Callable[[str, CodingCompactionOutcome | None], None],
+    ) -> CodingCompactionOutcome:
+        lifecycle("start", None)
+        assert calls == [trigger]
+        lifecycle("end", outcome)
+        return outcome
+
+    monkeypatch.setattr(ProviderMutationEffects, "compact_context", compact)
+
+    assert effects.apply_compaction("manual") is outcome
+    # Pi CompactionStatusIndicator: shown on start, dropped on end.
+    assert calls == ["manual", None]
+
+
+def test_automatic_compaction_counts_the_pending_turn_system_message(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.session_tree import CompactionEntry
+
+    pending = AgentSystemMessage(ProductContent("q" * 4000))
+
+    def tokens_before(name: str, pending_message: AgentSystemMessage | None) -> int:
+        root = tmp_path / name
+        root.mkdir()
+        # A prior summary forces Pi's full projected estimate.
+        effects, _provider = _fixture(root, previous_summary="Earlier summary.")
+        outcome = effects.compact_context(
+            "auto", pending_system_message=pending_message
+        )
+        assert outcome.result is not None, outcome.notice
+        entry = effects.ctl.session_tree.get_entries()[-1]
+        assert isinstance(entry, CompactionEntry)
+        return entry.tokens_before
+
+    # The current turn's system update is persisted only after preparation;
+    # Pi estimates the request's system state, so it counts (4000 / 4).
+    assert tokens_before("with", pending) - tokens_before("without", None) == 1000

@@ -354,6 +354,27 @@ def test_tui_retry_row_shows_even_when_working_is_hidden() -> None:
     assert h.wait_for(lambda text: text == "") == ""
 
 
+@pytest.mark.parametrize(
+    ("reason", "label"),
+    [
+        ("manual", "Compacting context... (escape to cancel)"),
+        ("threshold", "Auto-compacting... (escape to cancel)"),
+        ("overflow", "Auto-compacting... (escape to cancel)"),
+    ],
+)
+def test_tui_compaction_shows_pi_status_loader(reason: str, label: str) -> None:
+    h = _Harness()
+    # Pi shows the compaction loader even without a running turn.
+    h.chrome.working_visible = False
+    h.renderer.start_compaction(reason)
+    row = h.wait_for(lambda text: label in text)
+    assert row.endswith(label)
+    assert not h.transcript.working_warning
+
+    h.renderer.finish_compaction()
+    assert h.transcript.working_text == ""
+
+
 def test_working_warning_row_uses_the_warning_colour() -> None:
     style = ChromeStyle(enabled=True, truecolor=False)
     styled = style_line(

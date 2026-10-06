@@ -31,6 +31,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.history import estimate_context_tokens
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.chrome import _ChromeFooterEffects
 from pipy_harness.native.coding.input_queue import CodingInputQueue
@@ -112,17 +113,6 @@ def _workspace(tmp_path: Path) -> Path:
     cwd = tmp_path / "workspace"
     cwd.mkdir()
     return cwd
-
-
-def _canonical_history_bytes(message: AgentMessage) -> int:
-    total = len(message.content.value.encode("utf-8"))
-    if isinstance(message, AgentAssistantMessage):
-        total += sum(
-            len(call.tool_name.encode("utf-8"))
-            + len(call.arguments_json.value.encode("utf-8"))
-            for call in message.tool_calls
-        )
-    return total
 
 
 def _run(session: CodingSession, cwd: Path, user_inputs: str) -> tuple[str, str]:
@@ -2240,10 +2230,10 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
         ):
             canonical_messages_before.append(entry.message)
     assert len(canonical_messages_before) == len(messages_before)
-    expected_bytes = 0
-    for message in canonical_messages_before:
-        expected_bytes += _canonical_history_bytes(message)
-    assert compaction.tokens_before == expected_bytes
+    # Pi ``tokensBefore`` is a token estimate of the context, not its bytes.
+    assert compaction.tokens_before == estimate_context_tokens(
+        canonical_messages_before, system=compaction.system_message
+    )
 
     reopened = NativeSessionTree.open(tree.path)
     rebuilt = reopened.build_context().messages

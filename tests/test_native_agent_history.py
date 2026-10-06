@@ -11,6 +11,9 @@ from pipy_harness.native.agent import (
     AGENT_TOOL_REQUEST_ID_PREFIX,
     AgentAssistantMessage,
     AgentMessage,
+    AgentMessageUsage,
+    AgentStopReason,
+    AgentSystemMessage,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
@@ -20,6 +23,8 @@ from pipy_harness.native.agent.history import (
     AgentHistoryCompaction,
     compact_agent_history,
     compact_agent_history_tool_cycles,
+    estimate_context_tokens,
+    estimate_message_tokens,
     should_compact_agent_history,
 )
 
@@ -536,3 +541,50 @@ def test_agent_history_compaction_has_no_product_summary_projection() -> None:
 
     assert not hasattr(result, "summary_block")
     assert not hasattr(result, "safe_metadata")
+
+
+def test_estimate_message_tokens_is_pi_chars_over_four() -> None:
+    call = _tool_call("corr-1", name="read", arguments_json='{"path":"a"}')
+    assistant = AgentAssistantMessage(ProductContent("abcde"), tool_calls=(call,))
+
+    assert estimate_message_tokens(AgentUserMessage(ProductContent("abcd"))) == 1
+    assert estimate_message_tokens(AgentUserMessage(ProductContent("abcde"))) == 2
+    # 5 text + 4 name + 12 arguments = 21 characters.
+    assert estimate_message_tokens(assistant) == 6
+
+
+def test_estimate_context_tokens_uses_last_valid_usage_plus_trailing() -> None:
+    measured = AgentAssistantMessage(
+        ProductContent("answer"), usage=AgentMessageUsage(total_tokens=1000)
+    )
+    aborted = AgentAssistantMessage(
+        ProductContent("partial"),
+        stop_reason=AgentStopReason.ABORTED,
+        usage=AgentMessageUsage(total_tokens=5000),
+    )
+    trailing = AgentUserMessage(ProductContent("x" * 40))
+    messages: list[AgentMessage] = [
+        AgentUserMessage(ProductContent("y" * 400)),
+        measured,
+        aborted,
+        trailing,
+    ]
+
+    # Aborted usage is skipped (Pi ``getAssistantUsage``); later messages are
+    # estimated: "partial" (2) and 40 characters (10).
+    assert estimate_context_tokens(messages) == 1000 + 2 + 10
+    assert estimate_context_tokens(messages, trust_usage=False) == 100 + 2 + 2 + 10
+    # The full estimate adds the current system message (Pi projection).
+    system = AgentSystemMessage(ProductContent("s" * 40))
+    assert estimate_context_tokens(messages, system=system) == 1000 + 2 + 10
+    assert (
+        estimate_context_tokens(messages, trust_usage=False, system=system)
+        == 10 + 100 + 2 + 2 + 10
+    )
+
+
+def test_estimate_context_tokens_sums_usage_parts_without_total() -> None:
+    usage = AgentMessageUsage(input=10, output=20, cache_read=300, cache_write=4)
+    messages = [AgentAssistantMessage(ProductContent("a"), usage=usage)]
+
+    assert estimate_context_tokens(messages) == 334

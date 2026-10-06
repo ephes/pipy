@@ -1587,6 +1587,7 @@ def _compose_collaborators(
         mutation_io_lock=coding_effects.lock,
         provider_turn_executor=extension.provider_turn_executor,
         abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
+        compaction_loader=partial(_show_compaction_loader, product.renderer),
     )
     rpc_retry_control: RpcRetryControl | None = None
     if _control_bridge(inputs) is not None:
@@ -1848,6 +1849,19 @@ def _bind_terminal_transition_lease(
         raise
 
 
+def _show_compaction_loader(
+    renderer: _ToolLoopRenderer | TuiToolLoopRenderer, reason: str | None
+) -> None:
+    """Pi's compaction status indicator: shown on start, dropped on end."""
+
+    if not isinstance(renderer, TuiToolLoopRenderer):
+        return
+    if reason is None:
+        renderer.finish_compaction()
+    else:
+        renderer.start_compaction(reason)
+
+
 def _assemble_session_wiring(
     inputs: SessionWiringInput,
     startup: _StartupPhase,
@@ -1896,6 +1910,7 @@ def _assemble_session_wiring(
             with coding_effects.lock:
                 ctl.compaction_active = True
             try:
+                _show_compaction_loader(renderer, reason)
                 if inputs.automation_observer is not None:
                     inputs.automation_observer.emit(
                         {"type": "compaction_start", "reason": reason}
@@ -1903,10 +1918,12 @@ def _assemble_session_wiring(
             except BaseException:
                 with coding_effects.lock:
                     ctl.compaction_active = False
+                _show_compaction_loader(renderer, None)
                 raise
             return
         with coding_effects.lock:
             ctl.compaction_active = False
+        _show_compaction_loader(renderer, None)
         if inputs.automation_observer is None:
             return
         event: dict[str, object] = {

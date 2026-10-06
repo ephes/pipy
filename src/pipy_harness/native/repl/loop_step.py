@@ -338,6 +338,7 @@ class _RequestPreparationEffects:
             if budget.context_window is not None
             else None,
             lifecycle,
+            active_input.turn_system_message,
         )
         scope.show_compaction(outcome, active_input.accepted_message)
         return outcome
