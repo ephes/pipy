@@ -4,9 +4,9 @@ Status: spike result, 2026-10-06. This follows the
 [CM1 light plan](2026-10-04-python-codemode-plan.md). [Backlog](../backlog.md)
 still decides selection and order. This document picks a backend, defines the
 first-slice contract and lists the first-slice tasks. Implementation status:
-T1 (runtime provisioning and the availability self-test) and T2 (the worker
-and the guest prelude) are implemented; see their notes in §5. Everything else
-here is not yet implemented.
+T1 (runtime provisioning and the availability self-test), T2 (the worker
+and the guest prelude) and T3 (the host runner) are implemented; see their
+notes in §5. Everything else here is not yet implemented.
 
 ## 1. Status and scope
 
@@ -574,6 +574,53 @@ Each task is small and lands with its own tests. The plan's acceptance items
      oversized line, a print flood, and a guest blocked in a read until the
      wall limit.
    - Covers E, F and G.
+   - **Implemented** in `codemode/host.py` and `codemode/outcome.py`:
+     - `run_script(code, *, call_tool, tool_names, limits, cancel,
+       tool_stop, paths, pin, python) -> ScriptOutcome` never raises.
+       `call_tool(name, arguments_json) -> CallResult(ok, text, cancelled)`
+       runs on the calling thread, one call at a time (§4.2 step 4): the I/O
+       thread hands each `call` over a queue and the caller posts the reply
+       back. Names outside `tool_names` get an error result without reaching
+       the callback. `tool_stop` is set whenever the run ends, early exits included, so a callback
+       still in flight (T6's waiter) can stop its tool; a callback returning
+       `cancelled` ends the run as aborted and the call is recorded as
+       cancelled.
+     - The I/O thread owns every pipe, all non-blocking (replies wait in a
+       buffer until the guest's stdin is writable), and checks cancel and
+       the deadline every iteration (≤ 20 ms). A call stays outstanding
+       until its reply has been written in full, so a guest that does not
+       read holds at most one buffered reply. Malformed JSON (NaN,
+       Infinity and overflowing numbers included), a non-object, an unknown
+       type, a wrong or non-`int` id, a second outstanding call, a call or
+       `done` before the worker's `ready`, and a line over the cap (checked
+       while buffering) are protocol violations: the group is killed at once
+       and the run is a sandbox error. `done` is terminal; nothing after it
+       is read. A `ready` with another backend or runtime hash is a sandbox
+       error.
+     - Without `done`, the worker's `exit` report decides: `trap-interrupt`
+       is a timeout (CPU backstop), `trap-stack` a script error, exit status
+       3 (the prelude's protocol exit) a sandbox error, another exit status
+       a script error, anything else (no report, setup failure, a trap) a
+       sandbox error.
+     - Caps: code size before spawning (script error), output bytes and
+       message count (script error with guidance to write large data
+       through a tool), capped stderr kept only as `diagnostics`, a capped
+       status channel. The CPU backstop is the wall limit plus 5 s.
+     - Cleanup in `finally`: `killpg(SIGKILL)` only while the leader is
+       unreaped, a bounded wait, joining the I/O thread, then closing every
+       pipe. If the I/O thread did not stop, its pipes are leaked rather
+       than closed under it.
+     - Tests: `test_native_codemode_host.py` drives a scripted fake worker
+       (`tests/codemode_fake_worker.py`, no wasmtime needed) through every
+       violation, cap, status outcome, cancel path and cleanup check
+       (no surviving process group, no leaked fds or threads);
+       `test_native_codemode_host_runtime.py` repeats the red-team vectors
+       from a real guest (hostile raw lines via `os.write`, the call flood
+       with an unread 4 MiB reply, forged `done`, oversized line, print
+       flood, blocked read, infinite loop, recoverable and uncaught
+       `MemoryError`, cancel during compute and during a callback).
+     - Not yet: the §4.6 result text (header, output truncation, "not
+       undone" summary) lands as a separate T3 commit.
 4. **T4: settle/record extraction** in `agent/loop.py`, with no behaviour
    change. The existing loop tests stay green.
 5. **T5: nested policy transitions** in `loop_policy.py`: a reserved parent

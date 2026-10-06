@@ -1,0 +1,666 @@
+"""CM1 T3: the codemode host runner against a scripted fake worker.
+
+The fake worker (``codemode_fake_worker.py``) plays worker and guest from a
+scenario string, so every protocol rule, cap and cleanup path of
+:func:`run_script` is pinned without wasmtime. The same red-team vectors
+against the real CPython-on-WASI guest live in
+``test_native_codemode_host_runtime.py``.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from pipy_harness.native.codemode import host
+from pipy_harness.native.codemode.outcome import (
+    CallResult,
+    CallStatus,
+    ErrorKind,
+    ScriptLimits,
+    ScriptOutcome,
+)
+from pipy_harness.native.codemode.runtime import CodemodePaths, RuntimePin
+
+FAKE_WORKER = Path(__file__).with_name("codemode_fake_worker.py")
+PIN = RuntimePin(version="0", url="file:///fake", sha256="ab" * 32, size=1)
+LIMITS = ScriptLimits(wall_seconds=5.0)
+
+Callback = Callable[[str, str], CallResult]
+
+
+def _no_tools(name: str, arguments_json: str) -> CallResult:
+    raise AssertionError(f"unexpected tool call {name} {arguments_json}")
+
+
+@pytest.fixture
+def spawned(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[int]]:
+    """Point the runner at the fake worker; collect every worker pid."""
+
+    pids: list[int] = []
+    real_worker = host._Worker
+
+    class RecordingWorker(real_worker):  # type: ignore[misc, valid-type]
+        def __init__(self, argv: list[str], status_write: int) -> None:
+            super().__init__(argv, status_write)
+            pids.append(self.process.pid)
+
+    monkeypatch.setattr(host, "_Worker", RecordingWorker)
+    yield pids
+    for pid in pids:
+        assert _group_is_gone(pid), f"worker group {pid} survived"
+
+
+def _group_is_gone(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
+def _run(
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: str,
+    *,
+    call_tool: Callback = _no_tools,
+    tool_names: tuple[str, ...] = ("read", "write"),
+    limits: ScriptLimits = LIMITS,
+    cancel: threading.Event | None = None,
+    tool_stop: threading.Event | None = None,
+    code: str = "pass",
+) -> ScriptOutcome:
+    def fake_argv(python: str, status_fd: int, request: str) -> list[str]:
+        json.loads(request)  # the real request is still well-formed JSON
+        return [python, "-I", str(FAKE_WORKER), str(status_fd), PIN.sha256, scenario]
+
+    monkeypatch.setattr(host, "_worker_argv", fake_argv)
+    return host.run_script(
+        code,
+        call_tool=call_tool,
+        tool_names=tool_names,
+        limits=limits,
+        cancel=cancel,
+        tool_stop=tool_stop,
+        paths=CodemodePaths(Path("/nonexistent-codemode-root")),
+        pin=PIN,
+    )
+
+
+def _sandbox_error(outcome: ScriptOutcome, fragment: str) -> None:
+    assert outcome.error is not None, outcome
+    assert outcome.error.kind is ErrorKind.SANDBOX, outcome.error
+    assert fragment in outcome.error.message, outcome.error.message
+
+
+# --- the well-behaved path --------------------------------------------------------
+
+
+def test_a_script_runs_calls_tools_and_completes(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        seen.append((threading.current_thread().name, name, arguments_json))
+        if name == "write":
+            return CallResult(ok=False, text="denied")
+        return CallResult(ok=True, text="file body")
+
+    scenario = (
+        "run = start()\n"
+        "send({'type': 'text', 'value': run['code'] + '|' + ','.join(run['tools'])})\n"
+        "first = call(1, 'read', {'path': 'a.txt'})\n"
+        "second = call(2, 'write', {'path': 'b'})\n"
+        "send({'type': 'text', 'value': json.dumps([first, second])})\n"
+        "done()\n"
+        "exit_status()\n"
+    )
+    outcome = _run(
+        monkeypatch,
+        scenario,
+        call_tool=call_tool,
+        code="print(1)",
+        tool_names=("write", "read"),
+    )
+    assert outcome.ok, outcome
+    assert outcome.output[0] == "print(1)|read,write"
+    assert json.loads(outcome.output[1]) == [
+        {"type": "result", "id": 1, "ok": True, "value": "file body"},
+        {"type": "result", "id": 2, "ok": False, "error": "denied"},
+    ]
+    # Callbacks run on the calling thread, never on the I/O thread.
+    assert seen == [
+        ("MainThread", "read", '{"path": "a.txt"}'),
+        ("MainThread", "write", '{"path": "b"}'),
+    ]
+    assert [(c.name, c.status) for c in outcome.calls] == [
+        ("read", CallStatus.OK),
+        ("write", CallStatus.ERROR),
+    ]
+    assert len(spawned) == 1
+
+
+def test_a_script_failure_carries_its_traceback(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    error = {
+        "type": "ValueError",
+        "message": "bad",
+        "traceback": "Traceback ...\nValueError: bad\n",
+    }
+    scenario = (
+        f"start()\nsend({{'type': 'done', 'ok': False, 'error': {error!r}}})\nhang()\n"
+    )
+    outcome = _run(monkeypatch, scenario)
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.SCRIPT
+    assert outcome.error.message == "Traceback ...\nValueError: bad"
+
+
+def test_an_unknown_tool_name_never_reaches_the_callback(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    scenario = (
+        "start()\n"
+        "reply = call(1, 'reed', {})\n"
+        "send({'type': 'text', 'value': json.dumps(reply)})\n"
+        "done()\n"
+    )
+    outcome = _run(monkeypatch, scenario)
+    assert outcome.ok, outcome
+    reply = json.loads(outcome.output[0])
+    assert reply["ok"] is False
+    assert "Did you mean tools.read?" in reply["error"]
+    assert outcome.calls == ()
+
+
+# --- protocol violations (red team: malformed JSON crashed the spike host) --------
+
+
+@pytest.mark.parametrize(
+    ("line", "fragment"),
+    [
+        (b"not json\n", "not JSON"),
+        (b"\xff\xfe\n", "not JSON"),
+        (b"[" * 100_000 + b"\n", "not JSON"),
+        (
+            b'{"type": "call", "id": 1, "name": "read", "args": {"x": NaN}}\n',
+            "not JSON",
+        ),
+        (
+            b'{"type": "call", "id": 1, "name": "read", "args": {"x": 1e999}}\n',
+            "not JSON",
+        ),
+        (b'{"type": "done", "ok": true, "extra": -1e999}\n', "not JSON"),
+        (b'{"type": "text", "value": "x", "n": 1e400}\n', "not JSON"),
+        (b"[1, 2]\n", "not a JSON object"),
+        (b'{"type": "shell"}\n', "unknown type"),
+        (b'{"type": ["text"]}\n', "unknown type"),
+        (b'{"type": "text", "value": 3}\n', "no string value"),
+        (b'{"type": "call", "id": 2, "name": "read", "args": {}}\n', "unexpected id"),
+        (
+            b'{"type": "call", "id": true, "name": "read", "args": {}}\n',
+            "unexpected id",
+        ),
+        (b'{"type": "call", "id": 1, "name": 5, "args": {}}\n', "malformed"),
+        (b'{"type": "call", "id": 1, "name": "read", "args": []}\n', "malformed"),
+        (b'{"type": "done"}\n', "malformed done"),
+        (b'{"type": "done", "ok": false, "error": {"type": "X"}}\n', "malformed done"),
+    ],
+)
+def test_protocol_violations_kill_the_worker_without_raising(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], line: bytes, fragment: str
+) -> None:
+    scenario = (
+        f"start()\nsend({{'type': 'text', 'value': 'before'}})\nraw({line!r})\nhang()\n"
+    )
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario)
+    _sandbox_error(outcome, fragment)
+    assert outcome.error is not None
+    assert outcome.error.message.startswith("protocol violation: ")
+    assert outcome.output == ("before",)
+    assert time.monotonic() - started < 3
+
+
+def test_a_second_outstanding_call_is_a_violation(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    stop = threading.Event()
+    calls: list[str] = []
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        calls.append(name)
+        stop.wait(5)
+        return CallResult(ok=True, text="late")
+
+    # The guest never reads its stdin and keeps calling (the call flood).
+    scenario = (
+        "start()\n"
+        "for n in range(1, 10_000):\n"
+        "    send({'type': 'call', 'id': n, 'name': 'read', 'args': {}})\n"
+        "hang()\n"
+    )
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool, tool_stop=stop)
+    _sandbox_error(outcome, "second tool call")
+    # Both calls usually arrive in one chunk, so the run may end before the
+    # first callback starts; it never runs more than once.
+    assert calls in ([], ["read"])
+    assert stop.is_set()
+
+
+@pytest.mark.parametrize(
+    ("name", "reply_bytes"), [("read", 4 * 1024 * 1024), ("unknown", 0)]
+)
+def test_unread_replies_keep_the_call_outstanding(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], name: str, reply_bytes: int
+) -> None:
+    # The guest never reads its stdin and keeps calling. A reply stays
+    # outstanding until it is written in full, so at most one unread reply is
+    # ever buffered and the next call is a violation. Small (unknown-tool)
+    # replies fit in the pipe until it fills.
+    def call_tool(tool: str, arguments_json: str) -> CallResult:
+        return CallResult(ok=True, text="r" * reply_bytes)
+
+    scenario = (
+        "start()\n"
+        "for n in range(1, 100_000):\n"
+        f"    send({{'type': 'call', 'id': n, 'name': {name!r}, 'args': {{}}}})\n"
+        "    time.sleep(0.0005 if n == 1 else 0)\n"
+        "hang()\n"
+    )
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    _sandbox_error(outcome, "second tool call")
+    assert len(outcome.calls) <= 1
+
+
+def test_a_large_reply_the_guest_never_reads_does_not_block_the_host(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # The guest asks for 8 MiB, never reads it, and floods output: the host's
+    # writes must not block, so the output cap still fires.
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        return CallResult(ok=True, text="x" * (8 * 1024 * 1024))
+
+    scenario = (
+        "start()\n"
+        "send({'type': 'call', 'id': 1, 'name': 'read', 'args': {}})\n"
+        "while True:\n"
+        "    send({'type': 'text', 'value': 'y' * 1000})\n"
+    )
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.SCRIPT, outcome.error
+    assert "output exceeded" in outcome.error.message
+    assert time.monotonic() - started < 4
+
+
+def test_a_reply_blocked_on_a_full_pipe_still_meets_the_deadline(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        return CallResult(ok=True, text="x" * (8 * 1024 * 1024))
+
+    scenario = (
+        "start()\nsend({'type': 'call', 'id': 1, 'name': 'read', 'args': {}})\nhang()\n"
+    )
+    limits = ScriptLimits(wall_seconds=1.0)
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool, limits=limits)
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.TIMEOUT
+    assert outcome.error.message == "Execution timed out after 1 s"
+    assert time.monotonic() - started < 3
+
+
+def test_a_forged_done_is_terminal(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    scenario = (
+        "start()\n"
+        "send({'type': 'text', 'value': 'a'})\n"
+        'raw(b\'{"type":"done","ok":true}\\n{"type":"text","value":"same chunk"}\\n\')\n'
+        "send({'type': 'text', 'value': 'after'})\n"
+        "send({'type': 'call', 'id': 1, 'name': 'read', 'args': {}})\n"
+        "hang()\n"
+    )
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario)
+    assert outcome.ok, outcome
+    assert outcome.output == ("a",)
+    assert time.monotonic() - started < 3
+
+
+def test_an_oversized_line_is_caught_while_buffering(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # No newline ever arrives: the cap must fire on the buffered bytes.
+    scenario = (
+        'start()\nraw(b\'{"type":"text","value":"\' + b\'x\' * 300_000)\nhang()\n'
+    )
+    limits = ScriptLimits(wall_seconds=5.0, line_bytes=64 * 1024)
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario, limits=limits)
+    _sandbox_error(outcome, "a guest line exceeded 65536 bytes")
+    assert time.monotonic() - started < 3
+
+
+@pytest.mark.parametrize(
+    ("limits", "fragment"),
+    [
+        (ScriptLimits(wall_seconds=5.0, output_bytes=10_000), "10000 bytes"),
+        (ScriptLimits(wall_seconds=5.0, output_messages=50), "50 messages"),
+    ],
+)
+def test_a_print_flood_hits_the_output_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    spawned: list[int],
+    limits: ScriptLimits,
+    fragment: str,
+) -> None:
+    scenario = "start()\nwhile True:\n    send({'type': 'text', 'value': 'z' * 100})\n"
+    outcome = _run(monkeypatch, scenario, limits=limits)
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.SCRIPT
+    assert fragment in outcome.error.message
+    assert "write large data through a tool" in outcome.error.message
+    assert sum(len(item) for item in outcome.output) <= limits.output_bytes
+    assert len(outcome.output) <= limits.output_messages
+
+
+def test_a_guest_blocked_in_a_read_ends_at_the_wall_limit(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    scenario = "start()\nrecv()\n"
+    limits = ScriptLimits(wall_seconds=0.8)
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario, limits=limits)
+    elapsed = time.monotonic() - started
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.TIMEOUT
+    assert 0.7 < elapsed < 2.5
+    assert 0.7 < outcome.wall_seconds < 2.5
+
+
+# --- worker status ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("scenario", "kind", "fragment"),
+    [
+        (
+            "recv()\nsend({'type': 'done', 'ok': True})\nhang()\n",
+            ErrorKind.SANDBOX,
+            "before the worker was ready",
+        ),
+        (
+            "ready(sha256='cd' * 32)\nhang()\n",
+            ErrorKind.SANDBOX,
+            "unexpected backend or runtime",
+        ),
+        (
+            "ready(backend='native')\nhang()\n",
+            ErrorKind.SANDBOX,
+            "unexpected backend or runtime",
+        ),
+        (
+            "raw(b'garbage\\n', STATUS_FD)\nhang()\n",
+            ErrorKind.SANDBOX,
+            "malformed status line",
+        ),
+        (
+            "raw(b'x' * 70_000, STATUS_FD)\nhang()\n",
+            ErrorKind.SANDBOX,
+            "status output is too large",
+        ),
+        (
+            "exit_status('error', detail='no runtime')\n",
+            ErrorKind.SANDBOX,
+            "could not start the script: no runtime",
+        ),
+        ("start()\n", ErrorKind.SANDBOX, "exited without reporting its status"),
+        ("start()\nexit_status('trap-interrupt')\n", ErrorKind.TIMEOUT, "CPU backstop"),
+        (
+            "start()\nexit_status('trap-stack')\n",
+            ErrorKind.SCRIPT,
+            "wasm stack overflow",
+        ),
+        (
+            "start()\nexit_status('error', code=3)\n",
+            ErrorKind.SANDBOX,
+            "rejected a host message",
+        ),
+        (
+            "start()\nexit_status('error', code=7)\n",
+            ErrorKind.SCRIPT,
+            "exited with status 7",
+        ),
+        (
+            "start()\nexit_status('ok', code=0)\n",
+            ErrorKind.SCRIPT,
+            "exited with status 0",
+        ),
+        (
+            "start()\nexit_status('error', detail='wasm trap: unreachable')\n",
+            ErrorKind.SANDBOX,
+            "stopped unexpectedly: wasm trap: unreachable",
+        ),
+    ],
+)
+def test_worker_status_decides_runs_without_a_done_line(
+    monkeypatch: pytest.MonkeyPatch,
+    spawned: list[int],
+    scenario: str,
+    kind: ErrorKind,
+    fragment: str,
+) -> None:
+    outcome = _run(monkeypatch, scenario)
+    assert outcome.error is not None, outcome
+    assert outcome.error.kind is kind, outcome.error
+    assert fragment in outcome.error.message, outcome.error.message
+
+
+def test_worker_stderr_is_kept_capped_as_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    scenario = (
+        "start()\nraw(b'e' * 100_000 + b'TAIL', 2)\nexit_status('error', code=1)\n"
+    )
+    limits = ScriptLimits(wall_seconds=5.0, stderr_bytes=1000)
+    outcome = _run(monkeypatch, scenario, limits=limits)
+    assert outcome.diagnostics.startswith("e" * 996 + "TAIL")
+    assert (
+        'worker exit: {"type": "exit", "reason": "error", "code": 1}'
+        in outcome.diagnostics
+    )
+
+
+def test_a_worker_that_cannot_start_is_a_sandbox_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_stop = threading.Event()
+    outcome = host.run_script(
+        "pass",
+        call_tool=_no_tools,
+        tool_names=(),
+        tool_stop=tool_stop,
+        paths=CodemodePaths(Path("/nonexistent-codemode-root")),
+        python="/nonexistent/python",
+    )
+    _sandbox_error(outcome, "Failed to start the worker")
+    assert tool_stop.is_set()
+
+
+# --- limits checked before spawning -----------------------------------------------
+
+
+def test_oversized_code_and_a_preset_cancel_never_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_spawn(*args: Any) -> list[str]:
+        raise AssertionError("spawned a worker")
+
+    monkeypatch.setattr(host, "_worker_argv", no_spawn)
+    big_stop = threading.Event()
+    big = host.run_script(
+        "x" * 101,
+        call_tool=_no_tools,
+        tool_names=(),
+        limits=ScriptLimits(code_bytes=100),
+        tool_stop=big_stop,
+    )
+    assert big.error is not None
+    assert big.error.kind is ErrorKind.SCRIPT
+    assert "101 bytes, more than the 100-byte limit" in big.error.message
+    assert big_stop.is_set()
+    cancel = threading.Event()
+    cancel.set()
+    aborted_stop = threading.Event()
+    aborted = host.run_script(
+        "pass",
+        call_tool=_no_tools,
+        tool_names=(),
+        cancel=cancel,
+        tool_stop=aborted_stop,
+    )
+    assert aborted.error is not None
+    assert aborted.error.kind is ErrorKind.ABORTED
+    assert aborted_stop.is_set()
+
+
+@pytest.mark.parametrize("value", [0, -1.0, float("nan"), float("inf"), True])
+def test_limits_must_be_positive_and_finite(value: float) -> None:
+    with pytest.raises(
+        ValueError, match="wall_seconds must be a positive finite number"
+    ):
+        ScriptLimits(wall_seconds=value)
+
+
+# --- cancellation -----------------------------------------------------------------
+
+
+def test_cancel_during_a_tool_callback_aborts_and_marks_the_call(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    cancel = threading.Event()
+    tool_stop = threading.Event()
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        threading.Timer(0.2, cancel.set).start()
+        assert tool_stop.wait(5), "the runner never signalled tool_stop"
+        return CallResult(ok=False, text="interrupted", cancelled=True)
+
+    scenario = (
+        "start()\n"
+        "call(1, 'read', {})\n"
+        "send({'type': 'text', 'value': 'not reached'})\n"
+        "done()\n"
+    )
+    started = time.monotonic()
+    outcome = _run(
+        monkeypatch, scenario, call_tool=call_tool, cancel=cancel, tool_stop=tool_stop
+    )
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.ABORTED
+    assert outcome.error.message == "Execution aborted"
+    assert [(c.name, c.status) for c in outcome.calls] == [
+        ("read", CallStatus.CANCELLED)
+    ]
+    assert outcome.output == ()
+    assert time.monotonic() - started < 3
+
+
+def test_the_deadline_during_a_tool_callback_signals_tool_stop(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    tool_stop = threading.Event()
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        assert tool_stop.wait(5)
+        return CallResult(ok=False, text="stopped", cancelled=True)
+
+    scenario = "start()\ncall(1, 'read', {})\ndone()\n"
+    outcome = _run(
+        monkeypatch,
+        scenario,
+        call_tool=call_tool,
+        tool_stop=tool_stop,
+        limits=ScriptLimits(wall_seconds=0.5),
+    )
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.TIMEOUT
+    assert [c.status for c in outcome.calls] == [CallStatus.CANCELLED]
+
+
+def test_cancel_during_guest_compute_aborts_promptly(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()
+    scenario = (
+        "start()\nsend({'type': 'text', 'value': 'working'})\nwhile True:\n    pass\n"
+    )
+    started = time.monotonic()
+    outcome = _run(monkeypatch, scenario, cancel=cancel)
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.ABORTED
+    assert outcome.output == ("working",)
+    assert time.monotonic() - started < 2
+
+
+def test_a_raising_callback_is_a_sandbox_error(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        raise RuntimeError("boom")
+
+    scenario = "start()\ncall(1, 'read', {})\ndone()\n"
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    _sandbox_error(outcome, "the read tool callback failed: RuntimeError: boom")
+    assert [c.status for c in outcome.calls] == [CallStatus.ERROR]
+
+
+# --- cleanup ----------------------------------------------------------------------
+
+
+def _open_fds() -> set[int]:
+    return {
+        int(name)
+        for name in os.listdir(
+            "/dev/fd" if os.path.isdir("/dev/fd") else "/proc/self/fd"
+        )
+    }
+
+
+def test_runs_leak_no_processes_fds_or_threads(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    scenarios = [
+        "start()\ndone()\n",
+        "start()\nraw(b'nope\\n')\nhang()\n",
+        "start()\nwhile True:\n    send({'type': 'text', 'value': 'z' * 100})\n",
+        "start()\nrecv()\n",
+    ]
+    _run(monkeypatch, scenarios[0])  # warm up lazily created fds
+    fds = _open_fds()
+    threads = threading.active_count()
+    for scenario in scenarios:
+        _run(
+            monkeypatch,
+            scenario,
+            limits=ScriptLimits(wall_seconds=0.5, output_messages=20),
+        )
+    assert threading.active_count() == threads
+    assert _open_fds() == fds
+    assert not any(t.name == "codemode-io" for t in threading.enumerate())

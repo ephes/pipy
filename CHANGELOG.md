@@ -21,6 +21,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `ToolError`; failures carry a traceback trimmed to the script. Isolation
   probes (filesystem, `/proc`, `/dev`, symlinks, fds, native code, processes,
   network, environment, signals) run as tests and in a Linux x86_64 CI job.
+- Codemode host runner (CM1 T3, not yet a tool): `run_script` runs one script
+  in a fresh worker and serves its tool calls through a callback on the
+  calling thread. One I/O thread does all pipe I/O without blocking and
+  checks the wall deadline and cancel on every iteration; malformed or
+  hostile guest lines, a second outstanding call, oversized lines and output
+  floods end the run with a sandbox or script error instead of hanging or
+  crashing the host. The worker's process group is always killed and reaped.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

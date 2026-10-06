@@ -174,5 +174,5 @@ jobs:
         run: uv sync --all-groups
       - name: Install the pinned codemode runtime
         run: uv run python -m pipy_harness.native.codemode install
-      - name: Run codemode runtime, worker and isolation probes
-        run: uv run pytest -rs tests/test_native_codemode_runtime.py tests/test_native_codemode_worker.py tests/test_native_codemode_isolation.py
+      - name: Run codemode runtime, worker, isolation and host-runner probes
+        run: uv run pytest -rs tests/test_native_codemode_runtime.py tests/test_native_codemode_worker.py tests/test_native_codemode_isolation.py tests/test_native_codemode_host.py tests/test_native_codemode_host_runtime.py
