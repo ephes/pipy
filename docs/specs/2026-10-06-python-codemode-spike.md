@@ -619,8 +619,17 @@ Each task is small and lands with its own tests. The plan's acceptance items
        with an unread 4 MiB reply, forged `done`, oversized line, print
        flood, blocked read, infinite loop, recoverable and uncaught
        `MemoryError`, cancel during compute and during a callback).
-     - Not yet: the §4.6 result text (header, output truncation, "not
-       undone" summary) lands as a separate T3 commit.
+     - `codemode/result.py` `format_result(outcome, max_output_tokens=10_000)
+       -> ResultText(text, is_error, full_output)` renders the §4.6 text
+       exactly as Pi does: the header with wall time to 0.1 s, the output,
+       and on failure `Script error:` with the traceback or the
+       `Script timed out|aborted|sandbox failed:` line, a blank line and the
+       call summary (`name (ok|error|cancelled)`, "they are not undone", or
+       "No tool calls were made."). Each output item starts on a new line
+       (a `print()` item already ends with one). Output and error are
+       truncated together to the token budget (chars/4) with Pi's head/tail
+       warning. Spilling the full text to a user-only file is deferred to
+       T8; `full_output` carries the untruncated text for it.
 4. **T4: settle/record extraction** in `agent/loop.py`, with no behaviour
    change. The existing loop tests stay green.
 5. **T5: nested policy transitions** in `loop_policy.py`: a reserved parent

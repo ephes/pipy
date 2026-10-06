@@ -26,6 +26,7 @@ from pipy_harness.native.codemode.outcome import (
     ScriptLimits,
     ScriptOutcome,
 )
+from pipy_harness.native.codemode.result import format_result
 from pipy_harness.native.codemode.runtime import RUNTIME_PIN, CodemodePaths
 
 pytestmark = pytest.mark.skipif(
@@ -312,3 +313,28 @@ def test_real_runs_leak_no_fds_or_threads(
     _run(paths, RAW.format(line=b"garbage\n") + "import time\ntime.sleep(60)\n")
     assert threading.active_count() == threads
     assert _open_fds() == fds
+
+
+def test_effects_before_a_failure_are_reported_as_not_undone(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    written: list[str] = []
+
+    def write(name: str, arguments_json: str) -> CallResult:
+        written.append(arguments_json)
+        return CallResult(ok=True, text="wrote 5 bytes")
+
+    code = "tools.read(path='notes.txt', content='hello')\nprint('saved')\nraise RuntimeError('after the write')\n"
+    outcome = _run(paths, code, call_tool=write)
+    result = format_result(outcome)
+    assert written == ['{"path": "notes.txt", "content": "hello"}']
+    assert result.is_error
+    assert result.text.startswith("Script failed\nWall time ")
+    assert (
+        "Output:\nsaved\nScript error:\nTraceback (most recent call last):"
+        in result.text
+    )
+    assert result.text.endswith(
+        "RuntimeError: after the write\n\n"
+        "Tool calls made before the failure (they are not undone): read (ok)"
+    )

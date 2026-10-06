@@ -28,6 +28,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
   hostile guest lines, a second outstanding call, oversized lines and output
   floods end the run with a sandbox or script error instead of hanging or
   crashing the host. The worker's process group is always killed and reaped.
+  `format_result` renders Pi's result text: the completed/failed header with
+  wall time, the output truncated to a token budget, and on failure the
+  error and the "not undone" list of tool calls already made.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

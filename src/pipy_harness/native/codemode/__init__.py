@@ -16,6 +16,7 @@ from pipy_harness.native.codemode.outcome import (
     ScriptOutcome,
     ToolCallRecord,
 )
+from pipy_harness.native.codemode.result import ResultText, format_result
 from pipy_harness.native.codemode.runtime import (
     RUNTIME_PIN,
     CodemodePaths,
@@ -37,6 +38,7 @@ __all__ = [
     "CodemodeRuntimeError",
     "ErrorKind",
     "InstallResult",
+    "ResultText",
     "RuntimePin",
     "ScriptError",
     "ScriptLimits",
@@ -45,6 +47,7 @@ __all__ = [
     "ToolCallback",
     "availability",
     "default_paths",
+    "format_result",
     "install_runtime",
     "run_script",
     "verify_runtime",
