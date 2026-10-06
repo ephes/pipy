@@ -1,6 +1,8 @@
 # Python codemode: light plan
 
-Status: queued as CM1 on 2026-10-04 at the owner's request. Direction and
+Status: queued as CM1 on 2026-10-04 at the owner's request. The isolation
+spike finished on 2026-10-06; see
+[the spike result](2026-10-06-python-codemode-spike.md). Direction and
 first-slice boundaries, not an implementation-ready sandbox specification.
 [Backlog](../backlog.md) owns selection and order.
 

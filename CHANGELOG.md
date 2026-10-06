@@ -24,6 +24,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Documentation
 
+- Recorded the Python-codemode isolation spike: CPython-on-WASI under
+  wasmtime is the recommended backend; Seatbelt and Landlock+seccomp probes
+  were broken by red teams. Includes the first-slice contract and tasks.
 - Queued a Python-codemode isolation spike and first-slice plan, with MCP and
   parallel execution retained as separate follow-ons.
 

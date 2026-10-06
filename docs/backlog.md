@@ -100,6 +100,15 @@ existing tool-policy and session boundaries preserved. Runtime/backend,
 platform support and dependency choices remain open until the spike. This
 queues planning, not a commitment to a particular sandbox or delivery date.
 
+**Spike done 2026-10-06** ([result](specs/2026-10-06-python-codemode-spike.md)):
+macOS Seatbelt and Linux Landlock+seccomp were broken by red teams;
+CPython-on-WASI under wasmtime held with host-side caveats and is the
+recommended only backend, claimed for arm64 macOS and aarch64 Linux until the
+probe suite runs elsewhere. The result defines the worker protocol,
+nested-call service, events, budgets, limits and tasks T1–T11. Owner decisions
+before T1: runtime provenance (open question 3) and crash durability of nested
+calls (open question 6).
+
 MCP, parallel calls, persistent script state, images and classifier operations
 remain separate follow-ons. The earlier combined MCP/codemode deferral is
 superseded only for this Python-codemode planning item.
