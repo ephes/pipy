@@ -4,8 +4,9 @@ Status: spike result, 2026-10-06. This follows the
 [CM1 light plan](2026-10-04-python-codemode-plan.md). [Backlog](../backlog.md)
 still decides selection and order. This document picks a backend, defines the
 first-slice contract and lists the first-slice tasks. Implementation status:
-T1 (runtime provisioning and the availability self-test) is implemented; see
-the notes under T1 in §5. Everything else here is not yet implemented.
+T1 (runtime provisioning and the availability self-test) and T2 (the worker
+and the guest prelude) are implemented; see their notes in §5. Everything else
+here is not yet implemented.
 
 ## 1. Status and scope
 
@@ -190,12 +191,12 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 
 | Direction | Message |
 |---|---|
-| host → guest | `{"type":"run","code":str}` (first line) |
+| host → guest | `{"type":"run","code":str,"tools":[str]}` (first line; `tools` names the callable tools, for the `tools.<name>` proxy and "did you mean") |
 | guest → host | `{"type":"call","id":int,"name":str,"args":object}` |
 | host → guest | `{"type":"result","id":int,"ok":true,"value":str}` or `{"type":"result","id":int,"ok":false,"error":str}` |
 | guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
 | guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}` |
-| worker → host (status fd) | `{"type":"ready","backend":"wasi","wasmtime":str,"runtime_sha256":str}`, then `{"type":"exit","reason":"ok"\|"trap-interrupt"\|"trap-stack"\|"error"}` |
+| worker → host (status fd) | `{"type":"ready","backend":"wasi","wasmtime":str,"runtime_sha256":str}`, then `{"type":"exit","reason":"ok"\|"trap-interrupt"\|"trap-stack"\|"error","code"?:int,"detail"?:str}`; a setup failure sends `exit` without `ready` |
 
 Host rules. Each one closes a red-team finding:
 
@@ -334,7 +335,7 @@ These steps follow the seam map. Line references are to
 | Limit | Default | Mechanism |
 |---|---|---|
 | Wall time per script, including nested tool time | 120 s | Host deadline on the I/O thread, then kill. During a nested call, the deadline also cancels the active tool through the executor's `cancel_event` path. |
-| Guest CPU backstop | wall + 5 s | Epoch deadline (10 ms ticks). How it interacts with time blocked in host reads is UNVERIFIED, so the host wall timer is primary. |
+| Guest CPU backstop | wall + 5 s | Epoch deadline (10 ms ticks). The ticks count wall time, including time blocked on host replies (verified in T2), so the host wall timer is primary. |
 | Guest memory | 256 MiB | `Store.set_limits(memory_size=…)`. Verified to give `MemoryError` and let the script continue. |
 | Code size | 256 KiB | Host check before spawn |
 | Protocol line | 1 MiB | Checked while buffering |
@@ -513,6 +514,57 @@ Each task is small and lands with its own tests. The plan's acceptance items
      DNS, kill survival.
    - Run the probe suite in CI on x86_64 Linux.
    - Covers H.
+   - **Implemented:**
+     - `worker.py run STATUS_FD REQUEST_JSON` (request: `runtime_dir`,
+       `cache_dir`, `memory_bytes`, `cpu_seconds`). It reuses T1's engine and
+       verified module cache, sets `Store.set_limits(memory_size=…)`, runs a
+       10 ms epoch ticker with the deadline set just before `_start`, gives
+       the guest the argv `python -I -S -B -c <prelude>`, an empty
+       `WasiConfig.env`, inherited stdio and only `/lib` (the runtime's
+       stdlib, read-only). It writes `ready` and `exit` to the status fd and
+       never touches stdio itself. Like T1, it runs by file path, not `-m`.
+     - `prelude.py` is the guest prelude, passed as `-c` source and
+       importable on the host for unit tests. `tools.<name>(dict)` or
+       `tools.<name>(**kwargs)` sends one `call` and returns the result's
+       `str` or raises `ToolError`; arguments that are not a dict or not JSON
+       never reach the host. Unknown names raise `AttributeError` with "Did
+       you mean tools.read?", otherwise the list of up to 20 names. Each
+       `text()` call, `print()` call (one message per call, never buffered)
+       and write to `sys.stdout`/`sys.stderr` is one `text` message;
+       `text()` sends non-strings as JSON (or `repr`). `sys.stdin` is empty.
+       Failures carry `{type, message, traceback}` with only `<codemode>`
+       frames, across `__cause__`/`__context__`/exception groups; the script
+       namespace is cleared first, so an out-of-memory script still reports
+       its outcome. `sys.exit(0)` counts as success. A malformed host message
+       ends the guest with exit status 3, never a script outcome.
+     - Probe results (macOS arm64, wasmtime 49.0.0): no `/proc`, `/dev`,
+       `/tmp`, `/etc` or host path exists; `listdir('/')` fails; `/lib` is
+       read-only (create, append, truncate, rename, unlink, link, symlink,
+       utime fail; `chmod` is a no-op stub and the test pins that the host
+       mode is unchanged); host-planted absolute, relative and directory
+       symlinks inside `/lib` cannot be followed out; the guest sees fds
+       0–3 only, not the status fd or other inherited fds; `_ctypes`,
+       `_posixsubprocess`, `multiprocessing`, `mmap`, `fcntl`, `ssl` are
+       missing; `subprocess` imports but fails (errno 58), `os.fork`,
+       `os.system` and friends do not exist and threads cannot start;
+       sockets fail (errno 58), `getaddrinfo` and `AF_UNIX` do not exist and
+       a host listener sees no connection; `os.environ` is empty even with a
+       secret in the worker's environment, `sys.argv` is `['-c']`; `os.kill`
+       and `os.killpg` do not exist, and `signal.raise_signal` aborts only
+       the guest (an `error` exit).
+     - Limits: memory beyond the cap raises `MemoryError` and the script
+       continues; a busy loop ends as `trap-interrupt`; unbounded recursion
+       with a raised recursion limit ends as `trap-stack`. The epoch
+       deadline counts wall time, including time the guest spends blocked on
+       a host reply (open question 7 is answered: it does), so the host's
+       wall deadline stays primary. A guest blocked reading its stdin is
+       ended only by the driver's `killpg`, after which the group is gone.
+     - Tests: `tests/test_native_codemode_worker.py` (prelude units and the
+       protocol, limits) and `tests/test_native_codemode_isolation.py`
+       (probes) drive real workers through a minimal test driver
+       (`tests/codemode_driver.py`, not the T3 host runner) and skip
+       without the wheel or the runtime. The CI job `codemode-probes`
+       installs the runtime on Linux x86_64 and fails instead of skipping.
 3. **T3: host runner.**
    - I/O thread, non-blocking pipes, the caps from §4.5, protocol-violation
      handling, deadline, `killpg` and reap in `finally`, reaping by process
@@ -592,9 +644,10 @@ Each task is small and lands with its own tests. The plan's acceptance items
    new `append_custom` sink action and a renderer. This needs an owner
    decision.
 7. **Epoch versus blocking.** The epoch deadline does not interrupt blocking
-   WASI reads (verified). Whether time spent waiting on host tools uses up
-   the epoch budget is UNVERIFIED. The design keeps the host wall timer as
-   the primary limit.
+   WASI reads (verified). Time spent waiting on host tools does use up the
+   epoch budget: the guest traps on its first check after the reply (T2
+   verified on macOS arm64). The design keeps the host wall timer as the
+   primary limit and sets the epoch backstop above it.
 8. **Flood deadlock on WASI.** The deadlock was verified on the Seatbelt and
    Landlock hosts. The WASI host was not tested with that exact vector. T3's
    design and regression test are mandatory either way.

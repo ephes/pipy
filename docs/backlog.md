@@ -111,8 +111,10 @@ calls (open question 6).
 
 **T1 landed 2026-10-06** on `feat/cm1-sandbox`: optional `codemode` extra,
 pinned runtime install command, `.cwasm` cache and the fail-closed
-availability self-test (see the spec's §5 T1 notes). T2–T3 (worker, host
-runner) follow; T4–T11 (loop integration) are a later workflow.
+availability self-test (see the spec's §5 T1 notes). **T2 landed 2026-10-06**:
+the worker's run mode, the guest prelude and the isolation probe tests (see
+the T2 notes). T3 (host runner) follows; T4–T11 (loop integration) are a
+later workflow.
 
 MCP, parallel calls, persistent script state, images and classifier operations
 remain separate follow-ons. The earlier combined MCP/codemode deferral is

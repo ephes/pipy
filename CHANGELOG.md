@@ -13,6 +13,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   install [--from-file ZIP]` to install the pinned CPython 3.14.7 WASI runtime
   (sha256-checked, never downloaded during a turn), and `... status`, a
   fail-closed self-test that reports why codemode is unavailable.
+- Codemode worker and guest prelude (CM1 T2, not yet a tool): the worker runs
+  one script in CPython-on-WASI with an empty environment, the stdlib
+  read-only at `/lib` and no writable directory, under a memory cap and a CPU
+  backstop, and reports `ready`/`exit` on a private status fd. Scripts call
+  `tools.<name>(...)`, emit output with `text()` or `print()` and see
+  `ToolError`; failures carry a traceback trimmed to the script. Isolation
+  probes (filesystem, `/proc`, `/dev`, symlinks, fds, native code, processes,
+  network, environment, signals) run as tests and in a Linux x86_64 CI job.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 
