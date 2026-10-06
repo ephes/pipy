@@ -3,8 +3,9 @@
 Status: spike result, 2026-10-06. This follows the
 [CM1 light plan](2026-10-04-python-codemode-plan.md). [Backlog](../backlog.md)
 still decides selection and order. This document picks a backend, defines the
-first-slice contract and lists the first-slice tasks. Nothing here has been
-implemented in pipy.
+first-slice contract and lists the first-slice tasks. Implementation status:
+T1 (runtime provisioning and the availability self-test) is implemented; see
+the notes under T1 in §5. Everything else here is not yet implemented.
 
 ## 1. Status and scope
 
@@ -37,7 +38,8 @@ Desk research only (UNVERIFIED):
 - the seccomp ia32/x32 bypass on x86_64 (confirmed by reading the code, but
   not executed);
 - wasmtime wheels for platforms other than arm64 macOS and aarch64 Linux;
-- wasmtime under pipy's own interpreter (the WASI host used Python 3.12).
+- wasmtime under pipy's own interpreter (the WASI host used Python 3.12;
+  T1 later verified it on macOS arm64, see §6 question 2).
 
 ## 2. Backend comparison
 
@@ -460,6 +462,48 @@ Each task is small and lands with its own tests. The plan's acceptance items
    - Tests: missing wheel, missing runtime, hash mismatch and a stale `.cwasm`
      each make codemode unavailable with a reason and never run the script on
      the host.
+   - **Implemented** in `src/pipy_harness/native/codemode/`:
+     - `runtime.py` pins the release asset
+       (`brettcannon/cpython-wasi-build` v3.14.7,
+       `python-3.14.7-wasi_sdk-24.zip`, sha256 `2e064d3f…584b`, 14 291 017
+       bytes). `install_runtime` is the only code that downloads or unpacks it.
+       It checks size and sha256 before unpacking, refuses unsafe members
+       (absolute, `..`, symlinks, unknown top-level names), and writes a
+       per-file `manifest.json`. `verify_runtime` checks the whole tree against
+       that manifest, so a partial install or a modified, missing or extra
+       file is reported. Layout: `~/.local/state/pipy/codemode/{runtime,cache}`.
+     - The install command is `python -m pipy_harness.native.codemode install
+       [--from-file ZIP] [--force]`; `status` runs only the self-test. A
+       Pi-aligned `pipy` CLI surface belongs to T8.
+     - `selftest.py` holds `availability() -> Availability(available, reason,
+       …)`. It never raises, never imports `wasmtime` into the host and never
+       runs a script. It checks, in order: the wheel is importable
+       (`find_spec`), the runtime verifies, then a fresh worker (pipy's
+       interpreter, `-I`, own session, env `{PATH}`) reports `backend=wasi`
+       and the pinned runtime hash. The worker is killed and reaped by its own
+       process group on timeout.
+     - `worker.py` is the only module that imports `wasmtime`. It hashes the
+       `python.wasm` bytes it compiles against the manifest, keys the
+       `.cwasm` cache on wasmtime version, `sys.platform`, machine, the
+       engine settings and the `python.wasm` hash, and deserializes a cached
+       module only when its bytes match the sidecar hash recorded when it
+       was compiled. A stale, corrupt or foreign-engine cache is recompiled
+       (state `recompiled`); if the fresh module cannot be cached, codemode
+       is unavailable. The self-test instantiates the module without
+       calling `_start`.
+     - `wasmtime` 49.0.0 imports and compiles under pipy's CPython 3.14.7 on
+       macOS arm64 (closes open question 2 for that platform). Compiling
+       `python.wasm` took ~0.33 s; a cache hit plus the whole self-test
+       takes about 0.2 s.
+   - **Deviation:** the worker runs by file path
+     (`python -I …/codemode/worker.py`), not `-m
+     pipy_harness.native.codemode.worker`. Importing the `pipy_harness`
+     package costs 0.23–0.58 s, more than the whole worker budget, so the
+     worker uses only the standard library and `wasmtime`; a test pins that.
+   - `wasmtime` is in the `codemode` extra and also in the dev group, so the
+     type check and real-runtime tests see it. Real-runtime tests copy the
+     installed runtime into a temp root and skip with a reason when the
+     wheel or the runtime is absent.
 2. **T2: worker and guest prelude.**
    - `tools` proxy, `text`, print routed to text, `ToolError`, "did you
      mean", traceback trimming, the private status fd, and no mutable
@@ -527,7 +571,10 @@ Each task is small and lands with its own tests. The plan's acceptance items
    host (architecture unknown) are UNVERIFIED. The CI probe run in T2 decides
    x86_64 Linux.
 2. **wasmtime under pipy's interpreter.** The spike host ran Python 3.12.
-   pipy runs 3.14 and declares `>=3.11`. UNVERIFIED (T1).
+   pipy runs 3.14 and declares `>=3.11`. T1 verified that wasmtime 49.0.0
+   imports, compiles and instantiates `python.wasm` under CPython 3.14.7 on
+   macOS arm64. Other platforms and interpreter versions remain UNVERIFIED;
+   the self-test still decides availability there.
 3. **Runtime provenance and size.** About 55 MB comes from Brett Cannon's
    personal release. Options: pin and mirror, build our own, or ship a
    separate wheel. The 3.15.0rc2 build was seen but not evaluated, and the

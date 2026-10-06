@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Groundwork for Python codemode (CM1 T1, not yet a tool): an optional
+  `codemode` extra (`wasmtime` 49), `python -m pipy_harness.native.codemode
+  install [--from-file ZIP]` to install the pinned CPython 3.14.7 WASI runtime
+  (sha256-checked, never downloaded during a turn), and `... status`, a
+  fail-closed self-test that reports why codemode is unavailable.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 
