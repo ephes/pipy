@@ -36,10 +36,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   exceptions; `ScriptLimits` refuses limits the worker cannot honour.
   The worker exits as soon as its host dies instead of running on until
   the CPU backstop, its backstop no longer drifts late, and it refuses a
-  runtime whose `lib` is a symlink. The worker's process group is always killed and reaped.
+  runtime whose `lib` is a symlink. The worker's process group is always
+  killed and reaped.
   `format_result` renders Pi's result text: the completed/failed header with
   wall time, the output truncated to a token budget, and on failure the
   error and the "not undone" list of tool calls already made.
+- `docs/codemode.md` documents the codemode sandbox core (CM1 T1–T3): where
+  the runtime is installed and how, availability reasons, platform support,
+  the `run_script` API and its limits.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

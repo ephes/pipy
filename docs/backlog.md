@@ -16,7 +16,8 @@ updated 2026-10-04.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
-- **Remaining queue:** CM1 plans a bounded Python codemode slice. UP1
+- **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
+  on `feat/cm1-sandbox`; loop integration (T4–T11) is next. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
@@ -115,7 +116,10 @@ availability self-test (see the spec's §5 T1 notes). **T2 landed 2026-10-06**:
 the worker's run mode, the guest prelude and the isolation probe tests (see
 the T2 notes). **T3 landed 2026-10-07**: the host runner `run_script` with
 the §4.1 host rules, the §4.5 caps and the §4.6 error kinds (see the T3
-notes). T4–T11 (loop integration) are a later workflow.
+notes). **T1–T3 are complete on `feat/cm1-sandbox`** (not yet merged), with
+red-team hardening and the user/dev page [codemode.md](codemode.md); the
+sandbox core is not yet a model tool. T4–T11 (loop integration: tool,
+events, budgets, session persistence) are a later workflow.
 
 MCP, parallel calls, persistent script state, images and classifier operations
 remain separate follow-ons. The earlier combined MCP/codemode deferral is

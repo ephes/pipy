@@ -33,6 +33,8 @@ is stored. For terminal-specific preparation, see
   [Python SDK](sdk.md) cover automation and embedding.
 - [Session Storage](session-storage.md) documents the separate metadata-only
   workflow catalog.
+- [Python codemode sandbox](codemode.md) covers installing the optional
+  codemode runtime and the sandbox core (groundwork; not yet a model tool).
 
 ## Behavioral contracts
 
