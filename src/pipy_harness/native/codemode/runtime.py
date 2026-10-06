@@ -16,7 +16,15 @@ the verified archive at install time, and :func:`verify_runtime` checks the
 whole tree against it, so a partial install, a modified or extra file, or a
 symlink makes codemode unavailable. It detects corruption and drift; it is not
 a defence against someone who can already write the user's state directory
-(they could equally edit pipy itself).
+(they could equally edit pipy itself). In particular:
+
+- The ``.cwasm`` cache is native code, and its sidecar hash only detects
+  corruption: a forged module with a re-forged sidecar passes the self-test
+  and runs outside the wasm sandbox. Nothing ties it to ``python.wasm``
+  short of recompiling, which would cost the whole startup budget.
+- The full tree check runs in the self-test, not per script. A run re-checks
+  only ``python.wasm`` and refuses a symlinked ``lib``; stdlib files changed
+  after the self-test are used as they are (read-only, inside the guest).
 """
 
 from __future__ import annotations

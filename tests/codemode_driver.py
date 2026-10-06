@@ -90,6 +90,7 @@ def run_worker(
     extra_fds: tuple[int, ...] = (),
     first_line: bytes | None = None,
     reply: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    host_pid: int | None = None,
 ) -> WorkerRun:
     tools = dict(tools or {})
     request = json.dumps(
@@ -98,6 +99,7 @@ def run_worker(
             "cache_dir": str(cache_dir),
             "memory_bytes": memory_bytes,
             "cpu_seconds": cpu_seconds,
+            "host_pid": os.getpid() if host_pid is None else host_pid,
         }
     )
     status_read, status_write = os.pipe()

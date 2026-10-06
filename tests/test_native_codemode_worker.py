@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -21,6 +22,7 @@ from codemode_driver import (
     REAL_RUNTIME,
     ToolFailure,
     WorkerRun,
+    group_is_gone,
     real_runtime_skip_reason,
     run_worker,
 )
@@ -480,9 +482,17 @@ def test_runtime_is_present_when_ci_requires_it() -> None:
     [
         "not json",
         "[]",
-        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": true, "cpu_seconds": 1}',
-        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 1, "cpu_seconds": 1e300}',
-        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 8589934592, "cpu_seconds": 1}',
+        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": true, "cpu_seconds": 1, '
+        '"host_pid": 2}',
+        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 1, "cpu_seconds": 1e300, '
+        '"host_pid": 2}',
+        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 8589934592, '
+        '"cpu_seconds": 1, "host_pid": 2}',
+        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 1, "cpu_seconds": 1}',
+        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 1, "cpu_seconds": 1, '
+        '"host_pid": 1}',
+        '{"runtime_dir": "r", "cache_dir": "c", "memory_bytes": 1, "cpu_seconds": 1, '
+        '"host_pid": "2"}',
     ],
 )
 def test_malformed_run_requests_report_exit_without_ready(request_json: str) -> None:
@@ -512,6 +522,137 @@ def test_malformed_run_requests_report_exit_without_ready(request_json: str) -> 
     assert [json.loads(line) for line in status.splitlines()] == [
         {"type": "exit", "reason": "error", "detail": "malformed run request"}
     ]
+
+
+@real_runtime
+def test_a_symlinked_stdlib_is_refused(cache_dir: Path, tmp_path: Path) -> None:
+    # Red-team: preopen_dir follows a symlinked lib/, so a swapped-in link
+    # would expose any host directory to the guest.
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    for name in ("manifest.json", "python.wasm"):
+        (runtime / name).write_bytes((REAL_RUNTIME / name).read_bytes())
+    (runtime / "lib").symlink_to(REAL_RUNTIME / "lib", target_is_directory=True)
+    run = _run("text('never')", cache_dir, runtime_dir=runtime)
+
+    assert run.status == [
+        {
+            "type": "exit",
+            "reason": "error",
+            "detail": "the runtime's lib is not a directory (symlinks are refused)",
+        }
+    ]
+    assert run.messages == []
+
+
+@real_runtime
+def test_a_worker_whose_parent_is_not_the_host_does_not_start(
+    cache_dir: Path,
+) -> None:
+    run = _run("text('never')", cache_dir, host_pid=os.getppid())
+
+    assert run.status == [
+        {"type": "exit", "reason": "error", "detail": "the host is gone"}
+    ]
+    assert run.messages == []
+
+
+class _SlowEngine:
+    """Counts epoch increments; each takes 5 ms, like a loaded machine."""
+
+    def __init__(self) -> None:
+        self.epoch = 0
+
+    def increment_epoch(self) -> None:
+        time.sleep(0.005)
+        self.epoch += 1
+
+
+def test_the_epoch_follows_the_clock_not_the_tick_count() -> None:
+    # Red-team: counting one tick per 10 ms wait stretched the backstop ~24%.
+    import pipy_harness.native.codemode.worker as worker
+
+    engine = _SlowEngine()
+    with worker._EpochTicker(engine, os.getppid()):  # type: ignore[arg-type]
+        time.sleep(1.0)
+    # One tick per wait would be about 1.0 / 0.015 = 66.
+    assert engine.epoch >= 90
+
+
+def test_the_ticker_exits_the_worker_when_the_host_is_gone() -> None:
+    script = (
+        "import sys, time\n"
+        f"sys.path.insert(0, {str(WORKER_PATH.parent)!r})\n"
+        "import worker\n"
+        "class Engine:\n"
+        "    def increment_epoch(self): pass\n"
+        "worker._EpochTicker(Engine(), 1).__enter__()\n"
+        "time.sleep(10)\n"
+    )
+    started = time.monotonic()
+    process = subprocess.run(  # noqa: S603 - fixed argv
+        [sys.executable, "-I", "-c", script], timeout=10, check=False
+    )
+    assert process.returncode == 4
+    assert time.monotonic() - started < 5
+
+
+@real_runtime
+@pytest.mark.parametrize(
+    "code",
+    [
+        "text('running')\nwhile True: pass",
+        "import time\ntext('running')\ntime.sleep(60)",
+    ],
+)
+def test_a_worker_dies_with_its_sigkilled_host(code: str, tmp_path: Path) -> None:
+    # Red-team: a SIGKILLed host left a spinning worker until the backstop.
+    root = tmp_path / "codemode"
+    (root / "runtime").mkdir(parents=True)
+    (root / "runtime" / REAL_RUNTIME.name).symlink_to(REAL_RUNTIME)
+    host_script = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from pipy_harness.native.codemode import host\n"
+        "real = host._Worker\n"
+        "class Worker(real):\n"
+        "    def __init__(self, *args):\n"
+        "        super().__init__(*args)\n"
+        "        print(self.process.pid, flush=True)\n"
+        "host._Worker = Worker\n"
+        "on_text = host._Channel._on_text\n"
+        "def report_text(self, message):\n"
+        "    on_text(self, message)\n"
+        "    print(message['value'], flush=True)\n"
+        "host._Channel._on_text = report_text\n"
+        "outcome = host.run_script(sys.argv[1], call_tool=None, tool_names=(),\n"
+        "    limits=host.ScriptLimits(wall_seconds=60),\n"
+        "    paths=host.CodemodePaths(Path(sys.argv[2])))\n"
+        "print(outcome, flush=True)\n"
+    )
+    fake_host = subprocess.Popen(  # noqa: S603 - fixed argv
+        [sys.executable, "-c", host_script, code, str(root)], stdout=subprocess.PIPE
+    )
+    assert fake_host.stdout is not None
+    worker_pid = int(fake_host.stdout.readline())
+    try:
+        # A one-way text message proves the guest got past setup and into
+        # the script, with no pending read that the host's EOF could end.
+        # A setup failure prints the outcome instead (wall limit: 60 s).
+        assert fake_host.stdout.readline() == b"running\n"
+        assert fake_host.poll() is None
+        assert not group_is_gone(worker_pid)
+        assert os.getpgid(worker_pid) == worker_pid
+    finally:
+        fake_host.kill()
+        fake_host.wait()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not group_is_gone(worker_pid):
+        time.sleep(0.05)
+    gone = group_is_gone(worker_pid)
+    if not gone:
+        os.killpg(worker_pid, signal.SIGKILL)
+    assert gone, "the worker outlived its host"
 
 
 @real_runtime

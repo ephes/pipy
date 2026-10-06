@@ -521,8 +521,16 @@ Each task is small and lands with its own tests. The plan's acceptance items
        10 ms epoch ticker with the deadline set just before `_start`, gives
        the guest the argv `python -I -S -B -c <prelude>`, an empty
        `WasiConfig.env`, inherited stdio and only `/lib` (the runtime's
-       stdlib, read-only). It writes `ready` and `exit` to the status fd and
-       never touches stdio itself. Like T1, it runs by file path, not `-m`.
+       stdlib, read-only; a symlinked `lib` is refused). It writes `ready`
+       and `exit` to the status fd and never touches stdio itself. Like T1,
+       it runs by file path, not `-m`. The request also carries `host_pid`:
+       the worker refuses to start unless it is the host's child, and the
+       epoch ticker exits it (status 4) as soon as it is reparented, so a
+       SIGKILLed host does not leave a guest running until the backstop.
+       The ticker counts ticks from the monotonic clock, so a late wake-up
+       does not stretch the backstop. The self-test authenticates neither
+       the `.cwasm` cache nor stdlib files changed after it ran; writing the
+       state directory is out of scope (see `runtime.py`).
      - `prelude.py` is the guest prelude, passed as `-c` source and
        importable on the host for unit tests. `tools.<name>(dict)` or
        `tools.<name>(**kwargs)` sends one `call` and returns the result's

@@ -21,14 +21,21 @@ Modes:
 ``run <status fd> <request JSON>``
     Runs one script in a fresh guest: ``python -I -S -B -c <prelude>``
     (:mod:`prelude`, read from this directory) under CPython-on-WASI. The
-    request is ``{"runtime_dir", "cache_dir", "memory_bytes", "cpu_seconds"}``.
+    request is ``{"runtime_dir", "cache_dir", "memory_bytes", "cpu_seconds",
+    "host_pid"}``.
     The guest gets this process's stdin, stdout and stderr, which carry the
     script protocol described in :mod:`prelude`; the worker itself never
     reads or writes them. The guest's environment is set explicitly (empty),
     its argv is fixed, and its only preopen is the runtime's stdlib, read-only
-    at ``/lib``. There is no writable preopen. Guest memory is capped by the
-    ``Store`` limit; ``cpu_seconds`` is an epoch-deadline backstop (10 ms
-    ticks, counted in wall time, so time blocked on the host counts too).
+    at ``/lib`` (a ``lib`` that is a symlink is refused). There is no writable
+    preopen. Guest memory is capped by the ``Store`` limit; ``cpu_seconds`` is
+    an epoch-deadline backstop (10 ms ticks, counted from the monotonic clock
+    so a slow ticker cannot stretch it, and in wall time, so time blocked on
+    the host counts too).
+
+    The worker must be a child of ``host_pid``, and while the guest runs it
+    exits at once (status 4, no report) when its parent changes: a host that
+    was SIGKILLed cannot reap it, so it must not live on until the backstop.
 
     The worker reports its own status on the private fd, which the guest
     cannot reach (WASI only exposes the preopens and stdio): one
@@ -51,6 +58,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -63,6 +71,7 @@ BACKEND = "wasi"
 PRELUDE_PATH = Path(__file__).with_name("prelude.py")
 GUEST_STDLIB = "/lib"
 EPOCH_TICK_SECONDS = 0.01
+EXIT_ORPHANED = 4
 WASM32_MEMORY_MAX = 4 * 1024**3
 CPU_SECONDS_MAX = 24 * 3600.0
 MANIFEST_NAME = "manifest.json"
@@ -257,6 +266,7 @@ class RunConfig:
     cache_dir: Path
     memory_bytes: int
     cpu_seconds: float
+    host_pid: int
 
     @classmethod
     def from_request(cls, request: object) -> RunConfig:
@@ -268,6 +278,7 @@ class RunConfig:
                 cache_dir=Path(request["cache_dir"]),
                 memory_bytes=request["memory_bytes"],
                 cpu_seconds=request["cpu_seconds"],
+                host_pid=request["host_pid"],
             )
         except (KeyError, TypeError) as exc:
             raise WorkerError("malformed run request") from exc
@@ -277,6 +288,8 @@ class RunConfig:
             or config.memory_bytes > WASM32_MEMORY_MAX
             or not _positive_number(config.cpu_seconds)
             or config.cpu_seconds > CPU_SECONDS_MAX
+            or type(config.host_pid) is not int
+            or config.host_pid <= 1
         ):
             raise WorkerError("malformed run request")
         return config
@@ -327,19 +340,48 @@ def guest_wasi_config(config: RunConfig) -> wasmtime.WasiConfig:
     wasi.inherit_stdin()
     wasi.inherit_stdout()
     wasi.inherit_stderr()
-    wasi.preopen_dir(str(config.runtime_dir / "lib"), GUEST_STDLIB, False)
+    wasi.preopen_dir(str(_stdlib_dir(config.runtime_dir)), GUEST_STDLIB, False)
     return wasi
 
 
+def _stdlib_dir(runtime_dir: Path) -> Path:
+    """The runtime's ``lib``, refused if it is a symlink (or not a directory).
+
+    ``preopen_dir`` follows symlinks, so a swapped-in link would expose any
+    host directory to the guest, read-only. This narrows tampering with the
+    installed runtime, which is otherwise out of scope (see :mod:`.runtime`).
+    """
+
+    lib = runtime_dir / "lib"
+    try:
+        mode = os.lstat(lib).st_mode
+    except OSError as exc:
+        raise WorkerError(f"cannot use the runtime's stdlib: {exc}") from exc
+    if not stat.S_ISDIR(mode):
+        raise WorkerError("the runtime's lib is not a directory (symlinks are refused)")
+    return lib
+
+
 class _EpochTicker:
-    def __init__(self, engine: wasmtime.Engine) -> None:
+    """Advances the epoch with elapsed time and watches for the host's death."""
+
+    def __init__(self, engine: wasmtime.Engine, host_pid: int) -> None:
         self._engine = engine
+        self._host_pid = host_pid
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
+        started = time.monotonic()
+        ticks = 0
         while not self._stop.wait(EPOCH_TICK_SECONDS):
-            self._engine.increment_epoch()
+            # Catch up on late wake-ups, so the backstop is not stretched.
+            due = int((time.monotonic() - started) / EPOCH_TICK_SECONDS)
+            for _ in range(due - ticks):
+                self._engine.increment_epoch()
+            ticks = max(ticks, due)
+            if os.getppid() != self._host_pid:
+                os._exit(EXIT_ORPHANED)  # reparented: the host died
 
     def __enter__(self) -> _EpochTicker:
         self._thread.start()
@@ -384,13 +426,14 @@ def _run_guest(
     engine: wasmtime.Engine,
     store: wasmtime.Store,
     start: wasmtime.Func,
-    cpu_seconds: float,
+    config: RunConfig,
 ) -> dict[str, Any]:
     import wasmtime
 
-    with _EpochTicker(engine):
-        # The deadline counts from here, not from setup.
-        store.set_epoch_deadline(_ticks(cpu_seconds))
+    # The deadline counts from here, not from setup; the ticker's clock
+    # starts after it is set.
+    store.set_epoch_deadline(_ticks(config.cpu_seconds))
+    with _EpochTicker(engine, config.host_pid):
         try:
             start(store)
         except wasmtime.ExitTrap as exc:
@@ -437,6 +480,8 @@ def run(config_json: str, status: StatusChannel) -> int:
         except ValueError as exc:
             raise WorkerError("malformed run request") from exc
         config = RunConfig.from_request(request)
+        if os.getppid() != config.host_pid:
+            raise WorkerError("the host is gone")
         engine, store, start, runtime_sha256 = _prepare(config)
     except WorkerError as exc:
         status.send({"type": "exit", "reason": "error", "detail": str(exc)})
@@ -453,7 +498,7 @@ def run(config_json: str, status: StatusChannel) -> int:
         }
     )
     try:
-        outcome = _run_guest(engine, store, start, config.cpu_seconds)
+        outcome = _run_guest(engine, store, start, config)
     except Exception as exc:  # noqa: BLE001 - a host-side failure is still an exit report
         outcome = {"type": "exit", "reason": "error", "detail": _last_line(exc)}
     status.send(outcome)

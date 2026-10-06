@@ -217,6 +217,7 @@ def _run_request(paths: CodemodePaths, pin: RuntimePin, limits: ScriptLimits) ->
             "cache_dir": str(paths.cache_dir),
             "memory_bytes": limits.memory_bytes,
             "cpu_seconds": limits.cpu_seconds,
+            "host_pid": os.getpid(),
         }
     )
 

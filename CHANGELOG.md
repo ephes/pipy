@@ -33,7 +33,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   and errors always encode as UTF-8. A misbehaving callback (raising or
   returning a non-`CallResult`), fd or thread exhaustion at start-up, and a
   reused or shared `tool_stop` event are sandbox errors rather than
-  exceptions; `ScriptLimits` refuses limits the worker cannot honour. The worker's process group is always killed and reaped.
+  exceptions; `ScriptLimits` refuses limits the worker cannot honour.
+  The worker exits as soon as its host dies instead of running on until
+  the CPU backstop, its backstop no longer drifts late, and it refuses a
+  runtime whose `lib` is a symlink. The worker's process group is always killed and reaped.
   `format_result` renders Pi's result text: the completed/failed header with
   wall time, the output truncated to a token budget, and on failure the
   error and the "not undone" list of tool calls already made.
