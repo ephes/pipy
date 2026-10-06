@@ -25,9 +25,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   in a fresh worker and serves its tool calls through a callback on the
   calling thread. One I/O thread does all pipe I/O without blocking and
   checks the wall deadline and cancel on every iteration; malformed or
-  hostile guest lines, a second outstanding call, oversized lines and output
-  floods end the run with a sandbox or script error instead of hanging or
-  crashing the host. The worker's process group is always killed and reaped.
+  hostile guest lines, any message while a tool call is pending (a second
+  call, a `done`, output), oversized lines and output floods end the run with
+  a sandbox or script error instead of hanging or crashing the host; a call
+  followed by a violation in the same write never reaches the tool. Lone
+  UTF-16 surrogates in guest strings become U+FFFD, so output, tool arguments
+  and errors always encode as UTF-8. The worker's process group is always killed and reaped.
   `format_result` renders Pi's result text: the completed/failed header with
   wall time, the output truncated to a token budget, and on failure the
   error and the "not undone" list of tool calls already made.

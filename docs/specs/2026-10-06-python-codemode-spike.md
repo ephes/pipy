@@ -591,11 +591,17 @@ Each task is small and lands with its own tests. The plan's acceptance items
        until its reply has been written in full, so a guest that does not
        read holds at most one buffered reply. Malformed JSON (NaN,
        Infinity and overflowing numbers included), a non-object, an unknown
-       type, a wrong or non-`int` id, a second outstanding call, a call or
-       `done` before the worker's `ready`, and a line over the cap (checked
-       while buffering) are protocol violations: the group is killed at once
-       and the run is a sandbox error. `done` is terminal; nothing after it
-       is read. A `ready` with another backend or runtime hash is a sandbox
+       type, a wrong or non-`int` id, any message while a call is pending
+       (a second call, a `done` or text: the guest is blocked on its reply),
+       a call or `done` before the worker's `ready`, and a line over the cap
+       (checked while buffering) are protocol violations: the group is
+       killed at once and the run is a sandbox error. A call reaches the
+       calling thread only after the rest of its read chunk was accepted, so
+       a call written together with a violation never runs its tool. `done`
+       is terminal; nothing after it is read. Guest lines must be UTF-8 (a
+       UTF-16 or UTF-32 line is not JSON). Lone UTF-16 surrogates in any
+       guest string (escaped or raw) become U+FFFD before the string reaches
+       the output, a callback or an error message. A `ready` with another backend or runtime hash is a sandbox
        error.
      - Without `done`, the worker's `exit` report decides: `trap-interrupt`
        is a timeout (CPU backstop), `trap-stack` a script error, exit status

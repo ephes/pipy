@@ -9,6 +9,7 @@ or the installed runtime is missing.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -135,9 +136,14 @@ RAW = "import os\nos.write(1, {line!r})\n"
         (
             b'{"type":"call","id":1,"name":"read","args":{}}\n'
             b'{"type":"call","id":2,"name":"read","args":{}}\n',
-            "second tool call",
+            "while a tool call was pending",
         ),
         (b'{"type":"call","id":7,"name":"read","args":{}}\n', "unexpected id"),
+        (
+            b'{"type":"call","id":1,"name":"read","args":{}}\n'
+            b'{"type":"done","ok":true}\n',
+            "while a tool call was pending",
+        ),
     ],
 )
 def test_hostile_lines_from_a_real_guest_are_violations(
@@ -147,6 +153,25 @@ def test_hostile_lines_from_a_real_guest_are_violations(
     assert outcome.error is not None
     assert outcome.error.kind is ErrorKind.SANDBOX, outcome.error
     assert fragment in outcome.error.message
+    assert outcome.calls == ()
+
+
+def test_lone_surrogates_from_a_real_guest_are_replaced(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    seen: list[str] = []
+
+    def record(name: str, arguments_json: str) -> CallResult:
+        seen.append(arguments_json)
+        return CallResult(ok=True, text="ok")
+
+    code = 'print("A\\ud800B")\ntools.read({"k": "\\udfff"})\nraise ValueError("\\ud83d")\n'
+    outcome = _run(paths, code, call_tool=record)
+    assert outcome.output == ("A\ufffdB\n",)
+    assert json.loads(seen[0]) == {"k": "\ufffd"}
+    assert outcome.error is not None
+    assert outcome.error.message.endswith("ValueError: \ufffd")
+    format_result(outcome).text.encode("utf-8")
 
 
 def test_a_call_flood_without_reading_stdin_does_not_hang(
@@ -164,8 +189,8 @@ def test_a_call_flood_without_reading_stdin_does_not_hang(
     started = time.monotonic()
     outcome = _run(paths, code, call_tool=big, wall_seconds=10)
     assert outcome.error is not None
-    assert outcome.error.kind is ErrorKind.SCRIPT, outcome.error
-    assert "output exceeded" in outcome.error.message
+    assert outcome.error.kind is ErrorKind.SANDBOX, outcome.error
+    assert "while a tool call was pending" in outcome.error.message
     assert time.monotonic() - started < 8
 
 

@@ -30,6 +30,7 @@ import json
 import math
 import os
 import queue
+import re
 import selectors
 import signal
 import subprocess
@@ -69,6 +70,10 @@ REAP_TIMEOUT_SECONDS = 5.0
 JOIN_TIMEOUT_SECONDS = 5.0
 STATUS_LIMIT = 64 * 1024
 READ_CHUNK = 64 * 1024
+
+# A lone UTF-16 surrogate (JSON ``"\\ud800"``) parses into a Python ``str`` that
+# cannot be encoded as UTF-8; every guest string is scrubbed to U+FFFD.
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 ABORTED_MESSAGE = "Execution aborted"
 OUTPUT_GUIDANCE = (
@@ -450,6 +455,7 @@ class _Channel:
         # and the reply buffer holds at most one reply.
         self._outstanding: int | None = None
         self._reply_queued = False
+        self._handoff: _Call | None = None
         self._next_id = 1
         self._ready = False
         self._exit: dict[str, Any] | None = None
@@ -611,6 +617,12 @@ class _Channel:
             self._handle_line(line)
             start = newline + 1
         self._append_line(view[start:])
+        # A call goes to the calling thread only once the rest of its chunk
+        # was accepted: a violation in the same chunk (a ``done`` or garbage
+        # right after the call) must end the run before any tool runs.
+        if self._handoff is not None:
+            self.inbox.put(self._handoff)
+            self._handoff = None
 
     def _append_line(self, piece: memoryview) -> None:
         if len(self._line) + len(piece) > self._limits.line_bytes:
@@ -619,13 +631,14 @@ class _Channel:
 
     def _handle_line(self, line: bytes) -> None:
         try:
-            message = json.loads(
-                line, parse_constant=_reject_constant, parse_float=_finite_float
-            )
+            message = _parse_guest_line(line)
         except (ValueError, RecursionError):
             raise _violation("the guest sent a line that is not JSON") from None
         if not isinstance(message, dict):
             raise _violation("the guest sent a line that is not a JSON object")
+        if self._outstanding is not None:
+            # The guest blocks on its reply, so nothing may arrive meanwhile.
+            raise _violation("the guest sent a message while a tool call was pending")
         kind = message.get("type")
         if kind == "text":
             self._on_text(message)
@@ -640,7 +653,7 @@ class _Channel:
         value = message.get("value")
         if not isinstance(value, str):
             raise _violation("a text message had no string value")
-        size = len(value.encode("utf-8", "surrogatepass"))
+        size = len(value.encode("utf-8"))
         if self._output_bytes + size > self._limits.output_bytes:
             raise self._output_capped(f"{self._limits.output_bytes} bytes")
         if len(self._output) >= self._limits.output_messages:
@@ -655,8 +668,6 @@ class _Channel:
     def _on_call(self, message: dict[str, Any]) -> None:
         if not self._ready:
             raise _violation("a tool call arrived before the worker was ready")
-        if self._outstanding is not None:
-            raise _violation("a second tool call arrived before the first was answered")
         call_id = message.get("id")
         name = message.get("name")
         args = message.get("args")
@@ -674,7 +685,7 @@ class _Channel:
             message_text = unknown_tool_message(name, self._launch.names)
             self._queue_reply(call_id, CallResult(ok=False, text=message_text))
             return
-        self.inbox.put(_Call(call_id, name, arguments_json))
+        self._handoff = _Call(call_id, name, arguments_json)
 
     def _queue_reply(self, call_id: int, result: CallResult) -> None:
         if call_id != self._outstanding or self._reply_queued:
@@ -803,6 +814,29 @@ def _exit_report_error(
             f"the script exited with status {code} before it finished",
         )
     return ScriptError(ErrorKind.SANDBOX, f"the guest stopped unexpectedly: {detail}")
+
+
+def _parse_guest_line(line: bytes) -> Any:
+    """Parse one guest line as UTF-8 JSON; lone surrogates become U+FFFD.
+
+    The wire is UTF-8 only: ``json.loads`` would otherwise detect UTF-16 and
+    UTF-32 input on its own. Raw surrogate bytes are let through the decode
+    (``surrogatepass``) and scrubbed with escaped ones, because guest strings
+    flow into tool arguments, output and error text, which pipy encodes as
+    UTF-8 downstream.
+    """
+
+    text = line.decode("utf-8", "surrogatepass")
+    message = json.loads(
+        text, parse_constant=_reject_constant, parse_float=_finite_float
+    )
+    if "\\u" not in text and _SURROGATE.search(text) is None:
+        return message  # no escape and no raw surrogate: nothing to scrub
+    dumped = json.dumps(message, ensure_ascii=False)
+    if _SURROGATE.search(dumped) is None:
+        return message
+    # Surrogates in this JSON text can only sit inside strings.
+    return json.loads(_SURROGATE.sub("\ufffd", dumped))
 
 
 def _script_message(error_type: str, message: str, traceback: str) -> str:

@@ -252,7 +252,7 @@ def test_a_second_outstanding_call_is_a_violation(
         "hang()\n"
     )
     outcome = _run(monkeypatch, scenario, call_tool=call_tool, tool_stop=stop)
-    _sandbox_error(outcome, "second tool call")
+    _sandbox_error(outcome, "while a tool call was pending")
     # Both calls usually arrive in one chunk, so the run may end before the
     # first callback starts; it never runs more than once.
     assert calls in ([], ["read"])
@@ -280,7 +280,7 @@ def test_unread_replies_keep_the_call_outstanding(
         "hang()\n"
     )
     outcome = _run(monkeypatch, scenario, call_tool=call_tool)
-    _sandbox_error(outcome, "second tool call")
+    _sandbox_error(outcome, "while a tool call was pending")
     assert len(outcome.calls) <= 1
 
 
@@ -288,7 +288,8 @@ def test_a_large_reply_the_guest_never_reads_does_not_block_the_host(
     monkeypatch: pytest.MonkeyPatch, spawned: list[int]
 ) -> None:
     # The guest asks for 8 MiB, never reads it, and floods output: the host's
-    # writes must not block, so the output cap still fires.
+    # writes must not block, so it still sees the flood (a violation, since
+    # nothing may arrive while a call is pending).
     def call_tool(name: str, arguments_json: str) -> CallResult:
         return CallResult(ok=True, text="x" * (8 * 1024 * 1024))
 
@@ -300,10 +301,117 @@ def test_a_large_reply_the_guest_never_reads_does_not_block_the_host(
     )
     started = time.monotonic()
     outcome = _run(monkeypatch, scenario, call_tool=call_tool)
-    assert outcome.error is not None
-    assert outcome.error.kind is ErrorKind.SCRIPT, outcome.error
-    assert "output exceeded" in outcome.error.message
+    _sandbox_error(outcome, "while a tool call was pending")
     assert time.monotonic() - started < 4
+
+
+@pytest.mark.parametrize(
+    "after",
+    [b'{"type":"done","ok":true}\n', b"garbage\n", b'{"type":"text","value":"t"}\n'],
+)
+def test_a_line_after_a_call_in_the_same_chunk_ends_the_run_before_the_tool(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], after: bytes
+) -> None:
+    # Red-team V4: a call and a done in one write raced the I/O thread, so the
+    # tool sometimes ran after the guest had declared success.
+    ran: list[str] = []
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        ran.append(name)
+        return CallResult(ok=True, text="did it")
+
+    line = b'{"type":"call","id":1,"name":"write","args":{"path":"x"}}\n' + after
+    scenario = f"start()\nraw({line!r})\nhang()\n"
+    for _ in range(10):
+        outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+        _sandbox_error(outcome, "protocol violation: ")
+        assert outcome.calls == ()
+    assert ran == []
+
+
+def test_a_done_in_a_later_chunk_while_a_call_runs_is_a_violation(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        entered.set()
+        release.wait(5)
+        return CallResult(ok=True, text="did it")
+
+    scenario = (
+        "start()\n"
+        "send({'type': 'call', 'id': 1, 'name': 'write', 'args': {}})\n"
+        "time.sleep(0.3)\n"
+        "done()\n"
+        "hang()\n"
+    )
+    stop = threading.Event()
+
+    def release_when_stopped() -> None:
+        stop.wait(5)
+        release.set()
+
+    threading.Thread(target=release_when_stopped, daemon=True).start()
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool, tool_stop=stop)
+    assert entered.is_set()
+    _sandbox_error(outcome, "while a tool call was pending")
+    assert [c.status for c in outcome.calls] == [CallStatus.OK]
+
+
+def test_lone_surrogates_from_the_guest_become_replacement_characters(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # Red-team: lone surrogates parsed into host strings that cannot be encoded
+    # as UTF-8, breaking every downstream sink. Escaped and raw (surrogatepass
+    # bytes) forms both reach json.loads.
+    seen: list[str] = []
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        seen.append(arguments_json)
+        return CallResult(ok=True, text="ok")
+
+    raw_surrogate = "\udfff".encode("utf-8", "surrogatepass")
+    text_line = b'{"type":"text","value":"A\\ud800B"}\n'
+    call_line = (
+        b'{"type":"call","id":1,"name":"write","args":{"k\\udc00":"'
+        + raw_surrogate
+        + b'","ok":"\\ud83d\\ude00"}}\n'
+    )
+    done_line = (
+        b'{"type":"done","ok":false,"error":{"type":"ValueError",'
+        b'"message":"\\ud83d","traceback":"ValueError: \\ud83d"}}\n'
+    )
+    scenario = (
+        f"start()\nraw({text_line!r})\nraw({call_line!r})\nrecv()\n"
+        f"raw({done_line!r})\nhang()\n"
+    )
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    assert outcome.output == ("A\ufffdB",)
+    assert json.loads(seen[0]) == {"k\ufffd": "\ufffd", "ok": "\U0001f600"}
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.SCRIPT
+    assert outcome.error.message == "ValueError: \ufffd"
+    for text in (*outcome.output, *seen, outcome.error.message):
+        text.encode("utf-8")
+
+
+@pytest.mark.parametrize("encoding", ["utf-16-le", "utf-16-be", "utf-32-le", "utf-16"])
+def test_guest_lines_must_be_utf8(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], encoding: str
+) -> None:
+    # json.loads(bytes) would detect UTF-16/32 itself, and their escapes hide
+    # from a byte-level surrogate check; the wire is UTF-8 only.
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        raise AssertionError("an off-wire encoding reached the callback")
+
+    body = '{"type":"call","id":1,"name":"write","args":{"k":"\\ud800"}}'
+    line = body.encode(encoding) + b"\n"
+    scenario = f"start()\nraw({line!r})\nhang()\n"
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    _sandbox_error(outcome, "not JSON")
+    assert outcome.calls == ()
 
 
 def test_a_reply_blocked_on_a_full_pipe_still_meets_the_deadline(
