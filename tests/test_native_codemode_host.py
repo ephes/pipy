@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -19,7 +20,8 @@ from typing import Any
 
 import pytest
 
-from pipy_harness.native.codemode import host
+from pipy_harness.native.codemode import host, worker
+from pipy_harness.native.codemode import outcome as outcome_module
 from pipy_harness.native.codemode.outcome import (
     CallResult,
     CallStatus,
@@ -655,6 +657,34 @@ def test_limits_must_be_positive_and_finite(value: float) -> None:
         ScriptLimits(wall_seconds=value)
 
 
+@pytest.mark.parametrize(
+    ("limits", "message"),
+    [
+        ({"wall_seconds": 90_000.0}, "at most 86400 s"),
+        ({"wall_seconds": 86_400.0 - 4}, "at most 86400 s"),
+        ({"memory_bytes": 4 * 1024**3 + 1}, "memory_bytes must be at most"),
+        ({"memory_bytes": 1024.0 * 1024}, "memory_bytes must be an int"),
+    ],
+)
+def test_limits_the_worker_would_refuse_are_refused_up_front(
+    limits: dict[str, float], message: str
+) -> None:
+    # Red-team: these used to construct and then fail as a confusing sandbox
+    # error ("malformed run request") from the worker.
+    with pytest.raises(ValueError, match=message):
+        ScriptLimits(**limits)  # type: ignore[arg-type]
+
+
+def test_limit_bounds_match_the_worker() -> None:
+    assert outcome_module.MEMORY_BYTES_MAX == worker.WASM32_MEMORY_MAX
+    assert outcome_module.CPU_SECONDS_MAX == worker.CPU_SECONDS_MAX
+    largest = ScriptLimits(
+        wall_seconds=worker.CPU_SECONDS_MAX - 5, memory_bytes=worker.WASM32_MEMORY_MAX
+    )
+    request = json.loads(host._run_request(CodemodePaths(Path("/x")), PIN, largest))
+    worker.RunConfig.from_request(request)  # does not raise
+
+
 # --- cancellation -----------------------------------------------------------------
 
 
@@ -737,6 +767,119 @@ def test_a_raising_callback_is_a_sandbox_error(
     outcome = _run(monkeypatch, scenario, call_tool=call_tool)
     _sandbox_error(outcome, "the read tool callback failed: RuntimeError: boom")
     assert [c.status for c in outcome.calls] == [CallStatus.ERROR]
+
+
+@pytest.mark.parametrize(("returned", "type_name"), [(None, "NoneType"), ("ok", "str")])
+def test_a_callback_returning_a_non_call_result_is_a_sandbox_error(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], returned: Any, type_name: str
+) -> None:
+    # Red-team: reading .cancelled outside the guarded call made run_script raise.
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        return returned  # type: ignore[no-any-return]
+
+    scenario = "start()\ncall(1, 'read', {})\ndone()\n"
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    _sandbox_error(
+        outcome,
+        f"the read tool callback failed: TypeError: returned {type_name}, "
+        "not CallResult",
+    )
+    assert [c.status for c in outcome.calls] == [CallStatus.ERROR]
+
+
+# --- tool_stop ownership ----------------------------------------------------------
+
+
+def test_a_tool_stop_already_set_is_refused_without_spawning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_spawn(*args: Any) -> list[str]:
+        raise AssertionError("spawned a worker")
+
+    monkeypatch.setattr(host, "_worker_argv", no_spawn)
+    used = threading.Event()
+    used.set()  # e.g. left over from an earlier run
+    outcome = host.run_script(
+        "pass", call_tool=_no_tools, tool_names=(), tool_stop=used
+    )
+    _sandbox_error(outcome, "tool_stop must be a fresh event")
+
+
+def test_a_nested_run_cannot_share_the_outer_tool_stop(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # Red-team: a nested run with the same event set it on exit, so every later
+    # callback of the outer run saw "stop" at entry.
+    stop = threading.Event()
+    stop_at_entry: list[bool] = []
+    inner: list[ScriptOutcome] = []
+
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        stop_at_entry.append(stop.is_set())
+        if name == "read":
+            inner.append(
+                host.run_script(
+                    "pass", call_tool=_no_tools, tool_names=(), tool_stop=stop
+                )
+            )
+        return CallResult(ok=True, text="r")
+
+    scenario = "start()\ncall(1, 'read', {})\ncall(2, 'write', {})\ndone()\nhang()\n"
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool, tool_stop=stop)
+    assert outcome.ok, outcome
+    assert stop_at_entry == [False, False]
+    assert inner[0].error is not None
+    assert "tool_stop must be a fresh event" in inner[0].error.message
+    assert stop.is_set()  # set once the outer run ended
+    assert host._tool_stops_in_use == set()
+
+
+# --- start-up failures ------------------------------------------------------------
+
+
+def _failing_pipe(fail_on: int) -> Callable[[], tuple[int, int]]:
+    real_pipe = os.pipe
+    count = 0
+
+    def pipe() -> tuple[int, int]:
+        # Count only the runner's own pipes, not subprocess's.
+        nonlocal count
+        if sys._getframe(1).f_globals.get("__name__") == host.__name__:
+            count += 1
+            if count == fail_on:
+                raise OSError(24, "Too many open files")
+        return real_pipe()
+
+    return pipe
+
+
+@pytest.mark.parametrize("fail_on", [1, 2])
+def test_no_fd_for_a_pipe_is_a_sandbox_error(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], fail_on: int
+) -> None:
+    # Red-team: EMFILE on the status pipe (1) raised out of run_script; the
+    # wake pipe (2) is created after the worker started.
+    before = _open_fds()
+    monkeypatch.setattr(os, "pipe", _failing_pipe(fail_on))
+    outcome = _run(monkeypatch, "start()\ndone()\n")
+    monkeypatch.undo()
+    _sandbox_error(outcome, "Failed to start the worker: [Errno 24]")
+    assert len(spawned) == fail_on - 1
+    assert _open_fds() <= before
+
+
+def test_no_thread_for_the_io_loop_is_a_sandbox_error(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    def no_thread(self: Any) -> None:
+        raise RuntimeError("can't start new thread")
+
+    before = _open_fds()
+    monkeypatch.setattr(host._Channel, "start", no_thread)
+    outcome = _run(monkeypatch, "start()\ndone()\n")
+    _sandbox_error(outcome, "Failed to start the worker: can't start new thread")
+    assert len(spawned) == 1
+    assert _open_fds() <= before
 
 
 # --- cleanup ----------------------------------------------------------------------

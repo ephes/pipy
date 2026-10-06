@@ -30,7 +30,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   a sandbox or script error instead of hanging or crashing the host; a call
   followed by a violation in the same write never reaches the tool. Lone
   UTF-16 surrogates in guest strings become U+FFFD, so output, tool arguments
-  and errors always encode as UTF-8. The worker's process group is always killed and reaped.
+  and errors always encode as UTF-8. A misbehaving callback (raising or
+  returning a non-`CallResult`), fd or thread exhaustion at start-up, and a
+  reused or shared `tool_stop` event are sandbox errors rather than
+  exceptions; `ScriptLimits` refuses limits the worker cannot honour. The worker's process group is always killed and reaped.
   `format_result` renders Pi's result text: the completed/failed header with
   wall time, the output truncated to a token budget, and on failure the
   error and the "not undone" list of tool calls already made.

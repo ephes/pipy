@@ -101,14 +101,23 @@ def run_script(
     without reaching it. It must honour ``cancel`` and ``tool_stop`` itself:
     the runner cannot interrupt a callback. ``tool_stop`` (if given) is set as
     soon as the run ends for any reason (deadline, violation, cancel, done),
-    so a callback still in flight can stop its tool. Setting ``cancel`` ends
-    the run as ``aborted``.
+    so a callback still in flight can stop its tool. It must be a fresh event
+    per run: one already set, or in use by another run (a nested run from a
+    callback, say), is refused with a sandbox error and left untouched.
+    Setting ``cancel`` ends the run as ``aborted``.
 
     Availability (:func:`.selftest.availability`) is the caller's job; the
     runner still fails closed: the worker re-checks ``python.wasm`` against the
     manifest and must report the expected backend and pinned runtime hash.
     """
 
+    if tool_stop is not None and not _claim_tool_stop(tool_stop):
+        return ScriptOutcome(
+            ScriptError(
+                ErrorKind.SANDBOX,
+                "tool_stop must be a fresh event that no other run uses",
+            )
+        )
     try:
         return _run_script(
             code,
@@ -124,6 +133,24 @@ def run_script(
     finally:
         if tool_stop is not None:
             tool_stop.set()
+            _release_tool_stop(tool_stop)
+
+
+_tool_stops_lock = threading.Lock()
+_tool_stops_in_use: set[threading.Event] = set()
+
+
+def _claim_tool_stop(tool_stop: threading.Event) -> bool:
+    with _tool_stops_lock:
+        if tool_stop.is_set() or tool_stop in _tool_stops_in_use:
+            return False
+        _tool_stops_in_use.add(tool_stop)
+        return True
+
+
+def _release_tool_stop(tool_stop: threading.Event) -> None:
+    with _tool_stops_lock:
+        _tool_stops_in_use.discard(tool_stop)
 
 
 def _run_script(
@@ -245,7 +272,10 @@ class _StopRequest:
 def _launch(
     launch: _Launch, call_tool: ToolCallback, calls: list[ToolCallRecord]
 ) -> _Finished:
-    status_read, status_write = os.pipe()
+    try:
+        status_read, status_write = os.pipe()
+    except OSError as exc:
+        return _start_failed(exc)
     worker: _Worker | None = None
     channel: _Channel | None = None
     try:
@@ -254,16 +284,23 @@ def _launch(
                 _worker_argv(launch.python, status_write, launch.request), status_write
             )
         except OSError as exc:
-            return _Finished(
-                ScriptError(ErrorKind.SANDBOX, f"Failed to start the worker: {exc}")
-            )
+            return _start_failed(exc)
         finally:
             os.close(status_write)
-        channel = _Channel(launch, worker, status_read)
-        channel.start()
+        try:
+            channel = _Channel(launch, worker, status_read)
+            channel.start()
+        except (OSError, RuntimeError) as exc:  # no fd for the wake pipe, no thread
+            return _start_failed(exc)
         return _serve(channel, call_tool, launch.cancel, calls)
     finally:
         _cleanup(worker, channel, status_read)
+
+
+def _start_failed(exc: Exception) -> _Finished:
+    return _Finished(
+        ScriptError(ErrorKind.SANDBOX, f"Failed to start the worker: {exc}")
+    )
 
 
 def _cleanup(
@@ -322,6 +359,8 @@ def _run_call(
 ) -> None:
     try:
         result = call_tool(call.name, call.arguments_json)
+        if not isinstance(result, CallResult):
+            raise TypeError(f"returned {type(result).__name__}, not CallResult")
     except Exception as exc:  # noqa: BLE001 - the runner never raises; a failing callback is a sandbox error
         calls.append(ToolCallRecord(call.name, CallStatus.ERROR))
         channel.stop(
@@ -442,6 +481,7 @@ class _Channel:
         self._thread = threading.Thread(
             target=self._run, name="codemode-io", daemon=True
         )
+        self._started = False
         # Everything below is owned by the I/O thread alone.
         self._out = bytearray(launch.run_line)
         self._stdin_open = True
@@ -465,6 +505,7 @@ class _Channel:
 
     def start(self) -> None:
         self._thread.start()
+        self._started = True
 
     def alive(self) -> bool:
         return self._thread.is_alive()
@@ -480,6 +521,8 @@ class _Channel:
         self._wake()
 
     def join(self) -> bool:
+        if not self._started:
+            return True
         self._thread.join(timeout=JOIN_TIMEOUT_SECONDS)
         return not self._thread.is_alive()
 

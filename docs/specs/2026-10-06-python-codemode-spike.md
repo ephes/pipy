@@ -582,9 +582,15 @@ Each task is small and lands with its own tests. The plan's acceptance items
        thread hands each `call` over a queue and the caller posts the reply
        back. Names outside `tool_names` get an error result without reaching
        the callback. `tool_stop` is set whenever the run ends, early exits included, so a callback
-       still in flight (T6's waiter) can stop its tool; a callback returning
-       `cancelled` ends the run as aborted and the call is recorded as
-       cancelled.
+       still in flight (T6's waiter) can stop its tool; it must be a fresh
+       event per run, and one already set or in use by another run (a nested
+       run from a callback) is refused with a sandbox error and left
+       untouched. A callback returning `cancelled` ends the run as aborted
+       and the call is recorded as cancelled; one that raises or returns
+       anything but a `CallResult` is a sandbox error. Running out of fds or
+       threads while starting is a sandbox error too. `ScriptLimits` refuses
+       values the worker would reject (memory above 4 GiB or not an `int`,
+       wall plus margin above 24 h).
      - The I/O thread owns every pipe, all non-blocking (replies wait in a
        buffer until the guest's stdin is writable), and checks cancel and
        the deadline every iteration (≤ 20 ms). A call stays outstanding

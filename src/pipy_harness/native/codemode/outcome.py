@@ -13,6 +13,12 @@ from enum import StrEnum
 KIB = 1024
 MIB = 1024 * KIB
 
+# The worker's own bounds on its run request (worker.WASM32_MEMORY_MAX and
+# worker.CPU_SECONDS_MAX; the host never imports the worker, a test pins that
+# they match). Limits beyond them are refused here, not by the worker.
+MEMORY_BYTES_MAX = 4 * 1024 * MIB
+CPU_SECONDS_MAX = 24 * 3600.0
+
 
 class ErrorKind(StrEnum):
     """Why a script run failed; a protocol violation is ``SANDBOX``."""
@@ -60,6 +66,15 @@ class ScriptLimits:
                 or value <= 0
             ):
                 raise ValueError(f"{field.name} must be a positive finite number")
+        if not isinstance(self.memory_bytes, int):
+            raise ValueError("memory_bytes must be an int")
+        if self.memory_bytes > MEMORY_BYTES_MAX:
+            raise ValueError(f"memory_bytes must be at most {MEMORY_BYTES_MAX}")
+        if self.cpu_seconds > CPU_SECONDS_MAX:
+            raise ValueError(
+                "wall_seconds + cpu_margin_seconds must be at most "
+                f"{CPU_SECONDS_MAX:g} s"
+            )
 
     @property
     def cpu_seconds(self) -> float:
