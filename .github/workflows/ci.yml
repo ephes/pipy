@@ -145,3 +145,34 @@ jobs:
         run: uv run python -c 'import sys; assert sys.version_info[:2] == (3, 14), sys.version'
       - name: Run real-PTY smoke suite
         run: just test-pty-smoke
+
+  codemode-probes:
+    name: Codemode isolation probes (Linux x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.14"
+      # Fail instead of skipping when the runtime is missing.
+      PIPY_CODEMODE_REQUIRE_RUNTIME: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: linux-py314-codemode
+      - name: Sync locked dependencies
+        run: uv sync --all-groups
+      - name: Install the pinned codemode runtime
+        run: uv run python -m pipy_harness.native.codemode install
+      - name: Run codemode runtime, worker, isolation and host-runner probes
+        run: uv run pytest -rs tests/test_native_codemode_runtime.py tests/test_native_codemode_worker.py tests/test_native_codemode_isolation.py tests/test_native_codemode_host.py tests/test_native_codemode_host_runtime.py

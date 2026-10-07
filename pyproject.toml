@@ -13,11 +13,20 @@ dependencies = [
 pipy = "pipy_harness.cli:main"
 pipy-session = "pipy_session.cli:main"
 
+# `codemode` is opt-in: without wasmtime pipy runs normally and codemode reports
+# itself unavailable. The dev group also carries wasmtime so the type check and
+# the real-runtime tests see the same API as an installed extra.
+[project.optional-dependencies]
+codemode = [
+    "wasmtime>=49,<50",
+]
+
 [dependency-groups]
 dev = [
     "mypy>=1.18",
     "pytest>=8.0",
     "ruff>=0.14",
+    "wasmtime>=49,<50",
     "zensical>=0.0.41,<0.1",
 ]
 

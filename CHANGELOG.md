@@ -8,6 +8,42 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Groundwork for Python codemode (CM1 T1, not yet a tool): an optional
+  `codemode` extra (`wasmtime` 49), `python -m pipy_harness.native.codemode
+  install [--from-file ZIP]` to install the pinned CPython 3.14.7 WASI runtime
+  (sha256-checked, never downloaded during a turn), and `... status`, a
+  fail-closed self-test that reports why codemode is unavailable.
+- Codemode worker and guest prelude (CM1 T2, not yet a tool): the worker runs
+  one script in CPython-on-WASI with an empty environment, the stdlib
+  read-only at `/lib` and no writable directory, under a memory cap and a CPU
+  backstop, and reports `ready`/`exit` on a private status fd. Scripts call
+  `tools.<name>(...)`, emit output with `text()` or `print()` and see
+  `ToolError`; failures carry a traceback trimmed to the script. Isolation
+  probes (filesystem, `/proc`, `/dev`, symlinks, fds, native code, processes,
+  network, environment, signals) run as tests and in a Linux x86_64 CI job.
+- Codemode host runner (CM1 T3, not yet a tool): `run_script` runs one script
+  in a fresh worker and serves its tool calls through a callback on the
+  calling thread. One I/O thread does all pipe I/O without blocking and
+  checks the wall deadline and cancel on every iteration; malformed or
+  hostile guest lines, any message while a tool call is pending (a second
+  call, a `done`, output), oversized lines and output floods end the run with
+  a sandbox or script error instead of hanging or crashing the host; a call
+  followed by a violation in the same write never reaches the tool. Lone
+  UTF-16 surrogates in guest strings become U+FFFD, so output, tool arguments
+  and errors always encode as UTF-8. A misbehaving callback (raising or
+  returning a non-`CallResult`), fd or thread exhaustion at start-up, and a
+  reused or shared `tool_stop` event are sandbox errors rather than
+  exceptions; `ScriptLimits` refuses limits the worker cannot honour.
+  The worker exits as soon as its host dies instead of running on until
+  the CPU backstop, its backstop no longer drifts late, and it refuses a
+  runtime whose `lib` is a symlink. The worker's process group is always
+  killed and reaped.
+  `format_result` renders Pi's result text: the completed/failed header with
+  wall time, the output truncated to a token budget, and on failure the
+  error and the "not undone" list of tool calls already made.
+- `docs/codemode.md` documents the codemode sandbox core (CM1 T1–T3): where
+  the runtime is installed and how, availability reasons, platform support,
+  the `run_script` API and its limits.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

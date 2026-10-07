@@ -1132,6 +1132,27 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.codemode",
+        forbidden_imports=(
+            "pipy_harness.cli",
+            "pipy_harness.capture",
+            "pipy_harness.adapters",
+            "pipy_harness.runner",
+            "pipy_session",
+            "pipy_harness.native.agent",
+            "pipy_harness.native.coding",
+            "pipy_harness.native.repl",
+            "pipy_harness.native.tools",
+            "pipy_harness.native.extensions",
+            "pipy_harness.native.ui",
+            "pipy_harness.native.tui",
+        ),
+        reason=(
+            "the codemode sandbox is a standalone package; nested tool calls "
+            "reach it through an injected callback, not by importing the loop"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.extensions",
         forbidden_imports=(
             "pipy_harness.native.ui",
