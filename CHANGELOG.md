@@ -14,13 +14,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- CM1 T8a: stable internal codemode builtin definition and shared schema,
+  root `pipy codemode install|status` runtime management, and owner-only host
+  full-output spilling with truncation metadata. Spill failures preserve the
+  primary script outcome and nested records. Production registration and model
+  opt-in/settings/availability remain pending T8b; no default tool change.
+
 - Internal Python codemode durability (CM1 T7b): bounded parent `nestedCalls`
   records survive script errors, timeouts and aborts, preserve partial effects,
   and reconstruct child lines on resume/tree navigation. JSON/RPC exposes
   canonical codemode parent details; compaction and branch summaries receive
   bounded attempted file paths before details are stripped. Nested results remain absent from
   persisted/provider history, and provider HTTP serializers omit details.
-  Public tool/settings/CLI remain T8; live end-to-end/tmux evidence remains T9.
+  Public opt-in/settings/availability and production registration remain T8b; live end-to-end/tmux evidence remains T9.
 
   Pipeline exceptions retain live/event evidence, with no saved-session guarantee.
   Summary path input preserves tool pairing; direct argument parsing is capped

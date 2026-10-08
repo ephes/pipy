@@ -59,6 +59,7 @@ from pipy_harness.native.tools.base import (
     ToolPort,
     ToolRequest,
 )
+from pipy_harness.native.tools.codemode import CodemodeTool
 from pipy_harness.native.tools.read import ReadTool
 from pipy_harness.native.tools.write import WriteTool
 
@@ -145,9 +146,10 @@ def _loop(
     runner: CodemodeCompositeRunner | None = None,
     arguments: str | None = None,
     later_call: bool = False,
+    public_definition: bool = False,
 ) -> tuple[AgentLoop, _StatusPolicy, _EventSink]:
     registry: dict[str, ToolPort] = {
-        "codemode": _Tool("codemode"),
+        "codemode": CodemodeTool() if public_definition else _Tool("codemode"),
         "read": ReadTool(),
         "write": WriteTool(),
     }
@@ -881,3 +883,96 @@ def test_completed_write_record_and_effect_survive_compute_stop(
             timer.cancel()
             timer.join()
     assert all(group_is_gone(pid) for pid in pids)
+
+
+@pytest.mark.parametrize("spill_failure", [False, True])
+def test_public_definition_write_then_raise_and_spill(
+    tmp_path: Path,
+    paths: CodemodePaths,
+    pids: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+    spill_failure: bool,
+) -> None:
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    if spill_failure:
+
+        def fail_open(**kwargs):
+            raise OSError("spill unavailable")
+
+        monkeypatch.setattr("tempfile.NamedTemporaryFile", fail_open)
+    code = "tools.write(path='effect', content='retained'); print('é🙂' * 25000); raise RuntimeError('after effect')"
+    loop, _, _ = _loop(tmp_path, code, paths=paths, public_definition=True)
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+    assert (tmp_path / "effect").read_text() == "retained"
+    assert parent.is_error and parent.provider_correlation_id == "parent"
+    assert "after effect" in parent.content.value
+    assert "not undone" in parent.content.value and "write (ok)" in parent.content.value
+    assert parent.details is not None
+    assert parent.details["nestedCalls"]["calls"][0]["status"] == "ok"
+    if spill_failure:
+        assert "fullOutputPath" not in parent.details
+        assert "could not be saved" in parent.content.value
+        return
+    spill = Path(parent.details["fullOutputPath"])
+    body = spill.read_text()
+    assert body.startswith("é🙂" * 25000 + "\nScript error:\n")
+    assert "RuntimeError: after effect" in body
+    assert "not undone" in body and "write (ok)" in body
+    assert len(parent.content.value) < 41000
+
+
+@pytest.mark.parametrize("kind", ["timeout", "aborted"])
+@pytest.mark.parametrize("spill_failure", [False, True])
+def test_stopped_composite_spill_preserves_records_and_interruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, spill_failure: bool
+) -> None:
+    from pipy_harness.native.codemode.outcome import (
+        CallStatus,
+        ErrorKind,
+        ScriptError,
+        ScriptOutcome,
+        ToolCallRecord,
+    )
+
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+
+    abort_requested = False
+
+    def stopped(code, *, call_tool, activity_waiter, **kwargs):
+        nonlocal abort_requested
+        assert call_tool("write", '{"path":"effect","content":"retained"}').ok
+        if kind == "aborted":
+            abort_requested = True
+            activity_waiter(threading.Event(), threading.Event())
+        return ScriptOutcome(
+            ScriptError(ErrorKind(kind), "stopped"),
+            output=("partial" * 10000,),
+            calls=(ToolCallRecord("write", CallStatus.OK),),
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", stopped
+    )
+    if spill_failure:
+
+        def fail_open(**kwargs):
+            raise OSError("spill unavailable")
+
+        monkeypatch.setattr("tempfile.NamedTemporaryFile", fail_open)
+
+    def waiter(done, cancel):
+        return (
+            ToolExecutionInterruption.OPERATOR_ABORT
+            if abort_requested
+            else ToolExecutionInterruption.SETTLED
+        )
+
+    loop, _, _ = _loop(tmp_path, "unused", public_definition=True, waiter=waiter)
+    outcome = loop.run(_run_input())
+    parent = _parent(outcome)
+    assert parent.is_error and parent.details is not None
+    assert parent.details["nestedCalls"]["calls"][0]["status"] == "ok"
+    assert "not undone" in parent.content.value and "write (ok)" in parent.content.value
+    assert (tmp_path / "effect").read_text() == "retained"
+    assert (outcome.result.outcome is AgentRunOutcome.CANCELLED) == (kind == "aborted")
+    assert ("fullOutputPath" in parent.details) is not spill_failure

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
@@ -23,20 +25,54 @@ from pipy_harness.native.codemode.outcome import (
     ScriptLimits,
     ScriptOutcome,
 )
-from pipy_harness.native.codemode.result import format_result
+from pipy_harness.native.codemode.result import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    ResultText,
+    format_result,
+)
 from pipy_harness.native.codemode.runtime import CodemodePaths
 from pipy_harness.native.tools.base import (
     make_tool_request_id,
     validate_arguments,
 )
+from pipy_harness.native.tools.codemode import codemode_definition
 
-# Internal argument contract only. T8 owns the public definition and spilling.
-_CODE_SCHEMA = {
-    "type": "object",
-    "properties": {"code": {"type": "string"}},
-    "required": ["code"],
-    "additionalProperties": False,
-}
+
+def _spill_result(formatted: ResultText) -> tuple[str, dict[str, object]]:
+    """Host-only optional spill; publish a path only after successful close."""
+    body = formatted.full_output
+    if body is None:
+        return formatted.text, {}
+    data = body.encode("utf-8")
+    details: dict[str, object] = {
+        "truncation": {
+            "truncated": True,
+            "truncatedBy": "tokens",
+            "totalCharacters": len(body),
+            "totalBytes": len(data),
+            "maxTokens": DEFAULT_MAX_OUTPUT_TOKENS,
+            "estimate": "characters/4",
+        }
+    }
+    path: str | None = None
+    try:
+        # Like OutputAccumulator, keep an owner-only host temp file for reading.
+        with tempfile.NamedTemporaryFile(
+            prefix="pipy-codemode-", suffix=".log", delete=False
+        ) as handle:
+            path = handle.name
+            if handle.write(data) != len(data):
+                raise OSError("incomplete full-output write")
+        details["fullOutputPath"] = path
+        notice = f"Full output saved to {path} ({len(data)} bytes)."
+    except OSError:
+        if path is not None:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        notice = "Full output could not be saved; displayed output is truncated."
+    return formatted.text + "\n\n" + notice, details
 
 
 class _RunControl:
@@ -133,6 +169,7 @@ class CodemodeCompositeRunner:
             *,
             error: bool,
             malformed: bool = False,
+            details: dict[str, object] | None = None,
             interruption: ToolExecutionInterruption = ToolExecutionInterruption.SETTLED,
         ) -> ToolExecutionOutcome:
             return ToolExecutionOutcome(
@@ -142,7 +179,10 @@ class CodemodeCompositeRunner:
                     content=ProductContent(text),
                     is_error=error,
                     provider_correlation_id=call.provider_correlation_id,
-                    details={"nestedCalls": service.durable_record()},
+                    details={
+                        **(details or {}),
+                        "nestedCalls": service.durable_record(),
+                    },
                 ),
                 malformed_arguments=malformed,
                 interruption=interruption,
@@ -151,7 +191,7 @@ class CodemodeCompositeRunner:
         try:
             arguments = validate_arguments(
                 tool_name=call.tool_name,
-                schema=_CODE_SCHEMA,
+                schema=codemode_definition().input_schema,
                 arguments=json.loads(call.arguments_json.value),
             )
         except ValueError as exc:
@@ -183,8 +223,10 @@ class CodemodeCompositeRunner:
                 activity_waiter=control.activity,
             )
             formatted = format_result(outcome)
+            text, details = _spill_result(formatted)
             return result(
-                formatted.text,
+                text,
+                details=details,
                 error=formatted.is_error,
                 interruption=control.interruption,
             )

@@ -15,6 +15,7 @@ from pipy_harness.cli import (
 )
 
 SUBS = {
+    "codemode",
     "auth",
     "run",
     "repl",

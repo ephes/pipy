@@ -15,7 +15,7 @@ Output produced before a failure is kept. The error block and the call
 summary appear only on failure; with no calls the summary is "No tool calls
 were made." Output and error are truncated together to a token budget
 (chars/4), keeping the head and the tail. Spilling the full text to a file is
-the caller's job (T8): :class:`ResultText` hands it the untruncated text.
+the composite caller's job (T8a): :class:`ResultText` hands it the untruncated text.
 """
 
 from __future__ import annotations

@@ -24,7 +24,13 @@ from pipy_harness.native.codemode.selftest import Availability, availability
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m pipy_harness.native.codemode")
-    commands = parser.add_subparsers(dest="command", required=True)
+    configure_parser(parser)
+    return parser
+
+
+def configure_parser(parser: argparse.ArgumentParser, *, dest: str = "command") -> None:
+    """Share management arguments with the root CLI."""
+    commands = parser.add_subparsers(dest=dest, required=True)
     install = commands.add_parser(
         "install", help="install the pinned CPython-on-WASI runtime"
     )
@@ -35,7 +41,6 @@ def _parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="reinstall even if a valid runtime exists"
     )
     commands.add_parser("status", help="run the availability self-test")
-    return parser
 
 
 def _report(result: Availability) -> int:
@@ -50,10 +55,19 @@ def _report(result: Availability) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    return run(
+        args.command,
+        source=getattr(args, "from_file", None),
+        force=getattr(args, "force", False),
+    )
+
+
+def run(command: str, *, source: Path | None = None, force: bool = False) -> int:
+    """Manage the pinned runtime without provider or session startup."""
     paths = default_paths()
-    if args.command == "install":
+    if command == "install":
         try:
-            installed = install_runtime(paths, source=args.from_file, force=args.force)
+            installed = install_runtime(paths, source=source, force=force)
         except (CodemodeRuntimeError, OSError) as exc:
             print(f"codemode install failed: {exc}", file=sys.stderr)
             return 1

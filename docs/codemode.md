@@ -1,9 +1,11 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4–T7 internal integration, not yet a tool.**
+Status: **sandbox core, T4–T7 internal integration and T8a implemented.**
 The internal composite runner now retains bounded nested-call evidence on its
 parent result and reconstructs child lines on resume and tree navigation.
-Public registration, settings and CLI remain T8; end-to-end/tmux evidence,
+T8a adds the stable builtin definition, runtime-management CLI and composite
+output spilling. T8b opt-in/settings/availability and production registration
+remain pending; end-to-end/tmux evidence,
 measurement and final delivery remain T9–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5). The
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
@@ -49,7 +51,7 @@ including an ordinary extension named `codemode`, retain their behavior.
 The coding coordinator forwards the optional ports. T6b wires the real runner at
 the REPL composition seam for both interactive and headless/RPC waiters. A frozen
 product identity guard requires an advertised native builtin `codemode`, excluding
-extension overrides. No such builtin is registered until T8, so public behavior
+extension overrides. The T8a definition is not registered in production; T8b owns registration, so public behavior
 remains unchanged. Existing internal test ports can omit the optional guard.
 
 Each admitted parent owns a fresh sequential service on the session thread.
@@ -152,12 +154,12 @@ headless abort during guest compute, deadline/backend failure during a tool,
 fresh execution after cancellation and worker process-group cleanup. They
 establish T6 acceptance D at the internal integration seam. Actual tmux Escape
 evidence remains T9. T7a implements nested events and live projections; T7b implements durable parent
-details, resume/tree and private summary file-operation input; T8 owns public tool/settings/CLI delivery and truncation spilling.
+details, resume/tree and private summary file-operation input; T8a implements definition/runtime CLI/truncation spilling; T8b owns opt-in,
+availability selection and production registration.
 T9–T11 remain outstanding. There is no model opt-in yet.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.
-
 
 ## Internal nested lifecycle (T7a)
 
@@ -190,8 +192,7 @@ interruption keeps existing turn-stop and budget semantics.
 
 T7b reconstructs these child lines on resume/tree from the bounded parent
 `nestedCalls` record and supplies derived attempted file paths to compaction and
-branch summaries. No nested results or per-call CustomEntry records persist. T8 owns public
-tool/settings/CLI delivery, T9 end-to-end evidence, T10 measurement and T11
+branch summaries. No nested results or per-call CustomEntry records persist. T8b owns opt-in/settings/availability and production registration, T9 end-to-end evidence, T10 measurement and T11
 final documentation/review.
 
 ## What it is
@@ -226,16 +227,17 @@ codemode reports itself unavailable.
 
    ```bash
    # in a checkout
-   uv run --extra codemode python -m pipy_harness.native.codemode install
+   uv run --extra codemode pipy codemode install
    # as a tool
-   "$(uv tool dir)/pipy/bin/python" -m pipy_harness.native.codemode install
+   pipy codemode install
    # from a local copy of the archive
-   uv run --extra codemode python -m pipy_harness.native.codemode install \
+   uv run --extra codemode pipy codemode install \
        --from-file python-3.14.7-wasi_sdk-24.zip
    ```
 
-   The commands below write `python -m pipy_harness.native.codemode` for
-   short; prefix them the same way.
+   In a checkout, prefix `pipy codemode` with `uv run --extra codemode`.
+   The developer `python -m pipy_harness.native.codemode install|status`
+   entrypoint remains available in the same Python environment.
 
    The archive is pinned in code (`RUNTIME_PIN` in `runtime.py`): the
    `python-3.14.7-wasi_sdk-24.zip` asset of the
@@ -257,7 +259,7 @@ Deleting the directory uninstalls the runtime.
 ## Availability
 
 ```bash
-python -m pipy_harness.native.codemode status
+pipy codemode status
 ```
 
 prints `codemode available: ...` (exit 0) or `codemode unavailable: <reason>`
@@ -351,3 +353,23 @@ Tests that need the real runtime skip with a reason when wasmtime or the
 runtime is missing. Set `PIPY_CODEMODE_REQUIRE_RUNTIME=1` to make a missing
 runtime fail instead (the Linux CI `codemode-probes` job does this after
 installing it).
+
+## T8a definition and result delivery
+
+`CodemodeTool` defines the stable §4.8 description and exact `code` object
+schema, shared with composite validation. It is available for internal fixture
+injection only; direct invocation fails closed because execution requires the
+canonical composite service. Production registries and model settings are
+unchanged. Installing the runtime does not enable a model tool.
+
+The composite runner keeps ordered stdout/text, the completion header, script
+errors, partial output and the “not undone” summary. Above about 10k tokens
+(characters/4), it keeps the head and tail and spills exactly the untruncated
+output/error body to an owner-only host temporary `pipy-codemode-*.log` file.
+The result names the readable path and stores `details.fullOutputPath` alongside
+honest character/UTF-8 byte truncation metadata and `nestedCalls`. These host
+files remain for later reading; the guest gains no filesystem authority.
+Open/write/close failures publish no full-output path, add a bounded diagnostic,
+and preserve script success/error, interruption and nested records. The existing
+1 MiB host output cap remains unchanged. Internal real-WASI acceptance C covers
+write-then-raise with retained effects and records; T9 live/PTY evidence is pending.

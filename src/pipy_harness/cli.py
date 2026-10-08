@@ -156,6 +156,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=False)
 
+    from pipy_harness.native.codemode.cli import configure_parser
+
+    codemode_parser = subparsers.add_parser(
+        "codemode", help="Install or check the optional Python codemode runtime."
+    )
+    configure_parser(codemode_parser, dest="codemode_command")
+
     auth_parser = subparsers.add_parser("auth", help="Manage provider authentication.")
     auth_subparsers = auth_parser.add_subparsers(dest="auth_provider", required=True)
     openai_codex_auth = auth_subparsers.add_parser(
@@ -1009,6 +1016,14 @@ def main(argv: list[str] | None = None) -> int:
                 resource_options=options,
                 api_key=getattr(args, "api_key", None),
                 extension_batch=extensions,
+            )
+        if args.command == "codemode":
+            from pipy_harness.native.codemode.cli import run as run_codemode
+
+            return run_codemode(
+                args.codemode_command,
+                source=getattr(args, "from_file", None),
+                force=getattr(args, "force", False),
             )
         if args.command == "config":
             return _cmd_config(args)

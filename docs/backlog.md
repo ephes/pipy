@@ -19,7 +19,7 @@ updated 2026-10-04.
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
   and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
   T6 internal service, real runner and session-thread pump are implemented.
-  T7 nested lifecycle, live/durable projections and summary inputs are implemented; T8–T11 remain;
+  T7 nested lifecycle, live/durable projections and summary inputs are implemented; T8a is implemented; T8b–T11 remain;
   there is no model opt-in. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
@@ -152,8 +152,12 @@ internally:** bounded durable parent `nestedCalls`, script-error/abort/timeout
 retention, resume/tree child reconstruction, JSON/RPC parent details and derived
 attempted file-operation input for compaction and branch summaries. No child
 results persist or enter provider history; provider HTTP serializers omit details.
-T8–T11 (public tool/settings/CLI, end-to-end/tmux evidence, measurement and final
-scope) remain unimplemented.
+**T8a implemented:** stable builtin definition/shared schema (internal injection
+only), root runtime install/status commands, and composite truncation/spilling
+with honest failure handling and retained parent records. Internal real-WASI
+write-then-raise acceptance C is covered. T8b opt-in/settings/availability and
+production registration remain pending; T9 live end-to-end/tmux evidence,
+T10 measurement and T11 final scope remain unimplemented.
 
 T7b review repairs preserve summary tool pairing/final instructions, parse direct
 arguments up to 1 MiB independently of nested storage bounds, keep sticky pipeline
