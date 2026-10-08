@@ -1,5 +1,6 @@
 """Public opt-in composition and Pi default selection semantics."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -315,6 +316,8 @@ def test_public_session_write_then_raise_retains_effect(tmp_path, monkeypatch):
 
     reason = real_runtime_skip_reason()
     if reason:
+        if os.environ.get("PIPY_CODEMODE_REQUIRE_RUNTIME") == "1":
+            pytest.fail(reason)
         pytest.skip(reason)
     # Use the real installed runtime and self-test, never install from a test.
     from codemode_driver import REAL_RUNTIME

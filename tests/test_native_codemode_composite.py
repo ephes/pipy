@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 import threading
 import time
@@ -68,6 +69,8 @@ from pipy_harness.native.tools.write import WriteTool
 def paths(tmp_path_factory: pytest.TempPathFactory) -> CodemodePaths:
     reason = real_runtime_skip_reason()
     if reason is not None:
+        if os.environ.get("PIPY_CODEMODE_REQUIRE_RUNTIME") == "1":
+            pytest.fail(reason)
         pytest.skip(reason)
     root = tmp_path_factory.mktemp("codemode-composite")
     (root / "runtime").mkdir()

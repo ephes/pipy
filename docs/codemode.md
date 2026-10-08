@@ -1,16 +1,118 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4–T8 implemented; T9–T11 pending.**
+Status: **sandbox core and T4–T8 implemented; T9 deterministic delivery tests
+and live tmux verification completed;
+T10 measurement and T11 final delivery remain pending.**
 The internal composite runner now retains bounded nested-call evidence on its
 parent result and reconstructs child lines on resume and tree navigation.
 T8a adds the stable builtin definition, runtime-management CLI and composite
 output spilling. T8b adds public opt-in selection/settings/availability and production
-registration; end-to-end/tmux evidence,
-measurement and final delivery remain T9–T11 of the
+registration. T9 now exercises public session/adapter and CLI delivery with
+the installed WASI interpreter. Live tmux evidence is recorded in the
+[acceptance note](specs/2026-10-09-python-codemode-acceptance.md); measurement and final delivery remain in
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5). The
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
 documents enabling codemode, installing the runtime, checking availability
 and the internal API.
+
+## Deterministic delivery evidence (T9)
+
+`tests/test_native_codemode_delivery.py` runs the existing programmable
+`FakeNativeProvider` through public `CodingSession`/`CodingSessionAdapter`,
+the actual production registry and the real installed WASI runtime. The same
+three-file read/filter task runs through CLI parsing and the print, JSON and
+RPC mode controllers. It asserts the exact advertised public definition, a
+compact structured summary, all read arguments/statuses in the parent record,
+child `parentToolCallId` events and parent details, and parent-only provider
+history/persistence. Product extension hooks block a nested write and transform
+a nested read even after the active selection changes inside the parent hook;
+ordinary direct calls keep their behavior. Malformed nested arguments and budget
+exhaustion remain catchable `ToolError`s. RPC state queries and thread-owned
+abort stay live during real bash and compute, reap workers and allow a fresh
+successful turn. Existing T8 tests cover disabled/unavailable selection and
+the single warning; their contracts are unchanged.
+
+`tests/test_native_codemode_delivery_pty.py` drives the full session on a real
+PTY, sends Escape through the normal input waiter, checks active/settled/cancelled
+child markers, persisted results, worker-group cleanup, fresh execution and
+startup replay through the actual `SessionHistoryRenderer`. These are automated
+PTY assertions. Separate coordinator tmux captures and inspected active raw frames
+now establish the terminal evidence in the [acceptance note](specs/2026-10-09-python-codemode-acceptance.md).
+
+The Linux x86_64 `codemode-probes` CI job retains all existing isolation/core
+probes and `PIPY_CODEMODE_REQUIRE_RUNTIME=1`. Its explicit list now also runs
+the real composite integration, T8b public write-then-raise coverage (C), and
+T9 delivery/PTY tests. The new tests fail if the runtime is required but missing;
+ordinary local runs skip with the actual missing-dependency/runtime reason.
+No test installs a runtime or selects a network model.
+
+Run the new tests with:
+
+```sh
+PIPY_CODEMODE_REQUIRE_RUNTIME=1 uv run pytest -q tests/test_native_codemode_delivery.py tests/test_native_codemode_delivery_pty.py
+```
+
+### Coordinator terminal capture
+
+Check the installed runtime with `uv run python -m pipy_harness.native.codemode
+status`. On a real tty (or a coordinator-owned tmux pane), from the checkout:
+
+```sh
+uv run python tests/codemode_tui_evidence.py --workspace /tmp/pipy-cm1-t9-success --phase success
+```
+
+Use a fresh directory per run. Type `summarize fixtures` and Enter. The existing
+fake issues one public codemode call: builtin bash sleeps three seconds, then
+real reads of `alpha.txt`, `beta.txt`, `gamma.txt` filter `KEEP` lines and emit
+`{"matches": [...], "count": 3}`. Capture `… bash` while active, then settled
+`✓ read` lines with paths and durations. Wait for the editor to return after
+the summary before typing another command; the active-turn watcher owns input
+until then. Ctrl+O expands tool evidence. `/exit` settles the driver assertions.
+
+For cancellation, use separate fresh roots:
+
+```sh
+uv run python tests/codemode_tui_evidence.py --workspace /tmp/pipy-cm1-t9-bash --phase bash
+uv run python tests/codemode_tui_evidence.py --workspace /tmp/pipy-cm1-t9-compute --phase compute
+```
+
+Type the same initial prompt. In `bash`, wait for `… bash` and the fixture
+`bash-active` file (created by the actual builtin command), then send Escape
+while its 30-second sleep is active. Capture `⊘ bash` and `Script aborted`.
+In `compute`, the first real read settles (`phase.txt` becomes `settled-read`),
+then the guest loops indefinitely; send Escape after that phase. After the
+aborted result and editor return, type `fresh summary` and Enter. It must
+produce the successful three-read summary. Then `/exit` verifies both parent
+records and that every observed worker process group is gone. The driver only
+observes the standard subprocess launch boundary; argv, runtime, tools,
+cancellation and UI behavior are unchanged.
+
+Each root contains the three fixture text files, `phase.txt`, `parents.json`,
+`worker-pids.json`, `runtime-check.json`, `session-path.txt` and, after a successful
+exit, `verified.json`. Full product JSONL sessions live in `sessions/`; only
+parent results persist. No credentials are written. `verified.json` is assertion
+evidence, not a screenshot or live-provider quality claim.
+
+Replay the exact recorded tree in a second isolated tty root:
+
+```sh
+uv run python tests/codemode_tui_evidence.py --workspace /tmp/pipy-cm1-t9-replay --replay "$(cat /tmp/pipy-cm1-t9-success/session-path.txt)"
+```
+
+Startup uses product history reconstruction, with no provider call required.
+Inspect the settled nested reads (and cancelled bash when replaying its session),
+then use the normal `/tree` command to inspect/navigation-select the existing
+branch. `/resume` remains available through the product command path. The driver
+never manually renders children. Exit with `/exit`.
+
+The driver preserves `HOME`: runtime lookup is
+`Path.home()/.local/state/pipy/codemode`, independent of `XDG_STATE_HOME` and
+`PIPY_CONFIG_HOME`. It isolates config, native theme/defaults, prompt history,
+auth and product-session paths under the controlled workspace, selects `pi`,
+and uses no global settings/theme writes. T10 live-provider comparison and T11
+cumulative checks/review are intentionally separate. The coordinator captured
+and inspected active, settled, cancelled and replay/tree frames on 2026-10-09;
+see the [acceptance note](specs/2026-10-09-python-codemode-acceptance.md) for retained artifacts and limitations.
 
 T4 separates the agent loop's internal settle and record paths without changing
 behaviour. Settlement owns admission, hooks, execution, result transformation
@@ -153,9 +255,11 @@ operator/local-command cancellation during cooperative and noncooperative tools,
 headless abort during guest compute, deadline/backend failure during a tool,
 fresh execution after cancellation and worker process-group cleanup. They
 establish T6 acceptance D at the internal integration seam. Actual tmux Escape
-evidence remains T9. T7a implements nested events and live projections; T7b implements durable parent
+evidence is recorded in the T9 acceptance note. T7a implements nested events and live projections; T7b implements durable parent
 details, resume/tree and private summary file-operation input; T8a implements definition/runtime CLI/truncation spilling; T8b implements opt-in, availability selection and production registration.
-T9 end-to-end/tmux, T10 live comparison and T11 final docs/cumulative review remain outstanding.
+T9 now pins the public production path with deterministic real-WASI and PTY
+tests. Selected-frame tmux inspection is completed; T10 live comparison and T11 final
+docs/cumulative review remain outstanding.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.
@@ -191,7 +295,10 @@ interruption keeps existing turn-stop and budget semantics.
 
 T7b reconstructs these child lines on resume/tree from the bounded parent
 `nestedCalls` record and supplies derived attempted file paths to compaction and
-branch summaries. No nested results or per-call CustomEntry records persist. T8b implements public opt-in/settings/availability and production registration. T9 end-to-end evidence, T10 measurement and T11 final documentation/review remain pending.
+branch summaries. No nested results or per-call CustomEntry records persist.
+T8b implements public opt-in/settings/availability and production registration.
+T9 automated delivery/replay/tree evidence is implemented; selected-frame tmux
+inspection is completed; T10 measurement and T11 final documentation/review remain pending.
 
 ## What it is
 
@@ -389,10 +496,10 @@ installing it).
 ## T8a definition and result delivery
 
 `CodemodeTool` defines the stable §4.8 description and exact `code` object
-schema, shared with composite validation. It is available for internal fixture
-injection only; direct invocation fails closed because execution requires the
-canonical composite service. Production registries and model settings are
-unchanged. Installing the runtime does not enable a model tool.
+schema, shared with composite validation. T8b composes it into public production
+capabilities only when selected and available; direct invocation fails closed
+because execution requires the canonical composite service. Installing the
+runtime alone does not enable a model tool.
 
 The composite runner keeps ordered stdout/text, the completion header, script
 errors, partial output and the “not undone” summary. Above about 10k tokens
@@ -404,4 +511,6 @@ files remain for later reading; the guest gains no filesystem authority.
 Open/write/close failures publish no full-output path, add a bounded diagnostic,
 and preserve script success/error, interruption and nested records. The existing
 1 MiB host output cap remains unchanged. Internal real-WASI acceptance C covers
-write-then-raise with retained effects and records; T9 live/PTY evidence is pending.
+write-then-raise with retained effects and records; public C is exercised by T8b
+and retained in runtime-required CI. T9 automated PTY evidence is implemented;
+selected-frame tmux inspection is recorded in the acceptance note.

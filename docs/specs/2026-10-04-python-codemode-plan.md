@@ -109,8 +109,12 @@ Pi `defaultTools` layering/CLI exact modifiers,
 availability-gated registration and frozen reload selection. Slow probes and
 concurrent probe waits run outside the shared session lock; cached availability
 and one-warning ownership are synchronized. Diagnostics run outside coordination
-locks through the transcript notice sink or headless stderr; end-to-end
-validation, measurement and final docs/review remain T9–T11.
+locks through the transcript notice sink or headless stderr. T9 now supplies
+deterministic public production delivery, product hook/abort coverage and
+full-product PTY replay/tree assertions, plus an isolated terminal capture driver.
+Selected-frame tmux inspection is recorded in the
+[acceptance note](2026-10-09-python-codemode-acceptance.md); measurement and final
+docs/cumulative review remain T10–T11.
 
 ## Deferred
 

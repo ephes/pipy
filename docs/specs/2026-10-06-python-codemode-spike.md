@@ -10,7 +10,9 @@ T5 (pure nested policy transitions), and T6a (internal service and optional comp
 port/dispatch with fake-runner tests) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
 T6b (real runner/pump/deadline wiring) and T7a (nested lifecycle events and live
 projections), and T7b (durable records, resume/tree and summary inputs) are
-implemented internally. T8 public enablement is implemented; T9–T11 remain pending. Production codemode is selected and availability-gated.
+implemented internally. T8 public enablement is implemented; T9 deterministic
+delivery tests and inspected live tmux evidence are implemented. T10–T11 remain pending. Production codemode is selected
+and availability-gated.
 
 ## 1. Status and scope
 
@@ -781,7 +783,7 @@ Each task is small and lands with its own tests. The plan's acceptance items
      during active cooperative/noncooperative tools (operator and local command),
      headless abort during script compute, deadline/backend failure during a tool,
      fresh execution after cancellation and reaped worker groups. Acceptance D is
-     established internally; actual tmux Escape evidence remains T9. Host tests pin
+     established internally; actual tmux Escape evidence is recorded in the T9 acceptance note. Host tests pin
      the queue/event lost-wake contract and waiter-failure cleanup. T7a implements live events/projections; T7b implements durable records,
      resume/tree and private summary file-operation inputs. T8a owns definition/runtime CLI/truncation spilling; T8b owns opt-in and production registration.
    - Tests: cancellation during a nested tool (D), cancellation during script
@@ -805,8 +807,8 @@ Each task is small and lands with its own tests. The plan's acceptance items
      `nestedCalls` parent-details schema, script-error/abort/timeout retention,
      resume/tree reconstruction, JSON/RPC parent details and compaction/branch
      attempted file-operation input. No nested result persistence/provider history.
-     Covers I's durable part; T8b public enablement is implemented and T9 live
-     evidence remains pending.
+     Covers I's durable part; T8b public enablement and T9 live
+     evidence are implemented.
 8. **T8: the codemode tool (split).**
    - **T8a implemented:** stable §4.8 builtin definition/shared schema, direct
      fail-closed fallback, root `pipy codemode install|status`, and host-owned
@@ -827,7 +829,7 @@ Each task is small and lands with its own tests. The plan's acceptance items
      The seven existing prompt contributions remain pinned against Pi's
      fixture; codemode's optional sequential Python contribution is pinned
      separately to §4.8. Public-session tests check selected-only prompt text.
-     T9 live end-to-end/tmux evidence remains pending.
+     T9 live end-to-end/tmux evidence is recorded in the acceptance note.
    - T8b aligns the opt-in switch with Pi's setting and CLI surface
      (`CA/docs/settings.md:41-42`, `cli.md:155-178`).
    - T8a acceptance C: a script writes a file and then raises; the file stays
@@ -839,6 +841,31 @@ Each task is small and lands with its own tests. The plan's acceptance items
    - Headless and json/rpc runs, plus a TUI run verified with tmux (the
      `tmux-transient-ui-verify` skill) for live nested rows.
    - Resume shows the evidence. Covers I.
+   - **Deterministic integration/evidence support implemented:** public
+     CodingSession/adapter with the actual production registry and installed
+     WASI runtime, exact multifile filtered summary and retained read records
+     (A); real product blocking/transform hooks, frozen parent selection,
+     nonfatal malformed arguments and catchable exhaustion (B). CLI print,
+     JSON and RPC controllers preserve child parent ids, parent details and
+     parent-only history/persistence. Real RPC state/abort during active bash
+     and compute reap workers and permit fresh successful execution.
+   - Full-product PTY assertions cover active `… bash`, settled `✓ read`,
+     cancelled `⊘ bash`, normal-waiter Escape, fresh execution and durable
+     startup reconstruction (I). `tests/codemode_tui_evidence.py` provides
+     stable success/bash/compute/replay phases for coordinator capture; exact
+     commands and fixture/assertion paths are in [codemode.md](../codemode.md).
+     **Selected-frame tmux inspection completed:** 70 success, 80 bash-abort,
+     80 compute-abort and 40 replay/tree frames sampled every 100 ms, with
+     inspected active raw frames and no sampler anomalies. Escape reaped the
+     workers and subsequent turns succeeded; cancelled/settled evidence
+     reconstructed from the saved tree. The
+     [acceptance note](2026-10-09-python-codemode-acceptance.md) records artifacts,
+     frame ranges, cursor checks and scripted-provider limitations.
+     T10 live-provider comparison and
+     T11 cumulative checks/review remain pending.
+   - The retained Linux x86_64 `codemode-probes` CI job adds composite,
+     public C and T9 delivery/PTY coverage to its explicit runtime-required
+     list without removing or weakening any existing isolation probes.
 10. **T10: measurement.** The same task with direct tools and with codemode,
     comparing request size, wall time (including the measured 181 / 346 ms
     startup) and output quality. No target is set beforehand. Covers J.

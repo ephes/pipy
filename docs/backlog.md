@@ -19,7 +19,9 @@ updated 2026-10-04.
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
   and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
   T6 internal service, real runner and session-thread pump are implemented.
-  T7 nested lifecycle, live/durable projections and summary inputs are implemented; T8 public enablement is implemented; T9–T11 remain;
+  T7 nested lifecycle, live/durable projections and summary inputs are implemented;
+  T8 public enablement and T9 deterministic delivery/evidence support are implemented;
+  T9 live tmux inspection is completed; T10–T11 remain;
   public codemode remains off by default. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
@@ -159,8 +161,17 @@ Pi `defaultTools` layering and CLI exact modifiers, shared availability-gated
 composition and frozen reload/active-tool ownership. T8b repairs keep slow probes
 and probe waits outside the shared session lock, synchronize the run cache and
 one-warning ownership, and route unlocked diagnostics to TUI transcript notices
-or headless stderr; T9 live end-to-end/tmux evidence,
-T10 measurement and T11 final scope remain unimplemented.
+or headless stderr. **T9 deterministic integration/evidence support implemented:**
+public production session/adapter multifile summary, actual extension hooks,
+malformed/budget catchability, CLI print/JSON/RPC delivery, live RPC abort and
+worker reaping, full-product PTY child rows/Escape/fresh turn and persisted
+startup replay. The Linux x86_64 runtime-required CI list now includes composite,
+public C and T9 tests while preserving the isolation suite. The isolated
+[terminal driver and capture instructions](codemode.md#coordinator-terminal-capture)
+were used for active/settled/aborted and replay/tree captures; raw frames, cursor
+metrics and worker-reaping assertions are retained outside git. The
+[acceptance note](specs/2026-10-09-python-codemode-acceptance.md) records the inspected evidence.
+T10 live-provider measurement and T11 cumulative checks/docs/review remain pending.
 
 T7b review repairs preserve summary tool pairing/final instructions, parse direct
 arguments up to 1 MiB independently of nested storage bounds, keep sticky pipeline

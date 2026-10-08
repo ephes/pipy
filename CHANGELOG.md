@@ -14,6 +14,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- CM1 T9 deterministic production delivery tests using the existing fake
+  provider and installed WASI runtime: public session/adapter, multifile
+  filtering, product extension hooks, catchable validation/budget errors,
+  print/JSON/RPC projection, live RPC abort and worker cleanup, and full-product
+  PTY Escape/fresh-turn/durable replay. An isolated offline terminal driver
+  supports coordinator frame capture. Linux x86_64 runtime-required CI retains
+  isolation probes and adds composite/public C/T9 coverage. Coordinator tmux
+  captures verify live nested rows, Escape during bash/compute, fresh execution
+  and persisted replay/tree reconstruction. T10 live comparison and T11 final
+  review remain pending.
+
 - CM1 T8b: public codemode opt-in via `defaultTools: ["+codemode"]` or
   `--tools +codemode`, with exact Pi modifiers and layered initial selections.
   Selected builtin codemode is advertised only after a fail-closed availability
@@ -22,8 +33,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   one stderr line headlessly, outside coordination locks, and continues without an
   automatic install. CLI interactive/print/JSON/RPC and library sessions share
   capability composition, frozen builtin identity and reload selection ownership.
-  Default seven builtins/extensions are unchanged. T9 end-to-end/tmux, T10 live
-  comparison and T11 final docs/cumulative review remain pending.
+  Default seven builtins/extensions are unchanged. T10 live comparison and
+  T11 final docs/cumulative review remain pending.
 
 - CM1 T8a: stable internal codemode builtin definition and shared schema,
   root `pipy codemode install|status` runtime management, and owner-only host
