@@ -783,7 +783,7 @@ class CodingSessionState:
             self._history_epoch += 1
 
     def sync_tool_policy(self, state: AgentToolPolicyState) -> None:
-        """Mirror the exact reusable-loop cumulative tool counters."""
+        """Mirror cumulative counters; nested lifecycle state stays run-owned."""
 
         (
             tool_invocation_count,
@@ -1032,6 +1032,7 @@ def _validated_tool_policy_counters(
             "state.consecutive_malformed_streak must not exceed "
             "state.malformed_argument_count"
         )
+    AgentToolPolicyState.__post_init__(state)
     return (
         tool_invocation_count,
         malformed_argument_count,

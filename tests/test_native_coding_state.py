@@ -1790,3 +1790,38 @@ def test_preparation_failure_field_reader_writer_inventory_is_exact() -> None:
         "record_preparation_failure": {"Store"},
         "_result_snapshot_locked": {"Load"},
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reserved_parent_slot", 1),
+        ("nested_malformed_count", True),
+        ("nested_malformed_count", -1),
+    ],
+)
+def test_sync_tool_policy_validates_nested_fields_before_publication(
+    field: str, value: object
+) -> None:
+    state = _state()
+    before = state.result_snapshot()
+    forged = AgentToolPolicyState(tool_budget=2, tool_invocation_count=9)
+    object.__setattr__(forged, field, value)
+    with pytest.raises((TypeError, ValueError)):
+        state.sync_tool_policy(forged)
+    assert state.result_snapshot() == before
+
+
+def test_sync_tool_policy_does_not_publish_run_owned_nested_lifecycle() -> None:
+    state = _state()
+    state.sync_tool_policy(
+        AgentToolPolicyState(
+            tool_budget=3,
+            reserved_parent_slot=True,
+            nested_malformed_count=2,
+            tool_invocation_count=4,
+        )
+    )
+    assert state.tool_invocation_count == 4
+    assert not hasattr(state, "reserved_parent_slot")
+    assert not hasattr(state, "nested_malformed_count")

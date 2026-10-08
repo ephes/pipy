@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -18,6 +18,7 @@ from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentProviderStatusAction,
     AgentProviderStatusDecision,
+    AgentToolInvocationMode,
     AgentToolPolicy,
     AgentToolPolicyAction,
     AgentToolPolicyDecision,
@@ -26,6 +27,7 @@ from pipy_harness.native.agent.loop_policy import (
     apply_tool_policy_decision,
     decide_tool_admission,
     normalize_provider_status,
+    reserve_composite_parent,
     settle_tool_execution,
 )
 from pipy_harness.native.agent.messages import (
@@ -763,7 +765,7 @@ def test_tool_policy_state_rejects_int_subclasses(field_name: str) -> None:
     values[field_name] = _IntSubclass(values[field_name])
 
     with pytest.raises(TypeError, match=field_name):
-        AgentToolPolicyState(**values)
+        AgentToolPolicyState(**cast(dict[str, Any], values))
 
 
 def test_provider_status_rejects_string_subclass_diagnostic() -> None:
@@ -1031,3 +1033,229 @@ def test_transition_validation_rejects_incoherent_payloads() -> None:
         AgentToolPolicyTransition(AgentToolPolicyAction.MALFORMED, fatal_state)
     with pytest.raises(ValueError, match="requires a failure"):
         AgentProviderStatusDecision(AgentProviderStatusAction.FAILED)
+
+
+def _reserved_state(budget: int = 3) -> AgentToolPolicyState:
+    state = AgentToolPolicyState(
+        tool_budget=budget, malformed_argument_count=2, consecutive_malformed_streak=2
+    )
+    admitted = decide_tool_admission(state, _snapshot(authorized=True), _call())
+    preflight = apply_tool_policy_decision(admitted.state, AgentToolPolicyDecision())
+    return reserve_composite_parent(preflight)
+
+
+@pytest.mark.parametrize("is_error", [False, True])
+def test_nested_settlement_preserves_direct_streak_and_parent_slot(
+    is_error: bool,
+) -> None:
+    state = _reserved_state()
+    admitted = decide_tool_admission(
+        state, _snapshot(authorized=True), _call(), mode=AgentToolInvocationMode.NESTED
+    )
+    assert admitted.action is AgentToolPolicyAction.EXECUTE
+    settled = settle_tool_execution(
+        admitted.state,
+        ToolExecutionOutcome(_tool_result(is_error=is_error)),
+        mode=AgentToolInvocationMode.NESTED,
+    )
+    assert settled.state == replace(
+        state, invocations_this_turn=1, tool_invocation_count=1
+    )
+    assert settled.failure is None
+
+
+@pytest.mark.parametrize("authorized", [False, True])
+def test_nested_budget_precedes_authorization_and_preserves_parent(
+    authorized: bool,
+) -> None:
+    state = _reserved_state(1)
+    exhausted = decide_tool_admission(
+        state,
+        _snapshot(authorized=authorized),
+        _call(),
+        mode=AgentToolInvocationMode.NESTED,
+    )
+    assert exhausted.action is AgentToolPolicyAction.BUDGET_EXHAUSTED
+    assert exhausted.state == replace(state, budget_exhausted_count=1)
+    assert exhausted.failure is None
+    parent = settle_tool_execution(
+        exhausted.state,
+        ToolExecutionOutcome(_tool_result()),
+        mode=AgentToolInvocationMode.PARENT,
+    )
+    assert parent.state == replace(
+        state,
+        reserved_parent_slot=False,
+        budget_exhausted_count=1,
+        invocations_this_turn=1,
+        tool_invocation_count=1,
+        consecutive_malformed_streak=0,
+    )
+    with pytest.raises(ValueError, match="reservation"):
+        settle_tool_execution(
+            parent.state,
+            ToolExecutionOutcome(_tool_result()),
+            mode=AgentToolInvocationMode.PARENT,
+        )
+
+
+@pytest.mark.parametrize("blocked", [False, True])
+def test_nested_rejections_consume_only_turn_budget(blocked: bool) -> None:
+    state = _reserved_state()
+    if blocked:
+        transition = apply_tool_policy_decision(
+            state,
+            AgentToolPolicyDecision(ProductContent("blocked")),
+            mode=AgentToolInvocationMode.NESTED,
+        )
+        assert transition.action is AgentToolPolicyAction.BLOCKED
+    else:
+        transition = decide_tool_admission(
+            state,
+            _snapshot(authorized=False),
+            _call(),
+            mode=AgentToolInvocationMode.NESTED,
+        )
+        assert transition.action is AgentToolPolicyAction.UNAUTHORIZED
+    assert transition.state == replace(state, invocations_this_turn=1)
+
+
+def test_nested_malformed_is_separate_nonfatal_and_budgeted() -> None:
+    state = _reserved_state(5)
+    for count in range(1, 5):
+        transition = settle_tool_execution(
+            state,
+            ToolExecutionOutcome(_tool_result(is_error=True), malformed_arguments=True),
+            mode=AgentToolInvocationMode.NESTED,
+        )
+        assert transition.action is AgentToolPolicyAction.NESTED_MALFORMED
+        assert transition.failure is None
+        assert transition.state == replace(
+            state, invocations_this_turn=count, nested_malformed_count=count
+        )
+        state = transition.state
+    exhausted = decide_tool_admission(
+        state, _snapshot(authorized=True), _call(), mode=AgentToolInvocationMode.NESTED
+    )
+    assert exhausted.action is AgentToolPolicyAction.BUDGET_EXHAUSTED
+    with pytest.raises(ValueError, match="budget"):
+        settle_tool_execution(
+            state,
+            ToolExecutionOutcome(_tool_result(), malformed_arguments=True),
+            mode=AgentToolInvocationMode.NESTED,
+        )
+
+
+@pytest.mark.parametrize(
+    "interruption",
+    [ToolExecutionInterruption.OPERATOR_ABORT, ToolExecutionInterruption.LOCAL_COMMAND],
+)
+@pytest.mark.parametrize("parent", [False, True])
+def test_nested_and_parent_interruption_accounting(
+    interruption: ToolExecutionInterruption, parent: bool
+) -> None:
+    state = _reserved_state()
+    transition = settle_tool_execution(
+        state,
+        ToolExecutionOutcome(
+            _tool_result(), malformed_arguments=True, interruption=interruption
+        ),
+        mode=AgentToolInvocationMode.PARENT
+        if parent
+        else AgentToolInvocationMode.NESTED,
+    )
+    assert transition.action is AgentToolPolicyAction.INTERRUPTED
+    assert transition.interruption is interruption
+    assert transition.failure is None
+    assert transition.state == replace(state, reserved_parent_slot=not parent)
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_parent_error_or_malformed_releases_reservation_with_direct_accounting(
+    malformed: bool,
+) -> None:
+    state = _reserved_state(1)
+    transition = settle_tool_execution(
+        state,
+        ToolExecutionOutcome(
+            _tool_result(is_error=True), malformed_arguments=malformed
+        ),
+        mode=AgentToolInvocationMode.PARENT,
+    )
+    if malformed:
+        assert transition.state == replace(
+            state,
+            reserved_parent_slot=False,
+            malformed_argument_count=3,
+            consecutive_malformed_streak=3,
+        )
+        assert transition.failure is not None
+    else:
+        assert transition.state == replace(
+            state,
+            reserved_parent_slot=False,
+            invocations_this_turn=1,
+            tool_invocation_count=1,
+            consecutive_malformed_streak=0,
+        )
+        assert transition.failure is None
+
+
+def test_reservation_rejects_invalid_lifecycle_and_forged_values() -> None:
+    state = _reserved_state()
+    with pytest.raises(ValueError, match="reservation"):
+        decide_tool_admission(state, _snapshot(authorized=True), _call())
+    with pytest.raises(ValueError, match="reservation"):
+        reserve_composite_parent(
+            AgentToolPolicyTransition(AgentToolPolicyAction.EXECUTE, state)
+        )
+    with pytest.raises(ValueError, match="admitted"):
+        reserve_composite_parent(
+            AgentToolPolicyTransition(
+                AgentToolPolicyAction.BLOCKED, AgentToolPolicyState(2)
+            )
+        )
+    with pytest.raises(ValueError):
+        AgentToolPolicyState(1, invocations_this_turn=1, reserved_parent_slot=True)
+    for field, value in (
+        ("reserved_parent_slot", 1),
+        ("nested_malformed_count", True),
+        ("nested_malformed_count", -1),
+    ):
+        forged = replace(state)
+        object.__setattr__(forged, field, value)
+        with pytest.raises((TypeError, ValueError)):
+            decide_tool_admission(
+                forged,
+                _snapshot(authorized=True),
+                _call(),
+                mode=AgentToolInvocationMode.NESTED,
+            )
+
+
+def test_nested_children_cannot_spend_parent_settlement_slot() -> None:
+    state = _reserved_state(3)
+    for count in (1, 2):
+        state = settle_tool_execution(
+            state,
+            ToolExecutionOutcome(_tool_result()),
+            mode=AgentToolInvocationMode.NESTED,
+        ).state
+        assert state.invocations_this_turn == count
+    exhausted = decide_tool_admission(
+        state, _snapshot(authorized=True), _call(), mode=AgentToolInvocationMode.NESTED
+    )
+    assert exhausted.action is AgentToolPolicyAction.BUDGET_EXHAUSTED
+    settled = settle_tool_execution(
+        exhausted.state,
+        ToolExecutionOutcome(_tool_result()),
+        mode=AgentToolInvocationMode.PARENT,
+    )
+    assert settled.state == replace(
+        state,
+        reserved_parent_slot=False,
+        invocations_this_turn=3,
+        tool_invocation_count=3,
+        consecutive_malformed_streak=0,
+        budget_exhausted_count=1,
+    )

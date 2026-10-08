@@ -17,8 +17,8 @@ updated 2026-10-04.
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
-  and merged to main at `8ed4e98b`; T4 extraction is implemented.
-  T5–T11 remain. UP1
+  and merged to main at `8ed4e98b`; T4 extraction and T5 pure nested policy are implemented.
+  T6–T11 remain. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
@@ -121,7 +121,9 @@ notes). **T1–T3 merged to main at `8ed4e98b`**, with
 red-team hardening and the user/dev page [codemode.md](codemode.md); the
 sandbox core is not yet a model tool. **T4 implemented:** behaviour-preserving
 settle/record extraction in `agent/loop.py`, with focused seam characterization.
-T5–T11 (nested policy/service, tool, events, budgets,
+**T5 implemented:** pure shared nested admission/settlement policy, parent-slot
+reservation and non-fatal nested malformed accounting.
+T6–T11 (nested service, tool, events, budgets,
 session persistence) remain unimplemented.
 
 MCP, parallel calls, persistent script state, images and classifier operations

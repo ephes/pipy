@@ -123,6 +123,7 @@ class CodingSessionAcceptedInputRecorder:
         )
 
     def snapshot_tool_state(self) -> AgentToolPolicyState:
+        # Parent reservations and nested malformed counts start fresh per run.
         return AgentToolPolicyState(
             tool_budget=self._tool_budget,
             tool_invocation_count=self._coding_state.tool_invocation_count,

@@ -149,6 +149,8 @@ class AgentToolPolicyState:
     malformed_argument_count: int = 0
     consecutive_malformed_streak: int = 0
     budget_exhausted_count: int = 0
+    reserved_parent_slot: bool = False
+    nested_malformed_count: int = 0
 
     def __post_init__(self) -> None:
         require_non_negative_int(self.tool_budget, "tool_budget")
@@ -165,14 +167,24 @@ class AgentToolPolicyState:
             "malformed_argument_count",
             "consecutive_malformed_streak",
             "budget_exhausted_count",
+            "nested_malformed_count",
         ):
             require_non_negative_int(getattr(self, field_name), field_name)
-        if self.invocations_this_turn > self.tool_budget:
+        require_bool(self.reserved_parent_slot, "reserved_parent_slot")
+        if self.invocations_this_turn + self.reserved_parent_slot > self.tool_budget:
             raise ValueError("invocations_this_turn must not exceed tool_budget")
         if self.consecutive_malformed_streak > self.malformed_argument_count:
             raise ValueError(
                 "consecutive_malformed_streak must not exceed malformed_argument_count"
             )
+
+
+class AgentToolInvocationMode(StrEnum):
+    """Invocation ownership for shared admission and settlement."""
+
+    DIRECT = "direct"
+    NESTED = "nested"
+    PARENT = "parent"
 
 
 class AgentToolPolicyAction(StrEnum):
@@ -184,6 +196,7 @@ class AgentToolPolicyAction(StrEnum):
     BLOCKED = "blocked"
     SETTLED = "settled"
     MALFORMED = "malformed"
+    NESTED_MALFORMED = "nested_malformed"
     INTERRUPTED = "interrupted"
 
 
@@ -210,6 +223,7 @@ def _validate_tool_policy_transition_fields(
         raise TypeError("action must be AgentToolPolicyAction")
     if type(transition.state) is not AgentToolPolicyState:
         raise TypeError("state must be AgentToolPolicyState")
+    AgentToolPolicyState.__post_init__(transition.state)
     if transition.failure is not None:
         _validate_agent_failure(transition.failure)
     if (
@@ -229,6 +243,11 @@ def _validate_tool_policy_transition_invariants(
             raise ValueError("interrupted transition requires an interruption")
     elif transition.interruption is not None:
         raise ValueError("only interrupted transitions carry an interruption")
+    if (
+        transition.action is AgentToolPolicyAction.NESTED_MALFORMED
+        and transition.state.nested_malformed_count == 0
+    ):
+        raise ValueError("nested malformed transition requires a nested count")
     if transition.action is AgentToolPolicyAction.MALFORMED:
         if transition.state.consecutive_malformed_streak == 0:
             raise ValueError("malformed transition requires a malformed streak")
@@ -246,21 +265,53 @@ def _validate_tool_policy_transition_invariants(
         raise ValueError("only malformed transitions carry a failure")
 
 
+def _validate_invocation_state(
+    state: AgentToolPolicyState, mode: AgentToolInvocationMode
+) -> None:
+    if type(state) is not AgentToolPolicyState:
+        raise TypeError("state must be AgentToolPolicyState")
+    AgentToolPolicyState.__post_init__(state)
+    if type(mode) is not AgentToolInvocationMode:
+        raise TypeError("mode must be exact AgentToolInvocationMode")
+    if state.reserved_parent_slot != (mode is not AgentToolInvocationMode.DIRECT):
+        raise ValueError("invocation mode must match the parent reservation")
+
+
+def reserve_composite_parent(
+    transition: AgentToolPolicyTransition,
+) -> AgentToolPolicyState:
+    """Reserve after admission and product preflight; settle once with PARENT.
+
+    The returned reservation and nested malformed count are run-owned values,
+    not public settings or durable session counters.
+    """
+    if type(transition) is not AgentToolPolicyTransition:
+        raise TypeError("transition must be exact AgentToolPolicyTransition")
+    AgentToolPolicyTransition.__post_init__(transition)
+    _validate_invocation_state(transition.state, AgentToolInvocationMode.DIRECT)
+    if transition.action is not AgentToolPolicyAction.EXECUTE:
+        raise ValueError("only admitted execution can reserve a parent")
+    return replace(transition.state, reserved_parent_slot=True)
+
+
 def decide_tool_admission(
     state: AgentToolPolicyState,
     snapshot: AgentProviderRequestSnapshot,
     call: AgentToolCall,
+    *,
+    mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
 ) -> AgentToolPolicyTransition:
     """Apply the core budget and request-authorization gates in order."""
 
-    if type(state) is not AgentToolPolicyState:
-        raise TypeError("state must be AgentToolPolicyState")
+    _validate_invocation_state(state, mode)
+    if mode is AgentToolInvocationMode.PARENT:
+        raise ValueError("parent mode is settlement only")
     if type(snapshot) is not AgentProviderRequestSnapshot:
         raise TypeError("snapshot must be AgentProviderRequestSnapshot")
     if type(call) is not AgentToolCall:
         raise TypeError("call must be AgentToolCall")
     validate_agent_tool_call(call)
-    if state.invocations_this_turn >= state.tool_budget:
+    if state.invocations_this_turn + state.reserved_parent_slot >= state.tool_budget:
         return AgentToolPolicyTransition(
             AgentToolPolicyAction.BUDGET_EXHAUSTED,
             replace(
@@ -276,11 +327,14 @@ def decide_tool_admission(
 def apply_tool_policy_decision(
     state: AgentToolPolicyState,
     policy_decision: AgentToolPolicyDecision,
+    *,
+    mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
 ) -> AgentToolPolicyTransition:
     """Apply caller tool policy after core admission returned ``EXECUTE``."""
 
-    if type(state) is not AgentToolPolicyState:
-        raise TypeError("state must be AgentToolPolicyState")
+    _validate_invocation_state(state, mode)
+    if mode is AgentToolInvocationMode.PARENT:
+        raise ValueError("parent mode is settlement only")
     if type(policy_decision) is not AgentToolPolicyDecision:
         raise TypeError("policy_decision must be AgentToolPolicyDecision")
     validate_agent_tool_policy_decision(policy_decision)
@@ -292,20 +346,38 @@ def apply_tool_policy_decision(
 def settle_tool_execution(
     state: AgentToolPolicyState,
     outcome: ToolExecutionOutcome,
+    *,
+    mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
 ) -> AgentToolPolicyTransition:
     """Advance counters after execution, with interruption taking precedence."""
 
-    if type(state) is not AgentToolPolicyState:
-        raise TypeError("state must be AgentToolPolicyState")
+    _validate_invocation_state(state, mode)
     if type(outcome) is not ToolExecutionOutcome:
         raise TypeError("outcome must be ToolExecutionOutcome")
     _validate_tool_execution_outcome(outcome)
+    if mode is AgentToolInvocationMode.PARENT:
+        state = replace(state, reserved_parent_slot=False)
     if outcome.interruption is not ToolExecutionInterruption.SETTLED:
         return AgentToolPolicyTransition(
             AgentToolPolicyAction.INTERRUPTED,
             state,
             interruption=outcome.interruption,
         )
+    if mode is AgentToolInvocationMode.NESTED:
+        if (
+            state.invocations_this_turn + 1 + state.reserved_parent_slot
+            > state.tool_budget
+        ):
+            raise ValueError("nested settlement cannot exceed tool_budget")
+        if outcome.malformed_arguments:
+            return AgentToolPolicyTransition(
+                AgentToolPolicyAction.NESTED_MALFORMED,
+                replace(
+                    state,
+                    invocations_this_turn=state.invocations_this_turn + 1,
+                    nested_malformed_count=state.nested_malformed_count + 1,
+                ),
+            )
     if outcome.malformed_arguments:
         malformed_count = state.malformed_argument_count + 1
         malformed_streak = state.consecutive_malformed_streak + 1
@@ -322,7 +394,7 @@ def settle_tool_execution(
             next_state,
             failure=failure,
         )
-    if state.invocations_this_turn >= state.tool_budget:
+    if state.invocations_this_turn + state.reserved_parent_slot >= state.tool_budget:
         raise ValueError("settled execution cannot exceed tool_budget")
     return AgentToolPolicyTransition(
         AgentToolPolicyAction.SETTLED,
@@ -330,7 +402,11 @@ def settle_tool_execution(
             state,
             invocations_this_turn=state.invocations_this_turn + 1,
             tool_invocation_count=state.tool_invocation_count + 1,
-            consecutive_malformed_streak=0,
+            consecutive_malformed_streak=(
+                state.consecutive_malformed_streak
+                if mode is AgentToolInvocationMode.NESTED
+                else 0
+            ),
         ),
     )
 

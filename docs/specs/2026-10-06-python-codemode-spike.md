@@ -5,9 +5,9 @@ Status: spike result, 2026-10-06. This follows the
 still decides selection and order. This document picks a backend, defines the
 first-slice contract and lists the first-slice tasks. Implementation status:
 T1 (runtime provisioning and the availability self-test), T2 (the worker
-and the guest prelude), T3 (the host runner), and T4 (settle/record extraction)
-are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
-T5–T11 are not yet implemented.
+and the guest prelude), T3 (the host runner), T4 (settle/record extraction),
+and T5 (pure nested policy transitions) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
+T6–T11 are not yet implemented.
 
 ## 1. Status and scope
 
@@ -326,16 +326,32 @@ These steps follow the seam map. Line references are to
 
 ### 4.4 Budgets
 
-- Each nested call consumes the per-turn tool budget (`tool_budget`, default
-  50, `coding/session.py:127`) through the same `decide_tool_admission` and
-  `settle_tool_execution`.
-- One slot is reserved for the parent, so settling the parent cannot raise
-  the error at `loop_policy.py:325-326`.
-- When the budget runs out, the script gets `ToolError("tool budget
-  exhausted")`.
-- Malformed nested calls are counted separately and are never fatal. They
-  must not trigger `terminate_session` (`loop.py:725-728`). The script sees
-  them as a catchable `ToolError`.
+- T5 uses the same `decide_tool_admission`, `apply_tool_policy_decision`
+  and `settle_tool_execution` functions with explicit invocation modes. Budget
+  is checked before authorization; nested calls retain product blocking.
+- After admission and product preflight pass, `reserve_composite_parent`
+  reserves one turn slot. Nested admission checks consumed slots plus the
+  reservation against `tool_budget` (default 50). Nested success/tool error,
+  unauthorized, blocked and malformed calls each consume one slot; only
+  success/tool error increments the execution count. Interrupted calls consume
+  neither and retain the reservation. Exhaustion increments only the exhaustion
+  counter and carries no fatal failure.
+- Parent settlement releases the reservation before applying unchanged direct
+  accounting: success/tool error consumes the slot and resets the direct malformed
+  streak; malformed increments the direct count/streak without consuming a slot
+  (fatal at three); interruption consumes neither. The run owner must replace
+  state with each transition, settle the parent once, and close the future service.
+  Duplicate settlement, nesting without a reservation and over-reservation are
+  rejected. A finished run cannot retain a reservation.
+- Nested malformed calls increment a separate run-owned count, never increment
+  or reset the direct consecutive-malformed streak, and never carry a fatal
+  failure. Nested success/tool error also leaves that streak unchanged.
+- Reservation and nested malformed count are transient, not settings or durable
+  session counters. Revalidation preserves/checks both fields; accepted-turn
+  snapshots start them fresh. See [the accounting table](../codemode.md).
+- T6 will translate exhaustion and nested malformed errors to catchable guest
+  `ToolError` values. T5 supplies pure transitions only; no guest execution
+  integration or nested service is present yet.
 
 ### 4.5 Limits (all PROVISIONAL)
 
@@ -671,7 +687,11 @@ Each task is small and lands with its own tests. The plan's acceptance items
    service, new policy, composite runner, events or tool is shipped by T4.
 5. **T5: nested policy transitions** in `loop_policy.py`: a reserved parent
    slot, non-fatal nested malformed calls, and budget exhaustion. Covers B,
-   plus a budget test.
+   plus a budget test. Implemented with `AgentToolInvocationMode`,
+   `reserve_composite_parent`, and separate `NESTED_MALFORMED` transitions.
+   Tests pin exact child/parent accounting, interruption precedence, budget before
+   authorization, product blocking, reservation lifecycle and forged-value
+   rejection. Direct loop behavior remains unchanged; T6 owns execution wiring.
 6. **T6: `NestedToolCallService`, `AgentCompositeToolRunner` and the
    session-thread pump**, including the combined interrupt and deadline
    waiter.

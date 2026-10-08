@@ -2412,3 +2412,26 @@ def test_settle_seam_returns_result_and_transition_without_recording(
         assert published == []
     if action is AgentToolPolicyAction.INTERRUPTED:
         assert settled.transition.state is tool_state
+
+
+@pytest.mark.parametrize("field", ["reserved_parent_slot", "nested_malformed_count"])
+def test_new_run_rejects_inherited_nested_lifecycle(field: str) -> None:
+    run_input = _run_input()
+    tool_state = replace(run_input.tool_policy_state)
+    object.__setattr__(
+        tool_state, field, True if field == "reserved_parent_slot" else 1
+    )
+    with pytest.raises(ValueError, match="inherit nested lifecycle"):
+        replace(run_input, tool_policy_state=tool_state)
+
+
+def test_finished_run_rejects_leaked_parent_reservation() -> None:
+    loop, _, _, _ = _make_loop([], [ProviderTurnOutcome(result=_provider_result())])
+    outcome = loop.run(_run_input())
+    with pytest.raises(ValueError, match="retain a parent reservation"):
+        replace(
+            outcome,
+            final_tool_state=replace(
+                outcome.final_tool_state, reserved_parent_slot=True
+            ),
+        )

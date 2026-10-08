@@ -14,6 +14,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python codemode policy groundwork (CM1 T5): shared nested admission and
+  settlement, a reserved parent budget slot, and separate non-fatal nested
+  malformed accounting. No nested service or model-visible script tool yet.
+
 - Groundwork for Python codemode (CM1 T1, not yet a tool): an optional
   `codemode` extra (`wasmtime` 49), `python -m pipy_harness.native.codemode
   install [--from-file ZIP]` to install the pinned CPython 3.14.7 WASI runtime

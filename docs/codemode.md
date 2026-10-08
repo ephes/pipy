@@ -1,9 +1,9 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4 loop groundwork, not yet a tool.** The model
+Status: **sandbox core and T4–T5 loop/policy groundwork, not yet a tool.** The model
 cannot run scripts yet: there is no model-visible tool or codemode-specific
-events, budgets or session records.
-Those are tasks T5–T11 of the
+events or session records. Pure nested budget policy exists, without execution wiring.
+Those are tasks T6–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5); the
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
 documents what exists today: installing the runtime, checking availability and
@@ -15,6 +15,32 @@ and validation, and existing tool events. Recording owns top-level results,
 model history, skipped calls and terminal handling. Budget state is published
 early; other state publication keeps its existing recording boundary. This is
 groundwork for T6 reuse, not a nested-call service or a model-visible tool.
+
+T5 adds pure policy transitions, using the existing admission, product-blocking
+and execution-settlement functions with `AgentToolInvocationMode`. After core
+admission and product preflight allow a composite parent, `reserve_composite_parent`
+reserves one slot. Nested admission checks used slots plus that reservation before
+authorization. Settlement with `PARENT` releases it exactly once in the caller's
+state sequence; a second parent settlement or a nested call after release is
+rejected. T6 must own that sequence and close the service on settlement.
+
+| Outcome | Turn slots | Execution count | Malformed accounting |
+| --- | --- | --- | --- |
+| Nested success or tool error | +1 | +1 | direct streak unchanged |
+| Nested unauthorized or blocked | +1 | unchanged | unchanged |
+| Nested malformed | +1 | unchanged | run-owned `nested_malformed_count` +1; no fatal failure, direct streak unchanged |
+| Nested interrupted | unchanged | unchanged | unchanged; parent reservation retained |
+| Nested exhausted | unchanged | unchanged | unchanged; exhaustion count +1, no fatal failure |
+| Parent success or tool error | reserved slot consumed | +1 | direct streak reset |
+| Parent malformed | reservation released, no slot consumed | unchanged | existing direct count/streak +1, fatal at three |
+| Parent interrupted | reservation released, no slot consumed | unchanged | unchanged |
+
+Reservation and nested malformed count are transient run-owned state, validated
+at policy and publication boundaries. Session publication retains the existing
+cumulative counters only; a new run starts with no reservation and zero nested
+malformed count. An exhausted transition is groundwork for T6 to translate to a
+catchable guest `ToolError`; that integration does not exist yet. Direct calls,
+callbacks and top-level interruption behavior are unchanged.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.

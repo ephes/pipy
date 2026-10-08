@@ -141,6 +141,11 @@ def _validate_loop_run_input(run_input: AgentLoopRunInput) -> None:
     if type(run_input.tool_policy_state) is not AgentToolPolicyState:
         raise TypeError("tool_policy_state must be an exact AgentToolPolicyState")
     _revalidate_tool_policy_state(run_input.tool_policy_state)
+    if (
+        run_input.tool_policy_state.reserved_parent_slot
+        or run_input.tool_policy_state.nested_malformed_count
+    ):
+        raise ValueError("a new agent run cannot inherit nested lifecycle state")
     if run_input.tool_policy_state.invocations_this_turn != 0:
         raise ValueError("a new agent run must start with zero turn invocations")
     if (
@@ -301,6 +306,9 @@ class AgentLoopOutcome:
         _validate_history(self.final_history)
         if type(self.final_tool_state) is not AgentToolPolicyState:
             raise TypeError("final_tool_state must be AgentToolPolicyState")
+        _revalidate_tool_policy_state(self.final_tool_state)
+        if self.final_tool_state.reserved_parent_slot:
+            raise ValueError("a finished agent run cannot retain a parent reservation")
         _validate_queued_input(self.next_input, "next_input")
         require_bool(self.terminate_session, "terminate_session")
         if (
@@ -1188,6 +1196,8 @@ def _revalidate_tool_policy_state(state: AgentToolPolicyState) -> None:
         malformed_argument_count=state.malformed_argument_count,
         consecutive_malformed_streak=state.consecutive_malformed_streak,
         budget_exhausted_count=state.budget_exhausted_count,
+        reserved_parent_slot=state.reserved_parent_slot,
+        nested_malformed_count=state.nested_malformed_count,
     )
 
 

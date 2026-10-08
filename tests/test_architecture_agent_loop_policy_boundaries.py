@@ -337,6 +337,8 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
             "malformed_argument_count",
             "consecutive_malformed_streak",
             "budget_exhausted_count",
+            "reserved_parent_slot",
+            "nested_malformed_count",
         ),
         "AgentToolPolicyTransition": (
             "action",
@@ -369,6 +371,11 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
     assert _method_names(request_protocol) == ("prepare",)
     assert _method_names(tool_protocol) == ("before_execute", "transform_result")
 
+    assert _enum_members(_class_node(tree, "AgentToolInvocationMode")) == (
+        "DIRECT",
+        "NESTED",
+        "PARENT",
+    )
     assert _enum_members(_class_node(tree, "AgentToolPolicyAction")) == (
         "EXECUTE",
         "BUDGET_EXHAUSTED",
@@ -376,6 +383,7 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
         "BLOCKED",
         "SETTLED",
         "MALFORMED",
+        "NESTED_MALFORMED",
         "INTERRUPTED",
     )
     assert _enum_members(_class_node(tree, "AgentProviderStatusAction")) == (
@@ -388,6 +396,7 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
         if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")
     ) == (
         "validate_agent_tool_policy_decision",
+        "reserve_composite_parent",
         "decide_tool_admission",
         "apply_tool_policy_decision",
         "settle_tool_execution",
