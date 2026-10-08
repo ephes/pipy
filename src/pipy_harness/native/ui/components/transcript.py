@@ -37,9 +37,11 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Self, cast
 
+from pipy_harness.native.agent import NestedToolCallCompleted, NestedToolCallStarted
+from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.chrome import chrome_style_for
 from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
@@ -53,12 +55,14 @@ from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.tool_rows import (
     BoxRow,
     EditPreview,
+    NestedToolLine,
     RowRenderInputs,
     SkillInvocationBox,
     SummaryBox,
     ToolRowResult,
     ToolRowState,
     apply_edit_result,
+    bounded_nested_text,
     encode_rows,
     is_builtin_edit,
     is_running_builtin_bash,
@@ -518,6 +522,70 @@ class TranscriptComponent:
             cancel()
         if is_running_builtin_bash(state):
             self._start_ticker(state)
+        self._repaint()
+
+    def update_nested_tool(
+        self, event: NestedToolCallStarted | NestedToolCallCompleted
+    ) -> None:
+        """Own child writes and every paint under the same row ownership lock."""
+        with self._paint_lock:
+            state = self.pending_tool
+            if (
+                state is None
+                or state.tool_name != "codemode"
+                or state.correlation_id != event.parent_correlation_id
+            ):
+                return
+            index = next(
+                (
+                    i
+                    for i, line in enumerate(state.nested_lines)
+                    if line.call_id == event.call.provider_correlation_id
+                ),
+                None,
+            )
+            if isinstance(event, NestedToolCallStarted):
+                if index is not None or len(state.nested_lines) >= 256:
+                    return
+                remaining = 32768 - sum(
+                    len(line.arguments.encode("utf-8")) for line in state.nested_lines
+                )
+                line = NestedToolLine(
+                    event.call.provider_correlation_id,
+                    bounded_nested_text(event.call.tool_name, 80),
+                    bounded_nested_text(
+                        event.call.arguments_json.value, min(8192, remaining)
+                    ),
+                )
+                state.nested_lines += (line,)
+            else:
+                if index is None:
+                    return
+                old = state.nested_lines[index]
+                if old.status != "unfinished":
+                    return
+                status = (
+                    "cancelled"
+                    if event.status
+                    in {NestedCallStatus.INTERRUPTED, NestedCallStatus.CANCELLED}
+                    else "error"
+                    if event.result.is_error
+                    else "ok"
+                )
+                line = replace(
+                    old,
+                    status=status,
+                    duration_seconds=event.duration_seconds,
+                    error=bounded_nested_text(event.result.content.value, 500)
+                    if event.result.is_error
+                    else "",
+                )
+                state.nested_lines = (
+                    *state.nested_lines[:index],
+                    line,
+                    *state.nested_lines[index + 1 :],
+                )
+            self.pending_tool_lines = self._tool_row_lines(state)
         self._repaint()
 
     def now(self) -> float:

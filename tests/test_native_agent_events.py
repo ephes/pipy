@@ -29,6 +29,8 @@ from pipy_harness.native.agent import (
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
     ProductContent,
     ProviderFailed,
     RetryCompleted,
@@ -71,6 +73,8 @@ EXPECTED_PUBLIC_EXPORTS = [
     "FollowUpConsumed",
     "MessageCompleted",
     "MessageStarted",
+    "NestedToolCallStarted",
+    "NestedToolCallCompleted",
     "ProductContent",
     "ProviderFailed",
     "RetryCompleted",
@@ -98,6 +102,15 @@ def _event_examples() -> tuple[AgentEvent, ...]:
         ProductContent("private tool output"),
         provider_correlation_id="provider-call-1",
     )
+    child = AgentToolCall("provider-call-1/1", "read", ProductContent("{}"))
+    child_result = AgentToolResultMessage(
+        "pipy-tool-child",
+        "read",
+        ProductContent("child"),
+        provider_correlation_id=child.provider_correlation_id,
+    )
+    from pipy_harness.native.agent.nested_status import NestedCallStatus
+
     usage = AgentUsage(input_tokens=4, output_tokens=2, reasoning_tokens=1)
     failure = AgentFailure("ProviderUnavailable", ProductContent("private error"), True)
     run_result = AgentRunResult(
@@ -115,6 +128,10 @@ def _event_examples() -> tuple[AgentEvent, ...]:
         ToolCallStarted(0, call),
         ToolCallUpdated(0, call, ProductContent("partial output")),
         ToolCallCompleted(0, tool_result, 0.25),
+        NestedToolCallStarted(0, "provider-call-1", child),
+        NestedToolCallCompleted(
+            0, "provider-call-1", child, child_result, NestedCallStatus.SETTLED, 0.1
+        ),
         UsageUpdated(usage, 7),
         RetryScheduled(1, 3, 250, failure),
         RetryCompleted(1, False, failure),
@@ -134,7 +151,7 @@ def test_agent_event_union_covers_the_phase_one_vocabulary() -> None:
     events = _event_examples()
 
     assert {type(event) for event in events} == set(get_args(AgentEvent))
-    assert len(events) == 18
+    assert len(events) == 20
 
 
 def test_native_agent_public_exports_are_exact() -> None:

@@ -24,6 +24,8 @@ from pipy_harness.native.agent import (
     AssistantTextDelta,
     FollowUpConsumed,
     MessageCompleted,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
     ProviderFailed,
     RetryCompleted,
     RetryScheduled,
@@ -91,6 +93,8 @@ class ProductSessionEventProjection:
             self._suppress_next_assistant = True
         elif isinstance(event, MessageCompleted):
             self._project_message(event)
+        elif isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
+            return  # Live evidence only; T7b owns parent durable details.
         elif isinstance(event, ToolCallCompleted):
             self._completed_tool_request_ids.add(event.result.tool_request_id)
             self._append(event.result)
@@ -174,6 +178,8 @@ class WorkflowAgentEventCounts:
     provider_failures: int
     steering_consumed: int
     follow_ups_consumed: int
+    nested_calls_started: int
+    nested_calls_completed: int
 
 
 class WorkflowArchiveAgentEventAdapter:
@@ -186,7 +192,7 @@ class WorkflowArchiveAgentEventAdapter:
     """
 
     def __init__(self) -> None:
-        self._counts = [0] * 13
+        self._counts = [0] * 15
 
     def emit(self, event: AgentEvent) -> None:
         safe_types = (
@@ -203,6 +209,8 @@ class WorkflowArchiveAgentEventAdapter:
             ProviderFailed,
             SteeringConsumed,
             FollowUpConsumed,
+            NestedToolCallStarted,
+            NestedToolCallCompleted,
         )
         for index, event_type in enumerate(safe_types):
             if isinstance(event, event_type):
@@ -223,6 +231,8 @@ class SdkAgentEventAdapter:
     def emit(self, event: AgentEvent) -> None:
         if isinstance(event, AgentRunCompleted):
             self._result = event.result
+        elif isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
+            return  # SDK exposes assistant text and terminal run results only.
         elif isinstance(event, AssistantTextDelta) and self._stream_sink is not None:
             self._stream_sink(event.delta.value)
 

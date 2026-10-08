@@ -150,6 +150,8 @@ def test_product_runtime_recursive_closure_stays_on_canonical_adapter_seam() -> 
             "pipy_harness.native.agent.events",
             "pipy_harness.native.agent.identity",
             "pipy_harness.native.agent.messages",
+            # T7a event status is content-free canonical data, not a service dependency.
+            "pipy_harness.native.agent.nested_status",
             "pipy_harness.native.agent.ports",
             "pipy_harness.native.agent.results",
             "pipy_harness.native.agent.runtime_ports",

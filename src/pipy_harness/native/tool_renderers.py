@@ -12,7 +12,10 @@ from typing import Any, ClassVar, TextIO, TypedDict
 from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentToolCall,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
 )
+from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.chrome import (
     ChromeStyle,
     chrome_style_for,
@@ -31,6 +34,11 @@ from pipy_harness.native.extension_ui import coerce_tool_render_lines
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.tool_headers import pi_tool_call_header
+from pipy_harness.native.tool_rows import (
+    NestedToolLine,
+    bounded_nested_text,
+    nested_line_text,
+)
 
 
 class _PaletteToolRenderTheme:
@@ -704,6 +712,10 @@ class _ToolLoopRenderer:
         )
 
     def render_tool_call(self, call: AgentToolCall) -> None:
+        with self._terminal_lock:
+            self._nested_parent_id = (
+                call.provider_correlation_id if call.tool_name == "codemode" else None
+            )
         self._clear_working()
         self._close_reasoning()
         self._last_tool_name = call.tool_name
@@ -750,6 +762,36 @@ class _ToolLoopRenderer:
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
 
+    def render_nested_tool_call(
+        self, event: NestedToolCallStarted | NestedToolCallCompleted
+    ) -> None:
+        with self._terminal_lock:
+            if getattr(self, "_nested_parent_id", None) != event.parent_correlation_id:
+                return
+            status = "unfinished"
+            duration = None
+            if isinstance(event, NestedToolCallCompleted):
+                status = (
+                    "cancelled"
+                    if event.status
+                    in {NestedCallStatus.INTERRUPTED, NestedCallStatus.CANCELLED}
+                    else "error"
+                    if event.result.is_error
+                    else "ok"
+                )
+                duration = event.duration_seconds
+            line = NestedToolLine(
+                event.call.provider_correlation_id,
+                bounded_nested_text(event.call.tool_name, 80),
+                bounded_nested_text(event.call.arguments_json.value, 8192),
+                status,
+                duration,
+            )
+            self._error_stream.write(
+                self._tool_panel_line("  " + nested_line_text(line, expanded=False))
+            )
+            self._error_stream.flush()
+
     def tool_output_sink(self, chunk: str) -> None:
         # Stream long-running tool output (e.g. pytest dots) live in the
         # captured/plain renderer, mirroring the TUI live region.
@@ -770,6 +812,8 @@ class _ToolLoopRenderer:
         duration_seconds: float | None = None,
         details: Mapping[str, Any] | None = None,
     ) -> None:
+        with self._terminal_lock:
+            self._nested_parent_id = None
         pending = self._pending_render
         tool = self._pending_tool
         self._pending_render = None

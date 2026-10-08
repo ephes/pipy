@@ -14,6 +14,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Internal Python codemode nested lifecycle and live projections (CM1 T7a):
+  session-thread child start/completion events, JSON/RPC `parentToolCallId`,
+  numeric-only workflow counters and bounded sanitized child lines inside one
+  TUI parent row. Resize/Ctrl+O preserves live evidence, with expanded errors
+  on separate indented rows. Typed cancellation
+  evidence marks backend/deadline-stopped children cancelled while preserving
+  parent errors and operator-stop accounting. Only parent results persist;
+  durable nested records/resume remain T7b, public tool/settings/CLI remain T8.
+
 - Python codemode internal runtime integration (CM1 T6b): a fresh CPython-on-WASI
   worker composes canonical nested builtins through a session-thread pump, with
   operator/local-command cancellation and backend/deadline stops cancelling the
@@ -23,7 +32,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   skips later calls and prevents provider continuation; standalone host waiting
   Ctrl-C returns an aborted script outcome. Frozen builtin identity checks keep ordinary
   extension `codemode` behavior unchanged. No public tool or model opt-in yet;
-  events/persistence and public delivery remain T7–T11.
+  durable nested records and public delivery remain T7b–T11.
 
 - Python codemode internal service/port groundwork (CM1 T6a): sequential,
   session-thread-owned nested calls reuse tool policy, hooks, validation and
@@ -31,7 +40,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   releases parent reservations even on acquisition/validation faults. Child
   counters publish before later canonical failures, and sticky child interruptions
   survive evidence limits and a runner returning settled. T6a uses fake-runner
-  coverage; T6b adds real runtime integration. T7–T11 events, persistence and
+  coverage; T6b adds real runtime integration. T7b–T11 durable nested records and
   public delivery remain.
 
 - Python codemode policy groundwork (CM1 T5): shared nested admission and

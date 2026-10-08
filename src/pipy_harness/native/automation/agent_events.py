@@ -23,6 +23,8 @@ from pipy_harness.native.agent import (
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
     ProviderFailed,
     RetryCompleted,
     RetryScheduled,
@@ -75,6 +77,21 @@ class AutomationAgentEventAdapter:
             return self._project_run_turn_message(event)
         if isinstance(event, (AssistantTextDelta, AssistantReasoningDelta)):
             return self._project_assistant_delta(event)
+        if isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
+            projected: PiAutomationEvent = {
+                "type": "tool_execution_start"
+                if isinstance(event, NestedToolCallStarted)
+                else "tool_execution_end",
+                "toolCallId": event.call.provider_correlation_id,
+                "parentToolCallId": event.parent_correlation_id,
+                "toolName": event.call.tool_name,
+                "args": parse_tool_arguments(event.call.arguments_json.value),
+            }
+            if isinstance(event, NestedToolCallCompleted):
+                projected.update(
+                    result=event.result.content.value, isError=event.result.is_error
+                )
+            return projected
         if isinstance(event, (ToolCallStarted, ToolCallUpdated, ToolCallCompleted)):
             return self._project_tool_execution(event)
         if isinstance(event, (RetryScheduled, RetryCompleted)):

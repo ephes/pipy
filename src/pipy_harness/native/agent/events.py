@@ -17,6 +17,9 @@ from pipy_harness.native.agent.messages import (
     AgentToolResultMessage,
     AgentTranscriptMessage,
 )
+from pipy_harness.native.agent.nested_status import (
+    NestedCallStatus,
+)
 from pipy_harness.native.agent.results import (
     AgentCancellationReason,
     AgentFailure,
@@ -149,6 +152,71 @@ class ToolCallCompleted:
                 raise ValueError(
                     "ToolCallCompleted.duration_seconds must be finite and nonnegative"
                 )
+
+
+@dataclass(frozen=True, slots=True)
+class NestedToolCallStarted:
+    """An accepted session-thread child; its local ID never goes to a provider."""
+
+    turn_index: int
+    parent_correlation_id: str
+    call: AgentToolCall
+
+    def __post_init__(self) -> None:
+        require_non_negative_int(self.turn_index, "NestedToolCallStarted.turn_index")
+        if type(self.call) is not AgentToolCall:
+            raise TypeError("call must be AgentToolCall")
+        AgentToolCall.__post_init__(self.call)
+        if type(self.parent_correlation_id) is not str:
+            raise TypeError("parent_correlation_id must be str")
+        prefix = self.parent_correlation_id + "/"
+        suffix = self.call.provider_correlation_id.removeprefix(prefix)
+        if (
+            not self.parent_correlation_id
+            or not self.call.provider_correlation_id.startswith(prefix)
+            or not suffix.isascii()
+            or not suffix.isdecimal()
+            or int(suffix) < 1
+        ):
+            raise ValueError("nested call identity must be <parent>/<positive integer>")
+
+
+@dataclass(frozen=True, slots=True)
+class NestedToolCallCompleted:
+    """Validated post-transform child text, without a top-level result append."""
+
+    turn_index: int
+    parent_correlation_id: str
+    call: AgentToolCall
+    result: AgentToolResultMessage
+    status: NestedCallStatus
+    duration_seconds: float
+
+    def __post_init__(self) -> None:
+        NestedToolCallStarted(self.turn_index, self.parent_correlation_id, self.call)
+        if type(self.result) is not AgentToolResultMessage:
+            raise TypeError("result must be AgentToolResultMessage")
+        AgentToolResultMessage.__post_init__(self.result)
+        if (
+            self.result.provider_correlation_id != self.call.provider_correlation_id
+            or self.result.tool_name != self.call.tool_name
+        ):
+            raise ValueError("nested result must match its call")
+        if type(self.status) is not NestedCallStatus:
+            raise TypeError("status must be NestedCallStatus")
+        if self.status is NestedCallStatus.REFUSED:
+            raise ValueError("refused calls have no lifecycle")
+        if (
+            self.status not in {NestedCallStatus.SETTLED, NestedCallStatus.INTERRUPTED}
+            and not self.result.is_error
+        ):
+            raise ValueError("unsuccessful nested status requires an error result")
+        if isinstance(self.duration_seconds, bool) or not isinstance(
+            self.duration_seconds, (int, float)
+        ):
+            raise TypeError("duration_seconds must be numeric")
+        if not isfinite(self.duration_seconds) or self.duration_seconds < 0:
+            raise ValueError("duration_seconds must be finite and nonnegative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +366,8 @@ AgentEvent = (
     | AssistantReasoningDelta
     | MessageCompleted
     | ToolCallStarted
+    | NestedToolCallStarted
+    | NestedToolCallCompleted
     | ToolCallUpdated
     | ToolCallCompleted
     | UsageUpdated

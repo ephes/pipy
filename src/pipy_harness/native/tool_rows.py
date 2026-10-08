@@ -124,6 +124,40 @@ class EditPreview:
     error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class NestedToolLine:
+    """Bounded live evidence, retained only by the owning transcript row."""
+
+    call_id: str
+    name: str
+    arguments: str
+    status: str = "unfinished"
+    duration_seconds: float | None = None
+    error: str = ""
+
+
+def nested_line_text(line: NestedToolLine, *, expanded: bool) -> str:
+    args = line.arguments
+    if not expanded and len(args) > 80:
+        args = args[:77] + "..."
+    icon = {"unfinished": "…", "ok": "✓", "error": "✗", "cancelled": "⊘"}[line.status]
+    text = f"{icon} {line.name} {args}".rstrip()
+    if line.duration_seconds is not None:
+        seconds = line.duration_seconds
+        text += f" {int(seconds * 1000 + 0.5)}ms" if seconds < 1 else f" {seconds:.1f}s"
+    return text
+
+
+def bounded_nested_text(text: str, limit: int) -> str:
+    # Slice before sanitizing: hostile arguments cannot grow retained state or
+    # make a painter scan an arbitrarily large payload.
+    safe = " ".join(_text_output(text[:limit]).split())
+    safe = "".join(char for char in safe if char.isprintable())
+    return safe.encode("utf-8", errors="replace")[:limit].decode(
+        "utf-8", errors="ignore"
+    )
+
+
 @dataclass(slots=True)
 class ToolRowState:
     """The retained inputs of one tool row (Pi ``ToolExecutionComponent``)."""
@@ -143,6 +177,8 @@ class ToolRowState:
     # freezes the `Elapsed` of a row committed without a result.
     started_at: float | None = None
     ended_at: float | None = None
+    correlation_id: str | None = None
+    nested_lines: tuple[NestedToolLine, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -1121,6 +1157,19 @@ def render_tool_row(
     if not partial:
         bg = "error" if result is not None and result.is_error else "success"
     rows: list[RowLine] = [RowLine("", bg), *_call_rows(state, inputs, bg)]
+    if state.nested_lines:
+        shown = state.nested_lines if inputs.expanded else state.nested_lines[-8:]
+        if len(shown) < len(state.nested_lines):
+            rows.append(
+                RowLine(
+                    f"... ({len(state.nested_lines) - len(shown)} earlier calls, ctrl+o to expand)",
+                    bg,
+                )
+            )
+        for line in shown:
+            rows.append(RowLine(nested_line_text(line, expanded=inputs.expanded), bg))
+            if inputs.expanded and line.error:
+                rows.append(RowLine("    " + line.error, bg))
     if result is not None:
         rows.extend(_result_rows(state, inputs, result, bg, partial=partial))
     rows.append(RowLine("", bg))

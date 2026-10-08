@@ -93,6 +93,16 @@ is chosen without measurements. Update user docs and release notes, run
 focused tests and repository checks, and obtain independent review before
 landing implementation.
 
+## Current delivery split
+
+T1–T6 provide sandbox and internal loop/service integration. T7a adds canonical
+nested lifecycle events and live JSON/RPC/TUI projections, with numeric-only
+workflow counters and parent-only persistence. Live child evidence is bounded
+and remains inside one parent row; it does not survive resume yet. T7b owns the
+exact Pi durable nestedCalls record, abort/timeout durability, resume/tree and
+compaction file-operation input. Public tool/settings/CLI remains T8; end-to-end
+validation, measurement and final docs/review remain T9–T11.
+
 ## Deferred
 
 Parallel execution and shared-state contracts; MCP/discovery/tool exposure;

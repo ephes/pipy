@@ -12,7 +12,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol, assert_never, runtime_checkable
 
-from pipy_harness.native.agent import AgentCancellationReason, AgentEvent, AgentToolCall
+from pipy_harness.native.agent import (
+    AgentCancellationReason,
+    AgentEvent,
+    AgentToolCall,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
+)
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.ui.state import (
     CancelAssistantMessage,
@@ -22,6 +28,7 @@ from pipy_harness.native.ui.state import (
     RenderBufferedAssistantText,
     RenderBufferedAssistantThinking,
     RenderDecision,
+    RenderNestedToolCall,
     RenderToolCall,
     RenderToolResult,
     ScheduleRetry,
@@ -89,6 +96,15 @@ class RetryEventRenderer(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
+class NestedEventRenderer(Protocol):
+    """Optional live child verb; legacy mandatory renderers stay compatible."""
+
+    def render_nested_tool_call(
+        self, event: NestedToolCallStarted | NestedToolCallCompleted
+    ) -> None: ...
+
+
 class RenderingAgentEventAdapter:
     """Project canonical deltas, messages, and tool events onto a renderer."""
 
@@ -104,7 +120,10 @@ class RenderingAgentEventAdapter:
             self._apply(decision)
 
     def _apply(self, decision: RenderDecision) -> None:
-        if isinstance(decision, (RenderToolCall, StreamToolOutput, RenderToolResult)):
+        if isinstance(decision, RenderNestedToolCall):
+            if isinstance(self._renderer, NestedEventRenderer):
+                self._renderer.render_nested_tool_call(decision.event)
+        elif isinstance(decision, (RenderToolCall, StreamToolOutput, RenderToolResult)):
             self._apply_tool_decision(decision)
         elif isinstance(decision, (ScheduleRetry, FinishRetry)):
             self._apply_retry_decision(decision)

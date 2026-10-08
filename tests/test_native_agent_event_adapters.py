@@ -876,6 +876,8 @@ def test_workflow_projection_exposes_only_fixed_numeric_counts() -> None:
         provider_failures=0,
         steering_consumed=0,
         follow_ups_consumed=0,
+        nested_calls_started=0,
+        nested_calls_completed=0,
     )
     assert "PIPY_PRIVATE_WORKFLOW_PROJECTION_SENTINEL" not in repr(counts)
 

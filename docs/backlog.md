@@ -19,7 +19,8 @@ updated 2026-10-04.
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
   and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
   T6 internal service, real runner and session-thread pump are implemented.
-  T7–T11 remain; there is no model opt-in. UP1
+  T7a nested lifecycle/live projections are implemented; T7b–T11 remain;
+  there is no model opt-in. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
@@ -140,9 +141,17 @@ and bounded reaping. Real AgentLoop +
 ToolExecutor + host tests establish internal acceptance D, including active-tool
 cancellation and fresh execution after cancellation. Production composition is
 wired behind frozen native builtin identity checks; no builtin `codemode` is
-registered and there is no model opt-in. T7–T11 (events, persistence, public
-tool/CLI, tmux validation, measurement and final scope)
-remain unimplemented.
+registered and there is no model opt-in. **T7a implemented internally:** distinct
+session-thread nested lifecycle events, JSON/RPC parent correlation, deliberate
+SDK/persistence branches, numeric-only workflow counters and bounded live child
+lines inside the codemode row, owned by transcript verbs under PaintLock.
+Typed cancellation evidence marks backend/deadline-stopped children cancelled
+while parent error and operator-stop semantics remain unchanged. Live evidence
+rerenders on resize/Ctrl+O and commits with one parent row; it does not yet survive
+resume. **T7b next:** exact Pi durable parent `nestedCalls` records/bounds,
+abort/timeout durability, resume/tree reconstruction and compaction file-ops.
+T8–T11 (public tool/settings/CLI, end-to-end/tmux evidence, measurement and final
+scope) remain unimplemented.
 
 MCP, parallel calls, persistent script state, images and classifier operations
 remain separate follow-ons. The earlier combined MCP/codemode deferral is

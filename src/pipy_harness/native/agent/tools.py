@@ -27,7 +27,8 @@ class ToolExecutionInterruption(StrEnum):
     """Closed reasons why a caller stopped waiting for a tool invocation.
 
     SCRIPT_STOP is waiter-only: the executor consumes it as an ordinary error
-    observation, never an operator interruption in canonical policy state.
+    observation with typed cancelled evidence, never an operator interruption
+    in canonical policy state.
     """
 
     SETTLED = "settled"
@@ -43,12 +44,18 @@ class ToolExecutionOutcome:
     result: AgentToolResultMessage
     malformed_arguments: bool = False
     interruption: ToolExecutionInterruption = ToolExecutionInterruption.SETTLED
+    # Execution evidence, independent of policy/operator interruption ownership.
+    cancelled: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.result, AgentToolResultMessage):
             raise TypeError(
                 "ToolExecutionOutcome.result must be AgentToolResultMessage"
             )
+        if type(self.cancelled) is not bool:
+            raise TypeError("ToolExecutionOutcome.cancelled must be bool")
+        if self.cancelled and not self.result.is_error:
+            raise ValueError("cancelled execution requires an error result")
         if not isinstance(self.malformed_arguments, bool):
             raise TypeError("ToolExecutionOutcome.malformed_arguments must be a bool")
         if not isinstance(self.interruption, ToolExecutionInterruption):
@@ -308,7 +315,8 @@ class ToolExecutor:
     ) -> ToolExecutionOutcome:
         if interruption is ToolExecutionInterruption.SCRIPT_STOP:
             return ToolExecutionOutcome(
-                self.error_result(call, "tool stopped by script backend")
+                self.error_result(call, "tool stopped by script backend"),
+                cancelled=True,
             )
         label = (
             "local command"
@@ -318,6 +326,7 @@ class ToolExecutor:
         return ToolExecutionOutcome(
             self.error_result(call, f"tool cancelled by {label}"),
             interruption=interruption,
+            cancelled=True,
         )
 
     def _execute_once(

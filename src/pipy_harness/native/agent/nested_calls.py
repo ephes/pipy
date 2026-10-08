@@ -5,11 +5,11 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
+from pipy_harness.native.agent.nested_status import NestedCallStatus as NestedCallStatus
 from pipy_harness.native.agent.request import (
     validate_agent_tool_call,
     validate_agent_tool_result_message,
@@ -23,16 +23,6 @@ from pipy_harness.native.agent.tools import (
 BUILTIN_NESTED_NAMES = frozenset(
     {"read", "ls", "grep", "find", "write", "edit", "bash"}
 )
-
-
-class NestedCallStatus(StrEnum):
-    SETTLED = "settled"
-    BLOCKED = "blocked"
-    UNAUTHORIZED = "unauthorized"
-    BUDGET_EXHAUSTED = "budget_exhausted"
-    MALFORMED = "malformed"
-    INTERRUPTED = "interrupted"
-    REFUSED = "refused"
 
 
 @dataclass(frozen=True, slots=True)

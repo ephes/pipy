@@ -481,6 +481,7 @@ def test_interruption_signals_tool_and_returns_balanced_cancellation(
         assert outcome.malformed_arguments is False
         assert outcome.result.is_error is True
         assert outcome.result.content == ProductContent(expected_text)
+        assert outcome.cancelled is True
     finally:
         release.set()
         assert finished.wait(timeout=1)
@@ -512,6 +513,7 @@ def test_completed_worker_result_wins_while_interruption_is_preserved(
     assert outcome.result.content == ProductContent("hello")
     assert outcome.result.is_error is False
     assert outcome.malformed_arguments is False
+    assert outcome.cancelled is False
     assert outcome.interruption is interruption
 
 

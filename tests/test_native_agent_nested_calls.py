@@ -22,6 +22,7 @@ from test_native_agent_loop import (
     _UsagePublisher,
 )
 
+from pipy_harness.native.agent import AgentEventSink
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
     ToolCallCompleted,
@@ -42,6 +43,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
+from pipy_harness.native.agent_adapters import SynchronousAgentEventComposite
 from pipy_harness.native.tools.base import ToolDefinition
 
 
@@ -120,6 +122,7 @@ def _setup(
     parents: int = 1,
     tool_waiter: ToolInterruptWaiter | None = None,
     status: _StatusPolicy | None = None,
+    event_sink: AgentEventSink | None = None,
 ) -> tuple[AgentLoop, _NestedTools, _EventSink, list[str]]:
     order: list[str] = []
     tools = tools or _NestedTools(order)
@@ -143,7 +146,9 @@ def _setup(
         provider_turn=provider,
         tool_capabilities=tools,
         tool_policy=policy or _Policy(order),
-        event_sink=events,
+        event_sink=events
+        if event_sink is None
+        else SynchronousAgentEventComposite((events, event_sink)),
         usage_publisher=_UsagePublisher(order),
         queued_input_port=_QueuedInputs(),
         status_policy=status or _StatusPolicy(order),

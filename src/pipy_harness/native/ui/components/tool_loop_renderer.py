@@ -32,6 +32,8 @@ from typing import Any, ClassVar
 from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentToolCall,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.extension_types import ExtensionTool
@@ -346,6 +348,7 @@ class TuiToolLoopRenderer:
         extension = None if builtin else self._tool_renderers.get(name)
         state = ToolRowState(
             tool_name=name,
+            correlation_id=call.provider_correlation_id,
             args=args,
             cwd=self._cwd,
             extension=extension,
@@ -369,6 +372,11 @@ class TuiToolLoopRenderer:
         preview = compute_edit_preview(state.args, state.cwd)
         if preview is not None:
             self._transcript.apply_tool_preview(state, preview)
+
+    def render_nested_tool_call(
+        self, event: NestedToolCallStarted | NestedToolCallCompleted
+    ) -> None:
+        self._transcript.update_nested_tool(event)
 
     def tool_output_sink(self, chunk: str) -> None:
         self._transcript.append_tool_output(chunk)

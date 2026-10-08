@@ -1,9 +1,9 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4–T6 internal integration, not yet a tool.** The model
-cannot run scripts yet: there is no model-visible tool or codemode-specific
-events or session records. An internal nested-call service and real composite runner exist.
-Product delivery remains T7–T11 of the
+Status: **sandbox core and T4–T7a internal integration, not yet a tool.** The model
+cannot run scripts yet: there is no model-visible tool or durable nested-call record. Internal
+nested lifecycle events and live projections exist. An internal nested-call service and real composite runner exist.
+Product delivery remains T7b–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5); the
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
 documents what exists today: installing the runtime, checking availability and
@@ -77,7 +77,7 @@ propagate. Cleanup also releases reservations on propagated exceptions.
 Wrong-thread calls are refused without touching mutable session state; records, interruption access
 and close are session-thread-only. Reentrant calls and calls after close are refused.
 
-Child results never enter model history, top-level results or existing tool events.
+Child results never enter model history, top-level results or top-level tool events.
 Transient record snapshots retain at most 256 validated text outcomes, with at
 most 8 KiB arguments per retained call and 32 KiB total. Arbitrary result details
 are omitted from retained evidence. Further exhausted calls may update the
@@ -101,7 +101,8 @@ During a child tool, a monitor signals events for completion or the fresh
 script stop event; it never reads or writes canonical or service state. The
 session thread combines that signal with the existing operator waiter. The
 explicit `SCRIPT_STOP` waiter value makes the executor cancel and bound its
-join, then return an ordinary error observation rather than operator interruption.
+join, then return an ordinary error observation with typed cancellation evidence rather
+than operator interruption. T7a projects the in-flight child as cancelled.
 Ctrl-C while computing becomes operator abort even when no tool waiter is
 installed. Actual operator/local-command interruption closes the service,
 stops the loop and reaps the worker. Backend/deadline failures remain parent errors. There is
@@ -115,12 +116,49 @@ operator/local-command cancellation during cooperative and noncooperative tools,
 headless abort during guest compute, deadline/backend failure during a tool,
 fresh execution after cancellation and worker process-group cleanup. They
 establish T6 acceptance D at the internal integration seam. Actual tmux Escape
-evidence remains T9. T7 owns nested events, projections and durable parent
+evidence remains T9. T7a implements nested events and live projections; T7b owns durable parent
 details; T8 owns public tool/settings/CLI delivery and truncation spilling.
 T9–T11 remain outstanding. There is no model opt-in yet.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.
+
+
+## Internal nested lifecycle (T7a)
+
+The session thread emits parent `ToolCallStarted`, then accepted child
+`NestedToolCallStarted` / `NestedToolCallCompleted` pairs, then parent
+`ToolCallCompleted`. Children use local `<parent>/<n>` identities; they never
+become provider tool calls. Completion carries validated post-transform text,
+policy status and finite nonnegative `duration_seconds`. Refused recursive,
+reentrant, closed or wrong-thread requests cannot execute and have no lifecycle.
+Canonical callback failures still propagate and release the parent reservation.
+
+JSON/RPC projects child start/end to `tool_execution_start` / `tool_execution_end`
+with `parentToolCallId`, `toolCallId`, `toolName`, `args`, and completion
+`result` / `isError`. The SDK deliberately ignores children. Product persistence
+appends only the parent result. The workflow archive counts child starts and
+completions separately using numeric metadata without names, arguments or text.
+
+Live TUI children stay inside the pending codemode row: `…` unfinished, `✓` ok,
+`✗` error, `⊘` cancelled, with name, arguments and settled duration. Collapsed
+arguments show at most 80 characters and the last eight calls; Ctrl+O expands
+retained evidence, with child errors on separate indented lines. PaintLock protects child updates and rendering, and parent
+correlation rejects late or mismatched events. A completed parent commits one
+row with its children; resize and expansion redraw that retained row. The plain
+renderer emits indented child lifecycle lines under the parent. Retained live
+state is capped at 256 children, 8 KiB arguments per child / 32 KiB total,
+80-byte names and 500-byte error evidence; terminal controls are removed.
+Backend/deadline stops mark an in-flight child cancelled through typed executor
+evidence while the parent remains a timeout/backend error. Operator/local-command
+interruption keeps existing turn-stop and budget semantics.
+
+These live children **do not survive resume yet**. T7b implements the exact Pi
+`nestedCalls` parent-details schema/bounds, abort/timeout durable records,
+resume/tree reconstruction and compaction file-operation extraction. No nested
+results or per-call CustomEntry records are persisted by T7a. T8 owns public
+tool/settings/CLI delivery, T9 end-to-end evidence, T10 measurement and T11
+final documentation/review.
 
 ## What it is
 

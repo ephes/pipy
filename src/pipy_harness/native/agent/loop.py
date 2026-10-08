@@ -28,6 +28,8 @@ from pipy_harness.native.agent.events import (
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
     ProviderFailed,
     RunCancelled,
     SteeringConsumed,
@@ -367,6 +369,7 @@ class _SettledToolCall:
 
     result: AgentToolResultMessage
     transition: AgentToolPolicyTransition
+    cancelled: bool = False
 
 
 class AgentLoop:
@@ -908,7 +911,7 @@ class AgentLoop:
             self._events.emit(
                 ToolCallCompleted(turn_index, result, duration_seconds=duration)
             )
-        return _SettledToolCall(result, settlement)
+        return _SettledToolCall(result, settlement, execution.cancelled)
 
     def _execute_composite(
         self,
@@ -933,6 +936,12 @@ class AgentLoop:
         def settle(
             child: AgentToolCall, waiter: ToolInterruptWaiter | None = None
         ) -> NestedToolCallOutcome:
+            from time import monotonic
+
+            started = monotonic()
+            self._events.emit(
+                NestedToolCallStarted(turn_index, call.provider_correlation_id, child)
+            )
             settled = self._settle_tool_call(
                 state.tool_state,
                 snapshot,
@@ -951,9 +960,22 @@ class AgentLoop:
                 if action is AgentToolPolicyAction.NESTED_MALFORMED
                 else action.value
             )
-            return NestedToolCallOutcome(
+            if settled.cancelled and status is NestedCallStatus.SETTLED:
+                status = NestedCallStatus.CANCELLED
+            outcome = NestedToolCallOutcome(
                 child, settled.result, status, settled.transition.interruption
             )
+            self._events.emit(
+                NestedToolCallCompleted(
+                    turn_index,
+                    call.provider_correlation_id,
+                    child,
+                    outcome.result,
+                    outcome.status,
+                    monotonic() - started,
+                )
+            )
+            return outcome
 
         service = NestedToolCallService(
             call,

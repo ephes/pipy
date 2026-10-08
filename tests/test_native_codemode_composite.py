@@ -26,9 +26,16 @@ from test_native_agent_loop import (
     _UsagePublisher,
 )
 
+from pipy_harness.native.agent import (
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
+    ToolCallCompleted,
+    ToolCallStarted,
+)
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.loop import AgentLoop, AgentLoopOutcome
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
+from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.results import AgentRunOutcome
 from pipy_harness.native.agent.tools import (
@@ -237,7 +244,7 @@ except ToolError as exc:
     text('budget: ' + str(exc))
 raise RuntimeError('after effect')
 """
-    loop, status, _ = _loop(tmp_path, code, paths=paths, policy=policy)
+    loop, status, events = _loop(tmp_path, code, paths=paths, policy=policy)
     outcome = loop.run(_run_input(tool_budget=5))
     parent = _parent(outcome)
     assert parent.provider_correlation_id == "parent" and parent.tool_name == "codemode"
@@ -260,6 +267,36 @@ raise RuntimeError('after effect')
         "parent/3",
         "parent/4",
     ]
+    lifecycle = [
+        event
+        for event in events.events
+        if isinstance(
+            event,
+            (
+                ToolCallStarted,
+                ToolCallCompleted,
+                NestedToolCallStarted,
+                NestedToolCallCompleted,
+            ),
+        )
+    ]
+    assert [type(event) for event in lifecycle] == [
+        ToolCallStarted,
+        *([NestedToolCallStarted, NestedToolCallCompleted] * 5),
+        ToolCallCompleted,
+    ]
+    completed = [
+        event for event in lifecycle if isinstance(event, NestedToolCallCompleted)
+    ]
+    assert [event.status for event in completed] == [
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.MALFORMED,
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.BUDGET_EXHAUSTED,
+    ]
+    assert completed[0].result.content.value == "alpha transformed"
+    assert all(event.duration_seconds >= 0 for event in completed)
     assert len(pids) == 1
 
 
@@ -301,7 +338,7 @@ def test_interrupt_active_nested_tool_and_fresh_run(
 
     runner = CodemodeCompositeRunner(paths=paths)
     try:
-        loop, _, _ = _loop(
+        loop, _, events = _loop(
             tmp_path,
             "tools.bash(); tools.write(path='late', content='bad')",
             paths=paths,
@@ -313,6 +350,13 @@ def test_interrupt_active_nested_tool_and_fresh_run(
         outcome = loop.run(_run_input())
         assert time.monotonic() - started < 3
         assert outcome.result.outcome is AgentRunOutcome.CANCELLED
+        children = [
+            event
+            for event in events.events
+            if isinstance(event, NestedToolCallCompleted)
+        ]
+        assert len(children) == 1 and children[0].status is NestedCallStatus.INTERRUPTED
+        assert children[0].result.is_error
         assert not (tmp_path / "late").exists()
         assert not outcome.final_tool_state.reserved_parent_slot
         assert all(group_is_gone(pid) for pid in pids)
@@ -380,7 +424,7 @@ def test_backend_stop_cancels_tool_without_operator_turn(
             return original(channel)
 
         monkeypatch.setattr(host._Channel, "_loop", fail)
-    loop, _, _ = _loop(
+    loop, _, events = _loop(
         tmp_path,
         "tools.bash(); text('late')",
         paths=paths,
@@ -392,6 +436,11 @@ def test_backend_stop_cancels_tool_without_operator_turn(
     outcome = loop.run(_run_input())
     assert time.monotonic() - started < 3
     assert entered.is_set() and cancelled.wait(1)
+    children = [
+        event for event in events.events if isinstance(event, NestedToolCallCompleted)
+    ]
+    assert len(children) == 1 and children[0].status is NestedCallStatus.CANCELLED
+    assert children[0].result.is_error
     assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
     parent = _parent(outcome)
     assert parent.is_error
@@ -755,3 +804,22 @@ def test_no_waiter_keyboard_interrupt_during_real_compute(
     assert closed and all(service._closed for service in closed)
     assert not outcome.final_tool_state.reserved_parent_slot
     assert pids and all(group_is_gone(pid) for pid in pids)
+
+
+def test_ordinary_nested_toolerror_is_not_backend_cancellation(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    loop, _, events = _loop(
+        tmp_path,
+        "try:\n    tools.read(path='missing')\nexcept ToolError:\n    text('caught ordinary toolerror')",
+        paths=paths,
+    )
+    outcome = loop.run(_run_input())
+    assert "caught ordinary toolerror" in _parent(outcome).content.value
+    children = [
+        event for event in events.events if isinstance(event, NestedToolCallCompleted)
+    ]
+    assert len(children) == 1 and children[0].status is NestedCallStatus.SETTLED
+    assert children[0].result.is_error
+    assert outcome.final_tool_state.tool_invocation_count == 2
+    assert len(pids) == 1

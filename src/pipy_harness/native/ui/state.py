@@ -21,6 +21,8 @@ from pipy_harness.native.agent.events import (
     AssistantTextDelta,
     MessageCompleted,
     MessageStarted,
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
     ProviderFailed,
     RetryCompleted,
     RetryScheduled,
@@ -129,6 +131,11 @@ class FinishRetry:
 
 
 @dataclass(frozen=True, slots=True)
+class RenderNestedToolCall:
+    event: NestedToolCallStarted | NestedToolCallCompleted
+
+
+@dataclass(frozen=True, slots=True)
 class RenderToolCall:
     """Render a model-requested tool call entering execution."""
 
@@ -164,6 +171,7 @@ RenderDecision = (
     | CancelAssistantMessage
     | ScheduleRetry
     | FinishRetry
+    | RenderNestedToolCall
     | RenderToolCall
     | StreamToolOutput
     | RenderToolResult
@@ -285,6 +293,8 @@ def _reduce_message_completed(state: UiState, event: MessageCompleted) -> _Reduc
 
 
 def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
+    if isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
+        return (state, (RenderNestedToolCall(event),))
     if isinstance(event, ToolCallStarted):
         return (state, (RenderToolCall(event.call),))
     if isinstance(event, ToolCallUpdated):

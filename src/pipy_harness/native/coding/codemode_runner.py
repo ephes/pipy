@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import NestedToolCallService
+from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -165,7 +166,8 @@ class CodemodeCompositeRunner:
             return CallResult(
                 ok=not outcome.result.is_error,
                 text=outcome.result.content.value,
-                cancelled=outcome.interruption is not None,
+                cancelled=outcome.interruption is not None
+                or outcome.status is NestedCallStatus.CANCELLED,
             )
 
         try:
