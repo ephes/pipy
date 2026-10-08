@@ -210,6 +210,14 @@ def test_loop_to_live_transcript_and_all_projections(
         "args": {},
         "parentToolCallId": "parent0",
     }
+    parent_end = next(
+        e
+        for e in automation.events
+        if e["type"] == "tool_execution_end" and "parentToolCallId" not in e
+    )
+    parent_details = parent_end["details"]
+    assert isinstance(parent_details, dict)
+    assert parent_details["nestedCalls"]["calls"][0]["status"] == "ok"
     child_text = children[1]["result"]
     assert isinstance(child_text, str)
     assert child_text.endswith(" transformed") and children[1]["isError"] is False

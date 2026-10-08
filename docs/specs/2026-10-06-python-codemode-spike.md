@@ -9,7 +9,8 @@ and the guest prelude), T3 (the host runner), T4 (settle/record extraction),
 T5 (pure nested policy transitions), and T6a (internal service and optional composite
 port/dispatch with fake-runner tests) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
 T6b (real runner/pump/deadline wiring) and T7a (nested lifecycle events and live
-projections) are implemented internally. T7b–T11 remain; no public tool is registered.
+projections), and T7b (durable records, resume/tree and summary inputs) are
+implemented internally. T8–T11 remain; no public tool is registered.
 
 ## 1. Status and scope
 
@@ -252,7 +253,7 @@ These steps follow the seam map. Line references are to
 
    ```python
    class NestedCallStatus(StrEnum):
-       SETTLED; BLOCKED; UNAUTHORIZED; BUDGET_EXHAUSTED; MALFORMED; INTERRUPTED; CANCELLED; REFUSED
+       SETTLED; BLOCKED; UNAUTHORIZED; BUDGET_EXHAUSTED; MALFORMED; INTERRUPTED; CANCELLED; UNFINISHED; REFUSED
 
    @dataclass(frozen=True, slots=True)
    class NestedToolCallOutcome:
@@ -260,6 +261,8 @@ These steps follow the seam map. Line references are to
        result: AgentToolResultMessage    # post-transform, validated
        status: NestedCallStatus
        interruption: ToolExecutionInterruption | None = None
+       duration_seconds: float = 0.0
+       arguments_bytes: int | None = None
 
    class NestedToolCallService(Protocol):
        """Bound to one admitted parent call; session-thread only; closed when the parent settles."""
@@ -312,10 +315,11 @@ These steps follow the seam map. Line references are to
 
 ### 4.3 Events and persistence
 
-Delivery split: **T7a implements live events/projections only. T7b is pending**
-and owns the durable schema below, abort/timeout persistence, resume/tree
-reconstruction and compaction file-operation input. Live children do not yet
-survive resume. No per-call CustomEntry or child result persistence is added.
+Delivery split: **T7a live events/projections and T7b durability are implemented
+internally.** T7b adds the bounded schema below, script-error/abort/timeout
+persistence, resume/tree reconstruction and compaction/branch file-operation
+input. No per-call CustomEntry or child result persistence is added. Public
+tool registration/settings/CLI remain T8; live end-to-end/tmux evidence remains T9.
 
 - **Events.** New `NestedToolCallStarted` and
   `NestedToolCallCompleted(turn_index, parent_correlation_id, call, result,
@@ -342,10 +346,29 @@ survive resume. No per-call CustomEntry or child result persistence is added.
   errors, and `complete=false` when anything was dropped.
   - Because the runner owns the parent result, the record survives a script
     error, a timeout and an operator abort. A test pins this.
-  - `details` is stored and rendered on resume but never sent to the provider
-    (`agent/messages.py:290-292`).
+  - Codemode parent details with canonical records are stored and exposed
+    in JSON/RPC messages and completion events; all parent metadata is preserved.
+    Ordinary direct tools/extensions retain prior shapes. Provider HTTP serializers
+    omit details; normal provider replay
+    filters failed/aborted assistant turns and does not strip product details.
+  - Resume/tree reconstruction validates bounded imported records and reuses
+    transcript verbs under PaintLock, retaining one parent row without duplicating
+    live children. Argument previews are sanitized and limited to 80 characters.
+  - The service owns canonical records on the session thread. Live and durable
+    settled durations share one monotonic measurement; pipeline failures retain
+    unfinished live/event evidence and propagate after reservation cleanup, without
+    a saved-session guarantee. Secondary evidence faults cannot replace the original
+    failure or reopen the service. Hooks own parent content/other metadata, with a fresh
+    canonical record merged before parent completion.
   - Nested results are not persisted.
-  - Compaction's file-operation extraction reads `nestedCalls`.
+  - Compaction and branch summaries derive bounded read/write/edit paths from
+    direct assistant calls and retained nested arguments before private summary
+    details are stripped. Sorted/deduplicated modified paths take precedence over
+    reads; failed attempts count, omitted arguments supply no paths. JSON-escaped
+    paths are data, and private summary requests have no tools. Derived data is
+    prefixed before history, preserving tool call/result pairing and final
+    compaction instructions. Direct argument parsing has a 1 MiB UTF-8 byte cap;
+    larger or malformed JSON omits paths. Nested argument bounds are unchanged.
   - Per-call `CustomEntry` records (seam map option C) are deferred; see
     open question 6.
 
@@ -759,8 +782,8 @@ Each task is small and lands with its own tests. The plan's acceptance items
      headless abort during script compute, deadline/backend failure during a tool,
      fresh execution after cancellation and reaped worker groups. Acceptance D is
      established internally; actual tmux Escape evidence remains T9. Host tests pin
-     the queue/event lost-wake contract and waiter-failure cleanup. T7a implements live events/projections; T7b owns durable records and
-     resume. T8 owns public registration and truncation spilling.
+     the queue/event lost-wake contract and waiter-failure cleanup. T7a implements live events/projections; T7b implements durable records,
+     resume/tree and private summary file-operation inputs. T8 owns public registration and truncation spilling.
    - Tests: cancellation during a nested tool (D), cancellation during script
      compute, the deadline firing during a nested tool, refusal after close,
      and recursion refused.
@@ -778,10 +801,11 @@ Each task is small and lands with its own tests. The plan's acceptance items
    - Typed executor cancellation evidence distinguishes backend/deadline-stopped
      children from ordinary errors without changing parent or budget ownership.
      Real/fake loop tests pin ordering and operator/backend/deadline cancellation.
-   - **T7b: pending durable nested records.** Owns exact Pi `nestedCalls`
-     parent-details schema/bounds, abort/timeout durability, resume/tree
-     reconstruction and compaction file-ops input. Covers I's durable part.
-     T7a live children are not claimed to survive resume.
+   - **T7b: durable nested records — implemented internally.** Exact bounded
+     `nestedCalls` parent-details schema, script-error/abort/timeout retention,
+     resume/tree reconstruction, JSON/RPC parent details and compaction/branch
+     attempted file-operation input. No nested result persistence/provider history.
+     Covers I's durable part; public delivery and T9 live evidence remain pending.
 8. **T8: the codemode tool.**
    - Opt-in switch, with the name aligned to Pi's setting and CLI surface
      (`CA/docs/settings.md:41-42`, `cli.md:155-178`).

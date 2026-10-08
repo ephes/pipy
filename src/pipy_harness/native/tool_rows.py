@@ -33,6 +33,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from pipy_harness.native.agent.nested_record import argument_json, parse_nested_record
 from pipy_harness.native.ansi_wrap import (
     split_lines_with_carry,
     visible_width,
@@ -134,6 +135,29 @@ class NestedToolLine:
     status: str = "unfinished"
     duration_seconds: float | None = None
     error: str = ""
+
+
+def nested_lines_from_details(details: object) -> tuple[NestedToolLine, ...]:
+    """Replay bounded data through the same retained row state as live children."""
+    lines = []
+    for call in parse_nested_record(details):
+        text = argument_json(call.get("arguments"))
+        args = (
+            text
+            if text is not None
+            else f"[{call.get('argumentsBytes', '?')} argument bytes]"
+        )
+        lines.append(
+            NestedToolLine(
+                call_id=call["id"],
+                name=bounded_nested_text(call["name"], 80),
+                arguments=bounded_nested_text(args, 8192),
+                status=call["status"],
+                duration_seconds=call["durationMs"] / 1000,
+                error=bounded_nested_text(call.get("error", ""), 500),
+            )
+        )
+    return tuple(lines)
 
 
 def nested_line_text(line: NestedToolLine, *, expanded: bool) -> str:

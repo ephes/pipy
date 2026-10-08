@@ -451,10 +451,10 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
         call: AgentToolCall, service: NestedToolCallService
     ) -> ToolExecutionOutcome:
         service.call("read", "x" * 8193)
-        assert service.records() == ()
+        assert len(service.records()) == 1
         for _ in range(5):
             service.call("read", "x" * 8192)
-        assert len(service.records()) == 4
+        assert len(service.records()) == 6
         assert all(record.result.details is None for record in service.records())
         return ToolExecutionOutcome(_tool_result(call))
 
@@ -658,7 +658,10 @@ def test_sticky_interruption_survives_evidence_limits(limit: str) -> None:
     snapshot = service.records()
     interrupt = True
     service.call("read", "x" * 8193 if limit == "per_call" else "{}")
-    assert service.records() == snapshot
+    if limit == "count":
+        assert service.records() == snapshot
+    else:
+        assert len(service.records()) == len(snapshot) + 1
     assert service.interruption is ToolExecutionInterruption.OPERATOR_ABORT
     failures = []
 

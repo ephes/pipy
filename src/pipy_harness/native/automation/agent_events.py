@@ -40,6 +40,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.native.automation.serialize import (
+    codemode_parent_details,
     parse_tool_arguments,
     serialize_message,
 )
@@ -201,6 +202,7 @@ class AutomationAgentEventAdapter:
         assert isinstance(event, ToolCallCompleted)
         return {
             "type": "tool_execution_end",
+            **codemode_parent_details(event.result),
             "toolCallId": event.result.provider_correlation_id,
             "toolName": event.result.tool_name,
             "result": event.result.content.value,

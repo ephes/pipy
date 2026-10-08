@@ -99,7 +99,10 @@ class _SummaryProvider:
 
 
 def _fixture(
-    tmp_path: Path, *, previous_summary: str = ""
+    tmp_path: Path,
+    *,
+    previous_summary: str = "",
+    nested_details: dict[str, Any] | None = None,
 ) -> tuple[ProviderMutationEffects, _SummaryProvider]:
     original, _state, _tools, ref, _coordinator, tree, _footers = (
         _provider_mutation_fixture(tmp_path, persist_tree=True)
@@ -125,6 +128,7 @@ def _fixture(
             provider_correlation_id="check-parser",
             tool_name="read",
             content=ProductContent("Verified parser fixture."),
+            details=nested_details,
             is_error=False,
         ),
         AgentUserMessage(ProductContent("Retained: update docs.")),
@@ -300,12 +304,13 @@ def test_summary_combines_prior_and_exact_dropped_prefix_then_reopens(
         worker.join(1)
         assert not worker.is_alive() and lease_available.is_set()
         assert (
-            request.messages[0].content.value
+            request.messages[1].content.value
             == "Previous context summary:\nPrior decision: preserve compatibility."
         )
+        assert request.messages[0].content.value.startswith("Attempted file operations")
         assert all(
             actual is expected
-            for actual, expected in zip(request.messages[1:-1], before[:3], strict=True)
+            for actual, expected in zip(request.messages[2:5], before[:3], strict=True)
         )
         assert (
             request.messages[-1].content.value
@@ -1105,3 +1110,42 @@ def test_automatic_compaction_counts_the_pending_turn_system_message(
     # The current turn's system update is persisted only after preparation;
     # Pi estimates the request's system state, so it counts (4000 / 4).
     assert tokens_before("with", pending) - tokens_before("without", None) == 1000
+
+
+def test_actual_compaction_receives_nested_attempt_paths_before_details_stripped(
+    tmp_path: Path,
+) -> None:
+    details = {
+        "nestedCalls": {
+            "complete": True,
+            "calls": [
+                {
+                    "id": "parent/1",
+                    "name": "write",
+                    "status": "error",
+                    "arguments": {"path": "nested-written"},
+                    "durationMs": 1,
+                },
+                {
+                    "id": "parent/2",
+                    "name": "read",
+                    "status": "ok",
+                    "argumentsBytes": 9000,
+                    "durationMs": 1,
+                },
+            ],
+        }
+    }
+    effects, provider = _fixture(tmp_path, nested_details=details)
+    assert effects.apply_compaction("manual").result is not None
+    request = provider.requests[0]
+    assert request.available_tools == ()
+    assert any(
+        '"nested-written"' in message.content.value for message in request.messages
+    )
+    assert all(
+        message.details is None
+        for message in request.messages
+        if isinstance(message, AgentToolResultMessage)
+    )
+    assert "argumentsBytes" not in repr(request.messages)

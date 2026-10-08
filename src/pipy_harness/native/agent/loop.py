@@ -963,7 +963,11 @@ class AgentLoop:
             if settled.cancelled and status is NestedCallStatus.SETTLED:
                 status = NestedCallStatus.CANCELLED
             outcome = NestedToolCallOutcome(
-                child, settled.result, status, settled.transition.interruption
+                child,
+                settled.result,
+                status,
+                settled.transition.interruption,
+                duration_seconds=monotonic() - started,
             )
             self._events.emit(
                 NestedToolCallCompleted(
@@ -972,7 +976,7 @@ class AgentLoop:
                     child,
                     outcome.result,
                     outcome.status,
-                    monotonic() - started,
+                    outcome.duration_seconds,
                 )
             )
             return outcome
@@ -986,26 +990,12 @@ class AgentLoop:
             settle_with_waiter=settle,
         )
         started_at = datetime.now(UTC)
+        terminal_emit_attempted = False
         try:
             reserved = reserve_composite_parent(transition)
             _revalidate_tool_policy_state(reserved)
             state.tool_state = reserved
-            try:
-                execution = self._composite_runner.execute(
-                    call, service, self._tool_waiter
-                )
-                if type(execution) is not ToolExecutionOutcome:
-                    raise TypeError("composite runner must return ToolExecutionOutcome")
-                ToolExecutionOutcome.__post_init__(execution)
-                _validate_tool_result_for_call(execution.result, call)
-            except Exception as exc:  # noqa: BLE001 - runner failures are parent observations
-                service.raise_pipeline_failure()
-                execution = ToolExecutionOutcome(
-                    self._tools.error_result(
-                        call,
-                        f"composite runner failed: {type(exc).__name__}: {str(exc)[:500]}",
-                    )
-                )
+            execution = self._run_composite(call, service)
             service.raise_pipeline_failure()
             service.close()
             if (
@@ -1019,8 +1009,15 @@ class AgentLoop:
             # Unlike interrupted direct recording, a parent must publish its
             # released reservation while retaining every child transition.
             publish(settlement.state)
+            execution = replace(
+                execution,
+                result=self._with_nested_record(execution.result, service),
+            )
             result = _transform_tool_result(self._tool_policy, call, execution.result)
             _validate_tool_result_for_call(result, call)
+            # Hooks own content; canonical metadata is a fresh post-hook snapshot.
+            result = self._with_nested_record(result, service)
+            terminal_emit_attempted = True
             self._events.emit(
                 ToolCallCompleted(
                     turn_index,
@@ -1029,11 +1026,55 @@ class AgentLoop:
                 )
             )
             return _SettledToolCall(result, settlement)
+        except Exception:
+            if terminal_emit_attempted:
+                raise
+            result = replace(
+                self._tools.error_result(call, "nested pipeline did not finish"),
+                details={"nestedCalls": service.durable_record()},
+            )
+            self._events.emit(
+                ToolCallCompleted(
+                    turn_index,
+                    result,
+                    duration_seconds=(datetime.now(UTC) - started_at).total_seconds(),
+                )
+            )
+            raise
         finally:
             service.close()
             # Also release on canonical callback/validation exceptions, which propagate.
             if state.tool_state.reserved_parent_slot:
                 publish(replace(state.tool_state, reserved_parent_slot=False))
+
+    def _run_composite(
+        self, call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        assert self._composite_runner is not None
+        try:
+            execution = self._composite_runner.execute(call, service, self._tool_waiter)
+            if type(execution) is not ToolExecutionOutcome:
+                raise TypeError("composite runner must return ToolExecutionOutcome")
+            ToolExecutionOutcome.__post_init__(execution)
+            _validate_tool_result_for_call(execution.result, call)
+            return execution
+        except Exception as exc:  # noqa: BLE001 - runner failures are parent observations
+            service.raise_pipeline_failure()
+            return ToolExecutionOutcome(
+                self._tools.error_result(
+                    call,
+                    f"composite runner failed: {type(exc).__name__}: {str(exc)[:500]}",
+                )
+            )
+
+    @staticmethod
+    def _with_nested_record(
+        result: AgentToolResultMessage, service: NestedToolCallService
+    ) -> AgentToolResultMessage:
+        return replace(
+            result,
+            details={**(result.details or {}), "nestedCalls": service.durable_record()},
+        )
 
     def _record_tool_call(
         self,

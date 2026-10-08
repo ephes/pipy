@@ -66,6 +66,7 @@ from pipy_harness.native.tool_rows import (
     encode_rows,
     is_builtin_edit,
     is_running_builtin_bash,
+    nested_lines_from_details,
     render_box_row,
     render_tool_row,
     row_theme,
@@ -625,6 +626,8 @@ class TranscriptComponent:
             state = self.pending_tool
             if state is not None:
                 state.result = result
+                if not state.nested_lines:
+                    state.nested_lines = nested_lines_from_details(result.details)
                 state.partial_output = ""
                 state.duration_seconds = duration_seconds
                 if state.started_at is not None:

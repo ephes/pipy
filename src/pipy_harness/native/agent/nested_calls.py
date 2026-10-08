@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from time import monotonic
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
+from pipy_harness.native.agent.nested_record import bounded_arguments, finite_duration
 from pipy_harness.native.agent.nested_status import NestedCallStatus as NestedCallStatus
 from pipy_harness.native.agent.request import (
     validate_agent_tool_call,
@@ -31,8 +34,12 @@ class NestedToolCallOutcome:
     result: AgentToolResultMessage
     status: NestedCallStatus
     interruption: ToolExecutionInterruption | None = None
+    duration_seconds: float = 0.0
+    arguments_bytes: int | None = None
 
     def __post_init__(self) -> None:
+        if not finite_duration(self.duration_seconds):
+            raise ValueError("nested duration must be finite and nonnegative")
         validate_agent_tool_call(self.nested_call)
         validate_agent_tool_result_message(self.result)
         AgentToolResultMessage.__post_init__(self.result)
@@ -88,7 +95,7 @@ class NestedToolCallService:
     """Sequential parent capability. Only its creating thread reads/writes state.
 
     Records are transient observations, capped at 256 calls, 8 KiB arguments
-    per call and 32 KiB total. Oversized or excess evidence is not retained.
+    per call and 32 KiB total. Oversized arguments are replaced by their byte count; excess calls are dropped.
     Wrong-thread refusal reads no mutable fields and retains no evidence.
     """
 
@@ -120,6 +127,7 @@ class NestedToolCallService:
         self._next = 0
         self._records: list[NestedToolCallOutcome] = []
         self._argument_bytes = 0
+        self._complete = True
         self._failure: BaseException | None = None
         self._interruption: ToolExecutionInterruption | None = None
 
@@ -183,6 +191,7 @@ class NestedToolCallService:
                 NestedCallStatus.REFUSED,
             )
         self._busy = True
+        started = monotonic()
         try:
             if waiter is not None:
                 if self._settle_with_waiter is None:
@@ -193,6 +202,18 @@ class NestedToolCallService:
         except BaseException as exc:
             self._failure = exc
             self._closed = True
+            try:
+                self._retain(
+                    NestedToolCallOutcome(
+                        call,
+                        self._error_result(call, "nested pipeline did not finish"),
+                        NestedCallStatus.UNFINISHED,
+                        duration_seconds=monotonic() - started,
+                    )
+                )
+            except BaseException:  # noqa: BLE001 - preserve canonical failure even during evidence capture
+                # Secondary evidence failures must not replace the original.
+                self._complete = False
             raise
         finally:
             self._busy = False
@@ -200,16 +221,65 @@ class NestedToolCallService:
             if self._interruption is None:
                 self._interruption = outcome.interruption
             self.close()
-        size = len(arguments_json.encode("utf-8", errors="surrogatepass"))
-        if (
-            len(self._records) < 256
-            and size <= 8192
-            and self._argument_bytes + size <= 32768
-        ):
-            # Details are product-owned arbitrary mappings. Keep only immutable,
-            # bounded canonical text evidence in these transient snapshots.
-            self._records.append(
-                replace(outcome, result=replace(outcome.result, details=None))
-            )
-            self._argument_bytes += size
+        self._retain(outcome)
         return outcome
+
+    def _retain(self, outcome: NestedToolCallOutcome) -> None:
+        if len(self._records) >= 256:
+            self._complete = False
+            return
+        raw = outcome.nested_call.arguments_json.value
+        size = len(raw.encode("utf-8", errors="surrogatepass"))
+        arguments = bounded_arguments(raw)
+        if arguments is None or self._argument_bytes + size > 32768:
+            self._complete = False
+            call = replace(outcome.nested_call, arguments_json=ProductContent("{}"))
+            omitted = size
+        else:
+            self._argument_bytes += size
+            call = outcome.nested_call
+            omitted = None
+        error = outcome.result.content.value if outcome.result.is_error else ""
+        if len(error) > 500:
+            self._complete = False
+        # Retain no nested result output/details, only the bounded error field.
+        self._records.append(
+            replace(
+                outcome,
+                nested_call=call,
+                arguments_bytes=omitted,
+                result=replace(
+                    outcome.result, content=ProductContent(error[:500]), details=None
+                ),
+            )
+        )
+
+    def durable_record(self) -> dict[str, object]:
+        """Fresh independent snapshot; canonical state never leaves this thread."""
+        self._require_thread()
+        calls: list[dict[str, object]] = []
+        for outcome in self._records:
+            status = (
+                "unfinished"
+                if outcome.status is NestedCallStatus.UNFINISHED
+                else "cancelled"
+                if outcome.status
+                in {NestedCallStatus.CANCELLED, NestedCallStatus.INTERRUPTED}
+                else "error"
+                if outcome.result.is_error
+                else "ok"
+            )
+            row: dict[str, object] = {
+                "id": outcome.nested_call.provider_correlation_id,
+                "name": outcome.nested_call.tool_name,
+                "status": status,
+                "durationMs": outcome.duration_seconds * 1000,
+            }
+            if outcome.arguments_bytes is None:
+                row["arguments"] = json.loads(outcome.nested_call.arguments_json.value)
+            else:
+                row["argumentsBytes"] = outcome.arguments_bytes
+            if outcome.result.is_error:
+                row["error"] = outcome.result.content.value
+            calls.append(row)
+        return {"calls": calls, "complete": self._complete}

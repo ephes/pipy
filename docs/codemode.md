@@ -1,13 +1,13 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4–T7a internal integration, not yet a tool.** The model
-cannot run scripts yet: there is no model-visible tool or durable nested-call record. Internal
-nested lifecycle events and live projections exist. An internal nested-call service and real composite runner exist.
-Product delivery remains T7b–T11 of the
-[spike result](specs/2026-10-06-python-codemode-spike.md) (§5); the
+Status: **sandbox core and T4–T7 internal integration, not yet a tool.**
+The internal composite runner now retains bounded nested-call evidence on its
+parent result and reconstructs child lines on resume and tree navigation.
+Public registration, settings and CLI remain T8; end-to-end/tmux evidence,
+measurement and final delivery remain T9–T11 of the
+[spike result](specs/2026-10-06-python-codemode-spike.md) (§5). The
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
-documents what exists today: installing the runtime, checking availability and
-the `run_script` API that the loop integration will call.
+documents installing the runtime, checking availability and the internal API.
 
 T4 separates the agent loop's internal settle and record paths without changing
 behaviour. Settlement owns admission, hooks, execution, result transformation
@@ -78,10 +78,45 @@ Wrong-thread calls are refused without touching mutable session state; records, 
 and close are session-thread-only. Reentrant calls and calls after close are refused.
 
 Child results never enter model history, top-level results or top-level tool events.
-Transient record snapshots retain at most 256 validated text outcomes, with at
-most 8 KiB arguments per retained call and 32 KiB total. Arbitrary result details
-are omitted from retained evidence. Further exhausted calls may update the
+The session-thread service retains only bounded argument snapshots and errors,
+never nested result output or details. Further exhausted calls may update the
 exhaustion counter but cannot grow retained evidence indefinitely.
+
+T7b stores `details["nestedCalls"]` on the parent result:
+`{"calls": [{"id", "name", "status", "arguments" | "argumentsBytes",
+"durationMs", "error"?}], "complete": bool}`. Status is `ok`, `error`,
+`cancelled` or `unfinished`; duration is finite and nonnegative, shared with
+live completion evidence. Limits are 256 calls, 8 KiB arguments per call,
+32 KiB total arguments and 500 characters per error. Oversized arguments become
+a byte count while the call remains; any dropped arguments, errors or calls set
+`complete=false`. Snapshots are independent of live objects.
+
+Script errors, timeouts and operator aborts return records for persistence,
+retaining completed effects and partial child evidence. Canonical pipeline
+exceptions publish unfinished live/parent-completion event evidence and propagate
+after reservation cleanup; they do not guarantee saved session history. Secondary
+evidence failures cannot replace the original pipeline exception or reopen the
+service. Result hooks own parent content and other metadata; the loop merges a
+fresh canonical record at the terminal boundary. JSON/RPC exposes all details
+only for codemode parent results carrying that record. Ordinary direct tools and
+extensions retain their prior wire shape. Product session-tree persistence stores
+parent details; no child message or per-call custom entry is added. Provider HTTP
+serializers continue to omit details and child results.
+
+Resume and active-branch/tree replacement use the same transcript verbs and
+PaintLock as live rendering. Bounded, validated child lines show sanitized
+80-character arguments (or omitted byte counts), status and duration inside one
+parent row; live settlement does not duplicate existing children. Malformed
+imported metadata is ignored safely. Compaction and branch summaries derive
+sorted, deduplicated read/modified path data before private summary details are
+stripped. Writes/edits take precedence over reads, failed attempts are included,
+and omitted arguments cannot supply paths. Paths are bounded JSON string data;
+private summary requests have no tools. Derived data is prefixed before history,
+preserving tool call/result adjacency and final compaction instructions. Direct
+argument JSON is parsed up to 1 MiB of UTF-8 bytes; larger or malformed inputs
+omit paths. Nested argument storage keeps its 8 KiB / 32 KiB bounds. This records
+attempts, not proof that file effects succeeded.
+
 T6b adds `coding/codemode_runner.py` outside the standalone sandbox core. It
 validates the parent's `code` object with normal schema semantics and returns
 `format_result` text under the parent identity. Only the seven eligible builtins
@@ -116,8 +151,8 @@ operator/local-command cancellation during cooperative and noncooperative tools,
 headless abort during guest compute, deadline/backend failure during a tool,
 fresh execution after cancellation and worker process-group cleanup. They
 establish T6 acceptance D at the internal integration seam. Actual tmux Escape
-evidence remains T9. T7a implements nested events and live projections; T7b owns durable parent
-details; T8 owns public tool/settings/CLI delivery and truncation spilling.
+evidence remains T9. T7a implements nested events and live projections; T7b implements durable parent
+details, resume/tree and private summary file-operation input; T8 owns public tool/settings/CLI delivery and truncation spilling.
 T9–T11 remain outstanding. There is no model opt-in yet.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
@@ -153,10 +188,9 @@ Backend/deadline stops mark an in-flight child cancelled through typed executor
 evidence while the parent remains a timeout/backend error. Operator/local-command
 interruption keeps existing turn-stop and budget semantics.
 
-These live children **do not survive resume yet**. T7b implements the exact Pi
-`nestedCalls` parent-details schema/bounds, abort/timeout durable records,
-resume/tree reconstruction and compaction file-operation extraction. No nested
-results or per-call CustomEntry records are persisted by T7a. T8 owns public
+T7b reconstructs these child lines on resume/tree from the bounded parent
+`nestedCalls` record and supplies derived attempted file paths to compaction and
+branch summaries. No nested results or per-call CustomEntry records persist. T8 owns public
 tool/settings/CLI delivery, T9 end-to-end evidence, T10 measurement and T11
 final documentation/review.
 

@@ -482,3 +482,68 @@ def test_manual_branch_pending_input_settlement_is_separate_from_prefill() -> No
     result = SessionCollaborators.select_with_branch_summary(owner, target, "summarize")
     assert result == BranchSummarySelectionResult(False)
     assert actions == ["restore", "promote"]
+
+
+def test_actual_tree_summary_receives_nested_file_attempts(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from test_native_session_history_render import _assistant, _call, _user
+    from test_native_session_history_render import _result as tool_result
+
+    from pipy_harness.native.agent import AgentToolResultMessage
+
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    root = tree.append_message(_assistant("root"))
+    tree.append_message(_user("branch task"))
+    tree.append_message(_assistant("", _call("parent", "codemode", {"code": "pass"})))
+    tree.append_message(
+        replace(
+            tool_result("parent", "codemode", "generic parent"),
+            details={
+                "nestedCalls": {
+                    "complete": True,
+                    "calls": [
+                        {
+                            "id": "parent/1",
+                            "name": "read",
+                            "status": "ok",
+                            "durationMs": 1,
+                            "arguments": {"path": "nested-read"},
+                        },
+                        {
+                            "id": "parent/2",
+                            "name": "edit",
+                            "status": "error",
+                            "durationMs": 2,
+                            "arguments": {"path": "nested-edited"},
+                        },
+                    ],
+                },
+            },
+        )
+    )
+    provider = _PreparedProductProvider(
+        scripts=[[_result(HarnessStatus.SUCCEEDED, text="branch summary")]]
+    )
+    session = CodingSession(
+        provider=provider,
+        settings_manager=_settings(tmp_path, max_retries=0),
+        native_session=tree,
+    )
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(f"/tree select {root.id} summarize\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert len(provider.prepared_requests) == 1
+    request = provider.prepared_requests[0]
+    assert request.available_tools == ()
+    text = "\n".join(m.content.value for m in request.messages)
+    assert '"nested-read"' in text and '"nested-edited"' in text
+    assert all(
+        m.details is None
+        for m in request.messages
+        if isinstance(m, AgentToolResultMessage)
+    )
+    assert any(isinstance(e, BranchSummaryEntry) for e in tree.get_entries())

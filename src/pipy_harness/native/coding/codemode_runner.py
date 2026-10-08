@@ -142,6 +142,7 @@ class CodemodeCompositeRunner:
                     content=ProductContent(text),
                     is_error=error,
                     provider_correlation_id=call.provider_correlation_id,
+                    details={"nestedCalls": service.durable_record()},
                 ),
                 malformed_arguments=malformed,
                 interruption=interruption,

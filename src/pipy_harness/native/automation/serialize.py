@@ -31,6 +31,20 @@ from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
+def codemode_parent_details(message: AgentToolResultMessage) -> dict[str, Any]:
+    """Expose metadata only for composite parents carrying canonical records."""
+    details = message.details
+    if (
+        message.tool_name == "codemode"
+        and details is not None
+        and type(record := details.get("nestedCalls")) is dict
+        and type(record.get("calls")) is list
+        and type(record.get("complete")) is bool
+    ):
+        return {"details": dict(details)}
+    return {}
+
+
 def parse_tool_arguments(arguments_json: str) -> Any:
     """Parse a tool call's raw JSON arguments into an object.
 
@@ -123,6 +137,7 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
         return assistant
     if isinstance(message, AgentToolResultMessage):
         return {
+            **codemode_parent_details(message),
             "role": "toolResult",
             "toolCallId": message.provider_correlation_id,
             "content": [{"type": "text", "text": message.content.value}],

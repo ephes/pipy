@@ -4,6 +4,7 @@ from enum import StrEnum
 
 
 class NestedCallStatus(StrEnum):
+    UNFINISHED = "unfinished"
     SETTLED = "settled"
     CANCELLED = "cancelled"
     BLOCKED = "blocked"

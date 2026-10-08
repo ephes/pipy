@@ -98,9 +98,11 @@ landing implementation.
 T1–T6 provide sandbox and internal loop/service integration. T7a adds canonical
 nested lifecycle events and live JSON/RPC/TUI projections, with numeric-only
 workflow counters and parent-only persistence. Live child evidence is bounded
-and remains inside one parent row; it does not survive resume yet. T7b owns the
-exact Pi durable nestedCalls record, abort/timeout durability, resume/tree and
-compaction file-operation input. Public tool/settings/CLI remains T8; end-to-end
+and remains inside one parent row. T7b implements the bounded durable nestedCalls
+parent record, script-error/abort/timeout persistence, resume/tree reconstruction
+and attempted file-operation input for compaction and branch summaries. Canonical
+pipeline exceptions expose unfinished live/event evidence without a saved-session
+guarantee. Ordinary direct-tool JSON/RPC shapes stay unchanged. Public tool/settings/CLI remains T8; end-to-end
 validation, measurement and final docs/review remain T9–T11.
 
 ## Deferred

@@ -252,6 +252,17 @@ raise RuntimeError('after effect')
     assert "alpha transformed/beta transformed" in parent.content.value
     assert "malformed:" in parent.content.value and "budget:" in parent.content.value
     assert "after effect" in parent.content.value
+    assert parent.details is not None
+    record = parent.details["nestedCalls"]
+    assert [c["status"] for c in record["calls"]] == [
+        "ok",
+        "ok",
+        "error",
+        "ok",
+        "error",
+    ]
+    assert record["complete"] is True
+    assert record["calls"][3]["arguments"]["path"] == "effect"
     assert (tmp_path / "effect").read_text() == "retained"
     state = outcome.final_tool_state
     assert (
@@ -357,6 +368,9 @@ def test_interrupt_active_nested_tool_and_fresh_run(
         ]
         assert len(children) == 1 and children[0].status is NestedCallStatus.INTERRUPTED
         assert children[0].result.is_error
+        parent = _parent(outcome)
+        assert parent.details is not None
+        assert parent.details["nestedCalls"]["calls"][0]["status"] == "cancelled"
         assert not (tmp_path / "late").exists()
         assert not outcome.final_tool_state.reserved_parent_slot
         assert all(group_is_gone(pid) for pid in pids)
@@ -444,6 +458,10 @@ def test_backend_stop_cancels_tool_without_operator_turn(
     assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
     parent = _parent(outcome)
     assert parent.is_error
+    assert parent.details is not None
+    row = parent.details["nestedCalls"]["calls"][0]
+    assert row["status"] == "cancelled"
+    assert row["durationMs"] == children[0].duration_seconds * 1000
     assert (
         "Script timed out" if failure == "deadline" else "backend failed during tool"
     ) in parent.content.value
@@ -526,7 +544,7 @@ def test_canonical_hook_failure_propagates_after_guest_cleanup(
                 raise RuntimeError("canonical transform failure")
             return super().transform_result(call, result)
 
-    loop, _, _ = _loop(
+    loop, _, events = _loop(
         tmp_path,
         "tools.write(path='effect', content='retained')",
         paths=paths,
@@ -535,6 +553,10 @@ def test_canonical_hook_failure_propagates_after_guest_cleanup(
     with pytest.raises(RuntimeError, match="canonical transform failure"):
         loop.run(_run_input())
     assert (tmp_path / "effect").read_text() == "retained"
+    parent = next(e.result for e in events.events if isinstance(e, ToolCallCompleted))
+    assert parent.details is not None
+    assert parent.details["nestedCalls"]["calls"][0]["status"] == "unfinished"
+    assert parent.details["nestedCalls"]["calls"][0]["arguments"]["path"] == "effect"
     assert pids and all(group_is_gone(pid) for pid in pids)
 
 
@@ -823,3 +845,39 @@ def test_ordinary_nested_toolerror_is_not_backend_cancellation(
     assert children[0].result.is_error
     assert outcome.final_tool_state.tool_invocation_count == 2
     assert len(pids) == 1
+
+
+@pytest.mark.parametrize("stop", ["timeout", "operator"])
+def test_completed_write_record_and_effect_survive_compute_stop(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int], stop: str
+) -> None:
+    abort = threading.Event()
+    timer = threading.Timer(0.7, abort.set)
+    if stop == "operator":
+        timer.start()
+    try:
+        loop, _, _ = _loop(
+            tmp_path,
+            "tools.write(path='effect', content='retained');\nwhile True: pass",
+            paths=paths,
+            wall=0.7 if stop == "timeout" else 5,
+            waiter=partial(wait_for_external_tool_interrupt, abort),
+        )
+        outcome = loop.run(_run_input())
+        parent = _parent(outcome)
+        assert parent.is_error and parent.details is not None
+        assert (tmp_path / "effect").read_text() == "retained"
+        record = parent.details["nestedCalls"]
+        assert record["complete"] is True
+        assert len(record["calls"]) == 1
+        assert record["calls"][0]["status"] == "ok"
+        assert record["calls"][0]["arguments"]["path"] == "effect"
+        assert record["calls"][0]["durationMs"] >= 0
+        assert (
+            "Script timed out" if stop == "timeout" else "Script aborted"
+        ) in parent.content.value
+    finally:
+        if stop == "operator":
+            timer.cancel()
+            timer.join()
+    assert all(group_is_gone(pid) for pid in pids)

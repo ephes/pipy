@@ -14,6 +14,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Internal Python codemode durability (CM1 T7b): bounded parent `nestedCalls`
+  records survive script errors, timeouts and aborts, preserve partial effects,
+  and reconstruct child lines on resume/tree navigation. JSON/RPC exposes
+  canonical codemode parent details; compaction and branch summaries receive
+  bounded attempted file paths before details are stripped. Nested results remain absent from
+  persisted/provider history, and provider HTTP serializers omit details.
+  Public tool/settings/CLI remain T8; live end-to-end/tmux evidence remains T9.
+
+  Pipeline exceptions retain live/event evidence, with no saved-session guarantee.
+  Summary path input preserves tool pairing; direct argument parsing is capped
+  at 1 MiB and nested argument storage stays at 8 KiB per call / 32 KiB total.
+  Ordinary tool/extension JSON/RPC shapes remain unchanged.
+
 - Internal Python codemode nested lifecycle and live projections (CM1 T7a):
   session-thread child start/completion events, JSON/RPC `parentToolCallId`,
   numeric-only workflow counters and bounded sanitized child lines inside one
@@ -21,7 +34,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   on separate indented rows. Typed cancellation
   evidence marks backend/deadline-stopped children cancelled while preserving
   parent errors and operator-stop accounting. Only parent results persist;
-  durable nested records/resume remain T7b, public tool/settings/CLI remain T8.
+  T7b adds durable nested records/resume; public tool/settings/CLI remain T8.
 
 - Python codemode internal runtime integration (CM1 T6b): a fresh CPython-on-WASI
   worker composes canonical nested builtins through a session-thread pump, with
@@ -32,7 +45,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   skips later calls and prevents provider continuation; standalone host waiting
   Ctrl-C returns an aborted script outcome. Frozen builtin identity checks keep ordinary
   extension `codemode` behavior unchanged. No public tool or model opt-in yet;
-  durable nested records and public delivery remain T7b–T11.
+  T7b adds durable nested records; public delivery remains T8–T11.
 
 - Python codemode internal service/port groundwork (CM1 T6a): sequential,
   session-thread-owned nested calls reuse tool policy, hooks, validation and
@@ -40,8 +53,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   releases parent reservations even on acquisition/validation faults. Child
   counters publish before later canonical failures, and sticky child interruptions
   survive evidence limits and a runner returning settled. T6a uses fake-runner
-  coverage; T6b adds real runtime integration. T7b–T11 durable nested records and
-  public delivery remain.
+  coverage; T6b adds real runtime integration. T7b adds durable nested records; T8–T11 public delivery remains.
 
 - Python codemode policy groundwork (CM1 T5): shared nested admission and
   settlement, a reserved parent budget slot, and separate non-fatal nested

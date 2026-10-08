@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -11,10 +12,14 @@ from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import AgentEvent
 from pipy_harness.native.agent.history import AgentHistoryCompaction
 from pipy_harness.native.agent.messages import (
+    AgentAssistantMessage,
     AgentMessage,
     AgentToolResultMessage,
     AgentUserMessage,
     provider_replay_messages,
+)
+from pipy_harness.native.agent.nested_record import (
+    parse_nested_record,
 )
 from pipy_harness.native.agent.request import validate_frozen_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
@@ -121,9 +126,81 @@ def _summary_message(message: AgentMessage) -> AgentMessage:
     if not isinstance(message, AgentToolResultMessage):
         return message
     content = truncate_for_summary(message.content.value, SUMMARY_TOOL_RESULT_MAX_CHARS)
-    if content == message.content.value:
+    if content == message.content.value and message.details is None:
         return message
-    return replace(message, content=ProductContent(content))
+    return replace(message, content=ProductContent(content), details=None)
+
+
+MAX_DIRECT_ARGUMENT_BYTES = 1024 * 1024
+
+
+def _reject_direct_constant(value: str) -> None:
+    raise ValueError(value)
+
+
+def _direct_arguments(text: str) -> object:
+    # Direct tool validation has no byte cap; bound imported summary work here.
+    if (
+        len(text) > MAX_DIRECT_ARGUMENT_BYTES
+        or len(text.encode("utf-8", errors="surrogatepass")) > MAX_DIRECT_ARGUMENT_BYTES
+    ):
+        return None
+    try:
+        return json.loads(text, parse_constant=_reject_direct_constant)
+    except (ValueError, RecursionError):
+        return None
+
+
+def file_operation_input(messages: tuple[AgentMessage, ...]) -> str:  # noqa: C901 - bounded operation extraction
+    """Bounded attempted operations, following Pi; success is not inferred.
+
+    Paths are JSON strings (data, with controls escaped). Limit scanned calls,
+    individual paths and total path text, including imported metadata.
+    """
+    read: set[str] = set()
+    modified: set[str] = set()
+    sizes: dict[str, int] = {}
+    scanned = 0
+
+    def add(name: str, arguments: object) -> None:
+        if name not in {"read", "write", "edit"} or type(arguments) is not dict:
+            return
+        path = arguments.get("path")
+        if type(path) is not str or not path or len(path) > 1024:
+            return
+        encoded = json.dumps(path, ensure_ascii=True)
+        if path not in sizes:
+            if len(sizes) >= 256 or sum(sizes.values()) + len(encoded) > 32768:
+                return
+            sizes[path] = len(encoded)
+        (read if name == "read" else modified).add(path)
+
+    for message in messages:
+        if scanned >= 4096:
+            break
+        if isinstance(message, AgentAssistantMessage):
+            for call in message.tool_calls[:256]:
+                scanned += 1
+                add(call.tool_name, _direct_arguments(call.arguments_json.value))
+        elif isinstance(message, AgentToolResultMessage):
+            for row in parse_nested_record(message.details):
+                scanned += 1
+                add(row["name"], row.get("arguments"))
+    if not sizes:
+        return ""
+    sections = [
+        "Attempted file operations (paths are JSON data; effects may have failed):"
+    ]
+    for tag, paths in (("read-files", read - modified), ("modified-files", modified)):
+        if paths:
+            sections.append(
+                f"<{tag}>\n"
+                + "\n".join(
+                    json.dumps(path, ensure_ascii=True) for path in sorted(paths)
+                )
+                + f"\n</{tag}>"
+            )
+    return "\n\n".join(sections)
 
 
 def build_summary_request(
@@ -153,6 +230,12 @@ def build_summary_request(
     ``<conversation>`` text instead).
     """
 
+    file_ops = file_operation_input(messages)
+    if file_ops:
+        messages = (
+            AgentUserMessage(ProductContent(file_ops)),
+            *messages,
+        )
     return ProviderRequest(
         system_prompt=instruction,
         user_prompt=user_prompt,
