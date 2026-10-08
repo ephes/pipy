@@ -43,6 +43,7 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicy,
     AgentToolPolicyAction,
     AgentToolPolicyState,
+    AgentToolPolicyTransition,
     apply_tool_policy_decision,
     decide_tool_admission,
     normalize_provider_status,
@@ -339,6 +340,14 @@ class _ToolCycleOutcome:
     disposition: _IterationDisposition
     failure: AgentFailure | None = None
     cancellation: AgentCancellationReason | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SettledToolCall:
+    """Validated result and policy transition, with tool events already emitted."""
+
+    result: AgentToolResultMessage
+    transition: AgentToolPolicyTransition
 
 
 class AgentLoop:
@@ -741,36 +750,45 @@ class AgentLoop:
         results: list[AgentToolResultMessage],
         turn_index: int,
     ) -> _ToolCycleOutcome:
-        admission = decide_tool_admission(state.tool_state, snapshot, call)
+        def publish_budget_state(tool_state: AgentToolPolicyState) -> None:
+            state.tool_state = tool_state
+            self._status.tool_policy_state_changed(tool_state)
+
+        settled = self._settle_tool_call(
+            state.tool_state, snapshot, call, turn_index, publish_budget_state
+        )
+        return self._record_tool_call(state, calls, call_index, settled, results)
+
+    def _settle_tool_call(
+        self,
+        tool_state: AgentToolPolicyState,
+        snapshot: AgentProviderRequestSnapshot,
+        call: AgentToolCall,
+        turn_index: int,
+        publish_budget_state: Callable[[AgentToolPolicyState], None],
+    ) -> _SettledToolCall:
+        """Settle without history/results; only budget publishes state early."""
+        admission = decide_tool_admission(tool_state, snapshot, call)
         if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
-            state.tool_state = admission.state
-            self._status.tool_policy_state_changed(state.tool_state)
+            publish_budget_state(admission.state)
             result = self._tools.error_result(
                 call,
-                f"tool budget exhausted (limit {state.tool_state.tool_budget})",
+                f"tool budget exhausted (limit {admission.state.tool_budget})",
             )
-            self._record_policy_result(state, call, result, results, turn_index)
-            return _ToolCycleOutcome(_IterationDisposition.CONTINUE)
+            self._emit_policy_result(call, result, turn_index)
+            return _SettledToolCall(result, admission)
         if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
             result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
-            self._record_policy_result(state, call, result, results, turn_index)
-            state.tool_state = admission.state
-            self._status.tool_policy_state_changed(state.tool_state)
-            return _ToolCycleOutcome(_IterationDisposition.CONTINUE)
-        return self._execute_admitted_tool(
-            state, calls, call_index, call, results, turn_index, admission.state
-        )
+            self._emit_policy_result(call, result, turn_index)
+            return _SettledToolCall(result, admission)
+        return self._execute_admitted_tool(call, turn_index, admission.state)
 
     def _execute_admitted_tool(
         self,
-        state: _RunState,
-        calls: tuple[AgentToolCall, ...],
-        call_index: int,
         call: AgentToolCall,
-        results: list[AgentToolResultMessage],
         turn_index: int,
         admitted_state: AgentToolPolicyState,
-    ) -> _ToolCycleOutcome:
+    ) -> _SettledToolCall:
         self._events.emit(ToolCallStarted(turn_index, call))
         decision = self._tool_policy.before_execute(call)
         transition = apply_tool_policy_decision(admitted_state, decision)
@@ -780,28 +798,23 @@ class AgentLoop:
                 call,
                 f"blocked by extension: {decision.blocked_reason.value}",
             )
-            self._complete_and_append(state, call, result, results, turn_index)
-            state.tool_state = transition.state
-            self._status.tool_policy_state_changed(state.tool_state)
-            return _ToolCycleOutcome(_IterationDisposition.CONTINUE)
-        return self._execute_tool(state, calls, call_index, call, results, turn_index)
+            self._emit_tool_completed(call, result, turn_index)
+            return _SettledToolCall(result, transition)
+        return self._execute_tool(call, turn_index, admitted_state)
 
     def _execute_tool(
         self,
-        state: _RunState,
-        calls: tuple[AgentToolCall, ...],
-        call_index: int,
         call: AgentToolCall,
-        results: list[AgentToolResultMessage],
         turn_index: int,
-    ) -> _ToolCycleOutcome:
+        tool_state: AgentToolPolicyState,
+    ) -> _SettledToolCall:
         started_at = datetime.now(UTC)
         execution = self._tools.execute(
             call,
             output_sink=self._tool_output_sink(turn_index, call),
             wait_for_interrupt=self._tool_waiter,
         )
-        settlement = settle_tool_execution(state.tool_state, execution)
+        settlement = settle_tool_execution(tool_state, execution)
         _validate_tool_result_for_call(execution.result, call)
         result = _transform_tool_result(self._tool_policy, call, execution.result)
         _validate_tool_result_for_call(result, call)
@@ -809,6 +822,17 @@ class AgentLoop:
         self._events.emit(
             ToolCallCompleted(turn_index, result, duration_seconds=duration)
         )
+        return _SettledToolCall(result, settlement)
+
+    def _record_tool_call(
+        self,
+        state: _RunState,
+        calls: tuple[AgentToolCall, ...],
+        call_index: int,
+        settled: _SettledToolCall,
+        results: list[AgentToolResultMessage],
+    ) -> _ToolCycleOutcome:
+        result, settlement = settled.result, settled.transition
         results.append(result)
         if settlement.action is AgentToolPolicyAction.INTERRUPTED:
             self._append_message(state, result)
@@ -817,6 +841,16 @@ class AgentLoop:
                 _IterationDisposition.STOP,
                 cancellation=_interruption_reason(settlement.interruption),
             )
+        if settlement.action in {
+            AgentToolPolicyAction.BUDGET_EXHAUSTED,
+            AgentToolPolicyAction.UNAUTHORIZED,
+            AgentToolPolicyAction.BLOCKED,
+        }:
+            self._append_message(state, result)
+            if settlement.action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
+                state.tool_state = settlement.state
+                self._status.tool_policy_state_changed(state.tool_state)
+            return _ToolCycleOutcome(_IterationDisposition.CONTINUE)
         state.tool_state = settlement.state
         self._status.tool_policy_state_changed(state.tool_state)
         self._append_message(state, result)
@@ -841,30 +875,24 @@ class AgentLoop:
 
         return _emit
 
-    def _record_policy_result(
+    def _emit_policy_result(
         self,
-        state: _RunState,
         call: AgentToolCall,
         result: AgentToolResultMessage,
-        results: list[AgentToolResultMessage],
         turn_index: int,
     ) -> None:
         _validate_tool_result_for_call(result, call)
         self._events.emit(ToolCallStarted(turn_index, call))
-        self._complete_and_append(state, call, result, results, turn_index)
+        self._emit_tool_completed(call, result, turn_index)
 
-    def _complete_and_append(
+    def _emit_tool_completed(
         self,
-        state: _RunState,
         call: AgentToolCall,
         result: AgentToolResultMessage,
-        results: list[AgentToolResultMessage],
         turn_index: int,
     ) -> None:
         _validate_tool_result_for_call(result, call)
         self._events.emit(ToolCallCompleted(turn_index, result))
-        results.append(result)
-        self._append_message(state, result)
 
     def _append_skipped_tools(
         self,

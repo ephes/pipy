@@ -1,12 +1,20 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core only, not yet a tool.** The model cannot run scripts
-yet: there is no model-visible tool, no events, budgets or session records.
-Those are tasks T4–T11 of the
+Status: **sandbox core and T4 loop groundwork, not yet a tool.** The model
+cannot run scripts yet: there is no model-visible tool or codemode-specific
+events, budgets or session records.
+Those are tasks T5–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5); the
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
 documents what exists today: installing the runtime, checking availability and
 the `run_script` API that the loop integration will call.
+
+T4 separates the agent loop's internal settle and record paths without changing
+behaviour. Settlement owns admission, hooks, execution, result transformation
+and validation, and existing tool events. Recording owns top-level results,
+model history, skipped calls and terminal handling. Budget state is published
+early; other state publication keeps its existing recording boundary. This is
+groundwork for T6 reuse, not a nested-call service or a model-visible tool.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.

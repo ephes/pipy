@@ -5,8 +5,9 @@ Status: spike result, 2026-10-06. This follows the
 still decides selection and order. This document picks a backend, defines the
 first-slice contract and lists the first-slice tasks. Implementation status:
 T1 (runtime provisioning and the availability self-test), T2 (the worker
-and the guest prelude) and T3 (the host runner) are implemented; see their
-notes in §5. Everything else here is not yet implemented.
+and the guest prelude), T3 (the host runner), and T4 (settle/record extraction)
+are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
+T5–T11 are not yet implemented.
 
 ## 1. Status and scope
 
@@ -226,13 +227,19 @@ Host rules. Each one closes a red-team finding:
 These steps follow the seam map. Line references are to
 `src/pipy_harness/native/` at `a992b43d`.
 
-1. **Extract** a pure settle step from `AgentLoop._handle_tool_call`,
+1. **Extract** an internal settle path from `AgentLoop._handle_tool_call`,
    `_execute_admitted_tool` and `_execute_tool` (`agent/loop.py:734-832`):
    - The settle step covers admission, `before_execute` and extension hooks,
      execution, counter settlement, `transform_result` and events.
    - The record step covers the history and `results` append and the
      skipped/cancel handling, and stays at top level only.
-   - The refactor itself must not change behaviour.
+   - The refactor itself must not change behaviour. T4 now implements
+     `_settle_tool_call` returning a validated result and policy transition,
+     with existing tool events already emitted, without history/results access.
+     `_record_tool_call` owns top-level appends, later state publication and
+     terminal handling. An explicit budget-publication callback preserves
+     publication before error construction and policy events. The settle path
+     is effectful (hooks/execution/events), not a pure policy function.
 2. **Add the service** in a new module, `agent/nested_calls.py`:
 
    ```python
@@ -651,7 +658,17 @@ Each task is small and lands with its own tests. The plan's acceptance items
        warning. Spilling the full text to a user-only file is deferred to
        T8; `full_output` carries the untruncated text for it.
 4. **T4: settle/record extraction** in `agent/loop.py`, with no behaviour
-   change. The existing loop tests stay green.
+   change. Implemented: `_settle_tool_call` owns admission, preflight, execution,
+   settlement, transformation/validation and existing tool events; its typed
+   `_SettledToolCall` carries the result and policy transition. The separate
+   `_record_tool_call` owns results/history, skipped calls and terminal
+   cancellation/malformed handling. Budget state publication remains before
+   policy events through an explicit callback; unauthorized/blocked publication
+   remains after history, executed publication before history. Interrupted
+   execution leaves counters unchanged. Duration still covers execution,
+   settlement and transformation/validation only. Existing loop tests and
+   direct seam characterization cover the six settlement outcomes. No nested
+   service, new policy, composite runner, events or tool is shipped by T4.
 5. **T5: nested policy transitions** in `loop_policy.py`: a reserved parent
    slot, non-fatal nested malformed calls, and budget exhaustion. Covers B,
    plus a budget test.

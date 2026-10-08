@@ -33,6 +33,7 @@ from pipy_harness.native.agent.loop import (
 )
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderStatusDecision,
+    AgentToolPolicyAction,
     AgentToolPolicyDecision,
     AgentToolPolicyState,
 )
@@ -2321,3 +2322,93 @@ def test_refused_preparation_validates_history_before_turn_start(
         loop.run(run_input)
     assert provider.calls == 0 and not usage.publications
     assert not any(isinstance(e, TurnStarted) for e in events.events)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        AgentToolPolicyAction.SETTLED,
+        AgentToolPolicyAction.UNAUTHORIZED,
+        AgentToolPolicyAction.BLOCKED,
+        AgentToolPolicyAction.BUDGET_EXHAUSTED,
+        AgentToolPolicyAction.MALFORMED,
+        AgentToolPolicyAction.INTERRUPTED,
+    ],
+)
+def test_settle_seam_returns_result_and_transition_without_recording(
+    action: AgentToolPolicyAction,
+) -> None:
+    order: list[str] = []
+    call = AgentToolCall("child", "fixture", ProductContent("{}"))
+    execution = ToolExecutionOutcome(
+        _tool_result(call),
+        malformed_arguments=action is AgentToolPolicyAction.MALFORMED,
+        interruption=(
+            ToolExecutionInterruption.OPERATOR_ABORT
+            if action is AgentToolPolicyAction.INTERRUPTED
+            else ToolExecutionInterruption.SETTLED
+        ),
+    )
+    status = _StatusPolicy(order)
+    policy = _ToolPolicy(order, blocked=action is AgentToolPolicyAction.BLOCKED)
+    loop, provider, events, _ = _make_loop(
+        order,
+        [],
+        tools=_Tools(order, [execution]),
+        tool_policy=policy,
+        status_policy=status,
+    )
+    run_input = _run_input(tool_budget=1)
+    preparation = _RequestSource(
+        order,
+        authorized_names=() if action is AgentToolPolicyAction.UNAUTHORIZED else None,
+    ).prepare(
+        (run_input.active_input.accepted_message,), run_input.active_input, 0, (_TOOL,)
+    )
+    assert preparation.snapshot is not None
+    tool_state = replace(
+        run_input.tool_policy_state,
+        invocations_this_turn=int(action is AgentToolPolicyAction.BUDGET_EXHAUSTED),
+    )
+    published: list[AgentToolPolicyState] = []
+
+    def publish_budget(state: AgentToolPolicyState) -> None:
+        order.append("budget:publish")
+        published.append(state)
+
+    settled = loop._settle_tool_call(
+        tool_state, preparation.snapshot, call, 0, publish_budget
+    )
+
+    assert settled.transition.action is action
+    assert settled.result.provider_correlation_id == "child"
+    assert provider.calls == 0
+    assert status.tool_states == []
+    executed = action in {
+        AgentToolPolicyAction.SETTLED,
+        AgentToolPolicyAction.MALFORMED,
+        AgentToolPolicyAction.INTERRUPTED,
+    }
+    assert _event_names(events.events) == (
+        ["ToolCallStarted", "ToolCallUpdated", "ToolCallCompleted"]
+        if executed
+        else ["ToolCallStarted", "ToolCallCompleted"]
+    )
+    completed = events.events[-1]
+    assert isinstance(completed, ToolCallCompleted)
+    assert (completed.duration_seconds is not None) is executed
+    assert ("policy:transform:child" in order) is executed
+    assert policy.before_calls == int(
+        action
+        not in {
+            AgentToolPolicyAction.UNAUTHORIZED,
+            AgentToolPolicyAction.BUDGET_EXHAUSTED,
+        }
+    )
+    if action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
+        assert published == [settled.transition.state]
+        assert order.index("budget:publish") < order.index("tool:error:child")
+    else:
+        assert published == []
+    if action is AgentToolPolicyAction.INTERRUPTED:
+        assert settled.transition.state is tool_state

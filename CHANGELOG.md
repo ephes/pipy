@@ -6,6 +6,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Changed
+
+- Internal agent-loop refactor (CM1 T4): separate tool settlement from
+  top-level result/history recording, preserving policy, event, counter,
+  cancellation and failure ordering. Groundwork only; no codemode tool yet.
+
 ### Added
 
 - Groundwork for Python codemode (CM1 T1, not yet a tool): an optional
