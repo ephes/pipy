@@ -102,9 +102,14 @@ and remains inside one parent row. T7b implements the bounded durable nestedCall
 parent record, script-error/abort/timeout persistence, resume/tree reconstruction
 and attempted file-operation input for compaction and branch summaries. Canonical
 pipeline exceptions expose unfinished live/event evidence without a saved-session
-guarantee. Ordinary direct-tool JSON/RPC shapes stay unchanged. T8a adds the stable internal builtin definition, root runtime management CLI
-and composite result truncation/spilling. T8b opt-in/settings/availability and
-production registration remain pending; end-to-end
+guarantee. Ordinary direct-tool JSON/RPC shapes stay unchanged. T8a adds the
+stable internal builtin definition, root runtime management CLI
+and composite result truncation/spilling. T8b implements public enablement,
+Pi `defaultTools` layering/CLI exact modifiers,
+availability-gated registration and frozen reload selection. Slow probes and
+concurrent probe waits run outside the shared session lock; cached availability
+and one-warning ownership are synchronized. Diagnostics run outside coordination
+locks through the transcript notice sink or headless stderr; end-to-end
 validation, measurement and final docs/review remain T9–T11.
 
 ## Deferred

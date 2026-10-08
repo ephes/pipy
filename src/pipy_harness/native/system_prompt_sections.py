@@ -88,6 +88,12 @@ BUILTIN_TOOL_PROMPTS: Mapping[str, ToolPrompt] = MappingProxyType(
         "grep": ToolPrompt("Search file contents for patterns (respects .gitignore)"),
         "find": ToolPrompt("Find files by glob pattern (respects .gitignore)"),
         "ls": ToolPrompt("List directory contents"),
+        "codemode": ToolPrompt(
+            "Run Python that calls other tools",
+            (
+                "Use codemode to chain several tool calls or filter large output in one step instead of many separate calls.",
+            ),
+        ),
     }
 )
 

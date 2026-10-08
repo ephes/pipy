@@ -14,11 +14,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- CM1 T8b: public codemode opt-in via `defaultTools: ["+codemode"]` or
+  `--tools +codemode`, with exact Pi modifiers and layered initial selections.
+  Selected builtin codemode is advertised only after a fail-closed availability
+  check outside the shared session lock, including concurrent probe waits.
+  Unavailable startup/reload emits one bounded transcript notice in the TUI or
+  one stderr line headlessly, outside coordination locks, and continues without an
+  automatic install. CLI interactive/print/JSON/RPC and library sessions share
+  capability composition, frozen builtin identity and reload selection ownership.
+  Default seven builtins/extensions are unchanged. T9 end-to-end/tmux, T10 live
+  comparison and T11 final docs/cumulative review remain pending.
+
 - CM1 T8a: stable internal codemode builtin definition and shared schema,
   root `pipy codemode install|status` runtime management, and owner-only host
   full-output spilling with truncation metadata. Spill failures preserve the
-  primary script outcome and nested records. Production registration and model
-  opt-in/settings/availability remain pending T8b; no default tool change.
+  primary script outcome and nested records. T8b adds opt-in registration; no default tool change.
 
 - Internal Python codemode durability (CM1 T7b): bounded parent `nestedCalls`
   records survive script errors, timeouts and aborts, preserve partial effects,
@@ -26,7 +36,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   canonical codemode parent details; compaction and branch summaries receive
   bounded attempted file paths before details are stripped. Nested results remain absent from
   persisted/provider history, and provider HTTP serializers omit details.
-  Public opt-in/settings/availability and production registration remain T8b; live end-to-end/tmux evidence remains T9.
+  Public opt-in/settings/availability and production registration are implemented in T8b; live end-to-end/tmux evidence remains T9.
 
   Pipeline exceptions retain live/event evidence, with no saved-session guarantee.
   Summary path input preserves tool pairing; direct argument parsing is capped

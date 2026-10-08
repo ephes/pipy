@@ -18,6 +18,10 @@ from __future__ import annotations
 from pipy_harness.native.tools.base import ToolPort
 
 
+class ProductionToolRegistry(dict[str, ToolPort]):
+    """Production defaults; injected plain mappings retain caller policy."""
+
+
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry."""
 
@@ -29,12 +33,14 @@ def production_tool_registry() -> dict[str, ToolPort]:
     from pipy_harness.native.tools.read import ReadTool
     from pipy_harness.native.tools.write import WriteTool
 
-    return {
-        "read": ReadTool(),
-        "ls": LsTool(),
-        "grep": GrepTool(),
-        "find": FindTool(),
-        "write": WriteTool(),
-        "edit": EditTool(),
-        "bash": BashTool(),
-    }
+    return ProductionToolRegistry(
+        {
+            "read": ReadTool(),
+            "ls": LsTool(),
+            "grep": GrepTool(),
+            "find": FindTool(),
+            "write": WriteTool(),
+            "edit": EditTool(),
+            "bash": BashTool(),
+        }
+    )

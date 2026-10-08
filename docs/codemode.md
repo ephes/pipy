@@ -1,15 +1,16 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core, T4–T7 internal integration and T8a implemented.**
+Status: **sandbox core and T4–T8 implemented; T9–T11 pending.**
 The internal composite runner now retains bounded nested-call evidence on its
 parent result and reconstructs child lines on resume and tree navigation.
 T8a adds the stable builtin definition, runtime-management CLI and composite
-output spilling. T8b opt-in/settings/availability and production registration
-remain pending; end-to-end/tmux evidence,
+output spilling. T8b adds public opt-in selection/settings/availability and production
+registration; end-to-end/tmux evidence,
 measurement and final delivery remain T9–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5). The
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
-documents installing the runtime, checking availability and the internal API.
+documents enabling codemode, installing the runtime, checking availability
+and the internal API.
 
 T4 separates the agent loop's internal settle and record paths without changing
 behaviour. Settlement owns admission, hooks, execution, result transformation
@@ -51,8 +52,7 @@ including an ordinary extension named `codemode`, retain their behavior.
 The coding coordinator forwards the optional ports. T6b wires the real runner at
 the REPL composition seam for both interactive and headless/RPC waiters. A frozen
 product identity guard requires an advertised native builtin `codemode`, excluding
-extension overrides. The T8a definition is not registered in production; T8b owns registration, so public behavior
-remains unchanged. Existing internal test ports can omit the optional guard.
+extension overrides. T8b registers the public definition only when selected and available. Existing internal test ports can omit the optional guard.
 
 Each admitted parent owns a fresh sequential service on the session thread.
 Child calls reuse shared admission/settlement policy, product hooks, the normal
@@ -154,9 +154,8 @@ headless abort during guest compute, deadline/backend failure during a tool,
 fresh execution after cancellation and worker process-group cleanup. They
 establish T6 acceptance D at the internal integration seam. Actual tmux Escape
 evidence remains T9. T7a implements nested events and live projections; T7b implements durable parent
-details, resume/tree and private summary file-operation input; T8a implements definition/runtime CLI/truncation spilling; T8b owns opt-in,
-availability selection and production registration.
-T9–T11 remain outstanding. There is no model opt-in yet.
+details, resume/tree and private summary file-operation input; T8a implements definition/runtime CLI/truncation spilling; T8b implements opt-in, availability selection and production registration.
+T9 end-to-end/tmux, T10 live comparison and T11 final docs/cumulative review remain outstanding.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.
@@ -192,8 +191,7 @@ interruption keeps existing turn-stop and budget semantics.
 
 T7b reconstructs these child lines on resume/tree from the bounded parent
 `nestedCalls` record and supplies derived attempted file paths to compaction and
-branch summaries. No nested results or per-call CustomEntry records persist. T8b owns opt-in/settings/availability and production registration, T9 end-to-end evidence, T10 measurement and T11
-final documentation/review.
+branch summaries. No nested results or per-call CustomEntry records persist. T8b implements public opt-in/settings/availability and production registration. T9 end-to-end evidence, T10 measurement and T11 final documentation/review remain pending.
 
 ## What it is
 
@@ -255,6 +253,40 @@ Files live under `~/.local/state/pipy/codemode/`:
 | `cache/` | the `.cwasm` compiled-module cache, keyed on wasmtime version, platform and engine configuration |
 
 Deleting the directory uninstalls the runtime.
+
+## Enabling
+
+Codemode is off by default. Once installed, enable it for a run:
+
+```bash
+pipy --tools +codemode
+# in a checkout
+uv run --extra codemode pipy --tools +codemode
+```
+
+Or add `"defaultTools": ["+codemode"]` to global settings or trusted project
+`.pipy/settings.json`. The seven existing builtins and default extension
+visibility remain unchanged. A plain `defaultTools` list sets the initial
+builtin selection; `[]` inherits a lower-layer list, or selects no builtins when
+there is no inherited list. Exact `+name`/`-name` entries
+modify the inherited selection in order. See [settings semantics](settings-config.md#default-tool-selection).
+A CLI plain allowlist overrides settings and filters extensions too;
+`--no-tools`, `--no-builtin-tools`, and `--exclude-tools` retain their filters.
+
+Only selected builtin codemode runs the availability check before advertisement.
+The slow probe and concurrent probe waits run outside the shared session lock;
+its run-owned cache and one-warning ownership remain synchronized. Candidate
+preparation leaves live state unchanged, and publication carries accepted live
+selections. If the extra, runtime or self-test is unavailable, startup or reload
+emits one bounded diagnostic outside the session and probe locks: a transcript
+notice when a terminal UI exists, otherwise one stderr line. The session
+continues with the remaining tools. There is no
+automatic download or interpreter fallback. After installing a missing runtime
+or extra, start a new session. A custom extension named `codemode` remains an
+ordinary extension and does not trigger the builtin probe or composite dispatch.
+The stable public description, prompt snippet and guideline appear only for the
+advertised builtin. Completed effects survive script errors; scripts are not
+retried automatically after effects.
 
 ## Availability
 

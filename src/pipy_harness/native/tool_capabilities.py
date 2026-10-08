@@ -16,6 +16,29 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.tools import ToolContext, ToolDefinition, ToolPort
 
+DEFAULT_TOOL_NAMES = ("read", "ls", "grep", "find", "write", "edit", "bash")
+
+
+def apply_tool_modifiers(
+    base: Sequence[str], entries: Sequence[str]
+) -> tuple[str, ...]:
+    """Apply exact Pi modifiers in order."""
+    names = list(base)
+    for entry in entries:
+        name = entry[1:]
+        if entry.startswith("+") and name and name not in names:
+            names.append(name)
+        elif entry.startswith("-") and name in names:
+            names.remove(name)
+    return tuple(names)
+
+
+def resolve_default_tools(entries: Sequence[str]) -> tuple[str, ...]:
+    plain = tuple(entry for entry in entries if not entry.startswith(("+", "-")))
+    return apply_tool_modifiers(
+        plain if plain or not entries else DEFAULT_TOOL_NAMES, entries
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class ToolFilterOptions:
@@ -23,6 +46,7 @@ class ToolFilterOptions:
 
     allow: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
+    modifiers: tuple[str, ...] = ()
     no_tools: bool = False
     no_builtin_tools: bool = False
 
@@ -35,6 +59,15 @@ class ToolFilterOptions:
             isinstance(name, str) for name in self.exclude
         ):
             raise TypeError("ToolFilterOptions.exclude must be a tuple of strings")
+        if not isinstance(self.modifiers, tuple) or not all(
+            isinstance(entry, str) and entry.startswith(("+", "-")) and "*" not in entry
+            for entry in self.modifiers
+        ):
+            raise TypeError(
+                "ToolFilterOptions.modifiers must be exact +name/-name entries"
+            )
+        if self.modifiers and self.allow:
+            raise ValueError("tool names cannot be mixed with +name or -name entries")
         if not isinstance(self.no_tools, bool):
             raise TypeError("ToolFilterOptions.no_tools must be a bool")
         if not isinstance(self.no_builtin_tools, bool):
@@ -82,6 +115,11 @@ class ToolCapabilityState:
     executor: ToolExecutor
     filter_options: ToolFilterOptions
     active_tool_names: frozenset[str] | None
+    default_tool_names: frozenset[str] | None = None
+    selected_names: tuple[str, ...] = ()
+    recognized_names: frozenset[str] = frozenset()
+    selection_initialized: bool = False
+    active_selection_customized: bool = False
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -96,7 +134,7 @@ class ToolCapabilityState:
 
     @property
     def filter_configured(self) -> bool:
-        return self.filter_options != ToolFilterOptions.empty()
+        return replace(self.filter_options, modifiers=()) != ToolFilterOptions.empty()
 
     @classmethod
     def build(
@@ -202,8 +240,9 @@ class NativeToolCapabilities:
     """Compose product tool registries, visibility policy, and execution.
 
     The instance identity is caller-owned and stable for the whole run; every
-    mutable member lives inside one :class:`ToolCapabilityState` value that is
-    replaced wholesale rather than edited in place.
+    published registry and selection live inside one :class:`ToolCapabilityState`
+    value replaced wholesale rather than edited in place. The optional runtime
+    probe result is a separate run-owned cache guarded by the same state lock.
 
     The live state pointer is guarded state: an extension tool handler running
     on a worker thread can reach ``set_active_tools`` while the session thread
@@ -224,10 +263,22 @@ class NativeToolCapabilities:
         filter_options: ToolFilterOptions,
         cancel_join_timeout_seconds: float,
         state_lock: "threading.RLock | None" = None,
+        default_tools: Callable[[], Sequence[str] | None] | None = None,
+        diagnostic: Callable[[str], None] | None = None,
     ) -> None:
         self._context = ToolContext(workspace_root=workspace_root)
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
         self._state_lock = state_lock if state_lock is not None else threading.RLock()
+        from pipy_harness.native.tools.registry import ProductionToolRegistry
+
+        self._production_defaults = isinstance(builtin_registry, ProductionToolRegistry)
+        self._base_registry = dict(builtin_registry)
+        self._default_tools = default_tools
+        self._diagnostic = diagnostic
+        # Run-owned result; all accesses take _state_lock.
+        self._codemode_available: bool | None = None
+        # Detached preparations share a probe without waiting under the session lock.
+        self._codemode_probe_lock = threading.Lock()
         self._state = ToolCapabilityState.build(
             builtin_registry,
             extension_registry,
@@ -256,7 +307,17 @@ class NativeToolCapabilities:
         configured_names = set(state.filter_options.allow) | set(
             state.filter_options.exclude
         )
-        return tuple(sorted(configured_names.difference(state.registry)))
+        configured_names.update(state.selected_names)
+        configured_names.update(
+            entry[1:] for entry in state.filter_options.modifiers if entry[1:]
+        )
+        return tuple(
+            sorted(
+                configured_names.difference(state.registry).difference(
+                    state.recognized_names
+                )
+            )
+        )
 
     def set_active_tools(self, names: Sequence[str]) -> bool:
         """Atomically replace the provider-visible tool-name selection.
@@ -271,7 +332,12 @@ class NativeToolCapabilities:
             state = self._state
             if any(name not in state.registry for name in normalized):
                 return False
-            self._state = replace(state, active_tool_names=normalized)
+            self._state = replace(
+                state,
+                active_tool_names=normalized,
+                selection_initialized=True,
+                active_selection_customized=True,
+            )
         return True
 
     def restore_active_tools(self, names: Sequence[str]) -> None:
@@ -293,7 +359,38 @@ class NativeToolCapabilities:
                     registered_names=state.registry,
                 )
             restored = frozenset(name for name in names if name in visible)
-            self._state = replace(state, active_tool_names=restored)
+            self._state = replace(
+                state,
+                active_tool_names=restored,
+                selection_initialized=True,
+                active_selection_customized=True,
+            )
+
+    def _probe_codemode(self) -> bool:
+        """Cache one probe; present its warning outside both coordination locks."""
+        warning = None
+        with self._codemode_probe_lock:
+            with self._state_lock:
+                cached = self._codemode_available
+            if cached is not None:
+                return cached
+            from pipy_harness.native.codemode.selftest import availability
+
+            result = availability()
+            with self._state_lock:
+                # Publishing the cache also claims the sole warning: later
+                # callers return the cached result without presenting it.
+                self._codemode_available = result.available
+            if not result.available and self._diagnostic is not None:
+                reason = " ".join((result.reason or "self-test failed").split())[:300]
+                reason = "".join(
+                    character if character.isprintable() else " "
+                    for character in reason
+                )
+                warning = f"pipy: codemode unavailable: {reason}"
+        if warning is not None and self._diagnostic is not None:
+            self._diagnostic(warning)
+        return result.available
 
     def prepare_extensions(
         self, mapping: Mapping[str, ToolPort]
@@ -302,7 +399,10 @@ class NativeToolCapabilities:
 
         Candidate-only: the returned value is unreachable from the live state
         until :meth:`publish` assigns it, so a reload that fails afterwards
-        leaves the previous generation complete.
+        leaves the previous generation complete. Selected optional builtin
+        availability is probed lazily outside the shared state lock; its cached
+        result is guarded by that lock and concurrent probes are serialized;
+        extension overrides never trigger that probe.
 
         The carried selection here is a preview only. Where it is carried rather
         than re-derived from a filter, :meth:`publish` rebinds it to whatever is
@@ -310,13 +410,62 @@ class NativeToolCapabilities:
         built is not overwritten.
         """
 
-        state = self.state
-        return ToolCapabilityState.build(
-            state.builtin_registry,
+        with self._state_lock:
+            state = self._state
+            options = state.filter_options
+            configured = (
+                self._default_tools()
+                if self._production_defaults and self._default_tools
+                else None
+            )
+        selected = (
+            tuple(configured) if configured is not None else tuple(self._base_registry)
+        )
+        selected = apply_tool_modifiers(selected, options.modifiers)
+        explicit = configured is not None or bool(options.modifiers)
+        builtin = dict(self._base_registry)
+        # Registered optional ports persist for this lifetime, like Pi's
+        # registry; removing a default does not deactivate an active tool.
+        if self._production_defaults and "codemode" in state.builtin_registry:
+            builtin["codemode"] = state.builtin_registry["codemode"]
+        wants_codemode = "codemode" in (options.allow or selected)
+        wants_codemode = (
+            wants_codemode
+            and not options.no_tools
+            and not options.no_builtin_tools
+            and "codemode" not in options.exclude
+        )
+        if self._production_defaults and wants_codemode and "codemode" not in mapping:
+            if self._probe_codemode():
+                from pipy_harness.native.tools.codemode import CodemodeTool
+
+                builtin["codemode"] = (
+                    state.builtin_registry.get("codemode") or CodemodeTool()
+                )
+        candidate = ToolCapabilityState.build(
+            builtin,
             mapping,
-            filter_options=state.filter_options,
+            filter_options=options,
             cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
             carried_active_tool_names=state.active_tool_names,
+        )
+        defaults = frozenset(selected) if explicit else None
+        active = candidate.active_tool_names
+        if explicit and not options.allow:
+            active = frozenset(selected) | frozenset(mapping)
+            active &= options.provider_visible_names(
+                builtin_names=builtin, registered_names=candidate.registry
+            )
+        return replace(
+            candidate,
+            active_tool_names=active,
+            default_tool_names=defaults,
+            selected_names=tuple(configured or ()) if not options.allow else (),
+            recognized_names=frozenset({"codemode"})
+            if self._production_defaults
+            else frozenset(),
+            selection_initialized=True,
+            active_selection_customized=state.active_selection_customized,
         )
 
     def publish(self, state: ToolCapabilityState) -> None:
@@ -333,7 +482,48 @@ class NativeToolCapabilities:
 
         with self._state_lock:
             if not state.filter_configured:
-                state = replace(state, active_tool_names=self._state.active_tool_names)
+                live = self._state
+                active = (
+                    live.active_tool_names
+                    if live.selection_initialized
+                    else state.active_tool_names
+                )
+                if live.selection_initialized and (
+                    state.default_tool_names is not None
+                    or live.default_tool_names is not None
+                ):
+                    previous_defaults = (
+                        live.default_tool_names
+                        if live.default_tool_names is not None
+                        else frozenset(self._base_registry)
+                    )
+                    next_defaults = (
+                        state.default_tool_names
+                        if state.default_tool_names is not None
+                        else frozenset(self._base_registry)
+                    )
+                    if active is None:
+                        active = frozenset(live.registry) | (
+                            next_defaults - previous_defaults
+                        )
+                    else:
+                        active = (
+                            active | (next_defaults - previous_defaults)
+                        ) & frozenset(state.registry)
+                if (
+                    live.selection_initialized
+                    and not live.active_selection_customized
+                    and state.default_tool_names is not None
+                    and active is not None
+                ):
+                    active |= frozenset(state.extension_registry).difference(
+                        live.extension_registry
+                    )
+                state = replace(
+                    state,
+                    active_tool_names=active,
+                    active_selection_customized=live.active_selection_customized,
+                )
             self._state = state
 
     def snapshot_for_projection(

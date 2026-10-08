@@ -19,8 +19,8 @@ updated 2026-10-04.
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
   and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
   T6 internal service, real runner and session-thread pump are implemented.
-  T7 nested lifecycle, live/durable projections and summary inputs are implemented; T8a is implemented; T8b–T11 remain;
-  there is no model opt-in. UP1
+  T7 nested lifecycle, live/durable projections and summary inputs are implemented; T8 public enablement is implemented; T9–T11 remain;
+  public codemode remains off by default. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
@@ -140,8 +140,7 @@ completion and wake activity; signal faults still attempt owned-group cleanup
 and bounded reaping. Real AgentLoop +
 ToolExecutor + host tests establish internal acceptance D, including active-tool
 cancellation and fresh execution after cancellation. Production composition is
-wired behind frozen native builtin identity checks; no builtin `codemode` is
-registered and there is no model opt-in. **T7a implemented internally:** distinct
+wired behind frozen native builtin identity checks; T8b now registers builtin `codemode` only when selected and available. **T7a implemented internally:** distinct
 session-thread nested lifecycle events, JSON/RPC parent correlation, deliberate
 SDK/persistence branches, numeric-only workflow counters and bounded live child
 lines inside the codemode row, owned by transcript verbs under PaintLock.
@@ -155,8 +154,12 @@ results persist or enter provider history; provider HTTP serializers omit detail
 **T8a implemented:** stable builtin definition/shared schema (internal injection
 only), root runtime install/status commands, and composite truncation/spilling
 with honest failure handling and retained parent records. Internal real-WASI
-write-then-raise acceptance C is covered. T8b opt-in/settings/availability and
-production registration remain pending; T9 live end-to-end/tmux evidence,
+write-then-raise acceptance C is covered. **T8b implemented:** public enablement,
+Pi `defaultTools` layering and CLI exact modifiers, shared availability-gated
+composition and frozen reload/active-tool ownership. T8b repairs keep slow probes
+and probe waits outside the shared session lock, synchronize the run cache and
+one-warning ownership, and route unlocked diagnostics to TUI transcript notices
+or headless stderr; T9 live end-to-end/tmux evidence,
 T10 measurement and T11 final scope remain unimplemented.
 
 T7b review repairs preserve summary tool pairing/final instructions, parse direct

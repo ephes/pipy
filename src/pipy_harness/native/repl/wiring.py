@@ -197,6 +197,7 @@ from pipy_harness.native.system_prompt_sections import (
 )
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
+    NativeToolCapabilitySnapshot,
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_renderers import (
@@ -229,9 +230,20 @@ def _system_sections_source(
     """
 
     if isinstance(source, SystemPromptTemplate):
-        return lambda: replace(source, skills=ctl.workspace_resources.skills).sections(
-            tuple(definition.name for definition in tool_capabilities.definitions())
-        )
+
+        def render_sections() -> SystemPromptSections:
+            snapshot = NativeToolCapabilitySnapshot(
+                tool_capabilities, tool_capabilities.state
+            )
+            return replace(source, skills=ctl.workspace_resources.skills).sections(
+                tuple(
+                    definition.name
+                    for definition in snapshot.definitions()
+                    if definition.name != "codemode" or snapshot.composite_enabled()
+                )
+            )
+
+        return render_sections
     return lambda: fixed
 
 
@@ -859,6 +871,8 @@ def _compose_extension_phase(
         filter_options=inputs.tool_filter_options,
         cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
         state_lock=session_state_lock,
+        default_tools=settings.get_default_tools,
+        diagnostic=partial(_extension_notify, "warning"),
     )
 
     def _prepare_before_publish(

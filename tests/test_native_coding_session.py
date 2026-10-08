@@ -1251,11 +1251,13 @@ def test_production_tool_inventories_match_exact_pi_manifest() -> None:
         "grep",
         "find",
         "ls",
+        "codemode",
     )
-    assert set(BUILTIN_TOOL_PROMPTS) == set(expected)
+    assert set(BUILTIN_TOOL_PROMPTS) == set(expected) | {"codemode"}
     assert prompt_names == ("<tools>", *expected)
     assert "edit_diff" not in prompt
     assert "truncate" not in prompt
+    assert "codemode" not in prompt  # optional prompt contribution is selected-only
 
 
 @pytest.mark.parametrize("removed_name", ["truncate", "edit_diff"])

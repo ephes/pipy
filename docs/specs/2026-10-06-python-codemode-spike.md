@@ -10,7 +10,7 @@ T5 (pure nested policy transitions), and T6a (internal service and optional comp
 port/dispatch with fake-runner tests) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
 T6b (real runner/pump/deadline wiring) and T7a (nested lifecycle events and live
 projections), and T7b (durable records, resume/tree and summary inputs) are
-implemented internally. T8a is implemented; T8b–T11 remain. No production codemode tool is registered.
+implemented internally. T8 public enablement is implemented; T9–T11 remain pending. Production codemode is selected and availability-gated.
 
 ## 1. Status and scope
 
@@ -319,7 +319,7 @@ Delivery split: **T7a live events/projections and T7b durability are implemented
 internally.** T7b adds the bounded schema below, script-error/abort/timeout
 persistence, resume/tree reconstruction and compaction/branch file-operation
 input. No per-call CustomEntry or child result persistence is added. Public
-opt-in/settings/availability and production registration remain T8b; live end-to-end/tmux evidence remains T9.
+T8b implements opt-in/settings/availability and production registration; live end-to-end/tmux evidence remains T9.
 
 - **Events.** New `NestedToolCallStarted` and
   `NestedToolCallCompleted(turn_index, parent_correlation_id, call, result,
@@ -773,7 +773,7 @@ Each task is small and lands with its own tests. The plan's acceptance items
      joins and settles as an error observation, preserving operator abort semantics.
      The REPL composition seam supplies the same runner for interactive and
      headless/RPC paths. A frozen native builtin identity guard excludes extension
-     `codemode`; no builtin is registered until T8b. Guest names are only eligible
+     `codemode`; T8b now registers the builtin only when selected and available. Guest names are only eligible
      builtins advertised in the parent request; definitions are never refreshed.
    - Evidence: `tests/test_native_codemode_composite.py` uses the installed runtime,
      AgentLoop, real ToolExecutor and host for multiple reads/post-transform text,
@@ -805,17 +805,29 @@ Each task is small and lands with its own tests. The plan's acceptance items
      `nestedCalls` parent-details schema, script-error/abort/timeout retention,
      resume/tree reconstruction, JSON/RPC parent details and compaction/branch
      attempted file-operation input. No nested result persistence/provider history.
-     Covers I's durable part; public delivery and T9 live evidence remain pending.
+     Covers I's durable part; T8b public enablement is implemented and T9 live
+     evidence remains pending.
 8. **T8: the codemode tool (split).**
    - **T8a implemented:** stable §4.8 builtin definition/shared schema, direct
      fail-closed fallback, root `pipy codemode install|status`, and host-owned
      full-body spill with bounded notice and parent truncation metadata.
-     Production registries/settings remain unchanged. Internal real-WASI
+     T8a left production registries/settings unchanged. Internal real-WASI
      AgentLoop tests inject the definition and cover retained write-then-raise
      effects/records (C), exact spill content and owner-only permissions, plus
      open/write/close failure honesty without changing the script outcome.
-   - **T8b pending:** opt-in selection/settings/availability and production
-     registration. T9 live end-to-end/tmux evidence remains pending.
+   - **T8b implemented:** public opt-in via `defaultTools: ["+codemode"]` or
+     `--tools +codemode`, Pi exact modifiers/layering, shared availability-gated
+     capability composition and frozen identity/reload selection. Disabled
+     codemode has no probe. Slow probing and concurrent probe waits run outside
+     the shared session lock; cache and one-warning ownership stay synchronized.
+     Unavailable startup/reload omits it with one bounded transcript notice in
+     the TUI or one stderr line headlessly, outside session and probe locks.
+     Detached candidates preserve immutable publication and accepted live selection.
+     Default extensions remain visible; plain CLI allowlists retain filtering.
+     The seven existing prompt contributions remain pinned against Pi's
+     fixture; codemode's optional sequential Python contribution is pinned
+     separately to §4.8. Public-session tests check selected-only prompt text.
+     T9 live end-to-end/tmux evidence remains pending.
    - T8b aligns the opt-in switch with Pi's setting and CLI surface
      (`CA/docs/settings.md:41-42`, `cli.md:155-178`).
    - T8a acceptance C: a script writes a file and then raises; the file stays

@@ -175,7 +175,9 @@ whose value is a plain object in both layers, the two objects are shallow-merged
 key-by-key (`{ ...base[key], ...override[key] }`); it does **not** recurse
 further. So a deeper nested object such as `retry.provider` is replaced
 **wholesale** by the higher-precedence layer, not recursively merged. Top-level
-primitives and arrays are also replaced wholesale. pipy mirrors this exactly:
+primitives and arrays are also replaced wholesale, except for the modifier-list
+merge of [`defaultTools`](#default-tool-selection). pipy retains this one-level
+object merge:
 
 Effective settings = deep-merge(
   global `<config>/settings.json`,
@@ -183,7 +185,7 @@ Effective settings = deep-merge(
 ), where the project layer overrides the global, top-level nested objects are
 shallow-merged one level (e.g. `compaction`, `retry`, `terminal`), and deeper
 nested objects (e.g. `retry.provider`), top-level scalars, and arrays are
-replaced wholesale. CLI flags (`--system-prompt`, `--no-context-files`, etc.)
+replaced wholesale (with the `defaultTools` exception above). CLI flags (`--system-prompt`, `--no-context-files`, etc.)
 and process env apply as a final override layer on top of the merged file
 settings (Pi's `applyOverrides`).
 
@@ -1136,3 +1138,45 @@ Update `docs/harness-spec.md`, `docs/backlog.md` (Pi Gap Queue item 2 and the
 "settings/distribution polish" gap), `docs/pi-parity.md`, `README.md`, and this
 spec to match shipped behavior, and get an independent review pass for the
 settings-store and keybindings slices.
+
+## Default tool selection
+
+CM1 T8b implements Pi's `defaultTools` name and exact `+name`/`-name`
+modifiers. pipy retains its existing seven builtin defaults (`read`, `ls`,
+`grep`, `find`, `write`, `edit`, `bash`); Pi's current default subset differs.
+`{"defaultTools": ["+codemode"]}` opts into the optional builtin after the
+availability gate. See [installation and status](codemode.md#installing).
+
+Settings layers apply base defaults, global settings, trusted project settings,
+then run overrides. A list containing plain names replaces inherited entries. A list
+containing only modifiers appends to inherited entries in order; resolution
+starts from plain names when present, otherwise the seven builtin defaults.
+An empty list inherits a lower-layer list. Without an inherited list, it selects
+no builtins. Other arrays still replace wholesale, and other object settings
+retain the existing one-level merge.
+Unknown/malformed values survive round-trip; the typed getter ignores nonstring
+list entries and treats a non-list value as an empty selection. Unknown selected
+names are rejected at normal startup after extensions load. Recognized but
+unavailable builtin codemode is omitted without becoming an unknown-name error.
+
+This setting selects initial builtins; default extension visibility remains.
+Caller-injected plain registries keep their ownership and are not replaced or
+widened by product defaults. CLI `--tools +codemode,-read` applies exact modifiers
+on the resolved setting/default selection. A plain CLI allowlist overrides the
+setting and retains existing builtin/extension filtering. Mixing plain names and
+modifiers, or using wildcard modifiers, is an error. `--no-tools`,
+`--no-builtin-tools` and `--exclude-tools` retain their existing precedence.
+
+At a successful reload generation boundary, only newly added default names are
+activated. New extension names remain visible under the initial default selection;
+an explicit active-tool API selection keeps its existing ownership. Removed defaults stay active; tools disabled with `set_active_tools`
+stay disabled unless the setting newly adds them. Optional registered ports stay
+in the session registry, and the first selected availability result is reused for
+that lifetime. Slow probing and concurrent probe waits run outside the shared
+session lock; the cached result and one-warning ownership are synchronized.
+Unavailable startup/reload presents one bounded transcript notice in a terminal
+UI, or one stderr line headlessly, outside the session and probe locks. Unfiltered publication carries the latest live active selection under
+the shared session lock, so preparation cannot overwrite an extension's accepted
+selection. Explicit existing CLI filters retain their reload policy. A running
+parent keeps its advertised definitions and builtin identities frozen across
+reload; extension replacements remain ineligible for nested calls.

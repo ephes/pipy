@@ -774,7 +774,7 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="tools",
         default=None,
         metavar="TOOLS",
-        help="Comma-separated allowlist of tool names to enable.",
+        help="Comma-separated tool allowlist, or exact +name/-name modifiers of defaultTools.",
     )
     parser.add_argument(
         "--exclude-tools",
@@ -793,8 +793,15 @@ def _parse_tool_name_list(value: str | None) -> tuple[str, ...]:
 
 
 def _tool_filter_options_from_args(args: Any) -> ToolFilterOptions:
+    entries = _parse_tool_name_list(getattr(args, "tools", None))
+    modifiers = tuple(entry for entry in entries if entry.startswith(("+", "-")))
+    if modifiers and len(modifiers) != len(entries):
+        raise ValueError("tool names cannot be mixed with +name or -name entries")
+    if any("*" in entry for entry in modifiers):
+        raise ValueError("+name and -name entries take exact tool names, not patterns")
     return ToolFilterOptions(
-        allow=_parse_tool_name_list(getattr(args, "tools", None)),
+        allow=() if modifiers else entries,
+        modifiers=modifiers,
         exclude=_parse_tool_name_list(getattr(args, "exclude_tools", None)),
         no_tools=bool(getattr(args, "no_tools", False)),
         no_builtin_tools=bool(getattr(args, "no_builtin_tools", False)),
@@ -959,6 +966,31 @@ def _ordered_repl_extension_flag_tokens(
     return list(unknown_args)
 
 
+def _bind_tool_modifier_values(argv: list[str]) -> list[str]:
+    """Let argparse consume a leading -name as the --tools value, like Pi."""
+    if not argv or argv[0] != "repl":
+        return argv
+    bound: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "--":
+            bound.extend(argv[index:])
+            break
+        if (
+            token in ("--tools", "-t")
+            and index + 1 < len(argv)
+            and argv[index + 1].startswith("-")
+            and not argv[index + 1].startswith("--")
+        ):
+            bound.append(f"{token}={argv[index + 1]}")
+            index += 2
+        else:
+            bound.append(token)
+            index += 1
+    return bound
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     incoming_argv = sys.argv[1:] if argv is None else argv
@@ -967,7 +999,9 @@ def main(argv: list[str] | None = None) -> int:
     # implicit ``repl`` subcommand; subcommands and the root-only flags
     # (help/version/export) dispatch unchanged. The injected ``repl`` is what
     # the extension-flag passthrough below composes with.
-    raw_argv = route_argv(list(incoming_argv), KNOWN_SUBCOMMANDS)
+    raw_argv = _bind_tool_modifier_values(
+        route_argv(list(incoming_argv), KNOWN_SUBCOMMANDS)
+    )
     # Retired automation flags (--native-output, --archive-transcript) produce a
     # migration message instead of argparse's generic "unrecognized arguments" /
     # the repl extension-flag passthrough's "unknown extension flag".

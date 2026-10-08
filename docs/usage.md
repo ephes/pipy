@@ -267,14 +267,17 @@ trust before saved/default/UI fallback; project extensions remain gated.
 
 | Option | Description |
 | --- | --- |
-| `--tools <list>`, `-t <list>` | Allowlist specific built-in, extension, and custom tools |
+| `--tools <list>`, `-t <list>` | Allowlist built-in, extension, and custom tools, or apply exact `+name`/`-name` modifiers to `defaultTools` |
 | `--exclude-tools <list>`, `-xt <list>` | Disable specific built-in, extension, and custom tools |
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools |
 
 Built-in tools are `read`, `ls`, `grep`, `find`, `write`, `edit`, and `bash`,
 in that order. Read excerpts, shell output, and provider-visible tool results
-are bounded automatically.
+are bounded automatically. Optional `codemode` is off by default; enable with
+`--tools +codemode` or `"defaultTools": ["+codemode"]` after explicit
+[runtime installation](codemode.md#installing). Modifiers use exact names and
+cannot be mixed with a plain allowlist. See [default selection](settings-config.md#default-tool-selection).
 
 ### Resource options
 

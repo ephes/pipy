@@ -725,6 +725,14 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.tools.ToolExecutionOutcome",
         "pipy_harness.native.agent.tools.ToolExecutor",
         "pipy_harness.native.agent.tools.ToolInterruptWaiter",
+        # Product composition owns lazy optional builtin registration and its
+        # fail-closed availability gate; canonical agent tools remain unaware.
+        "pipy_harness.native.tools.registry",
+        "pipy_harness.native.tools.registry.ProductionToolRegistry",
+        "pipy_harness.native.tools.codemode",
+        "pipy_harness.native.tools.codemode.CodemodeTool",
+        "pipy_harness.native.codemode.selftest",
+        "pipy_harness.native.codemode.selftest.availability",
         "pipy_harness.native.tools",
         "pipy_harness.native.tools.ToolContext",
         "pipy_harness.native.tools.ToolDefinition",

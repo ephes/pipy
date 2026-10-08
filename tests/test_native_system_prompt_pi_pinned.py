@@ -122,13 +122,18 @@ def test_sections_match_pi(name: str) -> None:
 
 def test_builtin_tool_prompts_are_pis_contributions() -> None:
     pi = FIXTURE["cases"]["pi_default"]["input"]
-    assert {name: p.snippet for name, p in BUILTIN_TOOL_PROMPTS.items()} == pi[
-        "toolSnippets"
-    ]
+    # The pinned driver covers the seven existing tools. Optional codemode
+    # adapts Pi's JavaScript contribution to CM1's sequential Python contract.
+    assert set(BUILTIN_TOOL_PROMPTS) == set(pi["toolSnippets"]) | {"codemode"}
+    assert {
+        name: p.snippet
+        for name, p in BUILTIN_TOOL_PROMPTS.items()
+        if name != "codemode"
+    } == pi["toolSnippets"]
     guidelines = {
         name: list(p.guidelines)
         for name, p in BUILTIN_TOOL_PROMPTS.items()
-        if p.guidelines
+        if p.guidelines and name != "codemode"
     }
     # pipy's bash tool sets no PI_* session variables, so it has no guideline
     # (Pi without `exposeSessionEnvironment`).
@@ -137,6 +142,15 @@ def test_builtin_tool_prompts_are_pis_contributions() -> None:
         "You can inspect PI_* environment variables for current model and "
         "session details."
     ]
+
+
+def test_codemode_prompt_matches_sequential_python_contract() -> None:
+    contribution = BUILTIN_TOOL_PROMPTS["codemode"]
+    assert contribution.snippet == "Run Python that calls other tools"
+    assert contribution.guidelines == (
+        "Use codemode to chain several tool calls or filter large output "
+        "in one step instead of many separate calls.",
+    )
 
 
 def test_pipy_prompt_is_pis_with_pipys_name_and_docs() -> None:

@@ -51,7 +51,10 @@ from pipy_harness.native.system_prompt_sections import (
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
-from pipy_harness.native.tools.registry import production_tool_registry
+from pipy_harness.native.tools.registry import (
+    ProductionToolRegistry,
+    production_tool_registry,
+)
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionDiscovery,
     WorkspaceInstructionLoader,
@@ -240,7 +243,11 @@ class CodingSessionAdapter:
         self.provider = provider
         self.provider_state = provider_state
         self.tool_registry = (
-            dict(tool_registry)
+            (
+                ProductionToolRegistry(tool_registry)
+                if isinstance(tool_registry, ProductionToolRegistry)
+                else dict(tool_registry)
+            )
             if tool_registry is not None
             else production_tool_registry()
         )

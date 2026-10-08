@@ -1,4 +1,4 @@
-"""Stable builtin definition; not registered in production (CM1 T8a)."""
+"""Stable builtin definition; opt-in production registration belongs to T8b."""
 
 from __future__ import annotations
 

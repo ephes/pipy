@@ -60,13 +60,29 @@ def deep_merge_settings(
     object in **both** layers is shallow-merged one level
     (``{**base[key], **override[key]}``); it is not recursed into. Top-level
     scalars, arrays, and deeper nested objects (e.g. ``retry.provider``) are
-    replaced wholesale by the override. Neither input is mutated.
+    replaced wholesale by the override. defaultTools modifier lists, including
+    empty lists, append to inherited lists; other defaultTools values replace.
+    Neither input is mutated.
     """
 
     merged: dict[str, Any] = copy.deepcopy(base)
     for key, override_value in override.items():
         base_value = merged.get(key)
-        if isinstance(base_value, dict) and isinstance(override_value, dict):
+        if (
+            key == "defaultTools"
+            and isinstance(base_value, list)
+            and isinstance(override_value, list)
+            and all(
+                isinstance(entry, str) and entry.startswith(("+", "-"))
+                for entry in override_value
+            )
+        ):
+            merged[key] = copy.deepcopy(base_value + override_value)
+        elif (
+            key != "defaultTools"
+            and isinstance(base_value, dict)
+            and isinstance(override_value, dict)
+        ):
             merged[key] = {**base_value, **copy.deepcopy(override_value)}
         else:
             merged[key] = copy.deepcopy(override_value)
@@ -717,6 +733,21 @@ class SettingsManager:
         if isinstance(value, bool) or not isinstance(value, int):
             return default
         return value if low <= value <= high else default
+
+    def get_default_tools(self) -> tuple[str, ...] | None:
+        """Resolve Pi's initial selection, tolerating malformed persisted values."""
+        from pipy_harness.native.tool_capabilities import resolve_default_tools
+
+        effective = self.effective()
+        if "defaultTools" not in effective:
+            return None
+        value = effective["defaultTools"]
+        entries = (
+            tuple(entry for entry in value if isinstance(entry, str))
+            if isinstance(value, list)
+            else ()
+        )
+        return resolve_default_tools(entries)
 
     def get_default_provider(self) -> str | None:
         return self._get_str("defaultProvider")
