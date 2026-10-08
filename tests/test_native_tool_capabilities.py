@@ -517,3 +517,20 @@ def test_capability_state_normalizes_registries_built_from_plain_dicts() -> None
     for mapping in (state.registry, state.builtin_registry, state.extension_registry):
         with pytest.raises(TypeError):
             cast(dict[str, object], mapping)["injected"] = _RecordingTool("injected")
+
+
+def test_nested_eligibility_reads_frozen_builtin_identities(tmp_path: Path) -> None:
+    builtin = _RecordingTool("read")
+    replacement = _RecordingTool("read")
+    tools = _capabilities(
+        tmp_path,
+        builtins=(builtin, _RecordingTool("write")),
+        extensions=(replacement, _RecordingTool("extension")),
+    )
+    pinned = tools.snapshot_for_projection(tools.state)
+    assert pinned.eligible_names() == frozenset({"write"})
+    tools.publish(tools.prepare_extensions({}))
+    assert pinned.eligible_names() == frozenset({"write"})
+    assert tools.snapshot_for_projection(tools.state).eligible_names() == frozenset(
+        {"read", "write"}
+    )

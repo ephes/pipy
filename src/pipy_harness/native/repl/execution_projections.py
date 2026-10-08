@@ -118,6 +118,10 @@ class SessionExecutionProjections:
     ) -> tuple[ToolDefinition, ...]:
         return self._begin_provider_turn().tools.definitions(allowed_names)
 
+    def eligible_names(self) -> frozenset[str]:
+        """Read the active generation without starting another provider turn."""
+        return self._require_active().tools.eligible_names()
+
     def execute(
         self,
         call: AgentToolCall,

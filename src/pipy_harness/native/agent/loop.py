@@ -40,6 +40,7 @@ from pipy_harness.native.agent.events import (
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderStatusAction,
     AgentProviderStatusDecision,
+    AgentToolInvocationMode,
     AgentToolPolicy,
     AgentToolPolicyAction,
     AgentToolPolicyState,
@@ -47,6 +48,7 @@ from pipy_harness.native.agent.loop_policy import (
     apply_tool_policy_decision,
     decide_tool_admission,
     normalize_provider_status,
+    reserve_composite_parent,
     settle_tool_execution,
 )
 from pipy_harness.native.agent.messages import (
@@ -61,6 +63,13 @@ from pipy_harness.native.agent.messages import (
     AgentToolResultMessage,
     AgentTranscriptMessage,
     AgentUserMessage,
+)
+from pipy_harness.native.agent.nested_calls import (
+    AgentCompositeToolRunner,
+    NestedCallStatus,
+    NestedToolCallOutcome,
+    NestedToolCallService,
+    NestedToolEligibility,
 )
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
@@ -94,6 +103,7 @@ from pipy_harness.native.agent.system_messages import (
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
     ToolExecutionInterruption,
+    ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
 from pipy_harness.native.agent.usage import (
@@ -352,7 +362,7 @@ class _ToolCycleOutcome:
 
 @dataclass(frozen=True, slots=True)
 class _SettledToolCall:
-    """Validated result and policy transition, with tool events already emitted."""
+    """Validated result and policy transition; direct tool events already emitted."""
 
     result: AgentToolResultMessage
     transition: AgentToolPolicyTransition
@@ -373,6 +383,8 @@ class AgentLoop:
         queued_input_port: AgentQueuedInputPort,
         status_policy: AgentLoopStatusPolicy,
         tool_waiter: ToolInterruptWaiter | None = None,
+        composite_runner: AgentCompositeToolRunner | None = None,
+        nested_eligibility: NestedToolEligibility | None = None,
     ) -> None:
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
@@ -397,6 +409,8 @@ class AgentLoop:
         self._queued_inputs = queued_input_port
         self._status = status_policy
         self._tool_waiter = tool_waiter
+        self._composite_runner = composite_runner
+        self._nested_eligibility = nested_eligibility
 
     def run(self, run_input: AgentLoopRunInput) -> AgentLoopOutcome:
         if type(run_input) is not AgentLoopRunInput:
@@ -763,7 +777,16 @@ class AgentLoop:
             self._status.tool_policy_state_changed(tool_state)
 
         settled = self._settle_tool_call(
-            state.tool_state, snapshot, call, turn_index, publish_budget_state
+            state.tool_state,
+            snapshot,
+            call,
+            turn_index,
+            publish_budget_state,
+            composite_execute=lambda transition: (
+                self._execute_composite(state, snapshot, call, turn_index, transition)
+                if self._composite_runner is not None and call.tool_name == "codemode"
+                else None
+            ),
         )
         return self._record_tool_call(state, calls, call_index, settled, results)
 
@@ -774,63 +797,198 @@ class AgentLoop:
         call: AgentToolCall,
         turn_index: int,
         publish_budget_state: Callable[[AgentToolPolicyState], None],
+        *,
+        mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
+        emit_events: bool = True,
+        composite_execute: Callable[
+            [AgentToolPolicyTransition], _SettledToolCall | None
+        ]
+        | None = None,
     ) -> _SettledToolCall:
         """Settle without history/results; only budget publishes state early."""
-        admission = decide_tool_admission(tool_state, snapshot, call)
+        admission = decide_tool_admission(tool_state, snapshot, call, mode=mode)
         if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
             publish_budget_state(admission.state)
             result = self._tools.error_result(
                 call,
                 f"tool budget exhausted (limit {admission.state.tool_budget})",
             )
-            self._emit_policy_result(call, result, turn_index)
+            _validate_tool_result_for_call(result, call)
+            if emit_events:
+                self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
         if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
             result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
-            self._emit_policy_result(call, result, turn_index)
+            _validate_tool_result_for_call(result, call)
+            if emit_events:
+                self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
-        return self._execute_admitted_tool(call, turn_index, admission.state)
+        return self._execute_admitted_tool(
+            call,
+            turn_index,
+            admission.state,
+            mode=mode,
+            emit_events=emit_events,
+            composite_execute=composite_execute,
+        )
 
     def _execute_admitted_tool(
         self,
         call: AgentToolCall,
         turn_index: int,
         admitted_state: AgentToolPolicyState,
+        *,
+        mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
+        emit_events: bool = True,
+        composite_execute: Callable[
+            [AgentToolPolicyTransition], _SettledToolCall | None
+        ]
+        | None = None,
     ) -> _SettledToolCall:
-        self._events.emit(ToolCallStarted(turn_index, call))
+        if emit_events:
+            self._events.emit(ToolCallStarted(turn_index, call))
         decision = self._tool_policy.before_execute(call)
-        transition = apply_tool_policy_decision(admitted_state, decision)
+        transition = apply_tool_policy_decision(admitted_state, decision, mode=mode)
         if transition.action is AgentToolPolicyAction.BLOCKED:
             assert decision.blocked_reason is not None
             result = self._tools.error_result(
                 call,
                 f"blocked by extension: {decision.blocked_reason.value}",
             )
-            self._emit_tool_completed(call, result, turn_index)
+            _validate_tool_result_for_call(result, call)
+            if emit_events:
+                self._emit_tool_completed(call, result, turn_index)
             return _SettledToolCall(result, transition)
-        return self._execute_tool(call, turn_index, admitted_state)
+        if composite_execute is not None:
+            composite = composite_execute(transition)
+            if composite is not None:
+                return composite
+        return self._execute_tool(
+            call, turn_index, admitted_state, mode=mode, emit_events=emit_events
+        )
 
     def _execute_tool(
         self,
         call: AgentToolCall,
         turn_index: int,
         tool_state: AgentToolPolicyState,
+        *,
+        mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
+        emit_events: bool = True,
     ) -> _SettledToolCall:
         started_at = datetime.now(UTC)
         execution = self._tools.execute(
             call,
-            output_sink=self._tool_output_sink(turn_index, call),
+            output_sink=self._tool_output_sink(turn_index, call)
+            if emit_events
+            else None,
             wait_for_interrupt=self._tool_waiter,
         )
-        settlement = settle_tool_execution(tool_state, execution)
+        settlement = settle_tool_execution(tool_state, execution, mode=mode)
         _validate_tool_result_for_call(execution.result, call)
         result = _transform_tool_result(self._tool_policy, call, execution.result)
         _validate_tool_result_for_call(result, call)
         duration = (datetime.now(UTC) - started_at).total_seconds()
-        self._events.emit(
-            ToolCallCompleted(turn_index, result, duration_seconds=duration)
-        )
+        if emit_events:
+            self._events.emit(
+                ToolCallCompleted(turn_index, result, duration_seconds=duration)
+            )
         return _SettledToolCall(result, settlement)
+
+    def _execute_composite(
+        self,
+        state: _RunState,
+        snapshot: AgentProviderRequestSnapshot,
+        call: AgentToolCall,
+        turn_index: int,
+        transition: AgentToolPolicyTransition,
+    ) -> _SettledToolCall:
+        assert self._composite_runner is not None
+        eligible = (
+            self._nested_eligibility.eligible_names()
+            if self._nested_eligibility is not None
+            else frozenset()
+        )
+
+        def publish(value: AgentToolPolicyState) -> None:
+            _revalidate_tool_policy_state(value)
+            state.tool_state = value
+            self._status.tool_policy_state_changed(value)
+
+        def settle(child: AgentToolCall) -> NestedToolCallOutcome:
+            settled = self._settle_tool_call(
+                state.tool_state,
+                snapshot,
+                child,
+                turn_index,
+                publish,
+                mode=AgentToolInvocationMode.NESTED,
+                emit_events=False,
+            )
+            action = settled.transition.action
+            if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
+                publish(settled.transition.state)
+            status = NestedCallStatus(
+                "malformed"
+                if action is AgentToolPolicyAction.NESTED_MALFORMED
+                else action.value
+            )
+            return NestedToolCallOutcome(
+                child, settled.result, status, settled.transition.interruption
+            )
+
+        service = NestedToolCallService(
+            call, eligible, settle, self._tools.error_result
+        )
+        started_at = datetime.now(UTC)
+        try:
+            reserved = reserve_composite_parent(transition)
+            _revalidate_tool_policy_state(reserved)
+            state.tool_state = reserved
+            try:
+                execution = self._composite_runner.execute(
+                    call, service, self._tool_waiter
+                )
+                if type(execution) is not ToolExecutionOutcome:
+                    raise TypeError("composite runner must return ToolExecutionOutcome")
+                ToolExecutionOutcome.__post_init__(execution)
+                _validate_tool_result_for_call(execution.result, call)
+            except Exception as exc:  # noqa: BLE001 - runner failures are parent observations
+                service.raise_pipeline_failure()
+                execution = ToolExecutionOutcome(
+                    self._tools.error_result(
+                        call,
+                        f"composite runner failed: {type(exc).__name__}: {str(exc)[:500]}",
+                    )
+                )
+            service.raise_pipeline_failure()
+            service.close()
+            if (
+                execution.interruption is ToolExecutionInterruption.SETTLED
+                and service.interruption is not None
+            ):
+                execution = replace(execution, interruption=service.interruption)
+            settlement = settle_tool_execution(
+                state.tool_state, execution, mode=AgentToolInvocationMode.PARENT
+            )
+            # Unlike interrupted direct recording, a parent must publish its
+            # released reservation while retaining every child transition.
+            publish(settlement.state)
+            result = _transform_tool_result(self._tool_policy, call, execution.result)
+            _validate_tool_result_for_call(result, call)
+            self._events.emit(
+                ToolCallCompleted(
+                    turn_index,
+                    result,
+                    duration_seconds=(datetime.now(UTC) - started_at).total_seconds(),
+                )
+            )
+            return _SettledToolCall(result, settlement)
+        finally:
+            service.close()
+            # Also release on canonical callback/validation exceptions, which propagate.
+            if state.tool_state.reserved_parent_slot:
+                publish(replace(state.tool_state, reserved_parent_slot=False))
 
     def _record_tool_call(
         self,

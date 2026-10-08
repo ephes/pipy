@@ -1,9 +1,9 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4–T5 loop/policy groundwork, not yet a tool.** The model
+Status: **sandbox core and T4–T6a internal loop groundwork, not yet a tool.** The model
 cannot run scripts yet: there is no model-visible tool or codemode-specific
-events or session records. Pure nested budget policy exists, without execution wiring.
-Those are tasks T6–T11 of the
+events or session records. An internal nested-call service and optional fake-tested composite dispatch port exist.
+Real runner/pump/deadline wiring and product delivery remain T6b–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5); the
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
 documents what exists today: installing the runtime, checking availability and
@@ -12,9 +12,9 @@ the `run_script` API that the loop integration will call.
 T4 separates the agent loop's internal settle and record paths without changing
 behaviour. Settlement owns admission, hooks, execution, result transformation
 and validation, and existing tool events. Recording owns top-level results,
-model history, skipped calls and terminal handling. Budget state is published
-early; other state publication keeps its existing recording boundary. This is
-groundwork for T6 reuse, not a nested-call service or a model-visible tool.
+model history, skipped calls and terminal handling. For direct calls, budget state is published
+early and other state publication keeps its existing recording boundary. This is
+the settlement seam reused by T6a; it remains internal.
 
 T5 adds pure policy transitions, using the existing admission, product-blocking
 and execution-settlement functions with `AgentToolInvocationMode`. After core
@@ -22,7 +22,7 @@ admission and product preflight allow a composite parent, `reserve_composite_par
 reserves one slot. Nested admission checks used slots plus that reservation before
 authorization. Settlement with `PARENT` releases it exactly once in the caller's
 state sequence; a second parent settlement or a nested call after release is
-rejected. T6 must own that sequence and close the service on settlement.
+rejected. T6a owns that sequence and closes the service before parent settlement.
 
 | Outcome | Turn slots | Execution count | Malformed accounting |
 | --- | --- | --- | --- |
@@ -38,9 +38,51 @@ rejected. T6 must own that sequence and close the service on settlement.
 Reservation and nested malformed count are transient run-owned state, validated
 at policy and publication boundaries. Session publication retains the existing
 cumulative counters only; a new run starts with no reservation and zero nested
-malformed count. An exhausted transition is groundwork for T6 to translate to a
-catchable guest `ToolError`; that integration does not exist yet. Direct calls,
+malformed count. T6a returns exhausted and malformed child statuses internally. T6b will translate
+them to catchable guest `ToolError` values. Direct calls,
 callbacks and top-level interruption behavior are unchanged.
+
+T6a adds `agent/nested_calls.py` and optional `AgentCompositeToolRunner` dispatch
+in the canonical loop. Dispatch happens only for `codemode` after core admission
+and product preflight, and is absent by default. Existing direct callers,
+including an ordinary extension named `codemode`, retain their behavior.
+The coding coordinator can forward the optional ports; no real runner is wired.
+
+Each admitted parent owns a fresh sequential service on the session thread.
+Child calls reuse shared admission/settlement policy, product hooks, the normal
+executor and waiter, and result transformation/validation. Eligibility is a
+separate injectable port, read once from the frozen projection: only builtins
+`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash` can execute, and extension
+replacements, extension names and recursion are refused. Hidden builtin names
+remain unauthorized against the parent's request snapshot. Definitions are never
+refreshed inside a parent, preserving tool and hook generations.
+
+Every validated child settlement publishes policy state through the existing
+status port on the session thread; exhaustion publishes before error construction.
+Session state mirrors cumulative counters, so a later canonical hook failure
+cannot discard accepted child or exhaustion counts. Reservation acquisition and
+validation are inside the cleanup guard. Parent settlement publishes released
+state before parent result transformation; exceptional cleanup releases and
+publishes any acquired reservation without inventing a settlement. Direct-call
+publication ordering is unchanged. Parent settlement reads the latest child state
+and preserves the first operator/local-command child interruption when a runner
+returns `SETTLED`. This sticky, read-only, session-thread-owned interruption is
+independent of retained evidence limits. Runner exceptions and invalid runner results
+become parent errors; canonical child hook/executor/validation exceptions still
+propagate. Cleanup also releases reservations on propagated exceptions.
+Wrong-thread calls are refused without touching mutable session state; records, interruption access
+and close are session-thread-only. Reentrant calls and calls after close are refused.
+
+Child results never enter model history, top-level results or existing tool events.
+Transient record snapshots retain at most 256 validated text outcomes, with at
+most 8 KiB arguments per retained call and 32 KiB total. Arbitrary result details
+are omitted from retained evidence. Further exhausted calls may update the
+exhaustion counter but cannot grow retained evidence indefinitely.
+T6b still owns real `run_script` integration, the session-thread pump and combined
+interrupt/deadline waiter, which must distinguish deadline-induced cancellation
+from actual operator interruption. T7 owns nested events, projections and durable parent
+details. T8 owns public tool/settings/CLI delivery; T9–T11 remain outstanding.
+Fake-runner tests do not establish real guest interruption or public codemode use.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.

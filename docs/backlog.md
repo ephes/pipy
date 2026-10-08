@@ -17,8 +17,9 @@ updated 2026-10-04.
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
-  and merged to main at `8ed4e98b`; T4 extraction and T5 pure nested policy are implemented.
-  T6–T11 remain. UP1
+  and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
+  T6a internal service/dispatch are implemented.
+  T6b and T7–T11 remain. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
@@ -123,8 +124,16 @@ sandbox core is not yet a model tool. **T4 implemented:** behaviour-preserving
 settle/record extraction in `agent/loop.py`, with focused seam characterization.
 **T5 implemented:** pure shared nested admission/settlement policy, parent-slot
 reservation and non-fatal nested malformed accounting.
-T6–T11 (nested service, tool, events, budgets,
-session persistence) remain unimplemented.
+**T6a implemented:** loop-owned nested service and optional composite runner
+port/dispatch, fake-runner tests, frozen builtin eligibility and bounded transient
+evidence. Parent settlement preserves child counters and releases its reservation
+on every exit, including reservation faults. Validated child/exhaustion state is
+published on the session thread; the first child interruption survives evidence
+bounds and an ignoring runner. No real runner or public tool is enabled. **T6b remains:** real
+`run_script` integration, pump and interrupt/deadline wiring that distinguishes
+deadline cancellation from operator interruption. T7–T11 (events,
+persistence, public tool/CLI, end-to-end validation, measurement and final scope)
+remain unimplemented.
 
 MCP, parallel calls, persistent script state, images and classifier operations
 remain separate follow-ons. The earlier combined MCP/codemode deferral is

@@ -14,9 +14,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python codemode internal service/port groundwork (CM1 T6a): sequential,
+  session-thread-owned nested calls reuse tool policy, hooks, validation and
+  executor paths; optional composite dispatch preserves child counters and
+  releases parent reservations even on acquisition/validation faults. Child
+  counters publish before later canonical failures, and sticky child interruptions
+  survive evidence limits and a runner returning settled. Fake-runner coverage only. T6b real runner,
+  pump/deadline wiring and T7–T11 events, persistence and public delivery remain.
+
 - Python codemode policy groundwork (CM1 T5): shared nested admission and
   settlement, a reserved parent budget slot, and separate non-fatal nested
-  malformed accounting. No nested service or model-visible script tool yet.
+  malformed accounting. No model-visible script tool yet.
 
 - Groundwork for Python codemode (CM1 T1, not yet a tool): an optional
   `codemode` extra (`wasmtime` 49), `python -m pipy_harness.native.codemode

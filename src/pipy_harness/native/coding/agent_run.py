@@ -39,6 +39,10 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyState,
 )
 from pipy_harness.native.agent.messages import AgentMessage
+from pipy_harness.native.agent.nested_calls import (
+    AgentCompositeToolRunner,
+    NestedToolEligibility,
+)
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
@@ -227,6 +231,8 @@ class CodingAgentRunCoordinator:
         coding_state: CodingSessionState,
         retain_next_input: Callable[[AgentQueuedInput | None], None],
         tool_waiter: ToolInterruptWaiter | None = None,
+        composite_runner: AgentCompositeToolRunner | None = None,
+        nested_eligibility: NestedToolEligibility | None = None,
     ) -> None:
         if type(coding_state) is not CodingSessionState:
             raise TypeError("coding_state must be an exact CodingSessionState")
@@ -243,6 +249,8 @@ class CodingAgentRunCoordinator:
         self._coding_state = coding_state
         self._retain_next_input = retain_next_input
         self._tool_waiter = tool_waiter
+        self._composite_runner = composite_runner
+        self._nested_eligibility = nested_eligibility
 
     def run_turn(
         self,
@@ -263,6 +271,8 @@ class CodingAgentRunCoordinator:
             queued_input_port=self._queued_input_port,
             status_policy=self._status_policy,
             tool_waiter=self._tool_waiter,
+            composite_runner=self._composite_runner,
+            nested_eligibility=self._nested_eligibility,
         )
         witness = self._coding_state.begin_agent_run()
         try:

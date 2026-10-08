@@ -156,6 +156,15 @@ class NativeToolCapabilitySnapshot:
     ) -> tuple[ToolDefinition, ...]:
         return _definitions_for(self.state, allowed_names)
 
+    def eligible_names(self) -> frozenset[str]:
+        """Builtin identities in this frozen registry, excluding replacements."""
+        return frozenset(
+            name
+            for name, port in self.state.builtin_registry.items()
+            if self.state.registry.get(name) is port
+            and name not in self.state.extension_registry
+        )
+
     def execute(
         self,
         call: AgentToolCall,

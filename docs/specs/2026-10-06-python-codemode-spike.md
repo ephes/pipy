@@ -6,8 +6,9 @@ still decides selection and order. This document picks a backend, defines the
 first-slice contract and lists the first-slice tasks. Implementation status:
 T1 (runtime provisioning and the availability self-test), T2 (the worker
 and the guest prelude), T3 (the host runner), T4 (settle/record extraction),
-and T5 (pure nested policy transitions) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
-T6–T11 are not yet implemented.
+T5 (pure nested policy transitions), and T6a (internal service and optional composite
+port/dispatch with fake-runner tests) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
+T6b (real runner/pump/deadline wiring) and T7–T11 are not yet implemented.
 
 ## 1. Status and scope
 
@@ -257,6 +258,8 @@ These steps follow the seam map. Line references are to
        """Bound to one admitted parent call; session-thread only; closed when the parent settles."""
        def call(self, tool_name: str, arguments_json: str, /) -> NestedToolCallOutcome: ...
        def records(self) -> tuple[NestedToolCallOutcome, ...]: ...
+       @property
+       def interruption(self) -> ToolExecutionInterruption | None: ...
    ```
 
    The loop-side implementation does the following:
@@ -288,7 +291,10 @@ These steps follow the seam map. Line references are to
    3. returns an interrupted outcome.
 
    The existing interrupted path (`loop.py:813-819`) then records the parent
-   and the skipped calls.
+   and the skipped calls. T6a additionally retains the first child operator/local-command
+   interruption independently of evidence bounds and applies it if the runner returns
+   `SETTLED`. Reading this sticky state is session-thread-only. T6b must distinguish
+   deadline-induced cancellation from actual operator interruption.
 
 ### 4.3 Events and persistence
 
@@ -343,6 +349,12 @@ These steps follow the seam map. Line references are to
   state with each transition, settle the parent once, and close the future service.
   Duplicate settlement, nesting without a reservation and over-reservation are
   rejected. A finished run cannot retain a reservation.
+- T6a publishes validated child settlements through the existing session-thread
+  status port; exhaustion publishes before error construction. Parent settlement
+  publishes released state before parent transformation. Acquisition and validation
+  are guarded by cleanup, which releases any acquired reservation on exceptions.
+  Cumulative child/exhaustion counters survive later canonical hook failures;
+  direct publication ordering is unchanged.
 - Nested malformed calls increment a separate run-owned count, never increment
   or reset the direct consecutive-malformed streak, and never carry a fatal
   failure. Nested success/tool error also leaves that streak unchanged.
@@ -350,8 +362,8 @@ These steps follow the seam map. Line references are to
   session counters. Revalidation preserves/checks both fields; accepted-turn
   snapshots start them fresh. See [the accounting table](../codemode.md).
 - T6 will translate exhaustion and nested malformed errors to catchable guest
-  `ToolError` values. T5 supplies pure transitions only; no guest execution
-  integration or nested service is present yet.
+  `ToolError` values. T5 supplies pure transitions; T6a now implements the internal service and fake-tested
+  dispatch. Guest execution integration remains T6b.
 
 ### 4.5 Limits (all PROVISIONAL)
 
@@ -695,6 +707,21 @@ Each task is small and lands with its own tests. The plan's acceptance items
 6. **T6: `NestedToolCallService`, `AgentCompositeToolRunner` and the
    session-thread pump**, including the combined interrupt and deadline
    waiter.
+   - **T6a implemented:** loop-owned sequential `agent/nested_calls.py`, typed
+     statuses/outcomes, bounded transient records, explicit close/thread refusal,
+     and optional composite dispatch after admission and product preflight.
+     A separate eligibility port reads frozen builtin identities and excludes
+     extension replacements without widening `AgentToolCapabilities`. Children
+     reuse T4 settlement/T5 policy and normal executor/waiter paths, with existing
+     top-level events suppressed. Parent settlement reads latest child state and
+     releases its reservation on success, error, malformed result, interruption
+     and propagated canonical exceptions, including acquisition/validation faults.
+     Validated child state is published to the existing status port; bounded evidence
+     cannot discard sticky child interruption. The coding coordinator forwards optional
+     ports; runtime selection remains disabled. Fake-runner tests pin this contract.
+   - **T6b remaining:** real `run_script` integration, session-thread pump,
+     interrupt/deadline waiter and real cancellation tests. T6a does not establish
+     guest interruption. T7 owns events/persistence and T8 owns public registration.
    - Tests: cancellation during a nested tool (D), cancellation during script
      compute, the deadline firing during a nested tool, refusal after close,
      and recursion refused.
