@@ -14,13 +14,25 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python codemode internal runtime integration (CM1 T6b): a fresh CPython-on-WASI
+  worker composes canonical nested builtins through a session-thread pump, with
+  operator/local-command cancellation and backend/deadline stops cancelling the
+  active executor and reaping workers. Post-loop I/O failures always publish
+  completion and wake the session; signal faults still attempt group cleanup
+  and bounded reaping. Compute Ctrl-C without a waiter cancels the parent turn,
+  skips later calls and prevents provider continuation; standalone host waiting
+  Ctrl-C returns an aborted script outcome. Frozen builtin identity checks keep ordinary
+  extension `codemode` behavior unchanged. No public tool or model opt-in yet;
+  events/persistence and public delivery remain T7–T11.
+
 - Python codemode internal service/port groundwork (CM1 T6a): sequential,
   session-thread-owned nested calls reuse tool policy, hooks, validation and
   executor paths; optional composite dispatch preserves child counters and
   releases parent reservations even on acquisition/validation faults. Child
   counters publish before later canonical failures, and sticky child interruptions
-  survive evidence limits and a runner returning settled. Fake-runner coverage only. T6b real runner,
-  pump/deadline wiring and T7–T11 events, persistence and public delivery remain.
+  survive evidence limits and a runner returning settled. T6a uses fake-runner
+  coverage; T6b adds real runtime integration. T7–T11 events, persistence and
+  public delivery remain.
 
 - Python codemode policy groundwork (CM1 T5): shared nested admission and
   settlement, a reserved parent budget slot, and separate non-fatal nested

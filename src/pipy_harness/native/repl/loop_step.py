@@ -54,6 +54,7 @@ from pipy_harness.native.coding.agent_run import (
     AgentLoopRequestSourceAdapter,
     CodingAgentRunCoordinator,
 )
+from pipy_harness.native.coding.codemode_runner import CodemodeCompositeRunner
 from pipy_harness.native.coding.commands import (
     CommandDispatchResolution,
     CommandDispatchResolutionKind,
@@ -726,6 +727,8 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         coding_state=scope.coding_state,
         retain_next_input=scope.coding_input_queue.retain_agent_input,
         tool_waiter=tool_waiter,
+        composite_runner=CodemodeCompositeRunner(),
+        nested_eligibility=scope.execution_projections,
     )
 
 

@@ -1,9 +1,9 @@
 # Python codemode sandbox (CM1, groundwork)
 
-Status: **sandbox core and T4–T6a internal loop groundwork, not yet a tool.** The model
+Status: **sandbox core and T4–T6 internal integration, not yet a tool.** The model
 cannot run scripts yet: there is no model-visible tool or codemode-specific
-events or session records. An internal nested-call service and optional fake-tested composite dispatch port exist.
-Real runner/pump/deadline wiring and product delivery remain T6b–T11 of the
+events or session records. An internal nested-call service and real composite runner exist.
+Product delivery remains T7–T11 of the
 [spike result](specs/2026-10-06-python-codemode-spike.md) (§5); the
 [light plan](specs/2026-10-04-python-codemode-plan.md) has the scope. This page
 documents what exists today: installing the runtime, checking availability and
@@ -38,7 +38,7 @@ rejected. T6a owns that sequence and closes the service before parent settlement
 Reservation and nested malformed count are transient run-owned state, validated
 at policy and publication boundaries. Session publication retains the existing
 cumulative counters only; a new run starts with no reservation and zero nested
-malformed count. T6a returns exhausted and malformed child statuses internally. T6b will translate
+malformed count. T6 returns exhausted and malformed child statuses internally and translates
 them to catchable guest `ToolError` values. Direct calls,
 callbacks and top-level interruption behavior are unchanged.
 
@@ -46,7 +46,11 @@ T6a adds `agent/nested_calls.py` and optional `AgentCompositeToolRunner` dispatc
 in the canonical loop. Dispatch happens only for `codemode` after core admission
 and product preflight, and is absent by default. Existing direct callers,
 including an ordinary extension named `codemode`, retain their behavior.
-The coding coordinator can forward the optional ports; no real runner is wired.
+The coding coordinator forwards the optional ports. T6b wires the real runner at
+the REPL composition seam for both interactive and headless/RPC waiters. A frozen
+product identity guard requires an advertised native builtin `codemode`, excluding
+extension overrides. No such builtin is registered until T8, so public behavior
+remains unchanged. Existing internal test ports can omit the optional guard.
 
 Each admitted parent owns a fresh sequential service on the session thread.
 Child calls reuse shared admission/settlement policy, product hooks, the normal
@@ -78,11 +82,42 @@ Transient record snapshots retain at most 256 validated text outcomes, with at
 most 8 KiB arguments per retained call and 32 KiB total. Arbitrary result details
 are omitted from retained evidence. Further exhausted calls may update the
 exhaustion counter but cannot grow retained evidence indefinitely.
-T6b still owns real `run_script` integration, the session-thread pump and combined
-interrupt/deadline waiter, which must distinguish deadline-induced cancellation
-from actual operator interruption. T7 owns nested events, projections and durable parent
-details. T8 owns public tool/settings/CLI delivery; T9–T11 remain outstanding.
-Fake-runner tests do not establish real guest interruption or public codemode use.
+T6b adds `coding/codemode_runner.py` outside the standalone sandbox core. It
+validates the parent's `code` object with normal schema semantics and returns
+`format_result` text under the parent identity. Only the seven eligible builtins
+also advertised in the frozen parent request are offered to the guest. Results
+are validated post-transform model text; malformed, budget and policy errors
+become catchable `ToolError` values. Completed effects remain after failure.
+
+The host's optional `activity_waiter` pumps the existing waiter on the session
+thread while the guest computes. The I/O thread alone owns pipes and validates
+protocol. Queue publication and empty-queue/event acknowledgement use one lock,
+so a producer cannot lose a wake between the empty check and event clear.
+Every I/O-thread exit publishes completion and wakes activity in a narrow final
+path, including failures during kill, diagnostics or finish signalling. A dead
+I/O thread without completion fails closed as a sandbox error. Cleanup retries
+signal faults through the same owned process group before the bounded reap.
+During a child tool, a monitor signals events for completion or the fresh
+script stop event; it never reads or writes canonical or service state. The
+session thread combines that signal with the existing operator waiter. The
+explicit `SCRIPT_STOP` waiter value makes the executor cancel and bound its
+join, then return an ordinary error observation rather than operator interruption.
+Ctrl-C while computing becomes operator abort even when no tool waiter is
+installed. Actual operator/local-command interruption closes the service,
+stops the loop and reaps the worker. Backend/deadline failures remain parent errors. There is
+no continuation after close, and every parent starts a fresh worker and control.
+Noncooperative tools can outlive the bounded executor join; their already accepted
+effects are not rolled back, as with direct tools.
+
+Real-runtime tests exercise AgentLoop, ToolExecutor and host together: multiple
+reads, text transformation, catchable malformed/budget errors, retained writes,
+operator/local-command cancellation during cooperative and noncooperative tools,
+headless abort during guest compute, deadline/backend failure during a tool,
+fresh execution after cancellation and worker process-group cleanup. They
+establish T6 acceptance D at the internal integration seam. Actual tmux Escape
+evidence remains T9. T7 owns nested events, projections and durable parent
+details; T8 owns public tool/settings/CLI delivery and truncation spilling.
+T9–T11 remain outstanding. There is no model opt-in yet.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
 JavaScript.
@@ -195,6 +230,7 @@ outcome = run_script(
     limits=ScriptLimits(),
     cancel=cancel_event,      # optional threading.Event; set = aborted
     tool_stop=stop_event,     # optional, fresh per run; set when the run ends
+    activity_waiter=waiter,   # optional (activity_event, cancel_event) pump
 )
 ```
 
@@ -209,6 +245,15 @@ list of tool calls that are not undone.
 `call_tool` runs on the calling thread, one call at a time, and only for names
 in `tool_names`. It must honour `cancel` and `tool_stop` itself. Checking
 availability first is the caller's job, but the runner fails closed regardless.
+The optional `activity_waiter(activity_event, cancel_event)` runs on that same
+thread while waiting for a queued call or completion. It returns when activity
+or cancellation is signalled; ordinary exceptions become sandbox errors and
+still clean up the worker. `KeyboardInterrupt` during activity waiting or
+standalone polling sets cancellation and returns an `ABORTED` script outcome.
+The canonical composite runner additionally records operator interruption, so
+AgentLoop returns `CANCELLED`, records skipped calls and makes no provider
+continuation. Standalone `run_script` has no parent-turn state. Omitting the
+waiter preserves standalone polling behavior.
 
 ## Limits
 

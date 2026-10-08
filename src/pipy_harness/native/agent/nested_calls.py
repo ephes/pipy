@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
@@ -75,6 +75,13 @@ class NestedToolEligibility(Protocol):
     def eligible_names(self) -> frozenset[str]: ...
 
 
+@runtime_checkable
+class CompositeToolEligibility(Protocol):
+    """Optional frozen product identity guard; separate from tool capabilities."""
+
+    def composite_enabled(self) -> bool: ...
+
+
 class AgentCompositeToolRunner(Protocol):
     """Optional internal port; invoked only after parent admission and hooks."""
 
@@ -101,11 +108,22 @@ class NestedToolCallService:
         eligible_names: frozenset[str],
         settle: Callable[[AgentToolCall], NestedToolCallOutcome],
         error_result: Callable[[AgentToolCall, str], AgentToolResultMessage],
+        advertised_names: frozenset[str] | None = None,
+        settle_with_waiter: Callable[
+            [AgentToolCall, ToolInterruptWaiter], NestedToolCallOutcome
+        ]
+        | None = None,
     ) -> None:
         self._parent_id = parent.provider_correlation_id
         self._thread = threading.current_thread()
         self._eligible = eligible_names & BUILTIN_NESTED_NAMES
+        self._advertised = (
+            self._eligible
+            if advertised_names is None
+            else self._eligible & advertised_names
+        )
         self._settle = settle
+        self._settle_with_waiter = settle_with_waiter
         self._error_result = error_result
         self._closed = False
         self._busy = False
@@ -139,7 +157,18 @@ class NestedToolCallService:
         if self._failure is not None:
             raise self._failure
 
-    def call(self, tool_name: str, arguments_json: str, /) -> NestedToolCallOutcome:
+    def eligible_names(self) -> frozenset[str]:
+        self._require_thread()
+        return self._advertised
+
+    def call(
+        self,
+        tool_name: str,
+        arguments_json: str,
+        /,
+        *,
+        waiter: ToolInterruptWaiter | None = None,
+    ) -> NestedToolCallOutcome:
         if threading.current_thread() is not self._thread:
             call = AgentToolCall(
                 f"{self._parent_id}/0", tool_name, ProductContent(arguments_json)
@@ -165,7 +194,12 @@ class NestedToolCallService:
             )
         self._busy = True
         try:
-            outcome = self._settle(call)
+            if waiter is not None:
+                if self._settle_with_waiter is None:
+                    raise RuntimeError("nested waiter override is unavailable")
+                outcome = self._settle_with_waiter(call, waiter)
+            else:
+                outcome = self._settle(call)
         except BaseException as exc:
             self._failure = exc
             self._closed = True

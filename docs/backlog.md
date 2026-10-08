@@ -18,8 +18,8 @@ updated 2026-10-04.
   [Done](#done-2026-09-29).
 - **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
   and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
-  T6a internal service/dispatch are implemented.
-  T6b and T7–T11 remain. UP1
+  T6 internal service, real runner and session-thread pump are implemented.
+  T7–T11 remain; there is no model opt-in. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
   other providers; remaining implementation deviations are in
@@ -129,10 +129,19 @@ port/dispatch, fake-runner tests, frozen builtin eligibility and bounded transie
 evidence. Parent settlement preserves child counters and releases its reservation
 on every exit, including reservation faults. Validated child/exhaustion state is
 published on the session thread; the first child interruption survives evidence
-bounds and an ignoring runner. No real runner or public tool is enabled. **T6b remains:** real
-`run_script` integration, pump and interrupt/deadline wiring that distinguishes
-deadline cancellation from operator interruption. T7–T11 (events,
-persistence, public tool/CLI, end-to-end validation, measurement and final scope)
+bounds and an ignoring runner. **T6b implemented:** real CPython-on-WASI composite
+runner outside the standalone core, session-thread activity pump with locked
+queue/event acknowledgement, and combined operator/backend-stop waiter. Backend
+or deadline cancellation remains an error observation; actual operator/local
+command interruption (including compute Ctrl-C without a tool waiter) stops the
+loop, records skipped calls and reaps the worker. Post-loop I/O failures publish
+completion and wake activity; signal faults still attempt owned-group cleanup
+and bounded reaping. Real AgentLoop +
+ToolExecutor + host tests establish internal acceptance D, including active-tool
+cancellation and fresh execution after cancellation. Production composition is
+wired behind frozen native builtin identity checks; no builtin `codemode` is
+registered and there is no model opt-in. T7–T11 (events, persistence, public
+tool/CLI, tmux validation, measurement and final scope)
 remain unimplemented.
 
 MCP, parallel calls, persistent script state, images and classifier operations

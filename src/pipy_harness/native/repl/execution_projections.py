@@ -122,6 +122,9 @@ class SessionExecutionProjections:
         """Read the active generation without starting another provider turn."""
         return self._require_active().tools.eligible_names()
 
+    def composite_enabled(self) -> bool:
+        return self._require_active().tools.composite_enabled()
+
     def execute(
         self,
         call: AgentToolCall,

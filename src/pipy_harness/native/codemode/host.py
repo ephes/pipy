@@ -59,6 +59,8 @@ from pipy_harness.native.codemode.runtime import (
 )
 from pipy_harness.native.codemode.selftest import WORKER_PATH
 
+ActivityWaiter = Callable[[threading.Event, threading.Event], None]
+
 ToolCallback = Callable[[str, str], CallResult]
 """``(tool name, arguments as a JSON object string) -> CallResult``."""
 
@@ -93,6 +95,7 @@ def run_script(
     paths: CodemodePaths | None = None,
     pin: RuntimePin = RUNTIME_PIN,
     python: str = sys.executable,
+    activity_waiter: ActivityWaiter | None = None,
 ) -> ScriptOutcome:
     """Run ``code`` in a fresh worker and return its outcome; never raises.
 
@@ -105,6 +108,14 @@ def run_script(
     per run: one already set, or in use by another run (a nested run from a
     callback, say), is refused with a sandbox error and left untouched.
     Setting ``cancel`` ends the run as ``aborted``.
+
+    ``activity_waiter``, when supplied, runs on the calling thread while the
+    guest computes. It waits for the activity event (queued call or finish)
+    or signals cancel, without reading worker pipes. Publication and empty
+    acknowledgement share one lock. Every I/O exit publishes completion and
+    wakes activity, including failures in completion reporting. Omitting it
+    retains standalone polling. KeyboardInterrupt during either wait sets
+    cancel and returns an aborted outcome; parent-turn state belongs to callers.
 
     Availability (:func:`.selftest.availability`) is the caller's job; the
     runner still fails closed: the worker re-checks ``python.wasm`` against the
@@ -129,6 +140,7 @@ def run_script(
             paths,
             pin,
             python,
+            activity_waiter,
         )
     finally:
         if tool_stop is not None:
@@ -163,6 +175,7 @@ def _run_script(
     paths: CodemodePaths | None,
     pin: RuntimePin,
     python: str,
+    activity_waiter: ActivityWaiter | None,
 ) -> ScriptOutcome:
     cancel = cancel or threading.Event()
     started = time.monotonic()
@@ -186,6 +199,7 @@ def _run_script(
         ),
         call_tool,
         calls,
+        activity_waiter,
     )
     return ScriptOutcome(
         finished.error,
@@ -271,7 +285,10 @@ class _StopRequest:
 
 
 def _launch(
-    launch: _Launch, call_tool: ToolCallback, calls: list[ToolCallRecord]
+    launch: _Launch,
+    call_tool: ToolCallback,
+    calls: list[ToolCallRecord],
+    activity_waiter: ActivityWaiter | None,
 ) -> _Finished:
     try:
         status_read, status_write = os.pipe()
@@ -293,7 +310,7 @@ def _launch(
             channel.start()
         except (OSError, RuntimeError) as exc:  # no fd for the wake pipe, no thread
             return _start_failed(exc)
-        return _serve(channel, call_tool, launch.cancel, calls)
+        return _serve(channel, call_tool, launch.cancel, calls, activity_waiter)
     finally:
         _cleanup(worker, channel, status_read)
 
@@ -329,26 +346,46 @@ def _serve(
     call_tool: ToolCallback,
     cancel: threading.Event,
     calls: list[ToolCallRecord],
+    activity_waiter: ActivityWaiter | None,
 ) -> _Finished:
     """Run tool callbacks on this thread until the I/O thread finishes."""
 
     while True:
-        try:
-            event = channel.inbox.get(timeout=POLL_SECONDS)
-        except queue.Empty:
-            if channel.alive():
-                continue
-            try:  # the thread posts _Finished last, then exits
-                event = channel.inbox.get_nowait()
-            except queue.Empty:
-                return _Finished(
-                    ScriptError(ErrorKind.SANDBOX, "the host I/O thread stopped")
+        event = _take_live_activity(channel)
+        if event is None:
+            try:
+                if activity_waiter is None or cancel.is_set():
+                    channel.activity.wait(POLL_SECONDS)
+                else:
+                    activity_waiter(channel.activity, cancel)
+            except KeyboardInterrupt:
+                cancel.set()
+            except Exception as exc:  # noqa: BLE001 - waiter failure still reaps the worker
+                channel.stop(
+                    ScriptError(
+                        ErrorKind.SANDBOX,
+                        f"activity waiter failed: {type(exc).__name__}: {exc}",
+                    )
                 )
+                # Do not invoke the failing callback again during cleanup.
+                activity_waiter = None
+            continue
         if isinstance(event, _Finished):
             return event
         if channel.finished.is_set() or cancel.is_set():
             continue  # the run is over; its _Finished follows
         _run_call(channel, call_tool, cancel, calls, event)
+
+
+def _take_live_activity(channel: _Channel) -> _Call | _Finished | None:
+    event = channel.take_activity()
+    if event is not None or channel.alive():
+        return event
+    # Completion may have been published after our empty read. A dead thread
+    # without it is a host failure, never a reason to wait for more activity.
+    return channel.take_activity() or _Finished(
+        ScriptError(ErrorKind.SANDBOX, "host I/O exited without completion")
+    )
 
 
 def _run_call(
@@ -419,8 +456,15 @@ class _Worker:
     def _killpg(self) -> None:
         try:
             os.killpg(self.process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError:
             pass
+        except OSError:
+            # A negative pid addresses the same owned process group. A signal
+            # fault on the primary API must not skip kill and reap.
+            try:
+                os.kill(-self.process.pid, signal.SIGKILL)
+            except OSError:
+                pass  # Still attempt the bounded wait when signalling is denied.
 
     def reap(self) -> None:
         with self._lock:
@@ -478,6 +522,8 @@ class _Channel:
         os.set_blocking(self._wake_write, False)
         self.inbox: queue.SimpleQueue[_Call | _Finished] = queue.SimpleQueue()
         self.finished = threading.Event()
+        self.activity = threading.Event()
+        self._activity_lock = threading.Lock()
         self._commands: queue.SimpleQueue[_Reply | _StopRequest] = queue.SimpleQueue()
         self._thread = threading.Thread(
             target=self._run, name="codemode-io", daemon=True
@@ -503,6 +549,21 @@ class _Channel:
         self._open = {"out": True, "status": True}
 
     # --- the calling thread's side -------------------------------------------
+
+    def post_activity(self, event: _Call | _Finished) -> None:
+        # Publication and empty-queue acknowledgement share this lock. A post
+        # cannot slip between the consumer's empty check and event clear.
+        with self._activity_lock:
+            self.inbox.put(event)
+            self.activity.set()
+
+    def take_activity(self) -> _Call | _Finished | None:
+        with self._activity_lock:
+            try:
+                return self.inbox.get_nowait()
+            except queue.Empty:
+                self.activity.clear()
+                return None
 
     def start(self) -> None:
         self._thread.start()
@@ -540,18 +601,44 @@ class _Channel:
     # --- the I/O thread -------------------------------------------------------
 
     def _run(self) -> None:
-        error: ScriptError | None
+        error: ScriptError | None = ScriptError(
+            ErrorKind.SANDBOX, "host I/O exited without completion"
+        )
+        diagnostics = ""
         try:
-            error = self._loop()
-        except Exception as exc:  # noqa: BLE001 - the host never raises; an I/O failure is a sandbox error
+            try:
+                error = self._loop()
+            except BaseException as exc:  # noqa: BLE001 - loop failures still kill immediately
+                error = ScriptError(
+                    ErrorKind.SANDBOX, f"host I/O failed: {type(exc).__name__}: {exc}"
+                )
+            self._worker.kill()
+            diagnostics = self._diagnostics()
+        except BaseException as exc:  # noqa: BLE001 - every I/O exit must signal the session and active tool
             error = ScriptError(
                 ErrorKind.SANDBOX, f"host I/O failed: {type(exc).__name__}: {exc}"
             )
-        self._worker.kill()
-        self.finished.set()
-        if self._launch.tool_stop is not None:
-            self._launch.tool_stop.set()
-        self.inbox.put(_Finished(error, tuple(self._output), self._diagnostics()))
+        finally:
+            try:
+                for event in (self.finished, self._launch.tool_stop):
+                    if event is None:
+                        continue
+                    try:
+                        event.set()
+                    except BaseException as exc:  # noqa: BLE001 - signal faults cannot suppress completion
+                        error = ScriptError(
+                            ErrorKind.SANDBOX,
+                            f"host I/O failed: {type(exc).__name__}: {exc}",
+                        )
+                        # These are host-owned Events. Bypass a failing setter
+                        # so an active callback still observes the stop signal.
+                        threading.Event.set(event)
+            finally:
+                # No diagnostics, process signals or overridable publication
+                # helper here. Use the consumer's acknowledgement lock.
+                with self._activity_lock:
+                    self.inbox.put(_Finished(error, tuple(self._output), diagnostics))
+                    self.activity.set()
 
     def _loop(self) -> ScriptError | None:
         selector = selectors.DefaultSelector()
@@ -665,7 +752,7 @@ class _Channel:
         # was accepted: a violation in the same chunk (a ``done`` or garbage
         # right after the call) must end the run before any tool runs.
         if self._handoff is not None:
-            self.inbox.put(self._handoff)
+            self.post_activity(self._handoff)
             self._handoff = None
 
     def _append_line(self, piece: memoryview) -> None:

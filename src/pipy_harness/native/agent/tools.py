@@ -24,11 +24,16 @@ from pipy_harness.native.tools.base import (
 
 
 class ToolExecutionInterruption(StrEnum):
-    """Closed reasons why a caller stopped waiting for a tool invocation."""
+    """Closed reasons why a caller stopped waiting for a tool invocation.
+
+    SCRIPT_STOP is waiter-only: the executor consumes it as an ordinary error
+    observation, never an operator interruption in canonical policy state.
+    """
 
     SETTLED = "settled"
     OPERATOR_ABORT = "operator_abort"
     LOCAL_COMMAND = "local_command"
+    SCRIPT_STOP = "script_stop"
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,7 +264,11 @@ class ToolExecutor:
             return ToolExecutionOutcome(
                 outcome.result,
                 malformed_arguments=outcome.malformed_arguments,
-                interruption=interruption,
+                interruption=(
+                    ToolExecutionInterruption.SETTLED
+                    if interruption is ToolExecutionInterruption.SCRIPT_STOP
+                    else interruption
+                ),
             )
         if interruption is ToolExecutionInterruption.SETTLED:
             return ToolExecutionOutcome(self.error_result(call, "tool cancelled"))
@@ -297,6 +306,10 @@ class ToolExecutor:
         call: AgentToolCall,
         interruption: ToolExecutionInterruption,
     ) -> ToolExecutionOutcome:
+        if interruption is ToolExecutionInterruption.SCRIPT_STOP:
+            return ToolExecutionOutcome(
+                self.error_result(call, "tool stopped by script backend")
+            )
         label = (
             "local command"
             if interruption is ToolExecutionInterruption.LOCAL_COMMAND

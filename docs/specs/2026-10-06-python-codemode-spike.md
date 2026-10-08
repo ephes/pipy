@@ -8,7 +8,8 @@ T1 (runtime provisioning and the availability self-test), T2 (the worker
 and the guest prelude), T3 (the host runner), T4 (settle/record extraction),
 T5 (pure nested policy transitions), and T6a (internal service and optional composite
 port/dispatch with fake-runner tests) are implemented; see their notes in §5. T1–T3 merged to main at `8ed4e98b`.
-T6b (real runner/pump/deadline wiring) and T7–T11 are not yet implemented.
+T6b (real runner/pump/deadline wiring) is implemented internally. T7–T11
+are not yet implemented; no public tool is registered.
 
 ## 1. Status and scope
 
@@ -211,8 +212,14 @@ Host rules. Each one closes a red-team finding:
   sandbox error, and the host itself never raises (fixes the JSON crash).
 - The line length cap is checked while bytes are being buffered.
 - `done` is terminal. After it, the host stops reading and kills the worker.
+- Every I/O-thread exit publishes completion and wakes activity in a narrow
+  `finally` path, including kill, diagnostics and finish-signal failures. Queue
+  publication and empty acknowledgement share a lock. A dead thread without
+  completion fails closed; an activity waiter cannot depend on polling alone.
 - Kill and reap always run in `finally`, in this order:
-  1. `os.killpg(pgid, SIGKILL)`, tolerating ESRCH and EPERM;
+  1. `os.killpg(pgid, SIGKILL)`, tolerating ESRCH and retrying other signal
+     faults through `os.kill(-pgid, SIGKILL)` on the same owned group; denied
+     signals must not prevent the bounded wait or escape the runner;
   2. a bounded `wait()`;
   3. closing the pipes.
 
@@ -283,7 +290,11 @@ These steps follow the seam map. Line references are to
    session thread through a queue plus an event, and the session thread waits
    on that event with the same `tool_waiter`. Nested calls therefore run on
    the session thread, where hooks, UI, events and persistence behave as they
-   do at top level. There is never a second stdin reader.
+   do at top level. There is never a second stdin reader. Ctrl-C during compute
+   is translated to operator abort with or without an installed tool waiter;
+   the parent returns `CANCELLED`, records skipped calls and stops provider
+   continuation. Standalone host activity/polling Ctrl-C returns `ABORTED` and
+   owns no canonical parent-turn interruption state.
 
    On `OPERATOR_ABORT` or `LOCAL_COMMAND`, the runner:
    1. closes the service, so later calls get `REFUSED`;
@@ -361,9 +372,9 @@ These steps follow the seam map. Line references are to
 - Reservation and nested malformed count are transient, not settings or durable
   session counters. Revalidation preserves/checks both fields; accepted-turn
   snapshots start them fresh. See [the accounting table](../codemode.md).
-- T6 will translate exhaustion and nested malformed errors to catchable guest
+- T6 translates exhaustion and nested malformed errors to catchable guest
   `ToolError` values. T5 supplies pure transitions; T6a now implements the internal service and fake-tested
-  dispatch. Guest execution integration remains T6b.
+  dispatch. T6b now supplies real guest execution integration.
 
 ### 4.5 Limits (all PROVISIONAL)
 
@@ -719,9 +730,29 @@ Each task is small and lands with its own tests. The plan's acceptance items
      Validated child state is published to the existing status port; bounded evidence
      cannot discard sticky child interruption. The coding coordinator forwards optional
      ports; runtime selection remains disabled. Fake-runner tests pin this contract.
-   - **T6b remaining:** real `run_script` integration, session-thread pump,
-     interrupt/deadline waiter and real cancellation tests. T6a does not establish
-     guest interruption. T7 owns events/persistence and T8 owns public registration.
+   - **T6b implemented:** `coding/codemode_runner.py` composes real CPython-on-WASI
+     execution outside the standalone core, validates parent arguments normally,
+     and returns formatted text with parent identity. The optional host activity
+     waiter runs on the session thread, using a queue/event with locked publication
+     and empty acknowledgement. Completion finalization wakes activity even
+     after post-loop failures; the session also fails closed on thread death.
+     No-waiter compute Ctrl-C retains canonical operator interruption. A child
+     waiter combines operator input and a fresh
+     backend/deadline stop signal; `SCRIPT_STOP` cancels the executor with bounded
+     joins and settles as an error observation, preserving operator abort semantics.
+     The REPL composition seam supplies the same runner for interactive and
+     headless/RPC paths. A frozen native builtin identity guard excludes extension
+     `codemode`; no builtin is registered until T8. Guest names are only eligible
+     builtins advertised in the parent request; definitions are never refreshed.
+   - Evidence: `tests/test_native_codemode_composite.py` uses the installed runtime,
+     AgentLoop, real ToolExecutor and host for multiple reads/post-transform text,
+     catchable malformed/budget errors, effects retained after failure, cancellation
+     during active cooperative/noncooperative tools (operator and local command),
+     headless abort during script compute, deadline/backend failure during a tool,
+     fresh execution after cancellation and reaped worker groups. Acceptance D is
+     established internally; actual tmux Escape evidence remains T9. Host tests pin
+     the queue/event lost-wake contract and waiter-failure cleanup. T7 owns
+     events/persistence and T8 owns public registration and truncation spilling.
    - Tests: cancellation during a nested tool (D), cancellation during script
      compute, the deadline firing during a nested tool, refusal after close,
      and recursion refused.

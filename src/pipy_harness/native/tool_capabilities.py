@@ -165,6 +165,12 @@ class NativeToolCapabilitySnapshot:
             and name not in self.state.extension_registry
         )
 
+    def composite_enabled(self) -> bool:
+        """Only a visible builtin identity may activate internal dispatch."""
+        return "codemode" in self.eligible_names() and any(
+            definition.name == "codemode" for definition in self.definitions()
+        )
+
     def execute(
         self,
         call: AgentToolCall,

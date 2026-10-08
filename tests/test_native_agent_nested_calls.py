@@ -752,8 +752,8 @@ def test_reservation_fault_closes_service_without_publishing_invalid_state(
 
     original_reserve = reserve_composite_parent
 
-    def create(*args):
-        service = NestedToolCallService(*args)
+    def create(*args, **kwargs):
+        service = NestedToolCallService(*args, **kwargs)
         services.append(service)
         return service
 

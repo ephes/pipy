@@ -66,6 +66,7 @@ from pipy_harness.native.agent.messages import (
 )
 from pipy_harness.native.agent.nested_calls import (
     AgentCompositeToolRunner,
+    CompositeToolEligibility,
     NestedCallStatus,
     NestedToolCallOutcome,
     NestedToolCallService,
@@ -784,7 +785,12 @@ class AgentLoop:
             publish_budget_state,
             composite_execute=lambda transition: (
                 self._execute_composite(state, snapshot, call, turn_index, transition)
-                if self._composite_runner is not None and call.tool_name == "codemode"
+                if self._composite_runner is not None
+                and call.tool_name == "codemode"
+                and (
+                    not isinstance(self._nested_eligibility, CompositeToolEligibility)
+                    or self._nested_eligibility.composite_enabled()
+                )
                 else None
             ),
         )
@@ -800,6 +806,7 @@ class AgentLoop:
         *,
         mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
         emit_events: bool = True,
+        nested_waiter: ToolInterruptWaiter | None = None,
         composite_execute: Callable[
             [AgentToolPolicyTransition], _SettledToolCall | None
         ]
@@ -829,6 +836,7 @@ class AgentLoop:
             admission.state,
             mode=mode,
             emit_events=emit_events,
+            nested_waiter=nested_waiter,
             composite_execute=composite_execute,
         )
 
@@ -840,6 +848,7 @@ class AgentLoop:
         *,
         mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
         emit_events: bool = True,
+        nested_waiter: ToolInterruptWaiter | None = None,
         composite_execute: Callable[
             [AgentToolPolicyTransition], _SettledToolCall | None
         ]
@@ -864,7 +873,12 @@ class AgentLoop:
             if composite is not None:
                 return composite
         return self._execute_tool(
-            call, turn_index, admitted_state, mode=mode, emit_events=emit_events
+            call,
+            turn_index,
+            admitted_state,
+            mode=mode,
+            emit_events=emit_events,
+            nested_waiter=nested_waiter,
         )
 
     def _execute_tool(
@@ -875,6 +889,7 @@ class AgentLoop:
         *,
         mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
         emit_events: bool = True,
+        nested_waiter: ToolInterruptWaiter | None = None,
     ) -> _SettledToolCall:
         started_at = datetime.now(UTC)
         execution = self._tools.execute(
@@ -882,7 +897,7 @@ class AgentLoop:
             output_sink=self._tool_output_sink(turn_index, call)
             if emit_events
             else None,
-            wait_for_interrupt=self._tool_waiter,
+            wait_for_interrupt=nested_waiter or self._tool_waiter,
         )
         settlement = settle_tool_execution(tool_state, execution, mode=mode)
         _validate_tool_result_for_call(execution.result, call)
@@ -915,7 +930,9 @@ class AgentLoop:
             state.tool_state = value
             self._status.tool_policy_state_changed(value)
 
-        def settle(child: AgentToolCall) -> NestedToolCallOutcome:
+        def settle(
+            child: AgentToolCall, waiter: ToolInterruptWaiter | None = None
+        ) -> NestedToolCallOutcome:
             settled = self._settle_tool_call(
                 state.tool_state,
                 snapshot,
@@ -924,6 +941,7 @@ class AgentLoop:
                 publish,
                 mode=AgentToolInvocationMode.NESTED,
                 emit_events=False,
+                nested_waiter=waiter,
             )
             action = settled.transition.action
             if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
@@ -938,7 +956,12 @@ class AgentLoop:
             )
 
         service = NestedToolCallService(
-            call, eligible, settle, self._tools.error_result
+            call,
+            eligible,
+            settle,
+            self._tools.error_result,
+            advertised_names=frozenset(snapshot.advertised_tool_names),
+            settle_with_waiter=settle,
         )
         started_at = datetime.now(UTC)
         try:

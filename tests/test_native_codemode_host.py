@@ -80,6 +80,7 @@ def _run(
     cancel: threading.Event | None = None,
     tool_stop: threading.Event | None = None,
     code: str = "pass",
+    activity_waiter: host.ActivityWaiter | None = None,
 ) -> ScriptOutcome:
     def fake_argv(python: str, status_fd: int, request: str) -> list[str]:
         json.loads(request)  # the real request is still well-formed JSON
@@ -95,6 +96,7 @@ def _run(
         tool_stop=tool_stop,
         paths=CodemodePaths(Path("/nonexistent-codemode-root")),
         pin=PIN,
+        activity_waiter=activity_waiter,
     )
 
 
@@ -915,3 +917,248 @@ def test_runs_leak_no_processes_fds_or_threads(
     assert threading.active_count() == threads
     assert _open_fds() == fds
     assert not any(t.name == "codemode-io" for t in threading.enumerate())
+
+
+@pytest.mark.parametrize("failure", ["exception", "keyboard", "cancel"])
+def test_activity_waiter_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    spawned: list[int],
+    failure: str,
+) -> None:
+    session_thread = threading.current_thread()
+    seen = []
+
+    def waiter(activity: threading.Event, cancel: threading.Event) -> None:
+        assert threading.current_thread() is session_thread
+        seen.append(True)
+        if failure == "exception":
+            raise RuntimeError("activity failure")
+        if failure == "keyboard":
+            raise KeyboardInterrupt
+        cancel.set()
+
+    outcome = _run(monkeypatch, "start(); time.sleep(10)", activity_waiter=waiter)
+    assert seen and spawned
+    assert outcome.error is not None
+    assert outcome.error.kind is (
+        ErrorKind.SANDBOX if failure == "exception" else ErrorKind.ABORTED
+    )
+
+
+def test_activity_queue_and_event_have_no_lost_wake() -> None:
+    # Exercise the production publication/acknowledgement methods with racing
+    # producers, without pipes. The final publication must remain observable.
+    import queue
+
+    channel = object.__new__(host._Channel)
+    channel.inbox = queue.SimpleQueue()
+    channel.activity = threading.Event()
+    channel._activity_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+
+    def producer() -> None:
+        for index in range(1000):
+            barrier.wait()
+            channel.post_activity(host._Call(index, "read", "{}"))
+            barrier.wait()
+
+    thread = threading.Thread(target=producer)
+    thread.start()
+    try:
+        for _ in range(1000):
+            barrier.wait()
+            event = channel.take_activity()
+            barrier.wait()
+            if event is None:
+                assert channel.activity.is_set()
+                assert channel.take_activity() is not None
+            assert channel.take_activity() is None
+            assert not channel.activity.is_set()
+    finally:
+        thread.join(timeout=2)
+    assert not thread.is_alive()
+
+
+def test_io_base_exception_signals_activity_and_tool_stop(
+    monkeypatch: pytest.MonkeyPatch,
+    spawned: list[int],
+) -> None:
+    def fail(channel: host._Channel) -> None:
+        raise SystemExit("I/O stopped")
+
+    monkeypatch.setattr(host._Channel, "_loop", fail)
+    stop = threading.Event()
+
+    def waiter(activity: threading.Event, cancel: threading.Event) -> None:
+        activity.wait()
+
+    outcome = _run(
+        monkeypatch,
+        "start(); time.sleep(10)",
+        tool_stop=stop,
+        activity_waiter=waiter,
+    )
+    _sandbox_error(outcome, "I/O stopped")
+    assert stop.is_set() and spawned
+
+
+def _inject_completion_fault(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> tuple[list[host._Channel], threading.Event]:
+    channels: list[host._Channel] = []
+    original_start = host._Channel.start
+    stop = threading.Event()
+    original_stop_set = stop.set
+
+    def fail() -> None:
+        raise RuntimeError("completion fault")
+
+    def start(channel: host._Channel) -> None:
+        channels.append(channel)
+        if failure == "finished":
+            monkeypatch.setattr(channel.finished, "set", fail)
+        original_start(channel)
+
+    def stop_set() -> None:
+        if threading.current_thread().name == "codemode-io":
+            fail()
+        original_stop_set()
+
+    monkeypatch.setattr(host._Channel, "start", start)
+    if failure == "kill":
+        monkeypatch.setattr(host._Worker, "kill", lambda worker: fail())
+    elif failure == "diagnostics":
+        monkeypatch.setattr(host._Channel, "_diagnostics", lambda channel: fail())
+    elif failure == "stop":
+        monkeypatch.setattr(stop, "set", stop_set)
+
+    return channels, stop
+
+
+@pytest.mark.parametrize("with_waiter", [False, True])
+@pytest.mark.parametrize("failure", ["kill", "diagnostics", "finished", "stop"])
+def test_completion_failure_returns_and_reaps(
+    monkeypatch: pytest.MonkeyPatch,
+    spawned: list[int],
+    with_waiter: bool,
+    failure: str,
+) -> None:
+    channels, stop = _inject_completion_fault(monkeypatch, failure)
+    outcomes: list[ScriptOutcome] = []
+    failures: list[BaseException] = []
+
+    def waiter(activity: threading.Event, cancel: threading.Event) -> None:
+        activity.wait()  # Deliberately unbounded: completion must wake it.
+        assert stop.is_set()  # Includes a fault in the stop setter itself.
+
+    def drive() -> None:
+        try:
+            outcomes.append(
+                _run(
+                    monkeypatch,
+                    "start(); done(); hang()",
+                    tool_stop=stop,
+                    activity_waiter=waiter if with_waiter else None,
+                )
+            )
+        except BaseException as exc:  # noqa: BLE001 - report driver failures on the test thread
+            failures.append(exc)
+
+    driver = threading.Thread(target=drive, daemon=True)
+    started = time.monotonic()
+    driver.start()
+    driver.join(timeout=2)
+    bounded = not driver.is_alive()
+    if not bounded:
+        # Rescue a regressed host without hanging pytest or leaving a group.
+        for channel in channels:
+            channel.post_activity(host._Finished(None))
+        driver.join(timeout=host.REAP_TIMEOUT_SECONDS + 1)
+    assert bounded, "host did not return after completion fault"
+    assert not failures
+    assert time.monotonic() - started < 2
+    assert len(outcomes) == 1
+    _sandbox_error(outcomes[0], "completion fault")
+    assert stop.is_set() and spawned
+    assert all(_group_is_gone(pid) for pid in spawned)
+    for pid in spawned:
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+
+
+@pytest.mark.parametrize("fault", [OSError, PermissionError])
+def test_signal_fault_still_kills_owned_group_and_reaps(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], fault: type[OSError]
+) -> None:
+    real_killpg = os.killpg
+    attempted: list[int] = []
+
+    def killpg(pid: int, sig: int) -> None:
+        if sig == 0:
+            real_killpg(pid, sig)
+        else:
+            attempted.append(pid)
+            raise fault("signal fault")
+
+    monkeypatch.setattr(os, "killpg", killpg)
+    outcome = _run(monkeypatch, "start(); done(); hang()")
+    assert outcome.error is None
+    assert attempted and set(attempted) == set(spawned)
+    assert all(_group_is_gone(pid) for pid in spawned)
+    for pid in spawned:
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+
+
+@pytest.mark.parametrize("queued", [False, True])
+def test_dead_io_thread_never_waits_for_missing_completion(queued: bool) -> None:
+    import queue
+
+    channel = object.__new__(host._Channel)
+    channel.inbox = queue.SimpleQueue()
+    channel.activity = threading.Event()
+    channel._activity_lock = threading.Lock()
+    channel._thread = threading.Thread(target=lambda: None)
+    channel._thread.start()
+    channel._thread.join(timeout=1)
+    assert not channel.alive()
+    completed = host._Finished(None, ("completed",))
+    if queued:
+        channel.post_activity(completed)
+
+    def waiter(activity: threading.Event, cancel: threading.Event) -> None:
+        pytest.fail("dead I/O thread must not invoke an unbounded waiter")
+
+    outcome = host._serve(channel, _no_tools, threading.Event(), [], waiter)
+    if queued:
+        assert outcome is completed
+    else:
+        assert outcome.error is not None
+        assert outcome.error.kind is ErrorKind.SANDBOX
+        assert "without completion" in outcome.error.message
+
+
+def test_standalone_polling_keyboard_interrupt_aborts_and_reaps(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    original_start = host._Channel.start
+    interrupted = threading.Event()
+
+    def start(channel: host._Channel) -> None:
+        original_wait = channel.activity.wait
+
+        def wait(timeout: float | None = None) -> bool:
+            if not interrupted.is_set():
+                interrupted.set()
+                raise KeyboardInterrupt
+            return original_wait(timeout)
+
+        monkeypatch.setattr(channel.activity, "wait", wait)
+        original_start(channel)
+
+    monkeypatch.setattr(host._Channel, "start", start)
+    outcome = _run(monkeypatch, "start(); hang()")
+    assert interrupted.is_set()
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.ABORTED
+    assert spawned and all(_group_is_gone(pid) for pid in spawned)
