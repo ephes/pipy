@@ -11,7 +11,7 @@ port/dispatch with fake-runner tests) are implemented; see their notes in §5. T
 T6b (real runner/pump/deadline wiring) and T7a (nested lifecycle events and live
 projections), and T7b (durable records, resume/tree and summary inputs) are
 implemented internally. T8 public enablement is implemented; T9 deterministic
-delivery tests and inspected live tmux evidence are implemented. T10–T11 remain pending. Production codemode is selected
+delivery tests and inspected live tmux evidence are implemented. T10 live measurement and interactive acceptance are completed; T11 remains pending. Production codemode is selected
 and availability-gated.
 
 ## 1. Status and scope
@@ -869,6 +869,24 @@ Each task is small and lands with its own tests. The plan's acceptance items
 10. **T10: measurement.** The same task with direct tools and with codemode,
     comparing request size, wall time (including the measured 181 / 346 ms
     startup) and output quality. No target is set beforehand. Covers J.
+    Measurement support is implemented in `scripts/codemode_measure.py`: one
+    fixed-order pair through production CodingSession/registry, normal hooks and
+    persistence, approved openai-codex/gpt-6.1-sol low over explicit SSE only.
+    Numeric HTTP attempt/schema/input bytes, provider usage/turns, parent/nested
+    calls, compact result size, task/parent wall time and a separate fresh minimal
+    WASI worker run are reported. Credentials are handled only by the normal auth
+    manager; isolated fixtures/state preserve HOME and auth lookup. Offline tests
+    are not live evidence. The coordinator live pair passed both exact answers and
+    expected call types: direct/codemode 254,777/10,311 total HTTP bytes and
+    10.935/6.752 seconds; codemode parent 0.242 s, separate minimal worker 0.167 s.
+    The live interactive CLI also passed one parent/four reads and exact facts.
+    A repeat on the repaired per-arm settings path retained correct final facts
+    but emitted bulk text first, using two scripts/eight reads: execution-pattern
+    check failed, 99,508 codemode bytes/10.542 s versus direct 254,777/13.659 s.
+    This model-behavior limitation is retained, not retried away.
+    These are two fixed-order descriptive pairs and a separate interactive check,
+    not a general speed claim or resident-engine decision. See the
+    [acceptance note](2026-10-09-python-codemode-acceptance.md) and numeric report.
 11. **T11: docs and review.**
     - A user doc listing the available modules, the limits and the
       authority model; a `CHANGELOG.md` entry.

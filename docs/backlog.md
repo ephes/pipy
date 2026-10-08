@@ -21,7 +21,7 @@ updated 2026-10-04.
   T6 internal service, real runner and session-thread pump are implemented.
   T7 nested lifecycle, live/durable projections and summary inputs are implemented;
   T8 public enablement and T9 deterministic delivery/evidence support are implemented;
-  T9 live tmux inspection is completed; T10–T11 remain;
+  T9 live tmux inspection and T10 live measurements are completed; T11 remains;
   public codemode remains off by default. UP1
   completed a selected-surface audit through Pi 1.0;
   see [Active queue](#active-queue). DF1 still lacks live evidence for
@@ -171,7 +171,15 @@ public C and T9 tests while preserving the isolation suite. The isolated
 were used for active/settled/aborted and replay/tree captures; raw frames, cursor
 metrics and worker-reaping assertions are retained outside git. The
 [acceptance note](specs/2026-10-09-python-codemode-acceptance.md) records the inspected evidence.
-T10 live-provider measurement and T11 cumulative checks/docs/review remain pending.
+T10 measurement support (`scripts/codemode_measure.py`) and offline tests are
+implemented; coordinator live paired measurement and separate interactive
+acceptance passed exact facts and expected calls. The acceptance note reports
+254,777 versus 10,311 HTTP bytes and 10.935 versus 6.752 seconds for one fixed-order
+pair, including fresh-worker startup; it makes no general performance claim.
+A repeat retained correct final facts but used two scripts/eight reads, failing
+the strict one-parent execution check; its 99,508-byte result is recorded rather
+than retried away. T11 cumulative checks/docs/review remain pending. Fresh-worker
+startup is measured without automatically selecting a resident engine.
 
 T7b review repairs preserve summary tool pairing/final instructions, parse direct
 arguments up to 1 MiB independently of nested storage bounds, keep sticky pipeline

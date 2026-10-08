@@ -1,0 +1,186 @@
+{
+  "run_label": "paired-1",
+  "fixture_version": 1,
+  "order": [
+    "direct",
+    "codemode"
+  ],
+  "model": "gpt-6.1-sol",
+  "effort": "low",
+  "provider": "openai-codex",
+  "transport": "sse",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "python": "3.14.7",
+  "runtime_pin": {
+    "version": "3.14.7",
+    "url": "https://github.com/brettcannon/cpython-wasi-build/releases/download/v3.14.7/python-3.14.7-wasi_sdk-24.zip",
+    "sha256": "2e064d3fb8172471d39d741348efa722349c40b96301f69968dff714999c584b",
+    "size": 14291017
+  },
+  "configuration": {
+    "tool_budget": 50,
+    "theme": "pi",
+    "persistent_product_tree": true
+  },
+  "runs": [
+    {
+      "execution_failed": false,
+      "label": "direct",
+      "wall_seconds": 10.93502016691491,
+      "provider_turn_count": 5,
+      "parent_calls": {
+        "read": 4
+      },
+      "nested_calls": {},
+      "parent_result_bytes": [
+        23117,
+        23117,
+        23117,
+        23117
+      ],
+      "compact_output_bytes": null,
+      "compact_exact_facts": null,
+      "parent_duration_seconds": [
+        0.002017,
+        0.00141,
+        0.001213,
+        0.001023
+      ],
+      "provider_usage": {
+        "input_tokens": 59470,
+        "output_tokens": 225,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 35328,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.0540668
+      },
+      "exact_facts": true,
+      "call_types_pass": true,
+      "errors": 0,
+      "nested_errors": 0,
+      "outcome": "succeeded",
+      "passed": true,
+      "http_body_bytes": {
+        "count": 5,
+        "total": 254777,
+        "min": 3268,
+        "max": 98643,
+        "per_attempt": [
+          3268,
+          27112,
+          50955,
+          74799,
+          98643
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 5,
+        "total": 3695,
+        "min": 739,
+        "max": 739,
+        "per_attempt": [
+          739,
+          739,
+          739,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 5,
+        "total": 240717,
+        "min": 456,
+        "max": 95831,
+        "per_attempt": [
+          456,
+          24300,
+          48143,
+          71987,
+          95831
+        ]
+      }
+    },
+    {
+      "execution_failed": false,
+      "label": "codemode",
+      "wall_seconds": 6.751597000053152,
+      "provider_turn_count": 2,
+      "parent_calls": {
+        "codemode": 1
+      },
+      "nested_calls": {
+        "read": 4
+      },
+      "parent_result_bytes": [
+        408
+      ],
+      "compact_output_bytes": 361,
+      "compact_exact_facts": true,
+      "parent_duration_seconds": [
+        0.242366
+      ],
+      "provider_usage": {
+        "input_tokens": 2109,
+        "output_tokens": 267,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.006888
+      },
+      "exact_facts": true,
+      "call_types_pass": true,
+      "errors": 0,
+      "nested_errors": 0,
+      "outcome": "succeeded",
+      "passed": true,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 10311,
+        "min": 4525,
+        "max": 5786,
+        "per_attempt": [
+          4525,
+          5786
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 3498,
+        "min": 1749,
+        "max": 1749,
+        "per_attempt": [
+          1749,
+          1749
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 2351,
+        "min": 545,
+        "max": 1806,
+        "per_attempt": [
+          545,
+          1806
+        ]
+      }
+    }
+  ],
+  "passed": true,
+  "metric_definitions": {
+    "wall_seconds": "Session construction through run return; includes selected availability/selftest, model/tool turns, fresh WASI workers and persistence; excludes fixture creation and separate preflight/minimal worker probe.",
+    "parent_duration_seconds": "Canonical ToolCallCompleted duration; codemode includes fresh worker startup, nested tools and settlement.",
+    "http_body_bytes": "len(json.dumps(body).encode(utf-8)) for every post_sse attempt including retries; excludes headers and response bytes.",
+    "declared_schema_bytes": "Same encoding of body.tools (descriptions and schemas); per HTTP attempt.",
+    "serialized_input_bytes": "Same encoding of body.input; per HTTP attempt; not token count.",
+    "provider_turn_count": "Canonical TurnStarted count; HTTP attempts reported separately.",
+    "parent_result_bytes": "UTF-8 model-facing parent content including codemode header; nested results never enter provider history.",
+    "compact_output_bytes": "UTF-8 codemode Output body only; must parse as the exact expected JSON; null for direct tools.",
+    "fresh_minimal_worker_seconds": "One standalone text(1) real run including fresh process, engine/cache load, guest startup, execution and cleanup; excludes availability probe; no tool work.",
+    "provider_usage": "Cumulative canonical provider usage when available; null means unavailable; no dollar cap."
+  },
+  "wasmtime": "49.0.0",
+  "preflight_seconds": 0.15070883301086724,
+  "fresh_minimal_worker_seconds": 0.16672974999528378,
+  "fixture_input_bytes": 92468
+}

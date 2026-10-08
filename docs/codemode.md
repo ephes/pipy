@@ -2,7 +2,7 @@
 
 Status: **sandbox core and T4–T8 implemented; T9 deterministic delivery tests
 and live tmux verification completed;
-T10 measurement and T11 final delivery remain pending.**
+T10 live measurement and interactive acceptance are completed; T11 final delivery remains pending.**
 The internal composite runner now retains bounded nested-call evidence on its
 parent result and reconstructs child lines on resume and tree navigation.
 T8a adds the stable builtin definition, runtime-management CLI and composite
@@ -258,7 +258,7 @@ establish T6 acceptance D at the internal integration seam. Actual tmux Escape
 evidence is recorded in the T9 acceptance note. T7a implements nested events and live projections; T7b implements durable parent
 details, resume/tree and private summary file-operation input; T8a implements definition/runtime CLI/truncation spilling; T8b implements opt-in, availability selection and production registration.
 T9 now pins the public production path with deterministic real-WASI and PTY
-tests. Selected-frame tmux inspection is completed; T10 live comparison and T11 final
+tests. Selected-frame tmux inspection and T10 live comparison are completed; T11 final
 docs/cumulative review remain outstanding.
 
 Python scripts are an intentional difference from Pi, whose codemode runs
@@ -298,7 +298,7 @@ T7b reconstructs these child lines on resume/tree from the bounded parent
 branch summaries. No nested results or per-call CustomEntry records persist.
 T8b implements public opt-in/settings/availability and production registration.
 T9 automated delivery/replay/tree evidence is implemented; selected-frame tmux
-inspection is completed; T10 measurement and T11 final documentation/review remain pending.
+inspection and T10 live measurement are completed; T11 final documentation/review remains pending.
 
 ## What it is
 
@@ -514,3 +514,84 @@ and preserve script success/error, interruption and nested records. The existing
 write-then-raise with retained effects and records; public C is exercised by T8b
 and retained in runtime-required CI. T9 automated PTY evidence is implemented;
 selected-frame tmux inspection is recorded in the acceptance note.
+
+## CM1 T10 measurement driver
+
+The coordinator runs one paired live experiment first:
+
+```sh
+uv run --extra codemode python scripts/codemode_measure.py \
+  --workspace /tmp/pipy-cm1-paired-1 --run-label paired-1 \
+  --report /tmp/pipy-cm1-paired-1.json
+```
+
+Use a fresh empty directory outside the checkout. The approved provider is
+`openai-codex`, model `gpt-6.1-sol`, effort `low`, explicit SSE for both runs.
+There is no provider option, fallback or dollar cap. Existing normal credentials
+are used by the provider's default auth manager; the script never reads, copies
+or reports auth contents. HOME and PIPY_AUTH_DIR survive. Settings, theme,
+defaults, history, state and sessions are isolated; the theme is `pi`.
+A missing runtime, unavailable credentials or execution error fails closed with
+exit 1 and a generic report failure. No runtime is downloaded.
+
+Four deterministic 400-line files contain eight known KEEP records amid DROP
+noise. Both runs share one fixture workspace (and therefore the same prompt cwd),
+with fresh independent sessions. They use the same goal and fixtures, differing
+only in the required
+direct-read versus Python read/filter/compact instruction and selected tool
+surface (`read` versus `read,+codemode`). The production CodingSession registry,
+normal hooks, budget 50 and product session-tree persistence apply. A normal
+fixture-local tool_call hook confines direct and nested reads to the four owned
+relative paths. No write, edit, bash, discovery or extension tools are advertised.
+The model cannot write repository files. Product trees retain normal owned task
+content in the temporary workspace; the aggregate report contains no raw prompts,
+transcripts, headers, tokens or provider bodies.
+
+The report defines every metric. HTTP bytes match the actual default urllib JSON
+serialization, counting every SSE attempt, including retries. It also reports
+serialized `tools` and `input` bytes, provider turns, available cumulative usage,
+parent/nested call counts, UTF-8 parent result sizes and codemode output-body size.
+Task wall time covers session construction through return, including selected
+availability/self-test, provider turns, fresh WASI startup, tools and persistence.
+Fixture creation and the separately timed preflight/minimal `text(1)` worker run
+are excluded. Parent durations are canonical completion-event durations and
+include startup for codemode. The standalone worker number includes a fresh
+process, engine/cache load, guest execution and cleanup, with no tool work.
+It supplements rather than replaces the prior platform-specific 181/346 ms data.
+
+Quality passes only when the final JSON has exactly the eight expected facts and
+order, with four actual direct reads or one actual codemode parent/four nested
+reads, no errors and a successful run. Codemode must also emit exactly that JSON
+as its compact parent output. No speed or byte target is set; a single fixed-order
+pair is descriptive, not a variance estimate. Repeat with fresh roots/labels if
+needed. The coordinator completed the initial paired live run and separate interactive acceptance.
+A repeat returned correct final facts but used two scripts/eight reads and failed
+the prescribed one-parent pattern; its higher traffic is retained as a limitation.
+Measured results and limitations are in the
+[acceptance note](specs/2026-10-09-python-codemode-acceptance.md).
+
+For separate live interactive acceptance, reuse the retained `codemode` directory
+(or create fixtures offline with `--prepare-only --workspace /tmp/pipy-cm1-ui`).
+Set isolated paths before launching the actual CLI; do not override HOME or auth.
+Create `$ui_state/config/settings.json` containing
+`{"theme":"pi","transport":"sse","quietStartup":true}` in a fresh temporary `$ui_state`, then:
+
+```sh
+PIPY_CONFIG_HOME="$ui_state/config" XDG_STATE_HOME="$ui_state/state" \
+PIPY_NATIVE_THEME_PATH="$ui_state/theme.json" \
+PIPY_NATIVE_DEFAULTS_PATH="$ui_state/defaults.json" \
+PIPY_PROMPT_HISTORY_PATH="$ui_state/history.json" \
+PIPY_NATIVE_SESSIONS_ROOT="$ui_state/sessions" \
+uv run --extra codemode pipy repl --cwd /tmp/pipy-cm1-paired-1/codemode \
+  --root "$ui_state/archive" \
+  --native-provider openai-codex --native-model gpt-6.1-sol --thinking low \
+  --tools read,codemode --approve --no-skills --no-prompt-templates --no-themes
+```
+
+`--approve` trusts only these owned resources for this run, without writing
+trust.json. Submit the exact `prompt('codemode')` from the measurement script
+(the owned task instruction, not an arbitrary repository prompt). Inspect actual
+nested read rows, the compact count-8 output and final exact facts. Label this
+interactive quality verification separately; it is not part of the paired timing
+or byte totals. T11 owns cumulative checks, final module/authority/limit docs and
+independent review. A resident engine remains an owner decision after data.

@@ -114,7 +114,15 @@ deterministic public production delivery, product hook/abort coverage and
 full-product PTY replay/tree assertions, plus an isolated terminal capture driver.
 Selected-frame tmux inspection is recorded in the
 [acceptance note](2026-10-09-python-codemode-acceptance.md); measurement and final
-docs/cumulative review remain T10–T11.
+docs/cumulative review remain T10–T11. T10 now has an isolated production-session
+measurement driver and offline instrumentation tests; the live pair and separate
+interactive openai-codex run passed exact facts/expected calls. One fixed-order
+pair measured direct/codemode totals of 254,777/10,311 HTTP bytes and
+10.935/6.752 seconds; the acceptance note records timing definitions and limitations.
+A repeat kept correct facts but emitted bulk text before a second compacting
+script, failing the execution-pattern check and sending 99,508 codemode bytes.
+Both outcomes are retained; no retry hides that model variability.
+No startup optimization follows automatically from that measurement.
 
 ## Deferred
 

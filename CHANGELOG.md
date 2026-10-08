@@ -14,6 +14,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- CM1 T10 isolated paired-measurement driver for approved openai-codex
+  `gpt-6.1-sol` low over SSE: actual HTTP/schema/input byte totals, tool/turn
+  counts, usage, task/parent/startup time and exact fixture quality checks.
+  Production tools/hooks/persistence apply; reports exclude raw credential and
+  transcript content. Offline tests include the real WASI runtime. A live fixed-order fixture pair
+  passed exact facts: direct/codemode 254,777/10,311 HTTP bytes and 10.935/6.752
+  seconds, including startup. Separate live interactive use also passed. Results
+  are descriptive. A repeat retained correct facts but used two scripts/eight
+  reads, failing the prescribed compact execution pattern and sending 99,508
+  codemode bytes; that model limitation is recorded. T11 final docs/cumulative
+  review remain pending.
+
 - CM1 T9 deterministic production delivery tests using the existing fake
   provider and installed WASI runtime: public session/adapter, multifile
   filtering, product extension hooks, catchable validation/budget errors,
