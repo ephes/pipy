@@ -27,6 +27,7 @@ from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tools.codemode import CodemodeTool
+from pipy_harness.sdk import create_product_session
 
 
 def wait_until(predicate, timeout=10):
@@ -126,6 +127,60 @@ def settings(root):
         project_path=root / "project.json",
         overrides={"defaultTools": ["+codemode"], "theme": "pi"},
     )
+
+
+def test_advertised_read_filter_example_runs_without_bulk_output(
+    tmp_path, monkeypatch, runtime
+):
+    fixtures(tmp_path)
+    description = CodemodeTool().definition.description
+    _, fence, example = description.partition("```python\n")
+    assert fence, "Advertised codemode guidance needs an executable example"
+    code, closing, _ = example.partition("\n```")
+    assert closing
+    fake = provider(code)
+    requests = []
+    complete = FakeNativeProvider.complete
+
+    def capture(self, request, **kwargs):
+        requests.append(request)
+        return complete(self, request, **kwargs)
+
+    monkeypatch.setattr(FakeNativeProvider, "complete", capture)
+    sink = _CollectingAgentEventSink()
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "saved")
+    with create_product_session(
+        workspace=tmp_path,
+        provider=fake,
+        settings=settings(tmp_path),
+        tree=tree,
+        observer=sink,
+        load_context_files=False,
+    ) as session:
+        result = session.submit("filter the small fixture files")
+        assert result.provider_failure is result.preparation_failure is None
+    assert code in next(
+        t.description for t in requests[0].available_tools if t.name == "codemode"
+    )
+    parents = [e.result for e in sink.events if isinstance(e, ToolCallCompleted)]
+    assert len(parents) == 1
+    parent = parents[0]
+    assert not parent.is_error
+    answer = json.loads(parent.content.value.partition("Output:\n")[2])
+    assert answer == {"matches": EXPECTED["matches"][:2], "count": 2}
+    assert "DROP private bulk" not in parent.content.value
+    assert [
+        (c["name"], c["arguments"]["path"])
+        for c in parent.details["nestedCalls"]["calls"]
+    ] == [("read", "alpha.txt"), ("read", "beta.txt")]
+    reopened = NativeSessionTree.open(tree.path, strict=True)
+    saved = [
+        e.message
+        for e in reopened.get_entries()
+        if isinstance(getattr(e, "message", None), AgentToolResultMessage)
+    ]
+    assert len(saved) == 1
+    assert saved[0].details == parent.details
 
 
 @pytest.mark.parametrize("adapter", [False, True])

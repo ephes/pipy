@@ -30,6 +30,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 
+### Changed
+
+- Python codemode guidance now includes an executable small-file read/filter
+  example, explains direct string processing and recommends filtering before
+  emitting a compact answer. This guides model behavior without enforcing a
+  one-script limit or changing tool authority, retries or output budgets.
+
 ### Fixed
 
 - Oversized compaction summary requests now recover through budget-admitted

@@ -92,6 +92,7 @@ BUILTIN_TOOL_PROMPTS: Mapping[str, ToolPrompt] = MappingProxyType(
             "Run Python that calls other tools",
             (
                 "Use codemode to chain several tool calls or filter large output in one step instead of many separate calls.",
+                "Keep intermediate tool results in Python and emit only the task-relevant answer; parse documented text output directly instead of adding format-probe calls.",
             ),
         ),
     }

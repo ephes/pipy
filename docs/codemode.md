@@ -109,6 +109,16 @@ except ToolError as error:
 included in order. Filter before emitting: bulk raw results can exhaust output
 budgets and require another model turn.
 
+The advertised builtin now includes a runnable small-file read/filter example.
+Use returned strings directly: `tools.read()` is not a result object, and text
+files do not need JSON decoding. Keep intermediate reads in Python and emit the
+compact answer after processing. Format probes that print types, dump raw reads
+or deliberately raise with their contents add work without completing the task.
+Follow read's offset/limit notices when a file is incomplete; the small-file
+example does not implement pagination. This is model guidance, not an enforced
+single-script rule or a guarantee that a model follows it. See the
+[adherence slice](specs/2026-10-09-codemode-adherence.md) for evidence and limits.
+
 Calls are sequential. Only advertised native builtins from the parent's frozen
 request snapshot are eligible: `read`, `ls`, `grep`, `find`, `write`, `edit`,
 `bash`. Hidden tools, extension tools/replacements, MCP and recursive codemode

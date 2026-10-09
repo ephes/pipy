@@ -114,6 +114,16 @@ Follow-ons require separately selected slices: extension-tool generalization,
 MCP/discovery/exposure, parallel calls/shared state, images, `models.*`,
 `store()`/`load()`, options lines and structured bash results. Compact-script
 model adherence needs further evidence; the T10 repeat is retained as a limitation.
+**CM1-A1 — adherence guidance (review closed).** The owner-selected follow-on adds
+direct string-processing guidance,
+compact-output guidance and an executable advertised small-file example; see
+the [adherence slice](specs/2026-10-09-codemode-adherence.md).
+Fresh unchanged-instruction samples reproduced strict-pattern failure (one of
+three passed); all three fixed modified-instruction samples passed the unchanged
+strict checker. Focused required-runtime checks (186), full check (7,941 with
+two skips), static checks, docs and PTY passed. Opus 5.5/high independent review
+closed as advisory with one deferred Suggestion and no blocking findings; this
+is not CLEAN. Historical failures remain evidence rather than being superseded.
 A resident engine is an owner decision only after T10; retain fresh workers now.
 Runtime provenance/mirroring/packaging and unverified platform support remain
 open (Intel macOS, Windows, real Ubuntu host; outer-sandbox support qualified).

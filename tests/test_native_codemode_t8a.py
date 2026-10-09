@@ -27,7 +27,7 @@ from pipy_harness.native.tools.registry import production_tool_registry
 def test_definition_literal_contract_and_fallback(tmp_path: Path) -> None:
     definition = CodemodeTool().definition
     assert definition.name == "codemode"
-    assert definition.description == (
+    assert definition.description.startswith(
         "Run a Python script that calls other tools. The script runs in an isolated "
         "Python 3.14 interpreter with no file system, network or process access of "
         "its own. All effects go through `tools.<name>(args)`, which runs the named "
@@ -40,6 +40,8 @@ def test_definition_literal_contract_and_fallback(tmp_path: Path) -> None:
         "calls already made are not undone when the script fails. Callable tools: "
         "read, ls, grep, find, write, edit, bash."
     )
+    assert "Tool results are strings, not result objects" in definition.description
+    assert "keep intermediate results in Python" in definition.description
     assert definition.input_schema == {
         "type": "object",
         "properties": {
