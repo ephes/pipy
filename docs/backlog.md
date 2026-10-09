@@ -16,17 +16,12 @@ updated 2026-10-04.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
-- **Remaining queue:** CM1 Python codemode: the sandbox core (T1–T3) is done
-  and merged to main at `8ed4e98b`; T4 extraction, T5 pure nested policy and
-  T6 internal service, real runner and session-thread pump are implemented.
-  T7 nested lifecycle, live/durable projections and summary inputs are implemented;
-  T8 public enablement and T9 deterministic delivery/evidence support are implemented;
-  T9 live tmux inspection and T10 live measurements are completed; T11 remains;
-  public codemode remains off by default. UP1
-  completed a selected-surface audit through Pi 1.0;
-  see [Active queue](#active-queue). DF1 still lacks live evidence for
-  other providers; remaining implementation deviations are in
-  [Follow-ons](#follow-ons).
+- **CM1 Python codemode: done (2026-10-09).**
+  Public codemode remains opt-in. T4–T11 and A–K evidence are indexed in the
+  [acceptance note](specs/2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index).
+  Per-slice and cumulative review/check outcomes and main/CI/worktree closeout
+  are recorded in the coordinator campaign report. UP1
+  completed its selected-surface audit; DF1 still lacks other-provider live evidence.
 - **Tests:** `uv run --frozen pytest --co` collects 6,614 tests on
   `release/0.2.0` (6,576 on `chore/df1-dogfooding`).
 - **Not verified live.** openai-codex has live evidence for `gpt-6-sol` at
@@ -92,104 +87,39 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
-### CM1 — Python codemode: isolation spike and first-slice plan (M)
+### CM1 — Python codemode (done 2026-10-09)
 
-Owner-requested 2026-10-04. Use Python scripts to compose existing tools and
-filter results within one model turn. Python syntax is an intentional
-difference from Pi's JavaScript; pipy-native remains the product runtime.
-See the [light plan](specs/2026-10-04-python-codemode-plan.md).
+Owner-requested 2026-10-04; bounded implementation and T11 user documentation
+complete. Python is an intentional difference from Pi; pipy-native remains the
+product runtime. Codemode is off by default. See [usage](codemode.md),
+[light plan](specs/2026-10-04-python-codemode-plan.md),
+[spike/contract](specs/2026-10-06-python-codemode-spike.md) and the
+[T4–T11 / A–K evidence index](specs/2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index).
+[Developer capture/reproduction](specs/2026-10-09-python-codemode-developer.md#coordinator-terminal-capture)
+preserves T9 instructions. Linux x86_64 runtime-required CI passed 315 tests;
+final campaign CI remains a coordinator check.
 
-Start with an isolation feasibility spike and a written execution contract.
-Then select a bounded implementation slice: built-in tools, sequential nested
-calls, explicit text output, cancellation and resource limits, with the
-existing tool-policy and session boundaries preserved. Runtime/backend,
-platform support and dependency choices remain open until the spike. This
-queues planning, not a commitment to a particular sandbox or delivery date.
+The initial T10 live pair and separate interactive run passed exact facts and
+expected calls. The repeat kept correct facts but first emitted bulk results,
+then compacted with a second script: two parents/eight reads, 99,508 HTTP bytes,
+10.542 s, strict pattern checker exit 1. Direct repeat passed: five requests,
+four reads, 254,777 bytes, 13.659 s. Both fixed-order pairs are descriptive;
+no third retry or relaxed checker hides the model-behavior limitation.
 
-**Spike done 2026-10-06** ([result](specs/2026-10-06-python-codemode-spike.md)):
-macOS Seatbelt and Linux Landlock+seccomp were broken by red teams;
-CPython-on-WASI under wasmtime held with host-side caveats and is the
-recommended only backend, claimed for arm64 macOS and aarch64 Linux until the
-probe suite runs elsewhere. The result defines the worker protocol,
-nested-call service, events, budgets, limits and tasks T1–T11. Owner decisions
-before T1: runtime provenance (open question 3) and crash durability of nested
-calls (open question 6).
+Per-slice full checks and independent reviews, the cumulative whole-campaign
+review and final main/CI/worktree outcomes are recorded separately in the
+coordinator campaign report. This product index does not assert a review verdict.
 
-**T1 landed 2026-10-06** on `feat/cm1-sandbox`: optional `codemode` extra,
-pinned runtime install command, `.cwasm` cache and the fail-closed
-availability self-test (see the spec's §5 T1 notes). **T2 landed 2026-10-06**:
-the worker's run mode, the guest prelude and the isolation probe tests (see
-the T2 notes). **T3 landed 2026-10-07**: the host runner `run_script` with
-the §4.1 host rules, the §4.5 caps and the §4.6 error kinds (see the T3
-notes). **T1–T3 merged to main at `8ed4e98b`**, with
-red-team hardening and the user/dev page [codemode.md](codemode.md); the
-sandbox core is not yet a model tool. **T4 implemented:** behaviour-preserving
-settle/record extraction in `agent/loop.py`, with focused seam characterization.
-**T5 implemented:** pure shared nested admission/settlement policy, parent-slot
-reservation and non-fatal nested malformed accounting.
-**T6a implemented:** loop-owned nested service and optional composite runner
-port/dispatch, fake-runner tests, frozen builtin eligibility and bounded transient
-evidence. Parent settlement preserves child counters and releases its reservation
-on every exit, including reservation faults. Validated child/exhaustion state is
-published on the session thread; the first child interruption survives evidence
-bounds and an ignoring runner. **T6b implemented:** real CPython-on-WASI composite
-runner outside the standalone core, session-thread activity pump with locked
-queue/event acknowledgement, and combined operator/backend-stop waiter. Backend
-or deadline cancellation remains an error observation; actual operator/local
-command interruption (including compute Ctrl-C without a tool waiter) stops the
-loop, records skipped calls and reaps the worker. Post-loop I/O failures publish
-completion and wake activity; signal faults still attempt owned-group cleanup
-and bounded reaping. Real AgentLoop +
-ToolExecutor + host tests establish internal acceptance D, including active-tool
-cancellation and fresh execution after cancellation. Production composition is
-wired behind frozen native builtin identity checks; T8b now registers builtin `codemode` only when selected and available. **T7a implemented internally:** distinct
-session-thread nested lifecycle events, JSON/RPC parent correlation, deliberate
-SDK/persistence branches, numeric-only workflow counters and bounded live child
-lines inside the codemode row, owned by transcript verbs under PaintLock.
-Typed cancellation evidence marks backend/deadline-stopped children cancelled
-while parent error and operator-stop semantics remain unchanged. Live evidence
-rerenders on resize/Ctrl+O and commits with one parent row. **T7b implemented
-internally:** bounded durable parent `nestedCalls`, script-error/abort/timeout
-retention, resume/tree child reconstruction, JSON/RPC parent details and derived
-attempted file-operation input for compaction and branch summaries. No child
-results persist or enter provider history; provider HTTP serializers omit details.
-**T8a implemented:** stable builtin definition/shared schema (internal injection
-only), root runtime install/status commands, and composite truncation/spilling
-with honest failure handling and retained parent records. Internal real-WASI
-write-then-raise acceptance C is covered. **T8b implemented:** public enablement,
-Pi `defaultTools` layering and CLI exact modifiers, shared availability-gated
-composition and frozen reload/active-tool ownership. T8b repairs keep slow probes
-and probe waits outside the shared session lock, synchronize the run cache and
-one-warning ownership, and route unlocked diagnostics to TUI transcript notices
-or headless stderr. **T9 deterministic integration/evidence support implemented:**
-public production session/adapter multifile summary, actual extension hooks,
-malformed/budget catchability, CLI print/JSON/RPC delivery, live RPC abort and
-worker reaping, full-product PTY child rows/Escape/fresh turn and persisted
-startup replay. The Linux x86_64 runtime-required CI list now includes composite,
-public C and T9 tests while preserving the isolation suite. The isolated
-[terminal driver and capture instructions](codemode.md#coordinator-terminal-capture)
-were used for active/settled/aborted and replay/tree captures; raw frames, cursor
-metrics and worker-reaping assertions are retained outside git. The
-[acceptance note](specs/2026-10-09-python-codemode-acceptance.md) records the inspected evidence.
-T10 measurement support (`scripts/codemode_measure.py`) and offline tests are
-implemented; coordinator live paired measurement and separate interactive
-acceptance passed exact facts and expected calls. The acceptance note reports
-254,777 versus 10,311 HTTP bytes and 10.935 versus 6.752 seconds for one fixed-order
-pair, including fresh-worker startup; it makes no general performance claim.
-A repeat retained correct final facts but used two scripts/eight reads, failing
-the strict one-parent execution check; its 99,508-byte result is recorded rather
-than retried away. T11 cumulative checks/docs/review remain pending. Fresh-worker
-startup is measured without automatically selecting a resident engine.
-
-T7b review repairs preserve summary tool pairing/final instructions, parse direct
-arguments up to 1 MiB independently of nested storage bounds, keep sticky pipeline
-failures closed even if evidence capture fails, and expose JSON/RPC details only
-for canonical codemode parents. Pipeline exceptions provide live/event evidence,
-without a saved-session guarantee; returning script failures/aborts/timeouts persist.
-
-MCP, parallel calls, persistent script state, images and classifier operations
-remain separate follow-ons. The earlier combined MCP/codemode deferral is
-superseded only for this Python-codemode planning item.
+Follow-ons require separately selected slices: extension-tool generalization,
+MCP/discovery/exposure, parallel calls/shared state, images, `models.*`,
+`store()`/`load()`, options lines and structured bash results. Compact-script
+model adherence needs further evidence; the T10 repeat is retained as a limitation.
+A resident engine is an owner decision only after T10; retain fresh workers now.
+Runtime provenance/mirroring/packaging and unverified platform support remain
+open (Intel macOS, Windows, real Ubuntu host; outer-sandbox support qualified).
+Crash durability needs an owner decision on per-call `CustomEntry`: current
+parent-only evidence can be lost on a mid-script host crash. Canonical pipeline
+exceptions expose live/event evidence without guaranteed saved history.
 
 ### UP1 — Refresh the established Pi agent comparison (completed 2026-10-02)
 

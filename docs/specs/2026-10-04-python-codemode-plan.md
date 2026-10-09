@@ -1,10 +1,10 @@
 # Python codemode: light plan
 
-Status: queued as CM1 on 2026-10-04 at the owner's request. The isolation
-spike finished on 2026-10-06; see
-[the spike result](2026-10-06-python-codemode-spike.md). Direction and
-first-slice boundaries, not an implementation-ready sandbox specification.
-[Backlog](../backlog.md) owns selection and order.
+Status: CM1 product implementation and T11 documentation complete on 2026-10-09;
+Per-slice checks/reviews and cumulative closeout outcomes are recorded separately
+by the coordinator.
+See the [acceptance index](2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index)
+and [spike result](2026-10-06-python-codemode-spike.md).
 
 ## Goal
 
@@ -113,8 +113,8 @@ locks through the transcript notice sink or headless stderr. T9 now supplies
 deterministic public production delivery, product hook/abort coverage and
 full-product PTY replay/tree assertions, plus an isolated terminal capture driver.
 Selected-frame tmux inspection is recorded in the
-[acceptance note](2026-10-09-python-codemode-acceptance.md); measurement and final
-docs/cumulative review remain T10–T11. T10 now has an isolated production-session
+[acceptance note](2026-10-09-python-codemode-acceptance.md); T10 measurements are complete and T11 documentation is implemented;
+per-slice checks/reviews and cumulative closeout outcomes are tracked separately. T10 has an isolated production-session
 measurement driver and offline instrumentation tests; the live pair and separate
 interactive openai-codex run passed exact facts/expected calls. One fixed-order
 pair measured direct/codemode totals of 254,777/10,311 HTTP bytes and
@@ -138,7 +138,9 @@ take roughly one to two engineering weeks after the isolation choice, but
 Python sandbox feasibility and platform packaging could increase that
 substantially. This is a rough sizing estimate, not a delivery commitment.
 
-Open decisions: backend/platform support; accepted Python subset and imports;
-worker protocol and serializable result shapes; budget accounting; nested
-event persistence; default limits and output overflow handling. CM1's output
-is the evidence and bounded implementation plan that resolve these choices.
+Implemented decisions: WASI-only backend, sequential builtin snapshot, normal
+nested policy/hooks/budget, fresh worker, parent-only durable evidence and bounded
+output. Remaining owner decisions: runtime provenance/mirroring/platform gaps,
+resident engine after T10, crash durability via per-call CustomEntry, and the
+separately selected deferred surfaces above (including models/options lines and
+structured bash results). See spike §6 for historical findings and current status.

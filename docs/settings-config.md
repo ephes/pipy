@@ -1141,11 +1141,16 @@ settings-store and keybindings slices.
 
 ## Default tool selection
 
-CM1 T8b implements Pi's `defaultTools` name and exact `+name`/`-name`
+pipy implements Pi's `defaultTools` name and exact `+name`/`-name`
 modifiers. pipy retains its existing seven builtin defaults (`read`, `ls`,
 `grep`, `find`, `write`, `edit`, `bash`); Pi's current default subset differs.
 `{"defaultTools": ["+codemode"]}` opts into the optional builtin after the
 availability gate. See [installation and status](codemode.md#installing).
+For example, a global `{"defaultTools": ["read", "bash"]}` plus a trusted project
+`{"defaultTools": ["+codemode", "-bash"]}` resolves to read and codemode.
+`pipy --tools +codemode` modifies that resolved selection; `pipy --tools read,codemode`
+overrides it with a plain allowlist. If selected codemode is unavailable, one
+warning is emitted and the remaining tools continue; nothing installs automatically.
 
 Settings layers apply base defaults, global settings, trusted project settings,
 then run overrides. A list containing plain names replaces inherited entries. A list

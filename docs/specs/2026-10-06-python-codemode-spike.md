@@ -11,10 +11,16 @@ port/dispatch with fake-runner tests) are implemented; see their notes in §5. T
 T6b (real runner/pump/deadline wiring) and T7a (nested lifecycle events and live
 projections), and T7b (durable records, resume/tree and summary inputs) are
 implemented internally. T8 public enablement is implemented; T9 deterministic
-delivery tests and inspected live tmux evidence are implemented. T10 live measurement and interactive acceptance are completed; T11 remains pending. Production codemode is selected
-and availability-gated.
+delivery tests and inspected live tmux evidence are implemented. T10 live measurement and interactive acceptance are completed; T11 documentation
+is implemented. Review/check outcomes are recorded separately. Production
+codemode is selected and availability-gated.
 
 ## 1. Status and scope
+
+Current closeout: T1–T10 implementation/evidence and T11 user documentation are
+complete. Per-slice and cumulative review/check outcomes and main/CI/worktree
+closeout are recorded separately by the coordinator. [Acceptance index](2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index)
+records the current evidence. The backend comparison below is the historical spike.
 
 There were three backend spikes. Each one was red-teamed separately. In
 addition, a seam map of pipy's agent loop and a reference read of Pi's
@@ -37,14 +43,14 @@ What was actually run:
 
 Desk research only (UNVERIFIED):
 
-- every x86_64 platform, Windows, Intel macOS and older macOS;
+- Windows, Intel macOS and older macOS (Linux x86_64 was later verified in CI);
 - the real Ubuntu deployment host, whose architecture is unknown;
 - nsjail;
 - a bwrap AppArmor profile;
 - cgroup v2 memory limits;
 - the seccomp ia32/x32 bypass on x86_64 (confirmed by reading the code, but
   not executed);
-- wasmtime wheels for platforms other than arm64 macOS and aarch64 Linux;
+- wasmtime wheels beyond the later verified arm64 macOS/aarch64 Linux/x86_64 Linux hosts;
 - wasmtime under pipy's own interpreter (the WASI host used Python 3.12;
   T1 later verified it on macOS arm64, see §6 question 2).
 
@@ -59,7 +65,7 @@ Desk research only (UNVERIFIED):
 | Credentials and env | The worker's env is scrubbed, but **the host env leaks via sysctl `KERN_PROCARGS2` on the parent** (fix verified, see below) | The env is scrubbed and `/proc/*/environ` is denied. Existence and metadata of credential files leak. | The guest env is set explicitly and the host env is invisible. Credential paths do not exist in the guest namespace. |
 | Limits | Wall time: host `killpg`. CPU: `RLIMIT_CPU`. Memory: `RLIMIT_AS` only as the ~466 GiB floor plus a budget; the footprint watchdog overshoots about 2x. Output caps. | Wall time: host `killpg`. Memory: `RLIMIT_AS` 512 MiB. Output caps. | CPU: epoch deadline. Wall time: host `killpg`, which is required because the epoch does not interrupt blocking reads. Memory: `Store` limit of 256 MB. Stack overflow traps. Output caps. |
 | Startup (median) | ~26 ms full round trip | ~26 ms on the VM host | 181 ms on macOS, 346 ms on Linux in the VM (fresh process, cached `.cwasm`). A resident engine would take 18.5 / 87 ms. |
-| Dependencies | `/usr/bin/sandbox-exec` (deprecated) and an SBPL profile. Fails under an outer Seatbelt sandbox (rc 71). | Landlock ABI ≥ 4 (kernel 6.7+) and `libseccomp.so.2`. bwrap and nsjail are blocked by the Ubuntu 24.04 AppArmor userns restriction. | `wasmtime` wheel (26 MB) plus `python.wasm` and its stdlib (40 MB unpacked) from a personal GitHub release (pinned by sha256). No zlib, sqlite3, ssl, threading, subprocess or ctypes. |
+| Dependencies | `/usr/bin/sandbox-exec` (deprecated) and an SBPL profile. Fails under an outer Seatbelt sandbox (rc 71). | Landlock ABI ≥ 4 (kernel 6.7+) and `libseccomp.so.2`. bwrap and nsjail are blocked by the Ubuntu 24.04 AppArmor userns restriction. | `wasmtime` wheel (26 MB) plus `python.wasm` and its stdlib (40 MB unpacked) from a personal GitHub release (pinned by sha256). No zlib, sqlite3, ssl or ctypes; process/thread/socket functionality unavailable (module imports differ, see §6). |
 | Red-team verdict | **broken** (4 escapes) | **broken** (3 escapes) | **holds-with-caveats** (2 host-side escapes) |
 
 The red-team escapes, by backend:
@@ -321,7 +327,8 @@ Delivery split: **T7a live events/projections and T7b durability are implemented
 internally.** T7b adds the bounded schema below, script-error/abort/timeout
 persistence, resume/tree reconstruction and compaction/branch file-operation
 input. No per-call CustomEntry or child result persistence is added. Public
-T8b implements opt-in/settings/availability and production registration; live end-to-end/tmux evidence remains T9.
+T8b implements opt-in/settings/availability and production registration; T9 supplies
+inspected end-to-end/tmux evidence.
 
 - **Events.** New `NestedToolCallStarted` and
   `NestedToolCallCompleted(turn_index, parent_correlation_id, call, result,
@@ -409,7 +416,7 @@ T8b implements opt-in/settings/availability and production registration; live en
   `ToolError` values. T5 supplies pure transitions; T6a now implements the internal service and fake-tested
   dispatch. T6b now supplies real guest execution integration.
 
-### 4.5 Limits (all PROVISIONAL)
+### 4.5 Limits (implemented defaults; future tuning is separate)
 
 | Limit | Default | Mechanism |
 |---|---|---|
@@ -463,11 +470,16 @@ Tool calls made before the failure (they are not undone): read (ok), bash (error
   A tool error raises `ToolError(message)`. Structured results (Pi's `bash`
   object) are deferred.
 
-### 4.8 What the model sees (draft)
+### 4.8 What the model sees (stable, byte-pinned)
 
 Schema: `{"code": {"type": "string", "description": "Python source run as a script."}}`.
 
-Description, drafted to stay byte-stable within a session:
+Implemented description, byte-pinned by T8 tests (unchanged by T11).
+“Unavailable modules” below summarizes unavailable functionality: subprocess,
+socket and threading import but cannot create processes, sockets or threads.
+See the user page for precise module capabilities.
+
+Description:
 
 > Run a Python script that calls other tools. The script runs in an isolated
 > Python 3.14 interpreter with no file system, network or process access of
@@ -853,7 +865,7 @@ Each task is small and lands with its own tests. The plan's acceptance items
      cancelled `⊘ bash`, normal-waiter Escape, fresh execution and durable
      startup reconstruction (I). `tests/codemode_tui_evidence.py` provides
      stable success/bash/compute/replay phases for coordinator capture; exact
-     commands and fixture/assertion paths are in [codemode.md](../codemode.md).
+     commands and fixture/assertion paths are in [developer reference](2026-10-09-python-codemode-developer.md#coordinator-terminal-capture).
      **Selected-frame tmux inspection completed:** 70 success, 80 bash-abort,
      80 compute-abort and 40 replay/tree frames sampled every 100 ms, with
      inspected active raw frames and no sampler anomalies. Escape reaped the
@@ -861,8 +873,8 @@ Each task is small and lands with its own tests. The plan's acceptance items
      reconstructed from the saved tree. The
      [acceptance note](2026-10-09-python-codemode-acceptance.md) records artifacts,
      frame ranges, cursor checks and scripted-provider limitations.
-     T10 live-provider comparison and
-     T11 cumulative checks/review remain pending.
+     T10 live-provider evidence is complete; T11 documentation is implemented.
+     Per-slice and cumulative review/check outcomes are tracked separately.
    - The retained Linux x86_64 `codemode-probes` CI job adds composite,
      public C and T9 delivery/PTY coverage to its explicit runtime-required
      list without removing or weakening any existing isolation probes.
@@ -887,34 +899,34 @@ Each task is small and lands with its own tests. The plan's acceptance items
     These are two fixed-order descriptive pairs and a separate interactive check,
     not a general speed claim or resident-engine decision. See the
     [acceptance note](2026-10-09-python-codemode-acceptance.md) and numeric report.
-11. **T11: docs and review.**
+11. **T11: user documentation and review.**
     - A user doc listing the available modules, the limits and the
       authority model; a `CHANGELOG.md` entry.
-    - Repository checks and an independent different-family review before
-      landing. Covers K.
+    - Repository checks and independent Opus review precede landing; cumulative
+      whole-campaign review is a separate coordinator gate. Covers K.
 
 ## 6. Open questions and unresolved findings
 
-1. **x86_64 and the deployment host.** WASI is verified only on arm64 macOS
-   and aarch64 Linux. x86_64 Linux and macOS, Windows, and the real Ubuntu
-   host (architecture unknown) are UNVERIFIED. The CI probe run in T2 decides
-   x86_64 Linux.
-2. **wasmtime under pipy's interpreter.** The spike host ran Python 3.12.
-   pipy runs 3.14 and declares `>=3.11`. T1 verified that wasmtime 49.0.0
-   imports, compiles and instantiates `python.wasm` under CPython 3.14.7 on
-   macOS arm64. Other platforms and interpreter versions remain UNVERIFIED;
-   the self-test still decides availability there.
+1. **Platforms.** macOS arm64 and Linux aarch64 were verified in the spike.
+   Linux x86_64 is now verified by runtime-required CI: baseline 191 passed
+   (run 37628107203, host Python 3.14.8, wasmtime 49.0.0/runtime 3.14.7) and
+   expanded T9 315 passed in run 37858973937. See the acceptance note for links.
+   Intel macOS, Windows and the real Ubuntu deployment host remain unverified.
+2. **wasmtime under pipy's interpreter.** Verified under macOS arm64 CPython
+   3.14.7 and Linux x86_64 CPython 3.14.8. Other interpreter/platform combinations
+   remain unverified; the self-test decides availability.
 3. **Runtime provenance and size.** About 55 MB comes from Brett Cannon's
    personal release. Options: pin and mirror, build our own, or ship a
    separate wheel. The 3.15.0rc2 build was seen but not evaluated, and the
    VMware Wasm Labs builds were not evaluated.
-4. **Outer sandbox.** Whether wasmtime (JIT and mmap) works when pipy itself
-   runs inside Codex's or Claude Code's Seatbelt is UNVERIFIED. If it fails,
-   the self-test must make codemode unavailable.
+4. **Outer sandbox.** User-approved workspace-write workers exercised the real
+   runtime here, but transient EPERM signal issues occurred. This qualifies the
+   evidence; it does not establish broad Codex/Claude outer-sandbox compatibility.
+   The self-test must fail closed where unavailable.
 5. **Startup cost.** A fresh process takes 181 ms on macOS and 346 ms on
    Linux in the VM. A resident engine with a fresh `Store` per script would
-   take 18.5 / 87 ms but weakens the "fresh worker" kill story. Decide after
-   T10.
+   take 18.5 / 87 ms but weakens the "fresh worker" kill story. T10 measured fresh minimal workers at 0.167/0.172 s on macOS arm64.
+   A resident engine remains an owner decision after T10; no optimization was selected.
 6. **Crash durability.** A record on the parent result is lost if pipy itself
    dies in the middle of a script that has effects. Pi accepts this. Per-call
    `CustomEntry` records (seam map option C) would avoid it, at the cost of a
@@ -925,12 +937,16 @@ Each task is small and lands with its own tests. The plan's acceptance items
    epoch budget: the guest traps on its first check after the reply (T2
    verified on macOS arm64). The design keeps the host wall timer as the
    primary limit and sets the epoch backstop above it.
-8. **Flood deadlock on WASI.** The deadlock was verified on the Seatbelt and
-   Landlock hosts. The WASI host was not tested with that exact vector. T3's
-   design and regression test are mandatory either way.
-9. **Missing stdlib modules** (zlib, sqlite3, ssl, threading). Is that
-   acceptable for model-written scripts? There is no third-party code with C
-   extensions.
+8. **Flood deadlock on WASI — resolved by T3.**
+   `test_a_call_flood_without_reading_stdin_does_not_hang` in
+   `tests/test_native_codemode_host_runtime.py` sends a call, leaves its 4 MiB
+   reply unread and floods output. It asserts a sandbox failure within 8 s;
+   the vector is retained in runtime-required CI. It is no longer untested.
+9. **Stdlib subset.** Coordinator probes on installed 3.14.7 establish the
+   in-memory imports listed in [usage](../codemode.md#python-capabilities-and-authority).
+   subprocess/socket/threading import but process/socket/thread operations are
+   denied by isolation tests; ssl/ctypes/zlib/gzip/bz2/lzma/sqlite3 imports fail.
+   Native third-party extensions remain unavailable; expanding the subset is deferred.
 10. **Defense in depth.** Should the wasmtime worker also be wrapped in
     Seatbelt or Landlock? It is not needed for the verified guest denials, and
     nesting limits apply. Deferred.

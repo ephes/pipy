@@ -6,134 +6,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
-### Changed
-
-- Internal agent-loop refactor (CM1 T4): separate tool settlement from
-  top-level result/history recording, preserving policy, event, counter,
-  cancellation and failure ordering. Groundwork only; no codemode tool yet.
-
 ### Added
 
-- CM1 T10 isolated paired-measurement driver for approved openai-codex
-  `gpt-6.1-sol` low over SSE: actual HTTP/schema/input byte totals, tool/turn
-  counts, usage, task/parent/startup time and exact fixture quality checks.
-  Production tools/hooks/persistence apply; reports exclude raw credential and
-  transcript content. Offline tests include the real WASI runtime. A live fixed-order fixture pair
-  passed exact facts: direct/codemode 254,777/10,311 HTTP bytes and 10.935/6.752
-  seconds, including startup. Separate live interactive use also passed. Results
-  are descriptive. A repeat retained correct facts but used two scripts/eight
-  reads, failing the prescribed compact execution pattern and sending 99,508
-  codemode bytes; that model limitation is recorded. T11 final docs/cumulative
-  review remain pending.
+- Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with
+  `pipy codemode install`, check it with `pipy codemode status`, and opt in via
+  `defaultTools: ["+codemode"]` or `--tools +codemode`. Sequential calls to
+  advertised native builtins use normal validation, policy, hooks, budgets and
+  cancellation. Every script starts a fresh worker with a 120-second wall limit
+  (tool time included), 256 MiB memory and bounded output; unavailable codemode
+  is omitted with one warning and no interpreter fallback or automatic download.
+- Codemode child lifecycle in TUI/JSON/RPC, bounded parent nested-call evidence
+  reconstructed on resume/tree, and owner-only full-output spilling on display
+  truncation. Only parent results enter durable/provider history. Completed tool
+  effects are not undone after failure, timeout or abort. Agent-loop settlement
+  and recording now share the direct/nested pipeline without changing direct calls.
+- Runtime-required isolation and production delivery tests, PTY Escape/replay
+  coverage, and an isolated paired-measurement driver. Recorded live initial pair
+  and interactive use passed; the repeat retained correct facts but failed the
+  prescribed one-script pattern (two scripts/eight reads). Measurements are
+  descriptive, not a general performance claim. See
+  [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
-- CM1 T9 deterministic production delivery tests using the existing fake
-  provider and installed WASI runtime: public session/adapter, multifile
-  filtering, product extension hooks, catchable validation/budget errors,
-  print/JSON/RPC projection, live RPC abort and worker cleanup, and full-product
-  PTY Escape/fresh-turn/durable replay. An isolated offline terminal driver
-  supports coordinator frame capture. Linux x86_64 runtime-required CI retains
-  isolation probes and adds composite/public C/T9 coverage. Coordinator tmux
-  captures verify live nested rows, Escape during bash/compute, fresh execution
-  and persisted replay/tree reconstruction. T10 live comparison and T11 final
-  review remain pending.
-
-- CM1 T8b: public codemode opt-in via `defaultTools: ["+codemode"]` or
-  `--tools +codemode`, with exact Pi modifiers and layered initial selections.
-  Selected builtin codemode is advertised only after a fail-closed availability
-  check outside the shared session lock, including concurrent probe waits.
-  Unavailable startup/reload emits one bounded transcript notice in the TUI or
-  one stderr line headlessly, outside coordination locks, and continues without an
-  automatic install. CLI interactive/print/JSON/RPC and library sessions share
-  capability composition, frozen builtin identity and reload selection ownership.
-  Default seven builtins/extensions are unchanged. T10 live comparison and
-  T11 final docs/cumulative review remain pending.
-
-- CM1 T8a: stable internal codemode builtin definition and shared schema,
-  root `pipy codemode install|status` runtime management, and owner-only host
-  full-output spilling with truncation metadata. Spill failures preserve the
-  primary script outcome and nested records. T8b adds opt-in registration; no default tool change.
-
-- Internal Python codemode durability (CM1 T7b): bounded parent `nestedCalls`
-  records survive script errors, timeouts and aborts, preserve partial effects,
-  and reconstruct child lines on resume/tree navigation. JSON/RPC exposes
-  canonical codemode parent details; compaction and branch summaries receive
-  bounded attempted file paths before details are stripped. Nested results remain absent from
-  persisted/provider history, and provider HTTP serializers omit details.
-  Public opt-in/settings/availability and production registration are implemented in T8b; live end-to-end/tmux evidence remains T9.
-
-  Pipeline exceptions retain live/event evidence, with no saved-session guarantee.
-  Summary path input preserves tool pairing; direct argument parsing is capped
-  at 1 MiB and nested argument storage stays at 8 KiB per call / 32 KiB total.
-  Ordinary tool/extension JSON/RPC shapes remain unchanged.
-
-- Internal Python codemode nested lifecycle and live projections (CM1 T7a):
-  session-thread child start/completion events, JSON/RPC `parentToolCallId`,
-  numeric-only workflow counters and bounded sanitized child lines inside one
-  TUI parent row. Resize/Ctrl+O preserves live evidence, with expanded errors
-  on separate indented rows. Typed cancellation
-  evidence marks backend/deadline-stopped children cancelled while preserving
-  parent errors and operator-stop accounting. Only parent results persist;
-  T7b adds durable nested records/resume; public tool/settings/CLI remain T8.
-
-- Python codemode internal runtime integration (CM1 T6b): a fresh CPython-on-WASI
-  worker composes canonical nested builtins through a session-thread pump, with
-  operator/local-command cancellation and backend/deadline stops cancelling the
-  active executor and reaping workers. Post-loop I/O failures always publish
-  completion and wake the session; signal faults still attempt group cleanup
-  and bounded reaping. Compute Ctrl-C without a waiter cancels the parent turn,
-  skips later calls and prevents provider continuation; standalone host waiting
-  Ctrl-C returns an aborted script outcome. Frozen builtin identity checks keep ordinary
-  extension `codemode` behavior unchanged. No public tool or model opt-in yet;
-  T7b adds durable nested records; public delivery remains T8–T11.
-
-- Python codemode internal service/port groundwork (CM1 T6a): sequential,
-  session-thread-owned nested calls reuse tool policy, hooks, validation and
-  executor paths; optional composite dispatch preserves child counters and
-  releases parent reservations even on acquisition/validation faults. Child
-  counters publish before later canonical failures, and sticky child interruptions
-  survive evidence limits and a runner returning settled. T6a uses fake-runner
-  coverage; T6b adds real runtime integration. T7b adds durable nested records; T8–T11 public delivery remains.
-
-- Python codemode policy groundwork (CM1 T5): shared nested admission and
-  settlement, a reserved parent budget slot, and separate non-fatal nested
-  malformed accounting. No model-visible script tool yet.
-
-- Groundwork for Python codemode (CM1 T1, not yet a tool): an optional
-  `codemode` extra (`wasmtime` 49), `python -m pipy_harness.native.codemode
-  install [--from-file ZIP]` to install the pinned CPython 3.14.7 WASI runtime
-  (sha256-checked, never downloaded during a turn), and `... status`, a
-  fail-closed self-test that reports why codemode is unavailable.
-- Codemode worker and guest prelude (CM1 T2, not yet a tool): the worker runs
-  one script in CPython-on-WASI with an empty environment, the stdlib
-  read-only at `/lib` and no writable directory, under a memory cap and a CPU
-  backstop, and reports `ready`/`exit` on a private status fd. Scripts call
-  `tools.<name>(...)`, emit output with `text()` or `print()` and see
-  `ToolError`; failures carry a traceback trimmed to the script. Isolation
-  probes (filesystem, `/proc`, `/dev`, symlinks, fds, native code, processes,
-  network, environment, signals) run as tests and in a Linux x86_64 CI job.
-- Codemode host runner (CM1 T3, not yet a tool): `run_script` runs one script
-  in a fresh worker and serves its tool calls through a callback on the
-  calling thread. One I/O thread does all pipe I/O without blocking and
-  checks the wall deadline and cancel on every iteration; malformed or
-  hostile guest lines, any message while a tool call is pending (a second
-  call, a `done`, output), oversized lines and output floods end the run with
-  a sandbox or script error instead of hanging or crashing the host; a call
-  followed by a violation in the same write never reaches the tool. Lone
-  UTF-16 surrogates in guest strings become U+FFFD, so output, tool arguments
-  and errors always encode as UTF-8. A misbehaving callback (raising or
-  returning a non-`CallResult`), fd or thread exhaustion at start-up, and a
-  reused or shared `tool_stop` event are sandbox errors rather than
-  exceptions; `ScriptLimits` refuses limits the worker cannot honour.
-  The worker exits as soon as its host dies instead of running on until
-  the CPU backstop, its backstop no longer drifts late, and it refuses a
-  runtime whose `lib` is a symlink. The worker's process group is always
-  killed and reaped.
-  `format_result` renders Pi's result text: the completed/failed header with
-  wall time, the output truncated to a token budget, and on failure the
-  error and the "not undone" list of tool calls already made.
-- `docs/codemode.md` documents the codemode sandbox core (CM1 T1–T3): where
-  the runtime is installed and how, availability reasons, platform support,
-  the `run_script` API and its limits.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 
@@ -150,11 +43,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Documentation
 
-- Recorded the Python-codemode isolation spike: CPython-on-WASI under
-  wasmtime is the recommended backend; Seatbelt and Landlock+seccomp probes
-  were broken by red teams. Includes the first-slice contract and tasks.
-- Queued a Python-codemode isolation spike and first-slice plan, with MCP and
-  parallel execution retained as separate follow-ons.
+- Added user-facing codemode installation, scripting, module capabilities,
+  limits and authority documentation, with linked developer reproduction and
+  A–K acceptance evidence. Retained the isolation spike and deferred scope.
 
 - Audited Pi 1.0 selected surfaces, reran the catalog/session comparison gates,
   and refreshed the pinned upstream system-prompt documentation topics.

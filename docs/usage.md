@@ -277,7 +277,10 @@ in that order. Read excerpts, shell output, and provider-visible tool results
 are bounded automatically. Optional `codemode` is off by default; enable with
 `--tools +codemode` or `"defaultTools": ["+codemode"]` after explicit
 [runtime installation](codemode.md#installing). Modifiers use exact names and
-cannot be mixed with a plain allowlist. See [default selection](settings-config.md#default-tool-selection).
+cannot be mixed with a plain allowlist. `pipy --tools read,codemode` overrides
+the settings selection; `pipy --tools +codemode,-read` modifies it. Unavailable
+selected codemode is omitted with one TUI notice or headless stderr warning;
+remaining tools continue with no automatic install/fallback. See [default selection](settings-config.md#default-tool-selection).
 
 ### Resource options
 

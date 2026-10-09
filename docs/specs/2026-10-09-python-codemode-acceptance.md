@@ -4,8 +4,8 @@
 
 The public production registry, CodingSession/adapter, print/JSON/RPC mode
 controllers and installed CPython-on-WASI runtime are exercised by
-`tests/test_native_codemode_delivery.py`. Full-product PTY coverage is in
-`tests/test_native_codemode_delivery_pty.py`. These tests use the existing scripted
+[tests/test_native_codemode_delivery.py](../../tests/test_native_codemode_delivery.py). Full-product PTY coverage is in
+[tests/test_native_codemode_delivery_pty.py](../../tests/test_native_codemode_delivery_pty.py). These tests use the existing scripted
 FakeNativeProvider; tools, extension hooks, policy, cancellation, persistence
 and terminal rendering are the production paths. They establish A, B and I
 at those boundaries, without claiming live-model output quality.
@@ -196,4 +196,100 @@ frames are private outside git under
 `~/.local/state/pipy/codemode-cm1-evidence/2026-10-09-t10/` (0700 directories,
 0600 files). Credentials were neither copied nor reported; no global settings
 or theme changed. J and live interactive/headless acceptance are now evidenced.
-T11 final documentation and cumulative review remain pending.
+T11 documentation is implemented; review/check outcomes are recorded separately.
+
+
+## Acceptance and closeout index
+
+Product implementation T4–T10 and documentation T11 are complete. This index
+maps evidence; it does not itself assert a cumulative CLEAN verdict. The
+coordinator records per-slice `just check`, docs/PTY checks and independent
+review, cumulative whole-campaign review, final CI and main/worktree closeout
+separately in the campaign report.
+
+The following are specific executable assertions and recorded results, not an
+inference from a generic green check. Paths refer to this repository's tests.
+
+| Item | Evidence and observed result |
+| --- | --- |
+| A — real multiread/filter | [test_native_codemode_delivery.py::test_public_multifile_summary_and_durable_replay](../../tests/test_native_codemode_delivery.py): exact three-file JSON/count, arguments/statuses, single persisted parent. T9 CI below; T10 initial pair and interactive run above also produced exact eight facts. |
+| B — validation/policy | Delivery `test_product_extension_hooks_frozen_builtins` blocks write/transforms read after selection change; `test_public_malformed_and_budget_errors_are_catchable` catches ToolError and continues. T9 runtime-required CI below. |
+| C — effects after failure | [test_native_codemode_t8b.py::test_public_session_write_then_raise_retains_effect](../../tests/test_native_codemode_t8b.py): file remains, parent error, write(ok)/not-undone summary. Composite `test_public_definition_write_then_raise_and_spill` also pins records/spill. T9 CI below. |
+| D — cancellation in tool | Composite `test_interrupt_active_nested_tool_and_fresh_run` and delivery `test_rpc_live_abort_reaps_and_next_turn_succeeds`; T9 bash frames 2–15 active, 16 aborted, fresh reads successful above. |
+| E — infinite loop | Host-runtime `test_an_infinite_loop_ends_at_the_wall_limit` returns timeout; `test_cancel_during_guest_compute` returns abort. T9 compute Escape frame 16 and fresh turn above. |
+| F — resource/output bounds | Host-runtime `test_a_memory_blowup_is_recoverable_inside_the_script`, `test_an_uncaught_memory_blowup_still_reports_the_outcome`, `test_a_print_flood_hits_the_output_cap`; result `test_truncation_covers_the_error_and_exposes_the_full_text`; T8a exact owner-only spill and open/write/close failure tests. Runtime-required T9 CI; T10 repeat actually truncated/spilled 40,267-byte bulk parent. |
+| G — cleanup | Host-runtime `test_real_runs_leak_no_fds_or_threads`; composite cancellation/fresh-run tests; T9 normal exits verified every observed worker group gone (one/two parents, two/three launches as recorded above). |
+| H — isolation | [test_native_codemode_isolation.py](../../tests/test_native_codemode_isolation.py): host filesystem/proc/dev denial, readonly stdlib/symlink confinement, only stdio/preopen fds, native-code/process/thread/socket/DNS/environment/credential denial and group kill. Baseline and expanded runtime-required CI below. |
+| I — delivery/resume/tree | Delivery `test_cli_modes_real_delivery` covers print/JSON/RPC parent ids/details and parent-only history; PTY `test_full_tui_driver_and_replay`; inspected success/bash/compute/replay-tree frames and durable assertions above. |
+| J — direct comparison | Exact recorded commands, numeric initial/repeat reports and interactive evidence above. Initial pair passes; repeat exits 1 on call pattern despite correct facts/no errors. Two fixed-order samples, not a distribution. |
+| K — docs/checks/review | User page, settings/CLI docs, developer reproduction, spike/plan/backlog and release notes updated in T11. Focused T11 checks are recorded below; full checks/independent reviews and cumulative outcomes are recorded in the coordinator campaign report. |
+
+### Retained Linux platform evidence
+
+[Baseline run 37628107203, job 112815030152](https://github.com/ephes/pipy/actions/runs/37628107203/job/112815030152)
+at `8ed4e98b`, “Codemode isolation probes (Linux x86_64)”, succeeded:
+`PIPY_CODEMODE_REQUIRE_RUNTIME=1`, wasmtime 49.0.0/runtime 3.14.7 compiled cache,
+host Python 3.14.8 Linux, **191 passed in 68.72 s**.
+[Expanded T9 run 37858973937, job 113589899380](https://github.com/ephes/pipy/actions/runs/37858973937/job/113589899380)
+succeeded with **315 passed**, runtime required; all six run jobs succeeded.
+These are recorded coordinator-confirmed logs, not final campaign CI.
+Intel macOS, Windows and the real Ubuntu host remain unverified. Workspace-write
+runtime execution here had transient EPERM signal faults; outer-sandbox evidence
+is qualified.
+
+### Slice evidence map
+
+- T4 settle/record extraction (`test_settle_seam_returns_result_and_transition_without_recording`): [test_native_agent_loop.py](../../tests/test_native_agent_loop.py) seam characterization;
+  T5 accounting/reservation: [test_native_agent_loop_policy.py](../../tests/test_native_agent_loop_policy.py) and adapters.
+- T6a service/frozen identities: [test_native_agent_nested_calls.py](../../tests/test_native_agent_nested_calls.py); T6b real
+  worker/session pump: [test_native_codemode_composite.py](../../tests/test_native_codemode_composite.py) and host tests.
+- T7a lifecycle/projections: [test_native_nested_lifecycle.py](../../tests/test_native_nested_lifecycle.py); T7b bounded
+  durability/replay/summary inputs: [test_native_nested_record.py](../../tests/test_native_nested_record.py) plus delivery.
+- T8a definition/CLI/spill: [test_native_codemode_t8a.py](../../tests/test_native_codemode_t8a.py); T8b selection, settings,
+  availability and public C: [test_native_codemode_t8b.py](../../tests/test_native_codemode_t8b.py).
+- T9 production, PTY and inspected live frames: this note's T9 section and
+  [preserved capture instructions](2026-10-09-python-codemode-developer.md#coordinator-terminal-capture).
+- T10 live measurements/interactive: this note's T10 section, both numeric reports,
+  [test_codemode_measure.py](../../tests/test_codemode_measure.py) instrumentation/privacy/settings-isolation assertions.
+- T11 current usage/release notes and acceptance index: docs-only; no runtime or
+  stable model-description change. Gate outcomes are recorded separately.
+
+### Stdlib evidence
+
+Coordinator real-WASI probes on installed 3.14.7 imported json, re, math,
+statistics, itertools, functools, collections, datetime, pathlib, csv, random,
+hashlib, decimal and fractions successfully. subprocess/socket/threading imported,
+but operations were unavailable; isolation tests pin process/socket/thread denial.
+ssl/ctypes/zlib/gzip/bz2/lzma/sqlite3 imports returned ModuleNotFoundError.
+Source-safe command/results are retained in campaign scratch `stdlib-probe.txt`
+and `stdlib-operation-probe.txt`; no host authority follows from an import.
+
+### Remaining owner decisions
+
+Extension tools, MCP, parallel calls, images, models/store/load/options lines and
+structured bash are separate follow-ons. Resident engine requires an owner
+decision after T10, with no measured benefit claimed for production. Runtime
+provenance/mirroring/packaging and platform gaps remain open. Per-call CustomEntry
+crash durability requires an owner decision: returning failures persist parent
+records, but a mid-script host crash or canonical pipeline exception has no such
+guarantee. T10's repeat is retained model-adherence evidence, not retried away.
+
+
+### T11 focused verification
+
+- `just docs-build`: passed, no issues (initial 5.31 s; final rebuild 0.95 s).
+- `uv run pytest -q tests/test_native_codemode_t8a.py tests/test_native_codemode_result.py tests/test_native_codemode_t8b.py -k 'not public_session_write_then_raise'`: **87 passed, 1 deselected** (0.66 s). Public C is retained in CI and separate runtime delivery coverage; this focused run checks definition/CLI/selection/truncation contracts.
+- User-page JSON example parsed with `json.loads`, checked to contain only `code`,
+  compiled, then executed in the installed real WASI worker with two host read
+  callbacks over temporary alpha/beta fixtures: no error, compact count=2. This
+  checks the example, not an additional production-session acceptance claim.
+- Repeated the documented stdlib import probe through the real WASI `run_script`:
+  all 17 listed available/import-only modules imported; all seven unavailable
+  modules returned ModuleNotFoundError, matching the coordinator record.
+- `PIPY_CODEMODE_REQUIRE_RUNTIME=1 uv run --extra codemode pytest -q tests/test_native_codemode_host_runtime.py tests/test_native_codemode_isolation.py tests/test_native_codemode_delivery.py`: **43 passed in 21.50 s**, covering real limits/flood/no-leak/isolation and public summary/hooks/RPC abort with fresh-turn cleanup.
+- Local links and `git diff --check` passed. No Python source changed; no new
+  backend/feature, global settings/theme or credential writes. This focused
+  verification performed no review, commit or push.
+
+Full `just check`, independent T11/cumulative review and final main/CI outcomes
+are recorded separately in the coordinator campaign report.
