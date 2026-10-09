@@ -651,14 +651,13 @@ def test_auxiliary_exact_preflight_and_abort_precedence(tmp_path, trigger):
         prior_summary=context.summary_suffix.strip(),
         header_callback=None,
     )
-    ceiling = _size(request) - 1
-    effects.settings.set_value(
-        "compaction", {"reserveTokens": 0, "contextWindow": ceiling}
-    )
+    ceiling = _size(request)
+    # Even the smallest recovery framing cannot fit this allowance.
+    effects.settings.set_value("compaction", {"reserveTokens": 0, "contextWindow": 200})
     outcome = effects.compact_context(trigger)
     assert (
         outcome.notice
-        == "pipy: compact refused: estimated summary request exceeds the context window; context unchanged."
+        == "pipy: compact refused: estimated summary request exceeds the context window even with incomplete excerpts; context unchanged."
     )
     assert provider.requests == [] and _published(effects) == before
     abort = threading.Event()
@@ -666,7 +665,7 @@ def test_auxiliary_exact_preflight_and_abort_precedence(tmp_path, trigger):
     outcome = replace(effects, abort_event=abort).compact_context(trigger)
     assert outcome.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
     assert abort.is_set() and provider.requests == [] and _published(effects) == before
-    effects.settings.set_value("compaction.contextWindow", ceiling + 1)
+    effects.settings.set_value("compaction.contextWindow", ceiling)
     assert "compacted conversation" in effects.compact_context(trigger).notice
     assert len(provider.requests) == 1
 
@@ -676,7 +675,7 @@ def test_hooks_once_can_narrow_after_refused_summary_attempt(
     tmp_path, monkeypatch, persist
 ):
     tree = _tree(tmp_path, text="private earlier facts " * 1000, persist=persist)
-    settings = _settings(tmp_path, contextWindow=2000)
+    settings = _settings(tmp_path, contextWindow=200)
     provider = _RecordingToolProvider()
     calls = []
     original = NativeAgentProviderRequestPolicy.prepare

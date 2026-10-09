@@ -32,6 +32,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Oversized compaction summary requests now recover through budget-admitted
+  incomplete excerpts and bounded accepted summary text. A later fitting prompt
+  can continue without `/new` after huge pasted text, tool arguments or aggregate
+  history pressure. The notice and durable summary disclose omitted information;
+  original transcript entries remain intact. Oversized new input still refuses,
+  and cancellation, stale work and generation failure publish no compaction.
+
 - Codemode preserves the original canonical pipeline exception when secondary
   parent evidence, completion events or release-status publication fail. Cleanup
   closes the nested service and releases its local reservation with child counters

@@ -393,3 +393,37 @@ def test_header_startup_keeps_hints_without_resources(tmp_path: Path) -> None:
     text = stream.getvalue()
     assert "pipy v" in text and "escape interrupt" in text
     assert "[Context]" not in text and "Pipy can explain" not in text
+
+
+def test_incomplete_compaction_displays_warning_after_redraw() -> None:
+    from pipy_harness.native.coding.summary_recovery import RECOVERY_WARNING
+
+    outcome = CodingCompactionOutcome(
+        "recovered",
+        result=CodingCompactionResult(
+            RECOVERY_WARNING + "\n\nfacts", "e1", 10, 1, 2, used_recovery_excerpts=True
+        ),
+    )
+    history = _History(redrawn=True)
+    assert _show(outcome, history=history, tui=True, headless=False) == (
+        [RECOVERY_WARNING],
+        "",
+    )
+    assert len(history.calls) == 1
+
+
+def test_inherited_incomplete_summary_does_not_claim_new_recovery() -> None:
+    from pipy_harness.native.coding.summary_recovery import RECOVERY_WARNING
+
+    outcome = CodingCompactionOutcome(
+        "ordinary compaction",
+        result=CodingCompactionResult(RECOVERY_WARNING + "\n\nfacts", "e1", 10, 1, 2),
+    )
+    assert _show(outcome, history=_History(redrawn=True), tui=True, headless=False) == (
+        [],
+        "",
+    )
+    assert _show(outcome, history=None, tui=False, headless=False) == (
+        [],
+        "ordinary compaction\n",
+    )

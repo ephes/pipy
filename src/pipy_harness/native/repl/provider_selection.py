@@ -71,6 +71,12 @@ from pipy_harness.native.coding.state import (
     CodingProviderBinding,
     CodingSessionState,
 )
+from pipy_harness.native.coding.summary_recovery import (
+    RECOVERY_WARNING,
+    bound_recovery_summary,
+    mark_incomplete_summary,
+    recover_summary_request,
+)
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_types import ExtensionModelRuntimeControl
 from pipy_harness.native.provider import PreparedProviderPort
@@ -1382,6 +1388,7 @@ class ProviderMutationEffects:
             return prepared
         work, budget = prepared
         completion = None
+        reduced = False
         started = False
         starting = False
 
@@ -1422,11 +1429,21 @@ class ProviderMutationEffects:
                 request, image_count=0, output_reserve=budget.output_reserve
             )
             if budget.allows(estimate) is False:
-                return self._refuse_compaction_budget(
-                    work,
-                    trigger,
-                    "estimated summary request exceeds the context window; context unchanged",
-                )
+                recovered = recover_summary_request(request, budget)
+                if recovered is None:
+                    return self._refuse_compaction_budget(
+                        work,
+                        trigger,
+                        "estimated summary request exceeds the context window even with incomplete excerpts; context unchanged",
+                    )
+                request = recovered
+                reduced = True
+            # Excerpt preparation is detached work too. Revalidate the full
+            # witness before provider admission, just as after header capture.
+            with self.mutation_io_lock:
+                with self.ctl.generation_ref.lock:
+                    if not self._compaction_matches_locked(work):
+                        return self._stale_compaction(trigger)
             provider, waiter = provider_turn_inputs(
                 work.context.binding.provider, self.terminal_ui, self.abort_event
             )
@@ -1492,6 +1509,10 @@ class ProviderMutationEffects:
                             "pipy: compaction failed; context unchanged."
                         )
                     else:
+                        if reduced:
+                            summary = bound_recovery_summary(summary, budget)
+                        elif RECOVERY_WARNING in work.context.summary_suffix:
+                            summary = mark_incomplete_summary(summary)
                         action = CodingProductSessionCompaction(
                             retained_messages=work.cut.messages,
                             summary_suffix=ProductContent("\n\n" + summary),
@@ -1517,13 +1538,15 @@ class ProviderMutationEffects:
                 self.product_session.persist_compaction(action)
         except Exception as persistence_error:
             projected = CodingCompactionOutcome(
-                self._compaction_notice(trigger, work.cut),
+                self._compaction_notice(trigger, work.cut)
+                + (" " + RECOVERY_WARNING if reduced else ""),
                 result=CodingCompactionResult(
                     summary,
                     action.first_kept_entry_id if work.tree.persist else None,
                     action.measure_before,
                     action.dropped_group_count,
                     action.dropped_message_count,
+                    used_recovery_excerpts=reduced,
                 ),
                 persistence_failed=True,
             )
@@ -1542,13 +1565,15 @@ class ProviderMutationEffects:
             return projected
         return finish(
             CodingCompactionOutcome(
-                self._compaction_notice(trigger, work.cut),
+                self._compaction_notice(trigger, work.cut)
+                + (" " + RECOVERY_WARNING if reduced else ""),
                 result=CodingCompactionResult(
                     summary,
                     action.first_kept_entry_id if work.tree.persist else None,
                     action.measure_before,
                     action.dropped_group_count,
                     action.dropped_message_count,
+                    used_recovery_excerpts=reduced,
                 ),
             )
         )  # type: ignore[return-value]

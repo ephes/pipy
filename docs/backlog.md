@@ -261,13 +261,15 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     aborted` line).
   - There is no chars/4 trailing estimate on top of the last usage.
   - Compaction and branch-summary retries are still private.
-- **DF1-F5b, summary input still too large:** tool-result truncation (F5)
-  does not bound the whole summary request. A removed range with a huge pasted
-  user message, large tool-call arguments or many results still fails the
-  summary preflight on every later prompt, and only `/new` recovers. Pi has the
-  same limit (its summary request fails at the provider). A fix beyond Pi would
-  need a multi-pass or drop-without-summary path; Pi's token-based cut
-  (`keepRecentTokens`, still inactive in pipy) would at least shrink the range.
+- **DF1-F5b, oversized auxiliary-summary recovery (prepared 2026-10-09;
+  advisory review closure):** reproduced huge pasted text, large tool arguments
+  and aggregate pressure on `ca608ce`. Compaction now preflights bounded incomplete
+  excerpts, executes one private summary operation and bounds accepted recovery
+  text, retaining an explicit durable information-loss warning. Fitting later
+  prompts recover without `/new`; intrinsically oversized new prompts still
+  refuse. Safe cuts, append-only transcript, cancellation/currentness and
+  state-first persistence stay intact. This extends Pi; branch summaries and
+  token-based retention are unchanged. See the [slice note](specs/2026-10-09-df1-f5b-summary-recovery.md).
 - **DF1-F6b, what F6 left of stopped turns** (see the F6 Done row):
   - A live provider failure still prints
     `pipy: provider failure during turn: …`; Pi draws `Error: <message>`

@@ -16,7 +16,9 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
    verified results and unfinished work. Like Pi's `serializeConversation`, each
    tool result in the summary input is cut to its first 2000 characters plus
    `[... N more characters truncated]`; other messages are sent unchanged.
-   Branch summaries use the same rule. The request has no tools or attachments
+   Branch summaries use the same rule. If normal compaction summary preflight
+   fails, pipy tries bounded incomplete excerpts as described below; branch
+   summaries retain their existing behavior. The request has no tools or attachments
    and excludes request-only overlays. Its text is private and does not stream
    into the transcript. A prepared provider may retry a failure Pi's classifier
    treats as transient (see [Retries](providers.md#retries)) using the retry
@@ -134,8 +136,8 @@ used. Defaults/placeholders/fallback copies do not establish model capacity.
 
 Both manual and automatic summaries preflight the exact auxiliary request: prior
 summary, optional labelled retained task orientation, the removed messages (tool
-results truncated as above), final instruction and reserve. An oversized auxiliary
-request publishes nothing. Ordinary hooks still run once and can narrow the final
+results truncated as above), final instruction and reserve. A summary that remains oversized after bounded excerpt preparation
+publishes nothing. Ordinary hooks still run once and can narrow the final
 request enough to fit; summary refusal alone is not a failed agent run. The exact
 frozen ordinary request is checked after those hooks and before renderer/provider
 admission. A remaining overflow settles as a recoverable preparation refusal,
@@ -157,10 +159,10 @@ When one tool result alone overflows the window, that turn is refused: the newes
 cycle is always kept verbatim (Pi also fails such a turn after one
 compact-and-retry attempt). The next prompt recovers: its automatic compaction
 summarizes the oversized turn away, with the result truncated in the summary
-input, and admits the new request. This does not help when the summary input is
-still too large after truncation, for example a huge pasted user message, large
-tool-call arguments or many results: the summary preflight refuses on every later
-prompt, as Pi's provider-side summary would fail, and `/new` is the way out.
+input, and admits the new request. If the summary input is still too large after
+tool-result truncation, pipy uses the bounded excerpt recovery below. An
+intrinsically oversized new prompt remains protected verbatim and is still
+refused; a later fitting prompt can summarize that older turn away without `/new`.
 
 After refusal, reduce input/tool context or correct the context limit/reserve. In
 the interactive session, bare `/compact` can summarize already persisted groups
@@ -173,6 +175,67 @@ These heuristics are not exact tokenization or guaranteed fit; live-provider
 budget accuracy and summary quality remain unverified. See the
 [budget contract](harness-spec.md#model-aware-request-budget-contract) for arithmetic,
 policy capture and cancellation precedence.
+
+## Oversized summary recovery (DF1-F5b)
+
+This is an intentional extension beyond Pi. When the normal private compaction
+request fails estimated admission, manual and automatic compaction prepare
+incomplete textual excerpts instead of repeating that rejected request. There
+is still only one provider summary operation, with the captured bounded transient
+retry policy; there is no chain of intermediate summaries or overflow retries.
+The selected safe cut and its retained messages do not change.
+
+Preparation scans the auxiliary messages once into chronological units. Each
+assistant plus its consecutive tool results is indivisible. It selects the first
+16 and last 16 units, then tries per-unit allowances of 2048, 1024, 512, 256 and
+128 characters. If necessary it keeps 16, 8, 4, 2 or 1 units at 128 characters,
+retaining the two edges in chronological order. At most ten candidates are
+estimated. Each contains fixed recovery instructions, an explicit incompleteness
+warning, source positions/counts, JSON-escaped evidence and a final instruction.
+Each candidate uses ordinary conservative full-request estimation and the original
+output reserve. If none fits, compaction refuses with context unchanged.
+
+A unit shares its available text allowance across its actual content and argument
+fields, after identity/role framing and omission-marker space. Previous recovery
+warning prefixes are removed from prior-summary evidence so they do not crowd
+out real continuity. Text fields use head/tail excerpts with counted omission
+markers; tool arguments
+are labelled text, never shortened executable call JSON. Calls and results in
+an included unit keep exact names and correlation IDs. A unit with more than 64
+messages or calls, or whose excerpt and identity framing exceeds its allowance,
+is omitted in full. Middle units, assistant thinking, long prior-summary text,
+retained task orientation, custom focus and attempted file-operation metadata
+may therefore be partly or wholly absent. Metadata is extracted from original
+parent records before tool details are stripped, as with normal summaries; nested
+children are not promoted into separate history messages. Branch summaries use
+the unchanged shared builder and do not acquire this recovery policy.
+
+Successful recovery text is also bounded: at most `min(2048, input_allowance // 8)`
+characters of generated text, plus a counted head/tail omission marker and the
+fixed warning. This bounds accepted context, not provider generation. Excerpts
+may end mid-statement; unfinished claims are unknown. The warning is prepended
+by pipy to the accepted and durable summary, and survives later compactions even
+if a provider leaves it out, without stacking leading copies echoed by a provider. It states that some earlier information is absent
+and original transcript entries were not rewritten. The terminal displays that
+fixed warning after a new recovery redraw; the plain REPL includes it in the
+notice. An explicit outcome flag distinguishes new recovery from a normal
+compaction whose previous continuity was already incomplete. Headless
+completion stays silent as before; its private product summary carries the warning.
+Ctrl+O, resume and tree inspection can reveal the durable warning and summary.
+
+Recovery replaces prior continuity once and actually removes the original cut;
+it does not repeatedly submit the same oversized summary. The whole auxiliary
+request and final ordinary request still need admission. An output reserve,
+system/tools, retained prompt/cycle or attachments can leave too little room;
+provider acceptance and summary quality are not guaranteed. Reduce the new input
+or correct the budget when even recovery framing cannot fit.
+
+Excerpt work and generation stay detached and private. The complete original
+witness is checked again after preparation, on managed reissues and before
+acceptance. Failed/empty/tool-requesting results, cancellation and stale work
+publish no partial compaction. Accepted live state still precedes durable append;
+persistence failures escape without rollback or automatic retry. Original tree
+entries remain append-only and navigable; no session schema changes are needed.
 
 ## Durable session behavior
 

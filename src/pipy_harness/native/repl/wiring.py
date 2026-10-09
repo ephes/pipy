@@ -92,6 +92,7 @@ from pipy_harness.native.coding.session_controller import (
     _NativeTransitionControlError,
 )
 from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.summary_recovery import RECOVERY_WARNING
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
@@ -1391,25 +1392,28 @@ def _show_compaction(
     """Show a compaction outcome like Pi's ``compaction_end`` handler.
 
     A completed compaction redraws the chat with the ``[compaction]`` row
-    last and draws no notice; ``pending_user`` is the prompt an automatic
+    last. Incomplete recovery also draws its fixed information-loss notice;
+    ``pending_user`` is the prompt an automatic
     compaction runs for. The headless modes write nothing for it (Pi's print
     mode is silent, JSON/RPC carry the events). Failures, cancellations and
     the plain REPL keep the notice.
     """
 
     completed = outcome.result is not None and not outcome.persistence_failed
-    if (
+    redrawn = (
         completed
         and history is not None
         and history.render_after_compaction(pending_user)
-    ):
+    )
+    reduced = outcome.result is not None and outcome.result.used_recovery_excerpts
+    if redrawn and not reduced:
         return
     if completed and headless:
         return
     emit_diagnostic(
         terminal_ui.components.transcript if terminal_ui is not None else None,
         error_stream,
-        outcome.notice,
+        RECOVERY_WARNING if redrawn else outcome.notice,
     )
 
 

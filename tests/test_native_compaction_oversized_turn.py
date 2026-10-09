@@ -226,7 +226,7 @@ def test_oversized_tool_result_turn_recovers_on_next_prompt(
 
 
 def test_oversized_user_message_is_still_refused_like_pi(tmp_path: Path):
-    """Truncation bounds tool results only; a huge paste still cannot recover."""
+    """Refuse the paste honestly, then recover older history for fitting input."""
 
     settings, provider = _oversized_session(tmp_path)
     diagnostics: list[str] = []
@@ -242,8 +242,6 @@ def test_oversized_user_message_is_still_refused_like_pi(tmp_path: Path):
         assert refused.preparation_failure is not None
         before = len(provider.requests)
         still = session.submit("next")
-        assert still.preparation_failure is not None
-        assert len(provider.requests) == before
-    assert "estimated summary request exceeds the context window" in "\n".join(
-        diagnostics
-    )
+        assert still.preparation_failure is None
+        assert len(provider.requests) == before + 2
+    assert "incomplete excerpts" in "\n".join(diagnostics)

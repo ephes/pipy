@@ -51,6 +51,7 @@ class CodingCompactionResult:
     tokens_before: int
     dropped_group_count: int
     dropped_message_count: int
+    used_recovery_excerpts: bool = False
 
 
 @dataclass(frozen=True, slots=True)

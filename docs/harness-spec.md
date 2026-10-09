@@ -2367,8 +2367,12 @@ Preflight the exact auxiliary semantic request (prior summary, optional labelled
 retained task orientation, removed messages with each tool result cut to 2000
 characters as in Pi's `serializeConversation`, final instruction and output
 reserve) before canonical provider execution.
-Oversized summary input refuses that attempt without publication or multi-pass
-summarization. Keep D1 cancellation, generation/context freshness, canonical
+DF1-F5b prepares a bounded incomplete excerpt request when normal summary
+preflight overflows, without multi-pass summarization. It estimates at most ten
+decreasing candidates with the same reserve, executes at most one admitted
+summary operation, bounds accepted recovery text and persists an explicit
+information-loss warning. If even recovery framing cannot fit, it refuses
+without publication. See [oversized summary recovery](compaction.md#oversized-summary-recovery-df1-f5b). Keep D1 cancellation, generation/context freshness, canonical
 execution and state-first accepted persistence. Summary failure is distinct from
 persistence failure after acceptance. A valid accepted summary can still leave
 the final request too large; refuse the ordinary request without rolling back
