@@ -1,4 +1,4 @@
-"""Internal CPython-on-WASI composition; no public tool registration (CM1 T6b)."""
+"""CPython-on-WASI runner for the opt-in canonical composite tool."""
 
 from __future__ import annotations
 

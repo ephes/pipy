@@ -322,5 +322,5 @@ without downloading or installing a runtime; both commands work without
 provider authentication, a session or project trust. Status returns 0 when
 available and 1 otherwise; install failures return 1 and argument errors 2.
 See [Python codemode](codemode.md) for dependencies and installation details.
-The builtin definition remains internal: model opt-in/settings/availability
-selection and production registration are pending T8b.
+Enable the available builtin with `--tools +codemode` or settings; see
+[enabling codemode](codemode.md#enabling).

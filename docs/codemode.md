@@ -174,6 +174,13 @@ are not stored there. Resume/tree reconstruct children from the parent. Host
 crashes mid-script can lose parent evidence; per-call `CustomEntry` durability
 remains a follow-on owner decision.
 
+Canonical pipeline exceptions propagate as the original exception object, type
+and message. Parent error evidence and completion/status publication are
+best-effort while unwinding; the service still closes and the local reservation
+is released with child counters retained. These exceptions do not guarantee saved
+history. Without an active pipeline exception, evidence and status failures remain
+visible. Returning script failures, timeouts and aborts retain bounded records.
+
 Real-runtime isolation has evidence on macOS arm64, Linux aarch64 and
 [Linux x86_64 CI](https://github.com/ephes/pipy/actions/runs/37858973937/job/113589899380)
 (315 passed, runtime required). Intel macOS, Windows and the real Ubuntu deployment

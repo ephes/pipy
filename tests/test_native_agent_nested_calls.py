@@ -31,7 +31,10 @@ from pipy_harness.native.agent.events import (
     TurnCompleted,
 )
 from pipy_harness.native.agent.loop import AgentLoop
-from pipy_harness.native.agent.loop_policy import AgentToolPolicyDecision
+from pipy_harness.native.agent.loop_policy import (
+    AgentToolPolicyDecision,
+    AgentToolPolicyState,
+)
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
     NestedCallStatus,
@@ -785,3 +788,119 @@ def test_reservation_fault_closes_service_without_publishing_invalid_state(
         not state.reserved_parent_slot and state.tool_invocation_count == 0
         for state in status.tool_states
     )
+
+
+def test_faulty_nested_event_sink_preserves_first_exception() -> None:
+    from pipy_harness.native.agent.events import NestedToolCallStarted
+
+    original = RuntimeError("first nested event failed")
+    later: list[tuple[object, ValueError]] = []
+    session_thread = threading.current_thread()
+
+    class Sink:
+        faulty = False
+
+        def emit(self, event, /) -> None:
+            assert threading.current_thread() is session_thread
+            if isinstance(event, NestedToolCallStarted):
+                self.faulty = True
+                raise original
+            if self.faulty:
+                error = ValueError(f"later event {len(later)}")
+                later.append((event, error))
+                raise error
+
+    runner = _Runner(
+        lambda call, service: (
+            service.call("read", "{}"),
+            ToolExecutionOutcome(_tool_result(call)),
+        )[1]
+    )
+    status = _StatusPolicy([])
+    loop, _, _, _ = _setup(runner, event_sink=Sink(), status=status)
+    with pytest.raises(RuntimeError) as caught:
+        loop.run(_run_input())
+    assert caught.value is original
+    assert len(later) == 1 and isinstance(later[0][0], ToolCallCompleted)
+    assert not status.tool_states[-1].reserved_parent_slot
+    assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
+
+
+@pytest.mark.parametrize("fault", ["error_result", "durable_record", "release_status"])
+@pytest.mark.parametrize("canonical_failure", [True, False])
+def test_parent_secondary_failure_priority_and_local_cleanup(
+    monkeypatch, fault: str, canonical_failure: bool
+) -> None:
+    original = RuntimeError("canonical child postflight")
+    secondary = ValueError(f"secondary {fault}")
+    session_thread = threading.current_thread()
+    states = []
+    release_attempts: list[AgentToolPolicyState] = []
+    original_execute = AgentLoop._execute_composite
+
+    def capture(self, state, *args):
+        states.append(state)
+        return original_execute(self, state, *args)
+
+    monkeypatch.setattr(AgentLoop, "_execute_composite", capture)
+
+    Policy, Tools, Status = _secondary_failure_ports(
+        fault, canonical_failure, original, secondary, session_thread, release_attempts
+    )
+
+    def snapshot(self):
+        assert threading.current_thread() is session_thread
+        raise secondary
+
+    if fault == "durable_record":
+        monkeypatch.setattr(NestedToolCallService, "durable_record", snapshot)
+
+    def run(call, service):
+        service.call("read", "{}")
+        if canonical_failure:
+            service.call("read", "{}")
+        elif fault == "error_result":
+            # A runner failure normally becomes a parent error result.
+            raise LookupError("runner failure")
+        return ToolExecutionOutcome(_tool_result(call))
+
+    runner = _Runner(run)
+    status = Status([])
+    loop, _, _, _ = _setup(runner, tools=Tools([]), policy=Policy([]), status=status)
+    with pytest.raises(type(original if canonical_failure else secondary)) as caught:
+        loop.run(_run_input())
+    assert caught.value is (original if canonical_failure else secondary)
+    local = states[0].tool_state
+    assert not local.reserved_parent_slot
+    assert local.tool_invocation_count == (
+        1 if canonical_failure or fault == "error_result" else 2
+    )
+    assert release_attempts[-1] == local
+    assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
+
+
+def _secondary_failure_ports(
+    fault, canonical_failure, original, secondary, session_thread, release_attempts
+):
+    class Policy(_Policy):
+        def transform_result(self, call, result, /):
+            if canonical_failure and call.provider_correlation_id == "parent0/2":
+                raise original
+            return super().transform_result(call, result)
+
+    class Tools(_NestedTools):
+        def error_result(self, call, message, /):
+            if fault == "error_result" and call.provider_correlation_id == "parent0":
+                raise secondary
+            return super().error_result(call, message)
+
+    class Status(_StatusPolicy):
+        def tool_policy_state_changed(self, state, /):
+            assert threading.current_thread() is session_thread
+            super().tool_policy_state_changed(state)
+            if not state.reserved_parent_slot and state.tool_invocation_count:
+                release_attempts.append(state)
+                if fault == "release_status":
+                    raise secondary
+
+    return Policy, Tools, Status

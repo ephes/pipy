@@ -32,6 +32,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Codemode preserves the original canonical pipeline exception when secondary
+  parent evidence, completion events or release-status publication fail. Cleanup
+  closes the nested service and releases its local reservation with child counters
+  retained; evidence/status failures without an active exception still propagate.
+
 - Provider errors saying "Selected model is at capacity" now use the existing
   bounded retry policy; quota and billing exhaustion remain non-retryable.
 - Compaction records `tokensBefore` as Pi's context-token estimate instead of

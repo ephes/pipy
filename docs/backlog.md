@@ -119,7 +119,10 @@ Runtime provenance/mirroring/packaging and unverified platform support remain
 open (Intel macOS, Windows, real Ubuntu host; outer-sandbox support qualified).
 Crash durability needs an owner decision on per-call `CustomEntry`: current
 parent-only evidence can be lost on a mid-script host crash. Canonical pipeline
-exceptions expose live/event evidence without guaranteed saved history.
+exceptions preserve the original object through secondary parent evidence and
+release-status failures, close the service and release the local reservation with
+child counters retained. This bounded cumulative-review repair is implemented;
+publication while unwinding is best-effort, without guaranteed saved history.
 
 ### UP1 — Refresh the established Pi agent comparison (completed 2026-10-02)
 

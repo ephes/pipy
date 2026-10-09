@@ -991,6 +991,7 @@ class AgentLoop:
         )
         started_at = datetime.now(UTC)
         terminal_emit_attempted = False
+        unwinding = False
         try:
             reserved = reserve_composite_parent(transition)
             _revalidate_tool_policy_state(reserved)
@@ -1026,9 +1027,39 @@ class AgentLoop:
                 )
             )
             return _SettledToolCall(result, settlement)
-        except Exception:
-            if terminal_emit_attempted:
+        except BaseException:
+            unwinding = True
+            if not terminal_emit_attempted:
+                self._emit_unfinished_composite(call, service, turn_index, started_at)
+            raise
+        finally:
+            service.close()
+            self._release_composite_reservation(state, unwinding=unwinding)
+
+    def _release_composite_reservation(
+        self, state: _RunState, *, unwinding: bool
+    ) -> None:
+        """Release locally even when the status port fails during unwinding."""
+        if not state.tool_state.reserved_parent_slot:
+            return
+        released = replace(state.tool_state, reserved_parent_slot=False)
+        _revalidate_tool_policy_state(released)
+        state.tool_state = released
+        try:
+            self._status.tool_policy_state_changed(released)
+        except BaseException:
+            if not unwinding:
                 raise
+
+    def _emit_unfinished_composite(
+        self,
+        call: AgentToolCall,
+        service: NestedToolCallService,
+        turn_index: int,
+        started_at: datetime,
+    ) -> None:
+        """Secondary evidence must never replace an active pipeline exception."""
+        try:
             result = replace(
                 self._tools.error_result(call, "nested pipeline did not finish"),
                 details={"nestedCalls": service.durable_record()},
@@ -1040,12 +1071,8 @@ class AgentLoop:
                     duration_seconds=(datetime.now(UTC) - started_at).total_seconds(),
                 )
             )
-            raise
-        finally:
-            service.close()
-            # Also release on canonical callback/validation exceptions, which propagate.
-            if state.tool_state.reserved_parent_slot:
-                publish(replace(state.tool_state, reserved_parent_slot=False))
+        except BaseException:  # noqa: BLE001 - only called while unwinding
+            pass
 
     def _run_composite(
         self, call: AgentToolCall, service: NestedToolCallService

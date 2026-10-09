@@ -1,4 +1,4 @@
-"""Stable builtin definition; opt-in production registration belongs to T8b."""
+"""Stable builtin definition for opt-in, availability-gated production codemode."""
 
 from __future__ import annotations
 
