@@ -39,6 +39,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- The footer restores context usage from the active branch after resume or branch
+  changes and estimates trailing message characters separately. Failed/aborted
+  usage no longer anchors the meter, and model changes use the current window.
+  Compacted contexts keep a conservative full estimate including system and
+  summary state once; session token and cost totals stay unchanged.
+
 - Ordinary retries preserve every failed partial assistant in durable history and
   expose per-attempt message/turn/agent boundaries. SDK results and RPC claims
   settle once per accepted prompt; cancelling backoff retains the last error

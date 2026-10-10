@@ -481,26 +481,16 @@ def test_failed_turn_keeps_the_last_successful_context_usage() -> None:
     assert usage.last_total_tokens == 2050
 
 
-def test_footer_context_does_not_jump_after_a_failed_turn(tmp_path: Path) -> None:
-    from pipy_harness.native.chrome import _ChromeFooterEffects, _context_budget_for
-    from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
+def test_footer_context_estimates_failed_content_after_stored_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_native_footer_context import _assistant, _resume, _tokens
 
-    usage = AgentUsageAccumulator()
-    usage.absorb(AgentProviderUsageSample(input_tokens=1500, output_tokens=132))
-    usage.absorb(AgentProviderUsageSample.from_mapping(None))
-    snapshot = CodingSessionUsageSnapshot(
-        usage=usage.agent_usage(),
-        last_total_tokens=usage.last_total_tokens,
-    )
-    effects = object.__new__(_ChromeFooterEffects)
-    budget = _context_budget_for("openai-codex", "gpt-5.5", declared_window=272_000)
-    pct = effects._context_used_pct(
-        budget=budget,
-        usage_snapshot=snapshot,
-        tool_invocation_count=8,
-        user_turn_count=5,
-    )
-    assert pct == pytest.approx(100.0 * 1632 / budget.token_budget)
+    tree = NativeSessionTree.create(tmp_path, state_root=tmp_path / "state")
+    tree.append_message(_assistant("anchor", 1632))
+    tree.append_message(_assistant("x", 0, AgentStopReason.ERROR))
+    _, effects, _ = _resume(tmp_path, tree, monkeypatch)
+    assert _tokens(effects, monkeypatch) == pytest.approx(1633)
 
 
 # -- stored messages with F6's stopped assistants ------------------------------

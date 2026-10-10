@@ -9,6 +9,7 @@ used through a subscription, marked `` (sub)`` (``footer.ts:189-196``).
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from typing import cast
 
@@ -296,7 +297,9 @@ def _footer(tmp_path: Path, provider_state: object) -> _ChromeFooterEffects:
         error_stream=None,  # type: ignore[arg-type]
         footer=None,
         repl_runtime=_Runtime(),  # type: ignore[arg-type]
-        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
+        session_tree_section=lambda: nullcontext(
+            NativeSessionTree.create(tmp_path, persist=False)
+        ),
     )
 
 

@@ -261,12 +261,16 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   with Pi's classifier, also after partial output. The TUI shows `Error: ...`
   and `Retrying (n/3) in Ns... (escape to cancel)`. Codex `error` /
   `response.failed` events carry Pi's text and are classified by it. A failed
-  turn keeps the last successful footer context.
+  turn estimates trailing context from the last successful stored branch usage.
   Slice 1 now persists every ordinary failed attempt and emits message/turn/agent
   boundaries with attempt-local messages. Separate logical settlement preserves
   SDK/RPC ownership; backoff cancellation keeps the last error without an extra
-  aborted message or row. Remaining differences:
-  - There is no chars/4 trailing estimate on top of the last usage.
+  aborted message or row.
+  Slice 2 restores the footer anchor from active branch history and adds each
+  trailing message's independently rounded chars/4 estimate. Model changes use
+  the selected window; stopped usage never supplies an anchor. Compacted contexts
+  retain a conservative full estimate while their summary suffix remains.
+  Remaining difference:
   - Compaction and branch-summary retries are still private.
 - **DF1-F5b, oversized auxiliary-summary recovery (prepared 2026-10-09;
   advisory review closure):** reproduced huge pasted text, large tool arguments
@@ -348,9 +352,10 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   publish workflow with SHA-pinned actions. Until then
   `pipy update self` refuses, and the README documents the checkout install.
 - **USAGE1b, what USAGE1 left of Pi's usage** (see the USAGE1 Done row):
-  - the context meter and RPC `contextUsage` still read the live session's
-    last response and estimate after a resume; Pi `getContextUsage` reads the
-    last valid assistant usage on the branch (after the latest compaction);
+  - footer meter branch-anchor restoration is closed by DF1-F4b slice 2;
+    RPC `contextUsage` remains deferred. Pi `getContextUsage` reports unknown
+    after compaction until a valid new response; pipy's footer deliberately keeps
+    a full estimated projection while its summary suffix remains;
   - compaction and branch summaries record no `usage` (Pi stores it on the
     entry and counts it); there are no `usage` entries (Pi cache warming);
   - assistant messages have no `api`, `responseModel`, `responseId` or

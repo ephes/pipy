@@ -12,6 +12,7 @@ separately.
 from __future__ import annotations
 
 import io
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -85,7 +86,9 @@ def _footer(
         error_stream=io.StringIO(),
         footer=None,
         repl_runtime=_Runtime(),
-        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
+        session_tree_section=lambda: nullcontext(
+            NativeSessionTree.create(tmp_path, persist=False)
+        ),
     )
 
 

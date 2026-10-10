@@ -224,3 +224,60 @@ bound the two new RPC fixtures' isolated retry delays. Both were applied. This
 is advisory closure, not a CLEAN verdict. The hypothetical explicit observer API
 refactor and optional unused-field/signature cleanup were declined because no
 current wrapper defect required them and they would add unrelated port churn.
+
+## Slice 2 footer implementation
+
+Seven deterministic CodingSession strict durable-reopen/chrome regressions failed
+on unchanged production (exit 1), then passed using the existing history
+estimator. Coverage pins 1,000 stored tokens plus two separately rounded trailing
+characters as 1,002, branch history independent of nonzero lifetime usage, failed
+and aborted samples ignored as anchors, distinct model denominators, system and
+summary suffix counted once, and no-anchor full estimation. A later successful
+post-compaction sample still uses full estimation while the suffix remains.
+
+Chrome captures immutable coding result state, current branch system anchors and
+all-branch totals with the coding-effect/tree coordinator lock first, then the
+distinct coding-state/generation lock, and renders outside both guards. Chrome
+requires the existing session_tree_section context port, which selects the live
+tree pointer and holds the outer coordinator through projection capture. A
+production two-lock subprocess regression reproduced a deadlock in the initial
+footer implementation; the reversed order is forbidden. Existing estimator logic owns text/thinking/tool character counting.
+The old fixed turn/tool guess is removed. No private REPL helper is imported.
+The original footer test expecting unchanged telemetry after failed content is
+replaced by a stronger stored-anchor-plus-failed-text assertion. No-provider and
+stale active-run presentation remain read-only through result_snapshot, which
+does not require an admitted provider run.
+
+The full estimate retained after compaction is an intentional difference from
+Pi's unknown meter until new valid usage. It is conservative, not a provider
+acceptance guarantee. This closes only the USAGE1b footer restoration part; RPC
+contextUsage and auxiliary-summary visibility remain pending.
+
+### Slice 2 verification and lock review
+
+Independent checks on the repaired production implementation passed 8,085 tests
+with two skipped, 49 runtime checks and eight PTY checks, plus documentation and
+static checks. Isolated synthetic CLI branch/resume verification also passed.
+The first Opus 5.5 high-effort footer review found the two-lock inversion and a
+stale TUI documentation paragraph; both were fixed. The second review verified
+production lock ordering and identified that the pointer-coherence test could
+still pass a split-capture mutation. The strengthened test now observes pointer
+assignment independently of state-lock admission and rejects that mutation in a
+fresh owned source copy (exit 1 at the intended assertion). Child regression
+failures distinguish deadlock from worker errors and include fixture tracebacks.
+Production code remains unchanged after the independent full verification; the
+test-only strengthening passed the third scoped Opus 5.5 high-effort review with
+no Critical or Warning findings and one accepted diagnostic-formatting suggestion,
+which was applied. All prior blocking findings are resolved. This is advisory
+closure, not a CLEAN verdict.
+
+Slice 2 is complete. Three footer code rounds used installed Claude Code Opus 5.5
+at high effort: the first Critical and Warning findings were fixed; the second
+Warning and Suggestion improved mutation sensitivity and child diagnostics; the
+third advisory suggestion made parent diagnostics explicit. Full verification
+remains 8,085 passed with two skipped, 49 runtime checks and eight PTY checks;
+587 focused checks and an independent 11-test footer run passed. The isolated CLI
+checks passed; both launched pipy instances exited zero. No full
+suite was repeated after the test-only mechanical fixes because production code
+was unchanged; final targeted/static checks cover that delta. Auxiliary retry
+visibility remains pending in slice 3.

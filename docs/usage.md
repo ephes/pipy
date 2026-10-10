@@ -24,6 +24,19 @@ The interface has four main areas:
 - **Footer/status** — working directory/session/model/status, usage counters,
   context, and current thinking level.
 
+The context percentage estimates the active branch: the last successful assistant
+with positive stored usage supplies the anchor, then each trailing message adds
+its characters divided by four, rounded up separately. Failed and aborted usage
+never anchors it. Resume and branch changes restore the branch's history; changing
+models changes the context window denominator. Without an anchor, pipy estimates
+all messages and the current system prompt. A compacted context estimates all
+retained messages, system state and the summary suffix once while that suffix
+remains, including after another successful response. Pi instead reports unknown
+just after compaction until a valid new response. This conservative estimate is
+not a guarantee that a provider accepts the request. Session token/cost totals
+still include stored assistants across all branches.
+
+
 The editor can be replaced temporarily by built-in overlays such as `/settings`,
 `/model`, `/hotkeys`, `/resume`, and `/tree`, or by extension UI helpers.
 

@@ -9,6 +9,7 @@ wire test pins the request shape Pi's adapter emits for the same row and level.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -690,7 +691,9 @@ def test_footer_meter_uses_the_resolved_models_json_row(tmp_path: Path) -> None:
         error_stream=io.StringIO(),
         footer=None,
         repl_runtime=_Runtime(),
-        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
+        session_tree_section=lambda: nullcontext(
+            NativeSessionTree.create(tmp_path, persist=False)
+        ),
     )
     declared = effects._declared_context_window("anthropic", "claude-sonnet-4-5")
     assert declared == 200_000

@@ -21,11 +21,14 @@ import re as _re
 import shutil
 import textwrap
 from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TextIO
 
+from pipy_harness.native.agent.history import estimate_context_tokens
+from pipy_harness.native.agent.system_messages import current_system_message
 from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
@@ -556,7 +559,7 @@ class _ChromeFooterEffects:
     footer: FooterComponent | None
     repl_runtime: _ReplRuntime
     # The live session tree (it is replaced by /new, /resume and /fork).
-    session_tree: Callable[[], NativeSessionTree]
+    session_tree_section: Callable[[], AbstractContextManager[NativeSessionTree]]
     border: _EditorBorderLevel = field(default_factory=_EditorBorderLevel)
 
     def border_level(self) -> str:
@@ -629,27 +632,31 @@ class _ChromeFooterEffects:
         self,
         *,
         cwd: Path,
-        provider_name: str,
-        model_id: str,
-        user_turn_count: int,
-        tool_invocation_count: int,
         error_stream: TextIO | None = None,
-        usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> str:
-        budget = _context_budget_for(
-            provider_name,
-            model_id,
-            declared_window=self._declared_context_window(provider_name, model_id),
-        )
-        used_pct = self._context_used_pct(
-            budget=budget,
-            usage_snapshot=usage_snapshot,
-            tool_invocation_count=tool_invocation_count,
-            user_turn_count=user_turn_count,
-        )
+        with self.session_tree_section() as tree:
+            with self.coding_state.state_lock:
+                context = self.coding_state.result_snapshot()
+                system = current_system_message(
+                    message for _, message in tree.build_coding_context().system_anchors
+                )
+                totals = usage_totals(tree.get_entries())
+                provider_name, model_id = context.provider_name, context.model_id
+                budget = _context_budget_for(
+                    provider_name,
+                    model_id,
+                    declared_window=self._declared_context_window(
+                        provider_name, model_id
+                    ),
+                )
+        tokens = estimate_context_tokens(
+            context.messages,
+            trust_usage=not context.compaction_suffix,
+            system=system,
+        ) + -(-len(context.compaction_suffix) // 4)
+        used_pct = self._context_used_pct(budget=budget, tokens=tokens)
         # Pi footer: totals over every stored assistant message of the
         # session, so they survive resume and a model switch.
-        totals = usage_totals(self.session_tree().get_entries())
         fields = BottomStatusFields(
             cwd_label="",
             cost_usd=totals.cost,
@@ -671,35 +678,10 @@ class _ChromeFooterEffects:
         )
         return f"{_friendly_cwd_label(cwd)}\n{status_line}"
 
-    def _context_used_pct(
-        self,
-        *,
-        budget: _ContextBudget,
-        usage_snapshot: CodingSessionUsageSnapshot | None,
-        tool_invocation_count: int,
-        user_turn_count: int,
-    ) -> float:
+    def _context_used_pct(self, *, budget: _ContextBudget, tokens: int) -> float:
         if budget.token_budget <= 0:
             return 0.0
-        if usage_snapshot is not None and usage_snapshot.last_total_tokens > 0:
-            tokens = float(usage_snapshot.last_total_tokens)
-        else:
-            tokens = self._estimated_context_tokens(
-                tool_invocation_count=tool_invocation_count,
-                user_turn_count=user_turn_count,
-            )
         return min(100.0 * tokens / float(budget.token_budget), 999.9)
-
-    def _estimated_context_tokens(
-        self, *, tool_invocation_count: int, user_turn_count: int
-    ) -> float:
-        """Return the deterministic rough context estimate used without telemetry."""
-
-        per_turn_tokens = 2_000.0
-        per_tool_tokens = 1_500.0
-        return (
-            user_turn_count * per_turn_tokens + tool_invocation_count * per_tool_tokens
-        )
 
     def _print_footer(
         self,
@@ -715,12 +697,7 @@ class _ChromeFooterEffects:
         print_input_separator(error_stream)
         footer = self._footer_text(
             cwd=cwd,
-            provider_name=provider_name,
-            model_id=model_id,
-            user_turn_count=user_turn_count,
-            tool_invocation_count=tool_invocation_count,
             error_stream=error_stream,
-            usage_snapshot=usage_snapshot,
         )
         cwd_label, _, status_line = footer.partition("\n")
         print_bottom_status_block(
@@ -732,15 +709,7 @@ class _ChromeFooterEffects:
         self.border.level = self._thinking_level(
             coding_state.provider_name, coding_state.model_id
         )
-        return self._footer_text(
-            cwd=self.cwd,
-            provider_name=coding_state.provider_name,
-            model_id=coding_state.model_id,
-            user_turn_count=coding_state.user_turn_count,
-            tool_invocation_count=coding_state.tool_invocation_count,
-            error_stream=self.error_stream,
-            usage_snapshot=coding_state.usage_snapshot(),
-        )
+        return self._footer_text(cwd=self.cwd, error_stream=self.error_stream)
 
     def refresh_footer_text(self) -> None:
         if self.footer is not None:

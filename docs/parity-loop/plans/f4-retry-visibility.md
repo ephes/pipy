@@ -173,8 +173,10 @@ Pi reference: `~/src/pi-mono` @ `4df157433`.
   agent completion; cancelling backoff retains the error without an extra aborted
   message/row. AgentRunSettled retains logical SDK/RPC ownership across attempts.
   See [the closeout contract](../../specs/2026-10-10-f4b-retry-closeout.md).
-- No trailing chars/4 estimate on top of the last usage (Pi adds the prompt
-  of the failed turn); server retry hint kept.
+- DF1-F4b slice 2 closes trailing chars/4 estimation and active-branch stored
+  anchor restoration. Compacted contexts keep a conservative full estimate while
+  their suffix remains; Pi's post-compaction unknown-until-new-usage meter remains
+  an intentional difference. Server retry hint kept.
 - Compaction / branch-summary retries keep their prepared-only, private
   lifecycle.
 

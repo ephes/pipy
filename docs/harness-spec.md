@@ -1749,6 +1749,22 @@ raises, normal callback-exception propagation applies; delivery cannot be promis
 to a failing sink. A later failed-message acceptance or durable append error remains
 the primary exception if retry-end notification also raises; a bounded note records
 only the secondary exception type, and no further provider attempt begins.
+DF1-F4b slice 2 composes the footer from an immutable current coding-state
+snapshot and current branch system anchors captured with the coding-effect/tree
+coordinator lock first, then the distinct coding-state/generation lock. The
+required session_tree_section port retains active tree pointer selection and tree
+work in that outer section; the order is never reversed. It reuses agent.history.estimate_context_tokens: last positive successful
+stored assistant usage plus independently rounded chars/4 trailing messages;
+stopped usage does not anchor context. No anchor estimates all messages and the
+replayed system state. Model switches change the selected window denominator;
+resume, branching and compaction replace the estimated projection without using
+run-lifetime usage. With a compaction suffix, full estimation remains conservative
+until that suffix is removed, including after a later successful response; system
+and suffix are counted once. This intentionally differs from Pi's unknown meter
+until a new post-compaction usage sample and is not an acceptance guarantee.
+All-branch session token/cost accounting remains unchanged; RPC contextUsage is
+outside this slice.
+
 DF1-F4b completes each failed attempt with ProviderFailed, MessageCompleted(error),
 TurnCompleted and AgentRunCompleted(will_retry=true) before scheduling; actual
 reissue admission starts fresh attempt visibility without repeating accepted input. Callback exceptions propagate through

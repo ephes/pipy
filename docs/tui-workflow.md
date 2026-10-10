@@ -489,9 +489,14 @@ their values after `pipy -r` and a `/model` switch. Each part appears only when
 it is non-zero: `↑` uncached input, `↓` output, `R` cache reads, `W` cache
 writes, then `CH<rate>%`, the latest message's cache hit rate, when the session
 has cache activity, then `$cost`. Counts use Pi's `formatTokens` (`1.5k`,
-`12k`, `3.5M`). The context meter is unchanged: it reads the live session's last
-response and estimates after a resume (Pi reads the last stored assistant
-usage; backlog USAGE1b).
+`12k`, `3.5M`). The context meter uses the active branch's last positive
+successful assistant usage plus individually rounded chars/4 trailing estimates;
+failed and aborted samples never anchor it. Resume and branch changes restore
+that projection, and model changes use the selected context window. While a
+compaction suffix remains, pipy conservatively estimates retained messages,
+system state and the summary once, including after a later successful response;
+Pi reports unknown until a new valid response. This estimate is not a provider
+acceptance guarantee. RPC `contextUsage` remains deferred in USAGE1b.
 
 `/session` prints Pi's `Session Info` block: `Name` (when set), `File` (or
 `In-memory`), `ID`, the `Messages` counts (every message entry on every

@@ -17,6 +17,7 @@ import io
 import json
 import threading
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -397,7 +398,7 @@ def _run_session(
     return result, output_stream.getvalue(), error_stream.getvalue()
 
 
-def test_footer_paths_read_constant_time_state_scalars(
+def test_footer_paths_capture_current_history_and_keep_legacy_state_scalars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.chrome as chrome
@@ -433,7 +434,6 @@ def test_footer_paths_read_constant_time_state_scalars(
     footer_members = {
         "_effort_label",
         "_footer_text",
-        "_estimated_context_tokens",
         "_print_footer",
     }
     session_methods = {
@@ -457,6 +457,24 @@ def test_footer_paths_read_constant_time_state_scalars(
         if isinstance(node, ast.FunctionDef)
     }
     assert footer_members <= chrome_methods
+    assert "_estimated_context_tokens" not in chrome_methods
+    footer_method = next(
+        node
+        for node in footer_effects_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_footer_text"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "estimate_context_tokens"
+        for node in ast.walk(footer_method)
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "result_snapshot"
+        for node in ast.walk(footer_method)
+    )
     chrome_fields = {
         node.target.id
         for node in footer_effects_class.body
@@ -464,8 +482,8 @@ def test_footer_paths_read_constant_time_state_scalars(
     }
     assert {"footer_text", "print_footer"}.isdisjoint(chrome_fields)
 
-    # The four production calls that source state still read the same
-    # constant-time coding-state scalars.
+    # Legacy footer interception calls still read the same state scalars;
+    # footer composition itself captures guarded current history.
     footer_calls = []
     for scope in (run_method, wiring_syntax, footer_effects_class):
         for node in ast.walk(scope):
@@ -479,7 +497,7 @@ def test_footer_paths_read_constant_time_state_scalars(
             provider_name = keywords.get("provider_name")
             if isinstance(provider_name, ast.Attribute):
                 footer_calls.append(node)
-    assert len(footer_calls) == 4
+    assert len(footer_calls) == 3
     for call in footer_calls:
         keywords = {keyword.arg: keyword.value for keyword in call.keywords}
         for keyword_name in (
@@ -524,16 +542,12 @@ def test_footer_paths_read_constant_time_state_scalars(
         error_stream=io.StringIO(),
         footer=None,
         repl_runtime=cast(Any, None),
-        session_tree=lambda: NativeSessionTree.create(tmp_path, persist=False),
+        session_tree_section=lambda: nullcontext(
+            NativeSessionTree.create(tmp_path, persist=False)
+        ),
     )
     monkeypatch.setattr(chrome, "chrome_width", lambda _stream: 120)
-    footer = footer_effects._footer_text(
-        cwd=tmp_path,
-        provider_name=state.provider_name,
-        model_id=state.model_id,
-        user_turn_count=state.user_turn_count,
-        tool_invocation_count=state.tool_invocation_count,
-    )
+    footer = footer_effects._footer_text(cwd=tmp_path)
 
     # Pi footer: no cost segment at zero cost without a subscription.
     assert footer.startswith(f"{tmp_path}\n0.0%/")
