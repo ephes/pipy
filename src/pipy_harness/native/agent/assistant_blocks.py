@@ -10,7 +10,7 @@ and reasoning deltas.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from pipy_harness.native.agent.content import (
@@ -22,7 +22,6 @@ from pipy_harness.native.agent.events import (
     AgentEvent,
     AssistantReasoningDelta,
     AssistantTextDelta,
-    RetryScheduled,
 )
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
@@ -46,22 +45,29 @@ class PartialAssistantContent:
 
     Consecutive text or reasoning deltas of this turn form one text or
     thinking block, in the order they streamed: Pi's partial assistant
-    message. A scheduled retry starts a new attempt, so it discards the failed
-    attempt's blocks.
+    message. Failed blocks survive scheduling; actual retry admission resets them
+    after the caller has accepted the completed failed assistant.
     """
 
-    __slots__ = ("_segments", "_sink", "_turn_index")
+    __slots__ = ("_segments", "_sink", "_turn_index", "_failed", "_started")
 
-    def __init__(self, sink: AgentEventSink, turn_index: int) -> None:
+    def __init__(
+        self,
+        sink: AgentEventSink,
+        turn_index: int,
+        *,
+        failed: Callable[[ProviderResult], None] | None = None,
+        started: Callable[[], None] | None = None,
+    ) -> None:
         self._sink = sink
+        self._failed = failed
+        self._started = started
         self._turn_index = turn_index
         self._segments: list[tuple[bool, list[str]]] = []
 
     def emit(self, event: AgentEvent) -> None:
         self._sink.emit(event)
-        if isinstance(event, RetryScheduled):
-            self._segments.clear()
-        elif (
+        if (
             isinstance(event, (AssistantTextDelta, AssistantReasoningDelta))
             and event.turn_index == self._turn_index
         ):
@@ -69,6 +75,15 @@ class PartialAssistantContent:
             if not self._segments or self._segments[-1][0] is not thinking:
                 self._segments.append((thinking, []))
             self._segments[-1][1].append(event.delta.value)
+
+    def retry_attempt_failed(self, result: ProviderResult) -> None:
+        if self._failed is not None:
+            self._failed(result)
+
+    def retry_attempt_started(self) -> None:
+        self._segments.clear()
+        if self._started is not None:
+            self._started()
 
     def blocks(self) -> tuple[TextContent | ThinkingContent, ...]:
         """The streamed blocks, text and thinking, in order."""

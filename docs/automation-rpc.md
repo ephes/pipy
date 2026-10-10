@@ -148,8 +148,8 @@ Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
 
 | `type` | Payload fields | Meaning |
 | --- | --- | --- |
-| `agent_start` | (none) | One accepted user prompt begins its agent run. |
-| `agent_end` | `messages: Message[]`, `willRetry: boolean` | Run settled. `messages` enumerates the canonical messages appended during this accepted run even when retained provider context was reduced. pipy's session form adds `willRetry` (Pi's `AgentSessionEvent` overrides `agent_end` to add it). |
+| `agent_start` | (none) | One low-level agent run begins, including a retry continuation. |
+| `agent_end` | `messages: Message[]`, `willRetry: boolean` | One low-level run ends. `messages` enumerates only that attempt run's canonical appends; the first includes its accepted user/system, retry continuations do not repeat them. pipy's session form adds `willRetry` (Pi's `AgentSessionEvent` overrides `agent_end` to add it). |
 | `turn_start` | (none) | One model/tool-loop turn starts. |
 | `turn_end` | `message: Message`, `toolResults: ToolResultMessage[]` | One turn ends (assistant message + any tool results). |
 | `message_start` | `message: Message` | A system/user/assistant/tool-result message begins. |
@@ -779,12 +779,13 @@ the reader. Repeated or contradictory publication fails closed. A failed startup
 accepts no provisional prompt.
 
 The same bridge attaches one exact queue claim to the worker's selected run.
-The synchronous `agent_end` observer must consume that capability once; it may
+The synchronous internal AgentRunSettled observer consumes that ordinary-run
+capability once; it may
 not settle an unnamed “current” reservation. Missing, duplicate, cross-worker or
 token-mismatched consumption closes the worker/session. If a claimed run fails
-before `agent_end`, cleanup settles that same claim once while preserving the
-primary failure. At canonical
-`agent_end`, the exact run claim settles and any successor reserves atomically;
+before AgentRunSettled, cleanup settles that same claim once while preserving the
+primary failure. At internal canonical AgentRunSettled, the exact ordinary run
+claim settles and any successor reserves atomically;
 the end record is written under the outer gate, followed by one `queue_update`
 from the promoted snapshot. The gate is then released and the successor is
 woken, so the observable order is `agent_end → queue_update → next agent_start`.
@@ -939,9 +940,9 @@ The current build projects canonical D4a retry events for every provider's
 retryable turn failures (DF1-F4 widened them from prepared OpenAI-Codex
 requests to Pi's agent-level retry for all providers). As in Pi,
 `auto_retry_start` is emitted once per retry and `auto_retry_end` once per
-sequence; an intermediate failed retry is followed directly by the next
-`auto_retry_start`. A retried attempt restarts the assistant message's
-`message_update` partial text. D5d adopts the remaining controls without
+sequence; an intermediate failed retry completes its error assistant/turn and
+`agent_end(willRetry=true)` before the next `auto_retry_start`. Actual retry
+admission starts a fresh agent/turn/assistant lifecycle and resets partial text. D5d adopts the remaining controls without
 creating another retry owner. `set_auto_retry` accepts an exact boolean and writes
 the effective `retry.enabled` setting through the precedence-aware settings owner:
 an equal value succeeds without a write, an explicit trusted-project value stays
@@ -1080,8 +1081,9 @@ configured product policy described below.
 The selected [D4a retry contract](harness-spec.md#bounded-request-retry-contract-d4a)
 now applies configured retry policy to every provider's eligible ordinary
 requests (Pi's classifier, DF1-F4). RPC observes the existing retry lifecycle envelopes within the same
-accepted provider iteration, without intermediate `turn_end`/`agent_end` or
-repeating earlier tools. The retry event counters describe reissues and exclude
+accepted prompt. Failed attempts complete their own `message_end(error)`,
+`turn_end` and `agent_end(willRetry=true)` without repeating earlier tools or
+accepted user/system messages. The retry event counters describe reissues and exclude
 the initial attempt and transport fallback. The D5d implementation connects
 `set_auto_retry` to the effective product setting and `abort_retry` to the exact
 active ordinary retry phase. The controls do not own a separate retry state or
@@ -1345,3 +1347,26 @@ just parity-score
 Update `docs/harness-spec.md`, `docs/backlog.md`, `docs/parity-criterion.md`,
 `docs/pi-parity.md`, `README.md`, and this spec to match shipped behavior, and
 get an independent review pass for each transport/protocol slice.
+
+### F4b attempt visibility and logical settlement
+
+Ordinary retry visibility is per low-level agent run; accepted prompt ownership
+continues across all attempts. The internal canonical AgentRunSettled has no wire
+envelope. NativeRpcServer publishes `willRetry=true` endings without consuming the
+attached _NativeSessionControlBridge claim. It buffers at most one terminal
+`willRetry=false` envelope and publishes it atomically with logical claim
+settlement, before successor start. Thus get_state after a terminal agent_end
+already observes settlement. Backoff cancellation instead emits auto_retry_end
+with Retry cancelled and no fresh aborted message/start/end, but logical settlement
+still retires the claim, reserves/wakes any successor and reaches agent_settled at
+true idle. Active-attempt abort retains its stopped partial. SDK cumulative results
+are separate from per-attempt `agent_end.messages`; private summaries and manual
+compaction claims retain their distinct existing owners.
+
+The final extension agent_end hook runs before terminal wire publication and
+logical claim settlement. While that hook runs, get_state.isStreaming remains
+true and an accepted queued successor stays pending. Its return permits atomic
+terminal envelope/claim publication, then queue_update and successor start.
+Intermediate willRetry=true attempt envelopes are immediate and precede their
+extension hooks. This deliberate distinction follows final logical ownership;
+agent_settled remains the later true-idle notification.

@@ -294,7 +294,7 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
     usage_events = [
         event for event in agent_sink.events if isinstance(event, UsageUpdated)
     ]
-    assert len(usage_events) == 2
+    assert len(usage_events) == 4
     assert usage_events[-1].last_turn_total_tokens == 11
-    assert sum(isinstance(event, TurnCompleted) for event in agent_sink.events) == 2
-    assert sum(isinstance(event, AgentRunCompleted) for event in agent_sink.events) == 1
+    assert sum(isinstance(event, TurnCompleted) for event in agent_sink.events) == 4
+    assert sum(isinstance(event, AgentRunCompleted) for event in agent_sink.events) == 3

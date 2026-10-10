@@ -720,3 +720,71 @@ def test_keyboard_interrupt_propagates(tmp_path: Path) -> None:
 
     with pytest.raises(KeyboardInterrupt):
         _dispatch(workspace, "turn_end")
+
+
+def test_retry_lifecycle_is_per_attempt_but_request_hooks_and_idle_are_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from test_native_coding_session_retry import (
+        _PreparedProductProvider,
+        _result,
+        _settings,
+        _transient,
+    )
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    proof = tmp_path / "retry-lifecycle.txt"
+    _write(
+        tmp_path,
+        "retry_recorder",
+        f"""from pathlib import Path
+PROOF = Path({str(proof)!r})
+def activate(api):
+    def make(name):
+        def observe(event, ctx):
+            with PROOF.open('a') as handle:
+                handle.write(name + '\\n')
+        return observe
+    for name in ('before_agent_start', 'before_provider_request', 'agent_start',
+                 'agent_end', 'turn_start', 'turn_end', 'agent_settled'):
+        api.on(name, make(name))
+""",
+    )
+    provider = _PreparedProductProvider(
+        scripts=[
+            [
+                _transient(),
+                _transient(),
+                _result(HarnessStatus.SUCCEEDED, text="ok"),
+            ]
+        ]
+    )
+    CodingSession(
+        provider=provider, settings_manager=_settings(tmp_path, max_retries=2)
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    trace = proof.read_text().splitlines()
+    assert trace.count("before_agent_start") == 1
+    assert trace.count("before_provider_request") == 1
+    lifecycle = [name for name in trace if not name.startswith("before_")]
+    assert lifecycle == [
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "agent_settled",
+    ]
+    assert len(provider.prepared_requests) == 1

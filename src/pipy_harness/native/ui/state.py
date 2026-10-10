@@ -121,11 +121,7 @@ class RenderStoppedAssistant:
 
 @dataclass(frozen=True, slots=True)
 class ScheduleRetry:
-    """Show a failed attempt and the countdown to its automatic retry.
-
-    Pi renders the failed attempt's ``Error: <message>`` and swaps the working
-    loader for ``Retrying (attempt/max_attempts) in Ns...``.
-    """
+    """Show countdown status; the completed stopped message owns its Error row."""
 
     attempt: int
     max_attempts: int
@@ -245,10 +241,10 @@ def _reduce_assistant_event(state: UiState, event: AgentEvent) -> _Reduction | N
 
 def _reduce_retry_event(state: UiState, event: AgentEvent) -> _Reduction | None:
     if isinstance(event, RetryScheduled):
-        # The retried attempt starts over, so its text renders as fresh output
-        # (a buffered completion is no longer covered by the failed stream).
+        # Scheduling only updates status. MessageStarted resets streaming state
+        # when the next attempt is actually admitted.
         return (
-            replace(state, assistant_streamed=False, reasoning_streamed=False),
+            state,
             (
                 ScheduleRetry(
                     event.attempt,

@@ -1629,9 +1629,9 @@ classification.
 
 This is the implemented request-retry contract. D4a1–D4a2 provide the prepared
 provider and canonical executor seams, and D4a3 activates them for ordinary
-product requests. Each ordinary request still returns one settled provider
-result to the agent loop; eligible intermediate Codex failures are contained
-inside that completion. Auxiliary summaries and compatibility calls do not opt
+product requests. The executor returns one final result and hands intermediate eligible failures
+to the canonical loop on the caller thread before scheduling. The loop owns
+failed-message assembly and the existing projection owns state-first persistence. Auxiliary summaries and compatibility calls do not opt
 in merely because the event vocabulary exists.
 
 The coding session owns enabled/limit/delay policy. Capture one immutable policy
@@ -1690,13 +1690,14 @@ The canonical provider-turn boundary owns reissue before returning the final
 outcome to `AgentLoop`. Reuse the same frozen request, provider binding, accepted
 iteration and tool authorization. Do not rerun request preparation, compaction,
 request-policy hooks, renderer setup, accepted-input publication, or previous tool
-effects. A retry is eligible only for an explicitly transient failed attempt with
-affirmative no-progress evidence, no assistant/tool payload, and absent usage
-(`None`). Unknown progress, any parsed provider event, partial payload or any
-reported usage ends recovery. Absence of visible deltas is insufficient: private
-summaries deliberately disable both delta channels. Intermediate eligible failures
-publish no assistant placeholder, usage sample, history append, final provider
-status or queue settlement. Only the final outcome enters existing loop settlement.
+effects. Eligibility follows the current shared Pi-compatible classifier without
+progress, payload or usage vetoes (DF1-F4). Ordinary intermediate eligible failures
+publish their real usage sample, stopped assistant, guarded history/tree append,
+ProviderFailed and turn/agent attempt completion. They do not settle the logical
+operation or queue claim. Private auxiliary summaries continue suppressing
+assistant content, usage and ordinary lifecycle; only accepted final summary
+publication changes context.
+
 
 Cancellation and stale-context handling use existing owners. Backoff and in-flight
 execution remain interruptible by the accepted operation's abort signal and TTY
@@ -1730,22 +1731,27 @@ The executor may use private phase synchronization; no product event queue, new
 session lifecycle owner or callbacks under shared locks are introduced.
 
 Reuse `RetryScheduled`/`RetryCompleted` and `auto_retry_start`/`auto_retry_end`.
-For each reissue, emit start before its delay, then end after its result or
-cancellation, before scheduling another. The ordinal is 1-based and `maxAttempts`
+For each reissue, emit start before its delay; emit end once when the sequence
+succeeds, exhausts, is cancelled or cannot continue (DF1-F4). The ordinal is 1-based and `maxAttempts`
 is the configured maximum reissues (`max_attempts - 1`); both exclude the initial
 logical attempt and transport fallback. Provider metadata instead counts total
 logical attempts including the initial call; its `attempt`/`max_attempts` values
 are not the retry-event ordinal/limit. Product documentation records both meanings.
-On cancellation, end is unsuccessful with
-a fixed cancellation failure, then normal canonical cancellation settles the run.
+On cancellation, the sequence end is unsuccessful with a fixed cancellation
+failure. Backoff cancellation emits no RunCancelled or new aborted assistant;
+AgentRunSettled carries CANCELLED with the original reason and existing status
+routing. Active-attempt cancellation retains normal stopped-partial settlement.
 If reissue admission raises after start was emitted, the caller emits one failed
 end with a fixed admission-rejected failure before propagating the admission
 exception through fatal lifecycle cleanup. This does not convert the exception
 into a provider result or permit another attempt. If that end callback itself
 raises, normal callback-exception propagation applies; delivery cannot be promised
-to a failing sink.
-Emit no intermediate `ProviderFailed`, `turn_end` or `agent_end`: normal provider
-failure publication remains terminal-only. Callback exceptions propagate through
+to a failing sink. A later failed-message acceptance or durable append error remains
+the primary exception if retry-end notification also raises; a bounded note records
+only the secondary exception type, and no further provider attempt begins.
+DF1-F4b completes each failed attempt with ProviderFailed, MessageCompleted(error),
+TurnCompleted and AgentRunCompleted(will_retry=true) before scheduling; actual
+reissue admission starts fresh attempt visibility without repeating accepted input. Callback exceptions propagate through
 existing cleanup; no next provider phase starts after a retry callback throws.
 D4a2 pins these rules with thread-identity and event/cancellation traces. Failure
 details remain private product content; workflow capture may keep only existing
@@ -2446,9 +2452,9 @@ preparation-injected context, auxiliary summaries, stream deltas and empty
 failure/cancellation artifacts. All success, failure, refusal, cancellation and
 malformed-fatal outcomes use the same projection; callback exceptions retain
 their existing propagation without fabricated terminal events. Each queued run
-starts a fresh list. `agent_end.messages` and extension completion consumers keep
-their envelope and full current-run enumeration; snapshots expose retained
-context. This adds no observer, event stream, product history, session or queue
+starts a fresh list. AgentRunSettled and SDK results keep full logical-run
+enumeration; attempt agent_end.messages and extension completion consumers expose
+only the appends of that low-level run. Snapshots expose retained context. This adds no observer, event stream, product history, session or queue
 owner. Current-run payloads remain in memory until settlement; context reduction
 does not promise bounded total run-output memory.
 The superseded `AgentActiveInput.result_messages` helper is removed; its
@@ -2668,8 +2674,8 @@ Phase 2.2b.5c moves that actual single-run cycle into
 `native.agent.loop.AgentLoop`. The loop accepts pre-existing canonical history,
 the identity-safe active input, session-carried immutable tool-policy state,
 optional product-injected pricing, and an optional already selected queued-input
-classification. It synchronously owns `AgentRunStarted` through
-`AgentRunCompleted`, provider/tool iterations, assistant and tool-result
+classification. It synchronously owns per-attempt AgentRunStarted/Completed and
+once-only internal AgentRunSettled, provider/tool iterations, assistant and tool-result
 assembly, normalized run usage, budget/authorization/preflight/postflight
 ordering, cancellation, malformed-fatal settlement, and the existing
 `tool_budget + 2` success fallthrough. Its outcome returns the canonical run
@@ -2690,7 +2696,7 @@ fresh terminal/RPC provider wait binding, renderer refresh, diagnostics/footer,
 prompt history, durable writes, and counter synchronization remain callback-
 composed product responsibilities. Typed state callbacks preserve the historical
 budget/unauthorized/blocked/settled/malformed counter-update points and publish
-the final state before `AgentRunCompleted`. Since Phase 3.3 the loop no longer
+the final state before AgentRunSettled. Since Phase 3.3 the loop no longer
 emits a run-effect append: durable product-session persistence is a live
 projection inside each mode's fixed agent-event composite
 (`ProductSessionEventProjection` forwarding each `AppendProductMessage` through
@@ -2707,7 +2713,7 @@ Phase 2.2b.5d replaces the parallel delivery-content/delivery-kind fields with
 one `AgentLoopRunInput.accepted_queued_input`. The loop emits the consumed event
 from that original atomic DTO, so product input hooks may still transform the
 accepted provider-visible message independently. After synchronous
-`AgentRunCompleted`, a non-terminating loop calls `AgentQueuedInputPort.take_next`
+`AgentRunSettled`, a non-terminating loop calls `AgentQueuedInputPort.take_next`
 exactly once and returns the result as `AgentLoopOutcome.next_input`; the product
 controller invokes a distinct next run. RPC carries the same full DTO through
 both post-run reservation and idle blocking-input wake paths. Queue storage,
@@ -4226,3 +4232,25 @@ For the current task-slice backlog and next-step ordering, see
   `--mode rpc` is itself a stdin/stdout protocol, not a network daemon.
 - Multi-agent task delegation.
 - Long-running dev server.
+
+## DF1-F4b ordinary retry closeout
+
+[The slice contract](specs/2026-10-10-f4b-retry-closeout.md) supersedes D4a's
+intermediate-message privacy and once-per-logical-run visibility. Caller-thread
+ProviderRetryObserver callbacks hand actual failed results to canonical assembly
+before RetryScheduled and admit fresh attempt visibility before provider deltas.
+Intermediate failed attempts are accepted/persisted through MessageCompleted and
+excluded from ordinary replay; stopped thinking/text/partial intents and real usage
+remain intact. The frozen provider request and prepared handle are reused, with
+ordinary binding/context_epoch guards after lifecycle observers; own history
+appends remain valid. Auxiliary summaries retain their stricter full witnesses.
+
+AgentRunCompleted describes each attempt run with local appended messages;
+AgentRunSettled describes one cumulative final logical result and owns SDK/RPC
+ordinary settlement. Backoff cancellation has only auto_retry_end externally and
+CANCELLED logical settlement with exact original reason internally. Existing
+CodingAgentTurnStatusEffects routes pending input without RunCancelled or a new
+aborted message. Active retry cancellation retains F6b stopped partial semantics.
+Completed error messages own the Error row; retry scheduling owns countdown only.
+Footer trailing estimates and private summary retry visibility remain later F4b
+increments.

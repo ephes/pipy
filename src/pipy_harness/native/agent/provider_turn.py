@@ -81,12 +81,17 @@ class ProviderTurnOutcome:
     cancellation_reason: AgentCancellationReason | None = None
     # What the adapter had streamed when it was cancelled (Pi's partial).
     partial: ProviderPartial | None = None
+    retry_wait_cancelled: bool = False
 
     def __post_init__(self) -> None:
         if (self.result is None) == (self.cancellation_reason is None):
             raise ValueError(
                 "provider turn outcome requires exactly one result or cancellation"
             )
+        if type(self.retry_wait_cancelled) is not bool:
+            raise TypeError("retry_wait_cancelled must be an exact bool")
+        if self.retry_wait_cancelled and self.cancellation_reason is None:
+            raise ValueError("a cancelled retry wait requires cancellation")
         if self.partial is not None and self.cancellation_reason is None:
             raise ValueError("a provider partial belongs to a cancellation")
         if self.result is not None and not isinstance(self.result, ProviderResult):
@@ -98,6 +103,47 @@ class ProviderTurnOutcome:
                 "ProviderTurnOutcome.cancellation_reason must be "
                 "AgentCancellationReason"
             )
+
+
+@runtime_checkable
+class ProviderRetryObserver(Protocol):
+    """Caller-thread handoff for failed attempts and reissue admission."""
+
+    def retry_attempt_failed(self, result: ProviderResult) -> None: ...
+
+    def retry_attempt_started(self) -> None: ...
+
+
+def _observe_failed_attempt(sink: AgentEventSink, result: ProviderResult) -> None:
+    if isinstance(sink, ProviderRetryObserver):
+        sink.retry_attempt_failed(result)
+
+
+def _accept_failed_retry_attempt(
+    sink: AgentEventSink,
+    result: ProviderResult,
+    ordinal: int,
+    emit_end: Callable[[RetryCompleted], object],
+) -> None:
+    """Preserve a failed acceptance as primary while closing a prior retry."""
+    try:
+        _observe_failed_attempt(sink, result)
+    except BaseException as primary:
+        if ordinal > 1:
+            try:
+                emit_end(
+                    RetryCompleted(ordinal - 1, False, _failure_for_exception(primary))
+                )
+            except BaseException as secondary:  # noqa: BLE001 - preserve primary handoff
+                primary.add_note(f"retry closure failed: {type(secondary).__name__}")
+        raise
+
+
+def _observe_attempt_start(sink: AgentEventSink) -> bool:
+    if isinstance(sink, ProviderRetryObserver):
+        sink.retry_attempt_started()
+        return True
+    return False
 
 
 class ProviderTurnWaiter(Protocol):
@@ -631,6 +677,7 @@ class ProviderTurnExecutor:
             ordinal = attempt - 1
             failure = _retry_failure(result)
             delay = policy.delay_seconds(ordinal, result, self._retry_jitter())
+            _accept_failed_retry_attempt(event_sink, result, ordinal, event_sink.emit)
             event_sink.emit(
                 RetryScheduled(
                     ordinal, policy.max_attempts - 1, round(delay * 1000), failure
@@ -646,6 +693,8 @@ class ProviderTurnExecutor:
             try:
                 assert before_reissue is not None
                 before_reissue()
+                if _observe_attempt_start(event_sink):
+                    before_reissue()
             except BaseException:
                 event_sink.emit(RetryCompleted(ordinal, False, _admission_failure()))
                 raise
@@ -883,6 +932,9 @@ class ProviderTurnExecutor:
                 delay = retry_policy.delay_seconds(
                     ordinal, result, self._retry_jitter()
                 )
+                _accept_failed_retry_attempt(
+                    event_sink, result, ordinal, _emit_retry_event
+                )
                 if rpc_retry_control is not None:
                     active_retry_lease = rpc_retry_control.activate()
                 _emit_retry_event(
@@ -909,7 +961,8 @@ class ProviderTurnExecutor:
                     )
                     if abort_won:
                         return ProviderTurnOutcome(
-                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED,
+                            retry_wait_cancelled=True,
                         )
                     raise
                 timer.cancel()
@@ -920,7 +973,8 @@ class ProviderTurnExecutor:
                     gate.close()
                     cancel_event.set()
                     return ProviderTurnOutcome(
-                        cancellation_reason=_cancellation_reason(delay_interruption)
+                        cancellation_reason=_cancellation_reason(delay_interruption),
+                        retry_wait_cancelled=True,
                     )
                 if cancel_event.is_set():
                     _emit_retry_event(
@@ -928,7 +982,8 @@ class ProviderTurnExecutor:
                     )
                     gate.close()
                     return ProviderTurnOutcome(
-                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED,
+                        retry_wait_cancelled=True,
                     )
                 try:
                     assert before_reissue is not None
@@ -940,7 +995,8 @@ class ProviderTurnExecutor:
                     if abort_won:
                         gate.close()
                         return ProviderTurnOutcome(
-                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED,
+                            retry_wait_cancelled=True,
                         )
                     gate.close()
                     raise
@@ -950,8 +1006,21 @@ class ProviderTurnExecutor:
                     )
                     gate.close()
                     return ProviderTurnOutcome(
-                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED,
+                        retry_wait_cancelled=True,
                     )
+                try:
+                    if _observe_attempt_start(event_sink):
+                        before_reissue()
+                except BaseException:
+                    abort_won = _emit_retry_event(
+                        RetryCompleted(ordinal, False, _admission_failure())
+                    )
+                    if abort_won:
+                        return ProviderTurnOutcome(
+                            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                        )
+                    raise
                 try:
                     worker = _start_worker()
                 except BaseException as exc:
@@ -1078,7 +1147,9 @@ def _with_partial(
     if outcome.cancellation_reason is None or partial is None:
         return outcome
     return ProviderTurnOutcome(
-        cancellation_reason=outcome.cancellation_reason, partial=partial
+        cancellation_reason=outcome.cancellation_reason,
+        partial=partial,
+        retry_wait_cancelled=outcome.retry_wait_cancelled,
     )
 
 

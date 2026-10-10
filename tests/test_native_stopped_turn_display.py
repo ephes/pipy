@@ -195,7 +195,7 @@ def test_retry_attempt_errors_and_terminal_marker_are_not_duplicated(
     assert "Operation aborted" not in errors.getvalue()
 
 
-def test_retry_wait_abort_keeps_existing_retry_notice_and_one_abort_marker(
+def test_retry_wait_abort_keeps_retry_notice_without_abort_marker(
     tmp_path: Path,
 ) -> None:
     import threading
@@ -225,7 +225,7 @@ def test_retry_wait_abort_keeps_existing_retry_notice_and_one_abort_marker(
         error_stream=errors,
     )
     assert provider.calls == 1
-    assert errors.getvalue().count("Operation aborted") == 1
+    assert errors.getvalue().count("Operation aborted") == 0
     assert errors.getvalue().count("Retry failed after") == 1
 
 

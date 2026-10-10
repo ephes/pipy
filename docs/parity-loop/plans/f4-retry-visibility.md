@@ -168,12 +168,11 @@ Pi reference: `~/src/pi-mono` @ `4df157433`.
 
 ## Deviations kept (documented)
 
-- pipy retries inside one assistant message lifecycle: JSON/RPC do not see
-  Pi's `message_end(error)` / `agent_end(willRetry)` / new `agent_start` for
-  the failed attempt, and failed attempts are not persisted.
-- Escape during the backoff still ends the turn as an operator abort, so
-  the TUI also shows `Operation aborted` after the retry-failed line (Pi ends
-  with the failed error message instead).
+- DF1-F4b slice 1 closes the original intermediate-attempt and backoff-abort
+  deviations: every ordinary failed attempt is persisted and emits message/turn/
+  agent completion; cancelling backoff retains the error without an extra aborted
+  message/row. AgentRunSettled retains logical SDK/RPC ownership across attempts.
+  See [the closeout contract](../../specs/2026-10-10-f4b-retry-closeout.md).
 - No trailing chars/4 estimate on top of the last usage (Pi adds the prompt
   of the failed turn); server retry hint kept.
 - Compaction / branch-summary retries keep their prepared-only, private

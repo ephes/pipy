@@ -21,6 +21,7 @@ from pipy_harness.native.agent import (
     AgentMessage,
     AgentRunCompleted,
     AgentRunOutcome,
+    AgentRunSettled,
     AgentToolResultMessage,
     AgentUserMessage,
     MessageCompleted,
@@ -159,7 +160,9 @@ def test_sdk_refusal_retains_history_usage_and_lifetime_then_recovers(
         )
         if iteration:
             assert (tmp_path / "effect.txt").read_text() == "kept"
-        assert isinstance(events.events[-1], AgentRunCompleted)
+        assert isinstance(events.events[-2], AgentRunCompleted)
+        assert isinstance(events.events[-1], AgentRunSettled)
+        assert events.events[-2].result is events.events[-1].result
         assert events.events[-1].result.outcome is AgentRunOutcome.FAILED
         assert events.events[-1].result.failure is _FAILURE
         assert not any(

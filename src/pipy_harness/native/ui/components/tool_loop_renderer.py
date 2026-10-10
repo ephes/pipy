@@ -251,11 +251,10 @@ class TuiToolLoopRenderer:
     def schedule_retry(
         self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str
     ) -> None:
-        """Pi ``auto_retry_start``: the failed attempt, then the retry loader."""
+        """Pi ``auto_retry_start`` countdown; stopped completion owns Error."""
 
         self._stop_working(clear=True)
-        self._transcript.add_error(f"Error: {error_message or 'Unknown error'}")
-        self._streamed_any = False
+        del error_message
         # An immutable snapshot, replaced whole: the spinner thread reads the
         # reference once per frame and never sees a half-updated countdown.
         self._retry = _RetryCountdown(

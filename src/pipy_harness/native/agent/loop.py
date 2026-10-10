@@ -24,6 +24,7 @@ from pipy_harness.native.agent.content import (
 )
 from pipy_harness.native.agent.events import (
     AgentRunCompleted,
+    AgentRunSettled,
     AgentRunStarted,
     FollowUpConsumed,
     MessageCompleted,
@@ -354,6 +355,8 @@ class _RunState:
     cancellation: AgentCancellationReason | None = None
     provider_status: AgentProviderStatusDecision | None = None
     terminate_session: bool = False
+    attempt_message_offset: int = 0
+    attempt_open: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,7 +443,17 @@ class AgentLoop:
                 break
         result = self._build_result(state, run_input.active_input)
         self._status.tool_policy_state_changed(state.tool_state)
-        self._events.emit(AgentRunCompleted(result))
+        if state.attempt_open:
+            self._events.emit(
+                AgentRunCompleted(
+                    result
+                    if state.attempt_message_offset == 0
+                    else replace(
+                        result, messages=result.messages[state.attempt_message_offset :]
+                    )
+                )
+            )
+        self._events.emit(AgentRunSettled(result))
         next_input = None
         if not state.terminate_session:
             next_input = self._queued_inputs.take_next()
@@ -507,7 +520,31 @@ class AgentLoop:
                 turn_index,
             )
         assert preparation.snapshot is not None
-        partial = PartialAssistantContent(self._events, turn_index)
+        retry_snapshot = preparation.snapshot
+
+        def _failed_attempt(result: ProviderResult) -> None:
+            self._record_retry_failure(
+                state,
+                active_input,
+                retry_snapshot,
+                result,
+                turn_index,
+                partial.blocks(),
+            )
+
+        def _started_attempt() -> None:
+            state.attempt_message_offset = len(state.appended_messages)
+            state.attempt_open = True
+            state.failure = None
+            self._events.emit(AgentRunStarted())
+            self._events.emit(TurnStarted(turn_index))
+            self._events.emit(
+                MessageStarted(turn_index, AgentAssistantMessage(ProductContent("")))
+            )
+
+        partial = PartialAssistantContent(
+            self._events, turn_index, failed=_failed_attempt, started=_started_attempt
+        )
         completion = self._provider_turn.complete(
             preparation.snapshot,
             partial,
@@ -515,6 +552,12 @@ class AgentLoop:
         )
         if type(completion) is not ProviderTurnOutcome:
             raise TypeError("provider turn must return ProviderTurnOutcome")
+        if completion.retry_wait_cancelled:
+            state.failure = None
+            state.cancellation = completion.cancellation_reason
+            assert state.cancellation is not None
+            self._status.provider_cancellation_observed(state.cancellation)
+            return _IterationDisposition.STOP
         if completion.result is None:
             return self._settle_provider_cancellation(
                 state,
@@ -682,6 +725,38 @@ class AgentLoop:
             state, active_input, snapshot, assistant, turn_index
         )
 
+    def _record_retry_failure(
+        self,
+        state: _RunState,
+        active_input: AgentActiveInput,
+        snapshot: AgentProviderRequestSnapshot,
+        result: ProviderResult,
+        turn_index: int,
+        streamed: Sequence[TextContent | ThinkingContent],
+    ) -> None:
+        _validate_provider_result(result, snapshot)
+        sample = self._publish_usage(state, result)
+        status = normalize_provider_status(
+            result, provider_name=snapshot.request.provider_name
+        )
+        self._settle_provider_failure(
+            state,
+            status,
+            turn_index,
+            _failed_blocks(result, streamed),
+            usage=message_usage(sample, state.usage.pricing),
+            request=snapshot.request,
+            provider_thinking_level=result.provider_thinking_level,
+            will_retry=True,
+        )
+        attempt_result = replace(
+            self._build_result(state, active_input),
+            will_retry=True,
+            messages=tuple(state.appended_messages[state.attempt_message_offset :]),
+        )
+        self._events.emit(AgentRunCompleted(attempt_result))
+        state.attempt_open = False
+
     def _publish_usage(
         self, state: _RunState, result: ProviderResult
     ) -> AgentProviderUsageSample:
@@ -709,6 +784,7 @@ class AgentLoop:
         usage: AgentMessageUsage,
         request: ProviderRequest,
         provider_thinking_level: str | None = None,
+        will_retry: bool = False,
     ) -> _IterationDisposition:
         failure = status.failure
         assert failure is not None
@@ -722,7 +798,7 @@ class AgentLoop:
             request=request,
             provider_thinking_level=provider_thinking_level,
         )
-        self._events.emit(ProviderFailed(failure, will_retry=status.will_retry))
+        self._events.emit(ProviderFailed(failure, will_retry=will_retry))
         self._status.provider_failed(status, state.tool_state)
         self._events.emit(MessageCompleted(turn_index, failed))
         self._append_message(state, failed)

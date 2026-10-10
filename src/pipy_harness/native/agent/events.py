@@ -358,6 +358,19 @@ class AgentRunCompleted:
             raise TypeError("AgentRunCompleted.result must be AgentRunResult")
 
 
+@dataclass(frozen=True, slots=True)
+class AgentRunSettled:
+    """Once-only logical settlement, independent of attempt visibility."""
+
+    result: AgentRunResult
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.result, AgentRunResult):
+            raise TypeError("AgentRunSettled.result must be AgentRunResult")
+        if self.result.will_retry:
+            raise ValueError("logical settlement cannot retry")
+
+
 AgentEvent = (
     AgentRunStarted
     | TurnStarted
@@ -379,5 +392,6 @@ AgentEvent = (
     | RunCancelled
     | TurnCompleted
     | AgentRunCompleted
+    | AgentRunSettled
 )
 """Closed union of events emitted synchronously by the canonical agent seam."""

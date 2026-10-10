@@ -15,6 +15,7 @@ from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
     AgentEvent,
     AgentRunCompleted,
+    AgentRunSettled,
     AssistantTextDelta,
     MessageCompleted,
     MessageStarted,
@@ -519,6 +520,7 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
         "MessageCompleted",
         "TurnCompleted",
         "AgentRunCompleted",
+        "AgentRunSettled",
     ]
     consumed = next(
         event for event in events.events if isinstance(event, SteeringConsumed)
@@ -533,7 +535,11 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
     assert order.index("status:provider_succeeded") < last_message_completed
     assert order.index("status:final_assistant") < order.index("event:TurnCompleted")
     assert status.tool_states == [outcome.final_tool_state]
-    assert order[-2:] == ["status:tool_state", "event:AgentRunCompleted"]
+    assert order[-3:] == [
+        "status:tool_state",
+        "event:AgentRunCompleted",
+        "event:AgentRunSettled",
+    ]
 
 
 def test_completed_run_takes_exactly_one_next_input_after_terminal_event() -> None:
@@ -553,7 +559,11 @@ def test_completed_run_takes_exactly_one_next_input_after_terminal_event() -> No
 
     assert outcome.next_input is next_input
     assert queued_inputs.calls == 1
-    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
+    assert order[-3:] == [
+        "event:AgentRunCompleted",
+        "event:AgentRunSettled",
+        "queue:take_next",
+    ]
 
 
 def test_tool_cycle_runs_sequentially_and_carries_results_to_next_request() -> None:
@@ -1188,11 +1198,15 @@ def test_provider_cancellation_polls_once_after_terminal_event(
     assert queued_inputs.calls == 1
     assert usage.publications == []
     assert any(isinstance(event, RunCancelled) for event in events.events)
-    assert isinstance(events.events[-3], MessageCompleted)
-    assert isinstance(events.events[-2], TurnCompleted)
-    assert events.events[-2].outcome is AgentTurnOutcome.CANCELLED
-    assert isinstance(events.events[-1], AgentRunCompleted)
-    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
+    assert isinstance(events.events[-4], MessageCompleted)
+    assert isinstance(events.events[-3], TurnCompleted)
+    assert events.events[-3].outcome is AgentTurnOutcome.CANCELLED
+    assert isinstance(events.events[-1], AgentRunSettled)
+    assert order[-3:] == [
+        "event:AgentRunCompleted",
+        "event:AgentRunSettled",
+        "queue:take_next",
+    ]
     assert order.index("event:RunCancelled") < order.index("status:provider_cancelled")
     assert order.index("status:provider_cancelled") < max(
         index for index, label in enumerate(order) if label == "event:MessageCompleted"
@@ -1257,7 +1271,11 @@ def test_tool_interruption_appends_skipped_results_and_cancels_run(
     assert status.tool_states == [outcome.final_tool_state]
     assert status.tool_states[0].tool_invocation_count == 0
     assert status.tool_states[0].invocations_this_turn == 0
-    assert order[-2:] == ["status:tool_state", "event:AgentRunCompleted"]
+    assert order[-3:] == [
+        "status:tool_state",
+        "event:AgentRunCompleted",
+        "event:AgentRunSettled",
+    ]
 
 
 def test_provider_failure_publishes_usage_then_fails_without_retry() -> None:
@@ -2129,11 +2147,15 @@ def test_preparation_cancellation_uses_canonical_settlement_and_allows_next_run(
         )
         == 1
     )
-    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
+    assert order[-3:] == [
+        "event:AgentRunCompleted",
+        "event:AgentRunSettled",
+        "queue:take_next",
+    ]
     assert order.index("event:RunCancelled") < order.index("status:provider_cancelled")
-    assert isinstance(events.events[-3], MessageCompleted)
-    assert isinstance(events.events[-2], TurnCompleted)
-    assert events.events[-2].outcome is AgentTurnOutcome.CANCELLED
+    assert isinstance(events.events[-4], MessageCompleted)
+    assert isinstance(events.events[-3], TurnCompleted)
+    assert events.events[-3].outcome is AgentTurnOutcome.CANCELLED
     source.cancel_enabled = False
     resumed = loop.run(_run_input())
     assert resumed.result.outcome is AgentRunOutcome.SUCCEEDED
@@ -2253,7 +2275,11 @@ def test_preparation_refusal_preserves_prior_effects_and_normal_handoff(
     assert isinstance(refused_events[-1], TurnCompleted)
     assert refused_events[-1].outcome is AgentTurnOutcome.FAILED
     assert refused_events[-1].message == AgentAssistantMessage(ProductContent(""))
-    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
+    assert order[-3:] == [
+        "event:AgentRunCompleted",
+        "event:AgentRunSettled",
+        "queue:take_next",
+    ]
     assert "status:preparation_failed" in order
     source.refuse = False
     assert loop.run(_run_input()).result.outcome is AgentRunOutcome.SUCCEEDED
@@ -2438,3 +2464,73 @@ def test_finished_run_rejects_leaked_parent_reservation() -> None:
                 outcome.final_tool_state, reserved_parent_slot=True
             ),
         )
+
+
+def test_headless_loop_passes_retry_observer_and_accepts_each_attempt() -> None:
+    from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
+    from pipy_harness.native.agent.provider_turn import (
+        ProviderRetryObserver,
+        ProviderTurnExecutor,
+    )
+    from pipy_harness.native.agent_loop_policy import materialize_provider_request
+
+    class Provider:
+        name = "fake"
+        model_id = "fake-model"
+        supports_tool_calls = True
+        calls = 0
+
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
+            del request, kwargs
+            self.calls += 1
+            return (
+                replace(
+                    _provider_result(status=HarnessStatus.FAILED),
+                    metadata={"retryable": True},
+                )
+                if self.calls == 1
+                else _provider_result()
+            )
+
+    provider = Provider()
+
+    class Turn:
+        def complete(
+            self,
+            snapshot: AgentProviderRequestSnapshot,
+            event_sink: AgentEventSink,
+            turn_index: int,
+            /,
+        ) -> ProviderTurnOutcome:
+            assert isinstance(event_sink, ProviderRetryObserver)
+            return ProviderTurnExecutor(retry_sleep=lambda _: None).complete(
+                provider,
+                materialize_provider_request(snapshot),
+                event_sink,
+                turn_index=turn_index,
+                retry_policy=ProviderManagedRetryPolicy(2, 0, 0),
+                before_reissue=lambda: None,
+            )
+
+    order: list[str] = []
+    events = _EventSink(order)
+    source = _RequestSource(order)
+    loop = AgentLoop(
+        request_source=source,
+        provider_turn=Turn(),
+        tool_capabilities=_Tools(order),
+        tool_policy=_ToolPolicy(order),
+        event_sink=events,
+        usage_publisher=_UsagePublisher(order),
+        queued_input_port=_QueuedInputs(),
+        status_policy=_StatusPolicy(order),
+    )
+    outcome = loop.run(_run_input())
+    assert provider.calls == 2
+    assert len(source.histories) == 1
+    completions = [e for e in events.events if isinstance(e, AgentRunCompleted)]
+    assert [e.result.will_retry for e in completions] == [True, False]
+    assert len([e for e in events.events if isinstance(e, AgentRunSettled)]) == 1
+    assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED

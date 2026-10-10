@@ -269,8 +269,8 @@ retried for **every** provider when `retry.enabled` is on (the default):
   `billing`, ...) and context-overflow errors (Pi's `isContextOverflow`
   patterns) are never retried.
 - **Mid-stream errors:** as in Pi, a failure after text already streamed is
-  retried; the retried request starts over and its answer replaces the
-  partial one. Tools only run after a successful response, so nothing runs
+  retried; each failed partial remains in durable history and the retried
+  request starts a fresh assistant message. Tools only run after a successful response, so nothing runs
   twice.
 - **Backoff:** `retry.maxRetries` retries (default 3) after
   `retry.baseDelayMs * 2^(n-1)` (default 2 s, 4 s, 8 s), capped by
@@ -283,13 +283,17 @@ retried for **every** provider when `retry.enabled` is on (the default):
   `Retry failed after 3 attempts: <error>`. JSON and RPC modes emit
   `auto_retry_start` per retry and one `auto_retry_end` per sequence.
 
-Differences from Pi: the retry happens inside one assistant message, so JSON
-and RPC do not see Pi's `message_end` / `agent_end` for a retried attempt, and
-a retried attempt is not stored in the session. The turn stores one assistant
-message: the successful answer, an `error` message with the last attempt's
-partial text when retries run out, or an empty `aborted` message when the
-wait is cancelled. Escape during the wait also shows `Operation aborted`. Compaction and branch summaries keep their own
-private retries.
+Each ordinary attempt completes its own assistant/turn/agent visibility lifecycle.
+Failed assistants are stored with stop reason `error` and omitted from ordinary
+provider replay. JSON/RPC publish `message_end(error)` and
+`agent_end(willRetry=true)` before scheduling; each actual reissue starts a fresh
+agent/turn/assistant lifecycle. Attempt `agent_end.messages` is local to that
+low-level run; the SDK terminal result enumerates the complete accepted prompt.
+One internal logical settlement retains queue and cancellation ownership across
+all attempts. Backoff cancellation keeps the last error and adds no aborted
+message or `Operation aborted` row; cancelling an active provider attempt keeps
+its aborted partial. Compaction and branch summaries still keep private retries.
+See the [F4b contract](specs/2026-10-10-f4b-retry-closeout.md).
 
 ### OpenAI prompt caching
 

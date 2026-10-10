@@ -19,14 +19,18 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
+    AgentEvent,
     AssistantTextDelta,
+    MessageCompleted,
     MessageStarted,
+    ProviderFailed,
     RetryCompleted,
     RetryScheduled,
 )
@@ -34,6 +38,7 @@ from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessageUsage,
     AgentStopReason,
+    AgentUserMessage,
 )
 from pipy_harness.native.agent.provider_retry import (
     ProviderManagedRetryPolicy,
@@ -246,7 +251,11 @@ def test_reducer_maps_retry_events_and_restarts_the_stream() -> None:
 
     state, decisions = reduce(state, RetryScheduled(1, 3, 2000, _failure("boom 503")))
     assert decisions == (ScheduleRetry(1, 3, 2000, "boom 503"),)
-    assert state.assistant_active and not state.assistant_streamed
+    assert state.assistant_active and state.assistant_streamed
+    state, _ = reduce(
+        state, MessageStarted(0, AgentAssistantMessage(ProductContent("")))
+    )
+    assert not state.assistant_streamed
 
     _, decisions = reduce(state, RetryCompleted(3, False, _failure("still 503")))
     assert decisions == (FinishRetry(False, 3, "still 503"),)
@@ -298,7 +307,17 @@ def test_tui_retry_shows_failed_attempt_then_pi_countdown_loader() -> None:
     h = _Harness()
     adapter = RenderingAgentEventAdapter(h.renderer)
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
-    h.renderer.stream_sink("Half an ans")
+    adapter.emit(AssistantTextDelta(0, ProductContent("Half an ans")))
+    adapter.emit(
+        MessageCompleted(
+            0,
+            AgentAssistantMessage(
+                ProductContent("Half an ans"),
+                stop_reason=AgentStopReason.ERROR,
+                error_message="Codex error: overloaded",
+            ),
+        )
+    )
 
     adapter.emit(RetryScheduled(1, 3, 2000, _failure("Codex error: overloaded")))
 
@@ -391,6 +410,7 @@ def test_working_warning_row_uses_the_warning_colour() -> None:
 def test_legacy_renderer_writes_pi_retry_lines() -> None:
     stderr = io.StringIO()
     renderer = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stderr)
+    renderer.render_stopped_assistant("Error: HTTP status 529.")
     renderer.schedule_retry(
         attempt=1, max_attempts=3, delay_ms=2000, error_message="HTTP status 529."
     )
@@ -417,6 +437,7 @@ def test_automation_partial_restarts_after_a_scheduled_retry() -> None:
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     adapter.emit(AssistantTextDelta(0, ProductContent("Half")))
     adapter.emit(RetryScheduled(1, 3, 2000, _failure("Codex error: overloaded")))
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     adapter.emit(AssistantTextDelta(0, ProductContent("Full")))
     adapter.emit(RetryCompleted(1, True))
 
@@ -424,6 +445,7 @@ def test_automation_partial_restarts_after_a_scheduled_retry() -> None:
         "message_start",
         "message_update",
         "auto_retry_start",
+        "message_start",
         "message_update",
         "auto_retry_end",
     ]
@@ -434,13 +456,13 @@ def test_automation_partial_restarts_after_a_scheduled_retry() -> None:
         "delayMs": 2000,
         "errorMessage": "Codex error: overloaded",
     }
-    assert emitted[3]["message"] == {
+    assert emitted[4]["message"] == {
         "role": "assistant",
         "content": [{"type": "text", "text": "Full"}],
         "usage": ZERO_USAGE,
         "stopReason": "stop",
     }
-    assert emitted[4] == {"type": "auto_retry_end", "success": True, "attempt": 1}
+    assert emitted[5] == {"type": "auto_retry_end", "success": True, "attempt": 1}
 
 
 # -- footer context ------------------------------------------------------------
@@ -578,31 +600,35 @@ def _stored_assistants(
     ]
 
 
-def test_retried_then_successful_turn_stores_only_the_success(tmp_path: Path) -> None:
+def test_retried_then_successful_turn_stores_each_attempt(tmp_path: Path) -> None:
     provider = _StreamingScriptProvider(["fail", "fail", "ok"])
     stored = _stored_assistants(tmp_path, provider, base_delay_ms=1)
 
     assert provider.calls == 3
     assert [(m.content.value, m.stop_reason) for m in stored] == [
-        ("final answer", None)
+        ("partial 1", AgentStopReason.ERROR),
+        ("partial 2", AgentStopReason.ERROR),
+        ("final answer", None),
     ]
 
 
-def test_finally_failed_retry_stores_one_error_message(tmp_path: Path) -> None:
+def test_finally_failed_retry_stores_each_error_message(tmp_path: Path) -> None:
     provider = _StreamingScriptProvider(["fail", "fail", "fail"])
     stored = _stored_assistants(tmp_path, provider, base_delay_ms=1)
-
     assert provider.calls == 3
-    assert len(stored) == 1
-    # Only the last attempt's partial survives; earlier ones were retried.
-    assert stored[0].content.value == "partial 3"
-    assert stored[0].stop_reason is AgentStopReason.ERROR
-    assert stored[0].error_message == (
-        "Anthropic API request failed with HTTP status 529."
+    assert [message.content.value for message in stored] == [
+        "partial 1",
+        "partial 2",
+        "partial 3",
+    ]
+    assert all(message.stop_reason is AgentStopReason.ERROR for message in stored)
+    assert all(
+        message.error_message == "Anthropic API request failed with HTTP status 529."
+        for message in stored
     )
 
 
-def test_abort_during_the_retry_wait_stores_one_aborted_message(
+def test_abort_during_the_retry_wait_keeps_failed_message(
     tmp_path: Path,
 ) -> None:
     provider = _StreamingScriptProvider(["fail", "ok"])
@@ -612,6 +638,210 @@ def test_abort_during_the_retry_wait_stores_one_aborted_message(
 
     assert provider.calls == 1
     assert len(stored) == 1
-    # The scheduled retry already discarded the failed attempt's partial.
-    assert stored[0].content.value == ""
-    assert stored[0].stop_reason is AgentStopReason.ABORTED
+    assert stored[0].content.value == "partial 1"
+    assert stored[0].stop_reason is AgentStopReason.ERROR
+
+
+# -- DF1-F4b closeout production-path baselines --------------------------------
+
+
+@pytest.mark.parametrize("interruptible", [False, True])
+def test_f4b_retry_attempts_survive_durable_reopen(
+    tmp_path: Path, interruptible: bool
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, state_root=tmp_path / "state")
+    provider = _StreamingScriptProvider(["fail", "fail", "ok"])
+    CodingSession(
+        provider=provider,
+        settings_manager=_retry_settings(tmp_path, 1),
+        native_session=tree,
+        abort_event=threading.Event() if interruptible else None,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert tree.path is not None
+    reopened = NativeSessionTree.open(tree.path)
+    assert (
+        sum(
+            isinstance(entry, MessageEntry)
+            and isinstance(entry.message, AgentUserMessage)
+            for entry in reopened.get_entries()
+        )
+        == 1
+    )
+    assistants = [
+        entry.message
+        for entry in reopened.get_entries()
+        if isinstance(entry, MessageEntry)
+        and isinstance(entry.message, AgentAssistantMessage)
+    ]
+    assert provider.calls == 3
+    assert [(message.content.value, message.stop_reason) for message in assistants] == [
+        ("partial 1", AgentStopReason.ERROR),
+        ("partial 2", AgentStopReason.ERROR),
+        ("final answer", None),
+    ]
+
+
+def test_f4b_retry_attempts_close_automation_lifecycles(tmp_path: Path) -> None:
+    emitted: list[dict[str, Any]] = []
+
+    class _Sink:
+        def emit(self, event: dict[str, Any]) -> None:
+            emitted.append(event)
+
+    provider = _StreamingScriptProvider(["fail", "fail", "ok"])
+    CodingSession(
+        provider=provider,
+        settings_manager=_retry_settings(tmp_path, 1),
+        agent_event_sink=AutomationAgentEventAdapter(_Sink()),
+        abort_event=threading.Event(),
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    ended = [
+        event["message"]
+        for event in emitted
+        if event["type"] == "message_end" and event["message"]["role"] == "assistant"
+    ]
+    assert [message["stopReason"] for message in ended] == ["error", "error", "stop"]
+    agent_ends = [event for event in emitted if event["type"] == "agent_end"]
+    assert [event["willRetry"] for event in agent_ends] == [True, True, False]
+    assert sum(event["type"] == "agent_start" for event in emitted) == 3
+    assert sum(event["type"] == "auto_retry_end" for event in emitted) == 1
+
+    boundary_types = {
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "auto_retry_start",
+        "auto_retry_end",
+    }
+    assert [event["type"] for event in emitted if event["type"] in boundary_types] == [
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "auto_retry_start",
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "auto_retry_start",
+        "agent_start",
+        "turn_start",
+        "auto_retry_end",
+        "turn_end",
+        "agent_end",
+    ]
+    assert [
+        [message["role"] for message in event["messages"]] for event in agent_ends
+    ] == [
+        ["system", "user", "assistant"],
+        ["assistant"],
+        ["assistant"],
+    ]
+    for index, event in enumerate(emitted):
+        if event["type"] == "auto_retry_start":
+            assert emitted[index - 1]["type"] == "agent_end"
+            assert emitted[index - 2]["type"] == "turn_end"
+            assert emitted[index - 3]["type"] == "message_end"
+            assert emitted[index - 3]["message"]["stopReason"] == "error"
+
+
+def test_f4b_cancelled_backoff_keeps_failed_attempt_without_abort(
+    tmp_path: Path,
+) -> None:
+    provider = _StreamingScriptProvider(["fail", "ok"])
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    abort = threading.Event()
+    emitted: list[dict[str, Any]] = []
+
+    class _AutomationSink:
+        def emit(self, event: dict[str, Any]) -> None:
+            emitted.append(event)
+
+    automation = AutomationAgentEventAdapter(_AutomationSink())
+
+    class _AbortSink:
+        def emit(self, event: AgentEvent) -> None:
+            automation.emit(event)
+            if isinstance(event, RetryScheduled):
+                abort.set()
+
+    errors = io.StringIO()
+    CodingSession(
+        provider=provider,
+        settings_manager=_retry_settings(tmp_path, 5000),
+        native_session=tree,
+        agent_event_sink=_AbortSink(),
+        abort_event=abort,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=errors,
+    )
+    stored = [
+        entry.message
+        for entry in tree.get_entries()
+        if isinstance(entry, MessageEntry)
+        and isinstance(entry.message, AgentAssistantMessage)
+    ]
+    assert provider.calls == 1
+    assert [(message.content.value, message.stop_reason) for message in stored] == [
+        ("partial 1", AgentStopReason.ERROR),
+    ]
+    retry_ends = [event for event in emitted if event["type"] == "auto_retry_end"]
+    assert retry_ends == [
+        {
+            "type": "auto_retry_end",
+            "success": False,
+            "attempt": 1,
+            "finalError": "Retry cancelled",
+        }
+    ]
+    assert sum(event["type"] == "agent_start" for event in emitted) == 1
+    assert [
+        event["willRetry"] for event in emitted if event["type"] == "agent_end"
+    ] == [True]
+    assert "Operation aborted" not in errors.getvalue()
+
+
+@pytest.mark.parametrize("tui", [False, True])
+def test_f4b_completed_error_owns_one_rendered_error_row(tui: bool) -> None:
+    h = _Harness()
+    errors = io.StringIO()
+    renderer = (
+        h.renderer
+        if tui
+        else _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=errors)
+    )
+    adapter = RenderingAgentEventAdapter(renderer)
+    failure = _failure("HTTP status 529.")
+    failed = AgentAssistantMessage(
+        ProductContent("partial"),
+        stop_reason=AgentStopReason.ERROR,
+        error_message=failure.message.value,
+    )
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(AssistantTextDelta(0, ProductContent("partial")))
+    adapter.emit(ProviderFailed(failure, will_retry=True))
+    adapter.emit(MessageCompleted(0, failed))
+    adapter.emit(RetryScheduled(1, 2, 5000, failure))
+    adapter.emit(RetryCompleted(1, True))
+    if tui:
+        assert [
+            block for kind, block in h.transcript.history_blocks if kind == "error"
+        ] == [
+            ("Error: HTTP status 529.",),
+        ]
+    else:
+        assert errors.getvalue().count("Error: HTTP status 529.") == 1

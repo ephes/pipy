@@ -568,8 +568,8 @@ target vocabulary includes:
 | `input` | Observe or transform submitted user input before a provider turn. | None or `InputTransform` |
 | `user_bash` | Observe or gate a user-run bash command entered via Pi's `!`/`!!` prefix, including whether it is excluded from model context. | None or `UserBashDecision` |
 | `before_agent_start` | Inject bounded context, alter system-prompt options, or add safe custom messages before a turn. | None or `BeforeAgentStartResult` |
-| `agent_start` | Observe an agent run for one accepted user prompt starting. | None |
-| `agent_end` | Observe the full agent run ending after turns and tools settle. | None |
+| `agent_start` | Observe a low-level agent run starting, including each admitted retry continuation. | None |
+| `agent_end` | Observe one low-level run ending, including failed attempts before retry. This metadata-only hook has no will-retry indicator; use agent_settled for true-idle work after the accepted prompt and queued continuations. | None |
 | `agent_settled` | Observe true idle after retries, compaction work, and queued continuations are exhausted. **Shipped.** | None |
 | `turn_start` | Observe one model/tool loop turn starting. | None |
 | `turn_end` | Observe one model/tool loop turn ending. | None |
@@ -592,6 +592,16 @@ target vocabulary includes:
 | `session_compact` | Observe completed compaction metadata. | None |
 | `session_before_tree` | Observe or block tree/session-history navigation before it starts. | None or `SessionDecision` |
 | `session_tree` | Observe completed tree/session-history navigation metadata. | None |
+
+Ordinary retries call agent/turn lifecycle hooks for each attempt, while input,
+before_agent_start and before_provider_request hooks run once for the captured
+ordinary request. A prepared request/handle stays frozen across retries. Lifecycle
+observers run outside mutation locks; original binding/context admission is
+revalidated before a new provider phase. agent_settled fires only after retries
+and queued continuations reach true idle. In RPC, the final agent_end hook runs
+before the buffered terminal agent_end envelope and logical claim settlement;
+intermediate retry envelopes precede their hooks. A blocking final hook therefore
+keeps get_state.isStreaming true and a queued successor pending until it returns.
 
 ### D6b public and RPC transition ordering
 

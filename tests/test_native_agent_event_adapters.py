@@ -16,6 +16,7 @@ from pipy_harness.native.agent import (
     AgentRunCompleted,
     AgentRunOutcome,
     AgentRunResult,
+    AgentRunSettled,
     AgentRunStarted,
     AgentToolCall,
     AgentToolResultMessage,
@@ -899,5 +900,48 @@ def test_sdk_projection_streams_synchronously_and_retains_terminal_result() -> N
     assert trace == ["one"]
     assert adapter.result is None
     adapter.emit(AgentRunCompleted(result))
-
+    assert adapter.result is None
+    adapter.emit(AgentRunSettled(result))
     assert adapter.result is result
+
+
+@pytest.mark.parametrize("active_cancellation", [False, True])
+def test_workflow_logical_cancellation_count_is_once_and_numeric(
+    active_cancellation: bool,
+) -> None:
+    from dataclasses import asdict
+
+    private = ProductContent("PRIVATE_CANCELLED_ATTEMPT_SENTINEL")
+    result = AgentRunResult(
+        AgentRunOutcome.CANCELLED,
+        (AgentAssistantMessage(private),),
+        cancellation_reason=AgentCancellationReason.OPERATOR_ABORT,
+        cancellation_detail=private,
+    )
+    adapter = WorkflowArchiveAgentEventAdapter()
+    if active_cancellation:
+        adapter.emit(RunCancelled(AgentCancellationReason.OPERATOR_ABORT, private))
+    adapter.emit(AgentRunSettled(result))
+    counts = asdict(adapter.counts())
+    assert counts["cancellations"] == 1 and counts["runs_settled"] == 1
+    assert all(type(value) is int for value in counts.values())
+    assert "PRIVATE_CANCELLED_ATTEMPT_SENTINEL" not in repr(counts)
+
+
+def test_workflow_attempt_completion_counts_separate_from_logical_settlement() -> None:
+    adapter = WorkflowArchiveAgentEventAdapter()
+    failed = AgentRunResult(
+        AgentRunOutcome.FAILED,
+        (),
+        failure=AgentFailure("transient", ProductContent("PRIVATE_FAILURE_SENTINEL")),
+        will_retry=True,
+    )
+    adapter.emit(AgentRunCompleted(failed))
+    adapter.emit(AgentRunCompleted(failed))
+    final = AgentRunResult(AgentRunOutcome.SUCCEEDED, ())
+    adapter.emit(AgentRunCompleted(final))
+    adapter.emit(AgentRunSettled(final))
+    assert adapter.counts().run_completed == 3
+    assert adapter.counts().runs_settled == 1
+    assert adapter.counts().cancellations == 0
+    assert "PRIVATE_FAILURE_SENTINEL" not in repr(adapter.counts())

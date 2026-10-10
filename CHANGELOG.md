@@ -39,6 +39,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Ordinary retries preserve every failed partial assistant in durable history and
+  expose per-attempt message/turn/agent boundaries. SDK results and RPC claims
+  settle once per accepted prompt; cancelling backoff retains the last error
+  without an extra aborted message or `Operation aborted` row. Active-attempt
+  cancellation still preserves its aborted partial. Failed messages remain
+  excluded from provider replay, and retry countdowns avoid duplicate error rows.
+
 - Stopped partial tool calls now save recoverable JSON argument values, matching
   Pi's streaming parser for finite values. Ordinary call validation is unchanged;
   unrecoverable or non-finite stopped arguments become `{}`. Existing saved

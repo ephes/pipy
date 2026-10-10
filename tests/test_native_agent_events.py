@@ -18,6 +18,7 @@ from pipy_harness.native.agent import (
     AgentRunCompleted,
     AgentRunOutcome,
     AgentRunResult,
+    AgentRunSettled,
     AgentRunStarted,
     AgentToolCall,
     AgentToolResultMessage,
@@ -55,6 +56,7 @@ EXPECTED_PUBLIC_EXPORTS = [
     "AgentMessage",
     "AgentMessageUsage",
     "AgentRunCompleted",
+    "AgentRunSettled",
     "AgentRunOutcome",
     "AgentRunResult",
     "AgentRunStarted",
@@ -144,6 +146,7 @@ def _event_examples() -> tuple[AgentEvent, ...]:
         ),
         TurnCompleted(0, AgentTurnOutcome.SUCCEEDED, assistant, (tool_result,)),
         AgentRunCompleted(run_result),
+        AgentRunSettled(run_result),
     )
 
 
@@ -151,7 +154,7 @@ def test_agent_event_union_covers_the_phase_one_vocabulary() -> None:
     events = _event_examples()
 
     assert {type(event) for event in events} == set(get_args(AgentEvent))
-    assert len(events) == 20
+    assert len(events) == 21
 
 
 def test_native_agent_public_exports_are_exact() -> None:
@@ -542,3 +545,17 @@ def test_cancellation_reason_is_closed_with_optional_product_detail() -> None:
         AgentCancellationReason.LOCAL_COMMAND,
         AgentCancellationReason.PROVIDER_CANCELLED,
     }
+
+
+def test_logical_settlement_rejects_an_intermediate_retry_result() -> None:
+    from dataclasses import replace
+
+    result = AgentRunResult(
+        AgentRunOutcome.FAILED,
+        (),
+        failure=AgentFailure("failure", ProductContent("retry")),
+        will_retry=True,
+    )
+    with pytest.raises(ValueError, match="cannot retry"):
+        AgentRunSettled(result)
+    assert AgentRunSettled(replace(result, will_retry=False)).result.will_retry is False

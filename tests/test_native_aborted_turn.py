@@ -40,6 +40,7 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     provider_replay_messages,
 )
+from pipy_harness.native.agent.assistant_blocks import PartialAssistantContent
 from pipy_harness.native.agent.content import TextContent, ThinkingContent
 from pipy_harness.native.agent.messages import AgentMessageUsage
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
@@ -183,6 +184,8 @@ class _RetryingTurn:
                 1, 3, 0, AgentFailure("overloaded", ProductContent("overloaded"))
             )
         )
+        assert isinstance(event_sink, PartialAssistantContent)
+        event_sink.retry_attempt_started()
         event_sink.emit(AssistantTextDelta(turn_index, ProductContent("fresh")))
         return ProviderTurnOutcome(
             cancellation_reason=AgentCancellationReason.OPERATOR_ABORT

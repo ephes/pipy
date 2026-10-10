@@ -779,11 +779,13 @@ refuse. No prompt may be admitted before that outcome.
 
 On the worker thread, the bridge claims one exact reservation at wake selection,
 attaches that immutable claim to the selected run, and refuses another claim
-until the run closes. The synchronous `agent_end` observer consumes and clears
-that same claim exactly once under the publication gate before settlement.
+until the run closes. The internal `AgentRunSettled` observer consumes and clears that same ordinary
+run claim exactly once under the publication gate. Intermediate attempt
+`agent_end` visibility never consumes it; manual compaction keeps its separate
+claim settlement.
 Missing, duplicate, foreign-thread or token-mismatched consumption is a fatal
 invariant failure, never permission to settle whichever reservation is current.
-If a claimed run exits before `AgentRunCompleted`, worker/lifetime cleanup
+If a claimed run exits before `AgentRunSettled`, worker/lifetime cleanup
 consumes and settles the same claim once, preserves the primary exception with a
 bounded cleanup note, and retires the lifetime. The bridge holds no independent
 active flag or cancellation latch; its claim slot is only the run-scoped
@@ -811,8 +813,9 @@ view and true-idle readiness port through a one-shot readiness handshake. A
 startup failure produces the existing bounded failure/teardown outcome; no
 provisional transport queue or latch may accept content first.
 
-At canonical `AgentRunCompleted`, the exact worker claim is settled and the
-`agent_end` record is written while holding the outer publication gate, after
+At internal canonical `AgentRunSettled`, the exact ordinary worker claim is
+settled and its buffered terminal `agent_end(willRetry=false)` is written while
+holding the outer publication gate, after
 the queue guard has been released. If settlement promotes a successor, do not
 emit protocol `agent_settled`; write `agent_end`, project one `queue_update` from
 the post-promotion snapshot, release the gate and then wake the worker. The next
@@ -822,6 +825,12 @@ callback re-enters the publication gate and rechecks the queue: admission first
 suppresses the stale idle record, while idle publication first serializes before
 the next command is accepted. This transport event remains distinct from the
 extension hook.
+
+NativeRpcServer owns one mutex-guarded pending terminal envelope, cleared on
+settlement or fatal callback cleanup. Intermediate `willRetry=true` envelopes
+publish without consuming the claim. Backoff cancellation has no new attempt end,
+but the same internal logical settlement retires the claim and wakes a successor.
+Manual compaction keeps its separate existing claim settlement path.
 
 RPC deletes its `_turn_active`, `_steering`, `_follow_up`, `_abort` and
 reservation helpers together with every reader. `get_state` and `queue_update`
@@ -1054,8 +1063,12 @@ I/O, or JSONL output.
 
 RPC projects Pi's retry sequence: each reissue has one `auto_retry_start`, and
 the sequence has one `auto_retry_end` (DF1-F4; an intermediate failed reissue
-retires its capability without an end event), with no intermediate turn or
-agent end. Command responses remain correlated, but `abort_retry` response order is not
+retires its capability without an auto-retry end event). Each failed attempt now
+closes its message/turn/agent visibility before another retry (DF1-F4b), with
+attempt-local `agent_end.messages`. Internal `AgentRunSettled` alone publishes the
+SDK cumulative final result and retires ordinary RPC claim ownership. Cancelling
+backoff retains the error assistant and produces CANCELLED logical settlement
+with its original reason, without a new aborted assistant or attempt agent_end. Command responses remain correlated, but `abort_retry` response order is not
 a synchronization guarantee for asynchronous events. `get_state` adds no retry
 activity field. Generic `abort`, queue ownership, eligibility, attempt counters,
 provider transport fallback, summary privacy, the one-shot CLI runtime, and the

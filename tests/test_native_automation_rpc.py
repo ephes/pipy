@@ -189,7 +189,8 @@ class _RetryingAutomationProvider:
     model_id = "fixture-model"
     supports_tool_calls = True
 
-    def __init__(self) -> None:
+    def __init__(self, failures: int = 1) -> None:
+        self.failures = failures
         self.prepared = 0
         self.attempts: list[tuple[int, int]] = []
 
@@ -216,7 +217,7 @@ class _RetryingAutomationProvider:
             ) -> ProviderResult:
                 provider.attempts.append((request_index, allowance.attempt))
                 now = datetime.now(UTC)
-                if request_index == 1 and allowance.attempt == 1:
+                if request_index == 1 and allowance.attempt <= provider.failures:
                     return ProviderResult(
                         status=HarnessStatus.FAILED,
                         provider_name=provider.name,
@@ -3235,5 +3236,178 @@ def test_rpc_transition_rebind_failure_retires_and_releases_lease(
         assert client._server._retired is True
         assert transition_port.leases.current_path() is None
         assert not any(record.get("id") == "successor" for record in client._seen)
+    finally:
+        client.close()
+
+
+def test_rpc_two_retry_boundaries_keep_claim_and_follow_up_waits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "settings.json").write_text(
+        json.dumps(
+            {
+                "retry": {
+                    "maxRetries": 2,
+                    "baseDelayMs": 300,
+                    "provider": {"maxRetryDelayMs": 600},
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    provider = _RetryingAutomationProvider(failures=2)
+    client = _RpcClient(tmp_path, provider=provider)
+    try:
+        client.send({"id": "first", "type": "prompt", "message": "first"})
+        records = client.collect_until(lambda r: r.get("type") == "auto_retry_start")
+        client.send({"id": "during", "type": "get_state"})
+        state = client.wait_for(lambda r: r.get("id") == "during")
+        assert state["data"]["isStreaming"] is True
+        client.send({"id": "queued", "type": "follow_up", "message": "second"})
+        records.extend(client.collect_until(lambda r: r.get("type") == "agent_settled"))
+        ends = [r for r in records if r.get("type") == "agent_end"]
+        assert [r["willRetry"] for r in ends] == [True, True, False, False]
+        assert provider.attempts == [(1, 1), (1, 2), (1, 3), (2, 1)]
+        assert sum(r.get("type") == "auto_retry_end" for r in records) == 1
+        first_answer = next(
+            i
+            for i, r in enumerate(records)
+            if r.get("type") == "message_end"
+            and r["message"].get("content") == [{"type": "text", "text": "done:first"}]
+        )
+        second_user = next(
+            i
+            for i, r in enumerate(records)
+            if r.get("type") == "message_end"
+            and r["message"].get("role") == "user"
+            and r["message"].get("content") == [{"type": "text", "text": "second"}]
+        )
+        assert first_answer < second_user
+        client.send({"id": "idle", "type": "get_state"})
+        assert (
+            client.wait_for(lambda r: r.get("id") == "idle")["data"]["isStreaming"]
+            is False
+        )
+    finally:
+        client.close()
+
+
+def test_final_extension_hook_holds_rpc_claim_and_successor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_native_extension_lifecycle import _write
+
+    import pipy_harness.native.extension_hooks as extension_module
+
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "settings.json").write_text(
+        json.dumps({"retry": {"maxRetries": 2, "baseDelayMs": 100}})
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    proof = tmp_path / "hook-proof"
+    _write(
+        tmp_path,
+        "rpc_retry_observer",
+        f"""from pathlib import Path
+def activate(api):
+    def end(event, ctx):
+        with Path({str(proof)!r}).open('a') as handle:
+            handle.write('end\\n')
+    api.on('agent_end', end)
+""",
+    )
+    entered, release = threading.Event(), threading.Event()
+    original = extension_module.dispatch_lifecycle_hooks
+    ends = 0
+
+    def dispatch(*args: Any, **kwargs: Any) -> None:
+        nonlocal ends
+        original(*args, **kwargs)
+        if args[1].name == "agent_end":
+            ends += 1
+            if ends == 2:
+                entered.set()
+                assert release.wait(5)
+
+    monkeypatch.setattr(extension_module, "dispatch_lifecycle_hooks", dispatch)
+    provider = _RetryingAutomationProvider()
+    client = _RpcClient(
+        tmp_path,
+        provider=provider,
+        resource_options=RuntimeResourceOptions(
+            extension_paths=(
+                tmp_path / ".pipy" / "extensions" / "rpc_retry_observer.py",
+            )
+        ),
+    )
+    try:
+        client.send({"id": "p", "type": "prompt", "message": "ROOT"})
+        assert entered.wait(5)
+        assert proof.read_text().splitlines() == ["end", "end"]
+        client.send({"id": "state", "type": "get_state"})
+        state = client.wait_for(lambda record: record.get("id") == "state")
+        assert state["data"]["isStreaming"] is True
+        client.send({"id": "next", "type": "follow_up", "message": "NEXT"})
+        client.wait_for(lambda record: record.get("id") == "next")
+        assert provider.attempts == [(1, 1), (1, 2)]
+        assert not any(
+            record.get("type") == "agent_end" and record.get("willRetry") is False
+            for record in client._seen
+        )
+        release.set()
+        records = client.collect_until(
+            lambda record: record.get("type") == "agent_settled"
+        )
+        terminal = [r for r in records if r.get("type") == "agent_end"]
+        assert [r["willRetry"] for r in terminal] == [False, False]
+        assert provider.attempts == [(1, 1), (1, 2), (2, 1)]
+        assert proof.read_text().splitlines() == ["end", "end", "end"]
+    finally:
+        release.set()
+        client.close()
+
+
+def test_later_failed_assistant_append_failure_retires_rpc_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "settings.json").write_text(
+        json.dumps({"retry": {"maxRetries": 2, "baseDelayMs": 100}})
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    provider = _RetryingAutomationProvider(failures=2)
+    original = NativeSessionTree.append_message
+    appends = 0
+
+    def append(owner: NativeSessionTree, message: Any) -> Any:
+        from pipy_harness.native.agent.messages import AgentAssistantMessage
+
+        nonlocal appends
+        if isinstance(message, AgentAssistantMessage):
+            appends += 1
+            if appends == 2:
+                raise OSError("second failed assistant append")
+        return original(owner, message)
+
+    monkeypatch.setattr(NativeSessionTree, "append_message", append)
+    client = _RpcClient(tmp_path, provider=provider, persist_tree=True)
+    try:
+        client.send({"id": "p", "type": "prompt", "message": "ROOT"})
+        client.collect_until(lambda record: record.get("type") == "auto_retry_end")
+        worker = client._server._worker
+        assert worker is not None
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        client.send({"id": "state", "type": "get_state"})
+        state = client.wait_for(lambda record: record.get("id") == "state")
+        assert state["data"]["isStreaming"] is False
+        assert state["data"]["pendingMessageCount"] == 0
+        assert client._server._bridge.snapshot().reservation is None
+        assert provider.attempts == [(1, 1), (1, 2)]
     finally:
         client.close()

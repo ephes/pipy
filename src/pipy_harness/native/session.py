@@ -20,6 +20,7 @@ from pipy_harness.native.agent import (
     AgentRunCompleted,
     AgentRunOutcome,
     AgentRunResult,
+    AgentRunSettled,
     AgentRunStarted,
     AgentTurnOutcome,
     AgentUsage,
@@ -349,10 +350,8 @@ class NativeHarnessCompatibilityRuntime:
 
     This is intentionally not a second implementation of the canonical coding
     agent. It preserves the bounded provider-metadata intent, supervised
-    proposal/apply, and workflow-archive lifecycle used by ``pipy run`` and the
-    narrow Python SDK. Provider completion is delegated to the canonical
-    ``ProviderTurnExecutor``; its fixture-shaped tool contract does not match
-    canonical provider tool calls and remains isolated here.
+    proposal/apply and workflow archive used by ``pipy run`` and the Python SDK.
+    ``ProviderTurnExecutor`` owns completion; fixture tool calls stay isolated.
     """
 
     provider: ProviderPort
@@ -468,6 +467,7 @@ class NativeHarnessCompatibilityRuntime:
                 ),
             )
         canonical_events.emit(AgentRunCompleted(canonical_result))
+        canonical_events.emit(AgentRunSettled(canonical_result))
         if sdk_projection.result is not canonical_result:
             raise RuntimeError("SDK terminal projection did not accept the run result")
         event_sink.emit(

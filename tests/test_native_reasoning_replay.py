@@ -975,6 +975,8 @@ def test_partial_recorder_orders_segments_and_restarts_on_retry() -> None:
     partial.emit(
         RetryScheduled(1, 3, 10, AgentFailure("ProviderError", ProductContent("x")))
     )
+    assert partial.blocks() == (ThinkingContent("think"), TextContent("text"))
+    partial.retry_attempt_started()
     assert partial.blocks() == ()
     assert len(sink.events) == 5
 

@@ -17,6 +17,7 @@ from pipy_harness.native.agent import (
     AgentEventSink,
     AgentRunCompleted,
     AgentRunResult,
+    AgentRunSettled,
     AgentRunStarted,
     AgentSystemMessage,
     AgentTranscriptMessage,
@@ -180,6 +181,7 @@ class WorkflowAgentEventCounts:
     follow_ups_consumed: int
     nested_calls_started: int
     nested_calls_completed: int
+    runs_settled: int = 0
 
 
 class WorkflowArchiveAgentEventAdapter:
@@ -192,7 +194,8 @@ class WorkflowArchiveAgentEventAdapter:
     """
 
     def __init__(self) -> None:
-        self._counts = [0] * 15
+        self._counts = [0] * 16
+        self._cancelled = False
 
     def emit(self, event: AgentEvent) -> None:
         safe_types = (
@@ -211,10 +214,22 @@ class WorkflowArchiveAgentEventAdapter:
             FollowUpConsumed,
             NestedToolCallStarted,
             NestedToolCallCompleted,
+            AgentRunSettled,
         )
         for index, event_type in enumerate(safe_types):
             if isinstance(event, event_type):
                 self._counts[index] += 1
+                if (
+                    isinstance(event, AgentRunSettled)
+                    and event.result.cancellation_reason is not None
+                ):
+                    # Count backoff cancellation once without a public RunCancelled.
+                    if not self._cancelled:
+                        self._counts[safe_types.index(RunCancelled)] += 1
+                if isinstance(event, RunCancelled):
+                    self._cancelled = True
+                if isinstance(event, AgentRunSettled):
+                    self._cancelled = False
                 return
 
     def counts(self) -> WorkflowAgentEventCounts:
@@ -229,7 +244,7 @@ class SdkAgentEventAdapter:
         self._result: AgentRunResult | None = None
 
     def emit(self, event: AgentEvent) -> None:
-        if isinstance(event, AgentRunCompleted):
+        if isinstance(event, AgentRunSettled):
             self._result = event.result
         elif isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
             return  # SDK exposes assistant text and terminal run results only.

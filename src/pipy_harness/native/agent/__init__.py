@@ -4,6 +4,7 @@ from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
     AgentEvent,
     AgentRunCompleted,
+    AgentRunSettled,
     AgentRunStarted,
     AssistantReasoningDelta,
     AssistantTextDelta,
@@ -59,6 +60,7 @@ __all__ = [
     "AgentMessage",
     "AgentMessageUsage",
     "AgentRunCompleted",
+    "AgentRunSettled",
     "AgentRunOutcome",
     "AgentRunResult",
     "AgentRunStarted",

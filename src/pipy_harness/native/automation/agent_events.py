@@ -17,6 +17,7 @@ from pipy_harness.native.agent import (
     AgentEvent,
     AgentMessageUsage,
     AgentRunCompleted,
+    AgentRunSettled,
     AgentRunStarted,
     AssistantReasoningDelta,
     AssistantTextDelta,
@@ -96,14 +97,11 @@ class AutomationAgentEventAdapter:
         if isinstance(event, (ToolCallStarted, ToolCallUpdated, ToolCallCompleted)):
             return self._project_tool_execution(event)
         if isinstance(event, (RetryScheduled, RetryCompleted)):
-            if isinstance(event, RetryScheduled):
-                # The retried attempt starts over: its partial message must
-                # not carry the failed attempt's text.
-                self._partial = []
             return self._project_retry(event)
         if isinstance(
             event,
             (
+                AgentRunSettled,
                 UsageUpdated,
                 SteeringConsumed,
                 FollowUpConsumed,

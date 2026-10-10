@@ -256,19 +256,16 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - A resumed session shows no `Session compacted N times` status (Pi
     `renderInitialMessages`).
 - **DF1-F4b, what F4 left of retries:** F4 is merged (plan:
-  `docs/parity-loop/plans/f4-retry-visibility.md`). Every provider is retried
+  `docs/parity-loop/plans/f4-retry-visibility.md`; proposed closeout contract:
+  [F4b retry closeout](specs/2026-10-10-f4b-retry-closeout.md)). Every provider is retried
   with Pi's classifier, also after partial output. The TUI shows `Error: ...`
   and `Retrying (n/3) in Ns... (escape to cancel)`. Codex `error` /
   `response.failed` events carry Pi's text and are classified by it. A failed
-  turn keeps the last successful footer context. Remaining differences from
-  Pi:
-  - The retry stays inside one assistant message, so there is no
-    `message_end` / `agent_end(willRetry)` for a retried attempt and it is not
-    persisted. With F6, the turn stores one message: the success, one
-    `error` message after the last failed attempt, or one `aborted` message
-    when the wait is cancelled.
-  - Escape during the backoff ends as an operator abort (an extra `Operation
-    aborted` line).
+  turn keeps the last successful footer context.
+  Slice 1 now persists every ordinary failed attempt and emits message/turn/agent
+  boundaries with attempt-local messages. Separate logical settlement preserves
+  SDK/RPC ownership; backoff cancellation keeps the last error without an extra
+  aborted message or row. Remaining differences:
   - There is no chars/4 trailing estimate on top of the last usage.
   - Compaction and branch-summary retries are still private.
 - **DF1-F5b, oversized auxiliary-summary recovery (prepared 2026-10-09;

@@ -233,6 +233,7 @@ def test_tool_loop_exposes_one_mode_neutral_canonical_trace(tmp_path: Path) -> N
         "MessageCompleted",
         "TurnCompleted",
         "AgentRunCompleted",
+        "AgentRunSettled",
     ]
     deltas = [
         event.delta

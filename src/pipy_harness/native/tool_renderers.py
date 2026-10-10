@@ -494,10 +494,10 @@ class _ToolLoopRenderer:
     def schedule_retry(
         self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str
     ) -> None:
-        """Pi ``auto_retry_start`` as two plain lines (no live countdown here)."""
+        """Pi ``auto_retry_start`` countdown line; stopped completion owns Error."""
 
         self._finish_provider_turn(stream_ended_with_newline=False)
-        self._write_retry_line(f"Error: {error_message or 'Unknown error'}")
+        del error_message
         self._write_retry_line(
             f"Retrying ({attempt}/{max_attempts}) in "
             f"{math.ceil(max(0, delay_ms) / 1000)}s..."

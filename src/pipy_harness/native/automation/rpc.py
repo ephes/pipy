@@ -32,6 +32,8 @@ from typing import Any, BinaryIO, TextIO
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
 from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.events import AgentEvent, AgentRunSettled
+from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.results import AgentCancellationReason
 from pipy_harness.native.automation.jsonl import (
     JsonlLineBuffer,
@@ -257,6 +259,20 @@ class _NullEventSink:
         return None
 
 
+class _RpcLogicalSettlementSink:
+    """Internal final-run observer; attempt transport never owns claims."""
+
+    def __init__(self, server: NativeRpcServer, prior: AgentEventSink | None) -> None:
+        self._server = server
+        self._prior = prior
+
+    def emit(self, event: AgentEvent) -> None:
+        if self._prior is not None:
+            self._prior.emit(event)
+        if isinstance(event, AgentRunSettled):
+            self._server._settle_logical_run()
+
+
 class NativeRpcServer:
     """Drives one long-lived RPC session over stdin/stdout."""
 
@@ -281,6 +297,7 @@ class NativeRpcServer:
         self._bridge = _NativeSessionControlBridge()
         self._bridge.bind_wake_reader(self._channel.readline)
         self._lock = threading.Lock()
+        self._pending_agent_end: dict[str, Any] | None = None
         self._steering_mode = "all"
         self._follow_up_mode = "all"
         self._last_assistant_text: str | None = None
@@ -307,13 +324,24 @@ class NativeRpcServer:
                 )
                 if text:
                     self._last_assistant_text = text
-        if event_type != "agent_end":
-            # Async session events are fire-and-forget through the single writer.
+        if event_type != "agent_end" or event.get("willRetry") is True:
             self._writer.write_line(event)
             return
+        # The final envelope must become visible atomically with claim
+        # consumption. Keep one bounded slot until canonical logical settlement.
+        with self._lock:
+            if self._pending_agent_end is not None:
+                raise RuntimeError("terminal agent_end is already pending")
+            self._pending_agent_end = event
+
+    def _settle_logical_run(self) -> None:
+        with self._lock:
+            event = self._pending_agent_end
+            self._pending_agent_end = None
 
         def publish(snapshot: _NativeControlSnapshot) -> None:
-            self._writer.write_line(event)
+            if event is not None:
+                self._writer.write_line(event)
             if snapshot.reservation is not None:
                 self._emit_queue_update(snapshot)
 
@@ -325,6 +353,9 @@ class NativeRpcServer:
     def run(self) -> int:
         self._adapter.native_session = self._tree
         self._adapter.automation_observer = self
+        self._adapter.agent_event_sink = _RpcLogicalSettlementSink(
+            self, self._adapter.agent_event_sink
+        )
         self._adapter.abort_event = self._bridge
         self._adapter.input_stream = self._bridge
         import io as _io
@@ -408,6 +439,8 @@ class NativeRpcServer:
             )
         # never crash stdout
         except BaseException as exc:  # noqa: BLE001 - retain the startup primary
+            with self._lock:
+                self._pending_agent_end = None
             self._bridge.publish_failure_if_unpublished(exc)
             print(f"pipy: rpc worker ended: {type(exc).__name__}", file=self._error)
 
