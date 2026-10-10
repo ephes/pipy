@@ -21,7 +21,6 @@ from dataclasses import dataclass, replace
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentStopReason,
     AgentToolResultMessage,
     AgentUserMessage,
 )
@@ -52,7 +51,10 @@ from pipy_harness.native.ui.components.transcript import (
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
-from pipy_harness.native.ui.stopped_turn import stopped_assistant_marker
+from pipy_harness.native.ui.stopped_turn import (
+    stopped_assistant_marker,
+    stopped_tool_call_text,
+)
 
 
 def compaction_summary_box(entry: CompactionEntry) -> SummaryBox:
@@ -221,12 +223,6 @@ def _render_message(
         _render_assistant(message, renderer, scratch, results)
 
 
-def _stopped_call_text(message: AgentAssistantMessage) -> str:
-    if message.stop_reason is AgentStopReason.ABORTED:
-        return "Operation aborted"
-    return message.error_message or "Error"
-
-
 def _render_assistant(
     message: AgentAssistantMessage,
     renderer: TuiToolLoopRenderer,
@@ -252,7 +248,7 @@ def _render_assistant(
             # Pi renderSessionItems: a stopped turn's partial tool call ends
             # with the abort or error as its (error) result.
             renderer.render_tool_result(
-                output_text=_stopped_call_text(message), is_error=True
+                output_text=stopped_tool_call_text(message), is_error=True
             )
         elif result is not None:
             renderer.render_tool_result(

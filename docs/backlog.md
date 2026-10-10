@@ -285,8 +285,11 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     ([contract](specs/2026-10-09-f6b-live-stopped-turns.md)): completed stopped
     provider messages draw their partial content, then one
     `Error: …` or `Operation aborted` row, matching resumed history. Steering,
-    local-command and provider cancellations use the same marker. A fallback
-    marker also covers partial tool calls; rendering those calls remains deferred.
+    local-command and provider cancellations use the same marker. Stopped partial tool calls now draw the same failed rows live and on resume
+    ([display follow-up](specs/2026-10-10-f6b-partial-call-display.md)); these are
+    presentation only and never execute the calls, read edit previews or start
+    execution timers. Display follow-up: 7994 passed, two expected skips; scoped
+    Opus 5.5/high repair review CLEAN, both Warnings repaired.
     Existing retry notices remain separate. Verification: 7970 passed, 2 expected
     skips; independent Opus 5.5/high repair review closed as advisory, with no
     blocking findings (not CLEAN). Owner authorized commit and push on 2026-10-10.
@@ -296,8 +299,7 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     serializes it into the summary input as `[Assistant]: …`.
   - Partial thinking and partial tool calls are now stored (reasoning
     storage); a partial call keeps its raw streamed argument text (Pi stores
-    `parseStreamingJson`'s object), and live, an aborted Codex turn draws no
-    row for its partial tool calls (resume draws them failed, as Pi).
+    `parseStreamingJson`'s object).
 - **DF1-F7b, what F7 left of TUI polish** (see the F7 Done row):
   - Selectors: the F7b selectors slice
     ([plan](specs/2026-09-30-f7b-selectors-plan.md), branch

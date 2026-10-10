@@ -68,7 +68,9 @@ class AgentEventRenderer(Protocol):
 
     def cancel_assistant_message(self, reason: AgentCancellationReason) -> None: ...
 
-    def render_tool_call(self, call: AgentToolCall) -> None: ...
+    def render_tool_call(
+        self, call: AgentToolCall, *, display_only: bool = False
+    ) -> None: ...
 
     def tool_output_sink(self, chunk: str) -> None: ...
 
@@ -194,7 +196,7 @@ class RenderingAgentEventAdapter:
     ) -> None:
         renderer = self._renderer
         if isinstance(decision, RenderToolCall):
-            renderer.render_tool_call(decision.call)
+            renderer.render_tool_call(decision.call, display_only=decision.display_only)
         elif isinstance(decision, StreamToolOutput):
             renderer.tool_output_sink(decision.text)
         elif isinstance(decision, RenderToolResult):

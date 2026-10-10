@@ -461,16 +461,14 @@ def test_stopped_partial_call_still_closes_with_terminal_marker(
         ),
         MessageCompleted(0, message),
     )
-    marker = (
-        "Operation aborted"
-        if stop_reason is AgentStopReason.ABORTED
-        else "Error: Unknown error"
-    )
+    marker = "Operation aborted" if stop_reason is AgentStopReason.ABORTED else "Error"
     assert decisions == (
         *(
             (RenderBufferedAssistantText("partial", has_tool_calls=False),)
             if not streamed
             else ()
         ),
-        RenderStoppedAssistant(marker),
+        CompleteAssistantMessage(has_tool_calls=True),
+        RenderToolCall(call, display_only=True),
+        RenderToolResult(marker, True, None),
     )

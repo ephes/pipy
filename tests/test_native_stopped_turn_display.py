@@ -119,7 +119,11 @@ def test_coding_session_draws_one_marker_and_continues_with_intact_history(
         output_stream=output,
         error_stream=errors,
     )
-    marker = "Error: provider exploded" if failure else "Operation aborted"
+    marker = (
+        ("provider exploded" if partial_call else "Error: provider exploded")
+        if failure
+        else "Operation aborted"
+    )
     assert errors.getvalue().count(marker) == 1
     assert "pipy: provider failure during turn:" not in errors.getvalue()
     assert "next answer" in output.getvalue()
@@ -149,7 +153,7 @@ def test_coding_session_draws_one_marker_and_continues_with_intact_history(
     restored.history.render_active_branch()
     if not partial_call:
         assert restored.rows().count(("error", (marker,))) == 1
-    # Partial call rows on resume remain an existing, separate presentation path.
+    # Exact live/reopen partial-call equality is covered by the display regression.
 
 
 def test_terminal_failure_after_stream_draws_marker_once(tmp_path: Path) -> None:

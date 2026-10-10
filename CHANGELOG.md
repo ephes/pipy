@@ -41,8 +41,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 - Live stopped provider answers now show their partial output followed by
   `Error: …` or `Operation aborted`. Responses without tool calls match resumed
-  history; partial-call stops get the marker too, while their call rows still
-  appear only on resume. Steering, local-command and provider cancellations show
+  history. Stopped partial tool calls now appear as failed rows live and on
+  resume, without executing them or adding synthetic tool results to history. Steering, local-command and provider cancellations show
   the abort marker too. Terminal provider errors replace the generic failure
   diagnostic; retry notices, saved entries and continuation are unchanged.
 

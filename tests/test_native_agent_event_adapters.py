@@ -98,7 +98,9 @@ class _RecordingRenderer:
     def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
         self.actions.append(("assistant-cancelled", reason))
 
-    def render_tool_call(self, call: AgentToolCall) -> None:
+    def render_tool_call(
+        self, call: AgentToolCall, *, display_only: bool = False
+    ) -> None:
         self.actions.append(("tool-start", call))
 
     def tool_output_sink(self, chunk: str) -> None:

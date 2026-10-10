@@ -714,7 +714,10 @@ class _ToolLoopRenderer:
             f"{self._ANSI_RESET}\n"
         )
 
-    def render_tool_call(self, call: AgentToolCall) -> None:
+    def render_tool_call(
+        self, call: AgentToolCall, *, display_only: bool = False
+    ) -> None:
+        del display_only  # Plain rows never start a preview or execution timer.
         with self._terminal_lock:
             self._nested_parent_id = (
                 call.provider_correlation_id if call.tool_name == "codemode" else None

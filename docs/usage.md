@@ -96,8 +96,8 @@ so late chunks do not mutate session/context state.
 A stopped provider answer keeps its partial output and ends with
 `Operation aborted` for cancellation (including steering and local-command
 interruptions), or `Error: …` for a provider failure. The same marker appears on
-resume for answers without tool calls. Partial-call stops get the live marker
-too; their individual call rows still appear only on resume. Retry attempts
+resume for answers without tool calls. Stopped partial tool calls appear as failed rows in both the live display and
+on resume. These calls were not executed; the rows show the stopping reason. Retry attempts
 retain their existing error/countdown notices; a terminal
 stopped answer gets one marker, and the next prompt remains usable.
 

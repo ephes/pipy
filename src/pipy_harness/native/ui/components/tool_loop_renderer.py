@@ -330,7 +330,9 @@ class TuiToolLoopRenderer:
         self._stop_working(clear=True)
         self._transcript.add_reasoning(text)
 
-    def render_tool_call(self, call: AgentToolCall) -> None:
+    def render_tool_call(
+        self, call: AgentToolCall, *, display_only: bool = False
+    ) -> None:
         """Start the call's row (Pi ``ToolExecutionComponent``), pending.
 
         Built-in tools draw with Pi's renderers; an extension tool with its
@@ -343,6 +345,7 @@ class TuiToolLoopRenderer:
         computes one.
         """
 
+        replay = self._replaying or display_only
         self._stop_working(clear=True)
         args = parse_arguments(call.arguments_json.value)
         name = call.tool_name
@@ -356,11 +359,11 @@ class TuiToolLoopRenderer:
             extension=extension,
             # Pi's bash renderer records `startedAt` once execution starts;
             # a replayed call never started here.
-            started_at=None if self._replaying else self._transcript.now(),
+            started_at=None if replay else self._transcript.now(),
         )
         self._transcript.start_tool(state)
         self._preview_thread = None
-        if builtin and name == "edit" and not self._replaying:
+        if builtin and name == "edit" and not replay:
             thread = threading.Thread(
                 target=self._compute_edit_preview,
                 args=(state,),

@@ -3245,11 +3245,14 @@ always and emit a fail/cancel decision only while a message is active (cancel
 carries the exact `AgentCancellationReason`); and a `MessageCompleted` for an
 active assistant message deactivates it and, unless suppressed, renders the
 buffered body only when there is non-streamed content, then completes exactly
-once with the message's `has_tool_calls`. Canonical stopped completions still render non-streamed partial content and one
-`RenderStoppedAssistant` marker despite suppression; synthetic unstopped
+once with the message's `has_tool_calls`. Canonical stopped completions still render non-streamed partial content despite
+suppression. Without calls they draw one `RenderStoppedAssistant` marker; with
+partial calls they complete the body, then draw each call and its failed display
+result, matching restored history. These decisions do not execute tools or emit
+canonical tool events/results; synthetic unstopped
 completions stay silent after failure/cancellation. The marker text is shared
 with restored history (DF1-F6b). Early fail/cancel callbacks settle working
-chrome and content; the completed stopped message owns the error row. Retry
+chrome and content; the completed stopped message owns the error row or failed call rows. Retry
 attempt notices retain their existing separate lifecycle. A second or inactive completion is
 silent, so completion happens at most once per message. `assistant_streamed`
 persists across completion and is reset only by the next `MessageStarted`.

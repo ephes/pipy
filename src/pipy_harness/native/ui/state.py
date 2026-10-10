@@ -33,7 +33,10 @@ from pipy_harness.native.agent.events import (
 )
 from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentToolCall
 from pipy_harness.native.agent.results import AgentCancellationReason
-from pipy_harness.native.ui.stopped_turn import stopped_assistant_marker
+from pipy_harness.native.ui.stopped_turn import (
+    stopped_assistant_marker,
+    stopped_tool_call_text,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,9 +149,10 @@ class RenderNestedToolCall:
 
 @dataclass(frozen=True, slots=True)
 class RenderToolCall:
-    """Render a model-requested tool call entering execution."""
+    """Render a call row; display-only calls never started execution."""
 
     call: AgentToolCall
+    display_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,10 +309,29 @@ def _reduce_message_completed(state: UiState, event: MessageCompleted) -> _Reduc
             )
         )
     if marker is not None:
-        decisions.append(RenderStoppedAssistant(marker))
+        if has_tool_calls:
+            decisions.extend(_stopped_tool_decisions(event.message))
+        else:
+            decisions.append(RenderStoppedAssistant(marker))
     elif not state.assistant_completion_suppressed:
         decisions.append(CompleteAssistantMessage(has_tool_calls=has_tool_calls))
     return (completed, tuple(decisions))
+
+
+def _stopped_tool_decisions(
+    message: AgentAssistantMessage,
+) -> tuple[RenderDecision, ...]:
+    """Draw unexecuted partial calls as failed, using restored-history verbs."""
+
+    decisions: list[RenderDecision] = [CompleteAssistantMessage(has_tool_calls=True)]
+    for call in message.tool_calls:
+        decisions.extend(
+            (
+                RenderToolCall(call, display_only=True),
+                RenderToolResult(stopped_tool_call_text(message), True, None),
+            )
+        )
+    return tuple(decisions)
 
 
 def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
