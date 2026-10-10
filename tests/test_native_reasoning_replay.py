@@ -1006,7 +1006,7 @@ def test_loop_abort_keeps_the_adapter_partial_and_effort() -> None:
     assert aborted.provider_thinking_level == "high"
     assert aborted.ordered_content() == (
         ThinkingContent("partial"),
-        AgentToolCall("call_1|fc_1", "read", ProductContent('{"pa')),
+        AgentToolCall("call_1|fc_1", "read", ProductContent("{}")),
     )
 
 

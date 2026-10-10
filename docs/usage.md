@@ -99,7 +99,13 @@ interruptions), or `Error: …` for a provider failure. The same marker appears 
 resume for answers without tool calls. Stopped partial tool calls appear as failed rows in both the live display and
 on resume. These calls were not executed; the rows show the stopping reason. Retry attempts
 retain their existing error/countdown notices; a terminal
-stopped answer gets one marker, and the next prompt remains usable.
+stopped answer gets one marker, and the next prompt remains usable. An interruption
+during tool execution records the settled results followed by an empty aborted
+answer. Stopped call arguments preserve recoverable streamed JSON values; invalid
+or non-finite input becomes `{}`. Old saved entries are unchanged. Ordinary
+requests skip stopped answers; private compaction and branch summaries may quote
+their unfinished partial text as data. Attempted-file metadata may include
+partial paths from unexecuted stopped intents, labelled as such.
 
 ## Sessions
 

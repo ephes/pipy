@@ -414,8 +414,9 @@ def provider_replay_messages(
     Pi ``transformMessages`` (``packages/ai/src/api/transform-messages.ts``)
     skips every assistant message whose ``stopReason`` is ``error`` or
     ``aborted``: it is an incomplete turn, and the model retries from the
-    last valid state. Stopped messages carry no tool calls, so skipping one
-    never orphans a tool result.
+    last valid state. Stopped messages may carry unexecuted partial tool calls but have no tool
+    results, so skipping one never orphans a result. Private summaries quote
+    their partial text separately rather than replaying the stopped message.
     """
 
     kept = tuple(

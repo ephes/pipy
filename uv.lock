@@ -282,6 +282,15 @@ wheels = [
 ]
 
 [[package]]
+name = "partial-json-parser"
+version = "0.2.1.1.post7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/6d/eed37d7ebc1e0bcd27b831c0cf1fe94881934316187c4b30d23f29ea0bd4/partial_json_parser-0.2.1.1.post7.tar.gz", hash = "sha256:86590e1ba6bcb6739a2dfc17d2323f028cb5884f4c6ce23db376999132c9a922", size = 10296, upload-time = "2025-11-17T07:27:41.202Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/32/658973117bf0fd82a24abbfb94fe73a5e86216e49342985e10acce54775a/partial_json_parser-0.2.1.1.post7-py3-none-any.whl", hash = "sha256:145119e5eabcf80cbb13844a6b50a85c68bf99d376f8ed771e2a3c3b03e653ae", size = 10877, upload-time = "2025-11-17T07:27:40.457Z" },
+]
+
+[[package]]
 name = "pathspec"
 version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -295,6 +304,7 @@ name = "pipy"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "partial-json-parser" },
     { name = "websockets" },
 ]
 
@@ -314,6 +324,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "partial-json-parser", specifier = ">=0.2.1.1.post7,<0.3" },
     { name = "wasmtime", marker = "extra == 'codemode'", specifier = ">=49,<50" },
     { name = "websockets", specifier = ">=16.0,<17" },
 ]

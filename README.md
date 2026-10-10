@@ -19,6 +19,10 @@ archive layout, and parity status, start at [`docs/index.md`](docs/index.md).
 Contributors should follow [`CONTRIBUTING.md`](CONTRIBUTING.md) for clean-checkout
 setup, architecture boundaries, validation, review, and privacy expectations.
 
+Stopped partial tool arguments use the small pure-Python `partial-json-parser`
+dependency; ordinary tool validation remains strict. See the
+[dependency decision](docs/decisions/2026-10-10-stopped-partial-json.md).
+
 ## Install And Update
 
 The current release is 0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)). pipy is not

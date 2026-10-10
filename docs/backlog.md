@@ -212,7 +212,7 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 | DF1-F5 | An oversized turn no longer wedges the session. Summary requests cut each tool result to 2000 characters (Pi `serializeConversation`), and a persistent session's automatic cut that keeps only the new prompt writes a compaction entry that keeps no earlier entry (Pi `firstKeptEntryId ?? id`). The oversized turn is still refused (as in Pi); the next prompt recovers. Follow-on F5b | `fix/f5-oversized-turn` |
 | DF1-F2/F3 | Resume shows and restores the session ([plan](specs/2026-09-29-f2-f3-resume-restore-plan.md)). Startup `-r`/`--continue`/`--session`, `/resume`, `/tree` navigation, `/fork`, `/clone`, `/new` and `/import` redraw the transcript from `build_context_entries()` (Pi `renderInitialMessages`), clearing the scrollback like Pi; `[compaction]`/`[branch]` rows and plain tool results follow Ctrl+O. A new branch records `model_change` and `thinking_level_change` with its first message, every model switch records `model_change` (and a clamped level), and opening a session restores its model and thinking level unless the CLI pins them (Pi `core/sdk.ts:194-263`). Deviations: model restore needs a `model_change` (pipy assistant messages name no model); a runtime fallback keeps the live model; `/new` keeps the live model and level. Follow-on DF1-F2b | `fix/f2-f3-resume-restore` |
 | SYS1a | Pi system messages in the transcript ([plan](specs/2026-09-29-sys1-system-messages-plan.md)). The first run records `role: "system"` with the prompt as the `preamble` section and every tool in `toolsAdded`; later runs and in-run tool changes record only changes. JSON/RPC events, `agent_end.messages`, `get_messages`, the session file and the compaction checkpoint (`systemMessage`) carry it; the TUI draws nothing, `/tree` shows `[system]`. Provider requests are unchanged (Pi's collapse path). `automation_pi_comparison.py` is green. Remainder: SYS1b | `feat/sys1-system-messages` |
-| DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Deviations: no partial thinking or tool calls stored; follow-on DF1-F6b | `fix/f6-aborted-turn` |
+| DF1-F6 | Aborted and failed turns are kept ([plan](specs/2026-09-30-f6-aborted-turn-plan.md)). The assistant message stores the streamed partial text and `stop_reason` `aborted`/`error` (with `error_message`), is persisted and shown on resume as `Operation aborted` / `Error: …`, and is skipped by every provider request (`materialize_provider_request`, Pi `transformMessages`) and by the summary request. JSON/RPC messages carry `stopReason`/`errorMessage`. Original F6 limitations are closed by DF1-F6b below | `fix/f6-aborted-turn` |
 | USAGE1 | Usage stored on every assistant message ([plan](specs/2026-09-30-usage1-message-usage-plan.md)). The loop records Pi's `usage` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` parts from `calculateCost`) and the answering `provider`/`model`; the session file and every JSON/RPC assistant message carry them. The footer, RPC `get_session_stats` and `/session` sum every stored assistant message on every branch (Pi `getSessionStats`), so totals survive resume and a model switch. The footer follows Pi's parts (uncached `↑`, latest-message `CH`, `formatTokens`); `/session` prints Pi's `Session Info` with `Messages`, `Tokens` and `Cost` (per-model breakdown, `Cache Re-billed`). Old sessions load unchanged. Follow-on USAGE1b | `feat/usage1-message-usage` |
 | READ2 | `read`, `ls`, `grep`, `find`, `@file` and `@image:` resolve paths like Pi's `resolveToCwd`/`resolveReadPath` ([plan](specs/2026-09-30-read2-path-policy-plan.md)): cwd-relative or absolute, `~`, `@` prefix, unicode spaces, macOS screenshot/NFD/curly-quote variants, no deny list. `grep`/`find` leave out only what `rg --hidden`/`fd --hidden` do (measured rules in `tools/ignore_walk.py`, differential tests against the binaries). `--read-root`, `PIPY_READ_ROOTS` and the `Reference roots` prompt block are removed. No documented security boundary covers the read tools (`bash` is a real shell); the allowlisted command sandbox keeps its own policy. Follow-on READ2b | `feat/read2-path-policy` |
 | TOOLS2 + READ2b | `write`, `edit` and `bash` follow Pi ([plan](specs/2026-09-30-tools2-write-edit-bash-plan.md)). `write`/`edit` resolve like `resolveToCwd` with no deny list or size cap; `write` makes parent directories and overwrites; `edit` takes `edits[]` with Pi's exact/fuzzy matching, BOM/CRLF handling, error texts and numbered diff (jsdiff `diffLines` ported); one file's mutations are serialized. `bash` ends a failure with `Command exited with code N` / `timed out` / `aborted` as an error. The `!` shortcut uses Pi's executor output (sanitized, 2000 lines / 50 KB, temp file), `bashExecutionToText` record and component rows. Pi's grep/find/ls/write/edit headers; `ls` sorts by a Node-measured ICU approximation; the global git excludes file applies to the Python walks. No documented boundary covers the mutation tools. Deviations: the no-terminal `!` keeps a 600 s bound; collation outside the measured table; follow-on TOOLS3 | `feat/tools2-write-edit-bash` |
@@ -280,26 +280,21 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   refuse. Safe cuts, append-only transcript, cancellation/currentness and
   state-first persistence stay intact. This extends Pi; branch summaries and
   token-based retention are unchanged. See the [slice note](specs/2026-10-09-df1-f5b-summary-recovery.md).
-- **DF1-F6b, what F6 left of stopped turns** (see the F6 Done row):
-  - Live stopped-turn presentation is implemented in the bounded F6b slice
-    ([contract](specs/2026-10-09-f6b-live-stopped-turns.md)): completed stopped
-    provider messages draw their partial content, then one
-    `Error: …` or `Operation aborted` row, matching resumed history. Steering,
-    local-command and provider cancellations use the same marker. Stopped partial tool calls now draw the same failed rows live and on resume
-    ([display follow-up](specs/2026-10-10-f6b-partial-call-display.md)); these are
-    presentation only and never execute the calls, read edit previews or start
-    execution timers. Display follow-up: 7994 passed, two expected skips; scoped
-    Opus 5.5/high repair review CLEAN, both Warnings repaired.
-    Existing retry notices remain separate. Verification: 7970 passed, 2 expected
-    skips; independent Opus 5.5/high repair review closed as advisory, with no
-    blocking findings (not CLEAN). Owner authorized commit and push on 2026-10-10.
-  - An abort during tool execution ends the run after the interrupted tool
-    results; Pi's loop then records an empty aborted assistant.
-  - Compaction and branch summaries drop a stopped turn's partial text; Pi
-    serializes it into the summary input as `[Assistant]: …`.
-  - Partial thinking and partial tool calls are now stored (reasoning
-    storage); a partial call keeps its raw streamed argument text (Pi stores
-    `parseStreamingJson`'s object).
+- **DF1-F6b stopped turns: complete.** Live stopped markers (`67e20315`),
+  display-only partial-call rows (`2ad2a1fb`) and the
+  [semantics closeout](specs/2026-10-10-f6b-stopped-turn-semantics.md) implement
+  all remaining F6b gaps: recoverable stopped arguments, paired tool settlement
+  followed by an empty aborted assistant, and labelled stopped text in private
+  summaries. The [dependency ADR](decisions/2026-10-10-stopped-partial-json.md)
+  has Opus 5.5/high design repair review CLEAN. Final code repair review closed
+  advisory (not CLEAN): all three Warnings repaired; one explanatory Suggestion
+  addressed. Full check: 8046 passed, two expected skips; focused contracts 686,
+  required runtime 49, PTY smoke 8, docs/lint/format/types green. Real CLI verifies
+  failure/interruption/compaction/tree/resume and original F5b pressure/refusal/
+  later fitting continuation without `/new`; authenticated Codex CLI verifies
+  codemode/nested read. Finite arguments match Pi; whole-value non-finite fallback
+  is explicit. Existing entries, ordinary replay exclusion, bounded attempted-file
+  metadata and private summary budget/currentness/persistence contracts remain.
 - **DF1-F7b, what F7 left of TUI polish** (see the F7 Done row):
   - Selectors: the F7b selectors slice
     ([plan](specs/2026-09-30-f7b-selectors-plan.md), branch

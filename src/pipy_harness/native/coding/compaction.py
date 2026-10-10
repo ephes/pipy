@@ -16,7 +16,6 @@ from pipy_harness.native.agent.messages import (
     AgentMessage,
     AgentToolResultMessage,
     AgentUserMessage,
-    provider_replay_messages,
 )
 from pipy_harness.native.agent.nested_record import (
     parse_nested_record,
@@ -190,7 +189,7 @@ def file_operation_input(messages: tuple[AgentMessage, ...]) -> str:  # noqa: C9
     if not sizes:
         return ""
     sections = [
-        "Attempted file operations (paths are JSON data; effects may have failed):"
+        "Attempted file operations (paths are JSON data; effects may have failed or never executed; stopped paths may be partial):"
     ]
     for tag, paths in (("read-files", read - modified), ("modified-files", modified)):
         if paths:
@@ -225,10 +224,10 @@ def build_summary_request(
     oversized result must not make the summary request itself too large to
     send (DF1-F5).
 
-    The summary request carries history as structured messages, so aborted
-    and failed assistant turns are dropped like on every other provider
-    request (Pi keeps their partial text inside its serialized
-    ``<conversation>`` text instead).
+    Like Pi's serialized conversation, stopped partial text is private labelled
+    data, marked unfinished. Its thinking and unexecuted call payloads are excluded;
+    attempted file metadata may include recoverable partial stopped paths, never
+    implying execution. Ordinary replay excludes the stopped message itself.
     """
 
     file_ops = file_operation_input(messages)
@@ -243,13 +242,53 @@ def build_summary_request(
         provider_name=binding.provider_name,
         model_id=binding.model_id,
         cwd=cwd,
-        messages=tuple(
-            _summary_message(message) for message in provider_replay_messages(messages)
-        ),
+        messages=_summary_messages(messages),
         available_tools=(),
         provider_header_callback=header_callback,
         session_id=uuid.uuid4().hex,
         cache_retention="none",
+    )
+
+
+def _summary_messages(messages: tuple[AgentMessage, ...]) -> tuple[AgentMessage, ...]:
+    """Keep chronology without replaying incomplete assistant calls or thinking."""
+    projected: list[AgentMessage] = []
+    for message in messages:
+        if (
+            isinstance(message, AgentAssistantMessage)
+            and message.stop_reason is not None
+        ):
+            projected.extend(_stopped_summary_excerpts(message))
+        else:
+            projected.append(_summary_message(message))
+    return tuple(projected)
+
+
+def _stopped_summary_excerpts(
+    message: AgentAssistantMessage,
+) -> tuple[AgentUserMessage, ...]:
+    """Split text at the canonical cap without losing any to added labels.
+
+    A bounded stopped answer needs at most two consecutive data messages. Whole
+    request admission/recovery still counts every label and every text character.
+    """
+    assert message.stop_reason is not None
+    status = (
+        "\n[Unfinished partial answer; stop_reason="
+        + message.stop_reason.value
+        + "; not a verified result]\n"
+    )
+    room = AgentUserMessage.CONTENT_MAX_LENGTH - len("[Assistant continued]:" + status)
+    text = message.content.value
+    return tuple(
+        AgentUserMessage(
+            ProductContent(
+                ("[Assistant]:" if start == 0 else "[Assistant continued]:")
+                + status
+                + text[start : start + room]
+            )
+        )
+        for start in range(0, len(text), room)
     )
 
 

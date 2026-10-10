@@ -657,12 +657,19 @@ Rules to match Pi:
   the copy's own id.
 - An aborted or failed provider turn (Escape, steering, a provider error) is
   stored as an assistant message with `"stop_reason": "aborted"` or
-  `"error"`, the text streamed so far, no tool calls, and for an error
+  `"error"`, ordered partial text/thinking and unexecuted partial calls,
+  and for an error
   `"error_message"` (Pi `stopReason`/`errorMessage`, DF1-F6). Both keys are
   written only for such a turn. The message stays in `build_context()` and
   the coding history, but no provider request replays it: the one request
-  funnel (`materialize_provider_request`) and the compaction summary request
-  drop it, like Pi's `transformMessages`. `/tree` shows a stopped turn without
+  funnel (`materialize_provider_request`) drops it, like Pi's `transformMessages`.
+  Private compaction/branch summaries quote its unfinished partial text as data,
+  without thinking or unexecuted call payloads. Bounded attempted-file metadata
+  may include partial paths from those intents, explicitly without claiming
+  execution. Newly stopped arguments are normalized
+  to recoverable JSON values; malformed/non-finite input becomes `{}`. Existing
+  entries are unchanged. Tool interruption settles all results, then records an
+  empty aborted assistant without another provider call. `/tree` shows a stopped turn without
   text as `assistant: (aborted)` or `assistant: <error message>`.
 - Every assistant message the agent loop writes carries Pi's `usage` object
   (`input` = uncached prompt, `output`, `cacheRead`, `cacheWrite`, optional
@@ -812,9 +819,9 @@ the latest compaction entry, then the entries its cut keeps):
 - user and assistant messages; each tool call as its call row followed by its
   result, drawn by the same renderer as a live turn (a successful `read` shows
   only its call row; a call without a result shows only its call row);
-- an aborted turn as its partial text, then an `Operation aborted` error row;
-  a failed turn as its partial text, then `Error: <message>` (Pi
-  `AssistantMessageComponent`);
+- a stopped turn's ordered partial thinking/text, then `Operation aborted` or
+  `Error: <message>` when it has no calls; unexecuted partial calls instead draw
+  failed rows, matching the live display without edit previews or execution timers;
 - a `!` shell record as its `$ command` and status/output rows;
 - `[compaction]` and `[branch]` rows, collapsed as
   `Compacted from N tokens (ctrl+o to expand)` and
@@ -836,9 +843,6 @@ message, written only when the tool returned one): `truncation`,
 `matchLimitReached`, `resultLimitReached`, `entryLimitReached`,
 `linesTruncated`, `fullOutputPath`, edit's `diff`/`firstChangedLine` and an
 extension tool's `ToolResult.details`. Provider requests never read them.
-
-Not restored, because pipy does not store them: reasoning text, aborted-turn
-markers (DF1-F6) and Pi's skill-invocation block.
 
 **Model and thinking.** Pi `createAgentSession` (`core/sdk.ts:194-263`)
 restores an opened session's settings every time a runtime is created. pipy

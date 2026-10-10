@@ -2676,6 +2676,15 @@ ordering, cancellation, malformed-fatal settlement, and the existing
 result, final durable history projection, final tool counters, provider status,
 and the existing malformed-fatal-only product-termination signal.
 
+F6b tool interruption settles the active result and skipped sibling results
+before completing the tool turn. It then emits a new assistant turn with empty
+aborted content and zero usage, without another request preparation/provider call
+or a provider-cancellation status callback. The single cancellation event belongs
+to that terminal assistant lifecycle. Newly stopped call arguments use best-effort
+finite JSON values; ordinary successful-call validation remains strict. Private
+summaries quote stopped partial text rather than replaying its assistant/calls.
+See the [F6b contract](specs/2026-10-10-f6b-stopped-turn-semantics.md).
+
 Request preparation and compaction, immutable-to-ordinary provider projection,
 fresh terminal/RPC provider wait binding, renderer refresh, diagnostics/footer,
 prompt history, durable writes, and counter synchronization remain callback-

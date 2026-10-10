@@ -1246,8 +1246,11 @@ def test_tool_interruption_appends_skipped_results_and_cancels_run(
     ]
     assert len(completed) == 1
     appended = list(outcome.final_history)
-    assert isinstance(appended[-1], AgentToolResultMessage)
-    assert appended[-1].content.value == "tool skipped because the turn was interrupted"
+    assert isinstance(appended[-2], AgentToolResultMessage)
+    assert appended[-2].content.value == "tool skipped because the turn was interrupted"
+    assert isinstance(appended[-1], AgentAssistantMessage)
+    assert appended[-1].stop_reason is AgentStopReason.ABORTED
+    assert appended[-1].content.value == ""
     assert len(tools.executed) == 1
     assert any(isinstance(event, RunCancelled) for event in events.events)
     assert "status:provider_cancelled" not in order

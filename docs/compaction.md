@@ -15,7 +15,15 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
    with any previous summary, preserving goals, constraints, decisions, files,
    verified results and unfinished work. Like Pi's `serializeConversation`, each
    tool result in the summary input is cut to its first 2000 characters plus
-   `[... N more characters truncated]`; other messages are sent unchanged.
+   `[... N more characters truncated]`. Stopped partial text is quoted in
+   chronological labelled `[Assistant]` data, marked unfinished and with its
+   `stop_reason=aborted` or `error`; its thinking and unexecuted call payloads are omitted. Bounded attempted-file
+   metadata can include partial paths recovered from unexecuted stopped intents;
+   it explicitly warns that effects may never have executed and paths may be partial.
+   At the canonical message cap, stopped text is split into at most two consecutive
+   labelled data messages without loss; all framing still counts toward preflight.
+   The stopped assistant itself remains excluded from ordinary replay. Other
+   messages are sent unchanged.
    Branch summaries use the same rule. If normal compaction summary preflight
    fails, pipy tries bounded incomplete excerpts as described below; branch
    summaries retain their existing behavior. The request has no tools or attachments
@@ -304,10 +312,11 @@ and tool hooks continue to deny `set_model` by returning `False`.
 - A failed automatic summary leaves the threshold condition unchanged. A later
   provider iteration can therefore attempt another summary and repeat the bounded
   failure notice. Retry policy and auxiliary attempt accounting remain later work.
-- A removed range whose summary input is still over the window after tool-result
-  truncation (a large paste, large tool-call arguments, many results) cannot be
-  summarized, so later prompts stay refused until `/new`. Pi has the same limit;
-  its summary request fails at the provider instead of in a local preflight.
+- Tool-result truncation alone does not bound a whole summary request. Pipy's
+  bounded incomplete-excerpt recovery can reduce oversized auxiliary input,
+  including stopped text, under normal whole-request admission. If even its
+  minimum candidate cannot fit, compaction refuses without accepting a cut.
+  This recovery extends Pi; estimated admission is not a provider guarantee.
 - Semantic summaries are lossy provider output. Synthetic tests cover the supplied
   facts and request/reopen continuity; live-provider summary quality remains unverified.
 - `/compact <custom instructions>` is not accepted yet; use bare `/compact`.

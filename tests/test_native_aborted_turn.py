@@ -40,6 +40,7 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     provider_replay_messages,
 )
+from pipy_harness.native.agent.content import TextContent, ThinkingContent
 from pipy_harness.native.agent.messages import AgentMessageUsage
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.request import (
@@ -263,21 +264,38 @@ def test_every_adapter_family_sends_no_stopped_turn_text() -> None:
     assert PARTIAL in repr(_wire_payloads(raw)["chat-completions"])
 
 
-def test_summary_request_drops_stopped_turns() -> None:
+def test_summary_request_quotes_stopped_text_as_private_data() -> None:
     binding = CodingProviderBinding(_StreamThenCancelProvider(), "fake", "fake-model")
 
+    messages = list(_stopped_history())
+    messages[1] = AgentAssistantMessage.from_blocks(
+        (
+            TextContent(PARTIAL),
+            ThinkingContent("private thought"),
+            AgentToolCall("partial", "bash", ProductContent('{"command":')),
+        ),
+        stop_reason=AgentStopReason.ABORTED,
+    )
     request = build_summary_request(
         binding=binding,
         cwd=Path("/headless-fixture"),
-        messages=_stopped_history(),
+        messages=tuple(messages),
         instruction="summarize",
         user_prompt="now",
         header_callback=None,
     )
 
+    # Diagnostic repr stays redacted even though private summary input has text.
     assert PARTIAL not in repr(request.messages)
     assert FAILED_PARTIAL not in repr(request.messages)
-    assert len(request.messages) == 3
+    assert len(request.messages) == 5
+    assert all(isinstance(m, AgentUserMessage) for m in request.messages)
+    assert PARTIAL in request.messages[1].content.value
+    assert "stop_reason=aborted" in request.messages[1].content.value
+    assert FAILED_PARTIAL in request.messages[3].content.value
+    assert "stop_reason=error" in request.messages[3].content.value
+    assert "private thought" not in "\n".join(m.content.value for m in request.messages)
+    assert all(not getattr(m, "tool_calls", ()) for m in request.messages)
 
 
 # -- persistence, JSON, previews ----------------------------------------------

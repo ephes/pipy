@@ -755,7 +755,6 @@ class AgentLoop:
         turn_outcome = AgentTurnOutcome.SUCCEEDED
         if cycle_outcome.cancellation is not None:
             state.cancellation = cycle_outcome.cancellation
-            self._events.emit(RunCancelled(cycle_outcome.cancellation))
             turn_outcome = AgentTurnOutcome.CANCELLED
         elif cycle_outcome.failure is not None:
             state.failure = cycle_outcome.failure
@@ -764,7 +763,32 @@ class AgentLoop:
         self._events.emit(
             TurnCompleted(turn_index, turn_outcome, assistant, tuple(results))
         )
+        if cycle_outcome.cancellation is not None:
+            self._finish_tool_cancellation(state, snapshot.request, turn_index + 1)
         return cycle_outcome.disposition
+
+    def _finish_tool_cancellation(
+        self, state: _RunState, request: ProviderRequest, turn_index: int
+    ) -> None:
+        """After paired results, record Pi's next empty aborted assistant turn.
+
+        No new provider preparation/call or provider-cancellation status callback:
+        the cancellation belongs to the settled tools and remains in run state.
+        """
+        assert state.cancellation is not None
+        aborted = stopped_assistant(
+            (), AgentStopReason.ABORTED, usage=AgentMessageUsage(), request=request
+        )
+        self._events.emit(TurnStarted(turn_index))
+        self._events.emit(
+            MessageStarted(turn_index, AgentAssistantMessage(ProductContent("")))
+        )
+        self._events.emit(RunCancelled(state.cancellation))
+        self._events.emit(MessageCompleted(turn_index, aborted))
+        self._append_message(state, aborted)
+        self._events.emit(
+            TurnCompleted(turn_index, AgentTurnOutcome.CANCELLED, aborted)
+        )
 
     def _handle_tool_call(
         self,

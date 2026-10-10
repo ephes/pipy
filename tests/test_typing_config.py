@@ -90,9 +90,22 @@ def test_strict_frontier_has_exact_source_package_patterns() -> None:
         "warn_redundant_casts",
         "strict_bytes",
         "overrides",
+        "mypy_path",
     }
     assert mypy_config["warn_unused_configs"] is True
     assert mypy_config["warn_redundant_casts"] is True
     assert mypy_config["strict_bytes"] is True
     assert "strict" not in mypy_config
     assert "exclude" not in mypy_config
+    assert mypy_config["mypy_path"] == "typings"
+
+
+def test_third_party_stub_path_cannot_shadow_product_packages() -> None:
+    stub_root = Path(__file__).parents[1] / "typings"
+    assert tuple(sorted(p.name for p in stub_root.iterdir())) == (
+        "partial_json_parser",
+    )
+    assert tuple(
+        sorted(p.name for p in (stub_root / "partial_json_parser").iterdir())
+    ) == ("__init__.pyi",)
+    assert not list(stub_root.rglob("*.py"))

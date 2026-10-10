@@ -39,6 +39,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Stopped partial tool calls now save recoverable JSON argument values, matching
+  Pi's streaming parser for finite values. Ordinary call validation is unchanged;
+  unrecoverable or non-finite stopped arguments become `{}`. Existing saved
+  entries are never rewritten.
+- Interrupted tool execution now settles all paired results and records an empty
+  aborted assistant, without another provider request. Private compaction and
+  branch summaries include labelled unfinished stopped text while excluding its
+  thinking and unexecuted calls; ordinary requests still skip stopped messages.
+
 - Live stopped provider answers now show their partial output followed by
   `Error: …` or `Operation aborted`. Responses without tool calls match resumed
   history. Stopped partial tool calls now appear as failed rows live and on

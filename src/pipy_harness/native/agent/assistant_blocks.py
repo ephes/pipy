@@ -11,6 +11,7 @@ and reasoning deltas.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from pipy_harness.native.agent.content import (
     ProductContent,
@@ -30,6 +31,7 @@ from pipy_harness.native.agent.messages import (
     AgentStopReason,
     AgentToolCall,
 )
+from pipy_harness.native.agent.partial_arguments import normalize_partial_arguments
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.models import (
     ProviderContentBlock,
@@ -147,10 +149,21 @@ def stopped_assistant(
     request: ProviderRequest | None,
     provider_thinking_level: str | None = None,
 ) -> AgentAssistantMessage:
-    """Pi's aborted/failed message: the content streamed so far."""
+    """Pi's stopped text/thinking and best-effort streamed argument values."""
 
+    normalized = tuple(
+        replace(
+            block,
+            arguments_json=ProductContent(
+                normalize_partial_arguments(block.arguments_json.value)
+            ),
+        )
+        if isinstance(block, AgentToolCall)
+        else block
+        for block in blocks
+    )
     return AgentAssistantMessage.from_blocks(
-        _bounded(blocks),
+        _bounded(normalized),
         stop_reason=stop_reason,
         error_message=error_message,
         usage=usage,

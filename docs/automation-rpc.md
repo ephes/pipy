@@ -678,7 +678,14 @@ While a `prompt` run is in flight:
   `"stopReason":"aborted"`; a provider failure ends with `"stopReason":"error"`
   and `errorMessage`. Every assistant message carries `stopReason` (`stop`,
   `toolUse`, `aborted` or `error`). The stopped message is stored in the
-  session and returned by `get_messages`, but never sent to a provider again.
+  session and returned by `get_messages`, but never replayed in an ordinary
+  provider request. Private summaries may quote its unfinished partial text as
+  data, excluding thinking and unexecuted call payloads. Attempted-file metadata
+  can include partial stopped paths without claiming execution. Newly stopped tool-call
+  arguments are recoverable JSON values (or `{}` on malformed/non-finite input),
+  rather than raw prefixes; old saved entries are unchanged. Interrupting tools
+  settles their paired results, then ends a new empty aborted assistant lifecycle
+  without another provider request.
   Every assistant message also carries Pi's `usage` object (`input`,
   `output`, `cacheRead`, `cacheWrite`, optional `cacheWrite1h`/`reasoning`,
   `totalTokens`, `cost{input,output,cacheRead,cacheWrite,total}`; zeros for

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 # Runtime dependencies are intentionally minimal; development tools live in the dev dependency group.
 dependencies = [
+    "partial-json-parser>=0.2.1.1.post7,<0.3",
     "websockets>=16.0,<17",
 ]
 
@@ -116,6 +117,8 @@ extend-select = ["C901", "I001", "UP035", "B008", "B905", "BLE001"]
 "tests/test_parity_probe_trust.py" = ["C901"]
 
 [tool.mypy]
+# Narrow third-party interfaces; product strictness and import gates stay intact.
+mypy_path = "typings"
 # All source modules in the two product packages are strict-clean. The package
 # patterns intentionally exclude top-level test modules, which retain the
 # repository's existing non-strict baseline. The override lists the per-module
