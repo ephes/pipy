@@ -39,6 +39,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Compaction and branch summaries retry eligible failures from every provider and
+  show dedicated retry countdowns and bounded JSON/RPC status events. Private
+  summary content, usage and provider failure text remain suppressed. Generic
+  abort/Escape cancels them; abort_retry continues to target ordinary retries.
+
 - The footer restores context usage from the active branch after resume or branch
   changes and estimates trailing message characters separately. Failed/aborted
   usage no longer anchors the meter, and model changes use the current window.

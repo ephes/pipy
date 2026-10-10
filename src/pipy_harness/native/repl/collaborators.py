@@ -48,7 +48,6 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.coding.compaction import (
     CodingCompactionOutcome,
-    PrivateSummaryEvents,
     build_summary_request,
     summary_text,
 )
@@ -61,6 +60,13 @@ from pipy_harness.native.coding.state import (
     CodingCompactionSnapshot,
     CodingSessionState,
 )
+from pipy_harness.native.coding.summary_retry import (
+    PrivateSummaryRetryEvents,
+    SummaryRetryLoader,
+    SummaryRetryObserver,
+    SummaryRetrySource,
+    summary_retry_scope,
+)
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import dispatch_tool_call_hooks
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
@@ -68,7 +74,6 @@ from pipy_harness.native.extensions.command_context import ExtensionCapabilityEr
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.prompt_history import PromptHistoryStore
-from pipy_harness.native.provider import PreparedProviderPort
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections
 from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
@@ -193,6 +198,9 @@ class SessionCollaborators:
     custom_renderer: CustomEntryRenderer
     extension_ui_driver: _LiveExtensionUiDriver | None
     extension_notify: Callable[[str, str], None]
+
+    summary_retry_status: SummaryRetryObserver | None = None
+    summary_retry_loader: SummaryRetryLoader | None = None
 
     def diag(self, message: str) -> None:
         emit_diagnostic(
@@ -465,8 +473,21 @@ class SessionCollaborators:
                 pending.promote_pending_to_drain()
         return execution.result
 
-    def _execute_branch_summary(  # noqa: C901 - ordered private outcome matrix
+    def _execute_branch_summary(
         self, target: SessionEntry, directive: str
+    ) -> _BranchSummaryExecution:
+        with summary_retry_scope(
+            SummaryRetrySource.BRANCH_SUMMARY,
+            self.summary_retry_status,
+            self.summary_retry_loader,
+        ) as events:
+            return self._generate_branch_summary(target, directive, events)
+
+    def _generate_branch_summary(  # noqa: C901 - ordered private outcome matrix
+        self,
+        target: SessionEntry,
+        directive: str,
+        summary_events: PrivateSummaryRetryEvents,
     ) -> _BranchSummaryExecution:
         """Generate privately, then conditionally publish one branch summary."""
 
@@ -513,13 +534,16 @@ class SessionCollaborators:
             with self.coding_effects.lock:
                 with self.ctl.generation_ref.lock:
                     if not self._branch_summary_matches_locked(work):
+                        summary_events.mark_stale()
                         raise _StaleBranchSummaryRetry
 
         try:
+            summary_events.arm_loader(self.summary_retry_loader)
+            _before_reissue()
             completion = self.provider_turn_executor.complete(
                 provider,
                 request,
-                PrivateSummaryEvents(),
+                summary_events,
                 turn_index=0,
                 delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
                 waiter=waiter,
@@ -532,7 +556,9 @@ class SessionCollaborators:
             return _BranchSummaryExecution(
                 BranchSummarySelectionResult(False, stale=True)
             )
-        except Exception:  # noqa: BLE001 - auxiliary generation is recoverable
+        except Exception as exc:  # noqa: BLE001 - auxiliary generation is recoverable
+            if summary_events.observer_error is exc:
+                raise
             return _BranchSummaryExecution(BranchSummarySelectionResult(False))
         if completion.cancellation_reason is not None:
             return _BranchSummaryExecution(
@@ -583,17 +609,15 @@ class SessionCollaborators:
             return None
         attach_parent = branch_summary_attach_parent(tree, target.id)
         old_leaf = tree.get_leaf_id()
-        retry_policy = None
         coding = self.coding_state.compaction_snapshot()
-        if isinstance(coding.binding.provider, PreparedProviderPort):
-            configured = retry_policy_from_settings(self.settings)
-            retry_policy = ProviderManagedRetryPolicy(
-                max_attempts=configured.max_attempts,
-                initial_delay_seconds=configured.initial_delay_seconds,
-                max_delay_seconds=configured.max_delay_seconds,
-                multiplier=configured.multiplier,
-                jitter_seconds=configured.jitter_seconds,
-            )
+        configured = retry_policy_from_settings(self.settings)
+        retry_policy = ProviderManagedRetryPolicy(
+            max_attempts=configured.max_attempts,
+            initial_delay_seconds=configured.initial_delay_seconds,
+            max_delay_seconds=configured.max_delay_seconds,
+            multiplier=configured.multiplier,
+            jitter_seconds=0.0,
+        )
         return _BranchSummaryWork(
             tree=tree,
             tree_epoch=tree.mutation_epoch,

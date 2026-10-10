@@ -1,6 +1,7 @@
 # DF1-F4b retry closeout contract
 
-Status: slice 1 implemented and awaiting code review; slices 2–3 pending. Follow-on to
+Status: all three slices and all four F4b bullets are complete. Slices 1–2 are
+pushed; slice 3 passed review and verification, with final commit pending. Follow-on to
 [DF1-F4](../parity-loop/plans/f4-retry-visibility.md) and the
 [F4b backlog](../backlog.md#follow-ons).
 The original red regressions land with the green slice-1 implementation.
@@ -114,8 +115,8 @@ locks and revalidate after them. Clear status on success/exhaustion/cancel/stale
 exception. Persistence failure after acceptance never triggers summary retry.
 
 Slice 3 owns precise JSON/RPC event names (`summarization_retry_scheduled`,
-`summarization_retry_attempt_start`, `summarization_retry_finished` proposed),
-source/reason enums and rendering. Generic accepted-operation abort cancels
+`summarization_retry_attempt_start`, `summarization_retry_finished`),
+closed source/outcome enums and rendering. Generic accepted-operation abort cancels
 auxiliary work; ordinary abort_retry remains a no-op for auxiliary phases because
 no ordinary RPC retry capability is installed. Pin this through tests/docs.
 
@@ -212,8 +213,8 @@ fixture checks, not new live-provider quality evidence.
 
 ### Slice 1 closeout evidence
 
-Slice 1 is complete; footer estimation and private-summary retry visibility remain
-pending. Independent verification completed with 8,074 tests passed and two
+At slice-1 closure, footer estimation and private-summary retry visibility were
+pending; both are now complete. Independent verification completed with 8,074 tests passed and two
 skipped, 49 runtime checks and eight PTY checks passed, and documentation/static
 checks exiting zero. The isolated synthetic CLI checks above also passed.
 
@@ -251,7 +252,8 @@ does not require an admitted provider run.
 The full estimate retained after compaction is an intentional difference from
 Pi's unknown meter until new valid usage. It is conservative, not a provider
 acceptance guarantee. This closes only the USAGE1b footer restoration part; RPC
-contextUsage and auxiliary-summary visibility remain pending.
+contextUsage remains deferred; auxiliary-summary visibility was then pending
+and is now complete.
 
 ### Slice 2 verification and lock review
 
@@ -280,4 +282,114 @@ remains 8,085 passed with two skipped, 49 runtime checks and eight PTY checks;
 checks passed; both launched pipy instances exited zero. No full
 suite was repeated after the test-only mechanical fixes because production code
 was unchanged; final targeted/static checks cover that delta. Auxiliary retry
-visibility remains pending in slice 3.
+visibility was then pending in slice 3 and is now complete.
+
+## Slice 3 auxiliary implementation contract
+
+Unchanged production has six intended manual/automatic/branch regression failures:
+plain providers make one failed summary call, while prepared providers already
+retry but emit no dedicated status. All auxiliary policies will be captured once
+for every provider with zero jitter, retaining frozen requests/handles, header
+work, preflight bounds and the existing full summary witness. Progress, partial
+payload and usage do not veto the shared retry classifier.
+
+A dedicated coding/summary_retry status translator emits only
+summarization_retry_scheduled, summarization_retry_attempt_start and
+summarization_retry_finished through existing CodingSession automation observers
+and renderers. Sources are compaction or branchSummary; outcomes are succeeded,
+failed, cancelled or stale. Attempt and maximum are reissue ordinals/limits,
+excluding the initial call; delay is bounded milliseconds. Failure text is fixed.
+No optional reason is needed. No private message, error, thinking, delta, usage,
+tool, request overlay or summary enters these records. Canonical AgentEvent SDK
+subscriptions, lifecycle hooks, workflow archives and persistence receive none.
+
+Status callbacks run outside mutation/generation guards; full witness admission
+is rechecked after actual-start observers and before provider invocation. A
+closed retry sequence reports provider execution, not accepted summary state;
+later staleness/persistence failure does not rewrite a successful finished event.
+A pending stale sequence closes as stale. Cleanup removes countdown/loaders on
+every outer outcome and preserves the primary exception if notification fails.
+Observer exceptions retain identity through generation owners; manual RPC retains
+its existing generic command-failure projection. No auxiliary ordinary abort_retry
+lease is installed; generic abort/Escape cancel existing auxiliary waiters.
+Dedicated countdown takes precedence over compaction chrome and actual admission
+restores Compaction or Summarizing branch loaders without ordinary Error rows.
+
+
+Slice 3 implementation evidence before independent review: all six unchanged
+production baselines failed for the intended provider-eligibility/status reasons.
+The new production-path suite now has 85 passing regressions across plain and
+prepared providers, manual/automatic compaction and branch summaries. It covers
+backoff and active cancellation, exhaustion with frozen settings, stale admission
+and acceptance, callback failures including BaseException, automatic lifecycle
+cleanup, and accepted persistence failures. Projected accepted-but-undurable
+results also survive secondary loader-cleanup failures; default exception mode
+retains the exact persistence exception with a bounded secondary note. Scheduled
+statuses retain Pi's errorMessage field using fixed generic text.
+
+Focused existing retry/compaction and strict architecture checks passed together:
+493 tests. Ruff lint and format checks passed (710 files), and mypy passed over
+662 source files. Final independent full verification, actual CLI validation and
+Opus 5.5 high-effort review were then pending; final closure is recorded below.
+
+
+Auxiliary review round 1 accepted a Critical loader-cleanup defect, a Warning
+for three stale documentation passages, and an early branch-loader Suggestion.
+Four unchanged-production regressions failed at the intended idle-spinner and
+unadmitted-loader assertions. Cleanup now stops and clears without restarting
+idle Working chrome. Loaders arm only after work admission, followed by full
+witness revalidation outside callback guards. The renderer test now follows
+production order: compaction lifecycle end precedes dedicated loader clear.
+Independent verification before this repair completed with 8,170 passed and two
+skipped, 49 runtime checks and eight PTY checks; those results describe the
+pre-repair snapshot. A fresh scoped review and final verification were then pending.
+
+
+Auxiliary review round 2 accepted three test/documentation Warnings and one SDK
+wording Suggestion; no production defect was identified. New caller-path tests
+pin loader OSError/KeyboardInterrupt identity, zero provider calls, automatic
+lifecycle end, post-loader stale admission, and blocked preparation, real header-capture staleness, and empty-branch
+returns without loader activation. Branch idle cleanup no longer calls the
+unrelated compaction end helper and asserts the animation thread is absent.
+The visibility suite passes 100 tests. Fresh owned source copies reject deletion
+of loader exception attribution (four failures) and initial witness admission
+(three failures); both mutation processes exit 1 for the intended assertions.
+Independent pre-test-delta verification passed 8,173 tests with two skipped and
+49 runtime checks. Production remains unchanged in this repair; a fresh scoped
+review and final verification were then pending.
+
+
+Auxiliary review round 3 accepted two Warnings and one outcome-assertion
+Suggestion. The early-stale case now mutates the actual tree epoch during the
+stubbed header callback at the real production capture site, rather than mocking preparation. The synthetic refusal is
+explicitly named blocked preparation, not budget coverage. Manual stale outcomes
+and branch stale results are pinned separately from generic generation failure.
+An import-order defect was repaired. The earlier lint success report was wrong:
+a chained format command masked the lint failure; final lint is now executed and
+reported separately. Independent isolated CLI verification passed all eight
+instances, and its strict documentation build passed with no warnings. Existing
+full/runtime/PTY evidence remains recorded above; final scoped review was then pending.
+
+
+## Final F4b acceptance
+
+All four F4b bullets are complete: durable ordinary failed attempts, backoff
+cancellation without an extra aborted assistant, active-branch trailing chars/4
+footer estimates, and private-safe auxiliary retry visibility for every provider.
+Auxiliary review used installed Claude Code Opus 5.5 at high effort for four
+rounds. Round 1's Critical loader cleanup and Warning documentation defects were
+fixed; its early-loader Suggestion was applied. Rounds 2 and 3 strengthened
+caller-path, stale-outcome and mutation-sensitive tests and corrected docs/lint.
+Round 4 had no Critical or Warning findings and one accepted exact header-stale
+outcome assertion, now applied. All blocking findings are resolved. The gate
+closed on advisory convergence, not a CLEAN verdict; no further review is needed
+for the final assertion and completion wording.
+
+Final independent full verification passed 8,185 tests with two expected skips;
+49 runtime checks and eight PTY checks passed. Isolated actual CLI verification
+passed eight instances, including auxiliary retry/cancellation and strict reopen.
+The independent strict documentation build completed with zero warnings.
+Production is unchanged by the final assertion/docs delta. Final focused/static
+checks cover that delta before committing slice 3. Privacy projections and the
+conservative compaction footer estimate are the documented intentional Pi
+differences; RPC contextUsage remains outside this completed F4b scope.

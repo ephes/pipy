@@ -22,6 +22,13 @@ from pipy_harness.native.chrome import (
     chrome_width,
     terminal_supports_truecolor,
 )
+from pipy_harness.native.coding.summary_retry import (
+    SummaryRetryAttemptStarted,
+    SummaryRetryFinished,
+    SummaryRetryScheduled,
+    SummaryRetrySource,
+    SummaryRetryStatus,
+)
 from pipy_harness.native.extension_types import (
     ChromeComponent,
     ExtensionTool,
@@ -490,6 +497,21 @@ class _ToolLoopRenderer:
                 self._error_stream.flush()
         except (ValueError, OSError):
             pass
+
+    def set_summary_retry_loader(self, source: SummaryRetrySource | None) -> None:
+        if source is SummaryRetrySource.BRANCH_SUMMARY:
+            self._write_retry_line("Summarizing branch...")
+        elif source is None:
+            self._clear_working()
+
+    def render_summary_retry(self, status: SummaryRetryStatus) -> None:
+        if isinstance(status, SummaryRetryScheduled):
+            self._write_retry_line(
+                f"Retrying summarization ({status.attempt}/{status.max_attempts}) "
+                f"in {math.ceil(status.delay_ms / 1000)}s..."
+            )
+        elif isinstance(status, (SummaryRetryAttemptStarted, SummaryRetryFinished)):
+            self._clear_working()
 
     def schedule_retry(
         self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str

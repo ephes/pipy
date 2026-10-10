@@ -961,8 +961,8 @@ no-op; it cannot cancel the surrounding ordinary provider phase,
 queued/promoted input, or a later run. The command also succeeds as a no-op
 when no retry is active. Response correlation does not
 promise ordering against asynchronous event output. `get_state` has no retry
-activity field. Generic run abort and private semantic/branch-summary retries are
-unchanged. See the
+activity field. Generic run abort retains auxiliary cancellation; dedicated
+summary retries do not activate the ordinary retry lease. See the
 [D5d SDK contract](sdk.md#d5d-rpc-retry-control-adoption-contract).
 
 ### Extension UI request/response channel
@@ -1370,3 +1370,26 @@ terminal envelope/claim publication, then queue_update and successor start.
 Intermediate willRetry=true attempt envelopes are immediate and precede their
 extension hooks. This deliberate distinction follows final logical ownership;
 agent_settled remains the later true-idle notification.
+
+### Private summarization retry statuses
+
+JSON/RPC CodingSession compositions emit summarization_retry_scheduled,
+summarization_retry_attempt_start and summarization_retry_finished directly as
+session statuses. All carry source (compaction or branchSummary), attempt and
+maxAttempts (reissues excluding the initial call, each bounded by nine). Scheduled
+adds delayMs (0..120000) and fixed errorMessage "Summarization failed"; finished
+adds outcome (succeeded, failed, cancelled or stale), with that same fixed
+errorMessage only for failure. No raw
+error, summary, text, thinking, tools, usage or request data appears. These fields
+are pipy's bounded privacy projection of Pi's dedicated event names; source and
+outcome are intentional extensions and Pi's raw failure text is suppressed.
+
+A finished record closes provider retry execution, not summary acceptance or
+persistence. Later staleness cannot produce a second finish or rewrite success.
+No retry means no invented sequence statuses. Canonical ProductSession AgentEvent
+SDK subscriptions, assistant transcripts, extension lifecycle hooks and workflow
+archives receive none. Every provider captures the configured policy once with
+zero jitter; frozen requests/handles and summary witness guards remain owned by
+the existing operation. Generic abort cancels auxiliary work; abort_retry remains
+a successful no-op there. Existing accepted manual compact result projection is
+unchanged and can still return the accepted summary.

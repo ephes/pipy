@@ -93,6 +93,11 @@ from pipy_harness.native.coding.session_controller import (
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.coding.summary_recovery import RECOVERY_WARNING
+from pipy_harness.native.coding.summary_retry import (
+    SummaryRetrySource,
+    SummaryRetryStatus,
+    summary_retry_event,
+)
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
@@ -1588,6 +1593,14 @@ def _compose_collaborators(
     # `ProviderMutationEffects` handler, built after `product_session`/`footer`
     # exist; it reaches the run's mutable control state through the shared `ctl`
     # holder so a `/reload` rebind is reflected exactly as it was inline.
+    def _summary_retry_status(status: SummaryRetryStatus) -> None:
+        product.renderer.render_summary_retry(status)
+        if inputs.automation_observer is not None:
+            inputs.automation_observer.emit(summary_retry_event(status))
+
+    def _summary_retry_loader(source: SummaryRetrySource | None) -> None:
+        product.renderer.set_summary_retry_loader(source)
+
     provider_mutation = ProviderMutationEffects(
         provider_state=inputs.provider_state,
         ctl=ctl,
@@ -1604,6 +1617,8 @@ def _compose_collaborators(
         extension_notify=_extension_notify,
         mutation_io_lock=coding_effects.lock,
         provider_turn_executor=extension.provider_turn_executor,
+        summary_retry_status=_summary_retry_status,
+        summary_retry_loader=_summary_retry_loader,
         abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
         compaction_loader=partial(_show_compaction_loader, product.renderer),
     )
@@ -1631,6 +1646,8 @@ def _compose_collaborators(
     # `custom_renderer` exist; it reads the run's mutable control state through
     # the shared `ctl` holder so a `/reload` rebind is reflected on next dispatch.
     collaborators = SessionCollaborators(
+        summary_retry_status=_summary_retry_status,
+        summary_retry_loader=_summary_retry_loader,
         abort_event=_runtime_abort_event(inputs, runtime.loop_controller),
         clipboard_copy=inputs.clipboard_copy,
         implicit_trust=inputs.implicit_trust,

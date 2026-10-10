@@ -28,7 +28,7 @@ Pipy combines a deterministic safe cut with a provider-generated summary:
    fails, pipy tries bounded incomplete excerpts as described below; branch
    summaries retain their existing behavior. The request has no tools or attachments
    and excludes request-only overlays. Its text is private and does not stream
-   into the transcript. A prepared provider may retry a failure Pi's classifier
+   into the transcript. Every provider may retry a failure Pi's classifier
    treats as transient (see [Retries](providers.md#retries)) using the retry
    policy captured for this summary operation;
    the cut, request, headers, and budget preflight are not repeated.
@@ -84,13 +84,26 @@ invalidate the captured summary even if provider history is unchanged. The
 extension write remains accepted; the session closes without publishing the
 summary. A refused reload publication window has the same effect.
 
-Managed summary retries use the same bounded logical-attempt and delay settings as
-ordinary prepared requests. Settings changes during an attempt apply to a later
-summary or ordinary request. Retry lifecycle events, partial summary content, and
-usage remain private. Each reissue validates the original full compaction witness;
-exhaustion, cancellation, or stale context publishes no compaction. Progress,
-payload, or usage on a failed attempt prevents its retry and leaves context
-unchanged. Branch-summary generation retains its separate provider-owned behavior.
+Managed summary retries capture the same bounded attempt/delay settings as
+ordinary requests once for every provider, without jitter. Settings changes apply
+to a later request. Prepared handles and frozen requests, header hooks and budget
+preflight stay fixed across retries. Pi's classifier permits retry after private
+progress, partial payload and usage. Each reissue validates the original full
+summary witness after status observers and before provider invocation; exhausted,
+cancelled or stale generation accepts no summary.
+
+Private text, thinking, deltas, tools and usage stay suppressed. Existing
+CodingSession JSON/RPC automation observers and TUI loaders receive only dedicated
+summarization_retry_scheduled, summarization_retry_attempt_start and
+summarization_retry_finished statuses with bounded source, reissue counts, delay
+and outcome; failures use fixed generic text. These bypass assistant lifecycle,
+extension hooks, workflow archives and durable event persistence. Branch summaries
+share this execution policy while retaining separate guarded acceptance. Retry
+sequence success describes provider execution, not accepted/persisted summary
+state. A later stale witness or append failure does not rewrite that status.
+Canonical ProductSession SDK subscriptions receive no auxiliary status events.
+Ordinary abort_retry is a no-op during summary work; generic abort/Escape retains
+existing auxiliary cancellation.
 
 Manual `/compact` has no later agent-run settlement. When the command completes,
 queued steering and follow-up messages become deliverable through the ordinary
@@ -343,7 +356,8 @@ groups; D3b2 generalizes the mechanical and state invariant to positive actual
 message removal, permitting zero removed groups for the inactive cycle selector.
 Use the existing branch-summary request capability as the starting seam, but run
 D1's completion through `ProviderTurnExecutor` with canonical cancellation, a
-private no-op event sink and `ProviderTurnDeltaPolicy(text=False, reasoning=False)`.
+private status-only retry translator and
+`ProviderTurnDeltaPolicy(text=False, reasoning=False)`.
 Do not copy the direct `provider.complete` call or run tools in a
 second agent loop. The shared branch helper captures one provider binding for
 request labels and execution, including across header-callback acquisition.

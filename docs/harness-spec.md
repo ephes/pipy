@@ -1710,8 +1710,8 @@ marker remains unsettled and receives bounded cancellation and join.
 D4a2 introduces an injected `before_reissue` callable and immutable validated
 managed retry policy at the canonical executor boundary. It invokes admission on
 the calling control thread after interruptible backoff and immediately before
-starting the reissued provider phase. Providers that decline preparation keep
-their ordinary single-call behavior. D4a3 supplies the product
+starting the reissued provider phase. DF1-F4/F4b apply captured managed policy to
+all providers; preparation remains an optional frozen-handle capability. D4a3 supplies the product
 closure over the originally captured `CodingRunContext`: revalidate its witness
 under the existing state mutex, then release it before I/O. The canonical executor
 must not import product state or resolve that witness itself. A mutation after
@@ -1797,9 +1797,9 @@ successful change.
 composition root. That port has no queue, enabled flag, active-state projection,
 or transport-owned latch. Only canonical execution of an eligible ordinary
 product request activates an exact, short-lived cancellation capability. Semantic
-compaction and branch-summary retries remain private and never install that
-capability; non-capable providers perform their existing single call and expose
-no retry phase.
+compaction and branch-summary retries use dedicated bounded status projection and
+never install that ordinary cancellation capability. Every auxiliary provider uses
+the captured managed policy; generic abort retains its existing summary owner.
 
 The canonical executor activates the capability before publishing
 `RetryScheduled`. It covers the interruptible delay, caller-thread reissue
@@ -1837,9 +1837,9 @@ retaining that acceptance boundary.
 Capture one settings-derived immutable managed policy for the selected summary
 request before provider work, under the existing mutation-I/O then shared
 generation/settings/state guard order. Do not acquire mutation-I/O while holding
-only the inner guard. Use the prepared provider
-capability on the original binding before waiter wrapping, preserving ordinary
-completion and cancellation delegation for non-capable providers. Reuse the
+only the inner guard. Capture policy for every provider with zero jitter; use
+optional preparation on the original binding before waiter wrapping, preserving
+ordinary completion and cancellation delegation for non-prepared providers. Reuse the
 canonical executor's prepared handle, retry eligibility, bounded delay and
 cancellation rules. Capture the policy once; later settings changes affect later
 requests. Never rerun cut selection, request preflight, extension hooks, header
@@ -1847,8 +1847,9 @@ capture or request freezing to retry an accepted summary request. The one summar
 can contain multiple logical provider attempts, each retaining D4a's bounded
 physical transport accounting in provider result metadata. Retry ordinals exclude
 the initial attempt; physical transport fallback is not another logical retry.
-No extra product usage sample or public event is introduced for a private summary;
-only its final executor result reaches existing summary validation. The frozen
+No extra product usage sample or ordinary assistant event is introduced for a
+private summary. Dedicated bounded `summarization_retry_*` statuses are public;
+only the final executor result reaches existing summary validation. The frozen
 request's budget preflight runs once, before completion, not again per reissue.
 
 The caller-thread reissue admission closure checks the original full compaction
@@ -1864,10 +1865,10 @@ cleanup. Use a private stale signal to unwind reissue and select the outcome via
 ordinary run-context admission's `CodingContextChangedError` for a manual
 summary: the current generic compaction handler rethrows that exception.
 
-Summary content remains private: both delta channels stay disabled, and
-`PrivateSummaryEvents` continues to suppress summary lifecycle/retry events from
-ordinary conversation and RPC sinks. Affirmative no-progress evidence is required
-even when no visible delta exists. Exhausted, failed, cancelled or stale generation
+Summary content remains private: both delta channels stay disabled. The dedicated bounded status translator suppresses ordinary assistant lifecycle
+and exposes only private-safe `summarization_retry_*` statuses to JSON/RPC sinks.
+Progress, payload and usage do not veto the shared retry classifier. Exhausted,
+failed, cancelled or stale generation
 publishes no compaction entry or accepted summary. Cancellation uses the existing
 operation's waiter/abort and settlement boundary, including between attempts.
 When neither a terminal waiter nor an external abort signal exists, synchronous
@@ -4268,5 +4269,21 @@ CANCELLED logical settlement with exact original reason internally. Existing
 CodingAgentTurnStatusEffects routes pending input without RunCancelled or a new
 aborted message. Active retry cancellation retains F6b stopped partial semantics.
 Completed error messages own the Error row; retry scheduling owns countdown only.
-Footer trailing estimates and private summary retry visibility remain later F4b
-increments.
+F4b slice 2 supplies branch-anchored footer estimates with coordinator-then-state
+capture. Slice 3 supplies dedicated private-summary statuses. Sources are closed
+compaction/branchSummary values; outcomes succeeded/failed/cancelled/stale. Reissue
+counts are exact integers in 1..9; delays are bounded 0..120000 milliseconds.
+Status records use summarization_retry_scheduled/attempt_start/finished and fixed
+generic failure text, with no raw provider data, usage or accepted summary.
+A source-bound neutral executor observer suppresses ordinary events and failed
+results, and emits actual-start status before the existing full-witness admission
+check. Status callbacks run outside coordinator/generation guards. Pending stale
+sequences close once as stale; a completed provider sequence is never rewritten
+by later acceptance failure. Outer cleanup clears dedicated chrome on every path,
+ends already-started automatic compaction lifecycle after observer failure, and
+preserves primary exception identity with bounded secondary type notes.
+Existing CodingSession automation observers and direct renderers receive these
+records; AgentEvent, canonical SDK subscriptions, extension hooks, archives and
+persistence do not. Ordinary RPC retry leases remain separate, so abort_retry is
+an auxiliary no-op. Generic abort/Escape retains existing cancellation. Full
+summary acceptance and append remain state first; append errors never retry.

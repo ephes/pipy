@@ -279,8 +279,9 @@ immediately before reissue. The executor owns delay, cancellation, and retry
 events without holding coding state across I/O. Semantic-compaction summaries
 capture the same immutable policy and reuse their frozen private request, while
 the original full compaction witness guards reissue and final acceptance. Their
-retry lifecycle and deltas remain private. Branch summaries retain provider-owned
-behavior; standalone and compatibility provider calls keep their existing defaults.
+deltas and provider payload remain private; bounded dedicated retry statuses
+reach existing CodingSession automation observers. Branch summaries share that
+captured policy; standalone and compatibility provider calls keep their existing defaults.
 
 ## Extensions
 

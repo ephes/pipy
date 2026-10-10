@@ -351,3 +351,9 @@ available and 1 otherwise; install failures return 1 and argument errors 2.
 See [Python codemode](codemode.md) for dependencies and installation details.
 Enable the available builtin with `--tools +codemode` or settings; see
 [enabling codemode](codemode.md#enabling).
+
+During compaction or branch summarization, a dedicated "Retrying summarization"
+countdown replaces the working loader. Actual retry admission restores the
+compaction loader or "Summarizing branch" loader. Escape cancels through the
+existing auxiliary operation; failed retries show only generic status and do not
+add ordinary assistant Error rows. Summary content and usage remain private.

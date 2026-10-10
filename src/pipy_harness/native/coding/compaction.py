@@ -9,7 +9,6 @@ from pathlib import Path
 
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.events import AgentEvent
 from pipy_harness.native.agent.history import AgentHistoryCompaction
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
@@ -355,10 +354,3 @@ def compaction_request(
         user_prompt=final_instruction,
         header_callback=header_callback,
     )
-
-
-class PrivateSummaryEvents:
-    """Auxiliary provider events never enter transcript or metadata projections."""
-
-    def emit(self, event: AgentEvent) -> None:
-        del event

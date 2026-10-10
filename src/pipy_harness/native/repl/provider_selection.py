@@ -49,7 +49,6 @@ from pipy_harness.native.coding.compaction import (
     AutomaticCompactionContext,
     CodingCompactionOutcome,
     CodingCompactionResult,
-    PrivateSummaryEvents,
     compaction_request,
     compound_compaction_cuts,
     summary_text,
@@ -77,9 +76,15 @@ from pipy_harness.native.coding.summary_recovery import (
     mark_incomplete_summary,
     recover_summary_request,
 )
+from pipy_harness.native.coding.summary_retry import (
+    PrivateSummaryRetryEvents,
+    SummaryRetryLoader,
+    SummaryRetryObserver,
+    SummaryRetrySource,
+    summary_retry_scope,
+)
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_types import ExtensionModelRuntimeControl
-from pipy_harness.native.provider import PreparedProviderPort
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.turn_leaves import (
@@ -385,6 +390,9 @@ class ProviderMutationEffects:
     pending_session_appends: list[str | NativeModelSelection] = field(
         default_factory=list, repr=False
     )
+
+    summary_retry_status: SummaryRetryObserver | None = None
+    summary_retry_loader: SummaryRetryLoader | None = None
 
     def rpc_configuration_port(
         self, commit_if_true_idle: Callable[[Callable[[], None]], bool]
@@ -1364,9 +1372,38 @@ class ProviderMutationEffects:
                 pending.promote_pending_to_drain()
         return outcome
 
-    def compact_context(  # noqa: C901 - ordered failure/stale settlement matrix
+    def compact_context(
         self,
         trigger: str,
+        budget: RequestBudget | None = None,
+        keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
+        automatic_context: AutomaticCompactionContext | None = None,
+        lifecycle: Callable[[str, CodingCompactionOutcome | None], None] | None = None,
+        pending_system_message: AgentSystemMessage | None = None,
+        custom_instructions: ProductContent | None = None,
+        project_persistence_failure: bool = False,
+    ) -> CodingCompactionOutcome:
+        with summary_retry_scope(
+            SummaryRetrySource.COMPACTION,
+            self.summary_retry_status,
+            self.summary_retry_loader,
+        ) as events:
+            return self._compact_context(
+                trigger,
+                events,
+                budget,
+                keep_recent_groups,
+                automatic_context,
+                lifecycle,
+                pending_system_message,
+                custom_instructions,
+                project_persistence_failure,
+            )
+
+    def _compact_context(  # noqa: C901 - ordered failure/stale settlement matrix
+        self,
+        trigger: str,
+        summary_events: PrivateSummaryRetryEvents,
         budget: RequestBudget | None = None,
         keep_recent_groups: int = AGENT_HISTORY_KEEP_RECENT_GROUPS,
         automatic_context: AutomaticCompactionContext | None = None,
@@ -1458,12 +1495,15 @@ class ProviderMutationEffects:
                 with self.mutation_io_lock:
                     with self.ctl.generation_ref.lock:
                         if not self._compaction_matches_locked(work):
+                            summary_events.mark_stale()
                             raise _StaleCompactionRetry
 
+            summary_events.arm_loader(self.summary_retry_loader)
+            _before_reissue()
             completion = self.provider_turn_executor.complete(
                 provider,
                 request,
-                PrivateSummaryEvents(),
+                summary_events,
                 turn_index=0,
                 delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
                 waiter=waiter,
@@ -1477,8 +1517,16 @@ class ProviderMutationEffects:
         except CodingContextChangedError:
             finish(None)
             raise
-        except Exception:  # noqa: BLE001 - auxiliary failures have content-free notices
-            if starting:
+        except BaseException as exc:  # noqa: BLE001 - auxiliary failures have content-free notices
+            if summary_events.observer_error is exc:
+                try:
+                    finish(None)
+                except BaseException as secondary:  # noqa: BLE001 - observer primary wins
+                    exc.add_note(
+                        f"compaction lifecycle cleanup failed: {type(secondary).__name__}"
+                    )
+                raise
+            if starting or not isinstance(exc, Exception):
                 raise
             pass
         post_outcome: CodingCompactionOutcome | None = None
@@ -1562,6 +1610,7 @@ class ProviderMutationEffects:
                 )
             if not project_persistence_failure:
                 raise persistence_error
+            summary_events.projected_persistence_error = persistence_error
             return projected
         return finish(
             CodingCompactionOutcome(
@@ -1630,16 +1679,14 @@ class ProviderMutationEffects:
                         settings = self.settings.capture_compaction_budget_settings()
                     except ValueError as exc:
                         invalid_policy = str(exc)
-                if isinstance(work, _CompactionWork) and isinstance(
-                    work.context.binding.provider, PreparedProviderPort
-                ):
+                if isinstance(work, _CompactionWork):
                     configured = retry_policy_from_settings(self.settings)
                     retry_policy = ProviderManagedRetryPolicy(
                         max_attempts=configured.max_attempts,
                         initial_delay_seconds=configured.initial_delay_seconds,
                         max_delay_seconds=configured.max_delay_seconds,
                         multiplier=configured.multiplier,
-                        jitter_seconds=configured.jitter_seconds,
+                        jitter_seconds=0.0,
                     )
         if isinstance(work, CodingCompactionOutcome):
             return work

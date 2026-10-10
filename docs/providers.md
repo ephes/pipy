@@ -292,7 +292,12 @@ low-level run; the SDK terminal result enumerates the complete accepted prompt.
 One internal logical settlement retains queue and cancellation ownership across
 all attempts. Backoff cancellation keeps the last error and adds no aborted
 message or `Operation aborted` row; cancelling an active provider attempt keeps
-its aborted partial. Compaction and branch summaries still keep private retries.
+its aborted partial. Compaction and branch summaries retry every provider with
+one frozen, settings-derived policy and no jitter. Their content/usage stays
+private; JSON/RPC and the TUI show dedicated bounded summarization retry statuses,
+without ordinary assistant attempt messages or Error rows. Finished status means
+provider retry execution finished, not that the summary was accepted or persisted.
+Generic abort/Escape cancels them; abort_retry targets only ordinary retries.
 See the [F4b contract](specs/2026-10-10-f4b-retry-closeout.md).
 
 ### OpenAI prompt caching

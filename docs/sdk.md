@@ -141,10 +141,12 @@ accepted input are not replayed. Settings changes apply to the next provider
 request. Cancellation covers retry backoff and provider phases, and stale
 context blocks reissue through the existing fatal cleanup. Auxiliary summaries
 used by semantic compaction capture the same policy and prepared capability while
-keeping retry events, deltas, and usage private; their original cut and context
-witness gate every reissue and final acceptance. Branch summaries retain their
-provider-owned behavior. D5d adopts RPC retry controls through that ordinary
-canonical owner; it does not expose auxiliary-summary retries or change the
+keeping deltas and usage private, while existing CodingSession automation
+observers expose bounded dedicated summary retry statuses; canonical ProductSession
+AgentEvent subscriptions do not gain these records. Their original cut and context
+witness gate every reissue and final acceptance. Branch summaries share the
+captured execution policy and dedicated status projection. D5d adopts RPC retry controls through that ordinary
+canonical owner; it does not expose auxiliary-summary retry controls or change the
 in-process `ProductSession` surface.
 
 A terminal driver failure, such as three consecutive malformed tool calls,

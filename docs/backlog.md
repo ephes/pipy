@@ -255,8 +255,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     `Took` line in both.
   - A resumed session shows no `Session compacted N times` status (Pi
     `renderInitialMessages`).
-- **DF1-F4b, what F4 left of retries:** F4 is merged (plan:
-  `docs/parity-loop/plans/f4-retry-visibility.md`; proposed closeout contract:
+- **DF1-F4b complete, what F4 left of retries:** F4 is merged (plan:
+  `docs/parity-loop/plans/f4-retry-visibility.md`; closeout contract:
   [F4b retry closeout](specs/2026-10-10-f4b-retry-closeout.md)). Every provider is retried
   with Pi's classifier, also after partial output. The TUI shows `Error: ...`
   and `Retrying (n/3) in Ns... (escape to cancel)`. Codex `error` /
@@ -270,8 +270,12 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   trailing message's independently rounded chars/4 estimate. Model changes use
   the selected window; stopped usage never supplies an anchor. Compacted contexts
   retain a conservative full estimate while their summary suffix remains.
-  Remaining difference:
-  - Compaction and branch-summary retries are still private.
+  Slice 3 now retries plain and prepared auxiliary providers and projects bounded
+  summarization retry statuses directly to JSON/RPC and TUI surfaces, preserving
+  private content, archive exclusion and guarded state-first acceptance.
+  All four F4b bullets are complete. Final auxiliary review closed with no
+  Critical or Warning findings and one applied advisory assertion; full
+  verification passed 8,185 tests with two expected skips.
 - **DF1-F5b, oversized auxiliary-summary recovery (prepared 2026-10-09;
   advisory review closure):** reproduced huge pasted text, large tool arguments
   and aggregate pressure on `ca608ce`. Compaction now preflights bounded incomplete

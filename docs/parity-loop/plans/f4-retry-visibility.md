@@ -177,8 +177,9 @@ Pi reference: `~/src/pi-mono` @ `4df157433`.
   anchor restoration. Compacted contexts keep a conservative full estimate while
   their suffix remains; Pi's post-compaction unknown-until-new-usage meter remains
   an intentional difference. Server retry hint kept.
-- Compaction / branch-summary retries keep their prepared-only, private
-  lifecycle.
+- DF1-F4b slice 3 retries plain and prepared auxiliary providers with dedicated
+  bounded status lifecycle, keeping private content and usage suppressed. This
+  privacy projection omits Pi's raw failure text and adds bounded source/outcome.
 
 ## Tests (done-when)
 

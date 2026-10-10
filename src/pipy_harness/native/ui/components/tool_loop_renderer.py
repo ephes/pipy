@@ -35,6 +35,13 @@ from pipy_harness.native.agent import (
     NestedToolCallCompleted,
     NestedToolCallStarted,
 )
+from pipy_harness.native.coding.summary_retry import (
+    SummaryRetryAttemptStarted,
+    SummaryRetryFinished,
+    SummaryRetryScheduled,
+    SummaryRetrySource,
+    SummaryRetryStatus,
+)
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.extension_types import ExtensionTool
 from pipy_harness.native.provider import StreamChunkSink
@@ -92,6 +99,8 @@ class TuiToolLoopRenderer:
         self._interrupt_key_text = interrupt_key_text or (lambda: "escape")
         self._clock = clock
         self._retry: _RetryCountdown | None = None
+        self._summary_retry: _RetryCountdown | None = None
+        self._summary_label: str | None = None
         # Pi ``CompactionStatusIndicator`` label while a summary request runs.
         self._compaction_label: str | None = None
         self._streamed_any = False
@@ -175,6 +184,16 @@ class TuiToolLoopRenderer:
         when it reaches zero, so the normal working row returns then.
         """
 
+        summary_retry = self._summary_retry
+        if summary_retry is not None:
+            remaining = max(0, summary_retry.deadline - self._clock())
+            return (
+                f"Retrying summarization ({summary_retry.attempt}/{summary_retry.max_attempts}) "
+                f"in {math.ceil(remaining)}s... ({summary_retry.cancel_key} to cancel)",
+                True,
+            )
+        if self._summary_label is not None:
+            return (self._summary_label, False)
         if self._compaction_label is not None:
             return (self._compaction_label, False)
         retry = self._retry
@@ -196,6 +215,8 @@ class TuiToolLoopRenderer:
             not self._chrome.working_visible
             and self._retry is None
             and self._compaction_label is None
+            and self._summary_retry is None
+            and self._summary_label is None
         ):
             return
         stop_event = threading.Event()
@@ -277,6 +298,30 @@ class TuiToolLoopRenderer:
                 f"Retry failed after {attempt} attempts: "
                 f"{final_error or 'Unknown error'}"
             )
+
+    def set_summary_retry_loader(self, source: SummaryRetrySource | None) -> None:
+        self._stop_working(clear=True)
+        self._summary_retry = None
+        self._summary_label = (
+            f"Summarizing branch... ({self._interrupt_key_text()} to cancel)"
+            if source is SummaryRetrySource.BRANCH_SUMMARY
+            else None
+        )
+        if source is not None:
+            self.show_working()
+
+    def render_summary_retry(self, status: SummaryRetryStatus) -> None:
+        self._stop_working(clear=True)
+        if isinstance(status, SummaryRetryScheduled):
+            self._summary_retry = _RetryCountdown(
+                status.attempt,
+                status.max_attempts,
+                self._clock() + status.delay_ms / 1000,
+                self._interrupt_key_text(),
+            )
+        elif isinstance(status, (SummaryRetryAttemptStarted, SummaryRetryFinished)):
+            self._summary_retry = None
+        self.show_working()
 
     def start_compaction(self, reason: str) -> None:
         """Pi ``compaction_start``: the compaction loader replaces the row."""

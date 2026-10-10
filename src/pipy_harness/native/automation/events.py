@@ -14,7 +14,9 @@ base lifecycle
 session extension
     ``queue_update``, ``compaction_start``/``compaction_end``,
     ``session_info_changed``, ``thinking_level_changed``,
-    ``auto_retry_start``/``auto_retry_end``
+    ``auto_retry_start``/``auto_retry_end``,
+    ``summarization_retry_scheduled``/``summarization_retry_attempt_start``/
+    ``summarization_retry_finished`` (bounded private-summary statuses)
 """
 
 from __future__ import annotations
