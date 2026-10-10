@@ -475,18 +475,21 @@ class _ToolLoopRenderer:
         self._finish_provider_turn(stream_ended_with_newline=False)
 
     def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
-        self._clear_working()
-        if reason is AgentCancellationReason.OPERATOR_ABORT and self._enabled:
-            message = self._style(" Operation aborted", "\x1b[38;2;204;102;102m")
-            try:
-                with self._terminal_lock:
-                    self._error_stream.write(f"\n{message}\n")
-                    self._error_stream.flush()
-            except (ValueError, OSError):
-                pass
-        elif reason is AgentCancellationReason.OPERATOR_ABORT:
-            print("Operation aborted", file=self._error_stream)
-        self._stream_active = False
+        del reason
+        self._finish_provider_turn(stream_ended_with_newline=False)
+
+    def render_stopped_assistant(self, marker: str) -> None:
+        self._finish_provider_turn(stream_ended_with_newline=False)
+        text = sanitize_label_text(marker)
+        if self._enabled:
+            styled = self._style(" " + text, "\x1b[38;2;204;102;102m")
+            text = f"\n{styled}"
+        try:
+            with self._terminal_lock:
+                self._error_stream.write(f"{text}\n")
+                self._error_stream.flush()
+        except (ValueError, OSError):
+            pass
 
     def schedule_retry(
         self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str

@@ -52,8 +52,8 @@ def test_provider_failure_keeps_repl_alive_with_visible_diagnostic(
     assert result.exit_code == 0
     assert result.error_type is None
     assert result.provider_failure_type == "ProviderFailed"
-    assert "provider failure during turn" in error_stream.getvalue()
-    assert "response_status=rate_limited" in error_stream.getvalue()
+    assert "Error: " in error_stream.getvalue()
+    assert "pipy: provider failure during turn" not in error_stream.getvalue()
 
 
 class _FailOnceProvider:
@@ -127,7 +127,7 @@ def test_exhausted_transport_failure_leaves_repl_usable_for_next_prompt(
     assert provider.calls == 2
     assert result.provider_failure_type is None
     assert result.provider_failure_message is None
-    assert "provider failure during turn" in error_stream.getvalue()
+    assert "Error: " in error_stream.getvalue()
     assert "OpenAI Codex stream was interrupted before completion." in (
         error_stream.getvalue()
     )

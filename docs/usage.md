@@ -93,6 +93,14 @@ During an active turn, pipy supports Pi-style steering and follow-up delivery:
 The cancellation path closes the in-flight provider connection where supported,
 so late chunks do not mutate session/context state.
 
+A stopped provider answer keeps its partial output and ends with
+`Operation aborted` for cancellation (including steering and local-command
+interruptions), or `Error: …` for a provider failure. The same marker appears on
+resume for answers without tool calls. Partial-call stops get the live marker
+too; their individual call rows still appear only on resume. Retry attempts
+retain their existing error/countdown notices; a terminal
+stopped answer gets one marker, and the next prompt remains usable.
+
 ## Sessions
 
 Native product sessions are saved automatically under

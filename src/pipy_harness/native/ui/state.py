@@ -33,6 +33,7 @@ from pipy_harness.native.agent.events import (
 )
 from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentToolCall
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.ui.stopped_turn import stopped_assistant_marker
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +46,8 @@ class UiState:
     completion; ``reasoning_streamed`` does the same for reasoning deltas.
     ``assistant_completion_suppressed`` records that a failure or
     cancellation already produced a terminal decision, so ``MessageCompleted``
-    stays silent.
+    stays silent for synthetic unstopped messages. Canonical stopped messages
+    still commit their partial content and terminal marker.
     """
 
     assistant_active: bool = False
@@ -105,6 +107,13 @@ class CancelAssistantMessage:
     """Render the active assistant message as cancelled with its reason."""
 
     reason: AgentCancellationReason
+
+
+@dataclass(frozen=True, slots=True)
+class RenderStoppedAssistant:
+    """Commit a stopped message marker after its admitted partial content."""
+
+    marker: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +178,7 @@ RenderDecision = (
     | CompleteAssistantMessage
     | FailAssistantMessage
     | CancelAssistantMessage
+    | RenderStoppedAssistant
     | ScheduleRetry
     | FinishRetry
     | RenderNestedToolCall
@@ -269,9 +279,13 @@ def _reduce_message_completed(state: UiState, event: MessageCompleted) -> _Reduc
     if not state.assistant_active:
         return (state, ())
     completed = replace(state, assistant_active=False)
-    if state.assistant_completion_suppressed:
+    marker = stopped_assistant_marker(event.message)
+    if state.assistant_completion_suppressed and marker is None:
         return (completed, ())
     has_tool_calls = bool(event.message.tool_calls)
+    # Stopped partial calls will never execute. Show their partial answer rather
+    # than treating it as a successful tool preamble (hidden by the plain UI).
+    render_tool_preamble = has_tool_calls and marker is None
     decisions: list[RenderDecision] = []
     if not state.assistant_streamed and not state.reasoning_streamed:
         # Nothing streamed: draw the answer's thinking runs and text in order.
@@ -279,16 +293,21 @@ def _reduce_message_completed(state: UiState, event: MessageCompleted) -> _Reduc
             decisions.append(
                 RenderBufferedAssistantThinking(text)
                 if thinking
-                else RenderBufferedAssistantText(text, has_tool_calls=has_tool_calls)
+                else RenderBufferedAssistantText(
+                    text, has_tool_calls=render_tool_preamble
+                )
             )
     elif event.message.content.value and not state.assistant_streamed:
         decisions.append(
             RenderBufferedAssistantText(
                 event.message.content.value,
-                has_tool_calls=has_tool_calls,
+                has_tool_calls=render_tool_preamble,
             )
         )
-    decisions.append(CompleteAssistantMessage(has_tool_calls=has_tool_calls))
+    if marker is not None:
+        decisions.append(RenderStoppedAssistant(marker))
+    elif not state.assistant_completion_suppressed:
+        decisions.append(CompleteAssistantMessage(has_tool_calls=has_tool_calls))
     return (completed, tuple(decisions))
 
 

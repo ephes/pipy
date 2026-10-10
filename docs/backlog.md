@@ -281,11 +281,15 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   state-first persistence stay intact. This extends Pi; branch summaries and
   token-based retention are unchanged. See the [slice note](specs/2026-10-09-df1-f5b-summary-recovery.md).
 - **DF1-F6b, what F6 left of stopped turns** (see the F6 Done row):
-  - A live provider failure still prints
-    `pipy: provider failure during turn: …`; Pi draws `Error: <message>`
-    after the partial text, which pipy now shows only on resume.
-  - Steering and local-command interruptions draw no live
-    `Operation aborted` row (resume shows it for every aborted turn).
+  - Live stopped-turn presentation is implemented in the bounded F6b slice
+    ([contract](specs/2026-10-09-f6b-live-stopped-turns.md)): completed stopped
+    provider messages draw their partial content, then one
+    `Error: …` or `Operation aborted` row, matching resumed history. Steering,
+    local-command and provider cancellations use the same marker. A fallback
+    marker also covers partial tool calls; rendering those calls remains deferred.
+    Existing retry notices remain separate. Verification: 7970 passed, 2 expected
+    skips; independent Opus 5.5/high repair review closed as advisory, with no
+    blocking findings (not CLEAN). Owner authorized commit and push on 2026-10-10.
   - An abort during tool execution ends the run after the interrupted tool
     results; Pi's loop then records an empty aborted assistant.
   - Compaction and branch summaries drop a stopped turn's partial text; Pi

@@ -29,6 +29,7 @@ from pipy_harness.native.ui.state import (
     RenderBufferedAssistantThinking,
     RenderDecision,
     RenderNestedToolCall,
+    RenderStoppedAssistant,
     RenderToolCall,
     RenderToolResult,
     ScheduleRetry,
@@ -60,6 +61,8 @@ class AgentEventRenderer(Protocol):
     def render_buffered_thinking(self, text: str) -> None: ...
 
     def complete_assistant_message(self, *, has_tool_calls: bool) -> None: ...
+
+    def render_stopped_assistant(self, marker: str) -> None: ...
 
     def fail_assistant_message(self) -> None: ...
 
@@ -141,6 +144,7 @@ class RenderingAgentEventAdapter:
             | CompleteAssistantMessage
             | FailAssistantMessage
             | CancelAssistantMessage
+            | RenderStoppedAssistant
         ),
     ) -> None:
         renderer = self._renderer
@@ -158,6 +162,8 @@ class RenderingAgentEventAdapter:
             renderer.render_buffered_thinking(decision.text)
         elif isinstance(decision, CompleteAssistantMessage):
             renderer.complete_assistant_message(has_tool_calls=decision.has_tool_calls)
+        elif isinstance(decision, RenderStoppedAssistant):
+            renderer.render_stopped_assistant(decision.marker)
         elif isinstance(decision, FailAssistantMessage):
             renderer.fail_assistant_message()
         elif isinstance(decision, CancelAssistantMessage):

@@ -697,6 +697,7 @@ def test_restored_aborted_turn_matches_the_live_abort_rows(tmp_path: Path) -> No
         renderer.start_assistant_message()
         renderer.stream_sink("Roses are")
         renderer.cancel_assistant_message(AgentCancellationReason.OPERATOR_ABORT)
+        renderer.render_stopped_assistant("Operation aborted")
 
     live = _live_rows(tmp_path / "live", drive)
 

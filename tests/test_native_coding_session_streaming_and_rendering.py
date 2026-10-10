@@ -884,3 +884,15 @@ def test_read_returns_secret_shaped_content_like_pi(tmp_path: Path):
 
     assert result.is_error is False
     assert result.output_text == "api_key=AKIAIOSFODNN7EXAMPLE\n"
+
+
+@pytest.mark.parametrize("marker", ["Operation aborted", "Error: provider failed"])
+def test_plain_tty_stopped_marker_preserves_error_style_and_spacing(
+    marker: str,
+) -> None:
+    out, err = _StreamingStub(isatty=True), _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
+    renderer.render_stopped_assistant(marker)
+    assert err.getvalue() == f"\n\x1b[38;2;204;102;102m {marker}\x1b[0m\n"

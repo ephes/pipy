@@ -73,11 +73,11 @@ def test_settle_assistant_commits_buffer_and_falls_back_to_final_text() -> None:
     assert t.history_blocks[-1] == ("assistant", ("full answer",))
 
 
-def test_show_operation_aborted_commits_partial_then_error() -> None:
+def test_aborted_error_commits_partial_then_error() -> None:
     harness = _Harness()
     t = harness.component
     t.append_assistant("partial")
-    t.show_operation_aborted()
+    t.add_error("Operation aborted")
     assert _kinds(t)[-2:] == ["assistant", "error"]
     assert t.history_blocks[-1] == ("error", ("Operation aborted",))
 

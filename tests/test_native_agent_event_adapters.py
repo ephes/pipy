@@ -89,6 +89,9 @@ class _RecordingRenderer:
     def complete_assistant_message(self, *, has_tool_calls: bool) -> None:
         self.actions.append(("assistant-complete", has_tool_calls))
 
+    def render_stopped_assistant(self, marker: str) -> None:
+        self.actions.append(("assistant-stopped", marker))
+
     def fail_assistant_message(self) -> None:
         self.actions.append(("assistant-failed",))
 

@@ -3364,6 +3364,11 @@ def test_pty_steering_and_follow_up_queue_and_drain_order(
         f"{label}: steering must drain before follow-up: {provider.user_prompts}"
     )
     captured = _text()
+    assert "Operation aborted" in captured
+    assert (
+        ui.components.transcript.history_blocks.count(("error", ("Operation aborted",)))
+        == 1
+    )
     assert "\x1b[?1049h" not in captured
 
 
@@ -3738,6 +3743,7 @@ def test_pty_local_command_submitted_midturn_runs_locally_not_queued(
         ), "/hotkeys did not return to ready input mid-turn"
 
     captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "Operation aborted" in captured
     assert "\x1b[?1049h" not in captured
     # /hotkeys ran locally and was never sent to the provider as a prompt.
     assert prompts == ["begin the turn"]

@@ -167,6 +167,8 @@ def test_streamed_any_tracks_assistant_output() -> None:
 def test_operator_abort_commits_the_aborted_notice() -> None:
     h = _Harness()
     h.renderer.cancel_assistant_message(AgentCancellationReason.OPERATOR_ABORT)
+    assert h.transcript.history_blocks == []
+    h.renderer.render_stopped_assistant("Operation aborted")
     assert ("error", ("Operation aborted",)) in h.transcript.history_blocks
 
 

@@ -302,9 +302,6 @@ class TranscriptComponent:
                 self.assistant_text = ""
         self._repaint()
 
-    def show_operation_aborted(self) -> None:
-        self.add_error("Operation aborted")
-
     def add_error(self, text: str) -> None:
         """Settle any partial assistant text, then show ``text`` as an error.
 

@@ -52,6 +52,7 @@ from pipy_harness.native.ui.components.transcript import (
 )
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
+from pipy_harness.native.ui.stopped_turn import stopped_assistant_marker
 
 
 def compaction_summary_box(entry: CompactionEntry) -> SummaryBox:
@@ -218,18 +219,6 @@ def _render_message(
         )
     elif isinstance(message, AgentAssistantMessage):
         _render_assistant(message, renderer, scratch, results)
-
-
-def stopped_assistant_marker(message: AgentAssistantMessage) -> str | None:
-    """Pi ``AssistantMessageComponent``'s line after an aborted/failed turn."""
-
-    if message.stop_reason is AgentStopReason.ABORTED:
-        if message.error_message and message.error_message != "Request was aborted":
-            return message.error_message
-        return "Operation aborted"
-    if message.stop_reason is AgentStopReason.ERROR:
-        return f"Error: {message.error_message or 'Unknown error'}"
-    return None
 
 
 def _stopped_call_text(message: AgentAssistantMessage) -> str:

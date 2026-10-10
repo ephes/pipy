@@ -133,15 +133,7 @@ class CodingAgentTurnStatusEffects:
         assert failure is not None
         del tool_state
         self.state.record_provider_failure(failure)
-        suffix = (
-            f" (response_status={status.response_status})"
-            if status.response_status is not None
-            else ""
-        )
-        self.presentation.emit_diagnostic(
-            "pipy: provider failure during turn: "
-            f"{failure.error_type}: {failure.message.value}{suffix}"
-        )
+        # The completed stopped message owns the live error row, as on resume.
         self.presentation.refresh_usage_footer()
 
     def no_tool_assistant(self, tool_state: AgentToolPolicyState, /) -> None:

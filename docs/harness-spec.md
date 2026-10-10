@@ -3234,9 +3234,9 @@ Phase 4.1 introduces the `native.ui` package as the terminal-free UI boundary.
 `native.ui.state` is a pure decision machine: the frozen `UiState`
 (`assistant_active`, `assistant_streamed`, `assistant_completion_suppressed`) and
 `reduce(state, event) -> (UiState, tuple[RenderDecision, ...])`. `reduce` owns the
-assistant message lifecycle and performs no terminal I/O, importing only the
-canonical `native.agent` `events`/`messages`/`results` value types. Its decisions
-are deterministic and byte-identical to the prior inline adapter logic:
+assistant message lifecycle and performs no terminal I/O, using canonical
+`native.agent` value types and the pure shared stopped-message marker helper.
+Its decisions are deterministic:
 `MessageStarted` for an assistant message starts a fresh message and resets all
 three flags; each `AssistantTextDelta` streams its full-content value and records
 non-empty accumulation; `AssistantReasoningDelta` is a stateless reasoning
@@ -3245,7 +3245,12 @@ always and emit a fail/cancel decision only while a message is active (cancel
 carries the exact `AgentCancellationReason`); and a `MessageCompleted` for an
 active assistant message deactivates it and, unless suppressed, renders the
 buffered body only when there is non-streamed content, then completes exactly
-once with the message's `has_tool_calls`. A second or inactive completion is
+once with the message's `has_tool_calls`. Canonical stopped completions still render non-streamed partial content and one
+`RenderStoppedAssistant` marker despite suppression; synthetic unstopped
+completions stay silent after failure/cancellation. The marker text is shared
+with restored history (DF1-F6b). Early fail/cancel callbacks settle working
+chrome and content; the completed stopped message owns the error row. Retry
+attempt notices retain their existing separate lifecycle. A second or inactive completion is
 silent, so completion happens at most once per message. `assistant_streamed`
 persists across completion and is reset only by the next `MessageStarted`.
 

@@ -15,6 +15,7 @@ from pipy_harness.native.agent import (
     AgentEvent,
     AgentFailure,
     AgentRunStarted,
+    AgentStopReason,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
@@ -35,6 +36,7 @@ from pipy_harness.native.ui.state import (
     CompleteAssistantMessage,
     FailAssistantMessage,
     RenderBufferedAssistantText,
+    RenderStoppedAssistant,
     RenderToolCall,
     RenderToolResult,
     StartAssistantMessage,
@@ -392,3 +394,83 @@ def test_tool_events_interleave_with_message_lifecycle_decisions() -> None:
     )
     assert completed == (CompleteAssistantMessage(has_tool_calls=True),)
     assert state == UiState(assistant_streamed=True)
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "error_message", "marker"),
+    [
+        (AgentStopReason.ABORTED, None, "Operation aborted"),
+        (AgentStopReason.ABORTED, "Request was aborted", "Operation aborted"),
+        (AgentStopReason.ABORTED, "custom cancellation", "custom cancellation"),
+        (AgentStopReason.ERROR, None, "Error: Unknown error"),
+        (AgentStopReason.ERROR, "boom", "Error: boom"),
+    ],
+)
+def test_stopped_completion_renders_buffered_content_then_one_marker(
+    stop_reason: AgentStopReason, error_message: str | None, marker: str
+) -> None:
+    message = AgentAssistantMessage(
+        ProductContent("partial"), stop_reason=stop_reason, error_message=error_message
+    )
+    state, decisions = reduce(
+        UiState(assistant_active=True, assistant_completion_suppressed=True),
+        MessageCompleted(0, message),
+    )
+    assert decisions == (
+        RenderBufferedAssistantText("partial", has_tool_calls=False),
+        RenderStoppedAssistant(marker),
+    )
+    duplicate_state, duplicate = reduce(state, MessageCompleted(0, message))
+    assert duplicate_state is state
+    assert duplicate == ()
+
+
+def test_stopped_completion_after_stream_does_not_echo_partial_content() -> None:
+    message = AgentAssistantMessage(
+        ProductContent("partial"), stop_reason=AgentStopReason.ABORTED
+    )
+    _, decisions = reduce(
+        UiState(
+            assistant_active=True,
+            assistant_streamed=True,
+            assistant_completion_suppressed=True,
+        ),
+        MessageCompleted(0, message),
+    )
+    assert decisions == (RenderStoppedAssistant("Operation aborted"),)
+
+
+@pytest.mark.parametrize(
+    "stop_reason", [AgentStopReason.ABORTED, AgentStopReason.ERROR]
+)
+@pytest.mark.parametrize("streamed", [False, True])
+def test_stopped_partial_call_still_closes_with_terminal_marker(
+    stop_reason: AgentStopReason, streamed: bool
+) -> None:
+    call = AgentToolCall("partial", "read", ProductContent('{"pa'))
+    message = AgentAssistantMessage(
+        ProductContent("partial"),
+        (call,),
+        stop_reason=stop_reason,
+    )
+    _, decisions = reduce(
+        UiState(
+            assistant_active=True,
+            assistant_streamed=streamed,
+            assistant_completion_suppressed=True,
+        ),
+        MessageCompleted(0, message),
+    )
+    marker = (
+        "Operation aborted"
+        if stop_reason is AgentStopReason.ABORTED
+        else "Error: Unknown error"
+    )
+    assert decisions == (
+        *(
+            (RenderBufferedAssistantText("partial", has_tool_calls=False),)
+            if not streamed
+            else ()
+        ),
+        RenderStoppedAssistant(marker),
+    )

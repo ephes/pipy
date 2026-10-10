@@ -22,6 +22,7 @@ from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentCancellationReason,
+    AgentStopReason,
     AgentToolCall,
     AssistantTextDelta,
     MessageCompleted,
@@ -678,10 +679,17 @@ def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
 
     frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
     assert "Working..." not in frame
-    if reason is AgentCancellationReason.OPERATOR_ABORT:
-        assert "Operation aborted" in frame
-    else:
-        assert "Operation aborted" not in frame
+    assert "Operation aborted" not in frame
+    adapter.emit(
+        MessageCompleted(
+            0,
+            AgentAssistantMessage(
+                ProductContent(""), stop_reason=AgentStopReason.ABORTED
+            ),
+        )
+    )
+    frame = "\n".join(ui.components.screen.render_lines(width=72, height=14))
+    assert "Operation aborted" in frame
 
 
 def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):

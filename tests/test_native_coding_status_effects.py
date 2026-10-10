@@ -131,11 +131,6 @@ def test_status_effect_family_uses_only_ordered_state_and_presentation_ports() -
         ("tool-policy", tool_state),
         ("provider-success",),
         ("provider-failure", provider_failure),
-        (
-            "diagnostic",
-            "pipy: provider failure during turn: "
-            "ProviderFailed: rate limit (response_status=429)",
-        ),
         ("footer",),
         ("footer",),
         (

@@ -241,10 +241,12 @@ class TuiToolLoopRenderer:
         self._finish_provider_turn()
 
     def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
-        self._retry = None
-        self._stop_working(clear=True)
-        if reason is AgentCancellationReason.OPERATOR_ABORT:
-            self._transcript.show_operation_aborted()
+        del reason
+        self._finish_provider_turn()
+
+    def render_stopped_assistant(self, marker: str) -> None:
+        self._finish_provider_turn()
+        self._transcript.add_error(marker)
 
     def schedule_retry(
         self, *, attempt: int, max_attempts: int, delay_ms: int, error_message: str

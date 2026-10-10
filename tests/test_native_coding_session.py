@@ -3248,7 +3248,8 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
     assert result.status == HarnessStatus.SUCCEEDED
     assert state.current_selection().reference == "uniqueext/m"
     assert "no available tool-capable fallback was found" in stderr
-    assert "ProviderUnavailableAfterReload" in stderr
+    assert "Error: " in stderr
+    assert result.provider_failure_type == "ProviderUnavailableAfterReload"
     assert "removed unique extension provider was used" not in output_stream.getvalue()
 
 
