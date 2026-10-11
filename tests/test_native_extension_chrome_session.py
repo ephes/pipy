@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TextIO, cast
 
 import pytest
+from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.coding.session import (
@@ -30,6 +31,7 @@ from pipy_harness.native.coding.session import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import TerminalUi
 
@@ -161,8 +163,9 @@ def _wait_until_absent(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize("startup_raw_delay", [0.0, 0.1])
 def test_pty_session_renders_then_reload_clears_chrome(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, startup_raw_delay: float
 ) -> None:
     # A PTY-backed session builds a real terminal_ui, so the live driver +
     # region rendering + reload-clear are exercised. An extension *command*
@@ -185,6 +188,24 @@ def test_pty_session_renders_then_reload_clears_chrome(
     stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
     err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    enter_raw_mode = TerminalDriver.enter_raw_mode
+    first_entry = True
+
+    def delayed_raw_entry(driver):
+        nonlocal first_entry
+        if first_entry:
+            first_entry = False
+            # Make the paint-before-input-readiness window observable even on
+            # fast machines. Input sent here would be discarded by TCSAFLUSH.
+            if startup_raw_delay:
+                assert _wait_for(err_chunks, "escape interrupt"), (
+                    "delayed raw entry must follow startup paint"
+                )
+            time.sleep(startup_raw_delay)
+        enter_raw_mode(driver)
+
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", delayed_raw_entry)
 
     ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
@@ -209,11 +230,16 @@ def test_pty_session_renders_then_reload_clears_chrome(
     )
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup never painted"
+        assert wait_for_input_ready_after(err_chunks, "escape interrupt") is not None, (
+            "startup never became input-ready"
+        )
 
         # Run the extension command: it sets the widget via the live driver.
         os.write(in_master, b"/demo\n")
         assert _wait_for(err_chunks, "DEMO_WIDGET"), "widget never painted"
+        assert wait_for_input_ready_after(err_chunks, "DEMO_WIDGET") is not None, (
+            "widget prompt never became input-ready"
+        )
 
         # Remove the extension, then /reload: chrome must be cleared. The
         # reloaded extension generation has no session_start hook because the
@@ -237,6 +263,9 @@ def test_pty_session_renders_then_reload_clears_chrome(
         reload_row = next(i for i, row in enumerate(rows) if "reloaded settings" in row)
         assert all("DEMO_WIDGET" not in row for row in rows[reload_row:])
 
+        assert (
+            wait_for_input_ready_after(err_chunks, "reloaded settings") is not None
+        ), "reload prompt never became input-ready"
         os.write(in_master, b"\x03")  # ctrl-c exits the prompt
         worker.join(timeout=8.0)
     finally:
@@ -324,8 +353,8 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
     )
     worker.start()
     try:
-        assert _wait_for(err_chunks, "OLD_FLAG_WIDGET"), (
-            "startup session_start chrome never painted"
+        assert wait_for_input_ready_after(err_chunks, "OLD_FLAG_WIDGET") is not None, (
+            "startup session_start chrome never became input-ready"
         )
         listeners_before = tuple(
             ui.components.chrome.record.terminal_input_listeners.values()
@@ -357,6 +386,12 @@ def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
                 time.sleep(0.02)
             else:
                 pytest.fail("invalid candidate flag was not reported")
+            assert (
+                wait_for_input_ready_after(
+                    err_chunks, "keeping the previous extensions", after=before_bytes
+                )
+                is not None
+            ), "retained-extension prompt never became input-ready"
 
             assert tuple(
                 ui.components.chrome.record.terminal_input_listeners.values()
@@ -451,17 +486,19 @@ def test_pty_reload_session_start_hook_restores_chrome_live(
     )
     worker.start()
     try:
-        assert _wait_for(err_chunks, "RELOAD_WIDGET_startup_initial"), (
-            "startup session_start widget never painted"
-        )
+        assert (
+            wait_for_input_ready_after(err_chunks, "RELOAD_WIDGET_startup_initial")
+            is not None
+        ), "startup session_start widget never became input-ready"
         os.write(in_master, b"/flip-reload-widget\n")
-        assert _wait_for(err_chunks, "reload-widget-flipped"), (
-            "extension command did not finish before reload"
-        )
+        assert (
+            wait_for_input_ready_after(err_chunks, "reload-widget-flipped") is not None
+        ), "extension command did not become input-ready before reload"
         os.write(in_master, b"/reload\n")
-        assert _wait_for(err_chunks, "RELOAD_WIDGET_reload_reloaded"), (
-            "reload session_start widget never repainted with the reloaded generation"
-        )
+        assert (
+            wait_for_input_ready_after(err_chunks, "RELOAD_WIDGET_reload_reloaded")
+            is not None
+        ), "reload session_start widget never repainted into an input-ready prompt"
 
         os.write(in_master, b"\x03")
         worker.join(timeout=8.0)
@@ -528,7 +565,7 @@ def test_pty_session_start_hook_renders_chrome_live(
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup never painted"
         # No command issued: the session_start hook alone must render the widget.
-        assert _wait_for(err_chunks, "DEMO_WIDGET"), (
+        assert wait_for_input_ready_after(err_chunks, "DEMO_WIDGET") is not None, (
             "session_start widget never painted -- live ui_driver not wired "
             "into lifecycle dispatch"
         )

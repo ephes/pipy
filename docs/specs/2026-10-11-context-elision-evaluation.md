@@ -222,3 +222,19 @@ and the test-only change has no product changelog entry. The advisory review
 cycle closed without a further pass.
 Full `just check` then passed with 8,203 tests and two skips; the documentation
 build and `git diff --check` also passed.
+
+The next remote run passed those repaired tests but exposed a separate existing
+extension-chrome PTY test race on Python 3.11: startup paint preceded raw-mode
+input readiness, so the test's `/demo` command could be flushed before processing.
+The extension-chrome PTY tests now use the shared bracketed-paste readiness
+acknowledgement before commands and shutdown. The failing test also includes a
+delayed-startup case that confirms startup paint precedes its first raw entry.
+The extension-chrome and readiness-helper suites pass on Python 3.11 and 3.14.
+Product terminal behavior and evaluation measurements are unchanged.
+
+The readiness repair passed 45 focused measurement/chrome/readiness/selector
+tests on Python 3.11 and 20 chrome/readiness tests on Python 3.14. Its separate
+Opus 5.5/medium review had two Suggestions and no Critical or Warning findings;
+both suggestions were applied (sibling-test readiness and asserted startup
+ordering), then the advisory cycle closed without another review.
+Full `just check` under Python 3.11 passed with 8,205 tests and two skips.
