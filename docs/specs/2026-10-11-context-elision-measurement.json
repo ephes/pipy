@@ -1,0 +1,3326 @@
+{
+  "head": "e523b1b94eb6176663f301a4bf61a6a3a9cece89",
+  "provider": "openai-codex",
+  "model": "gpt-6.1-sol",
+  "effort": "low",
+  "transport": "sse",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "fixture_version": 1,
+  "driver_sha256": "7e4c5b9d60b0e505802a7338ec7c4cd6f8050bdee461679a7bd691424fe4be78",
+  "context_ceiling": 24000,
+  "reserve": 2048,
+  "soft_fraction": 0.6,
+  "protected_recent_cycles": 2,
+  "minimum_result_characters": 2048,
+  "pairs": 4,
+  "metric_definitions": {
+    "usage": "Allowlisted actual provider counters across every summary and ordinary attempt; cached_tokens is a subset of input_tokens for this provider. Missing counters remain unavailable.",
+    "summary_calls": "Prepared private summary operations; HTTP counts and per-operation attempts report retries separately.",
+    "wall_seconds": "Session opening, two submissions and strict reopen; excludes fixture preparation.",
+    "exact_facts": "Strict parsed JSON equality with deterministic synthetic ground truth; no judge or relaxed parsing.",
+    "elision": "Projection before admission: successful read bodies above 2048 characters, except last two complete cycles; trigger at 60% estimated input allowance. Original canonical history still supplies summary input."
+  },
+  "runs": [
+    {
+      "arm": "current",
+      "case": "bulk",
+      "seed": 9100,
+      "wall_seconds": 10.59029108309187,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 7.240334540954791,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4369,
+                "output_tokens": 147,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4516
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1010,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.6510083329631016,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 556,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 573
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1075,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.677110290969722,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 594,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 611
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5519,
+          "output_tokens": 181,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5700
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 26731,
+        "min": 2729,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2729,
+          3135
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 20843,
+        "min": 145,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          145,
+          551
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "bulk",
+      "seed": 9100,
+      "wall_seconds": 3.854259083047509,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10212,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.975774749997072,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5710,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5727
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10277,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.853599000023678,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5748,
+                "output_tokens": 17,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5765
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11458,
+          "output_tokens": 34,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11492
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 53998,
+        "min": 26796,
+        "max": 27202,
+        "per_attempt": [
+          26796,
+          27202
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50084,
+        "min": 24839,
+        "max": 25245,
+        "per_attempt": [
+          24839,
+          25245
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "reread",
+      "seed": 9100,
+      "wall_seconds": 8.767921458929777,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 4.712415124988183,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4369,
+                "output_tokens": 127,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4496
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1322,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.4949081670492887,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 720,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 737
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1384,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.5501844580285251,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 758,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 775
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5847,
+          "output_tokens": 161,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 6008
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 28364,
+        "min": 3551,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          3551,
+          3946
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 1480,
+        "min": 2,
+        "max": 739,
+        "per_attempt": [
+          2,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21012,
+        "min": 235,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          235,
+          630
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "reread",
+      "seed": 9100,
+      "wall_seconds": 6.151681332965381,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10563,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.0524230839218944,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5894,
+                "output_tokens": 29,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5923
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10787,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 1.7200403329916298,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5971,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5988
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10849,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 2.3679717920022085,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 17,
+                "cached_tokens": 5888,
+                "reasoning_tokens": 0,
+                "total_tokens": 6026
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 17874,
+          "output_tokens": 63,
+          "cached_tokens": 5888,
+          "reasoning_tokens": 0,
+          "total_tokens": 17937
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 3,
+      "reread_calls": 1,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 84513,
+        "min": 27710,
+        "max": 28599,
+        "per_attempt": [
+          27710,
+          28204,
+          28599
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 2217,
+        "min": 739,
+        "max": 739,
+        "per_attempt": [
+          739,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 76170,
+        "min": 24929,
+        "max": 25818,
+        "per_attempt": [
+          24929,
+          25423,
+          25818
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "history_only",
+      "seed": 9100,
+      "wall_seconds": 9.612288083997555,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 5.434517959016375,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4369,
+                "output_tokens": 164,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4533
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1104,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.573227999964729,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 597,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 614
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1167,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.5834657909581438,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 635,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 652
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5601,
+          "output_tokens": 198,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5799
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 27178,
+        "min": 2958,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2958,
+          3353
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21060,
+        "min": 259,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          259,
+          654
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "history_only",
+      "seed": 9100,
+      "wall_seconds": 3.724136041942984,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10263,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.74393162492197,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5734,
+                "output_tokens": 11,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5745
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10322,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.9591262079775333,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5766,
+                "output_tokens": 11,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5777
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11500,
+          "output_tokens": 22,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11522
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": false,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 54219,
+        "min": 26918,
+        "max": 27301,
+        "per_attempt": [
+          26918,
+          27301
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50289,
+        "min": 24953,
+        "max": 25336,
+        "per_attempt": [
+          24953,
+          25336
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "bulk",
+      "seed": 9101,
+      "wall_seconds": 4.079137249966152,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10212,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.1711807081010193,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5710,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5727
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10277,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.8973161249887198,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5748,
+                "output_tokens": 17,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5765
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11458,
+          "output_tokens": 34,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11492
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 53998,
+        "min": 26796,
+        "max": 27202,
+        "per_attempt": [
+          26796,
+          27202
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50084,
+        "min": 24839,
+        "max": 25245,
+        "per_attempt": [
+          24839,
+          25245
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "bulk",
+      "seed": 9101,
+      "wall_seconds": 9.248220084002241,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 5.689429791062139,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 160,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4530
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1022,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.7226241669850424,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 569,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 586
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1087,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.8258357499726117,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 607,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 624
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5546,
+          "output_tokens": 194,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5740
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 26789,
+        "min": 2758,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2758,
+          3164
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 20843,
+        "min": 145,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          145,
+          551
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "reread",
+      "seed": 9101,
+      "wall_seconds": 6.856539416941814,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10563,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.0941290830960497,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5894,
+                "output_tokens": 29,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5923
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10787,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 2.040112499962561,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5972,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5990
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10849,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 2.705497417016886,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 18,
+                "cached_tokens": 5888,
+                "reasoning_tokens": 0,
+                "total_tokens": 6029
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 17877,
+          "output_tokens": 65,
+          "cached_tokens": 5888,
+          "reasoning_tokens": 0,
+          "total_tokens": 17942
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 3,
+      "reread_calls": 1,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 84513,
+        "min": 27710,
+        "max": 28599,
+        "per_attempt": [
+          27710,
+          28204,
+          28599
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 2217,
+        "min": 739,
+        "max": 739,
+        "per_attempt": [
+          739,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 76170,
+        "min": 24929,
+        "max": 25818,
+        "per_attempt": [
+          24929,
+          25423,
+          25818
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "reread",
+      "seed": 9101,
+      "wall_seconds": 10.498712542001158,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 5.545022040954791,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 156,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4526
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1367,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.5306356670334935,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 749,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 767
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1429,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.4014629159355536,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 788,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 806
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5907,
+          "output_tokens": 192,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 6099
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 28578,
+        "min": 3658,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          3658,
+          4053
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 1480,
+        "min": 2,
+        "max": 739,
+        "per_attempt": [
+          2,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21012,
+        "min": 235,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          235,
+          630
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "history_only",
+      "seed": 9101,
+      "wall_seconds": 4.456242915941402,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10263,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.0603622909402475,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5734,
+                "output_tokens": 11,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5745
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10322,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.3479895829223096,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5766,
+                "output_tokens": 11,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5777
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11500,
+          "output_tokens": 22,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11522
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": false,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 54219,
+        "min": 26918,
+        "max": 27301,
+        "per_attempt": [
+          26918,
+          27301
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50289,
+        "min": 24953,
+        "max": 25336,
+        "per_attempt": [
+          24953,
+          25336
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "history_only",
+      "seed": 9101,
+      "wall_seconds": 10.645877416012809,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 6.068182250019163,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 159,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4529
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1070,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.246151666971855,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 592,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 610
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1133,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.3153538749320433,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 631,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 649
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5593,
+          "output_tokens": 195,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5788
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 27022,
+        "min": 2880,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2880,
+          3275
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21060,
+        "min": 259,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          259,
+          654
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "bulk",
+      "seed": 9102,
+      "wall_seconds": 9.582350959070027,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 6.174082292011008,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 153,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4523
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1024,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.7997162499232218,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 562,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 579
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1089,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.5994615830713883,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 600,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 617
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5532,
+          "output_tokens": 187,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5719
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 26793,
+        "min": 2760,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2760,
+          3166
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 20843,
+        "min": 145,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          145,
+          551
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "bulk",
+      "seed": 9102,
+      "wall_seconds": 5.104138917056844,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10212,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.8261792910052463,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5710,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5727
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10277,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 3.2704463340342045,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5748,
+                "output_tokens": 17,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5765
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11458,
+          "output_tokens": 34,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11492
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 53998,
+        "min": 26796,
+        "max": 27202,
+        "per_attempt": [
+          26796,
+          27202
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50084,
+        "min": 24839,
+        "max": 25245,
+        "per_attempt": [
+          24839,
+          25245
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "reread",
+      "seed": 9102,
+      "wall_seconds": 9.070779624977149,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 4.96436033397913,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 138,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4508
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1348,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.9867754579754546,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 731,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 749
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1410,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.110315833007917,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 770,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 788
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5871,
+          "output_tokens": 174,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 6045
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 28504,
+        "min": 3621,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          3621,
+          4016
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 1480,
+        "min": 2,
+        "max": 739,
+        "per_attempt": [
+          2,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21012,
+        "min": 235,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          235,
+          630
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "reread",
+      "seed": 9102,
+      "wall_seconds": 7.6081033339723945,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10563,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 3.1418455418897793,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5894,
+                "output_tokens": 29,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5923
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10779,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 2.7775981669547036,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5972,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5990
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10842,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 1.6773300420027226,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 6029
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 17877,
+          "output_tokens": 65,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 17942
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 3,
+      "reread_calls": 1,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 84481,
+        "min": 27710,
+        "max": 28583,
+        "per_attempt": [
+          27710,
+          28188,
+          28583
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 2217,
+        "min": 739,
+        "max": 739,
+        "per_attempt": [
+          739,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 76138,
+        "min": 24929,
+        "max": 25802,
+        "per_attempt": [
+          24929,
+          25407,
+          25802
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "history_only",
+      "seed": 9102,
+      "wall_seconds": 7.416113957995549,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 4.086691458942369,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 150,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4520
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1067,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.8064709169557318,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 583,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 601
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1129,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.5032407080288976,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 622,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 640
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5575,
+          "output_tokens": 186,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5761
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 26986,
+        "min": 2862,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2862,
+          3257
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21060,
+        "min": 259,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          259,
+          654
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "history_only",
+      "seed": 9102,
+      "wall_seconds": 3.5862277089618146,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10263,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.5827690419973806,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5734,
+                "output_tokens": 11,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5745
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10322,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 1.985979999997653,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5766,
+                "output_tokens": 11,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5777
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11500,
+          "output_tokens": 22,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11522
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": false,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 54219,
+        "min": 26918,
+        "max": 27301,
+        "per_attempt": [
+          26918,
+          27301
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50289,
+        "min": 24953,
+        "max": 25336,
+        "per_attempt": [
+          24953,
+          25336
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "bulk",
+      "seed": 9103,
+      "wall_seconds": 5.250479667098261,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10212,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.4724574169376865,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5711,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5729
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10277,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.7664857909549028,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5750,
+                "output_tokens": 18,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5768
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11461,
+          "output_tokens": 36,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11497
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 53998,
+        "min": 26796,
+        "max": 27202,
+        "per_attempt": [
+          26796,
+          27202
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50084,
+        "min": 24839,
+        "max": 25245,
+        "per_attempt": [
+          24839,
+          25245
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "bulk",
+      "seed": 9103,
+      "wall_seconds": 9.304977707914077,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 5.12527154199779,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 158,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4528
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1018,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.0591098750010133,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 567,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 585
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1083,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.10661729099229,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 606,
+                "output_tokens": 18,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 624
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5543,
+          "output_tokens": 194,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5737
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 26795,
+        "min": 2761,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2761,
+          3167
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 20843,
+        "min": 145,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          145,
+          551
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "reread",
+      "seed": 9103,
+      "wall_seconds": 8.242904165992513,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10563,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 3.076106542022899,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5895,
+                "output_tokens": 29,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5924
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10779,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 2.383906167000532,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5972,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5989
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 10842,
+          "elided_results": 7,
+          "attempts": [
+            {
+              "seconds": 2.268750499933958,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 6010,
+                "output_tokens": 17,
+                "cached_tokens": 5888,
+                "reasoning_tokens": 0,
+                "total_tokens": 6027
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 17877,
+          "output_tokens": 63,
+          "cached_tokens": 5888,
+          "reasoning_tokens": 0,
+          "total_tokens": 17940
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 3,
+      "reread_calls": 1,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 84481,
+        "min": 27710,
+        "max": 28583,
+        "per_attempt": [
+          27710,
+          28188,
+          28583
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 2217,
+        "min": 739,
+        "max": 739,
+        "per_attempt": [
+          739,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 76138,
+        "min": 24929,
+        "max": 25802,
+        "per_attempt": [
+          24929,
+          25407,
+          25802
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "reread",
+      "seed": 9103,
+      "wall_seconds": 8.491425042040646,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 4.8061209169682115,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 143,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4513
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1360,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.9704017919721082,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 736,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 753
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 1,
+          "estimated_input_tokens": 1423,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.6858365829102695,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 774,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 791
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5880,
+          "output_tokens": 177,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 6057
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 28564,
+        "min": 3651,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          3651,
+          4046
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 1480,
+        "min": 2,
+        "max": 739,
+        "per_attempt": [
+          2,
+          739,
+          739
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21012,
+        "min": 235,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          235,
+          630
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "elision",
+      "case": "history_only",
+      "seed": 9103,
+      "wall_seconds": 4.16706395894289,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": false,
+          "reported_unknown": true,
+          "compaction_count": 0,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10263,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.0937439589761198,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5735,
+                "output_tokens": 11,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 5746
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 10322,
+          "elided_results": 6,
+          "attempts": [
+            {
+              "seconds": 2.0497102920198813,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 5767,
+                "output_tokens": 11,
+                "cached_tokens": 5504,
+                "reasoning_tokens": 0,
+                "total_tokens": 5778
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 11502,
+          "output_tokens": 22,
+          "cached_tokens": 5504,
+          "reasoning_tokens": 0,
+          "total_tokens": 11524
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 0,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": false,
+      "http_body_bytes": {
+        "count": 2,
+        "total": 54219,
+        "min": 26918,
+        "max": 27301,
+        "per_attempt": [
+          26918,
+          27301
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 2,
+        "total": 4,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 2,
+        "total": 50289,
+        "min": 24953,
+        "max": 25336,
+        "per_attempt": [
+          24953,
+          25336
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    },
+    {
+      "arm": "current",
+      "case": "history_only",
+      "seed": 9103,
+      "wall_seconds": 10.270983750000596,
+      "failure": null,
+      "phases": [
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        },
+        {
+          "exact_facts": true,
+          "reported_unknown": false,
+          "compaction_count": 1,
+          "preparation_refused": false,
+          "provider_failed": false,
+          "final_present": true
+        }
+      ],
+      "requests": [
+        {
+          "phase": 0,
+          "kind": "summary",
+          "available_tools": 0,
+          "estimated_input_tokens": 7773,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 6.267460834002122,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 4370,
+                "output_tokens": 176,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 4546
+              }
+            }
+          ]
+        },
+        {
+          "phase": 0,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1114,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 2.032358334050514,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 609,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 626
+              }
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "kind": "ordinary",
+          "available_tools": 0,
+          "estimated_input_tokens": 1177,
+          "elided_results": 0,
+          "attempts": [
+            {
+              "seconds": 1.9596683329436928,
+              "succeeded": true,
+              "usage": {
+                "input_tokens": 647,
+                "output_tokens": 17,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 664
+              }
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "counters": {
+          "input_tokens": 5626,
+          "output_tokens": 210,
+          "cached_tokens": 0,
+          "reasoning_tokens": 0,
+          "total_tokens": 5836
+        },
+        "all_counters_reported": true
+      },
+      "summary_calls": 1,
+      "ordinary_calls": 2,
+      "reread_calls": 0,
+      "tool_errors": 0,
+      "original_history_preserved": true,
+      "no_elision_persisted": true,
+      "strict_reopen": true,
+      "all_exact": true,
+      "http_body_bytes": {
+        "count": 3,
+        "total": 27234,
+        "min": 2986,
+        "max": 20867,
+        "per_attempt": [
+          20867,
+          2986,
+          3381
+        ]
+      },
+      "declared_schema_bytes": {
+        "count": 3,
+        "total": 6,
+        "min": 2,
+        "max": 2,
+        "per_attempt": [
+          2,
+          2,
+          2
+        ]
+      },
+      "serialized_input_bytes": {
+        "count": 3,
+        "total": 21060,
+        "min": 259,
+        "max": 20147,
+        "per_attempt": [
+          20147,
+          259,
+          654
+        ]
+      },
+      "scoring_verified_from_saved_session": true
+    }
+  ],
+  "global_theme_unchanged": true,
+  "analysis_driver_sha256": "ce3dd8e0abea0015d83a4531b54b56a7f58eb436b24ced9f54c99e613930b0d2",
+  "analysis": "Rescored each original submission from its own saved user boundary; aggregates computed by the current driver. Live calls, histories, timing and token counters were not rerun or modified.",
+  "aggregates": [
+    {
+      "case": "bulk",
+      "arm": "current",
+      "sessions": 4,
+      "retention_correct": 4,
+      "retention_unknown": 0,
+      "repeat_correct": 4,
+      "repeat_unknown": 0,
+      "correct_answers": 8,
+      "unknown_answers": 0,
+      "submissions": 8,
+      "median_wall_seconds": 9.443664333492052,
+      "summary_calls": 4,
+      "ordinary_calls": 8,
+      "reread_calls": 0,
+      "usage": {
+        "input_tokens": 22140,
+        "output_tokens": 756,
+        "cached_tokens": 0,
+        "reasoning_tokens": 0,
+        "total_tokens": 22896
+      },
+      "uncached_input_tokens": 22140
+    },
+    {
+      "case": "bulk",
+      "arm": "elision",
+      "sessions": 4,
+      "retention_correct": 4,
+      "retention_unknown": 0,
+      "repeat_correct": 4,
+      "repeat_unknown": 0,
+      "correct_answers": 8,
+      "unknown_answers": 0,
+      "submissions": 8,
+      "median_wall_seconds": 4.591638083511498,
+      "summary_calls": 0,
+      "ordinary_calls": 8,
+      "reread_calls": 0,
+      "usage": {
+        "input_tokens": 45835,
+        "output_tokens": 138,
+        "cached_tokens": 22016,
+        "reasoning_tokens": 0,
+        "total_tokens": 45973
+      },
+      "uncached_input_tokens": 23819
+    },
+    {
+      "case": "reread",
+      "arm": "current",
+      "sessions": 4,
+      "retention_correct": 4,
+      "retention_unknown": 0,
+      "repeat_correct": 4,
+      "repeat_unknown": 0,
+      "correct_answers": 8,
+      "unknown_answers": 0,
+      "submissions": 8,
+      "median_wall_seconds": 8.919350541953463,
+      "summary_calls": 4,
+      "ordinary_calls": 8,
+      "reread_calls": 0,
+      "usage": {
+        "input_tokens": 23505,
+        "output_tokens": 704,
+        "cached_tokens": 0,
+        "reasoning_tokens": 0,
+        "total_tokens": 24209
+      },
+      "uncached_input_tokens": 23505
+    },
+    {
+      "case": "reread",
+      "arm": "elision",
+      "sessions": 4,
+      "retention_correct": 4,
+      "retention_unknown": 0,
+      "repeat_correct": 4,
+      "repeat_unknown": 0,
+      "correct_answers": 8,
+      "unknown_answers": 0,
+      "submissions": 8,
+      "median_wall_seconds": 7.232321375457104,
+      "summary_calls": 0,
+      "ordinary_calls": 12,
+      "reread_calls": 4,
+      "usage": {
+        "input_tokens": 71505,
+        "output_tokens": 256,
+        "cached_tokens": 17664,
+        "reasoning_tokens": 0,
+        "total_tokens": 71761
+      },
+      "uncached_input_tokens": 53841
+    },
+    {
+      "case": "history_only",
+      "arm": "current",
+      "sessions": 4,
+      "retention_correct": 4,
+      "retention_unknown": 0,
+      "repeat_correct": 4,
+      "repeat_unknown": 0,
+      "correct_answers": 8,
+      "unknown_answers": 0,
+      "submissions": 8,
+      "median_wall_seconds": 9.941635916999076,
+      "summary_calls": 4,
+      "ordinary_calls": 8,
+      "reread_calls": 0,
+      "usage": {
+        "input_tokens": 22395,
+        "output_tokens": 789,
+        "cached_tokens": 0,
+        "reasoning_tokens": 0,
+        "total_tokens": 23184
+      },
+      "uncached_input_tokens": 22395
+    },
+    {
+      "case": "history_only",
+      "arm": "elision",
+      "sessions": 4,
+      "retention_correct": 0,
+      "retention_unknown": 4,
+      "repeat_correct": 0,
+      "repeat_unknown": 4,
+      "correct_answers": 0,
+      "unknown_answers": 8,
+      "submissions": 8,
+      "median_wall_seconds": 3.945600000442937,
+      "summary_calls": 0,
+      "ordinary_calls": 8,
+      "reread_calls": 0,
+      "usage": {
+        "input_tokens": 46002,
+        "output_tokens": 88,
+        "cached_tokens": 22016,
+        "reasoning_tokens": 0,
+        "total_tokens": 46090
+      },
+      "uncached_input_tokens": 23986
+    }
+  ]
+}

@@ -96,6 +96,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Documentation
 
+- Added a reproducible synthetic context-elision evaluation comparing unchanged
+  automatic compaction with an evaluation-only stale read-output projection;
+  includes all provider requests, fact retention, rereads and cache counters.
+
 - Added user-facing codemode installation, scripting, module capabilities,
   limits and authority documentation, with linked developer reproduction and
   A–K acceptance evidence. Retained the isolation spike and deferred scope.

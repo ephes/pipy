@@ -331,7 +331,8 @@ and tool hooks continue to deny `set_model` by returning `False`.
   minimum candidate cannot fit, compaction refuses without accepting a cut.
   This recovery extends Pi; estimated admission is not a provider guarantee.
 - Semantic summaries are lossy provider output. Synthetic tests cover the supplied
-  facts and request/reopen continuity; live-provider summary quality remains unverified.
+  facts and request/reopen continuity; the live microevaluation below covers short
+  recall tasks, while summary quality on longer coding tasks remains unverified.
 - `/compact <custom instructions>` is not accepted yet; use bare `/compact`.
   Only the built-in summary instructions are used.
 - Compaction is lossy for future provider requests: older details may no longer
@@ -340,6 +341,31 @@ and tool hooks continue to deny `set_model` by returning `False`.
 
 For the broader session model, see [Sessions](sessions.md) and the maintainer
 spec [Session Tree](session-tree.md).
+
+## Context-elision evaluation (2026-10-11)
+
+A live synthetic evaluation compared current automatic compaction with an
+experimental request projection that omitted older large successful read outputs.
+It used `gpt-6.1-sol`, an artificial 24,000-token estimated ceiling, and four
+matched pairs per case (24 sessions total).
+
+| Retention case | Current compaction | Experimental elision |
+| --- | --- | --- |
+| Facts in preserved user prose | 4/4 | 4/4 |
+| Fact in an old read, source still available | 4/4 | 4/4 |
+| Fact in an old read, source unavailable | 4/4 | 0/4 |
+
+Elision avoided 12 summary calls but required four rereads. Including one repeat
+probe per session and all summary requests, uncached input tokens increased 49%.
+Median elapsed time fell 51% and 19% in the two successful cases; timings include
+host-load noise. All durable histories were preserved and reopened successfully.
+
+The result supports keeping the current compaction default. Generic elision lost
+transient evidence and did not establish cost savings. These short recall tasks
+do not establish performance on longer coding tasks; repeat probes are not
+independent retention observations. The experiment changed no runtime defaults.
+See the [full method, results and follow-up](specs/2026-10-11-context-elision-evaluation.md)
+and [counter-only measurement](specs/2026-10-11-context-elision-measurement.json).
 
 ## D1 implementation contract
 
