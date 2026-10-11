@@ -74,6 +74,13 @@ def _wait_for_input_ready_after(
     return observed.output
 
 
+def _read_pty_chunk(fd: int) -> bytes:
+    try:
+        return os.read(fd, 65536)
+    except OSError:
+        return b""
+
+
 def _run_selector(
     tmp_path: Path, keys: bytes, *, resize_before_input: bool = False
 ) -> tuple[str, bytes]:
@@ -109,28 +116,85 @@ def _run_selector(
         readable, _, _ = select.select([master], [], [], 0.1)
         if not readable:
             continue
-        try:
-            output += os.read(master, 65536)
-        except OSError:
+        chunk = _read_pty_chunk(master)
+        if not chunk:
             break
-    if proc.poll() is None:
+        output += chunk
+    # PTY EOF/EIO can precede waitpid observing exit. Keep the original deadline
+    # rather than killing a child immediately after successful terminal cleanup.
+    try:
+        proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=2.0)
+        os.close(master)
         raise AssertionError(f"selector did not exit after input: {output!r}")
     while True:
         readable, _, _ = select.select([master], [], [], 0.05)
         if not readable:
             break
-        try:
-            chunk = os.read(master, 65536)
-        except OSError:
-            break
+        chunk = _read_pty_chunk(master)
         if not chunk:
             break
         output += chunk
     os.close(master)
     assert proc.returncode == 0
     return result_path.read_text(encoding="utf-8"), output
+
+
+@pytest.mark.parametrize("pty_end", ["eio", "eof", "timeout"])
+def test_selector_waits_for_process_exit_after_pty_closes(
+    tmp_path, monkeypatch, pty_end
+):
+    class ExitingProcess:
+        returncode = None
+        waited = False
+        killed = False
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, *, timeout):
+            assert timeout > 0
+            if pty_end == "timeout" and not self.killed:
+                raise subprocess.TimeoutExpired("selector", timeout)
+            self.waited = True
+            self.returncode = -9 if self.killed else 0
+            return self.returncode
+
+        def kill(self):
+            if pty_end != "timeout":
+                pytest.fail("PTY closure must not kill a successfully exiting child")
+            self.killed = True
+
+    proc = ExitingProcess()
+
+    def spawn(args, **kwargs):
+        Path(args[-1]).write_text("CANCEL", encoding="utf-8")
+        return proc
+
+    def read(fd, size):
+        if pty_end == "eio":
+            raise OSError("PTY slave closed")
+        return b""
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(pty, "openpty", os.pipe)
+    monkeypatch.setattr(sys.modules[__name__], "_set_size", lambda *_: None)
+    monkeypatch.setattr(
+        sys.modules[__name__], "_wait_for_input_ready_after", lambda *_: b""
+    )
+    monkeypatch.setattr(select, "select", lambda *args: ([args[0][0]], [], []))
+    monkeypatch.setattr(os, "write", lambda fd, data: len(data))
+    monkeypatch.setattr(os, "read", read)
+    if pty_end == "timeout":
+        with pytest.raises(AssertionError, match="selector did not exit after input"):
+            _run_selector(tmp_path, b"\x1b")
+        assert proc.killed
+    else:
+        result, _ = _run_selector(tmp_path, b"\x1b")
+        assert result == "CANCEL"
+    assert proc.waited
 
 
 @pytest.mark.skipif(os.name != "posix", reason="real PTY requires POSIX")

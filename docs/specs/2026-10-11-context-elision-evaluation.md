@@ -199,3 +199,26 @@ with additional regression checks. The final delta review returned **CLEAN**,
 exit 0, with no omissions, redactions or truncations; all prior findings were
 closed. No further review was run after that clean result. No product default,
 global setting or theme was changed.
+
+### CI follow-up
+
+The first pushed evaluation commit exposed a Python 3.11 test-double failure:
+ordinary assignments to extra fields on a frozen, slotted fake-provider subclass
+failed before evaluation execution. The test double now explicitly permits only
+its measurement fields to mutate; provider configuration remains frozen. The
+live driver, original measurements and conclusions are unchanged.
+
+That CI run also exposed a pre-existing PTY test-helper race: terminal closure
+could occur before the child exit status became observable. The helper now waits
+within its original deadline before declaring failure, with deterministic EOF,
+EIO and timeout regression coverage. Both focused suites pass on Python 3.11
+and 3.14. This is a test-only repair, so no product release-note entry applies.
+
+The CI repair passed 25 focused tests on each Python version and the Python 3.11
+real-PTY smoke suite. Independent Opus 5.5/medium review reported two Suggestions
+and no Critical or Warning findings. Both suggestions were applied: simulated
+closure tests use pipes rather than real PTY devices, include timeout coverage,
+and the test-only change has no product changelog entry. The advisory review
+cycle closed without a further pass.
+Full `just check` then passed with 8,203 tests and two skips; the documentation
+build and `git diff --check` also passed.

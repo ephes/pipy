@@ -41,6 +41,22 @@ measure: Any = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(measure)
 
 
+class FakeObservedProvider(FakeNativeProvider):
+    """Mutable measurement state around the frozen fake, also on Python 3.11."""
+
+    def __init__(self, final_text):
+        super().__init__(
+            model_id="gpt-6.1-sol", supports_tool_calls=True, final_text=final_text
+        )
+        self.rows = []
+        self.phase = 0
+
+    def __setattr__(self, name, value):
+        if name not in {"rows", "phase"}:
+            raise AttributeError("Only measurement state is mutable")
+        object.__setattr__(self, name, value)
+
+
 def request(root, seed=9100):
     tree, _, _ = measure.fixture(root, "reread", seed)
     return ProviderRequest(
@@ -88,15 +104,9 @@ def test_real_session_admission_and_durable_invariants(
 ):
     requests = []
 
-    class Provider(FakeNativeProvider):
+    class Provider(FakeObservedProvider):
         def __init__(self, client):
-            super().__init__(
-                model_id="gpt-6.1-sol",
-                supports_tool_calls=True,
-                final_text='{"release":null,"mode":null}',
-            )
-            self.rows = []
-            self.phase = 0
+            super().__init__('{"release":null,"mode":null}')
 
         def complete(self, value, **kwargs):
             requests.append(value)
@@ -199,13 +209,9 @@ def test_report_aggregation_and_privacy_through_session(tmp_path, monkeypatch, c
     _, expected, question = measure.fixture(tmp_path / "oracle", case, 9100)
     answer = json.dumps(expected)
 
-    class Provider(FakeNativeProvider):
+    class Provider(FakeObservedProvider):
         def __init__(self, client):
-            super().__init__(
-                model_id="gpt-6.1-sol", supports_tool_calls=True, final_text=answer
-            )
-            self.rows = []
-            self.phase = 0
+            super().__init__(answer)
 
     monkeypatch.setattr(measure, "ObservedProvider", Provider)
     with patch.dict(os.environ):
