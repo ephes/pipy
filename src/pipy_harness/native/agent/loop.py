@@ -70,6 +70,7 @@ from pipy_harness.native.agent.messages import (
 from pipy_harness.native.agent.nested_calls import (
     AgentCompositeToolRunner,
     CompositeToolEligibility,
+    NestedCallableTools,
     NestedCallStatus,
     NestedToolCallOutcome,
     NestedToolCallService,
@@ -910,13 +911,21 @@ class AgentLoop:
         mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
         emit_events: bool = True,
         nested_waiter: ToolInterruptWaiter | None = None,
+        nested_tools: NestedCallableTools | None = None,
+        nested_names: frozenset[str] | None = None,
         composite_execute: Callable[
             [AgentToolPolicyTransition], _SettledToolCall | None
         ]
         | None = None,
     ) -> _SettledToolCall:
-        """Settle without history/results; only budget publishes state early."""
-        admission = decide_tool_admission(tool_state, snapshot, call, mode=mode)
+        """Settle without history/results; only budget publishes state early.
+
+        A nested call names its parent's callable snapshot: ``nested_names``
+        authorize it and ``nested_tools`` execute it.
+        """
+        admission = decide_tool_admission(
+            tool_state, snapshot, call, mode=mode, callable_names=nested_names
+        )
         if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
             publish_budget_state(admission.state)
             result = self._tools.error_result(
@@ -940,6 +949,7 @@ class AgentLoop:
             mode=mode,
             emit_events=emit_events,
             nested_waiter=nested_waiter,
+            nested_tools=nested_tools,
             composite_execute=composite_execute,
         )
 
@@ -952,6 +962,7 @@ class AgentLoop:
         mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
         emit_events: bool = True,
         nested_waiter: ToolInterruptWaiter | None = None,
+        nested_tools: NestedCallableTools | None = None,
         composite_execute: Callable[
             [AgentToolPolicyTransition], _SettledToolCall | None
         ]
@@ -982,6 +993,7 @@ class AgentLoop:
             mode=mode,
             emit_events=emit_events,
             nested_waiter=nested_waiter,
+            nested_tools=nested_tools,
         )
 
     def _execute_tool(
@@ -993,9 +1005,11 @@ class AgentLoop:
         mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
         emit_events: bool = True,
         nested_waiter: ToolInterruptWaiter | None = None,
+        nested_tools: NestedCallableTools | None = None,
     ) -> _SettledToolCall:
         started_at = datetime.now(UTC)
-        execution = self._tools.execute(
+        # A nested call runs on the executor its parent's snapshot is bound to.
+        execution = (self._tools if nested_tools is None else nested_tools).execute(
             call,
             output_sink=self._tool_output_sink(turn_index, call)
             if emit_events
@@ -1022,9 +1036,20 @@ class AgentLoop:
         transition: AgentToolPolicyTransition,
     ) -> _SettledToolCall:
         assert self._composite_runner is not None
-        eligible = (
-            self._nested_eligibility.eligible_names()
+        # The callable snapshot: taken once from the live capability value,
+        # after the parent's admission and ``tool_call`` hooks, and immutable
+        # for the life of the parent. A value published later does not change
+        # what this parent's nested calls reach or which executor runs them.
+        callable_tools = (
+            self._nested_eligibility.callable_snapshot()
             if self._nested_eligibility is not None
+            else None
+        )
+        # A tool a request hook withheld from this request stays unreachable.
+        eligible = (
+            callable_tools.callable_names()
+            - frozenset(snapshot.request.hidden_tool_names)
+            if callable_tools is not None
             else frozenset()
         )
 
@@ -1051,6 +1076,8 @@ class AgentLoop:
                 mode=AgentToolInvocationMode.NESTED,
                 emit_events=False,
                 nested_waiter=waiter,
+                nested_tools=callable_tools,
+                nested_names=eligible,
             )
             action = settled.transition.action
             if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
@@ -1086,7 +1113,6 @@ class AgentLoop:
             eligible,
             settle,
             self._tools.error_result,
-            advertised_names=frozenset(snapshot.advertised_tool_names),
             settle_with_waiter=settle,
         )
         started_at = datetime.now(UTC)

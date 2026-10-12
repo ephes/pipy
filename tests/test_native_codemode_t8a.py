@@ -237,7 +237,6 @@ def test_injected_definition_identity_guard_excludes_overrides(tmp_path: Path) -
     assert frozen.composite_enabled()
     capabilities.publish(capabilities.prepare_extensions({"codemode": CodemodeTool()}))
     replaced = capabilities.snapshot_for_projection(capabilities.state)
-    assert (
-        not replaced.composite_enabled() and "codemode" not in replaced.eligible_names()
-    )
+    assert not replaced.composite_enabled()
+    assert "codemode" not in replaced.callable_names()
     assert frozen.composite_enabled()

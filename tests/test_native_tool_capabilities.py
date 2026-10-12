@@ -31,6 +31,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     ToolRequest,
 )
+from pipy_harness.native.tools.base import ToolExposure
 
 _SCHEMA = {
     "type": "object",
@@ -47,6 +48,7 @@ class _RecordingTool:
     is_error: bool = False
     requests: list[ToolRequest] = field(default_factory=list)
     contexts: list[ToolContext] = field(default_factory=list)
+    exposure: ToolExposure = "direct"
 
     @property
     def definition(self) -> ToolDefinition:
@@ -54,6 +56,7 @@ class _RecordingTool:
             name=self.name,
             description=f"Fixture {self.name} tool.",
             input_schema=_SCHEMA,
+            exposure=self.exposure,
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -519,18 +522,170 @@ def test_capability_state_normalizes_registries_built_from_plain_dicts() -> None
             cast(dict[str, object], mapping)["injected"] = _RecordingTool("injected")
 
 
-def test_nested_eligibility_reads_frozen_builtin_identities(tmp_path: Path) -> None:
-    builtin = _RecordingTool("read")
-    replacement = _RecordingTool("read")
+def _exposed(name: str, exposure: ToolExposure) -> _RecordingTool:
+    return _RecordingTool(name, exposure=exposure)
+
+
+def _exposure_fixture(
+    tmp_path: Path, options: ToolFilterOptions | None = None
+) -> NativeToolCapabilities:
+    return _capabilities(
+        tmp_path,
+        builtins=(_exposed("read", "direct"), _exposed("write", "direct")),
+        extensions=(
+            _exposed("orchestrate", "model-only"),
+            _exposed("listed", "codemode"),
+            _exposed("searchable", "deferred"),
+            _exposed("withdrawn", "hidden"),
+        ),
+        options=options,
+    )
+
+
+def _callable(capabilities: NativeToolCapabilities) -> frozenset[str]:
+    return capabilities.callable_snapshot().callable_names()
+
+
+def test_exposure_decides_the_declared_and_the_callable_set(tmp_path: Path) -> None:
+    # EXP-01, EXP-02: registration activates only direct and model-only tools.
+    tools = _exposure_fixture(tmp_path)
+
+    assert _names(tools) == ("read", "write", "orchestrate")
+    assert _callable(tools) == {"read", "write", "listed", "searchable"}
+
+
+def test_inactive_direct_tools_are_not_callable(tmp_path: Path) -> None:
+    # Pi: "does not let codemode call itself or inactive direct tools".
+    tools = _exposure_fixture(tmp_path)
+
+    assert tools.set_active_tools(["orchestrate", "write"])
+
+    assert _names(tools) == ("write", "orchestrate")
+    assert _callable(tools) == {"write", "listed", "searchable"}
+
+
+def test_named_activation_declares_a_codemode_tool_and_never_a_hidden_one(
+    tmp_path: Path,
+) -> None:
+    tools = _exposure_fixture(tmp_path)
+
+    assert tools.set_active_tools(["listed", "withdrawn", "orchestrate"])
+
+    assert _names(tools) == ("orchestrate", "listed")
+    assert _callable(tools) == {"listed", "searchable"}
+
+
+def test_codemode_tools_stay_callable_when_a_transcript_restores_the_active_set(
+    tmp_path: Path,
+) -> None:
+    # Pi: "keeps codemode-only MCP tools callable across tree navigation".
+    # /tree, resume and fork restore the active names a transcript declared;
+    # a codemode tool was never among them and stays callable (EXP-04).
+    tools = _exposure_fixture(tmp_path)
+
+    tools.restore_active_tools(["orchestrate"])
+
+    assert _names(tools) == ("orchestrate",)
+    assert _callable(tools) == {"listed", "searchable"}
+
+
+def test_callable_snapshot_is_unchanged_by_a_later_capability_value(
+    tmp_path: Path,
+) -> None:
+    tools = _exposure_fixture(tmp_path)
+    pinned = tools.callable_snapshot()
+    before = pinned.callable_names()
+
+    assert tools.set_active_tools(["write"])
+    tools.publish(tools.prepare_extensions({"later": _exposed("later", "codemode")}))
+
+    assert pinned.callable_names() == before
+    assert _callable(tools) == {"write", "later"}
+    # The pinned executor still runs a tool the live value no longer has.
+    assert pinned.execute(_call("listed")).result.content.value == "result:listed"
+    assert tools.execute(_call("listed")).result.is_error
+
+
+@pytest.mark.parametrize(
+    ("options", "declared", "callable_names"),
+    [
+        # An allowlist keeps only what it names; naming a codemode tool keeps
+        # it registered and callable without declaring it.
+        (
+            ToolFilterOptions(allow=("read", "listed")),
+            ("read",),
+            {"read", "listed"},
+        ),
+        (
+            ToolFilterOptions(exclude=("listed", "write")),
+            ("read", "orchestrate"),
+            {"read", "searchable"},
+        ),
+        (
+            ToolFilterOptions(no_builtin_tools=True),
+            ("orchestrate",),
+            {"listed", "searchable"},
+        ),
+        (ToolFilterOptions(no_tools=True), (), set()),
+    ],
+)
+def test_filters_decide_which_tools_stay_registered_for_scripts(
+    tmp_path: Path,
+    options: ToolFilterOptions,
+    declared: tuple[str, ...],
+    callable_names: set[str],
+) -> None:
+    tools = _exposure_fixture(tmp_path, options)
+
+    assert _names(tools) == declared
+    assert _callable(tools) == callable_names
+    tools.publish(tools.prepare_extensions(dict(tools.state.extension_registry)))
+    assert _names(tools) == declared
+    assert _callable(tools) == callable_names
+
+
+def test_reload_activates_only_declarable_new_extension_tools(tmp_path: Path) -> None:
+    tools = NativeToolCapabilities(
+        {"read": _exposed("read", "direct")},
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions(modifiers=("-absent",)),
+        cancel_join_timeout_seconds=0.1,
+    )
+    tools.publish(tools.prepare_extensions({}))
+
+    tools.publish(
+        tools.prepare_extensions(
+            {
+                "added": _exposed("added", "direct"),
+                "listed": _exposed("listed", "codemode"),
+                "later": _exposed("later", "hidden"),
+            }
+        )
+    )
+    assert _names(tools) == ("read", "added")
+    assert _callable(tools) == {"read", "added", "listed"}
+
+    # Pi: a tool whose exposure becomes declarable is activated like a new one.
+    tools.publish(
+        tools.prepare_extensions(
+            {
+                "added": _exposed("added", "direct"),
+                "listed": _exposed("listed", "codemode"),
+                "later": _exposed("later", "direct"),
+            }
+        )
+    )
+    assert _names(tools) == ("read", "added", "later")
+
+
+def test_extension_replacement_of_a_builtin_is_callable_by_its_exposure(
+    tmp_path: Path,
+) -> None:
     tools = _capabilities(
         tmp_path,
-        builtins=(builtin, _RecordingTool("write")),
-        extensions=(replacement, _RecordingTool("extension")),
+        builtins=(_RecordingTool("read"), _RecordingTool("write")),
+        extensions=(_exposed("read", "model-only"), _RecordingTool("extension")),
     )
-    pinned = tools.snapshot_for_projection(tools.state)
-    assert pinned.eligible_names() == frozenset({"write"})
-    tools.publish(tools.prepare_extensions({}))
-    assert pinned.eligible_names() == frozenset({"write"})
-    assert tools.snapshot_for_projection(tools.state).eligible_names() == frozenset(
-        {"read", "write"}
-    )
+
+    assert _callable(tools) == {"write", "extension"}

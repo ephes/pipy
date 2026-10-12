@@ -25,6 +25,22 @@ from pipy_harness.native.tools import (
 DEFAULT_TOOL_NAMES = ("read", "ls", "grep", "find", "write", "edit", "bash")
 
 
+def activated_on_registration(registry: Mapping[str, ToolPort]) -> frozenset[str]:
+    """Names whose registration activates them (Pi ``_isActivatedOnRegistration``).
+
+    Only ``direct`` and ``model-only`` tools are declared without being named:
+    a ``codemode`` or ``deferred`` tool becomes active when something names it
+    (``set_active_tools``, a restored transcript), and a ``hidden`` tool never
+    is declared.
+    """
+
+    return frozenset(
+        name
+        for name, port in registry.items()
+        if port.definition.exposure in ("direct", "model-only")
+    )
+
+
 def apply_tool_modifiers(
     base: Sequence[str], entries: Sequence[str]
 ) -> tuple[str, ...]:
@@ -166,10 +182,12 @@ class ToolCapabilityState:
         registry.update(extensions)
         active = carried_active_tool_names
         if filter_options != ToolFilterOptions.empty():
+            # Pi ``_refreshToolRegistry``: a filter keeps a tool registered,
+            # and only a declarable tool is activated by being kept.
             active = filter_options.provider_visible_names(
                 builtin_names=builtin,
                 registered_names=registry,
-            )
+            ) & activated_on_registration(registry)
         executor = ToolExecutor(
             registry,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
@@ -200,19 +218,19 @@ class NativeToolCapabilitySnapshot:
     ) -> tuple[ToolDefinition, ...]:
         return _definitions_for(self.state, allowed_names)
 
-    def eligible_names(self) -> frozenset[str]:
-        """Builtin identities in this frozen registry, excluding replacements."""
-        return frozenset(
-            name
-            for name, port in self.state.builtin_registry.items()
-            if self.state.registry.get(name) is port
-            and name not in self.state.extension_registry
-        )
+    def callable_names(self) -> frozenset[str]:
+        """Names a composite tool's nested calls may reach in this value."""
+        return _callable_names(self.state)
 
     def composite_enabled(self) -> bool:
         """Only a visible builtin identity may activate internal dispatch."""
-        return "codemode" in self.eligible_names() and any(
-            definition.name == "codemode" for definition in self.definitions()
+        state = self.state
+        builtin = state.builtin_registry.get("codemode")
+        return (
+            builtin is not None
+            and state.registry.get("codemode") is builtin
+            and "codemode" not in state.extension_registry
+            and any(definition.name == "codemode" for definition in self.definitions())
         )
 
     def execute(
@@ -469,7 +487,7 @@ class NativeToolCapabilities:
         defaults = frozenset(selected) if explicit else None
         active = candidate.active_tool_names
         if explicit and not options.allow:
-            active = frozenset(selected) | frozenset(mapping)
+            active = frozenset(selected) | activated_on_registration(mapping)
             active &= options.provider_visible_names(
                 builtin_names=builtin, registered_names=candidate.registry
             )
@@ -520,7 +538,7 @@ class NativeToolCapabilities:
                         else frozenset(self._base_registry)
                     )
                     if active is None:
-                        active = frozenset(live.registry) | (
+                        active = activated_on_registration(live.registry) | (
                             next_defaults - previous_defaults
                         )
                     else:
@@ -533,9 +551,11 @@ class NativeToolCapabilities:
                     and state.default_tool_names is not None
                     and active is not None
                 ):
-                    active |= frozenset(state.extension_registry).difference(
-                        live.extension_registry
-                    )
+                    # Pi ``_refreshToolRegistry``: new tools, and tools whose
+                    # exposure became declarable, are activated like new ones.
+                    active |= activated_on_registration(
+                        state.extension_registry
+                    ).difference(activated_on_registration(live.extension_registry))
                 state = replace(
                     state,
                     active_tool_names=active,
@@ -553,6 +573,14 @@ class NativeToolCapabilities:
             if state.executor is not projection_state.executor:
                 raise RuntimeError("tool capability generation is incoherent")
             return NativeToolCapabilitySnapshot(self, state)
+
+    def callable_snapshot(self) -> NativeToolCapabilitySnapshot:
+        """Pin the live value for one composite parent's nested calls."""
+
+        return NativeToolCapabilitySnapshot(self, self.state)
+
+    def composite_enabled(self) -> bool:
+        return NativeToolCapabilitySnapshot(self, self.state).composite_enabled()
 
     def definitions(
         self,
@@ -585,27 +613,64 @@ class NativeToolCapabilities:
         )
 
 
+def _active_names(state: ToolCapabilityState) -> frozenset[str]:
+    """Resolve the active set; no selection means "as registration left it"."""
+
+    if state.active_tool_names is not None:
+        return state.active_tool_names
+    return activated_on_registration(state.registry)
+
+
 def _definitions_for(
     state: ToolCapabilityState,
     allowed_names: Sequence[str] | None,
 ) -> tuple[ToolDefinition, ...]:
-    """Project one capability value's visible definitions. Pure.
+    """Project one capability value's declared definitions. Pure.
 
-    A tool with exposure ``hidden`` is registered but unreachable (Pi
-    ``_applyToolLoadout``): it is never declared, also when it is named as
-    active, and a model call to it is therefore an unknown tool.
+    The declared tools are the active ones (Pi ``_applyToolLoadout``). A tool
+    with exposure ``hidden`` is registered but unreachable: it is never
+    declared, also when it is named as active, and a model call to it is
+    therefore an unknown tool. A ``codemode`` or ``deferred`` tool is declared
+    only when it was activated by name.
     """
 
-    allowed: frozenset[str] | None = (
+    allowed = (
         frozenset(str(name) for name in allowed_names)
         if allowed_names is not None
-        else state.active_tool_names
+        else _active_names(state)
     )
     definitions = (
-        port.definition
-        for name, port in state.registry.items()
-        if allowed is None or name in allowed
+        port.definition for name, port in state.registry.items() if name in allowed
     )
     return tuple(
         definition for definition in definitions if definition.exposure != "hidden"
     )
+
+
+def _callable_names(state: ToolCapabilityState) -> frozenset[str]:
+    """Names other tools may call in one capability value. Pure.
+
+    Pi ``_getCallableTools``: the active ``direct`` tools and every registered
+    ``codemode`` or ``deferred`` tool, whether or not it is active. A tool the
+    ``--tools``/``--exclude-tools`` filter does not keep is not registered in
+    Pi, so it is not callable here either. ``model-only`` and ``hidden`` tools
+    are never callable.
+    """
+
+    kept: Collection[str] = state.registry
+    if state.filter_configured:
+        kept = state.filter_options.provider_visible_names(
+            builtin_names=state.builtin_registry,
+            registered_names=state.registry,
+        )
+    active = _active_names(state)
+    names: set[str] = set()
+    for name, port in state.registry.items():
+        if name not in kept:
+            continue
+        exposure = port.definition.exposure
+        if exposure in ("codemode", "deferred") or (
+            exposure == "direct" and name in active
+        ):
+            names.add(name)
+    return frozenset(names)

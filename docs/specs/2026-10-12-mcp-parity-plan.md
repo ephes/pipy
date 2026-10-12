@@ -636,6 +636,37 @@ rule; `BUILTIN_NESTED_NAMES` is deleted and `eligible_names()` returns the
 snapshot's names. The CM1 spike spec section 4.7 and `docs/codemode.md` are
 updated in S03.
 
+Decided in S03:
+
+- "No selection" (`active_tool_names` is `None`) means the tools that
+  registration activated, the `direct` and `model-only` ones, not every
+  registered tool. A filter (`--tools`, `--exclude-tools`) derives the active
+  set the same way: it keeps a tool registered, and only a declarable tool is
+  activated by being kept. A reload activates new extension tools, and tools
+  whose exposure became declarable, only when they are declarable.
+- A tool that a `before_provider_request` hook withheld from the parent's
+  request (`ProviderRequest.hidden_tool_names`) is not in that parent's
+  callable names. pipy's request hooks narrow monotonically and a direct call
+  to a withheld tool is an unknown tool; a script must not get around that.
+  S08 (`codemode.mode: "only"`) hides declarations by another mechanism and
+  must not put those names into `hidden_tool_names` if they are to stay
+  callable.
+- The session takes the callable snapshot as it takes a provider turn's view:
+  under the generation lock, the live capability value bound to the
+  generation id of the published extension generation
+  (`SessionExecutionProjections.callable_snapshot`). The `tool_call` and
+  `tool_result` hooks of nested calls stay those of the provider turn.
+- A name outside the callable names is refused by the nested service before
+  admission (no budget, no events), so a nested call is never settled as
+  `unauthorized`. The admission policy still checks the snapshot's names.
+- A composite never reaches itself: the service removes the parent's own tool
+  name, in addition to `codemode` being `model-only`.
+- The codemode tool description still names the seven built-ins. S08 makes it
+  dynamic; until then extension tools are callable but not listed.
+- Declared tools are not checked against the filters again when an extension
+  activates a filtered-out name with `set_active_tools`; the callable set is.
+  S10 owns the filter rules (EXP-06 to EXP-09).
+
 ### 4.4 Registration of MCP tools
 
 `McpManager` owns a mapping of tool name to tool port for all servers. When it

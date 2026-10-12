@@ -513,7 +513,8 @@ def test_all_tools_reads_the_live_registry_with_detached_schemas(
     assert isinstance(info, ToolInfo)
     assert info.name == "codemode"
     assert info.description == CodemodeTool().definition.description
-    assert info.exposure == "direct"
+    # Declared to the model, never callable from a script.
+    assert info.exposure == "model-only"
     # EXT-05: codemode declares which tools a script may reach.
     assert info.reaches_tools is script_reach
     # A caller that edits the reported schema does not edit the registered one.

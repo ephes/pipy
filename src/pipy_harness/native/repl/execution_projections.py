@@ -62,6 +62,31 @@ class ExecutionProjectionSnapshot:
     ui_driver: ExtensionUiDriver | None
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionCallableSnapshot:
+    """One composite parent's callable tools, bound to one capability value."""
+
+    generation_id: int
+    tools: NativeToolCapabilitySnapshot
+
+    def callable_names(self) -> frozenset[str]:
+        return self.tools.callable_names()
+
+    def execute(
+        self,
+        call: AgentToolCall,
+        *,
+        output_sink: Callable[[str], None] | None = None,
+        wait_for_interrupt: ToolInterruptWaiter | None = None,
+    ) -> ToolExecutionOutcome:
+        return self.tools.execute(
+            call,
+            output_sink=output_sink,
+            wait_for_interrupt=wait_for_interrupt,
+            extension_generation_id=self.generation_id,
+        )
+
+
 class SessionExecutionProjections:
     """Bind one provider turn to one published tool/renderer view."""
 
@@ -119,9 +144,27 @@ class SessionExecutionProjections:
     ) -> tuple[ToolDefinition, ...]:
         return self._begin_provider_turn().tools.definitions(allowed_names)
 
-    def eligible_names(self) -> frozenset[str]:
-        """Read the active generation without starting another provider turn."""
-        return self._require_active().tools.eligible_names()
+    def callable_snapshot(self) -> ExecutionCallableSnapshot:
+        """Bind one composite parent to the live capability value.
+
+        Unlike a direct call, which runs on the generation its provider turn
+        pinned, a parent's nested calls reach what is registered and active
+        when the parent is admitted: tools no request declared, and a
+        selection made earlier in the same turn. The provider turn's pinned
+        view is left as it is.
+        """
+        self._require_active()
+        with self._generation_ref.lock:
+            snapshot = self._generation_ref.snapshot()
+            projection = snapshot.generation.projection
+            if projection is None:
+                raise RuntimeError("published extension generation has no projection")
+            return ExecutionCallableSnapshot(
+                generation_id=snapshot.generation_id,
+                tools=self._tools.snapshot_for_projection(
+                    projection.tools.capability_state
+                ),
+            )
 
     def composite_enabled(self) -> bool:
         return self._require_active().tools.composite_enabled()

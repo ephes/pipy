@@ -1173,7 +1173,10 @@ modifiers, or using wildcard modifiers, is an error. `--no-tools`,
 `--no-builtin-tools` and `--exclude-tools` retain their existing precedence.
 
 At a successful reload generation boundary, only newly added default names are
-activated. New extension names remain visible under the initial default selection;
+activated. New extension tools with exposure `direct` or `model-only` remain
+visible under the initial default selection; tools with another exposure are not
+activated by being registered
+(see [tool model](extension-api.md#tool-model));
 an explicit active-tool API selection keeps its existing ownership. Removed defaults stay active; tools disabled with `set_active_tools`
 stay disabled unless the setting newly adds them. Optional registered ports stay
 in the session registry, and the first selected availability result is reused for
@@ -1183,5 +1186,7 @@ Unavailable startup/reload presents one bounded transcript notice in a terminal
 UI, or one stderr line headlessly, outside the session and probe locks. Unfiltered publication carries the latest live active selection under
 the shared session lock, so preparation cannot overwrite an extension's accepted
 selection. Explicit existing CLI filters retain their reload policy. A running
-parent keeps its advertised definitions and builtin identities frozen across
-reload; extension replacements remain ineligible for nested calls.
+codemode parent keeps the callable tools and the executor of the snapshot it
+took when it started, so a reload or a selection change does not reach it; an
+extension tool that replaces a built-in is callable from scripts by its exposure
+like any other tool (see [codemode](codemode.md#writing-a-script)).

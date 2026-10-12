@@ -378,12 +378,14 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
             ("read", "{}"),
             ("read", "{}"),
             ("write", "{}"),
-            ("bash", "{}"),
             ("read", "malformed"),
             ("read", "{}"),
         ]:
             service.call(name, args)
-        service.call("codemode", "{}")  # refusal has no events or execution
+        # A name outside the callable snapshot is refused before admission:
+        # no events, no execution, and so no nested "unauthorized" outcome.
+        service.call("codemode", "{}")
+        service.call("extension", "{}")
         return ToolExecutionOutcome(_tool_result(parent))
 
     tools = _NestedTools(
@@ -396,7 +398,7 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         ],
     )
     loop, _, events, _ = _setup(_Runner(body), tools=tools)
-    loop.run(_run_input(tool_budget=6))
+    loop.run(_run_input(tool_budget=5))
     lifecycle = [
         event
         for event in events.events
@@ -412,7 +414,7 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
     ]
     assert [type(event) for event in lifecycle] == [
         ToolCallStarted,
-        *([NestedToolCallStarted, NestedToolCallCompleted] * 6),
+        *([NestedToolCallStarted, NestedToolCallCompleted] * 5),
         ToolCallCompleted,
     ]
     completed = [
@@ -422,7 +424,6 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         NestedCallStatus.SETTLED,
         NestedCallStatus.SETTLED,
         NestedCallStatus.BLOCKED,
-        NestedCallStatus.UNAUTHORIZED,
         NestedCallStatus.MALFORMED,
         NestedCallStatus.BUDGET_EXHAUSTED,
     ]

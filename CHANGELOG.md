@@ -41,14 +41,30 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `ctx.get_all_tools()` lists every registered tool with its exposure,
   namespace, annotations and reach function, so a permission hook can decide
   by the annotations. A tool registered with exposure `hidden` is never
-  declared to the model; the other exposures do not change requests yet.
+  declared to the model.
   The built-in `codemode` tool declares which tools a script may reach.
+- Codemode scripts can call extension tools. A tool's exposure now decides how
+  it is reached: `direct` and `model-only` tools are declared to the model
+  when registered, `codemode` and `deferred` tools are not declared by being
+  registered (a direct model call to an undeclared one is an unknown tool;
+  activating one by name declares it) and are callable from scripts whenever
+  they are registered, `model-only` and `hidden` tools are never callable from
+  scripts. Nested calls to extension tools pass argument validation and the
+  `tool_call` and `tool_result` hooks and are recorded in the parent result
+  like calls to built-ins.
 
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 
 ### Changed
 
+- The tools a codemode script can call are fixed when the script starts, from
+  the tools registered and active at that moment, instead of from the request
+  that declared `codemode`. A script therefore also reaches an extension tool
+  that replaces a built-in, and a selection made by a `tool_call` hook on the
+  `codemode` call applies to that script. An extension tool registered with
+  exposure `codemode` or `deferred` is no longer declared to the model unless
+  it is activated by name.
 - Python codemode guidance now includes an executable small-file read/filter
   example, explains direct string processing and recommends filtering before
   emitting a compact answer. This guides model behavior without enforcing a

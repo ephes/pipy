@@ -284,7 +284,8 @@ These steps follow the seam map. Line references are to
    - **Authorization:** checks the name with `snapshot.authorizes(name)`
      against the parent turn's frozen snapshot (`agent/request.py:52-55`) and
      the projection pinned for that turn (`repl/execution_projections.py:121`),
-     minus `codemode`.
+     minus `codemode`. Revised: authorization and execution now use the
+     parent's callable snapshot, see section 4.7.
    - **Execution:** calls `self._tools.execute(...)` with a waiter that
      combines the operator interrupt and the script deadline. Validation and
      interruption are therefore the same as for a top-level call.
@@ -455,10 +456,25 @@ Tool calls made before the failure (they are not undone): read (ok), bash (error
 
 ### 4.7 Eligible tools
 
-- **Callable:** the built-in tools advertised in the parent turn's snapshot
-  (`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash`), minus `codemode`.
-- **Not callable in the first slice:** extension tools (that generalization is
-  deferred) and `codemode` itself.
+Revised 2026-10-12 by the [MCP parity plan](2026-10-12-mcp-parity-plan.md),
+section 4.3 (owner decision Q6). The first slice allowed only the built-in
+tools advertised in the parent turn's frozen request snapshot. That rule
+cannot reach tools that no request declares, so it is replaced by the callable
+snapshot:
+
+- **Callable snapshot:** when a `codemode` parent is admitted, after its
+  `tool_call` hooks, the loop takes one snapshot from the live capability
+  value: the callable names, bound to the registry and executor of that one
+  value. It is immutable for the life of the parent. Every nested call is
+  authorized against it and executed by its executor. A capability value
+  published later (a reload, `set_active_tools`) does not change a running
+  script.
+- **Callable:** the active tools with exposure `direct` and every registered
+  tool with exposure `codemode` or `deferred` that the tool filters keep,
+  built-in or extension.
+- **Not callable:** `codemode` itself, `model-only` and `hidden` tools,
+  inactive `direct` tools, and a tool a `before_provider_request` hook
+  withheld from the parent's request.
 - **Authority:** nested calls run with the same authority as a direct call,
   including all of pipy's path policy and extension `tool_call` hooks, and
   they are attributed to the parent. As in Pi, the boundary limits what a

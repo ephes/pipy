@@ -57,6 +57,7 @@ from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolExposure,
     ToolPort,
     ToolRequest,
 )
@@ -101,10 +102,13 @@ def pids(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[int]]:
 class _Tool:
     name: str
     invoke_hook: Callable[[ToolRequest, ToolContext], None] | None = None
+    exposure: ToolExposure = "direct"
 
     @property
     def definition(self) -> ToolDefinition:
-        return ToolDefinition(self.name, "internal fixture", {"type": "object"})
+        return ToolDefinition(
+            self.name, "internal fixture", {"type": "object"}, exposure=self.exposure
+        )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         if self.invoke_hook is not None:
@@ -216,7 +220,7 @@ def _loop(
         )
         if enabled
         else None,
-        nested_eligibility=frozen,
+        nested_eligibility=capabilities,
         tool_waiter=waiter,
     )
     return loop, status, events
@@ -475,32 +479,47 @@ def test_backend_stop_cancels_tool_without_operator_turn(
     assert not outcome.final_tool_state.reserved_parent_slot
 
 
-def test_guest_names_are_frozen_advertised_builtin_identities(
+def test_guest_names_are_the_callable_snapshot(
     tmp_path: Path, paths: CodemodePaths, pids: list[int]
 ) -> None:
+    # `write` is active but a request hook withheld it; `orchestrate` is
+    # model-only and `withdrawn` hidden. `listed` is callable although no
+    # request declares it, and an extension's `bash` replaces the builtin.
     code = """
-for name in ['write', 'bash', 'extension', 'codemode']:
+for name in ['write', 'codemode', 'orchestrate', 'withdrawn']:
     try:
         getattr(tools, name)
     except AttributeError as exc:
         text(str(exc))
 text(tools.read(path='a'))
+text(tools.listed() + ' ' + tools.bash())
 """
     (tmp_path / "a").write_text("visible")
     loop, _, _ = _loop(
         tmp_path,
         code,
         paths=paths,
-        names=("codemode", "read", "bash", "extension"),
+        names=("codemode", "read", "bash", "orchestrate"),
         extra={"bash": _Tool("bash")},
-        extensions={"bash": _Tool("bash"), "extension": _Tool("extension")},
+        extensions={
+            "bash": _Tool("bash"),
+            "listed": _Tool("listed", exposure="codemode"),
+            "orchestrate": _Tool("orchestrate", exposure="model-only"),
+            "withdrawn": _Tool("withdrawn", exposure="hidden"),
+        },
     )
     outcome = loop.run(_run_input())
     parent = _parent(outcome)
     assert not parent.is_error
-    assert parent.content.value.count("Available tools: tools.read") == 4
+    assert (
+        parent.content.value.count(
+            "Available tools: tools.bash, tools.listed, tools.read."
+        )
+        == 4
+    )
     assert "visible transformed" in parent.content.value
-    assert outcome.final_tool_state.tool_invocation_count == 2
+    assert "fixture result fixture result" in parent.content.value
+    assert outcome.final_tool_state.tool_invocation_count == 4
 
 
 @pytest.mark.parametrize(

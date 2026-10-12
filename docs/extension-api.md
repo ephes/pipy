@@ -801,12 +801,24 @@ input schema it carries the metadata Pi's tools carry, with Pi's meaning:
 | `schema_mode` | `strict` (default), `foreign` | Which input schemas the definition accepts. |
 
 The defaults describe today's tools, so existing tools are unchanged.
-Extension tools set these fields on `ExtensionTool` (next section). Of the
-exposures only `hidden` changes behaviour so far: a hidden tool is never
-declared to the model. The others are recorded and reported, but a request
-still declares every active tool and scripts still reach only the built-in
-tools; the declared and callable sets follow in the next slice of the
-[MCP parity plan](specs/2026-10-12-mcp-parity-plan.md).
+Extension tools set these fields on `ExtensionTool` (next section).
+
+The exposure decides two sets:
+
+- **Declared** to the model: the active tools, without `hidden` ones.
+  Registering a `direct` or `model-only` tool activates it. A `codemode` or
+  `deferred` tool is not activated by being registered; it is declared only
+  after something names it, such as `ctx.set_active_tools([...])`. The model
+  cannot call a tool that is not declared: a call to it is answered with
+  `unknown tool: <name>`.
+- **Callable** from a [codemode](codemode.md) script: the active `direct`
+  tools and every registered `codemode` or `deferred` tool, whether or not it
+  is active. `model-only` and `hidden` tools and `codemode` itself are never
+  callable. A tool that `--tools`, `--exclude-tools` or `--no-tools` removed is
+  not callable either.
+
+A script's nested calls pass the same argument validation and the same
+`tool_call` and `tool_result` hooks as a direct call.
 
 `schema_mode="strict"` holds the input schema to the JSON-schema subset above
 and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy

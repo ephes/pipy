@@ -150,10 +150,12 @@ extension overrides. T8b registers the public definition only when selected and 
 Each admitted parent owns a fresh sequential service on the session thread.
 Child calls reuse shared admission/settlement policy, product hooks, the normal
 executor and waiter, and result transformation/validation. Eligibility is a
-separate injectable port, read once from the frozen projection: only builtins
-`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash` can execute, and extension
-replacements, extension names and recursion are refused. Hidden builtin names
-remain unauthorized against the parent's request snapshot. Definitions are never
+separate injectable port (`NestedToolEligibility.callable_snapshot()`), read
+once per parent after its `tool_call` hooks from the live capability value: the
+active `direct` tools and every registered `codemode` or `deferred` tool, bound
+to that value's executor (MCP parity plan 4.3). `codemode` itself, `model-only`
+and `hidden` tools, inactive `direct` tools and tools a request hook withheld
+from the parent's request are refused before admission. Definitions are never
 refreshed inside a parent, preserving tool and hook generations.
 
 Every validated child settlement publishes policy state through the existing
@@ -214,8 +216,8 @@ attempts, not proof that file effects succeeded.
 
 T6b adds `coding/codemode_runner.py` outside the standalone sandbox core. It
 validates the parent's `code` object with normal schema semantics and returns
-`format_result` text under the parent identity. Only the seven eligible builtins
-also advertised in the frozen parent request are offered to the guest. Results
+`format_result` text under the parent identity. The names of the parent's
+callable snapshot are offered to the guest. Results
 are validated post-transform model text; malformed, budget and policy errors
 become catchable `ToolError` values. Completed effects remain after failure.
 

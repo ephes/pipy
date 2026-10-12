@@ -119,10 +119,33 @@ example does not implement pagination. This is model guidance, not an enforced
 single-script rule or a guarantee that a model follows it. See the
 [adherence slice](specs/2026-10-09-codemode-adherence.md) for evidence and limits.
 
-Calls are sequential. Only advertised native builtins from the parent's frozen
-request snapshot are eligible: `read`, `ls`, `grep`, `find`, `write`, `edit`,
-`bash`. Hidden tools, extension tools/replacements, MCP and recursive codemode
-calls are unavailable. Selection changes during a parent do not refresh its snapshot.
+Calls are sequential. A script can call:
+
+- every active tool with exposure `direct`: the built-ins `read`, `ls`, `grep`,
+  `find`, `write`, `edit` and `bash` while they are active, and extension tools,
+  including one that replaces a built-in;
+- every registered extension tool with exposure `codemode` or `deferred`,
+  whether or not it is active. Registering such a tool does not declare it to
+  the model, so a script is the way to reach it unless something activates it
+  by name (`ctx.set_active_tools(...)`, a restored transcript).
+
+A script cannot call `codemode` itself, a `model-only` or `hidden` tool, a
+`direct` tool that is not active, a tool that `--tools`, `--exclude-tools` or
+`--no-tools` removed, or a tool that a `before_provider_request` hook withheld
+from the request that started the script. `tools.<name>` for such a name raises
+`AttributeError` and lists the available tools. A tool whose name is not a
+Python identifier is reached with `getattr(tools, "<name>")`; a name that
+starts with `_` cannot be called yet. See
+[tool metadata](extension-api.md#tool-model) for the exposures.
+
+The callable tools are fixed when the script starts, after the `tool_call`
+hooks of the `codemode` call have run: pipy takes one snapshot of the tools that
+are registered and active at that moment. A change made while the script runs
+(`ctx.set_active_tools(...)` from a nested tool, a `/reload`) applies from the
+next request on and does not change the running script.
+
+The tool description the model sees still names only the seven built-ins;
+extension tools are not listed in it yet.
 
 ## Python capabilities and authority
 
@@ -136,11 +159,14 @@ import, but process creation, networking/DNS and thread creation are unavailable
 
 The guest has no direct host filesystem, network or process APIs or host
 credentials/environment; its only filesystem preopen is the read-only stdlib.
-Eligible tools retain exactly their normal direct-call authority: `read` resolves
+Callable tools retain exactly their normal direct-call authority: `read` resolves
 any readable host path under the existing tool policy; `bash` may access files,
-network and spawn host processes through its normal pipeline. Every nested call
-uses the same validation, policy, extension hooks, budget, result transformation
-and interruption path as a direct call. Scripts themselves gain no extra authority.
+network and spawn host processes through its normal pipeline; an extension tool
+runs its handler as it does for a direct call. Every nested call uses the same
+validation, policy, extension hooks, budget, result transformation and
+interruption path as a direct call: a `tool_call` hook can block a nested call
+and a `tool_result` hook can change its result. Scripts themselves gain no extra
+authority.
 
 Completed tool effects persist after script failure or cancellation. The result
 retains partial output and a call summary saying effects are **not undone**.
@@ -207,6 +233,7 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-Extension tools, MCP, parallel calls, images, `models.*`, `store()`/`load()`,
-options lines and structured bash results are deferred. A resident engine requires
+MCP tools, tool discovery from scripts, structured results, parallel calls,
+images, `models.*`, `store()`/`load()`, options lines and structured bash
+results are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

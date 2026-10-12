@@ -60,8 +60,15 @@ class _NestedTools(_Tools):
             for name in ("codemode", "read", "write", "extension")
         )
 
-    def eligible_names(self) -> frozenset[str]:
-        return frozenset({"read", "write", "bash"})
+    # "bash" is callable without being declared, as a ``codemode`` tool is.
+    callable: frozenset[str] = frozenset({"read", "write", "bash"})
+
+    def callable_snapshot(self) -> _NestedTools:
+        self._order.append("tools:callable_snapshot")
+        return self
+
+    def callable_names(self) -> frozenset[str]:
+        return self.callable
 
     def execute(
         self,
@@ -187,7 +194,7 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
     assert [item.status for item in seen] == [
         NestedCallStatus.SETTLED,
         NestedCallStatus.BLOCKED,
-        NestedCallStatus.UNAUTHORIZED,
+        NestedCallStatus.SETTLED,
         *[NestedCallStatus.MALFORMED] * 3,
         NestedCallStatus.BUDGET_EXHAUSTED,
         NestedCallStatus.BUDGET_EXHAUSTED,
@@ -195,6 +202,7 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
     assert seen[0].result.content.value.endswith(" transformed")
     assert [call.provider_correlation_id for call in tools.executed] == [
         "parent0/1",
+        "parent0/3",
         "parent0/4",
         "parent0/5",
         "parent0/6",
@@ -207,7 +215,7 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
         state.invocations_this_turn,
         state.consecutive_malformed_streak,
         state.reserved_parent_slot,
-    ) == (2, 3, 2, 7, 0, False)
+    ) == (3, 3, 2, 7, 0, False)
     assert [
         m.provider_correlation_id
         for m in outcome.final_history
@@ -560,24 +568,102 @@ def test_invalid_nested_result_propagates_and_closes() -> None:
     assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
 
 
-def test_hidden_builtin_is_unauthorized_and_extension_replacement_refused() -> None:
-    class EligibilityTools(_NestedTools):
-        def eligible_names(self) -> frozenset[str]:
-            return frozenset({"write"})
+def test_uncallable_and_request_withheld_tools_are_refused() -> None:
+    class CallableTools(_NestedTools):
+        callable = frozenset({"write", "bash"})
 
     def run(
         call: AgentToolCall, service: NestedToolCallService
     ) -> ToolExecutionOutcome:
+        # Declared by the request, not in the callable snapshot.
         assert service.call("read", "{}").status is NestedCallStatus.REFUSED
-        assert service.call("write", "{}").status is NestedCallStatus.UNAUTHORIZED
+        # Callable, but a request hook withheld it from this request.
+        assert service.call("write", "{}").status is NestedCallStatus.REFUSED
+        assert service.eligible_names() == frozenset({"bash"})
         return ToolExecutionOutcome(_tool_result(call))
 
     loop, tools, _, _ = _setup(
-        _Runner(run), tools=EligibilityTools([]), names=("codemode", "read")
+        _Runner(run), tools=CallableTools([]), names=("codemode", "read")
     )
     outcome = loop.run(_run_input())
     assert not tools.executed
-    assert outcome.final_tool_state.invocations_this_turn == 2
+    # A refusal consumes no budget: only the parent counts.
+    assert outcome.final_tool_state.invocations_this_turn == 1
+
+
+def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
+    """Plan 4.3: names and executor of one snapshot serve the whole parent."""
+
+    class Snapshot:
+        def __init__(self, names: frozenset[str], order: list[str]) -> None:
+            self.names = names
+            self.order = order
+
+        def callable_names(self) -> frozenset[str]:
+            return self.names
+
+        def execute(
+            self,
+            call: AgentToolCall,
+            *,
+            output_sink: Callable[[str], None] | None = None,
+            wait_for_interrupt: ToolInterruptWaiter | None = None,
+        ) -> ToolExecutionOutcome:
+            self.order.append(f"snapshot:execute:{call.provider_correlation_id}")
+            return ToolExecutionOutcome(_tool_result(call, "from snapshot"))
+
+    class LiveTools(_NestedTools):
+        live = frozenset({"read"})
+
+        def callable_snapshot(self) -> Snapshot:  # type: ignore[override]
+            self._order.append("tools:callable_snapshot")
+            return Snapshot(self.live, self._order)
+
+    seen = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        seen.append(service.call("read", "{}"))
+        # A value published while the parent runs does not reach it.
+        tools.live = frozenset({"extension"})
+        seen.append(service.call("read", "{}"))
+        seen.append(service.call("extension", "{}"))
+        assert service.eligible_names() == frozenset({"read"})
+        return ToolExecutionOutcome(_tool_result(call))
+
+    order: list[str] = []
+    tools = LiveTools(order)
+    loop, _, _, _ = _setup(_Runner(run), tools=tools, policy=_ToolPolicy(order))
+    loop.run(_run_input())
+    assert [item.status for item in seen] == [
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.REFUSED,
+    ]
+    assert seen[0].result.content.value == "from snapshot"
+    assert order.count("tools:callable_snapshot") == 1
+    assert order.index("policy:before:parent0") < order.index("tools:callable_snapshot")
+    # The snapshot's executor runs the children, the turn's executor none.
+    assert "snapshot:execute:parent0/1" in order
+    assert "snapshot:execute:parent0/2" in order
+    assert not tools.executed
+
+
+def test_composite_never_reaches_itself() -> None:
+    class SelfCallable(_NestedTools):
+        callable = frozenset({"codemode", "read"})
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        assert service.eligible_names() == frozenset({"read"})
+        assert service.call("codemode", "{}").status is NestedCallStatus.REFUSED
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, tools, _, _ = _setup(_Runner(run), tools=SelfCallable([]))
+    loop.run(_run_input())
+    assert not tools.executed
 
 
 @pytest.mark.parametrize(

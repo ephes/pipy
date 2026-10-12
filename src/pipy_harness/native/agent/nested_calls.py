@@ -23,10 +23,6 @@ from pipy_harness.native.agent.tools import (
     ToolInterruptWaiter,
 )
 
-BUILTIN_NESTED_NAMES = frozenset(
-    {"read", "ls", "grep", "find", "write", "edit", "bash"}
-)
-
 
 @dataclass(frozen=True, slots=True)
 class NestedToolCallOutcome:
@@ -66,10 +62,28 @@ class NestedToolCallOutcome:
             raise ValueError("only interrupted outcomes carry interruption")
 
 
-class NestedToolEligibility(Protocol):
-    """Read builtin identities from the already frozen execution projection."""
+class NestedCallableTools(Protocol):
+    """One parent's callable snapshot: names bound to the executor that runs them.
 
-    def eligible_names(self) -> frozenset[str]: ...
+    The names, the registry behind them and the executor belong to one
+    capability value and never change for the life of the parent.
+    """
+
+    def callable_names(self) -> frozenset[str]: ...
+
+    def execute(
+        self,
+        call: AgentToolCall,
+        *,
+        output_sink: Callable[[str], None] | None = None,
+        wait_for_interrupt: ToolInterruptWaiter | None = None,
+    ) -> ToolExecutionOutcome: ...
+
+
+class NestedToolEligibility(Protocol):
+    """Take a callable snapshot from the live capability value."""
+
+    def callable_snapshot(self) -> NestedCallableTools: ...
 
 
 @runtime_checkable
@@ -105,7 +119,6 @@ class NestedToolCallService:
         eligible_names: frozenset[str],
         settle: Callable[[AgentToolCall], NestedToolCallOutcome],
         error_result: Callable[[AgentToolCall, str], AgentToolResultMessage],
-        advertised_names: frozenset[str] | None = None,
         settle_with_waiter: Callable[
             [AgentToolCall, ToolInterruptWaiter], NestedToolCallOutcome
         ]
@@ -113,12 +126,8 @@ class NestedToolCallService:
     ) -> None:
         self._parent_id = parent.provider_correlation_id
         self._thread = threading.current_thread()
-        self._eligible = eligible_names & BUILTIN_NESTED_NAMES
-        self._advertised = (
-            self._eligible
-            if advertised_names is None
-            else self._eligible & advertised_names
-        )
+        # A composite never reaches itself, whatever the snapshot offers.
+        self._eligible = eligible_names - {parent.tool_name}
         self._settle = settle
         self._settle_with_waiter = settle_with_waiter
         self._error_result = error_result
@@ -157,7 +166,7 @@ class NestedToolCallService:
 
     def eligible_names(self) -> frozenset[str]:
         self._require_thread()
-        return self._advertised
+        return self._eligible
 
     def call(
         self,

@@ -77,6 +77,8 @@ def codemode_definition() -> ToolDefinition:
             "required": ["code"],
             "additionalProperties": False,
         },
+        # Declared to the model, never callable from a script (Pi).
+        exposure="model-only",
         reaches_tools=script_reach,
     )
 

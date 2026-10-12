@@ -34,7 +34,7 @@ from pipy_harness.sdk import create_product_session
 def _declared_codemode():
     # A request carries what a provider sees; the reach function stays with
     # the registered definition.
-    return replace(CodemodeTool().definition, reaches_tools=None)
+    return replace(CodemodeTool().definition, reaches_tools=None, exposure="direct")
 
 
 def wait_until(predicate, timeout=10):
@@ -361,6 +361,9 @@ def test_product_extension_hooks_frozen_builtins(
 ):
     # Reuse the product extension fixture writer and ToolBlock/transform
     # patterns from the existing tool_call/tool_result conformance fixtures.
+    # The selection made while the parent runs changes the next request, not
+    # the parent's callable snapshot (nested) or the request that declared
+    # `read` (direct).
     _write_ext(
         tmp_path,
         "hooks",
@@ -368,9 +371,8 @@ def test_product_extension_hooks_frozen_builtins(
 def activate(api):
     @api.on('tool_call')
     def gate(event, ctx):
-        if event.tool_name == 'codemode':
-            assert ctx.set_active_tools(['codemode'])
         if event.tool_name == 'write':
+            assert ctx.set_active_tools(['codemode'])
             return ToolBlock(reason='T9 denied')
     @api.on('tool_result')
     def transform(event, ctx):
