@@ -49,6 +49,7 @@ MEMBER_LIST = {
         "line",
         "package_roots",
         "pending_prefill",
+        "prompt_template",
         "tree_filter_mode",
         "workspace_resources",
     ),
@@ -1351,6 +1352,12 @@ def _audit_inventory(modules: dict[str, _Module]) -> _InventoryResult:
 # mutable protocol, so its measured writers are listed by member and module;
 # TerminalUi and CodingSession retain mutations only in their definition owner.
 ALLOWED_WRITES = {
+    _Access(
+        "RunControlState", "prompt_template", "pipy_harness.native.repl.wiring", "write"
+    ),
+    _Access(
+        "RunControlState", "prompt_template", "pipy_harness.native.repl.reload", "write"
+    ),
     _Access("TerminalUi", "components", "pipy_harness.native.tui", "write"),
     _Access(
         "RunControlState",
@@ -1488,6 +1495,7 @@ class RunControlState:
     _tree_pointer_epoch: int
     tree_filter_mode: str
     pending_prefill: str | None
+    prompt_template: object
     package_roots: object
     workspace_resources: object
     generation_ref: object
@@ -2347,7 +2355,7 @@ def test_field_inventory_rejects_a_second_definition_owner(tmp_path: Path) -> No
     ("target", "relative", "expected_count"),
     [
         ("TerminalUi", "pipy_harness/native/tui.py", 9),
-        ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 12),
+        ("RunControlState", "pipy_harness/native/repl/loop_scope.py", 13),
         ("CodingSession", "pipy_harness/native/coding/session.py", 24),
     ],
 )
