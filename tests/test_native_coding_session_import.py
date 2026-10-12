@@ -30,6 +30,7 @@ from pipy_harness.native.coding.product_session import CodingProductSessionCoord
 from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.export_distribution import (
+    InvalidSessionCwdError,
     NativeExportError,
     export_native_branch_to_jsonl,
     import_native_session_jsonl,
@@ -705,7 +706,7 @@ def test_missing_cwd_second_prompt_decline_cancels(
     ) -> NativeSessionTree:
         del session_dir
         if missing_cwd is None:
-            raise NativeExportError("imported session cwd does not exist: removed")
+            raise InvalidSessionCwdError("imported session cwd does not exist: removed")
         assert active.path is not None
         return original_import(source, session_dir=active.path.parent)
 
@@ -743,7 +744,7 @@ def test_missing_cwd_second_prompt_read_errors_cancel(
     ) -> NativeSessionTree:
         del session_dir
         assert missing_cwd is None
-        raise NativeExportError("imported session cwd does not exist: removed")
+        raise InvalidSessionCwdError("imported session cwd does not exist: removed")
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", missing_cwd)
     stream = _FailingPromptStream(
@@ -782,7 +783,7 @@ def test_missing_cwd_second_import_error_is_controlled(
         del session_dir
         calls.append(missing_cwd)
         if missing_cwd is None:
-            raise NativeExportError("imported session cwd does not exist: removed")
+            raise InvalidSessionCwdError("imported session cwd does not exist: removed")
         raise NativeExportError("replacement failed")
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail_twice)
@@ -1032,7 +1033,7 @@ def test_controlled_import_error_is_sanitized_and_gets_footer(
 
 
 @pytest.mark.parametrize("failure", ["copy", "open"])
-def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
+def test_uncontrolled_copy_and_open_failures_clean_import_destination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
@@ -1049,7 +1050,7 @@ def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
     if failure == "copy":
         monkeypatch.setattr(
             shutil,
-            "copyfile",
+            "copyfileobj",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("copy failed")),
         )
     else:
@@ -1076,7 +1077,7 @@ def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
     assert footers == [None]
     assert active.path is not None
     destination = active.path.parent / source.name
-    assert destination.exists() is (failure == "open")
+    assert not destination.exists()
 
 
 def test_uncontrolled_rebuild_failure_retains_import_copy_without_success_footer(
