@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Final, Literal
 
 from pipy_harness.native.mcp.config import (
-    DEFAULT_MCP_EXPOSURE,
     McpServerEntry,
+    configured_exposures,
     mcp_namespace,
 )
 from pipy_harness.native.mcp.manager import McpManager, ServerSelector
@@ -55,11 +55,7 @@ def has_direct_tools(entry: McpServerEntry) -> bool:
     or any ``toolExposure`` value, is ``direct``.
     """
 
-    config = entry.config
-    if (config.get("exposure") or DEFAULT_MCP_EXPOSURE) == "direct":
-        return True
-    overrides = config.get("toolExposure")
-    return isinstance(overrides, Mapping) and "direct" in overrides.values()
+    return "direct" in configured_exposures(entry)
 
 
 def reaches_server(reach: _Reach, server: str) -> bool:

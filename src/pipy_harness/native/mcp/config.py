@@ -107,6 +107,22 @@ class McpServerEntry:
     override: str | None = None
 
 
+def configured_exposures(entry: McpServerEntry) -> frozenset[str]:
+    """Exposures the server's tools can have (Pi ``configuredExposures``).
+
+    Known from the configuration before the server connects: the server's
+    exposure and every ``toolExposure`` value.
+    """
+
+    config = entry.config
+    exposure = config.get("exposure")
+    exposures = {DEFAULT_MCP_EXPOSURE if exposure is None else str(exposure)}
+    overrides = config.get("toolExposure")
+    if isinstance(overrides, Mapping):
+        exposures.update(str(value) for value in overrides.values())
+    return frozenset(exposures)
+
+
 @dataclass(frozen=True, slots=True)
 class LoadedMcpConfig:
     """The servers of the user-level and (when trusted) the project file."""

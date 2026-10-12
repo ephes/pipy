@@ -36,23 +36,60 @@ When the session ends, pipy closes every server and waits until its process
 is gone, also for a server that was still starting.
 
 How the tools are reached depends on the server's `exposure` and the
-per-tool `toolExposure` (see [configuration rules](#configuration-rules)):
+per-tool `toolExposure`, see [control tool exposure](#control-tool-exposure).
 
-- `direct`: the tools are declared to the model like built-in tools. The
-  first prompt waits for the server, so its first request declares them; a
-  server that connects later adds them to the next model request. Scripts
-  can call them too.
-- `codemode`, the default, and `deferred`: the tools are not declared.
-  Codemode scripts call them (`tools.mcp__filesystem__read_file(path="a")`)
-  and find them with `search_tools()`; `tool_search` loads them so that the
-  model can call them directly. pipy does not turn these two tools on for
-  you yet. Enable one yourself, for example with
-  `"defaultTools": ["+codemode"]` in the settings, or the tools cannot be
-  called.
-- `hidden`: the tools are registered and cannot be called.
+### Control tool exposure
 
-`--tools` and `--exclude-tools` apply to these tools as described under
+| Exposure | Behaviour |
+| --- | --- |
+| `codemode` (default) | Not declared to the model. [Codemode](codemode.md) scripts call the tools (`tools.mcp__filesystem__read_file(path="a")`) and find them with `search_tools()`. |
+| `deferred` | Not declared until [`tool_search`](#tool-search) loads a match; the model then calls the tool directly. |
+| `direct` | Declared to the model like a built-in tool, and callable from scripts. The first prompt waits for the server, so its first request declares the tools; a server that connects later adds them to the next model request. |
+| `hidden` | Registered, and cannot be called. |
+
+`toolExposure` sets the exposure of single tools, see
+[configuration rules](#configuration-rules).
+
+pipy turns on the tool that reaches the undeclared tools. When an enabled
+server has a tool with `codemode` exposure it activates `codemode`, and when
+one has a tool with `deferred` exposure it activates `tool_search`. It decides
+this from the configuration when the session starts, before any server
+connects, so the first model request already declares the tool. Set
+`"autoEnableCodemode": false` at the top level of `mcp.json` to keep
+`codemode` off.
+
+Either tool reaches both exposures: scripts can call `deferred` tools, and
+`tool_search` can load `codemode` tools. So with `autoEnableCodemode` false
+you can still reach the tools by enabling `tool_search` yourself
+(`"defaultTools": ["+tool_search"]`).
+
+When such tools exist and neither tool is active, pipy warns once in a
+session:
+
+```text
+MCP tools are only reachable from the codemode or tool_search tool, but neither is active; they cannot be called.
+```
+
+With ` (autoEnableCodemode is false)` after `active` when that setting is the
+cause. Other causes: `--tools`, `--exclude-tools` or `--no-tools` removed
+both tools, or codemode's runtime is not installed. Codemode needs an
+[installed runtime](codemode.md#installing); without it pipy also prints
+`pipy: codemode unavailable: <reason>`, and the tools of a server with the
+default exposure cannot be called until you install the runtime or choose
+another exposure.
+
+`--tools` and `--exclude-tools` apply to MCP tools as described under
 [MCP tools](usage.md#mcp-tools).
+
+Different from Pi:
+
+- Pi always has `codemode` registered. pipy registers its built-in `codemode`
+  when something asks for it, because registering it tests the runtime with a
+  short self-test. A server with `codemode` exposure asks for it when the
+  session starts, so such a session starts a little later than one without.
+- With `autoEnableCodemode` false pipy does not test the runtime. The warning
+  then names that setting whenever the tool filters would keep `codemode`,
+  also when the runtime is not installed.
 
 ### Waiting for servers
 
@@ -130,11 +167,30 @@ already on its way fails with one of these messages:
 When a server process exits, its tools stay registered and the next call
 starts it again.
 
-### What you are not told yet
+### Startup report
 
-pipy does not report MCP problems at startup yet. A server that fails to
-start, and an error in an `mcp.json`, are silent: the server's tools are just
-not there. Two cases are reported, as a warning before the next prompt:
+When every server that started with the session has connected or failed,
+pipy reports what needs you, once, as one warning:
+
+```text
+MCP servers need attention:
+  config: /home/me/.pipy/mcp.json: server "old": legacy SSE transport is not supported; use the streamable HTTP URL
+  search: failed: [Errno 2] No such file or directory: 'no-such-command'
+Run /mcp to fix.
+```
+
+There is one `config:` line per error in an `mcp.json` and one line per
+server that failed (with the first line of its error) or needs a sign-in
+(`<name>: needs sign-in`). Nothing is shown when there is nothing to report.
+`/mcp` does not exist yet; correct `mcp.json` and restart pipy. The whole
+error of a failed server is not shown anywhere yet.
+
+The report and the other warnings on this page are shown before the next
+prompt runs, not at the moment they arise: in the terminal you see them when
+you send your next message, in a one-shot run on stderr at the end. Pi shows
+them at once.
+
+Two more cases are reported, each once:
 
 - `MCP tool "<server>/<tool>" is not available: <reason>` for a tool pipy
   cannot declare, which is one whose input schema is not an object. The
@@ -147,14 +203,14 @@ Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
 ### What is missing
 
-Not built yet, in the order the plan builds it: turning on `codemode`
-and `tool_search` for servers that need them, the startup report, `--no-mcp`,
+Not built yet, in the order the plan builds it: `--no-mcp`,
 the `mcp_servers` section of the system prompt, the `pipy mcp` commands,
 `/mcp` (status, reconnect, enabling and disabling a server, changing its
 exposure), reading `mcp.json` again on `/reload`, resources, HTTP servers,
 OAuth, servers registered by extensions, and images in tool results.
 
-Until `/reload` handles MCP: when a server connects or changes its tools
+Until `/reload` handles MCP: `/reload` does not read `mcp.json` again;
+restart pipy. When a server connects or changes its tools
 while a `/reload` is being prepared, that reload is refused with `prepared
 reload owner state changed`; run it again. A new session in the same pipy
 process (`/new`, `/resume`) keeps the servers of the first one, where Pi
@@ -269,8 +325,9 @@ Both server types accept:
 - `description`: what the server offers, in a sentence.
 
 The top-level key `autoEnableCodemode` (a boolean, default true) says whether
-the codemode tool is activated when a server with `codemode` exposure
-connects. A project value overrides the user-level one.
+the codemode tool is activated for a server with `codemode` exposure, see
+[control tool exposure](#control-tool-exposure). A project value overrides
+the user-level one.
 
 The loader checks types and keeps the values as written. What the fields do
 when a server is connected is described under
@@ -543,8 +600,9 @@ standard library. It is not part of the SDK surface.
 | `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
-| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), and closes everything at the end. |
+| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `describe_state` gives a server's short state. |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
+| `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session

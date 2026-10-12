@@ -31,8 +31,13 @@ of its latest attempt. A new attempt gets a new event, assigned under the
 manager lock, so a wait that reads the events again after waiting also
 covers an attempt that was queued in the meantime.
 
-Not built yet: servers registered by extensions, the startup report, enabling
-and disabling a server in a session, and ``/reload``.
+The startup report. When every connection attempt that ``start`` made has
+ended and was registered, one notice lists what needs the user: the errors of
+the configuration files and the servers that failed or need a sign-in (Pi
+``reportProblems``). Without an enabled server ``start`` leaves it at once.
+
+Not built yet: servers registered by extensions, enabling and disabling a
+server in a session, and ``/reload``.
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ from typing import Final
 from pipy_harness.native.mcp.config import (
     LoadedMcpConfig,
     McpServerEntry,
+    configured_exposures,
     get_mcp_tool_exposure,
 )
 from pipy_harness.native.mcp.connection import (
@@ -103,6 +109,30 @@ class McpServerStatus:
 
 def _is_enabled(entry: McpServerEntry) -> bool:
     return entry.config.get("enabled") is not False
+
+
+def describe_state(status: McpServerStatus, *, with_error: bool = True) -> str:
+    """Short state of a server for lists and the startup report (Pi
+    ``describeState``). ``with_error`` appends the first line of a failure."""
+
+    if not status.enabled:
+        return "disabled"
+    view = status.connection
+    if view is None:
+        return "starting"
+    if view.state == "needs-auth":
+        return "needs sign-in"
+    if view.state == "failed":
+        if not with_error:
+            return "failed"
+        error = "unknown error" if view.error is None else view.error
+        return f"failed: {error.split(chr(10), 1)[0]}"
+    if view.state == "connected":
+        count = len(view.tools)
+        return f"connected · {count} tool{'' if count == 1 else 's'}"
+    if view.state == "connecting":
+        return "connecting…"
+    return view.state
 
 
 def _wait_for_event(
@@ -164,6 +194,8 @@ class McpManager:
         change. ``config`` is read once; ``cwd`` is the session directory."""
 
         self.config_errors: tuple[str, ...] = tuple(config.errors)
+        # ``autoEnableCodemode``; true unless a file says false.
+        self.auto_enable_codemode: bool = config.auto_enable_codemode is not False
         self._cwd = cwd
         self._client_version = client_version
         self._publish_tools = publish_tools
@@ -183,6 +215,9 @@ class McpManager:
             tuple[_Server, threading.Event | None] | None
         ] = queue.SimpleQueue()
         self._notices: deque[McpNotice] = deque()
+        # The ``ready`` events of the attempts ``start`` made that have not
+        # been registered yet; the startup report waits for them.
+        self._startup: set[threading.Event] = set()
         self._reported: set[str] = set()
 
     # -- lifecycle --------------------------------------------------------
@@ -199,12 +234,14 @@ class McpManager:
                 if _is_enabled(server.entry):
                     server.connection = self._new_connection(server)
                     connecting.append((server, server.connection, server.ready))
-            if not connecting:
-                return
-            self._worker = threading.Thread(
-                target=self._run, name="mcp-manager", daemon=True
-            )
-            self._worker.start()
+            self._startup = {ready for _, _, ready in connecting}
+            if connecting:
+                self._worker = threading.Thread(
+                    target=self._run, name="mcp-manager", daemon=True
+                )
+                self._worker.start()
+        if not connecting:
+            self._report_problems()
         for attempt in connecting:
             threading.Thread(
                 target=self._connect,
@@ -312,6 +349,19 @@ class McpManager:
                 if not _wait_for_event(ready, deadline, cancel_event):
                     return False
 
+    def configured_exposures(self) -> frozenset[str]:
+        """Exposures the tools of the enabled servers can have, known from
+        the configuration before any server connects."""
+
+        with self._lock:
+            entries = [server.entry for server in self._servers]
+        return frozenset(
+            exposure
+            for entry in entries
+            if _is_enabled(entry)
+            for exposure in configured_exposures(entry)
+        )
+
     def tool_owner(self, name: str) -> str | None:
         """The server whose tool was registered under ``name``, if any."""
 
@@ -380,7 +430,43 @@ class McpManager:
                 )
             finally:
                 if ready is not None:
-                    ready.set()
+                    try:
+                        self._attempt_registered(ready)
+                    finally:
+                        ready.set()
+
+    def _attempt_registered(self, ready: threading.Event) -> None:
+        """Report the startup problems once the last attempt ``start`` made
+        was registered. A later attempt of a server has another event."""
+
+        with self._lock:
+            if ready not in self._startup:
+                return
+            self._startup.discard(ready)
+            if self._startup:
+                return
+        self._report_problems()
+
+    def _report_problems(self) -> None:
+        """One notice for everything that needs the user after startup."""
+
+        with self._lock:
+            if self._closed:
+                return
+            servers = [(server.entry, server.connection) for server in self._servers]
+        lines = [f"config: {error}" for error in self.config_errors]
+        for entry, connection in servers:
+            if connection is None:
+                continue
+            view = connection.view()
+            if view.state in ("needs-auth", "failed"):
+                status = McpServerStatus(entry, _is_enabled(entry), view)
+                lines.append(f"{entry.name}: {describe_state(status)}")
+        if lines:
+            listed = "\n".join(f"  {line}" for line in lines)
+            self._notify(
+                "warning", f"MCP servers need attention:\n{listed}\nRun /mcp to fix."
+            )
 
     def _register(self, server: _Server) -> None:
         """Publish the tools of ``server`` as its connection has them now."""
@@ -488,8 +574,12 @@ class McpManager:
             )
         return connection
 
-    def _notify(self, level: str, message: str) -> None:
+    def post_notice(self, level: str, message: str) -> None:
         """Keep a notice for the session thread; each text once per session."""
+
+        self._notify(level, message)
+
+    def _notify(self, level: str, message: str) -> None:
 
         with self._lock:
             if message in self._reported:

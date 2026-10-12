@@ -501,7 +501,8 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `credentials.py` | `McpOAuthCredentialStore`, the connection auth provider, `sign_in_mcp_server` | `ext/oauth.ts` |
 | `tools.py` | Naming and the session's name table, definitions, tool ports, result conversion, truncation and spill, result schema | `ext/tools.ts`, `ext/index.ts` `assignName` |
 | `resources.py` | The three resource tools | `ext/resources.ts` |
-| `manager.py` | `McpManager`: the per-session owner of servers, readiness, registration, discovery activation, the prompt section and the startup report | `ext/index.ts` |
+| `manager.py` | `McpManager`: the per-session owner of servers, readiness, registration, the prompt section and the startup report | `ext/index.ts` |
+| `discovery.py` | `McpDiscovery`: activates `codemode` and `tool_search` from the configured exposures, and the warning | `ext/index.ts` `ensureDiscoveryActive` |
 | `readiness.py` | `McpReadiness`: which servers the first prompt and a tool call wait for | `ext/index.ts` `waitForDirectServers`, `tool_call` handler, `reachesServer` |
 | `registry.py` | Extension-registered servers | `core/mcp-servers.ts` `McpServerRegistry` |
 | `shell_cli.py` | `pipy mcp ...` | `ext/cli.ts` |
@@ -841,6 +842,56 @@ readiness port and `repl/mcp_waits.py`):
   attempt: SES-09 "including a reconnect in progress" and the second
   sentence of SES-10 (S21 makes them reachable). The resource tools do not
   exist before S23; the rule for their names is tested on `McpReadiness`.
+
+Decided in S19 (`discovery.py` and the startup report; the switches follow
+in a second commit):
+
+- `McpDiscovery(configured_exposures=, auto_enable_codemode=, tools=,
+  notify=)` is Pi `ensureDiscoveryActive`; `ensure_active()` is called on the
+  session thread. The session calls it once, in `_start_session` after
+  `McpManager.start()`. Every later caller is another slice's: S21 after
+  enable, disable, an exposure change and reconnect, S22 after a reload (with
+  a new object, which also resets "warned once"), S31 after a sign-in, S36
+  after a change of the registered servers. The object is on
+  `_ExtensionPhase.mcp_discovery`.
+- The capability value has what the activation needs
+  (`NativeToolCapabilities`): `register_codemode()` registers the optional
+  built-in for the run when the filters keep it and the runtime probe
+  passes, keeping the selection and the extension generation;
+  `activate_tools(names)` adds registered tools to the live selection without
+  marking it as customized; `declared_tool_names()` is Pi `getActiveTools`;
+  `codemode_selectable()` says whether `codemode` is or could be registered,
+  without probing.
+- pipy registers `codemode` on demand, so SES-11 costs one runtime probe (a
+  self-test in a child process) at the start of every session that has an
+  enabled server with `codemode` exposure and `autoEnableCodemode` not
+  false. With the setting false nothing is probed, and the SES-13 warning
+  names the setting whenever the filters would keep `codemode`. When the
+  probe fails the warning has no reason and the probe's own
+  `codemode unavailable` line says why.
+- `publish` (reload) activated new extension tools on a selection that was
+  only added to (not customized) only when default tools were configured.
+  That condition is gone: discovery activation makes "added to, nothing
+  configured" the usual state of a session with MCP servers.
+- The startup report is built by the manager. `start()` keeps the `ready`
+  events of the attempts it made; the registering thread removes an event
+  after it registered the attempt's outcome and, when none is left, posts
+  the report as a notice before it sets the event, so a wait for the servers
+  returns with the report already queued. Without an enabled server
+  `start()` posts it. A closed manager reports nothing. Later attempts (S21)
+  have other events and never cause a report; Pi's second form of
+  `reportProblems` (`only`, for servers registered later) is S36's.
+  `describe_state(status, with_error=)` is Pi `describeState` without the
+  resource count (S23).
+- The report is a notice like the others, so it is shown where the session
+  drains them: before the next step is selected. In a terminal that is when
+  the next prompt is sent; Pi shows it when it arises. Showing notices while
+  the session is idle needs a wake-up of the input loop, which no slice owns
+  yet (S34's view refresh is the nearest).
+- `McpManager.post_notice(level, message)` is the public way to queue a
+  notice (each text once per session); `configured_exposures()` and
+  `auto_enable_codemode` give discovery its input. `configured_exposures(entry)`
+  is in `config.py` and `has_direct_tools` uses it.
 
 Open after the merge, owned by later slices:
 

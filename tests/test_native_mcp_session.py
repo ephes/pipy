@@ -1,4 +1,4 @@
-"""MCP servers in a session (MCP parity plan S17 and S18).
+"""MCP servers in a session (MCP parity plan S17 to S19).
 
 A coding session with a scripted provider and the fake stdio server as a real
 child process: the servers of ``mcp.json`` start with the session, their
@@ -9,7 +9,8 @@ EXP-05, the MCP part of EXT-03 and CFG-01's trust wiring.
 The S17 tests have a server with `codemode` tools, which no prompt waits
 for, so the provider's first turn calls an extension tool that waits until
 the server's tools are registered. The readiness waits themselves (S18, rows
-SES-05 to SES-10) are at the end.
+SES-05 to SES-10) follow, then S19: activating `codemode` and `tool_search`
+from the configuration and the startup report (SES-04, SES-11 to SES-13).
 """
 
 from __future__ import annotations
@@ -36,11 +37,13 @@ from test_native_extension_tool_metadata import (
 from test_native_mcp_connection import _FAKE_SERVER, _is_alive
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.codemode import selftest
 from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
 )
 from pipy_harness.native.mcp import readiness as readiness_module
+from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import STILL_CONNECTING_NOTICE
 from pipy_harness.native.models import (
     ProviderRequest,
@@ -48,7 +51,10 @@ from pipy_harness.native.models import (
     ProviderToolCall,
 )
 from pipy_harness.native.project_trust import has_trust_requiring_project_resources
+from pipy_harness.native.repl import wiring
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 
 _WAIT_SECONDS = 20.0
 
@@ -250,6 +256,8 @@ def _run(
     *,
     settings: SettingsManager | None = None,
     abort_event: threading.Event | None = None,
+    resource_options: RuntimeResourceOptions | None = None,
+    tool_filter_options: ToolFilterOptions | None = None,
 ) -> tuple[HarnessStatus, str]:
     errors = io.StringIO()
     session = CodingSession(
@@ -258,6 +266,8 @@ def _run(
         tool_budget=8,
         settings_manager=settings,
         abort_event=abort_event,
+        resource_options=resource_options or RuntimeResourceOptions.empty(),
+        tool_filter_options=tool_filter_options or ToolFilterOptions.empty(),
     )
     result = session.run(
         workspace_root=workspace,
@@ -918,3 +928,261 @@ def test_an_abort_ends_the_wait_of_a_tool_call(tmp_path: Path, monkeypatch) -> N
     assert len(provider.requests) == 1, errors
     assert status is HarnessStatus.SUCCEEDED, errors
     assert not _received(record, "tools/list")
+
+
+# -- S19: discovery activation and the startup report -------------------------
+
+_UNREACHABLE = (
+    "MCP tools are only reachable from the codemode or tool_search tool, "
+    "but neither is active{reason}; they cannot be called."
+)
+_SEARCH_SCRIPT = """found = tools.mcp__docs__search(query='pipy')
+text(found['structuredContent']['hits'])
+"""
+
+
+def _codemode_call(code: str = _SEARCH_SCRIPT) -> ProviderResult:
+    return _result(
+        tool_calls=(ProviderToolCall("c1", "codemode", json.dumps({"code": code})),)
+    )
+
+
+def _load_and_call() -> list[ProviderResult | Callable[[], object]]:
+    """`tool_search` loads the search tool, then the model calls it."""
+
+    return [
+        _result(
+            tool_calls=(
+                ProviderToolCall(
+                    "c1", "tool_search", '{"query": "search the docs", "limit": 1}'
+                ),
+            )
+        ),
+        _result(
+            tool_calls=(
+                ProviderToolCall("c2", "mcp__docs__search", '{"query": "loaded"}'),
+            )
+        ),
+        _result(final_text="done"),
+    ]
+
+
+def test_codemode_is_activated_from_the_config(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-11; Pi: "does not hold the first prompt for codemode servers that
+    # are still connecting" asserts "codemode is activated from the config".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"docs": entry})
+    provider = _Provider([_codemode_call(), _result(final_text="done")])
+
+    # Nothing in the settings selects codemode.
+    status, errors = _run(workspace, provider, settings=_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The first request declares it, before the server connected.
+    names = _tool_names(provider.requests[0])
+    assert "codemode" in names and "tool_search" not in names
+    assert not [name for name in names if name.startswith("mcp__")]
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == [
+        "pipy guide",
+        "pipy faq",
+    ]
+    assert "MCP" not in errors
+
+
+def test_codemode_is_not_activated_when_auto_enable_codemode_is_false(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-11, SES-13; Pi: "does not activate codemode when autoEnableCodemode
+    # is false".
+    probes: list[object] = []
+    monkeypatch.setattr(selftest, "availability", lambda: probes.append(1))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers")
+    (workspace / "mcp.json").write_text(
+        json.dumps({"autoEnableCodemode": False, "mcpServers": {"docs": entry}})
+    )
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+
+    status, errors = _run(
+        workspace, provider, "go\nagain\n", settings=_settings(workspace)
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    for request in provider.requests:
+        assert "codemode" not in _tool_names(request)
+    reason = " (autoEnableCodemode is false)"
+    assert errors.count(_UNREACHABLE.format(reason=reason)) == 1, errors
+    assert probes == []
+
+
+def test_tool_search_reaches_codemode_tools_without_codemode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-12; Pi: "treats codemode MCP tools as reachable through an active
+    # tool_search".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers")
+    (workspace / "mcp.json").write_text(
+        json.dumps({"autoEnableCodemode": False, "mcpServers": {"docs": entry}})
+    )
+    provider = _Provider(_load_and_call())
+
+    status, errors = _run(
+        workspace, provider, settings=_settings(workspace, "+tool_search")
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "mcp__docs__search" not in _tool_names(provider.requests[0])
+    names = _tool_names(provider.requests[1])
+    assert "mcp__docs__search" in names and "codemode" not in names
+    called = _tool_results(provider.requests[2])[-1]
+    assert (called.is_error, called.content.value) == (False, "pipy guide\npipy faq")
+    assert _tool_calls(record) == [("search", {"query": "loaded"})]
+    assert "MCP tools are only reachable" not in errors
+
+
+def test_tool_search_is_activated_for_deferred_tools(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-11: `deferred` asks for tool_search, not for codemode.
+    probes: list[object] = []
+    monkeypatch.setattr(selftest, "availability", lambda: probes.append(1))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"docs": {**entry, "exposure": "deferred"}})
+    provider = _Provider(_load_and_call())
+
+    status, errors = _run(workspace, provider, settings=_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "tool_search" in names and "codemode" not in names
+    called = _tool_results(provider.requests[2])[-1]
+    assert (called.is_error, called.content.value) == (False, "pipy guide\npipy faq")
+    assert probes == [] and "MCP" not in errors
+
+
+def test_codemode_reaches_deferred_tools_without_tool_search(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-12; Pi: "reaches deferred MCP tools through codemode when
+    # tool_search is not available".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers")
+    _write_mcp_json(workspace / "mcp.json", {"docs": {**entry, "exposure": "deferred"}})
+    provider = _Provider([_codemode_call(), _result(final_text="done")])
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace, "+codemode"),
+        tool_filter_options=ToolFilterOptions(exclude=("tool_search",)),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "codemode" in names and "tool_search" not in names
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == [
+        "pipy guide",
+        "pipy faq",
+    ]
+    assert "MCP tools are only reachable" not in errors
+
+
+def test_warns_when_the_codemode_runtime_is_unavailable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-13: codemode is wanted but cannot be registered.
+    monkeypatch.setattr(
+        selftest,
+        "availability",
+        lambda: selftest.Availability(available=False, reason="no runtime here"),
+    )
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers")
+    _write_mcp_json(workspace / "mcp.json", {"docs": entry})
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+
+    status, errors = _run(
+        workspace, provider, "go\nagain\n", settings=_settings(workspace)
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "codemode" not in _tool_names(provider.requests[0])
+    assert errors.count("pipy: codemode unavailable: no runtime here") == 1, errors
+    assert errors.count(_UNREACHABLE.format(reason="")) == 1, errors
+
+
+def _recorded_managers(monkeypatch) -> list[Any]:
+    """The MCP managers the session wiring creates from now on."""
+
+    managers: list[Any] = []
+
+    class Recording(McpManager):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            managers.append(self)
+
+    monkeypatch.setattr(wiring, "McpManager", Recording)
+    return managers
+
+
+def test_startup_problems_are_reported_once(tmp_path: Path, monkeypatch) -> None:
+    # SES-04.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers")
+    config = workspace / "mcp.json"
+    config.write_text(
+        json.dumps(
+            {
+                "autoEnableCodemode": "yes",
+                "mcpServers": {
+                    "docs": {**entry, "exposure": "direct"},
+                    "gone": {
+                        "command": str(tmp_path / "no-such-server"),
+                        "exposure": "direct",
+                    },
+                },
+            }
+        )
+    )
+    managers = _recorded_managers(monkeypatch)
+    provider = _Provider(
+        [
+            lambda: managers[0].wait_until_settled(_WAIT_SECONDS),
+            _result(final_text="one"),
+            _result(final_text="two"),
+        ]
+    )
+
+    status, errors = _run(
+        workspace, provider, "go\nagain\n", settings=_settings(workspace)
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    head = (
+        "MCP servers need attention:\n"
+        f"  config: {config}: autoEnableCodemode must be a boolean\n"
+        "  gone: failed: "
+    )
+    assert errors.count(head) == 1, errors
+    assert errors.count("MCP servers need attention:") == 1
+    report = errors[errors.index(head) :]
+    assert report.split("\n")[3] == "Run /mcp to fix."
+    # The working server was not listed, and its tools were declared.
+    assert "  docs:" not in errors
+    assert "mcp__docs__search" in _tool_names(provider.requests[0])

@@ -120,6 +120,7 @@ from pipy_harness.native.extensions.contracts import (
 from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_tokens
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.mcp.config import load_mcp_config
+from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import McpReadiness
@@ -588,6 +589,7 @@ class _ExtensionPhase:
     extension_ui_driver: _LiveExtensionUiDriver | None
     tool_capabilities: NativeToolCapabilities
     mcp_manager: McpManager
+    mcp_discovery: McpDiscovery
     startup_projection: ExtensionProjection
     attachment: StartupGenerationAttachment
     generation_ref: SessionGenerationRef
@@ -962,12 +964,19 @@ def _compose_extension_phase(
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
         raise_first((error, _abort_startup_attachment_nonraising(attached)))
         raise AssertionError("startup failure did not propagate")
+    mcp_manager = _mcp_manager(cwd, settings, tool_capabilities)
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
         extension_ui_driver=extension_ui_driver,
         tool_capabilities=tool_capabilities,
-        mcp_manager=_mcp_manager(cwd, settings, tool_capabilities),
+        mcp_manager=mcp_manager,
+        mcp_discovery=McpDiscovery(
+            configured_exposures=mcp_manager.configured_exposures,
+            auto_enable_codemode=mcp_manager.auto_enable_codemode,
+            tools=tool_capabilities,
+            notify=mcp_manager.post_notice,
+        ),
         startup_projection=startup_projection,
         attachment=attached,
         generation_ref=generation_ref,
@@ -1023,12 +1032,19 @@ def _mcp_waits(
     )
 
 
-def _start_session(fire_session_start: Callable[[], None], mcp: McpManager) -> None:
-    """``session_start``, then the MCP servers start connecting in the background."""
+def _start_session(
+    fire_session_start: Callable[[], None], mcp: McpManager, discovery: McpDiscovery
+) -> None:
+    """``session_start``, then the MCP servers start connecting in the background.
+
+    ``codemode`` or ``tool_search`` is activated from the configuration, so it
+    is active before the servers connect and the first prompt declares it.
+    """
 
     fire_session_start()
     try:
         mcp.start()
+        discovery.ensure_active()
     except BaseException:
         # A start that failed has no shutdown bookend.
         mcp.close()
@@ -2154,6 +2170,7 @@ def _assemble_session_wiring(
             _start_session,
             partial(repl_loop_step.fire_session_start, emitter=emitter),
             extension.mcp_manager,
+            extension.mcp_discovery,
         ),
         fire_session_shutdown=partial(
             repl_loop_step.fire_session_shutdown, emitter=emitter

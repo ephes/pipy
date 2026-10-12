@@ -344,6 +344,17 @@ class ToolCapabilityState:
         )
 
 
+def _filters_keep_codemode(options: ToolFilterOptions) -> bool:
+    """Whether the filters would keep a built-in ``codemode`` registered."""
+
+    return not (
+        options.no_tools
+        or options.no_builtin_tools
+        or options.excludes("codemode")
+        or (bool(options.allow) and not options.allows("codemode"))
+    )
+
+
 def _merged_registry(
     builtin: Mapping[str, ToolPort],
     extensions: Mapping[str, ToolPort],
@@ -624,6 +635,90 @@ class NativeToolCapabilities:
                 )
         return loaded
 
+    def declared_tool_names(self) -> frozenset[str]:
+        """The names the next request may declare: the active tools the
+        filters let be declared (Pi ``getActiveTools``)."""
+
+        return _declared_names(self.state)
+
+    def activate_tools(self, names: Sequence[str], /) -> None:
+        """Add registered tools to the active selection (Pi
+        ``setActiveTools([...active, ...names])``).
+
+        Like :meth:`load_tools` the names are added to the selection that is
+        live now, and adding does not count as a selection an extension made.
+        Unlike it, any registered tool can be named. A selection that already
+        has the names, also the unset one that means "as registration left
+        it", is not replaced.
+        """
+
+        with self._state_lock:
+            state = self._state
+            current = _active_names(state)
+            added = frozenset(name for name in names if name in state.registry)
+            if not added <= current:
+                self._state = replace(
+                    state,
+                    active_tool_names=current | added,
+                    selection_initialized=True,
+                )
+
+    def codemode_selectable(self) -> bool:
+        """Whether ``codemode`` is registered, or the built-in could be.
+
+        The built-in can be registered when the tool filters keep it. This
+        does not look at the runtime, so it costs nothing.
+        """
+
+        state = self.state
+        if "codemode" in state.registry:
+            return "codemode" in _kept_names(state)
+        return self._production_defaults and _filters_keep_codemode(
+            state.filter_options
+        )
+
+    def register_codemode(self) -> bool:
+        """Register the optional built-in ``codemode`` for this run.
+
+        Something other than the tool selection wants it (an MCP server whose
+        tools scripts call). Returns whether a ``codemode`` tool is registered
+        afterwards. Nothing is registered when the filters remove it or its
+        runtime is unavailable; the probe reports that once, as when the
+        selection names the tool. An extension's ``codemode`` is left alone
+        and never probed. The new value keeps the selection, the other tools
+        and the extension generation.
+        """
+
+        state = self.state
+        if "codemode" in state.registry:
+            return True
+        if not (
+            self._production_defaults and _filters_keep_codemode(state.filter_options)
+        ):
+            return False
+        if not self._probe_codemode():
+            return False
+        from pipy_harness.native.tools.codemode import CodemodeTool
+
+        with self._state_lock:
+            state = self._state
+            if "codemode" in state.registry:
+                return True
+            builtin = {**state.builtin_registry, "codemode": CodemodeTool()}
+            registry = _merged_registry(
+                builtin, state.extension_registry, state.mcp_registry
+            )
+            self._state = replace(
+                state,
+                builtin_registry=builtin,
+                registry=registry,
+                executor=ToolExecutor(
+                    registry,
+                    cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
+                ),
+            )
+        return True
+
     def restore_active_tools(self, names: Sequence[str]) -> None:
         """Pi ``setActiveToolsByName`` from a transcript's declared tools.
 
@@ -822,11 +917,12 @@ class NativeToolCapabilities:
                 if (
                     live.selection_initialized
                     and not live.active_selection_customized
-                    and state.default_tool_names is not None
                     and active is not None
                 ):
                     # Pi ``_refreshToolRegistry``: new tools, and tools whose
                     # exposure became declarable, are activated like new ones.
+                    # Also without configured defaults: ``tool_search`` and
+                    # the MCP discovery only add to the selection.
                     active |= activated_on_registration(
                         state.extension_registry
                     ).difference(activated_on_registration(live.extension_registry))

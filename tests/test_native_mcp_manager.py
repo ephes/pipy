@@ -30,11 +30,16 @@ from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.mcp import manager as manager_module
 from pipy_harness.native.mcp.config import LoadedMcpConfig, McpServerEntry
 from pipy_harness.native.mcp.connection import (
+    ConnectionView,
     McpServerConnection,
     create_default_transport,
 )
 from pipy_harness.native.mcp.http import McpAuthProvider
-from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.manager import (
+    McpManager,
+    McpServerStatus,
+    describe_state,
+)
 from pipy_harness.native.mcp.stdio import StdioTransport
 from pipy_harness.native.mcp.transport import McpTransport
 from pipy_harness.native.tool_capabilities import (
@@ -72,6 +77,7 @@ class _Session:
         *,
         builtins: dict[str, ToolPort] | None = None,
         state_lock: Any = None,
+        errors: list[str] | None = None,
     ) -> None:
         self.servers = servers
         self.opened: list[str] = []
@@ -89,7 +95,7 @@ class _Session:
                 servers=entries
                 if entries is not None
                 else [_entry(name) for name in servers],
-                errors=[],
+                errors=errors or [],
             ),
             cwd=tmp_path,
             client_version="1.2.3",
@@ -847,3 +853,171 @@ def test_locks_are_taken_in_the_documented_order(
 
     assert order.taken == {"publication", "manager", "connection", "state"}
     assert order.violations == []
+
+
+# -- SES-04: the startup report (S19) -----------------------------------------
+
+
+def _refuse(message: Any) -> object:
+    raise _RpcError(-32000, "boom\nsecond line")
+
+
+def test_startup_problems_are_reported_once_in_one_notice(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(
+        tmp_path,
+        {
+            "docs": _Server(tools=[_tool("search")]),
+            "broken": _Server(handlers={"initialize": _refuse}),
+            "off": _Server(),
+        },
+        [_entry("docs"), _entry("broken"), _entry("off", enabled=False)],
+        errors=["/cfg/mcp.json: autoEnableCodemode must be a boolean"],
+    )
+    sessions.append(session)
+
+    session.start()
+
+    by_name = {status.entry.name: status for status in session.manager.servers()}
+    error = by_name["broken"].connection.error  # type: ignore[union-attr]
+    assert error is not None and "\n" in error
+    # The report is there when the wait for the servers returns.
+    assert session.notices() == [
+        (
+            "warning",
+            "MCP servers need attention:\n"
+            "  config: /cfg/mcp.json: autoEnableCodemode must be a boolean\n"
+            f"  broken: failed: {error.split(chr(10))[0]}\n"
+            "Run /mcp to fix.",
+        )
+    ]
+    assert session.notices() == []
+
+
+def test_nothing_is_reported_when_nothing_needs_attention(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(tmp_path, {"docs": _Server(tools=[_tool("search")])})
+    sessions.append(session)
+
+    session.start()
+
+    assert session.notices() == []
+
+
+def test_config_errors_are_reported_without_an_enabled_server(tmp_path: Path) -> None:
+    session = _Session(
+        tmp_path,
+        {"off": _Server()},
+        [_entry("off", enabled=False)],
+        errors=["a.json: bad", "b.json: worse"],
+    )
+    before = set(threading.enumerate())
+
+    session.manager.start()
+
+    assert session.notices() == [
+        (
+            "warning",
+            "MCP servers need attention:\n  config: a.json: bad\n"
+            "  config: b.json: worse\nRun /mcp to fix.",
+        )
+    ]
+    assert not [
+        thread.name
+        for thread in threading.enumerate()
+        if thread not in before and thread.name.startswith("mcp-")
+    ]
+    session.manager.close()
+
+
+def test_the_report_waits_for_every_server(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    release = threading.Event()
+
+    def slow_initialize(message: Any) -> object:
+        release.wait(_WAIT_SECONDS)
+        return slow._default(message)
+
+    slow = _Server(handlers={"initialize": slow_initialize})
+    session = _Session(
+        tmp_path, {"broken": _Server(handlers={"initialize": _refuse}), "slow": slow}
+    )
+    sessions.append(session)
+    session.manager.start()
+    broken = lambda entry: entry.name == "broken"  # noqa: E731
+    assert session.manager.wait_for_servers(broken, timeout=_WAIT_SECONDS)
+
+    assert session.notices() == []
+
+    release.set()
+    assert session.manager.wait_until_settled(_WAIT_SECONDS)
+    (notice,) = session.notices()
+    assert notice[1].startswith("MCP servers need attention:\n  broken: failed: ")
+
+
+def test_a_closed_session_reports_nothing(tmp_path: Path) -> None:
+    release = threading.Event()
+
+    def slow_refusal(message: Any) -> object:
+        release.wait(_WAIT_SECONDS)
+        raise _RpcError(-32000, "boom")
+
+    session = _Session(
+        tmp_path, {"broken": _Server(handlers={"initialize": slow_refusal})}
+    )
+    session.manager.start()
+
+    session.manager.close()
+    release.set()
+
+    assert session.notices() == []
+
+
+def _status(state: str, **fields: Any) -> McpServerStatus:
+    view = ConnectionView(
+        name="docs",
+        state=state,  # type: ignore[arg-type]
+        error=fields.get("error"),
+        tools=tuple(fields.get("tools", ())),
+        instructions=None,
+    )
+    return McpServerStatus(_entry("docs"), True, view)
+
+
+def test_describe_state() -> None:
+    # Pi `describeState`.
+    assert describe_state(McpServerStatus(_entry("docs"), False, None)) == "disabled"
+    assert describe_state(McpServerStatus(_entry("docs"), True, None)) == "starting"
+    assert describe_state(_status("needs-auth")) == "needs sign-in"
+    assert describe_state(_status("failed", error="a\nb")) == "failed: a"
+    assert describe_state(_status("failed")) == "failed: unknown error"
+    assert describe_state(_status("failed", error="a"), with_error=False) == "failed"
+    assert describe_state(_status("connected")) == "connected · 0 tools"
+    assert describe_state(_status("connected", tools=[_tool("a")])) == (
+        "connected · 1 tool"
+    )
+    assert describe_state(_status("connecting")) == "connecting…"
+    assert describe_state(_status("disconnected")) == "disconnected"
+
+
+# -- SES-11: what the configuration says about exposures ----------------------
+
+
+def test_configured_exposures_come_from_the_enabled_servers(tmp_path: Path) -> None:
+    session = _Session(
+        tmp_path,
+        {},
+        [
+            _entry("plain"),
+            _entry("mixed", exposure="direct", toolExposure={"s*": "deferred"}),
+            _entry("off", enabled=False, exposure="hidden"),
+        ],
+    )
+
+    assert session.manager.configured_exposures() == {"codemode", "direct", "deferred"}
+    assert session.manager.auto_enable_codemode
+    session.manager.close()
+    assert session.manager.configured_exposures() == frozenset()

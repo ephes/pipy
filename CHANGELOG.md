@@ -27,6 +27,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- MCP servers turn on the tool that reaches their tools: `codemode` for a
+  server with `codemode` exposure (the default) unless `autoEnableCodemode`
+  is false in `mcp.json`, `tool_search` for one with `deferred` tools. This
+  is decided from the configuration at startup. When neither tool is active
+  pipy warns once that the MCP tools cannot be called. After startup one
+  warning lists the errors of `mcp.json` and the servers that failed
+  (`MCP servers need attention:`). See
+  [MCP](docs/mcp.md#control-tool-exposure).
 - Tool model for MCP and tool reach: tool definitions can carry an exposure
   (`direct`, `model-only`, `codemode`, `deferred`, `hidden`), a namespace,
   annotations, an output schema and a reach function, and tool results can
