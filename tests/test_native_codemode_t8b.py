@@ -1,6 +1,7 @@
 """Public opt-in composition and Pi default selection semantics."""
 
 import os
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -634,7 +635,11 @@ def test_extension_named_codemode_has_no_builtin_prompt_contribution(
         source=SystemPromptTemplate(cwd=str(tmp_path)),
         fixed=(),
         tool_capabilities=caps,
-        ctl=SimpleNamespace(workspace_resources=SimpleNamespace(skills=())),
+        ctl=SimpleNamespace(
+            workspace_resources=SimpleNamespace(skills=()),
+            coding_effects=SimpleNamespace(lock=threading.RLock()),
+            prompt_template=None,
+        ),
     )()
     prompt = render_system_prompt(sections)
     assert "Run Python that calls other tools" not in prompt

@@ -168,6 +168,23 @@ The files go into the system prompt as Pi's `<project_context>` section: one
 whether or not the project is trusted, and a symlinked context file is followed
 wherever it points, like Pi. Treat them as untrusted input.
 
+`/reload` re-reads context files and system-prompt replace/append inputs before
+the next submission, including file paths supplied by explicit flags. Deleted
+auto-discovery files fall back to the next discovery location or the default
+prompt; deleted context files drop out. Explicit flags retain their startup
+precedence and text-or-file resolution rules. Project `SYSTEM.md` and
+`APPEND_SYSTEM.md` remain trust-filtered; context files still load regardless
+of trust, and `--no-context-files` remains in effect. Conversation history is
+preserved. Caller-supplied fixed prompts/templates without a file loader stay
+unchanged. Invalid UTF-8 in replace/append inputs or an instruction-loader
+read error keeps the previous prompt inputs and reports a session diagnostic;
+other resources still reload. Context-file decoding retains its existing
+replacement-character behavior.
+The metadata archive records startup input hashes, not subsequent reloads.
+A deleted explicit file input or an existing unreadable replace/append input
+follows the normal text-or-file rule: its path value becomes literal text
+(with a session warning for unreadable files).
+
 Use context files for project conventions, commands, safety rules, and
 preferences. Disable loading with `--no-context-files` or `-nc`.
 

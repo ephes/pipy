@@ -8,6 +8,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Refresh context files and system-prompt replace/append inputs on `/reload`,
+  removing stale text after edits or deletion while retaining explicit prompt
+  precedence, project trust filtering and conversation history.
+
 - Refuse native session export paths that alias the backing session and publish
   exports atomically, preserving existing output on failure. Exports are now
   owner-only (0600) and replace destination symlinks rather than their targets.
