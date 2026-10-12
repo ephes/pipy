@@ -55,6 +55,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from pipy_harness.native.tools.name_patterns import (
+    MCP_TOOL_NAME_PREFIX,
+    create_tool_name_matcher,
+)
+
 MCP_CONFIG_FILENAME: Final = "mcp.json"
 PROJECT_CONFIG_DIR_NAME: Final = ".pipy"
 
@@ -79,8 +84,6 @@ _JS_WHITESPACE: Final = (
     "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007"
     "\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 )
-# JavaScript's ``.`` does not match these.
-_PATTERN_WILDCARD: Final = "[^\n\r\u2028\u2029]*"
 # JSON.stringify uses at most this many characters of an indent string.
 _MAX_INDENT_CHARS: Final = 10
 
@@ -137,26 +140,7 @@ def _js_key_order(keys: Iterable[str]) -> list[str]:
 def mcp_namespace(server: str) -> str:
     """Namespace of a server's tools: ``mcp__<server>`` with ``-`` as ``_``."""
 
-    return "mcp__" + server.replace("-", "_")
-
-
-def _tool_pattern(pattern: str) -> re.Pattern[str]:
-    """A tool name pattern in which ``*`` matches any characters."""
-
-    return re.compile(_PATTERN_WILDCARD.join(map(re.escape, pattern.split("*"))))
-
-
-def create_tool_name_matcher(entries: Iterable[str]) -> Callable[[str], bool]:
-    """Whether a tool name matches any entry, each an exact name or a pattern."""
-
-    listed = list(entries)
-    names = frozenset(entry for entry in listed if "*" not in entry)
-    patterns = [_tool_pattern(entry) for entry in listed if "*" in entry]
-
-    def matches(name: str) -> bool:
-        return name in names or any(pattern.fullmatch(name) for pattern in patterns)
-
-    return matches
+    return MCP_TOOL_NAME_PREFIX + server.replace("-", "_")
 
 
 def get_mcp_tool_exposure(config: Mapping[str, Any], tool_name: str) -> str:
@@ -172,7 +156,7 @@ def get_mcp_tool_exposure(config: Mapping[str, Any], tool_name: str) -> str:
         if exact is not None:
             return str(exact)
         for pattern, exposure in overrides.items():
-            if "*" in pattern and _tool_pattern(pattern).fullmatch(tool_name):
+            if "*" in pattern and create_tool_name_matcher((pattern,))(tool_name):
                 return str(exposure)
     exposure = config.get("exposure")
     return DEFAULT_MCP_EXPOSURE if exposure is None else str(exposure)

@@ -934,6 +934,14 @@ ARCHITECTURE_RULES = (
         reason="Phase 5 provider transports must not depend on UI code",
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.mcp",
+        forbidden_imports=_PROVIDER_UI_FORBIDDEN_IMPORTS,
+        reason=(
+            "the MCP client, transports, OAuth library and configuration must "
+            "not depend on UI code"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.coding",
         forbidden_imports=_CODING_FORBIDDEN_IMPORTS,
         reason=(
@@ -2539,6 +2547,32 @@ def test_each_current_provider_ui_boundary_rule_activates(
     assert len(violations) == 1
     assert violations[0].path == provider_path
     assert violations[0].imported_module == forbidden_import
+
+
+@pytest.mark.parametrize("forbidden_import", _PROVIDER_UI_FORBIDDEN_IMPORTS)
+def test_mcp_package_ui_boundary_rule_governs_nested_modules(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    nested_path = _write_module(
+        source_root,
+        "pipy_harness.native.mcp.oauth.flow",
+        f"import {forbidden_import}\n",
+    )
+    mcp_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.mcp"
+    )
+
+    violations = _evaluate_rule(source_root, mcp_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == nested_path
+    assert violations[0].imported_module == forbidden_import
+    assert _package_directory(SOURCE_ROOT, mcp_rule.source_package).is_dir()
+    assert _evaluate_rule(SOURCE_ROOT, mcp_rule) == []
 
 
 @pytest.mark.parametrize("forbidden_import", _PROVIDER_UI_FORBIDDEN_IMPORTS)

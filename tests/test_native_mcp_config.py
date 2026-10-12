@@ -18,7 +18,6 @@ from pipy_harness.native.mcp.config import (
     LoadedMcpConfig,
     McpConfigError,
     add_mcp_server_config,
-    create_tool_name_matcher,
     get_mcp_tool_exposure,
     global_mcp_config_path,
     is_loopback_redirect_uri,
@@ -409,19 +408,6 @@ def test_tool_exposure_defaults_to_codemode() -> None:
     reordered = {"command": "x", "toolExposure": {"a*": "direct", "*": "hidden"}}
     assert get_mcp_tool_exposure(reordered, "abc") == "direct"
     assert get_mcp_tool_exposure(reordered, "bc") == "hidden"
-
-
-def test_tool_name_matcher() -> None:
-    matches = create_tool_name_matcher(["read", "mcp__docs__*", "*_admin", "a.b"])
-    assert matches("read")
-    assert matches("mcp__docs__search")
-    assert matches("mcp__docs__")
-    assert matches("drop_admin")
-    assert matches("a.b")
-    assert not matches("reader")
-    assert not matches("xmcp__docs__search")
-    assert not matches("axb")
-    assert not create_tool_name_matcher([])("read")
 
 
 # --- loading --------------------------------------------------------------

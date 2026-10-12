@@ -2894,11 +2894,11 @@ def test_complete_repository_boundary_audit_remains_strict() -> None:
     normalized_rules = [
         (rule.source_package, tuple(sorted(rule.forbidden_imports))) for rule in rules
     ]
-    assert len(normalized_rules) == 43
+    assert len(normalized_rules) == 44
     boundary_hash = hashlib.sha256(
         json.dumps(normalized_rules, separators=(",", ":")).encode()
     ).hexdigest()
-    expected_hash = "e999a30114af8e8883ab0dd180d0d8c8e84f3a69c1be59adec4322950b832a12"
+    expected_hash = "a462767c2cd84a4a6a6b661049649fe2093acdf5376383bcfda63a8dd94731d8"
     assert boundary_hash == expected_hash, (
         "architecture rule inventory drifted after canonical sorting: "
         f"expected {expected_hash}, got {boundary_hash}"

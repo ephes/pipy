@@ -493,8 +493,8 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `client.py` | `McpClient`: handshake, request/notify, pending map, timeouts, progress, cancellation, server requests, pagination, typed list/call/read helpers | `mcp/client.ts` |
 | `stdio.py` | `StdioTransport` | `mcp/transports/stdio.ts` |
 | `sse.py`, `http.py` | SSE parser; `StreamableHttpTransport`, HTTP error types | `mcp/transports/streamable-http.ts` |
-| `oauth/` (`types.py`, `errors.py`, `discovery.py`, `flow.py`, `provider.py`, `callback.py`) | The OAuth client library | `mcp/oauth/*` |
-| `config.py` | Entry validation, exposure resolution, name matcher, load, edit | `core/mcp-servers.ts`, `ext/config.ts` |
+| `oauth/` (`types.py`, `errors.py`, `fetch.py`, `discovery.py`, `flow.py`, `provider.py`, `callback.py`) | The OAuth client library; `fetch.py` is the HTTP fetch Pi gets from JavaScript | `mcp/oauth/*` |
+| `config.py` | Entry validation, exposure resolution, load, edit, the strict URL parser (the name matcher is in `native/tools/name_patterns.py`) | `core/mcp-servers.ts`, `ext/config.ts` |
 | `log.py` | Server log file | `ext/log.ts` |
 | `connection.py` | `McpServerConnection`, default transport factory | `ext/runtime.ts` |
 | `credentials.py` | `McpOAuthCredentialStore`, the connection auth provider, `sign_in_mcp_server` | `ext/oauth.ts` |
@@ -567,6 +567,65 @@ Decided in S09 (the `tool_search` tool, `native/tool_search.py`):
   does not change. A resumed session starts from the configured tools, as
   Pi's CLI does (it always passes the initial tool names); declaring loaded
   tools again after resume and reload is TSR-10 (S22).
+
+Decided in S11 to S14, S24, S25 and S27 (the client track, merged in INT1):
+
+- Requests and their `notifications/cancelled` are written by one writer
+  thread per client from an outbox, so a blocked write cannot defeat a
+  timeout or a cancel. A request that ends while it is still queued is never
+  written, and a cancellation is sent only for a request that was written.
+  `notify()` and answers to server requests are written by their caller.
+  This replaces "sends the message and waits" in 4.5.
+- `McpTransport.send(message)` takes no deadline or cancel argument. The
+  transport contract has a fourth listener set, `on_request_failure`, through
+  which a transport ends one pending request with a typed error.
+- HTTP: `send` waits for the POST to be accepted only for notifications and
+  responses (at most `send_timeout_ms`, default 30 s). For a request it
+  starts the I/O thread and returns, and a failure reaches the caller through
+  `on_request_failure`; with one writer thread, waiting for response headers
+  would put every request of a client behind a slow tool call. A request's
+  I/O is cancelled when its `notifications/cancelled` passes through `send`,
+  and by `close()`, not by the waiting side. This replaces the HTTP
+  paragraph of 4.5 and the `CancelToken` sentence of 4.6 where they differ.
+- A failure of the GET stream that is not retried, or five failures in a row,
+  is reported to the error listeners and the stream is not reopened. What a
+  session-expired error from the GET stream means for the connection is
+  S26's decision.
+- Redirects, which have no checklist row: the HTTP transport follows one only
+  within the configured origin; the OAuth fetch follows one only for a
+  request without a body and drops credentials headers across origins.
+- `oauth/fetch.py` is the one HTTP client of the OAuth library:
+  `create_oauth_fetch(timeout_ms=..., max_response_bytes=1 MiB)`. The 15 s
+  limit of OAU-22 is a fetch made with `timeout_ms=15000`.
+- `config.py` owns the URL parser (`parse_http_url`, `HttpUrl`) that config
+  validation and OAuth discovery share. It is strict and repairs nothing.
+- A server config is a plain dict with Pi's JSON key names; there are no
+  typed config classes. `load_mcp_config(config_home=, cwd=,
+  project_trusted=)` takes the trust decision from its caller.
+- Pi's plain `Error` is `McpProtocolError` in the client and transports and
+  `OAuthFlowError` in the OAuth package. The error types have no common base.
+- Tool name patterns have one implementation,
+  `native/tools/name_patterns.py` (S10); `config.py` uses it for
+  `toolExposure` keys and takes the `mcp__` prefix from it. With
+  `native/cancellation.py` in `http.py` and `oauth/fetch.py` it is the
+  package's only import from outside `native/mcp/`.
+- An architecture rule keeps `native/mcp/` free of imports from `native/ui`
+  and `native/tui`. S34 has to place the manager view accordingly or change
+  the rule on purpose.
+
+Open after the merge, owned by later slices:
+
+- The trust wiring of 4.7 (`resolve_project_trusted()` at the call site and
+  `.pipy/mcp.json` in `has_trust_requiring_project_resources`) is not done.
+  CFG-01 is closed at the loader only; the first slice that loads the
+  project file in a session (S17) has to do it.
+- Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
+  The HTTP fake has no POST status sequences, no session expiry or
+  session-id enforcement and no 403 with a challenge (S26, S30). The OAuth
+  fake serves scripted routes only: registration, authorize and token
+  endpoints and `FakeBrowser` come with S28, S29 and S31.
+- `McpAuthProvider` has `token()` only. S30 adds the 401 handoff, which has
+  to cover the GET stream too.
 
 Changed modules, by seam:
 

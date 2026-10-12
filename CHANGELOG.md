@@ -127,6 +127,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `describe_tool` and `ALL_TOOLS` carry a tool's prompt guidelines too. Both
   settings are read at session start and on `/reload`.
 
+- MCP client library, not used by a session yet: `pipy_harness.native.mcp`
+  holds the protocol client (handshake, requests with timeouts, progress and
+  cancellation, paginated lists, tool calls and resource reads), the stdio
+  and streamable HTTP transports, validation, loading and editing of
+  `mcp.json` (user-level and trusted-project files, project overrides,
+  exposure rules), and OAuth discovery. pipy still does not read an
+  `mcp.json`, start a server or connect to one. See
+  [MCP](docs/mcp.md#configure-servers) for the file format and for what is
+  built.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 
