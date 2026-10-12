@@ -1,8 +1,12 @@
 """Tests for the streamable HTTP transport, against the scripted fake server.
 
 Tests that mirror a case of Pi's ``packages/mcp/test/streamable-http.test.ts``
-name it in a ``Pi:`` comment. The cases about the GET stream, stream
-resumption and the auth provider's 401 handling belong to later slices.
+name it in a ``Pi:`` comment. The case about the auth provider's 401 handling
+belongs to a later slice.
+
+Transports made by the fixture do not open the server-to-client GET stream
+unless a test asks for it with ``open_get_stream=True``, so that tests which
+count requests, tokens or threads see only their own.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from pipy_harness.native.mcp.http import (
     McpAuthRequiredError,
     McpHttpError,
     McpSessionExpiredError,
+    StreamableHttpReconnectOptions,
     StreamableHttpTransport,
     StreamableHttpTransportOptions,
 )
@@ -46,7 +51,7 @@ from pipy_harness.native.mcp.transport import McpTransport
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 
-from mcp_fake_http_server import FakeMcpHttpServer  # noqa: E402
+from mcp_fake_http_server import FakeMcpHttpServer, RecordedRequest  # noqa: E402
 
 _WAIT_SECONDS = 10.0
 _ECHO = {"name": "echo", "inputSchema": {"type": "object"}}
@@ -116,6 +121,7 @@ class _Fixture:
     def transport(
         self, server: FakeMcpHttpServer, **options: Any
     ) -> StreamableHttpTransport:
+        options.setdefault("open_get_stream", False)
         transport = StreamableHttpTransport(
             StreamableHttpTransportOptions(url=server.url, **options)
         )
@@ -152,6 +158,10 @@ def fake() -> Iterator[_Fixture]:
     _wait_until(lambda: not _io_threads())
 
 
+def _gets(server: FakeMcpHttpServer) -> list[RecordedRequest]:
+    return [request for request in server.requests if request.method == "GET"]
+
+
 def _post_headers(server: FakeMcpHttpServer, method: str) -> dict[str, str]:
     (request,) = server.messages(method)
     return request.headers
@@ -164,7 +174,7 @@ def test_handles_json_and_sse_responses_with_session_and_protocol_headers(
     fake: _Fixture,
 ) -> None:
     # Pi: "handles JSON and SSE responses with session and protocol headers"
-    # (the GET stream it also checks is opened by a later slice)
+    # (its GET is checked in the tests of the server-to-client stream)
     server = fake.server(methods={"tools/call": _SSE_ANSWER})
     transport = fake.transport(server)
     client = fake.client()
@@ -420,6 +430,8 @@ def test_fails_a_request_whose_response_stream_ends_without_an_answer(
     assert str(failure.value) == (
         "MCP response stream failed: stream ended without a response"
     )
+    # Without event ids there is nothing to resume from.
+    assert _gets(server) == []
     assert client.list_tools() == [_ECHO]
 
 
@@ -431,6 +443,7 @@ def test_fails_a_request_whose_response_stream_is_cut(fake: _Fixture) -> None:
         client.call_tool("echo")
 
     assert "stream ended without a response" not in str(failure.value)
+    assert _gets(server) == []
     assert client.list_tools() == [_ECHO]
 
 
@@ -992,7 +1005,7 @@ def test_nothing_follows_the_initialized_notification_before_it_is_accepted(
 ) -> None:
     server = fake.server(methods={"notifications/initialized": [{"wait": "init"}]})
     client = fake.client()
-    transport = fake.transport(server)
+    transport = fake.transport(server, open_get_stream=True)
 
     def connect_and_list() -> object:
         client.connect(transport)
@@ -1010,6 +1023,7 @@ def test_nothing_follows_the_initialized_notification_before_it_is_accepted(
     server.release("init")
     thread.join(_WAIT_SECONDS)
     assert (results, raised) == ([[_ECHO]], [])
+    _wait_until(lambda: len(_gets(server)) == 1)
 
 
 def test_a_rejected_initialized_notification_fails_the_connect(fake: _Fixture) -> None:
@@ -1097,3 +1111,626 @@ def test_the_request_target_keeps_the_query_and_escapes_what_a_request_line_cann
     transport.send({"jsonrpc": "2.0", "method": "notifications/x"})
 
     assert server.requests[0].path == "/mcp/a%20b/%C3%BC?key=v%201&x=%20"
+
+
+# -- the server-to-client stream ---------------------------------------------
+
+_LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+_FAST = StreamableHttpReconnectOptions(initial_delay_ms=1, max_delay_ms=5)
+_OPEN_STREAM = [{"sse": ": open\n\n"}, {"hold": True}]
+
+
+def _event(message: dict[str, Any], event_id: str | None = None) -> str:
+    """One event of a stream, as a server writes it."""
+
+    head = "" if event_id is None else f"id: {event_id}\n"
+    return f"{head}data: {json.dumps(message)}\n\n"
+
+
+def _last_event_ids(server: FakeMcpHttpServer) -> list[str | None]:
+    return [request.headers.get("last-event-id") for request in _gets(server)]
+
+
+def _get_thread_ended() -> bool:
+    return "mcp-http-get" not in _io_threads()
+
+
+def _connect_with_stream(
+    fake: _Fixture, server: FakeMcpHttpServer, **options: Any
+) -> tuple[McpClient, list[Exception]]:
+    """Connect with the server-to-client stream; collect the reported errors."""
+
+    client = fake.client()
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    options.setdefault("reconnect", _FAST)
+    client.connect(fake.transport(server, open_get_stream=True, **options))
+    return client, errors
+
+
+def test_opens_the_get_stream_after_initialization_and_sends_last_event_id_only_when_resuming(
+    fake: _Fixture,
+) -> None:
+    # Pi: "opens the GET stream after initialization and sends Last-Event-ID
+    # only when resuming"
+    server = fake.server(methods={"tools/call": _SSE_ANSWER})
+    client, errors = _connect_with_stream(fake, server)
+
+    assert client.call_tool("echo") == _HELLO
+    assert client.list_tools() == [_ECHO]
+    _wait_until(lambda: len(_gets(server)) == 1)
+    # The server answered 405: it has no such stream, and that is no error.
+    _wait_until(_get_thread_ended)
+    client.close()
+
+    order = [
+        request.message["method"] if request.message else request.method
+        for request in server.requests
+    ]
+    assert order.index("GET") > order.index("notifications/initialized")
+    assert all("last-event-id" not in request.headers for request in server.requests)
+    (get,) = _gets(server)
+    assert get.path == "/mcp"
+    assert get.headers["accept"] == "text/event-stream"
+    assert get.headers["mcp-session-id"] == "session-1"
+    assert get.headers["mcp-protocol-version"] == LATEST_PROTOCOL_VERSION
+    assert "content-type" not in get.headers
+    assert errors == []
+
+
+def test_the_get_stream_is_not_opened_when_the_option_is_off(fake: _Fixture) -> None:
+    server = fake.server(get=_OPEN_STREAM)
+    client = fake.client()
+    client.connect(fake.transport(server, open_get_stream=False))
+
+    assert client.list_tools() == [_ECHO]
+    client.close()
+
+    assert _gets(server) == []
+
+
+def test_the_get_stream_is_opened_by_default() -> None:
+    options = StreamableHttpTransportOptions(url="http://127.0.0.1:1/mcp")
+
+    assert options.open_get_stream is True
+    assert options.reconnect == StreamableHttpReconnectOptions(
+        initial_delay_ms=1_000, max_delay_ms=30_000, max_retries=5
+    )
+
+
+@pytest.mark.parametrize("ending", ["ends", "is cut"])
+def test_reconnects_the_get_stream_after_it_drops(fake: _Fixture, ending: str) -> None:
+    # Pi: "reconnects the GET stream after it drops"
+    first: list[dict[str, Any]] = [{"sse": _event(_LIST_CHANGED, "g1")}]
+    if ending == "is cut":
+        first.append({"drop": True})
+    server = fake.server(
+        getSequence=[first, [{"sse": _event(_LIST_CHANGED, "g2")}, {"hold": True}]]
+    )
+    client = fake.client()
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    changes: list[object] = []
+    client.on_notification("notifications/tools/list_changed", changes.append)
+    transport = fake.transport(server, open_get_stream=True, reconnect=_FAST)
+
+    client.connect(transport)
+    _wait_until(lambda: len(changes) == 2)
+
+    assert _last_event_ids(server) == [None, "g1"]
+    assert errors == []
+    # The stream's thread does not keep the connections it is done with.
+    (exchange,) = transport._exchanges
+    assert len(exchange.token._closeables) == 1
+    assert _io_threads() == ["mcp-http-get"]
+
+
+def test_a_server_request_on_the_get_stream_is_answered_with_a_post(
+    fake: _Fixture,
+) -> None:
+    ping = {"jsonrpc": "2.0", "id": "s1", "method": "ping"}
+    server = fake.server(get=[{"send": ping}, {"hold": True}])
+
+    _connect_with_stream(fake, server)
+
+    answer = {"jsonrpc": "2.0", "id": "s1", "result": {}}
+    _wait_until(lambda: any(r.message == answer for r in server.requests))
+
+
+def test_the_get_stream_carries_the_auth_providers_token(fake: _Fixture) -> None:
+    server = fake.server(get=_OPEN_STREAM)
+    tokens = _Tokens()
+    client, _ = _connect_with_stream(fake, server, auth_provider=tokens)
+    _wait_until(lambda: len(_gets(server)) == 1)
+
+    client.close()
+
+    (get,) = _gets(server)
+    assert get.headers["authorization"] == "Bearer token-3"
+    assert tokens.threads[-1] == "mcp-http-get"
+    # It is the latest request, so its token is the one that ends the session.
+    (delete,) = [request for request in server.requests if request.method == "DELETE"]
+    assert delete.headers["authorization"] == "Bearer token-3"
+
+
+def test_the_get_stream_gives_up_after_five_failures_in_a_row(fake: _Fixture) -> None:
+    server = fake.server(get=[{"status": 503}])
+    client, errors = _connect_with_stream(fake, server)
+
+    _wait_until(_get_thread_ended)
+
+    # The first attempt and five more.
+    assert len(_gets(server)) == 6
+    assert [type(error) for error in errors] == [McpProtocolError]
+    assert str(errors[0]) == (
+        "MCP server-to-client stream dropped and could not be reopened"
+    )
+    assert client.list_tools() == [_ECHO]
+
+
+def test_a_get_stream_that_ends_without_an_event_counts_as_a_failure(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(get=[{"sse": ": nothing\n\n"}])
+    _, errors = _connect_with_stream(
+        fake, server, reconnect=StreamableHttpReconnectOptions(1, 5, max_retries=2)
+    )
+
+    _wait_until(_get_thread_ended)
+
+    assert len(_gets(server)) == 3
+    assert [str(error) for error in errors] == [
+        "MCP server-to-client stream dropped and could not be reopened"
+    ]
+
+
+def test_a_get_stream_that_delivered_an_event_starts_the_count_again(
+    fake: _Fixture,
+) -> None:
+    streams = [[{"sse": _event(_LIST_CHANGED, f"g{n}")}] for n in range(8)]
+    server = fake.server(getSequence=[*streams, _OPEN_STREAM])
+
+    _, errors = _connect_with_stream(
+        fake, server, reconnect=StreamableHttpReconnectOptions(1, 5, max_retries=1)
+    )
+
+    _wait_until(lambda: len(_gets(server)) == 9)
+    assert _last_event_ids(server) == [None, *(f"g{n}" for n in range(8))]
+    assert errors == []
+    assert not _get_thread_ended()
+
+
+@pytest.mark.parametrize("status", [408, 429, 500, 503])
+def test_the_get_stream_is_opened_again_after_a_transient_status(
+    fake: _Fixture, status: int
+) -> None:
+    server = fake.server(getSequence=[[{"status": status}], _OPEN_STREAM])
+
+    _, errors = _connect_with_stream(fake, server)
+
+    _wait_until(lambda: len(_gets(server)) == 2)
+    assert errors == []
+    assert not _get_thread_ended()
+
+
+def test_the_get_stream_is_opened_again_after_a_network_failure(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(getSequence=[[{"drop": True}], _OPEN_STREAM])
+
+    _, errors = _connect_with_stream(fake, server)
+
+    _wait_until(lambda: len(_gets(server)) == 2)
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("steps", "error_type", "message"),
+    [
+        ([{"status": 400, "body": "bad"}], McpHttpError, "status 400: bad"),
+        ([{"status": 403}], McpHttpError, "status 403"),
+        (
+            [{"status": 401, "headers": {"WWW-Authenticate": "Bearer"}}],
+            McpAuthRequiredError,
+            "MCP server requires authentication",
+        ),
+        ([{"status": 404}], McpSessionExpiredError, "MCP session expired"),
+        (
+            [{"status": 200, "headers": {"Content-Type": "application/json"}}],
+            McpHttpError,
+            "Unsupported MCP GET response content type: application/json",
+        ),
+        (
+            [{"status": 200}],
+            McpHttpError,
+            "Unsupported MCP GET response content type: missing",
+        ),
+    ],
+)
+def test_the_get_stream_ends_with_an_error_that_is_not_transient(
+    fake: _Fixture,
+    steps: list[dict[str, Any]],
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    server = fake.server(get=steps)
+    client, errors = _connect_with_stream(fake, server)
+
+    _wait_until(_get_thread_ended)
+
+    assert len(_gets(server)) == 1
+    assert [type(error) for error in errors] == [error_type]
+    assert message in str(errors[0])
+    # Only the stream is lost.
+    assert client.list_tools() == [_ECHO]
+
+
+def test_a_protocol_error_on_the_get_stream_ends_it(fake: _Fixture) -> None:
+    server = fake.server(
+        get=[{"sse": "id: g1\ndata: " + "x" * 600 + "\n"}, {"hold": True}]
+    )
+    _, errors = _connect_with_stream(fake, server, max_message_bytes=512)
+
+    _wait_until(_get_thread_ended)
+
+    assert len(_gets(server)) == 1
+    assert [str(error) for error in errors] == ["MCP SSE event exceeds 512 bytes"]
+
+
+def test_the_get_stream_waits_as_long_as_the_server_asks_with_retry(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(
+        getSequence=[[{"sse": "retry: 300\nid: g1\ndata:\n\n"}], _OPEN_STREAM]
+    )
+
+    _connect_with_stream(fake, server)
+
+    _wait_until(lambda: len(_gets(server)) == 2)
+    first, second = _gets(server)
+    assert second.t - first.t >= 0.3
+    assert second.headers["last-event-id"] == "g1"
+
+
+def test_the_reconnect_delay_doubles_from_one_second_to_thirty(fake: _Fixture) -> None:
+    transport = fake.transport(fake.server())
+
+    delays = [transport._reconnect_delay(attempt, None) for attempt in range(7)]
+
+    assert delays == [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]
+    assert transport._reconnect_delay(10**6, None) == 30_000
+    # What the server asked for replaces the backoff, whatever its size.
+    assert transport._reconnect_delay(4, 0) == 0
+    assert transport._reconnect_delay(0, 90_000) == 90_000
+
+
+def test_a_wait_longer_than_a_thread_can_sleep_does_not_fail(fake: _Fixture) -> None:
+    server = fake.server(get=[{"sse": "retry: 999999999999999999\ndata:\n\n"}])
+    client, errors = _connect_with_stream(fake, server)
+    _wait_until(lambda: len(_gets(server)) == 1)
+    time.sleep(0.1)
+
+    assert not _get_thread_ended()
+    client.close()
+
+    _wait_until(lambda: not _io_threads())
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        _OPEN_STREAM,
+        # The stream ended, and the next attempt is a minute away.
+        [{"sse": "retry: 60000\ndata:\n\n"}],
+        # The server does not answer the GET.
+        [{"wait": "never"}],
+    ],
+    ids=["open stream", "reconnect wait", "unanswered"],
+)
+def test_closing_ends_the_get_stream_at_once_and_reports_nothing(
+    fake: _Fixture, steps: list[dict[str, Any]]
+) -> None:
+    server = fake.server(get=steps)
+    client, errors = _connect_with_stream(fake, server)
+    _wait_until(lambda: len(_gets(server)) == 1)
+    time.sleep(0.1)
+    assert _io_threads() == ["mcp-http-get"]
+
+    started = time.monotonic()
+    client.close()
+    _wait_until(lambda: not _io_threads())
+
+    assert time.monotonic() - started < 1
+    assert errors == []
+    assert len(_gets(server)) == 1
+
+
+def test_a_transport_closed_before_the_handshake_ends_opens_no_get_stream(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(methods={"notifications/initialized": [{"wait": "init"}]})
+    client = fake.client()
+    transport = fake.transport(server, open_get_stream=True)
+    thread, results, raised = _in_thread(lambda: client.connect(transport))
+    _wait_until(lambda: server.events == ["wait:init"])
+
+    transport.close()
+    thread.join(_WAIT_SECONDS)
+    server.release("init")
+
+    assert results == []
+    assert [type(error) for error in raised] == [McpConnectionClosedError]
+    _wait_until(lambda: not _io_threads())
+    assert _gets(server) == []
+
+
+# -- resuming a response stream ----------------------------------------------
+
+_RESUMED = {"content": [{"type": "text", "text": "resumed"}]}
+# The answer to the first `tools/call` of a client, whose request id is 2.
+_RESUMED_ANSWER = _event({"jsonrpc": "2.0", "id": 2, "result": _RESUMED}, "2")
+# A priming event (an id, no data) and a retry hint; then the stream ends.
+_PRIMED = [{"sse": "id: 1\nretry: 5\ndata:\n\n"}]
+
+
+def _connect_with_errors(
+    fake: _Fixture, server: FakeMcpHttpServer, **options: Any
+) -> tuple[McpClient, list[Exception]]:
+    client = fake.client()
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    client.connect(fake.transport(server, **options))
+    return client, errors
+
+
+@pytest.mark.parametrize("ending", ["ends", "is cut"])
+def test_resumes_a_response_stream_the_server_closed_before_answering(
+    fake: _Fixture, ending: str
+) -> None:
+    # Pi: "resumes a response stream the server closed before answering"
+    steps = _PRIMED if ending == "ends" else [*_PRIMED, {"drop": True}]
+    server = fake.server(toolSteps={"echo": steps}, get=[{"sse": _RESUMED_ANSWER}])
+    client, errors = _connect_with_errors(fake, server)
+
+    assert client.call_tool("echo") == _RESUMED
+
+    (get,) = _gets(server)
+    assert get.headers["last-event-id"] == "1"
+    assert get.headers["accept"] == "text/event-stream"
+    assert get.headers["mcp-session-id"] == "session-1"
+    assert get.headers["mcp-protocol-version"] == LATEST_PROTOCOL_VERSION
+    assert errors == []
+    _wait_until(lambda: not _io_threads())
+
+
+def test_resuming_names_the_latest_event_id_also_of_an_event_with_data(
+    fake: _Fixture,
+) -> None:
+    notification = {"jsonrpc": "2.0", "method": "notifications/x"}
+    server = fake.server(
+        toolSteps={
+            "echo": [{"sse": "id: 1\ndata:\n\n" + _event(notification, "seven")}]
+        },
+        get=[{"sse": _RESUMED_ANSWER}],
+    )
+    client, _ = _connect_with_errors(fake, server, reconnect=_FAST)
+    seen: list[object] = []
+    client.on_notification("notifications/x", seen.append)
+
+    assert client.call_tool("echo") == _RESUMED
+
+    assert _last_event_ids(server) == ["seven"]
+    assert seen == [None]
+
+
+def test_resuming_is_tried_again_after_a_transient_failure(fake: _Fixture) -> None:
+    server = fake.server(
+        toolSteps={"echo": _PRIMED},
+        getSequence=[
+            [{"status": 503}],
+            [{"drop": True}],
+            [{"sse": _RESUMED_ANSWER}],
+        ],
+    )
+    client, errors = _connect_with_errors(fake, server)
+
+    assert client.call_tool("echo") == _RESUMED
+
+    assert _last_event_ids(server) == ["1", "1", "1"]
+    assert errors == []
+
+
+def test_resuming_waits_as_long_as_the_server_asks_with_retry(fake: _Fixture) -> None:
+    server = fake.server(
+        toolSteps={"echo": [{"sse": "id: 1\nretry: 300\ndata:\n\n"}]},
+        get=[{"sse": _RESUMED_ANSWER}],
+    )
+    client, _ = _connect_with_errors(fake, server, reconnect=_FAST)
+
+    assert client.call_tool("echo") == _RESUMED
+
+    (post,) = server.messages("tools/call")
+    (get,) = _gets(server)
+    assert get.t - post.t >= 0.3
+
+
+@pytest.mark.parametrize(
+    ("steps", "reason"),
+    [
+        (
+            [{"status": 400, "body": "bad"}],
+            "MCP HTTP request failed with status 400: bad",
+        ),
+        ([{"status": 401}], "MCP server requires authentication"),
+        ([{"status": 404}], "MCP session expired"),
+        (
+            [{"status": 200, "headers": {"Content-Type": "text/plain"}}],
+            "Unsupported MCP GET response content type: text/plain",
+        ),
+    ],
+)
+def test_a_resume_that_fails_for_good_fails_only_its_request(
+    fake: _Fixture, steps: list[dict[str, Any]], reason: str
+) -> None:
+    server = fake.server(toolSteps={"echo": _PRIMED}, get=steps)
+    client, errors = _connect_with_errors(fake, server)
+
+    with pytest.raises(McpError) as failure:
+        client.call_tool("echo")
+
+    assert str(failure.value) == f"MCP response stream failed: {reason}"
+    assert failure.value.code == INTERNAL_ERROR
+    assert len(_gets(server)) == 1
+    assert errors == []
+    assert client.list_tools() == [_ECHO]
+
+
+@pytest.mark.parametrize(
+    ("steps", "reason"),
+    [
+        ([{"status": 503}], "MCP HTTP request failed with status 503"),
+        # The streams open and end, with nothing on them.
+        ([{"sse": ": nothing\n\n"}], "stream ended without a response"),
+        # The server has no GET streams at all (405).
+        ([], "stream ended without a response"),
+    ],
+    ids=["transient status", "empty streams", "no GET streams"],
+)
+def test_resuming_gives_up_after_the_retries_and_fails_its_request(
+    fake: _Fixture, steps: list[dict[str, Any]], reason: str
+) -> None:
+    server = fake.server(toolSteps={"echo": _PRIMED}, get=steps)
+    client, _ = _connect_with_errors(
+        fake, server, reconnect=StreamableHttpReconnectOptions(1, 5, max_retries=3)
+    )
+
+    with pytest.raises(McpError) as failure:
+        client.call_tool("echo")
+
+    assert str(failure.value) == f"MCP response stream failed: {reason}"
+    assert _last_event_ids(server) == ["1", "1", "1"]
+    assert client.list_tools() == [_ECHO]
+
+
+def test_a_resumed_stream_that_delivered_an_event_starts_the_count_again(
+    fake: _Fixture,
+) -> None:
+    progress = {"jsonrpc": "2.0", "method": "notifications/x"}
+    server = fake.server(
+        toolSteps={"echo": _PRIMED},
+        getSequence=[
+            [{"sse": _event(progress, "a")}],
+            [{"sse": _event(progress, "b")}],
+            [{"sse": _event(progress, "c")}],
+            [{"sse": _RESUMED_ANSWER}],
+        ],
+    )
+    # Two attempts in a row may fail; four are made here, as each got an event.
+    client, _ = _connect_with_errors(
+        fake, server, reconnect=StreamableHttpReconnectOptions(1, 5, max_retries=2)
+    )
+
+    assert client.call_tool("echo") == _RESUMED
+
+    assert _last_event_ids(server) == ["1", "a", "b", "c"]
+
+
+def test_a_response_stream_broken_by_a_protocol_error_is_not_resumed(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(
+        toolSteps={
+            "echo": [{"sse": "id: 1\ndata: " + "x" * 600 + "\n"}, {"hold": True}]
+        },
+        get=[{"sse": _RESUMED_ANSWER}],
+    )
+    client, _ = _connect_with_errors(fake, server, max_message_bytes=512)
+
+    with pytest.raises(McpError) as failure:
+        client.call_tool("echo")
+
+    assert str(failure.value) == (
+        "MCP response stream failed: MCP SSE event exceeds 512 bytes"
+    )
+    assert _gets(server) == []
+
+
+def test_an_answered_response_stream_is_not_resumed(fake: _Fixture) -> None:
+    server = fake.server(
+        toolSteps={"echo": [{"sse": "id: 1\n"}, {"mode": "sse"}, {"default": True}]},
+        get=[{"sse": _RESUMED_ANSWER}],
+    )
+    client, _ = _connect_with_errors(fake, server, reconnect=_FAST)
+
+    assert client.call_tool("echo") == _HELLO
+    _wait_until(lambda: not _io_threads())
+
+    assert _gets(server) == []
+
+
+@pytest.mark.parametrize("phase", ["waiting", "reading"])
+def test_giving_a_request_up_ends_the_resumption_of_its_stream(
+    fake: _Fixture, phase: str
+) -> None:
+    if phase == "waiting":
+        # The next attempt is a minute away.
+        server = fake.server(
+            toolSteps={"echo": [{"sse": "id: 1\nretry: 60000\ndata:\n\n"}]}
+        )
+    else:
+        server = fake.server(toolSteps={"echo": _PRIMED}, get=_OPEN_STREAM)
+    client, errors = _connect_with_errors(fake, server)
+    cancel = threading.Event()
+
+    thread, results, raised = _in_thread(
+        lambda: client.call_tool("echo", None, McpRequestOptions(cancel_event=cancel))
+    )
+    _wait_until(lambda: len(server.messages("tools/call")) == 1)
+    if phase == "reading":
+        _wait_until(lambda: len(_gets(server)) == 1)
+    time.sleep(0.1)
+    assert _io_threads() == ["mcp-http-request"]
+    started = time.monotonic()
+    cancel.set()
+    thread.join(_WAIT_SECONDS)
+
+    assert time.monotonic() - started < 1
+    assert results == []
+    assert [type(error) for error in raised] == [McpAbortError]
+    _wait_until(lambda: not _io_threads())
+    assert len(_gets(server)) == (1 if phase == "reading" else 0)
+    assert errors == []
+    assert client.list_tools() == [_ECHO]
+
+
+def test_a_request_timeout_ends_the_resumption_of_its_stream(fake: _Fixture) -> None:
+    server = fake.server(
+        toolSteps={"echo": [{"sse": "id: 1\nretry: 60000\ndata:\n\n"}]}
+    )
+    client, _ = _connect_with_errors(fake, server)
+
+    with pytest.raises(McpTimeoutError, match="after 200ms"):
+        client.call_tool("echo", None, McpRequestOptions(timeout_ms=200))
+
+    _wait_until(lambda: not _io_threads())
+    assert _gets(server) == []
+
+
+def test_closing_ends_the_resumption_of_a_response_stream(fake: _Fixture) -> None:
+    server = fake.server(
+        toolSteps={"echo": [{"sse": "id: 1\nretry: 60000\ndata:\n\n"}]}
+    )
+    client, errors = _connect_with_errors(fake, server)
+
+    thread, results, raised = _in_thread(lambda: client.call_tool("echo"))
+    _wait_until(lambda: len(server.messages("tools/call")) == 1)
+    time.sleep(0.1)
+    client.close()
+    thread.join(_WAIT_SECONDS)
+
+    assert results == []
+    assert [type(error) for error in raised] == [McpConnectionClosedError]
+    _wait_until(lambda: not _io_threads())
+    assert _gets(server) == []
+    assert errors == []

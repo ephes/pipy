@@ -25,6 +25,8 @@ Scenario keys besides those of ``mcp_fake_server.py`` (``record``,
 - ``paths``: ``{<request path>: [steps]}``, run for a POST to that path
   instead of everything else.
 - ``get``, ``delete``: steps answering a GET or a DELETE.
+- ``getSequence``: a list of step lists; the first answers the first GET, the
+  second the second, and so on. GETs after the last are answered by ``get``.
 
 Steps besides those of ``mcp_fake_server.py`` (``stdout``, ``stderr``,
 ``spawn`` and ``exit`` are refused):
@@ -256,19 +258,23 @@ class _Handler(BaseHTTPRequestHandler):
         self._answer(channel, answer, 202)
 
     def do_GET(self) -> None:  # noqa: N802 - the name BaseHTTPRequestHandler calls
-        self._answer_steps("get", 405)
+        fake = self.server.fake
+        sequence = fake.scenario.get("getSequence", [])
+        index = fake.next_get_index()
+        if index < len(sequence):
+            self._answer_steps(sequence[index], 405)
+        else:
+            self._answer_steps(fake.scenario.get("get", []), 405)
 
     def do_DELETE(self) -> None:  # noqa: N802 - the name BaseHTTPRequestHandler calls
-        self._answer_steps("delete", 200)
+        self._answer_steps(self.server.fake.scenario.get("delete", []), 200)
 
-    def _answer_steps(self, key: str, default_status: int) -> None:
+    def _answer_steps(self, steps: list[dict[str, Any]], default_status: int) -> None:
         fake = self.server.fake
         self._record(None)
         channel = _HttpChannel(self, "sse", None)
         engine = _HttpScenarioEngine(fake, channel, fake.recorder)
-        self._answer(
-            channel, lambda: engine.run(fake.scenario.get(key, [])), default_status
-        )
+        self._answer(channel, lambda: engine.run(steps), default_status)
 
     def _answer(self, channel: _HttpChannel, answer: Any, default_status: int) -> None:
         self.close_connection = True
@@ -311,6 +317,7 @@ class FakeMcpHttpServer:
         self._requests: list[RecordedRequest] = []
         self._events: list[str] = []
         self._gates: dict[str, threading.Event] = {}
+        self._gets = 0
         self.recorder = _EventRecorder(self._events, self.lock)
         self._server = _Server(("127.0.0.1", 0), _Handler)
         self._server.fake = self
@@ -352,6 +359,14 @@ class FakeMcpHttpServer:
             for request in self.requests
             if request.message is not None and request.message.get("method") == method
         ]
+
+    def next_get_index(self) -> int:
+        """The number of GETs received before this one."""
+
+        with self.lock:
+            index = self._gets
+            self._gets += 1
+        return index
 
     def gate(self, name: str) -> threading.Event:
         with self.lock:

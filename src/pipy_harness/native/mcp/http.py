@@ -1,7 +1,9 @@
 """The streamable HTTP transport: an MCP server reached over HTTP.
 
 Every message is one POST. A request is answered in the response to its POST,
-as one JSON body or as a server-sent event stream.
+as one JSON body or as a server-sent event stream. What the server sends on
+its own (notifications, requests) arrives on one more event stream, which the
+transport opens with a GET once the session is initialized.
 
 Threads, all daemons: each POST runs on an I/O thread of its own, so no
 network read happens on a thread that waits for a result.
@@ -11,7 +13,10 @@ network read happens on a thread that waits for a result.
   is reported to the request-failure listeners with its error, which is how
   ``McpClient`` ends it. The response messages reach the message listeners
   from the I/O thread. The thread reads a response stream to its end, also
-  after the answer arrived.
+  after the answer arrived. A response stream that ends or breaks before the
+  answer is resumed on the same thread, with a GET that names the last event
+  id, when the server gave its events ids; otherwise, and when resuming
+  fails, only that request fails.
 - ``send`` of a notification or a response returns when the server accepted
   the POST (status and headers received and checked) and raises when it
   failed. It waits at most ``send_timeout_ms``.
@@ -21,6 +26,17 @@ network read happens on a thread that waits for a result.
   error listeners. The client sends it when a request times out or is
   cancelled, so neither leaves a thread or a socket behind. ``close()`` ends
   every I/O thread the same way.
+- The server-to-client stream has one thread from the accepted
+  ``notifications/initialized`` to ``close()``. A server that answers the GET
+  with 405 has no such stream, and the thread ends. A stream that drops is
+  opened again, after the delay the server asked for with ``retry`` or else
+  after one second, doubling up to thirty; after five failures in a row the
+  thread reports an error and ends. The waits end at once on ``close()``.
+
+Only a network failure and the statuses 408, 429 and 5xx are worth another
+attempt to open a stream. Authentication, session and protocol errors end the
+server-to-client stream (reported to the error listeners) and fail the request
+whose stream was being resumed.
 
 One lock guards the transport's state. It is never held during network I/O or
 while a listener runs.
@@ -33,9 +49,9 @@ Limits of what is promised:
   connecting when its request is given up ends when the attempt does, after
   at most ``send_timeout_ms`` (one second for a cancellation notice and for
   the DELETE of a session).
-- The server-to-client GET stream and the resumption of a broken response
-  stream are not implemented yet: a response stream that ends without the
-  answer fails its request.
+- A delay the server asks for with ``retry`` is waited as it is, however
+  long; a request's own timeout, its cancellation and ``close()`` end the
+  wait.
 """
 
 from __future__ import annotations
@@ -46,9 +62,10 @@ import math
 import socket
 import ssl
 import threading
+import time
 import urllib.parse
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, NoReturn, Protocol
 
 from pipy_harness.native.cancellation import CancelToken
@@ -76,6 +93,11 @@ DEFAULT_SEND_TIMEOUT_MS: Final = 30_000
 CANCEL_NOTICE_TIMEOUT_MS: Final = 1_000
 CLOSE_TIMEOUT_MS: Final = 1_000
 MAX_REDIRECTS: Final = 20
+DEFAULT_RECONNECT_INITIAL_DELAY_MS: Final = 1_000
+DEFAULT_RECONNECT_MAX_DELAY_MS: Final = 30_000
+DEFAULT_RECONNECT_MAX_RETRIES: Final = 5
+# No backoff delay doubles more often than this, whatever `max_retries` is.
+_MAX_BACKOFF_DOUBLINGS: Final = 32
 _READ_BYTES: Final = 64 * 1024
 _REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
 _URL_PATH_SAFE: Final = "/%:@!$&'()*+,;=-._~"
@@ -118,13 +140,29 @@ class McpAuthProvider(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class StreamableHttpReconnectOptions:
+    """How a dropped event stream is opened again.
+
+    ``initial_delay_ms`` is the wait before the first attempt, doubled for
+    each further one up to ``max_delay_ms``; a ``retry`` value from the server
+    replaces both. ``max_retries`` failed attempts in a row end the stream.
+    """
+
+    initial_delay_ms: float = DEFAULT_RECONNECT_INITIAL_DELAY_MS
+    max_delay_ms: float = DEFAULT_RECONNECT_MAX_DELAY_MS
+    max_retries: int = DEFAULT_RECONNECT_MAX_RETRIES
+
+
+@dataclass(frozen=True, slots=True)
 class StreamableHttpTransportOptions:
     """Where the server is and what every request carries.
 
     ``send_timeout_ms`` bounds a connection attempt and the wait for the
     server to accept a notification or a response; a value that is not a
     positive finite number removes the bound. Requests are bounded by the
-    client's request timeout instead.
+    client's request timeout instead. ``open_get_stream`` set to ``False``
+    leaves the server-to-client stream unopened. ``reconnect`` applies to that
+    stream and to response streams whose events carry ids.
     """
 
     url: str
@@ -132,6 +170,10 @@ class StreamableHttpTransportOptions:
     max_message_bytes: int = DEFAULT_MAX_MESSAGE_BYTES
     auth_provider: McpAuthProvider | None = None
     send_timeout_ms: float = DEFAULT_SEND_TIMEOUT_MS
+    open_get_stream: bool = True
+    reconnect: StreamableHttpReconnectOptions = field(
+        default_factory=StreamableHttpReconnectOptions
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +227,28 @@ def _reject_constant(name: str) -> NoReturn:
     raise ValueError(f"Invalid JSON constant {name}")
 
 
+def _is_retryable(error: Exception) -> bool:
+    """Whether opening a stream again can help after ``error``.
+
+    A network failure, also one in the middle of a body, and the statuses
+    408, 429 and 5xx. Authentication, session and protocol errors are final.
+    """
+
+    if isinstance(error, McpHttpError):
+        return error.status in (408, 429) or error.status >= 500
+    return isinstance(error, (OSError, http.client.HTTPException))
+
+
+@dataclass(slots=True)
+class _StreamCursor:
+    """Where one event stream stands, across the connections that carry it."""
+
+    last_event_id: str | None = None
+    retry_ms: int | None = None
+    # Whether an event arrived since the stream was opened, or opened again.
+    received: bool = False
+
+
 def _describe_http_failure(status: int, body: str) -> str:
     text = body.strip()
     if len(text) > ERROR_MESSAGE_BODY_CHARS:
@@ -215,15 +279,20 @@ class _SocketShutdown:
 
 
 class _HttpResponse:
-    """A response whose body has not been read, and its connection."""
+    """A response whose body has not been read, and its connection.
+
+    ``on_close`` runs once, when the response is closed.
+    """
 
     def __init__(
         self,
         connection: http.client.HTTPConnection,
         response: http.client.HTTPResponse,
+        on_close: Callable[[], None],
     ) -> None:
         self._connection = connection
         self._response = response
+        self._on_close: Callable[[], None] | None = on_close
         self.status = response.status
 
     def header(self, name: str) -> str | None:
@@ -261,14 +330,24 @@ class _HttpResponse:
             yield chunk
 
     def close(self) -> None:
+        on_close, self._on_close = self._on_close, None
+        if on_close is None:
+            return
         try:
             self._response.close()
         finally:
-            self._connection.close()
+            try:
+                self._connection.close()
+            finally:
+                on_close()
 
 
 class _Exchange:
-    """One POST in flight: what ends it, and how it went for a waiting sender."""
+    """One I/O thread's work: what ends it, and how it went for a waiting sender.
+
+    That is one POST, with the GETs that resume its response stream, or the
+    server-to-client stream.
+    """
 
     __slots__ = ("_lock", "done", "error", "request_id", "token")
 
@@ -310,6 +389,7 @@ class StreamableHttpTransport(TransportEvents):
         self._last_token: str | None = None
         self._exchanges: set[_Exchange] = set()
         self._requests: dict[JsonRpcId, _Exchange] = {}
+        self._get_stream_started = False
 
     @property
     def session_id(self) -> str | None:
@@ -353,9 +433,12 @@ class StreamableHttpTransport(TransportEvents):
             raise McpTimeoutError(timeout_ms)
         if exchange.error is not None:
             raise exchange.error
+        # The server opens its stream only for an initialized session.
+        if message.get("method") == "notifications/initialized":
+            self._start_get_stream()
 
     def close(self) -> None:
-        """End every POST in flight and the server's session. Idempotent.
+        """End every I/O thread and the server's session. Idempotent.
 
         A session is ended with a DELETE that is given one second and whose
         failure is ignored.
@@ -516,37 +599,35 @@ class StreamableHttpTransport(TransportEvents):
     ) -> None:
         """Read the event stream answering one request to its end.
 
-        When it ends or breaks before the answer, only this request fails.
+        A server may close a response stream when it likes. When the stream
+        ends or breaks before the answer and its events carried ids, it is
+        resumed with a GET that names the last id. Otherwise, and when
+        resuming fails, only this request fails.
         """
 
+        token = exchange.token
+        cursor = _StreamCursor()
         answered = False
 
-        def on_event(event: SseEvent) -> None:
+        def emit(message: JsonRpcMessage) -> None:
             nonlocal answered
-            # Events without data and events of another type are no messages.
-            if not event.data.strip() or event.event not in (None, "message"):
-                return
-            try:
-                message = parse_json_rpc_message(
-                    json.loads(event.data, parse_constant=_reject_constant)
-                )
-            except Exception as error:  # noqa: BLE001 - cross-thread capture: reported, the stream continues
-                self._report(error)
-                return
             if is_json_rpc_response(message) and message["id"] == request_id:
                 answered = True
             self._emit(exchange, message)
 
-        failure: Exception | None = None
-        try:
-            consume_sse_stream(
-                response.chunks(),
-                on_event=on_event,
-                max_event_bytes=self.options.max_message_bytes,
-            )
-        except Exception as error:  # noqa: BLE001 - cross-thread capture: fails this request below
-            failure = error
-        if answered or exchange.token.cancelled:
+        failure = self._read_response_stream(response, cursor, emit)
+        attempt = 0
+        while not (answered or token.cancelled) and self._may_resume(
+            failure, cursor, attempt
+        ):
+            if cursor.received:
+                attempt = 0
+            cursor.received = False
+            if not self._sleep(token, self._reconnect_delay(attempt, cursor.retry_ms)):
+                return
+            attempt += 1
+            failure = self._resume_response_stream(cursor, token, emit, failure)
+        if answered or token.cancelled:
             return
         reason = "stream ended without a response" if failure is None else str(failure)
         self._emit(
@@ -561,6 +642,200 @@ class StreamableHttpTransport(TransportEvents):
             },
         )
 
+    def _may_resume(
+        self, failure: Exception | None, cursor: _StreamCursor, attempt: int
+    ) -> bool:
+        """Whether a response stream that gave no answer is opened again."""
+
+        if failure is not None and not _is_retryable(failure):
+            return False
+        return (
+            cursor.last_event_id is not None
+            and attempt < self.options.reconnect.max_retries
+        )
+
+    def _resume_response_stream(
+        self,
+        cursor: _StreamCursor,
+        token: CancelToken,
+        emit: Callable[[JsonRpcMessage], None],
+        failure: Exception | None,
+    ) -> Exception | None:
+        """Open a response stream again and read it; what broke it this time."""
+
+        try:
+            stream = self._open_sse_stream(cursor.last_event_id, token)
+        except Exception as error:  # noqa: BLE001 - cross-thread capture: the caller retries or fails its request
+            return error
+        if stream is None:
+            # The server has no GET streams. Nothing was read, so what broke
+            # the stream before still stands.
+            return failure
+        return self._read_response_stream(stream, cursor, emit)
+
+    def _read_response_stream(
+        self,
+        stream: _HttpResponse,
+        cursor: _StreamCursor,
+        emit: Callable[[JsonRpcMessage], None],
+    ) -> Exception | None:
+        """Read and close one connection of a response stream; what broke it."""
+
+        try:
+            self._consume_sse(stream, cursor, emit)
+        except Exception as error:  # noqa: BLE001 - cross-thread capture: the caller retries or fails its request
+            return error
+        finally:
+            stream.close()
+        return None
+
+    def _consume_sse(
+        self,
+        response: _HttpResponse,
+        cursor: _StreamCursor,
+        emit: Callable[[JsonRpcMessage], None],
+    ) -> None:
+        """Read one event stream to its end, keeping ``cursor`` up to date."""
+
+        def on_id(event_id: str) -> None:
+            cursor.last_event_id = event_id
+
+        def on_retry(delay_ms: int) -> None:
+            cursor.retry_ms = delay_ms
+
+        def on_event(event: SseEvent) -> None:
+            cursor.received = True
+            # An event without data primes resumption with its id, and an
+            # event of another type is no message.
+            if not event.data.strip() or event.event not in (None, "message"):
+                return
+            try:
+                message = parse_json_rpc_message(
+                    json.loads(event.data, parse_constant=_reject_constant)
+                )
+            except Exception as error:  # noqa: BLE001 - cross-thread capture: reported, the stream continues
+                self._report(error)
+                return
+            emit(message)
+
+        consume_sse_stream(
+            response.chunks(),
+            on_event=on_event,
+            on_id=on_id,
+            on_retry=on_retry,
+            max_event_bytes=self.options.max_message_bytes,
+        )
+
+    # -- the server-to-client stream, and opening a stream again -----------
+
+    def _start_get_stream(self) -> None:
+        if not self.options.open_get_stream:
+            return
+        exchange = _Exchange(None)
+        with self._lock:
+            if self._get_stream_started or self._closed:
+                return
+            self._get_stream_started = True
+            self._exchanges.add(exchange)
+        self._start_thread(exchange, "mcp-http-get", self._run_get_stream, exchange)
+
+    def _run_get_stream(self, exchange: _Exchange) -> None:
+        """Keep the server-to-client stream open until the transport closes."""
+
+        try:
+            self._read_get_stream(exchange)
+        finally:
+            self._end(exchange)
+
+    def _read_get_stream(self, exchange: _Exchange) -> None:
+        token = exchange.token
+        reconnect = self.options.reconnect
+        cursor = _StreamCursor()
+        attempt = 0
+        while not token.cancelled:
+            try:
+                response = self._open_sse_stream(cursor.last_event_id, token)
+                if response is None:
+                    return  # The server has no such stream.
+                opened_at = time.monotonic()
+                try:
+                    self._consume_sse(
+                        response, cursor, lambda message: self._emit(exchange, message)
+                    )
+                finally:
+                    response.close()
+                # A stream that stayed up for a while was healthy, also when
+                # nothing arrived on it.
+                open_ms = (time.monotonic() - opened_at) * 1000
+                if cursor.received or open_ms > reconnect.max_delay_ms:
+                    attempt = 0
+            except Exception as error:  # noqa: BLE001 - cross-thread capture: retried, or reported and the stream ends
+                if token.cancelled:
+                    return
+                if not _is_retryable(error):
+                    self._report(error)
+                    return
+            if token.cancelled:
+                return
+            cursor.received = False
+            if attempt >= reconnect.max_retries:
+                self._report(
+                    McpProtocolError(
+                        "MCP server-to-client stream dropped and could not be reopened"
+                    )
+                )
+                return
+            if not self._sleep(token, self._reconnect_delay(attempt, cursor.retry_ms)):
+                return
+            attempt += 1
+
+    def _open_sse_stream(
+        self, last_event_id: str | None, token: CancelToken
+    ) -> _HttpResponse | None:
+        """GET an event stream; ``None`` when the server answers 405 (it has none)."""
+
+        extra = {"Accept": "text/event-stream"}
+        if last_event_id is not None:
+            extra["Last-Event-ID"] = last_event_id
+        headers = self._authorized_headers(extra)
+        response = self._fetch(
+            "GET", headers, None, token, self.options.send_timeout_ms
+        )
+        try:
+            if response.status == 405:
+                response.close()
+                return None
+            self._check_response(response)
+            self._capture_session(response)
+            content_type = response.content_type
+            if content_type != "text/event-stream":
+                shown = "missing" if content_type is None else content_type
+                raise McpHttpError(
+                    response.status,
+                    f"Unsupported MCP GET response content type: {shown}",
+                )
+        except BaseException:
+            response.close()
+            raise
+        return response
+
+    def _reconnect_delay(self, attempt: int, server_delay_ms: int | None) -> float:
+        """Milliseconds to wait before attempt number ``attempt``, from 0."""
+
+        if server_delay_ms is not None:
+            return server_delay_ms
+        reconnect = self.options.reconnect
+        doublings = min(attempt, _MAX_BACKOFF_DOUBLINGS)
+        delay = reconnect.initial_delay_ms * (1 << doublings)
+        return min(delay, reconnect.max_delay_ms)
+
+    @staticmethod
+    def _sleep(token: CancelToken, delay_ms: float) -> bool:
+        """Wait ``delay_ms``; ``False`` when ``token`` was cancelled meanwhile."""
+
+        seconds = min(max(delay_ms, 0) / 1000, threading.TIMEOUT_MAX)
+        return not token.event.wait(seconds)
+
     def _emit(self, exchange: _Exchange, message: JsonRpcMessage) -> None:
         """Deliver a message, unless its request was given up meanwhile."""
 
@@ -572,28 +847,35 @@ class StreamableHttpTransport(TransportEvents):
     ) -> _HttpResponse:
         """POST one message; return the response once its status was accepted."""
 
-        provider = self.options.auth_provider
-        bearer = provider.token() if provider is not None else None
-        with self._lock:
-            self._last_token = bearer
-        headers = self._build_headers(
+        headers = self._authorized_headers(
             {
                 "Accept": "application/json, text/event-stream",
                 "Content-Type": "application/json",
-            },
-            bearer,
+            }
         )
         response = self._fetch("POST", headers, body, token, connect_timeout_ms)
         try:
             self._check_response(response)
-            session_id = response.header("mcp-session-id")
-            if session_id:
-                with self._lock:
-                    self._session_id = session_id
+            self._capture_session(response)
         except BaseException:
             response.close()
             raise
         return response
+
+    def _authorized_headers(self, extra: Mapping[str, str]) -> dict[str, str]:
+        """The headers of a POST or a GET, with the auth provider's token."""
+
+        provider = self.options.auth_provider
+        bearer = provider.token() if provider is not None else None
+        with self._lock:
+            self._last_token = bearer
+        return self._build_headers(extra, bearer)
+
+    def _capture_session(self, response: _HttpResponse) -> None:
+        session_id = response.header("mcp-session-id")
+        if session_id:
+            with self._lock:
+                self._session_id = session_id
 
     def _check_response(self, response: _HttpResponse) -> None:
         if 200 <= response.status < 300:
@@ -670,12 +952,19 @@ class StreamableHttpTransport(TransportEvents):
         connect_timeout = _seconds(connect_timeout_ms)
         followed = 0
         while True:
-            connection = self._connect(target, token, connect_timeout)
+            connection, shutdown = self._connect(target, token, connect_timeout)
+
+            def release(shutdown: _SocketShutdown = shutdown) -> None:
+                # A token outlives its connections when a stream is opened
+                # again and again, so it must not keep them.
+                token.unregister(shutdown)
+
             try:
                 connection.request(method, target.path, body=body, headers=headers)
-                response = _HttpResponse(connection, connection.getresponse())
+                response = _HttpResponse(connection, connection.getresponse(), release)
             except BaseException:
                 connection.close()
+                release()
                 raise
             location = response.header("location")
             if (
@@ -705,7 +994,7 @@ class StreamableHttpTransport(TransportEvents):
 
     def _connect(
         self, target: _Target, token: CancelToken, timeout: float | None
-    ) -> http.client.HTTPConnection:
+    ) -> tuple[http.client.HTTPConnection, _SocketShutdown]:
         connection: http.client.HTTPConnection
         if target.secure:
             connection = http.client.HTTPSConnection(
@@ -720,11 +1009,12 @@ class StreamableHttpTransport(TransportEvents):
             # The timeout was for the connection attempt. From here on the
             # token ends a blocked read or write.
             connection.sock.settimeout(None)
-            token.register(_SocketShutdown(connection.sock))
+            shutdown = _SocketShutdown(connection.sock)
+            token.register(shutdown)
         except BaseException:
             connection.close()
             raise
-        return connection
+        return connection, shutdown
 
     # -- reporting ----------------------------------------------------------
 
