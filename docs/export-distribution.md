@@ -45,6 +45,19 @@ Shipped user-facing surfaces:
 - Startup "newer version available" notices remain future polish; explicit
   `pipy update` version checks and opt-out handling are shipped.
 
+Exports refuse the backing session path, including symlink and hardlink aliases.
+Legitimate exports use a private sibling temporary file and atomic replacement;
+write or replacement failure preserves an existing destination. Outputs are
+owner-only (0600), replacing a destination symlink itself rather than its target.
+Atomic publication requires a writable parent directory and a regular-file
+destination; special files are not supported.
+Imports require the recorded cwd to be a directory; a missing or non-directory
+cwd can use the existing replacement option, which rewrites only the copied
+header. Import names are reserved with exclusive creation (including collisions
+with dangling symlinks), and copied through an owner-only handle. Concurrent
+imports receive distinct suffix names. Failed copies remove only their newly
+reserved incomplete file; the source and other imports remain unchanged.
+
 Phase 3.1d.4c is an ownership-only migration of the shipped `/export` surface.
 The headless command kernel classifies bare and literal-space forms into one
 exact full-content `SESSION_EXPORT` action carrying an exact `ProductContent`

@@ -351,7 +351,7 @@ The veto precedes source validation and copying. Candidate lease conflict occurs
 after copy/open, emits `pipy: imported native session is already active.`, and
 retains the old usable tree, slot, history and extension input; the copied
 artifact may remain. Unexpected copy, copied-header rewrite or open errors stay
-fatal with their current partial-artifact effects and no command footer.
+fatal with no command footer and remove the newly reserved import file.
 Unexpected pointer-publication failure aborts the candidate claim, retains the
 source slot and may leave the copy. Rebuild or clear failure after publication
 is state-first and fatal, emits no success diagnostic/footer, and terminal

@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
+import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -584,3 +586,195 @@ def test_version_check_honors_offline_and_skip_env() -> None:
         )
         is None
     )
+
+
+@pytest.mark.parametrize("kind", ["html", "branch", "standalone"])
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+def test_export_refuses_session_alias(tmp_path: Path, kind: str, alias: str) -> None:
+    from pipy_harness.native.export_distribution import (
+        NativeExportError,
+        export_from_file,
+    )
+
+    tree = _tree(tmp_path)
+    assert tree.path is not None
+    source = tree.path
+    before = source.read_bytes()
+    destination = source if alias == "direct" else tmp_path / "alias"
+    if alias == "symlink":
+        destination.symlink_to(source)
+    elif alias == "hardlink":
+        destination.hardlink_to(source)
+    with pytest.raises(NativeExportError, match="backing session"):
+        if kind == "html":
+            export_native_session_to_html(tree, destination)
+        elif kind == "branch":
+            export_native_branch_to_jsonl(tree, destination)
+        else:
+            export_from_file(source, destination)
+    assert source.read_bytes() == before
+    assert destination.samefile(source)
+    assert len(NativeSessionTree.open(source).get_entries()) == len(tree.get_entries())
+
+
+def test_import_requires_directory_cwd(tmp_path: Path) -> None:
+    from pipy_harness.native.export_distribution import InvalidSessionCwdError
+
+    tree = _tree(tmp_path)
+    assert tree.path is not None
+    source = tree.path
+    cwd = Path(tree.get_header().cwd)
+    cwd.rmdir()
+    cwd.write_text("not a directory")
+    before = source.read_bytes()
+    destination = tmp_path / "imports"
+    with pytest.raises(InvalidSessionCwdError, match="is not a directory"):
+        import_native_session_jsonl(source, session_dir=destination)
+    assert not destination.exists()
+    imported = import_native_session_jsonl(
+        source, session_dir=destination, missing_cwd=tmp_path
+    )
+    assert imported.get_header().cwd == str(tmp_path)
+    assert source.read_bytes() == before
+
+
+def test_import_exclusive_concurrent_destinations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    tree = _tree(tmp_path)
+    assert tree.path is not None
+    other = tmp_path / "other" / tree.path.name
+    other.parent.mkdir()
+    other.write_bytes(tree.path.read_bytes().replace(b"ROOT prompt", b"OTHER prompt"))
+    barrier = threading.Barrier(2)
+    original_open = os.open
+    # Synchronize the old copyfile implementation too, so this regression
+    # deterministically fails when run against the pre-fix source.
+    original_copyfile = shutil.copyfile
+
+    def synchronized_copyfile(source: Any, destination: Any) -> Any:
+        barrier.wait(timeout=5)
+        return original_copyfile(source, destination)
+
+    monkeypatch.setattr(shutil, "copyfile", synchronized_copyfile)
+    local = threading.local()
+
+    def synchronized_open(
+        path: Any, flags: int, mode: int = 0o777, **kwargs: Any
+    ) -> int:
+        if flags & os.O_EXCL and not getattr(local, "waited", False):
+            local.waited = True
+            barrier.wait(timeout=5)
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", synchronized_open)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                import_native_session_jsonl, source, session_dir=tmp_path / "imports"
+            )
+            for source in (tree.path, other)
+        ]
+        imported = [future.result(timeout=10) for future in futures]
+    assert imported[0].path != imported[1].path
+    for result, source in zip(imported, (tree.path, other), strict=True):
+        assert result.path is not None
+        assert result.path.read_bytes() == source.read_bytes()
+        assert result.path.stat().st_mode & 0o777 == 0o600
+
+
+def test_import_dangling_symlink_and_copy_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    tree = _tree(tmp_path)
+    assert tree.path is not None
+    directory = tmp_path / "imports"
+    directory.mkdir()
+    target = tmp_path / "unrelated"
+    alias = directory / tree.path.name
+    alias.symlink_to(target)
+    imported = import_native_session_jsonl(tree.path, session_dir=directory)
+    assert alias.is_symlink() and not target.exists()
+    assert imported.path is not None
+    before = imported.path.read_bytes()
+    called = False
+
+    def fail_copy(source: Any, destination: Any) -> None:
+        nonlocal called
+        called = True
+        destination.write(b"partial")
+        raise OSError("injected copy failure")
+
+    monkeypatch.setattr(shutil, "copyfileobj", fail_copy)
+    with pytest.raises(OSError, match="injected"):
+        import_native_session_jsonl(tree.path, session_dir=directory)
+    assert called
+    assert imported.path.read_bytes() == before
+    assert set(directory.iterdir()) == {alias, imported.path}
+    assert not target.exists()
+
+
+def test_export_replace_failure_preserves_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    tree = _tree(tmp_path)
+    output = tmp_path / "export.html"
+    output.write_text("previous export")
+
+    def fail_replace(source: Any, destination: Any) -> None:
+        raise OSError("injected replace failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="injected"):
+        export_native_session_to_html(tree, output)
+    assert output.read_text() == "previous export"
+    assert not list(tmp_path.glob(".pipy-export-*"))
+
+
+def test_import_replacement_rewrites_actual_header(tmp_path: Path) -> None:
+    tree = _tree(tmp_path)
+    assert tree.path is not None
+    source = tree.path
+    Path(tree.get_header().cwd).rmdir()
+    source.write_bytes(
+        b'[]\r\n{"type":"unknown"}\r\n' + source.read_bytes().replace(b"\n", b"\r\n")
+    )
+    before = source.read_bytes()
+    imported = import_native_session_jsonl(
+        source, session_dir=tmp_path / "imports", missing_cwd=tmp_path
+    )
+    assert imported.get_header().cwd == str(tmp_path)
+    assert imported.path is not None
+    assert imported.path.read_text().startswith('[]\n{"type":"unknown"}\n')
+    assert imported.path.read_bytes().split(b"\r\n")[3:] == before.split(b"\r\n")[3:]
+    assert source.read_bytes() == before
+
+
+def test_export_private_atomic_output_after_source_removed(tmp_path: Path) -> None:
+    tree = _tree(tmp_path)
+    assert tree.path is not None
+    tree.path.unlink()
+    output = tmp_path / "export.html"
+    output.write_text("previous")
+    export_native_session_to_html(tree, output)
+    assert _decode_html_payload(output)["entries"]
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".pipy-export-*"))
+
+
+def test_export_replaces_unrelated_symlink(tmp_path: Path) -> None:
+    tree = _tree(tmp_path)
+    target = tmp_path / "unrelated"
+    target.write_text("keep target")
+    output = tmp_path / "export.html"
+    output.symlink_to(target)
+    export_native_session_to_html(tree, output)
+    assert not output.is_symlink()
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert target.read_text() == "keep target"
+    assert _decode_html_payload(output)["entries"]

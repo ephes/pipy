@@ -6,6 +6,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- Refuse native session export paths that alias the backing session and publish
+  exports atomically, preserving existing output on failure. Exports are now
+  owner-only (0600) and replace destination symlinks rather than their targets.
+- Require imported session cwd paths to be directories, supporting copied-only
+  replacement for non-directory paths.
+- Reserve private import destinations exclusively so concurrent imports and
+  dangling symlink collisions cannot overwrite sessions; clean up failed copies.
+
 ### Added
 
 - Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with
