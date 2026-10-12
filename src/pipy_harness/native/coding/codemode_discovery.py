@@ -32,6 +32,19 @@ from pipy_harness.native.tools.base import ToolDefinition, ToolNamespace
 _TEXT_OUTPUT_SCHEMA: Mapping[str, Any] = {"type": "string"}
 
 
+def described_with_guidelines(description: str, guidelines: Sequence[str]) -> str:
+    """A description followed by the tool's prompt guidelines as bullets.
+
+    Pi ``toCodemodeDeclaration``: the system prompt has the guidelines only
+    of declared tools, so a script's view of a tool carries them.
+    """
+
+    bullets = [f"- {line.strip()}" for line in guidelines if line.strip()]
+    if not bullets:
+        return description
+    return f"{description.strip()}\n\n" + "\n".join(bullets)
+
+
 def is_namespace_name(namespace: ToolNamespace, query: str) -> bool:
     """Whether ``query`` names the namespace (Pi ``isNamespaceName``).
 
@@ -47,9 +60,19 @@ def is_namespace_name(namespace: ToolNamespace, query: str) -> bool:
 
 
 class CodemodeDiscovery:
-    """The discovery answers for one script; immutable after construction."""
+    """The discovery answers for one set of callable tools.
 
-    def __init__(self, tools: Sequence[ToolDefinition]) -> None:
+    The answers never change after construction; a description is rendered
+    when it is first asked for.
+    """
+
+    def __init__(
+        self,
+        tools: Sequence[ToolDefinition],
+        *,
+        guidelines: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
+        self._guidelines = guidelines or {}
         # The script's own table decides what reaches a tool: the first tool
         # wins an identifier two names share. Discovery names every tool by
         # the key that reaches it, and leaves out a tool no key reaches.
@@ -64,9 +87,9 @@ class CodemodeDiscovery:
             if (key := tool_key(self._keys, name, identifier)) is not None
         }
         self._tools = tuple(tool for tool in tools if tool.name in self._key)
-        # The ``ALL_TOOLS`` description: the tool's description and its
-        # declaration. pipy tools have no prompt guidelines to add.
-        self._samples = {tool.name: self._sample(tool) for tool in self._tools}
+        self._by_name = {tool.name: tool for tool in self._tools}
+        # Rendered on first use: a tool description lists few of the tools.
+        self._samples: dict[str, str] = {}
         self._ranker = Bm25Ranker()
         self._helpers: dict[str, Callable[[dict[str, Any]], DiscoveryResult]] = {
             "search_tools": self._search_tools,
@@ -74,26 +97,59 @@ class CodemodeDiscovery:
             "describe_namespace": self._describe_namespace,
         }
 
+    def call_target(self, name: str) -> str | None:
+        """How a script writes the tool ``name``: ``tools.<identifier>``, or
+        ``tools["<key>"]`` when the attribute does not reach it (another tool
+        has the identifier, or the name is one the interpreter looks up).
+        ``None`` for a tool no key reaches."""
+
+        key = self._key.get(name)
+        if key is None:
+            return None
+        if key == to_codemode_identifier(name) and not is_interpreter_attribute(key):
+            return f"tools.{key}"
+        return f"tools[{json.dumps(key)}]"
+
     def _sample(self, tool: ToolDefinition) -> str:
+        """The ``ALL_TOOLS`` description: the tool's description, its prompt
+        guidelines and its declaration."""
+
         sample = render_tool_sample(
             tool.name,
-            tool.description,
+            described_with_guidelines(
+                tool.description, self._guidelines.get(tool.name, ())
+            ),
             tool.input_schema,
             _TEXT_OUTPUT_SCHEMA if tool.output_schema is None else tool.output_schema,
         )
-        key = self._key[tool.name]
-        identifier = to_codemode_identifier(tool.name)
-        if key == identifier and not is_interpreter_attribute(key):
+        target = self.call_target(tool.name)
+        attribute = f"tools.{to_codemode_identifier(tool.name)}"
+        if target is None or target == attribute:
             return sample
-        # `tools.<identifier>` does not reach this tool (another tool has the
-        # identifier, or the name is one the interpreter looks up): declare
-        # the call by key. The declaration is the last fence of the sample.
-        head, fence, signature = sample.rpartition(f"```python\ntools.{identifier}(")
-        return (
-            f"{head}```python\ntools[{json.dumps(key)}]({signature}"
-            if fence
-            else sample
-        )
+        # Declare the call by key. The declaration is the last fence of the
+        # sample.
+        head, fence, signature = sample.rpartition(f"```python\n{attribute}(")
+        return f"{head}```python\n{target}({signature}" if fence else sample
+
+    def key(self, name: str) -> str | None:
+        """The key that reaches the tool ``name`` in a script, or ``None``.
+
+        Its identifier, or its own name when an earlier tool has the
+        identifier.
+        """
+
+        return self._key.get(name)
+
+    def sample(self, name: str) -> str | None:
+        """The ``ALL_TOOLS`` description of the tool ``name``, or ``None``."""
+
+        tool = self._by_name.get(name)
+        if tool is None:
+            return None
+        sample = self._samples.get(name)
+        if sample is None:
+            sample = self._samples[name] = self._sample(tool)
+        return sample
 
     def script_tools(self) -> tuple[ScriptTool, ...]:
         """The tools of the run request, in registration order.
@@ -103,7 +159,7 @@ class CodemodeDiscovery:
         """
 
         return tuple(
-            ScriptTool(tool.name, self._samples[tool.name]) for tool in self._tools
+            ScriptTool(tool.name, self.sample(tool.name) or "") for tool in self._tools
         )
 
     def __call__(self, helper: str, arguments: dict[str, Any], /) -> DiscoveryResult:
@@ -115,7 +171,7 @@ class CodemodeDiscovery:
         return answer(arguments)
 
     def _entry(self, name: str) -> dict[str, str]:
-        return {"name": self._key[name], "description": self._samples[name]}
+        return {"name": self._key[name], "description": self.sample(name) or ""}
 
     def _search_tools(self, arguments: dict[str, Any]) -> DiscoveryResult:
         query = arguments.get("query")
@@ -149,9 +205,7 @@ class CodemodeDiscovery:
             return DiscoveryResult(error="describe_tool() expects a tool name")
         # The tool that ``tools[name]`` calls: a name or an identifier.
         tool_name = self._keys.get(name)
-        return DiscoveryResult(
-            None if tool_name is None else self._samples.get(tool_name)
-        )
+        return DiscoveryResult(None if tool_name is None else self.sample(tool_name))
 
     def _describe_namespace(self, arguments: dict[str, Any]) -> DiscoveryResult:
         name = arguments.get("name")

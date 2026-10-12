@@ -87,6 +87,16 @@ The notes call out the most important limits.
 | `hideThinkingBlock` | boolean | Hide thinking blocks where the renderer/provider supports it. |
 | `enabledModels` | string array | Patterns used by `/scoped-models` and Ctrl+P cycling. |
 
+### Tools
+
+| Setting | Type | Notes |
+| --- | --- | --- |
+| `defaultTools` | string array | The tools active at startup; `+name` and `-name` entries change the inherited selection. See [default tool selection](settings-config.md#default-tool-selection). |
+| `codemode.mode` | `"on"` / `"only"` | How the [`codemode`](codemode.md#what-the-model-is-told) tool presents tools while it is declared. Default `on`: declared tools get a line on calling them from scripts appended to their description, and `codemode` lists only tools that are not declared by being registered. `only`: `codemode` lists every tool scripts can call, and active built-in and extension tools are left out of requests, so the model reaches them through `codemode`. Another value is `on`. |
+| `codemode.inlineBudget` | number | Estimated tokens (characters / 4) the `codemode` description may spend on tool declarations. Default `3000`. Tools that do not fit are left out and found with `search_tools()`. `0` lists only namespaces. A value that is not a nonnegative number is the default. |
+
+The two `codemode` settings are read when a session starts and on `/reload`.
+
 ### UI and startup
 
 | Setting | Type | Notes |

@@ -387,6 +387,10 @@ class _RequestPreparationEffects:
                 context.binding.provider, "supports_mid_convo_system_messages", False
             ):
                 system_messages = anchored
+        # Pi ``_hiddenDeclarations``: the transcript declares these tools, the
+        # request does not, and a mid-conversation adapter drops them from the
+        # system messages it sends. They stay callable from scripts.
+        hidden = scope.execution_projections.hidden_declarations()
         return ProviderRequest(
             system_prompt=system_prompt + context.summary_suffix,
             user_prompt=accepted_turn.provider_user_input,
@@ -394,7 +398,12 @@ class _RequestPreparationEffects:
             model_id=context.binding.model_id,
             cwd=scope.cwd,
             messages=active_input.request_messages(context.messages),
-            available_tools=available_tools,
+            available_tools=tuple(
+                tool for tool in available_tools if tool.name not in hidden
+            ),
+            undeclared_tool_names=tuple(
+                tool.name for tool in available_tools if tool.name in hidden
+            ),
             attachments=(accepted_turn.turn_attachments if turn_index == 0 else ()),
             # Pi passes the current session's id on every agent turn for
             # prompt-cache affinity; read per request so /new, /resume and

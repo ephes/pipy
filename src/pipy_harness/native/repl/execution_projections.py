@@ -147,6 +147,10 @@ class SessionExecutionProjections:
     ) -> tuple[ToolDefinition, ...]:
         return self._begin_provider_turn().tools.definitions(allowed_names)
 
+    def hidden_declarations(self) -> frozenset[str]:
+        """Declared tools that this provider turn's request leaves out."""
+        return self._require_active().tools.hidden_declarations()
+
     def callable_snapshot(self) -> ExecutionCallableSnapshot:
         """Bind one composite parent to the live capability value.
 

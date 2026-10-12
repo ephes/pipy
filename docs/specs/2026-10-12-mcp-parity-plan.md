@@ -671,7 +671,8 @@ Decided in S03:
   to a withheld tool is an unknown tool; a script must not get around that.
   S08 (`codemode.mode: "only"`) hides declarations by another mechanism and
   must not put those names into `hidden_tool_names` if they are to stay
-  callable.
+  callable. (S08: they are in a field of their own,
+  `ProviderRequest.undeclared_tool_names`. See "Decided in S08" in 4.9.)
 - The session takes the callable snapshot as it takes a provider turn's view:
   under the generation lock, the live capability value bound to the
   generation id of the published extension generation
@@ -683,7 +684,8 @@ Decided in S03:
 - A composite never reaches itself: the service removes the parent's own tool
   name, in addition to `codemode` being `model-only`.
 - The codemode tool description still names the seven built-ins. S08 makes it
-  dynamic; until then extension tools are callable but not listed.
+  dynamic; until then extension tools are callable but not listed. (Done in
+  S08.)
 - Declared tools are not checked against the filters again when an extension
   activates a filtered-out name with `set_active_tools`; the callable set is.
   S10 owns the filter rules (EXP-06 to EXP-09).
@@ -991,6 +993,81 @@ Decided in S07 (discovery, `codemode/prelude.py`, `codemode/host.py`,
   S16 relaxes that for MCP tools; the mapping and both key forms are tested
   below the registry with such names, and in a session with the names
   `class` and `9lives`.
+
+Decided in S08 (description, catalog and `codemode.mode`,
+`coding/codemode_description.py`, `tools/loadout.py`, `tool_capabilities.py`):
+
+- The loadout is Pi's `prepareLoadout` in pipy's terms. A capability value
+  (`ToolCapabilityState`) carries one presenter, `codemode_loadout`: a
+  function from a `ToolLoadout` (the declared and the callable definitions)
+  to `ToolLoadoutChanges` (replaced descriptions by tool name, and the
+  declarations requests leave out). It is applied when the definitions of a
+  value are projected, and only while the built-in `codemode` is declared;
+  an extension's own `codemode` tool and a request that does not declare
+  `codemode` get no changes. Nothing is cached: a value's definitions are a
+  function of the value. S37 (`prepare_loadout` for extensions) can widen the
+  one presenter to one per tool.
+- Settings are read when a capability value is built, at session start and on
+  `/reload`, with `defaultTools`; they are part of the value, so the
+  declarations, the hidden set and the system prompt of one value always
+  agree. Pi reads `codemode.mode` and `codemode.inlineBudget` before every
+  prompt. pipy's getters are as tolerant as Pi's readers: a mode other than
+  `only` is `on`; a budget that is not a finite, nonnegative number is 3000.
+- The transcript declares the tools `only` hides, as in Pi (`definitions()`
+  keeps them, with their plain descriptions), so `/tree` navigation restores
+  them as active. The request leaves them out: the product keeps them out of
+  `available_tools` and names them in the new
+  `ProviderRequest.undeclared_tool_names`, and the system prompt's tool list
+  and rules leave them out too (Pi `hiddenTools`). The mid-conversation
+  projection of `providers/transcript.py` removes their declarations from
+  the system messages it sends, as it does for `hidden_tool_names`.
+- The two fields stay apart, as the S03 note in 4.3 asked:
+  `hidden_tool_names` are tools a `before_provider_request` hook withheld,
+  which a script must not reach, and `undeclared_tool_names` are
+  declarations the product left out, which a script is meant to reach. A
+  parent's callable names subtract only the first. Both survive a request
+  being frozen or transformed again.
+- Different from Pi: a direct model call to a tool that `only` hides is an
+  unknown tool in pipy, because a direct call is authorized against the
+  frozen request (4.3). In Pi the tool is still among the agent's tools and
+  the call would run. The model is not told about the tool either way.
+- Description text (CMD-18). The fixed part is Pi's `DESCRIPTION_INTRO` and
+  `describeGlobals` for Python scripts: where a script runs, the call
+  contract, the limits, and the globals with the helpers named as the way to
+  find unlisted tools, such as MCP tools. pipy keeps the read/filter guidance
+  and the runnable example from the codemode adherence slice after it. The
+  sentence that listed the seven built-ins is gone: with `on` each declared
+  tool says in its own description that scripts can call it.
+- Catalog (CMD-19, CMD-20): a section is ``### `<key>` `` (and the tool's own
+  name in parentheses when it differs), then the tool's `ALL_TOOLS`
+  description from `CodemodeDiscovery`, so a tool that lost its identifier is
+  declared by key and a tool no key reaches is not listed (S07). The keys
+  come from the whole callable set, not from the listed tools. The cost of a
+  section is its length in UTF-16 code units / 4, rounded up, as in Pi.
+  Namespaces are ordered by name without regard to case, then by code point;
+  Pi uses `localeCompare`, which can order punctuation differently.
+- Guidelines (CMD-06, CMD-19): pipy's only prompt guidelines are those of
+  the built-ins (`BUILTIN_TOOL_PROMPTS`); extension tools have none (S02).
+  They are added as bullets to a tool's `ALL_TOOLS` description, which
+  `describe_tool` and the catalog sections use. This closes the part of
+  CMD-06 that S07 left open.
+- The `Codemode:` line (CMD-22) names the call as scripts write it,
+  `tools.<identifier>` or `tools["<key>"]`, and what it resolves to: `a
+  string`, the field names of an object schema as Pi writes them
+  (`{ content, isError? }`, one nested level), or the declared type in
+  pipy's notation on one line. A declared tool that no key reaches gets no
+  line and is not hidden by `only`.
+- Description length: pipy's strict definitions cap a description at 4 KiB.
+  The declared copy of a tool whose replaced description is longer is
+  declared with `schema_mode="foreign"`, which has no cap and accepts every
+  strict schema. The registered definition, which validates arguments, is
+  unchanged. Pi has no cap.
+- CMD-27: pipy's contribution is one snippet and two guideline lines (Pi's
+  guideline in Python terms, and one from the adherence slice that predates
+  this plan). S08 leaves it as it is and pins that tools add nothing to it.
+- Cost, for S16 and S17: every projection of a value's definitions computes
+  the keys of all callable tools and renders the sections of the listed
+  ones. `deferred` tools, which MCP tools are by default, are not rendered.
 
 ### 4.10 Reload and resume
 

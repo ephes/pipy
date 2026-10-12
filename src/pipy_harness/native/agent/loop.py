@@ -1047,6 +1047,8 @@ class AgentLoop:
             else None
         )
         # A tool a request hook withheld from this request stays unreachable.
+        # A declaration the product left out (``undeclared_tool_names``) does
+        # not: a script is how the model reaches such a tool.
         eligible = (
             callable_tools.callable_names()
             - frozenset(snapshot.request.hidden_tool_names)

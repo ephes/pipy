@@ -626,6 +626,8 @@ runtime has no matching surface yet) is:
     `0` disabled semantics, WS-first `auto`/`websocket`, and Pi-shaped pre-event
     SSE fallback. Providers without a multi-transport surface still preserve and
     report these settings without using them.
+  - `codemode.mode` and `codemode.inlineBudget` — the `codemode` tool's
+    description and, with `only`, the tool declarations a request carries.
 - **Accepted + round-tripped + reported, currently inert** (no matching pipy
   surface; preserved so Pi-written/forward config survives):
   - `compaction.keepRecentTokens` — whole-group retention remains fixed rather

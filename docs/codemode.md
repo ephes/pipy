@@ -135,7 +135,7 @@ emitting it.
 included in order. Filter before emitting: bulk raw results can exhaust output
 budgets and require another model turn.
 
-The advertised builtin now includes a runnable small-file read/filter example.
+The tool description includes a runnable small-file read/filter example.
 Use returned strings directly: `tools.read()` is not a result object, and text
 files do not need JSON decoding. Keep intermediate reads in Python and emit the
 compact answer after processing. Format probes that print types, dump raw reads
@@ -189,7 +189,7 @@ With no match it lists the tools when there are at most 20.
 | `tools.<identifier>(args)`, `tools["<name>"](args)` | Call a tool with one `dict` or with keyword arguments. |
 | `text(value)` | Emit a string unchanged, another value as JSON. |
 | `ToolError` | Raised by a tool call that failed. |
-| `ALL_TOOLS` | A list with one `{"name": ..., "description": ...}` for every callable tool, in registration order. `name` is the identifier (a key that calls the tool: `tools[entry["name"]]`); `description` is the tool's description followed by its declaration. |
+| `ALL_TOOLS` | A list with one `{"name": ..., "description": ...}` for every callable tool, in registration order. `name` is the identifier (a key that calls the tool: `tools[entry["name"]]`); `description` is the tool's description, its prompt guidelines as `- ` lines when it has some, and its declaration. |
 | `search_tools(query, limit=8, namespace=None)` | Rank the callable tools by relevance to `query` and return up to `limit` entries shaped like those of `ALL_TOOLS`, best first. `namespace` restricts the search to the tools of one namespace. |
 | `describe_tool(name)` | The `description` of the `ALL_TOOLS` entry for a tool, given its name or its identifier, or `None`. |
 | `describe_namespace(name)` | `{"name": ..., "description": ..., "instructions": ..., "tools": [...]}` for a namespace, or `None` when no callable tool belongs to it. `description` and `instructions` are present only when the namespace has them; `tools` lists the identifiers of its callable tools. |
@@ -234,9 +234,75 @@ are registered and active at that moment. A change made while the script runs
 (`ctx.set_active_tools(...)` from a nested tool, a `/reload`) applies from the
 next request on and does not change the running script.
 
-The tool description the model sees still names only the seven built-ins and
-says that tool results are strings; extension tools, structured results and
-the discovery helpers are not described in it yet.
+## What the model is told
+
+The `codemode` tool description explains the call contract (a call returns a
+string, or a structured value when the tool's declaration says so, also for a
+failure that carries one) and names the globals, including the discovery
+helpers as the way to find tools that are not listed. That part names no tool
+and is the same in every session.
+
+After it, under `Nested tools:`, the description lists tools a script can
+call, each with a heading, its description, its prompt guidelines and its
+declaration:
+
+````text
+Nested tools:
+
+## records
+Record store
+
+### `lookup`
+Look a record up.
+
+codemode tool declaration:
+```python
+tools.lookup(args: {"key": str}) -> str
+```
+````
+
+- Tools without a namespace come first, then one `## <namespace>` group per
+  namespace, sorted by name, with the namespace's description. A namespace's
+  `instructions` are never shown here; `describe_namespace` returns them.
+- A heading names the tool by the identifier a script writes, and adds the
+  tool's own name when that differs: `` ### `mcp__dev_radius__search`
+  (`mcp__dev-radius__search`) ``.
+- Tools with exposure `deferred` are never listed, and they change nothing
+  else in the description. A script finds them with `search_tools`,
+  `describe_tool`, `describe_namespace` or `ALL_TOOLS`. The description is
+  therefore byte-identical before and after such tools register, and it does
+  not change when one of them is activated.
+- The listed declarations share a budget of 3000 estimated tokens (characters
+  / 4), the [`codemode.inlineBudget`](settings.md#tools) setting. The groups
+  take turns: in each round every group places its cheapest remaining tool,
+  and a group whose next tool does not fit stops. A namespace that could not
+  place all of its tools is marked `(some tools not listed)`, or `(tools not
+  listed)` when it placed none. With `0` only the namespace headings remain.
+
+The [`codemode.mode`](settings.md#tools) setting decides which tools are
+listed and how the tools the model also sees directly are presented. It
+applies only while the built-in `codemode` tool is declared; without it every
+tool keeps its own description.
+
+| `codemode.mode` | Declared tools that scripts can call | Listed under `Nested tools:` |
+| --- | --- | --- |
+| `on` (default) | Stay declared. Each description gets a last line such as ``Codemode: `tools.read(args)` resolves to a string.`` | Callable tools that are not `direct`: tools with exposure `codemode`. |
+| `only` | Active `direct` tools are left out of requests. They stay active and callable from scripts. | Every callable tool except `deferred` ones. |
+
+The appended line says what a script call returns: `a string`, the field
+names of an object result (`` `{ content, isError? }` ``, nested one level),
+or the declared type on one line. With `only`, the system prompt lists the
+tools that requests declare, so the hidden tools and their guidelines leave
+the prompt; the guidelines appear in the tools' sections of the `codemode`
+description instead, and in `describe_tool` and `ALL_TOOLS`, which carry them
+in either mode. A tool that is left out of requests is not a tool the model
+can call directly: such a call is answered as an unknown tool. `model-only`
+tools, `codemode` itself among them, are always declared.
+
+Both settings are read when a session starts and on `/reload`.
+
+A description longer than the 4 KiB that pipy's own tool schemas allow, which
+a listing easily is, is declared without that limit.
 
 ## Python capabilities and authority
 

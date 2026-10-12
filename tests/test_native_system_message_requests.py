@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentStopReason,
@@ -37,6 +39,7 @@ from pipy_harness.native.provider_construction import (
     TranscriptCompat,
     resolve_transcript_compat,
 )
+from pipy_harness.native.providers.transcript import resolve_request_transcript
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tools import ToolDefinition
 
@@ -216,6 +219,44 @@ def test_a_narrowing_hook_records_the_hidden_tools() -> None:
 
     assert snapshot.request.hidden_tool_names == ("beta",)
     assert [tool.name for tool in snapshot.request.available_tools] == ["alpha"]
+
+
+def test_undeclared_tools_are_kept_apart_from_withheld_ones() -> None:
+    # A request may already leave declarations out (`codemode.mode: "only"`).
+    # Those stay reachable by scripts; what a hook removed does not, also
+    # when the request is snapshotted again.
+    request = replace(
+        _request(),
+        available_tools=(_tool("alpha"), _tool("beta")),
+        undeclared_tool_names=("gamma",),
+    )
+
+    first = snapshot_provider_request(request, available_tool_names=("alpha",))
+    again = snapshot_provider_request(first.request)
+
+    for snapshot in (first, again):
+        assert snapshot.request.hidden_tool_names == ("beta",)
+        assert snapshot.request.undeclared_tool_names == ("gamma",)
+    with pytest.raises(ValueError, match="undeclared tool must not be"):
+        snapshot_provider_request(replace(request, undeclared_tool_names=("alpha",)))
+    with pytest.raises(TypeError, match="undeclared_tool_names"):
+        snapshot_provider_request(
+            replace(request, undeclared_tool_names=["gamma"])  # type: ignore[arg-type]
+        )
+
+
+def test_undeclared_tools_leave_the_system_messages_a_provider_sends() -> None:
+    request = replace(
+        _request(),
+        available_tools=(_tool("alpha"),),
+        undeclared_tool_names=("beta",),
+    )
+
+    sent = resolve_request_transcript(request, supports_mid_convo=True)
+
+    assert sent.mid_convo
+    names = {tool.name for m in sent.system_messages for tool in m.tools_added}
+    assert "alpha" in names and "beta" not in names
 
 
 def test_dropping_stopped_turns_reanchors_middle_and_trailing_messages() -> None:

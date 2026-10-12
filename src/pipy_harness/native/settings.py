@@ -749,6 +749,23 @@ class SettingsManager:
         )
         return resolve_default_tools(entries)
 
+    def get_codemode_mode(self) -> Literal["on", "only"]:
+        """Pi ``codemode.mode``: how ``codemode`` presents the other tools."""
+
+        return "only" if self._get_nested("codemode", "mode") == "only" else "on"
+
+    def get_codemode_inline_budget(self) -> float:
+        """Pi ``codemode.inlineBudget``: estimated tokens for tool declarations.
+
+        A value that is not a finite, nonnegative number is the default.
+        """
+
+        value: object = self._get_nested("codemode", "inlineBudget")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return 3000
+        # NaN fails both comparisons.
+        return value if 0 <= value < float("inf") else 3000
+
     def get_default_provider(self) -> str | None:
         return self._get_str("defaultProvider")
 
@@ -1181,6 +1198,9 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         "    branchSummary: "
         f"reserveTokens={manager.get_branch_summary_reserve_tokens()}, "
         f"skipPrompt={manager.get_branch_summary_skip_prompt()}",
+        "    codemode: "
+        f"mode={manager.get_codemode_mode()}, "
+        f"inlineBudget={manager.get_codemode_inline_budget()}",
         f"    defaultThinkingLevel: {manager.get_default_thinking_level() or '(default)'}",
         "    display: "
         f"editorPaddingX={manager.get_editor_padding_x()}, "

@@ -820,6 +820,16 @@ The exposure decides two sets:
 A script's nested calls pass the same argument validation and the same
 `tool_call` and `tool_result` hooks as a direct call.
 
+While the built-in `codemode` tool is declared it changes what the model
+sees of the other tools, never what is registered or what
+`ctx.get_all_tools()` reports: with `codemode.mode` `on` (the default) a
+declared tool that scripts can call gets a last line in its description,
+``Codemode: `tools.<name>(args)` resolves to a string.``, and with `only`
+active `direct` tools are left out of requests and listed in the `codemode`
+description. See [what the model is told](codemode.md#what-the-model-is-told).
+A `before_provider_request` hook sees the tools a request declares, so with
+`only` it does not see the tools that were left out.
+
 `schema_mode="strict"` holds the input schema to the JSON-schema subset above
 and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy
 did not write, such as an MCP server's: the schema only has to be a JSON

@@ -493,28 +493,49 @@ snapshot:
 
 Schema: `{"code": {"type": "string", "description": "Python source run as a script."}}`.
 
-Implemented description, byte-pinned by T8 tests (unchanged by T11).
-“Unavailable modules” below summarizes unavailable functionality: subprocess,
-socket and threading import but cannot create processes, sockets or threads.
-See the user page for precise module capabilities.
+The description has a fixed part, byte-pinned by the T8 test, and since MCP
+parity plan S08 a listing of callable tools under `Nested tools:` that a
+request adds (grouping, budget and `codemode.mode` are specified in the user
+page, "What the model is told"). The fixed part names no tool, so it is the
+same whatever is registered. “Unavailable modules” below summarizes
+unavailable functionality: subprocess, socket and threading import but cannot
+create processes, sockets or threads. See the user page for precise module
+capabilities.
 
-Description:
+Fixed part, followed by pipy's read/filter guidance and its runnable example
+(`tools/codemode.py`):
 
 > Run a Python script that calls other tools. The script runs in an isolated
 > Python 3.14 interpreter with no file system, network or process access of
 > its own. All effects go through `tools.<name>(args)`, which runs the named
-> tool exactly as a direct call would, with the same JSON arguments. It
-> returns the tool's text output or raises `ToolError`. Calls run one at a
-> time. `text(value)` emits output: strings as-is, anything else as JSON.
-> `print()` output is included as well. Unavailable modules: subprocess,
-> socket networking, ssl, threading, ctypes, zlib/gzip/bz2/lzma, sqlite3.
-> Limits: 120 s wall time, 256 MiB memory, about 10k tokens of output. Tool
-> calls already made are not undone when the script fails. Callable tools:
-> read, ls, grep, find, write, edit, bash.
+> tool exactly as a direct call would, with the same JSON arguments.
+>
+> - `tools.<name>(args)` returns a string, or a structured value if the
+>   tool's declaration says so, and raises `ToolError` on failure. A tool
+>   whose declaration returns a structured value returns it on failure too
+>   when the failed result carries one; check its fields. Calls run one at a
+>   time.
+> - Unavailable modules: subprocess, socket networking, ssl, threading,
+>   ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 120 s wall time, 256 MiB
+>   memory, about 10k tokens of output. Tool calls already made are not undone
+>   when the script fails.
+>
+> Globals:
+>
+> - `text(value)` emits output: strings as-is, anything else as JSON.
+>   `print()` output is included as well.
+> - `ALL_TOOLS`, `search_tools(query, limit=8, namespace=None)`,
+>   `describe_tool(name)`, `describe_namespace(name)`: find unlisted tools,
+>   such as MCP tools.
 
-Prompt snippet: "Run Python that calls other tools". Guideline: "Use codemode
+Until S08 the description ended with the sentence "Callable tools: read, ls,
+grep, find, write, edit, bash." and said that a call returns the tool's text.
+
+Prompt snippet: "Run Python that calls other tools". Guidelines: "Use codemode
 to chain several tool calls or filter large output in one step instead of many
-separate calls."
+separate calls." and the adherence slice's "Keep intermediate tool results in
+Python and emit only the task-relevant answer; parse documented text output
+directly instead of adding format-probe calls." No tool adds to them.
 
 ### 4.9 Pi behaviours
 

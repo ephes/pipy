@@ -408,6 +408,13 @@ def _validate_system_transcript(request: ProviderRequest) -> None:
         type(name) is not str or not name for name in request.hidden_tool_names
     ):
         raise TypeError("ProviderRequest.hidden_tool_names must be exact names")
+    undeclared = request.undeclared_tool_names
+    if type(undeclared) is not tuple or any(
+        type(name) is not str or not name for name in undeclared
+    ):
+        raise TypeError("ProviderRequest.undeclared_tool_names must be exact names")
+    if not {tool.name for tool in request.available_tools}.isdisjoint(undeclared):
+        raise ValueError("an undeclared tool must not be among the available tools")
     anchored: object = request.system_messages
     message_count = len(request.messages)
     if type(anchored) is not tuple:

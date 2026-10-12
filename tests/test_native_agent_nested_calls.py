@@ -6,6 +6,7 @@ import json
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from test_native_agent_loop import (
@@ -31,7 +32,7 @@ from pipy_harness.native.agent.events import (
     ToolCallUpdated,
     TurnCompleted,
 )
-from pipy_harness.native.agent.loop import AgentLoop
+from pipy_harness.native.agent.loop import AgentLoop, AgentLoopRequestPreparation
 from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyDecision,
     AgentToolPolicyState,
@@ -43,12 +44,14 @@ from pipy_harness.native.agent.nested_calls import (
     NestedToolCallService,
 )
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
+from pipy_harness.native.agent.request import snapshot_provider_request
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
 from pipy_harness.native.agent_adapters import SynchronousAgentEventComposite
+from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition
 
 
@@ -605,6 +608,50 @@ def test_uncallable_and_request_withheld_tools_are_refused() -> None:
     assert not tools.executed
     # A refusal consumes no budget: only the parent counts.
     assert outcome.final_tool_state.invocations_this_turn == 1
+
+
+def test_declarations_the_request_left_out_stay_callable() -> None:
+    # `codemode.mode: "only"`: the product leaves `read` out of the request
+    # before any hook runs. A script is how the model reaches it, so unlike a
+    # tool a request hook withheld (`write` here) it stays callable.
+    class HidingRequests(_RequestSource):
+        def prepare(self, history, active_input, turn_index, available_tools):
+            shown = tuple(tool for tool in available_tools if tool.name != "read")
+            request = ProviderRequest(
+                system_prompt="system",
+                user_prompt=active_input.accepted_message.content.value,
+                provider_name="fake",
+                model_id="fake-model",
+                cwd=Path("/headless-fixture"),
+                messages=active_input.request_messages(history),
+                available_tools=shown,
+                undeclared_tool_names=("read",),
+            )
+            return AgentLoopRequestPreparation(
+                history,
+                snapshot_provider_request(
+                    request, available_tool_names=("codemode", "extension")
+                ),
+            )
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        seen.append(service.eligible_names())
+        seen.append(service.call("write", "{}").status)
+        seen.append(service.call("read", "{}").status)
+        return ToolExecutionOutcome(_tool_result(call))
+
+    seen: list[object] = []
+    loop, tools, _, order = _setup(_Runner(run))
+    loop._request_source = HidingRequests(order)  # noqa: SLF001
+    loop.run(_run_input())
+    assert seen == [
+        frozenset({"read", "bash"}),
+        NestedCallStatus.REFUSED,
+        NestedCallStatus.SETTLED,
+    ]
+    assert [call.tool_name for call in tools.executed] == ["read"]
 
 
 def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:

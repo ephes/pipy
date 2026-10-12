@@ -195,6 +195,11 @@ class ProviderRequest:
     # (Pi ``_hiddenDeclarations``): their declarations are hidden from every
     # system message a mid-conversation adapter sends.
     hidden_tool_names: tuple[str, ...] = ()
+    # Declared tools the product left out of this request before any hook ran
+    # (``codemode.mode: "only"``, Pi ``hiddenDeclarations``). Their
+    # declarations are hidden like those of ``hidden_tool_names``; unlike
+    # those, the tools stay callable from scripts.
+    undeclared_tool_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

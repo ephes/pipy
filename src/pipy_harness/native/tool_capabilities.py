@@ -21,6 +21,11 @@ from pipy_harness.native.tools import (
     ToolPort,
     tool_info,
 )
+from pipy_harness.native.tools.loadout import (
+    PrepareToolLoadout,
+    ToolLoadout,
+    ToolLoadoutChanges,
+)
 
 DEFAULT_TOOL_NAMES = ("read", "ls", "grep", "find", "write", "edit", "bash")
 
@@ -142,6 +147,10 @@ class ToolCapabilityState:
     recognized_names: frozenset[str] = frozenset()
     selection_initialized: bool = False
     active_selection_customized: bool = False
+    # How the builtin ``codemode`` presents the tools while it is declared
+    # (Pi ``prepareLoadout``): part of the value, so one value always gives
+    # the same declarations. ``None`` leaves every description as registered.
+    codemode_loadout: PrepareToolLoadout | None = None
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -167,6 +176,7 @@ class ToolCapabilityState:
         filter_options: ToolFilterOptions,
         cancel_join_timeout_seconds: float,
         carried_active_tool_names: frozenset[str] | None = None,
+        codemode_loadout: PrepareToolLoadout | None = None,
     ) -> "ToolCapabilityState":
         """Build a complete capability value without touching any live state.
 
@@ -201,6 +211,7 @@ class ToolCapabilityState:
             executor=executor,
             filter_options=filter_options,
             active_tool_names=active,
+            codemode_loadout=codemode_loadout,
         )
 
 
@@ -216,7 +227,43 @@ class NativeToolCapabilitySnapshot:
         allowed_names: Sequence[str] | None = None,
         /,
     ) -> tuple[ToolDefinition, ...]:
-        return _definitions_for(self.state, allowed_names)
+        """The declared tools, as the model is to see them.
+
+        While the builtin ``codemode`` is declared its loadout replaces
+        descriptions. Declarations it hides stay in this tuple, because the
+        transcript records them as declared; a request leaves out
+        :meth:`hidden_declarations`.
+        """
+
+        declared = _definitions_for(self.state, allowed_names)
+        changes = self._loadout_changes(declared)
+        if changes is None:
+            return declared
+        return tuple(
+            _redescribed(definition, changes.descriptions[definition.name])
+            if definition.name in changes.descriptions
+            else definition
+            for definition in declared
+        )
+
+    def hidden_declarations(self) -> frozenset[str]:
+        """Declared tools whose declarations requests leave out (Pi
+        ``_hiddenDeclarations``). They stay active and callable from scripts."""
+
+        changes = self._loadout_changes(_definitions_for(self.state, None))
+        return frozenset() if changes is None else changes.hidden_declarations
+
+    def _loadout_changes(
+        self, declared: tuple[ToolDefinition, ...]
+    ) -> ToolLoadoutChanges | None:
+        prepare = self.state.codemode_loadout
+        if (
+            prepare is None
+            or not _is_builtin_codemode(self.state)
+            or not any(definition.name == "codemode" for definition in declared)
+        ):
+            return None
+        return prepare(ToolLoadout(declared, self.callable_tools()))
 
     def callable_names(self) -> frozenset[str]:
         """Names a composite tool's nested calls may reach in this value."""
@@ -233,13 +280,9 @@ class NativeToolCapabilitySnapshot:
 
     def composite_enabled(self) -> bool:
         """Only a visible builtin identity may activate internal dispatch."""
-        state = self.state
-        builtin = state.builtin_registry.get("codemode")
-        return (
-            builtin is not None
-            and state.registry.get("codemode") is builtin
-            and "codemode" not in state.extension_registry
-            and any(definition.name == "codemode" for definition in self.definitions())
+        return _is_builtin_codemode(self.state) and any(
+            definition.name == "codemode"
+            for definition in _definitions_for(self.state, None)
         )
 
     def execute(
@@ -298,6 +341,7 @@ class NativeToolCapabilities:
         state_lock: "threading.RLock | None" = None,
         default_tools: Callable[[], Sequence[str] | None] | None = None,
         diagnostic: Callable[[str], None] | None = None,
+        codemode_loadout: Callable[[], PrepareToolLoadout] | None = None,
     ) -> None:
         self._context = ToolContext(workspace_root=workspace_root)
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
@@ -308,6 +352,9 @@ class NativeToolCapabilities:
         self._base_registry = dict(builtin_registry)
         self._default_tools = default_tools
         self._diagnostic = diagnostic
+        # Reads the settings: called when a capability value is built, at the
+        # start of a session and on reload, like ``default_tools``.
+        self._codemode_loadout = codemode_loadout
         # Run-owned result; all accesses take _state_lock.
         self._codemode_available: bool | None = None
         # Detached preparations share a probe without waiting under the session lock.
@@ -317,6 +364,7 @@ class NativeToolCapabilities:
             extension_registry,
             filter_options=filter_options,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+            codemode_loadout=codemode_loadout() if codemode_loadout else None,
         )
 
     @property
@@ -462,6 +510,9 @@ class NativeToolCapabilities:
                 if self._production_defaults and self._default_tools
                 else None
             )
+            codemode_loadout = (
+                self._codemode_loadout() if self._codemode_loadout else None
+            )
         selected = (
             tuple(configured) if configured is not None else tuple(self._base_registry)
         )
@@ -492,6 +543,7 @@ class NativeToolCapabilities:
             filter_options=options,
             cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
             carried_active_tool_names=state.active_tool_names,
+            codemode_loadout=codemode_loadout,
         )
         defaults = frozenset(selected) if explicit else None
         active = candidate.active_tool_names
@@ -620,6 +672,36 @@ class NativeToolCapabilities:
         return NativeToolCapabilitySnapshot(self, self.state).error_result(
             call, output_text
         )
+
+
+def _is_builtin_codemode(state: ToolCapabilityState) -> bool:
+    """Whether the registered ``codemode`` is the builtin, not an extension's."""
+
+    builtin = state.builtin_registry.get("codemode")
+    return (
+        builtin is not None
+        and state.registry.get("codemode") is builtin
+        and "codemode" not in state.extension_registry
+    )
+
+
+def _redescribed(definition: ToolDefinition, description: str) -> ToolDefinition:
+    """The declared copy of a definition with another description.
+
+    The strict subset caps a description at 4 KiB, which a tool listing or an
+    appended note may exceed. Such a copy is declared as a foreign schema,
+    which has no cap; the strict subset is valid there. Arguments are still
+    checked against the registered definition.
+    """
+
+    if not description:
+        return definition
+    oversized = len(description) > ToolDefinition.DESCRIPTION_MAX_LENGTH
+    return replace(
+        definition,
+        description=description,
+        schema_mode="foreign" if oversized else definition.schema_mode,
+    )
 
 
 def _active_names(state: ToolCapabilityState) -> frozenset[str]:

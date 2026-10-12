@@ -64,8 +64,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `tools.search(args: {"query": str, "limit"?: float}) -> list[str]`, with
   property descriptions and the constraints a type cannot express (`@integer`,
   `@minimum 1`, `@default 20`) on comment lines. Scripts read the declarations
-  in `ALL_TOOLS` and from `describe_tool`; the listing in the tool description
-  the model sees follows.
+  in `ALL_TOOLS` and from `describe_tool`, and the model reads them in the
+  `codemode` tool description.
 - Tool search core: a tokenizer (camelCase and punctuation splits, stop
   words, folded plurals), the search text of a tool (name, description, schema
   descriptions and property names, namespace) and an Okapi BM25 ranker.
@@ -89,6 +89,26 @@ entries oldest-first, and a version bump shows the new entries at startup.
   content: `ToolResultTransform` takes an optional `structured_content`, and
   a transform without one drops the result's structured content, which may no
   longer match the replaced content.
+- The `codemode` tool description now tells the model which tools a script
+  can call. It explains what a call returns (a string, or a structured value
+  when the tool's declaration says so), names `ALL_TOOLS`, `search_tools`,
+  `describe_tool` and `describe_namespace` as the way to find unlisted tools,
+  and lists callable tools under `Nested tools:`, grouped by namespace, each
+  with its description, prompt guidelines and declaration. The listing has a
+  budget of 3000 estimated tokens, the new `codemode.inlineBudget` setting;
+  `deferred` tools are never listed, so the description stays the same while
+  such tools register. The fixed sentence `Callable tools: read, ls, grep,
+  find, write, edit, bash.` is gone.
+- New setting `codemode.mode`. With `on` (default), every declared tool that
+  scripts can call says so in its own description
+  (``Codemode: `tools.read(args)` resolves to a string.``) and `codemode`
+  lists the tools that are not declared by being registered. With `only`,
+  `codemode` lists every callable tool and requests leave out the
+  declarations of active built-in and extension tools, which stay callable
+  from scripts; the system prompt then lists only the declared tools, and the
+  hidden tools' guidelines appear in the `codemode` description.
+  `describe_tool` and `ALL_TOOLS` carry a tool's prompt guidelines too. Both
+  settings are read at session start and on `/reload`.
 
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.

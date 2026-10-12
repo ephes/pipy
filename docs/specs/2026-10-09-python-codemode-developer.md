@@ -387,8 +387,9 @@ continues with the remaining tools. There is no
 automatic download or interpreter fallback. After installing a missing runtime
 or extra, start a new session. A custom extension named `codemode` remains an
 ordinary extension and does not trigger the builtin probe or composite dispatch.
-The stable public description, prompt snippet and guideline appear only for the
-advertised builtin. Completed effects survive script errors; scripts are not
+The public description (with its listing of callable tools and the
+`Codemode:` line it adds to other tools' descriptions), prompt snippet and
+guidelines appear only for the advertised builtin. Completed effects survive script errors; scripts are not
 retried automatically after effects.
 
 ## Availability
@@ -509,8 +510,10 @@ installing it).
 
 ## T8a definition and result delivery
 
-`CodemodeTool` defines the stable §4.8 description and exact `code` object
-schema, shared with composite validation. T8b composes it into public production
+`CodemodeTool` defines the fixed part of the §4.8 description and the exact
+`code` object schema, shared with composite validation. The listing of
+callable tools is added per request (`coding/codemode_description.py`,
+applied by `tool_capabilities.py`). T8b composes it into public production
 capabilities only when selected and available; direct invocation fails closed
 because execution requires the canonical composite service. Installing the
 runtime alone does not enable a model tool.

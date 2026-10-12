@@ -72,6 +72,7 @@ from pipy_harness.native.chrome import (
 )
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.codemode_description import CodemodeLoadout
 from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
@@ -241,11 +242,15 @@ def _system_sections_source(
             snapshot = NativeToolCapabilitySnapshot(
                 tool_capabilities, tool_capabilities.state
             )
+            # The tool list and rules match the declarations a request
+            # carries: hidden declarations are not listed (Pi ``hiddenTools``).
+            hidden = snapshot.hidden_declarations()
             return replace(source, skills=ctl.workspace_resources.skills).sections(
                 tuple(
                     definition.name
                     for definition in snapshot.definitions()
-                    if definition.name != "codemode" or snapshot.composite_enabled()
+                    if definition.name not in hidden
+                    and (definition.name != "codemode" or snapshot.composite_enabled())
                 )
             )
 
@@ -879,6 +884,10 @@ def _compose_extension_phase(
         state_lock=session_state_lock,
         default_tools=settings.get_default_tools,
         diagnostic=partial(_extension_notify, "warning"),
+        codemode_loadout=lambda: CodemodeLoadout(
+            mode=settings.get_codemode_mode(),
+            inline_budget=settings.get_codemode_inline_budget(),
+        ),
     )
 
     def _prepare_before_publish(

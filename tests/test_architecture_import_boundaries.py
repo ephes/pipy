@@ -748,6 +748,12 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         # `getAllTools`); the report type belongs to the tool contracts.
         "pipy_harness.native.tools.ToolInfo",
         "pipy_harness.native.tools.tool_info",
+        # The loadout contract (Pi `prepareLoadout`): the facade applies the
+        # changes an injected presenter returns; it renders no description.
+        "pipy_harness.native.tools.loadout",
+        "pipy_harness.native.tools.loadout.PrepareToolLoadout",
+        "pipy_harness.native.tools.loadout.ToolLoadout",
+        "pipy_harness.native.tools.loadout.ToolLoadoutChanges",
         # The live capability state pointer is guarded state (an extension tool
         # handler can reach `set_active_tools` from a worker thread while the
         # session publishes a reloaded generation), and published registries are
