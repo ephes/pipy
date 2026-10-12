@@ -356,8 +356,9 @@ sibling exists. The JSON output includes those fields as structured data, with
 Neither output includes full JSONL events, payloads, prompt text, tool output,
 or other raw transcript content by default. Markdown summaries are shown
 because they are intentional human-review artifacts. Human metadata and event
-type labels collapse control whitespace so malformed archive values cannot forge
-extra physical output lines; JSON output preserves structured values.
+type labels collapse whitespace and escape terminal controls so malformed
+archive values cannot forge output lines or terminal commands; JSON output
+preserves structured values.
 
 Verify finalized archive health without modifying records:
 
@@ -414,6 +415,12 @@ There is no separate transcript sidecar. The removed `--archive-transcript` flag
 To write a portable copy of a session, use `/export` in-session or the top-level `pipy --export`. These operate on the native session tree, not on the metadata-first `pipy-session` archive.
 
 The `pipy-session` metadata archive remains metadata-first and never stores raw loop turns; its `export` command emits a metadata-only JSON object (export schema v2 — the former opt-in `transcript_events` / `transcript_path_label` fields were removed along with the sidecar).
+
+Human catalog list/search/inspect/verify output escapes terminal controls,
+lone surrogates and bidirectional controls in metadata, paths, event types
+and Markdown summaries. Table cells (including verification paths/details)
+collapse whitespace; summaries retain line breaks. Other Unicode, including
+emoji joiners, remains readable. Stored evidence and JSON retain original values.
 
 ## Partial Transcripts
 

@@ -1582,3 +1582,38 @@ def test_cli_inspect_rejects_ambiguous_basename_matches(tmp_path, capsys):
 
     assert exit_code == 2
     assert "pipy-session: ambiguous finalized session record" in output.err
+
+
+def test_catalog_human_output_escapes_all_foreign_controls(tmp_path):
+    root = tmp_path / "archive\x1b[2J"
+    active = init_session(
+        agent="codex", slug="safe", root=root, machine="studio", now=FIXED_NOW
+    )
+    record = finalize_session(
+        active,
+        root=root,
+        summary_text="# Grüße\n\x1b]8;;https://example.org\x07link\x1b]8;;\x07\n",
+    )
+    events = [json.loads(line) for line in record.jsonl_path.read_text().splitlines()]
+    hostile = "Grüße 👨‍👩‍👧 فارسی\u200c\x1b[2J\x00\x7f\x9b\u202e\ud800"
+    for key in ("timestamp", "machine", "agent", "slug"):
+        events[0][key] = hostile
+    events.append({"type": hostile, "summary": hostile})
+    record.jsonl_path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    (record.jsonl_path.parent / "bad\x1b[2J\tname.txt").write_text("foreign")
+    listing = list_finalized_sessions(root=root)
+    search = search_finalized_sessions("Grüße", root=root)
+    inspection = inspect_finalized_session(record.jsonl_path, root=root)
+    for output in (
+        format_session_table(listing),
+        format_session_search_results(search),
+        format_session_inspection(inspection),
+        format_archive_verification(verify_session_archive(root=root)),
+    ):
+        assert not any(char in output for char in "\x1b\x00\x07\x7f\x9b\u202e")
+    assert "Grüße 👨‍👩‍👧 فارسی\u200c" in format_session_inspection(inspection)
+    verification = format_archive_verification(verify_session_archive(root=root))
+    assert "bad\\u001b[2J name.txt" in verification
+    assert "\ud800" not in format_session_inspection(inspection)
+    assert inspection.slug == hostile
+    assert inspection.summary_text and "\x1b" in inspection.summary_text

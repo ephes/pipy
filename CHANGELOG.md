@@ -8,6 +8,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Escape terminal controls in all human workflow catalog fields and summaries,
+  preserving stored records and JSON output.
+
 - Refuse native session export paths that alias the backing session and publish
   exports atomically, preserving existing output on failure. Exports are now
   owner-only (0600) and replace destination symlinks rather than their targets.
