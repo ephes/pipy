@@ -1,4 +1,5 @@
-"""JSON-RPC 2.0 message predicates, MCP error types and protocol versions.
+"""JSON-RPC 2.0 message predicates, MCP error types, protocol versions and
+the conversion of tool result content.
 
 Messages are plain ``dict`` objects as decoded from JSON. The predicates follow
 JSON's types rather than Python's: ``True`` and ``False`` are not numbers, so
@@ -7,12 +8,17 @@ they are neither a request id nor an error code.
 
 from __future__ import annotations
 
+import json
 import math
+from collections.abc import Callable, Mapping
 from typing import Final, TypeGuard
 
 JsonObject = dict[str, object]
 JsonRpcId = str | int | float
 JsonRpcMessage = dict[str, object]
+# Tool result content in the shape a model takes: ``{"type": "text", "text"}``
+# or ``{"type": "image", "data", "mimeType"}`` with base64 data.
+LlmContent = dict[str, str]
 
 LATEST_PROTOCOL_VERSION: Final = "2025-11-25"
 # Versions the client accepts from a server. A server that does not support
@@ -142,3 +148,100 @@ def parse_json_rpc_message(value: object) -> JsonRpcMessage:
     ):
         return value
     raise McpError(INVALID_REQUEST, "Invalid JSON-RPC message")
+
+
+def _text(text: str) -> LlmContent:
+    return {"type": "text", "text": text}
+
+
+def _image(data: object, mime_type: object) -> LlmContent | None:
+    if isinstance(data, str) and isinstance(mime_type, str):
+        return {"type": "image", "data": data, "mimeType": mime_type}
+    return None
+
+
+def _text_block(block: JsonObject) -> LlmContent | None:
+    text = block.get("text")
+    return _text(text) if isinstance(text, str) else None
+
+
+def _image_block(block: JsonObject) -> LlmContent | None:
+    return _image(block.get("data"), block.get("mimeType"))
+
+
+def _audio_block(block: JsonObject) -> LlmContent | None:
+    mime_type = block.get("mimeType")
+    if isinstance(mime_type, str):
+        return _text(f"[audio {mime_type} omitted]")
+    return None
+
+
+def _resource_link_block(block: JsonObject) -> LlmContent | None:
+    name = block.get("name")
+    uri = block.get("uri")
+    if isinstance(name, str) and isinstance(uri, str):
+        return _text(f"{name}: {uri}")
+    return None
+
+
+def _resource_block(block: JsonObject) -> LlmContent | None:
+    resource = block.get("resource")
+    if not is_object(resource):
+        return None
+    text = resource.get("text")
+    if isinstance(text, str):
+        return _text(text)
+    blob = resource.get("blob")
+    uri = resource.get("uri")
+    mime_type = resource.get("mimeType")
+    if not isinstance(blob, str):
+        return None
+    if isinstance(mime_type, str) and mime_type.startswith("image/"):
+        return _image(blob, mime_type)
+    if not isinstance(uri, str):
+        return None
+    shown = mime_type if isinstance(mime_type, str) else "unknown type"
+    return _text(f"[binary resource {uri} ({shown}) omitted]")
+
+
+_BLOCK_CONVERTERS: Final[dict[str, Callable[[JsonObject], LlmContent | None]]] = {
+    "text": _text_block,
+    "image": _image_block,
+    "audio": _audio_block,
+    "resource_link": _resource_link_block,
+    "resource": _resource_block,
+}
+
+
+def _block_to_llm_content(block: object) -> LlmContent:
+    kind = block.get("type") if is_object(block) else None
+    if is_object(block) and isinstance(kind, str):
+        convert = _BLOCK_CONVERTERS.get(kind)
+        content = convert(block) if convert is not None else None
+        if content is not None:
+            return content
+    shown = kind if isinstance(kind, str) else "undefined"
+    return _text(f"[unsupported MCP content {shown}]")
+
+
+def to_llm_content(result: Mapping[str, object]) -> list[LlmContent]:
+    """Convert a ``tools/call`` result to text and image content for a model.
+
+    Text and images pass through, embedded text resources become text,
+    embedded image resources become images, and other blocks (audio, resource
+    links, binary resources) become a short text placeholder. A block of an
+    unknown type, or one without the fields its type requires, becomes a
+    placeholder naming the type. A result without content blocks but with
+    ``structuredContent`` becomes its JSON, since servers should, but do not
+    always, mirror structured results as text.
+    """
+
+    blocks = result.get("content")
+    content = [
+        _block_to_llm_content(block)
+        for block in (blocks if isinstance(blocks, list) else [])
+    ]
+    structured = result.get("structuredContent")
+    if not content and structured is not None:
+        content.append(_text(json.dumps(structured, indent=2, ensure_ascii=False)))
+    return content

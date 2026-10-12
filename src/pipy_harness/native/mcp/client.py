@@ -53,6 +53,8 @@ from pipy_harness.native.mcp.protocol import (
 from pipy_harness.native.mcp.transport import Disposer, McpTransport
 
 DEFAULT_REQUEST_TIMEOUT_MS: Final = 30_000
+# A list that is still handing out cursors after this many pages is given up.
+MAX_LIST_PAGES = 1_000
 # How often a waiting request looks at its caller's cancel event.
 _CANCEL_POLL_SECONDS: Final = 0.05
 
@@ -194,6 +196,99 @@ def validate_initialize_result(value: object) -> JsonObject:
     raise McpError(INVALID_REQUEST, "Invalid MCP initialize result")
 
 
+def _invalid(message: str) -> McpError:
+    return McpError(INVALID_REQUEST, message)
+
+
+def _validate_list_page(
+    method: str, key: str, value: object, is_item: Callable[[JsonObject], bool]
+) -> tuple[list[JsonObject], str | None]:
+    """Return the items under ``key`` of one list page, and its next cursor.
+
+    The cursor is ``None`` on the last page. Some servers end pagination with
+    ``null`` or ``""`` instead of omitting the cursor.
+    """
+
+    items = value.get(key) if is_object(value) else None
+    if not is_object(value) or not isinstance(items, list):
+        raise _invalid(f"Invalid MCP {method} result")
+    for item in items:
+        if not is_object(item) or not is_item(item):
+            raise _invalid(f"Invalid entry in MCP {method} result")
+    next_cursor = value.get("nextCursor")
+    if next_cursor is None or next_cursor == "":
+        return items, None
+    if not isinstance(next_cursor, str):
+        raise _invalid(f"Invalid MCP {method} cursor")
+    return items, next_cursor
+
+
+def _has_optional_name(item: JsonObject) -> bool:
+    return "name" not in item or isinstance(item["name"], str)
+
+
+def _is_tool(tool: JsonObject) -> bool:
+    return isinstance(tool.get("name"), str) and is_object(tool.get("inputSchema"))
+
+
+# `name` is required by the spec, but some servers omit it; the URI stands in.
+def _is_resource(resource: JsonObject) -> bool:
+    return isinstance(resource.get("uri"), str) and _has_optional_name(resource)
+
+
+def _is_resource_template(template: JsonObject) -> bool:
+    return isinstance(template.get("uriTemplate"), str) and _has_optional_name(template)
+
+
+def _to_resource(item: JsonObject) -> JsonObject:
+    return {**item, "name": item.get("name", item["uri"])}
+
+
+def _to_resource_template(item: JsonObject) -> JsonObject:
+    return {**item, "name": item.get("name", item["uriTemplate"])}
+
+
+def _page_result(key: str, items: list[JsonObject], cursor: str | None) -> JsonObject:
+    page: JsonObject = {key: items}
+    if cursor is not None:
+        page["nextCursor"] = cursor
+    return page
+
+
+def validate_read_resource_result(value: object) -> JsonObject:
+    """Return ``value`` when it is a well-formed ``resources/read`` result."""
+
+    contents = value.get("contents") if is_object(value) else None
+    if not is_object(value) or not isinstance(contents, list):
+        raise _invalid("Invalid MCP resources/read result")
+    for entry in contents:
+        if (
+            not is_object(entry)
+            or not isinstance(entry.get("uri"), str)
+            or not (
+                isinstance(entry.get("text"), str) or isinstance(entry.get("blob"), str)
+            )
+        ):
+            raise _invalid("Invalid contents in MCP resources/read result")
+    return value
+
+
+def validate_call_tool_result(value: object) -> JsonObject:
+    """Return a well-formed ``tools/call`` result, with ``content`` present.
+
+    ``content`` is required by the spec, but servers that only return
+    ``structuredContent`` omit it; it then becomes an empty list.
+    """
+
+    if not is_object(value) or (
+        "content" in value and not isinstance(value["content"], list)
+    ):
+        raise _invalid("Invalid MCP tools/call result")
+    if "structuredContent" in value and not is_object(value["structuredContent"]):
+        raise _invalid("Invalid MCP tools/call structured content")
+    return value if "content" in value else {**value, "content": []}
+
+
 class McpClient:
     """A client for one MCP server connection. A client connects once."""
 
@@ -321,6 +416,119 @@ class McpClient:
 
     def ping(self, options: McpRequestOptions | None = None) -> None:
         self.request("ping", None, options)
+
+    def list_tools(self, options: McpRequestOptions | None = None) -> list[JsonObject]:
+        """Every tool, as the server defined it, following ``nextCursor``."""
+
+        return self._list_all("tools/list", "tools", _is_tool, options)
+
+    def list_resources(
+        self, options: McpRequestOptions | None = None
+    ) -> list[JsonObject]:
+        """Every resource, following ``nextCursor`` through all pages."""
+
+        resources = self._list_all("resources/list", "resources", _is_resource, options)
+        return [_to_resource(item) for item in resources]
+
+    def list_resources_page(
+        self, cursor: str | None = None, options: McpRequestOptions | None = None
+    ) -> JsonObject:
+        """One page of resources, starting at ``cursor``."""
+
+        items, next_cursor = self._list_page(
+            "resources/list", "resources", _is_resource, cursor, options
+        )
+        return _page_result(
+            "resources", [_to_resource(item) for item in items], next_cursor
+        )
+
+    def list_resource_templates(
+        self, options: McpRequestOptions | None = None
+    ) -> list[JsonObject]:
+        """Every resource template, following ``nextCursor`` through all pages."""
+
+        templates = self._list_all(
+            "resources/templates/list",
+            "resourceTemplates",
+            _is_resource_template,
+            options,
+        )
+        return [_to_resource_template(item) for item in templates]
+
+    def list_resource_templates_page(
+        self, cursor: str | None = None, options: McpRequestOptions | None = None
+    ) -> JsonObject:
+        """One page of resource templates, starting at ``cursor``."""
+
+        items, next_cursor = self._list_page(
+            "resources/templates/list",
+            "resourceTemplates",
+            _is_resource_template,
+            cursor,
+            options,
+        )
+        return _page_result(
+            "resourceTemplates",
+            [_to_resource_template(item) for item in items],
+            next_cursor,
+        )
+
+    def read_resource(
+        self, uri: str, options: McpRequestOptions | None = None
+    ) -> JsonObject:
+        return validate_read_resource_result(
+            self.request("resources/read", {"uri": uri}, options)
+        )
+
+    def call_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        options: McpRequestOptions | None = None,
+    ) -> JsonObject:
+        """Call a tool; the result always has a ``content`` list."""
+
+        params: JsonObject = {"name": name}
+        if arguments is not None:
+            params["arguments"] = dict(arguments)
+        return validate_call_tool_result(self.request("tools/call", params, options))
+
+    def _list_page(
+        self,
+        method: str,
+        key: str,
+        is_item: Callable[[JsonObject], bool],
+        cursor: str | None,
+        options: McpRequestOptions | None,
+    ) -> tuple[list[JsonObject], str | None]:
+        params = None if cursor is None else {"cursor": cursor}
+        return _validate_list_page(
+            method, key, self.request(method, params, options), is_item
+        )
+
+    def _list_all(
+        self,
+        method: str,
+        key: str,
+        is_item: Callable[[JsonObject], bool],
+        options: McpRequestOptions | None,
+    ) -> list[JsonObject]:
+        """Every item of a paginated list method. ``options`` apply to each page."""
+
+        items: list[JsonObject] = []
+        cursors: set[str] = set()
+        cursor: str | None = None
+        for _ in range(MAX_LIST_PAGES):
+            page, cursor = self._list_page(method, key, is_item, cursor, options)
+            items.extend(page)
+            if cursor is None:
+                return items
+            if cursor in cursors:
+                raise McpProtocolError(
+                    f"MCP {method} returned duplicate cursor: {cursor}"
+                )
+            cursors.add(cursor)
+        raise McpProtocolError(f"MCP {method} exceeded {MAX_LIST_PAGES} pages")
 
     def set_request_handler(self, method: str, handler: RequestHandler) -> Disposer:
         """Answer the server's ``method`` requests with ``handler``'s return value."""

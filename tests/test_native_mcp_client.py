@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from pipy_harness.native.mcp import client as client_module
 from pipy_harness.native.mcp.client import (
     DEFAULT_REQUEST_TIMEOUT_MS,
     McpClient,
@@ -21,6 +22,7 @@ from pipy_harness.native.mcp.client import (
     McpRequestOptions,
 )
 from pipy_harness.native.mcp.protocol import (
+    INVALID_REQUEST,
     LATEST_PROTOCOL_VERSION,
     JsonRpcMessage,
     McpAbortError,
@@ -1415,4 +1417,488 @@ def test_notifications_reach_every_listener_and_a_raising_one_is_isolated(
     # The connection is unaffected.
     server.set_handler("ping", lambda request: {})
     client.ping()
+    client.close()
+
+
+# -- lists, tool calls and resources ----------------------------------------
+
+
+def _cursor(request: JsonRpcMessage) -> object:
+    params = request.get("params")
+    return params.get("cursor") if isinstance(params, dict) else None
+
+
+def _requests(server: _Server, method: str) -> list[JsonRpcMessage]:
+    return [message for message in server.messages if message.get("method") == method]
+
+
+def _raises_invalid(call: Callable[[], object], message: str) -> None:
+    with pytest.raises(McpError) as raised:
+        call()
+    assert raised.value.code == INVALID_REQUEST
+    assert str(raised.value) == message
+
+
+def test_paginates_tools_and_preserves_protocol_tool_definitions(
+    server: _Server,
+) -> None:
+    # Pi: "paginates tools and preserves protocol tool definitions"
+    client = _connect(server)
+    search = {
+        "name": "search",
+        "description": "Search",
+        "inputSchema": {"type": "object"},
+    }
+    read = {
+        "name": "read",
+        "inputSchema": {"type": "object"},
+        "outputSchema": {"type": "object"},
+        "annotations": {"readOnlyHint": True},
+    }
+    server.set_handler(
+        "tools/list",
+        lambda request: (
+            {"tools": [search], "nextCursor": "page-2"}
+            if _cursor(request) is None
+            # Some servers end pagination with an empty cursor instead of omitting it.
+            else {"tools": [read], "nextCursor": ""}
+        ),
+    )
+
+    assert client.list_tools() == [search, read]
+
+    first, second = _requests(server, "tools/list")
+    assert "params" not in first
+    assert second["params"] == {"cursor": "page-2"}
+    client.close()
+
+
+def test_a_null_cursor_ends_pagination(server: _Server) -> None:
+    client = _connect(server)
+    server.set_handler(
+        "tools/list",
+        lambda request: {
+            "tools": [{"name": "only", "inputSchema": {}}],
+            "nextCursor": None,
+        },
+    )
+
+    assert client.list_tools() == [{"name": "only", "inputSchema": {}}]
+    assert len(_requests(server, "tools/list")) == 1
+    client.close()
+
+
+def test_a_repeated_cursor_fails_the_list(server: _Server) -> None:
+    client = _connect(server)
+    cursors = iter(["a", "b", "a", "c"])
+    server.set_handler(
+        "tools/list", lambda request: {"tools": [], "nextCursor": next(cursors)}
+    )
+
+    with pytest.raises(McpProtocolError) as raised:
+        client.list_tools()
+
+    assert str(raised.value) == "MCP tools/list returned duplicate cursor: a"
+    assert [_cursor(request) for request in _requests(server, "tools/list")] == [
+        None,
+        "a",
+        "b",
+    ]
+    client.close()
+
+
+def test_a_list_with_too_many_pages_fails(
+    server: _Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert client_module.MAX_LIST_PAGES == 1000
+    monkeypatch.setattr(client_module, "MAX_LIST_PAGES", 3)
+    client = _connect(server)
+    pages = iter(range(100))
+    server.set_handler(
+        "resources/list",
+        lambda request: {"resources": [], "nextCursor": f"page-{next(pages)}"},
+    )
+
+    with pytest.raises(McpProtocolError) as raised:
+        client.list_resources()
+
+    assert str(raised.value) == "MCP resources/list exceeded 3 pages"
+    assert len(_requests(server, "resources/list")) == 3
+    client.close()
+
+
+def test_a_list_within_the_page_limit_returns_every_page(
+    server: _Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(client_module, "MAX_LIST_PAGES", 3)
+    client = _connect(server)
+    pages = iter(
+        [
+            {"tools": [{"name": "a", "inputSchema": {}}], "nextCursor": "2"},
+            {"tools": [{"name": "b", "inputSchema": {}}], "nextCursor": "3"},
+            {"tools": [{"name": "c", "inputSchema": {}}]},
+        ]
+    )
+    server.set_handler("tools/list", lambda request: next(pages))
+
+    assert [tool["name"] for tool in client.list_tools()] == ["a", "b", "c"]
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (None, "Invalid MCP tools/list result"),
+        ([], "Invalid MCP tools/list result"),
+        ({}, "Invalid MCP tools/list result"),
+        ({"tools": {"name": "a"}}, "Invalid MCP tools/list result"),
+        ({"tools": ["a"]}, "Invalid entry in MCP tools/list result"),
+        ({"tools": [{"inputSchema": {}}]}, "Invalid entry in MCP tools/list result"),
+        (
+            {"tools": [{"name": 1, "inputSchema": {}}]},
+            "Invalid entry in MCP tools/list result",
+        ),
+        ({"tools": [{"name": "a"}]}, "Invalid entry in MCP tools/list result"),
+        (
+            {"tools": [{"name": "a", "inputSchema": []}]},
+            "Invalid entry in MCP tools/list result",
+        ),
+        (
+            {"tools": [{"name": "a", "inputSchema": {}}], "nextCursor": 2},
+            "Invalid MCP tools/list cursor",
+        ),
+    ],
+)
+def test_rejects_an_invalid_tools_page(
+    server: _Server, result: object, message: str
+) -> None:
+    client = _connect(server)
+    server.set_handler("tools/list", lambda request: result)
+
+    _raises_invalid(client.list_tools, message)
+    client.close()
+
+
+def test_an_invalid_later_page_fails_the_whole_list(server: _Server) -> None:
+    client = _connect(server)
+    server.set_handler(
+        "tools/list",
+        lambda request: (
+            {"tools": [{"name": "a", "inputSchema": {}}], "nextCursor": "2"}
+            if _cursor(request) is None
+            else {"tools": [{"name": "b"}]}
+        ),
+    )
+
+    _raises_invalid(client.list_tools, "Invalid entry in MCP tools/list result")
+    client.close()
+
+
+def test_lists_and_reads_resources(server: _Server) -> None:
+    # Pi: "lists and reads resources"
+    client = _connect(server)
+    server.set_handler(
+        "resources/list",
+        lambda request: (
+            {
+                "resources": [
+                    {"uri": "file:///a", "name": "a", "mimeType": "text/plain"}
+                ],
+                "nextCursor": "2",
+            }
+            if _cursor(request) is None
+            else {"resources": [{"uri": "file:///b"}]}
+        ),
+    )
+    server.set_handler(
+        "resources/templates/list",
+        lambda request: {
+            "resourceTemplates": [
+                {"uriTemplate": "repo://{owner}/{repo}", "name": "repo"}
+            ]
+        },
+    )
+
+    def read(request: JsonRpcMessage) -> object:
+        params = request["params"]
+        assert isinstance(params, dict)
+        return {"contents": [{"uri": params["uri"], "text": "hello"}]}
+
+    server.set_handler("resources/read", read)
+
+    # A missing name falls back to the URI.
+    assert client.list_resources() == [
+        {"uri": "file:///a", "name": "a", "mimeType": "text/plain"},
+        {"uri": "file:///b", "name": "file:///b"},
+    ]
+    assert client.list_resource_templates() == [
+        {"uriTemplate": "repo://{owner}/{repo}", "name": "repo"}
+    ]
+    # Single pages pass the cursor through.
+    assert client.list_resources_page() == {
+        "resources": [{"uri": "file:///a", "name": "a", "mimeType": "text/plain"}],
+        "nextCursor": "2",
+    }
+    assert client.list_resources_page("2") == {
+        "resources": [{"uri": "file:///b", "name": "file:///b"}]
+    }
+    assert client.read_resource("file:///a") == {
+        "contents": [{"uri": "file:///a", "text": "hello"}]
+    }
+
+    server.set_handler(
+        "resources/read", lambda request: {"contents": [{"uri": "file:///a"}]}
+    )
+    _raises_invalid(
+        lambda: client.read_resource("file:///a"),
+        "Invalid contents in MCP resources/read result",
+    )
+    server.set_handler(
+        "resources/list", lambda request: {"resources": [{"name": "no uri"}]}
+    )
+    _raises_invalid(client.list_resources, "Invalid entry in MCP resources/list result")
+    client.close()
+
+
+def test_resource_templates_page_and_fall_back_to_the_uri_template(
+    server: _Server,
+) -> None:
+    client = _connect(server)
+    server.set_handler(
+        "resources/templates/list",
+        lambda request: (
+            {
+                "resourceTemplates": [{"uriTemplate": "a://{x}"}],
+                "nextCursor": "next",
+            }
+            if _cursor(request) is None
+            else {
+                "resourceTemplates": [{"uriTemplate": "b://{y}", "name": "b"}],
+                "nextCursor": None,
+            }
+        ),
+    )
+
+    assert client.list_resource_templates() == [
+        {"uriTemplate": "a://{x}", "name": "a://{x}"},
+        {"uriTemplate": "b://{y}", "name": "b"},
+    ]
+    assert client.list_resource_templates_page() == {
+        "resourceTemplates": [{"uriTemplate": "a://{x}", "name": "a://{x}"}],
+        "nextCursor": "next",
+    }
+    assert client.list_resource_templates_page("next") == {
+        "resourceTemplates": [{"uriTemplate": "b://{y}", "name": "b"}]
+    }
+    assert [
+        _cursor(request) for request in _requests(server, "resources/templates/list")
+    ] == [None, "next", None, "next"]
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("method", "key", "entry"),
+    [
+        ("resources/list", "resources", {"name": "a"}),
+        ("resources/list", "resources", {"uri": 1}),
+        ("resources/list", "resources", {"uri": "file:///a", "name": 1}),
+        ("resources/list", "resources", {"uri": "file:///a", "name": None}),
+        ("resources/templates/list", "resourceTemplates", {"name": "a"}),
+        ("resources/templates/list", "resourceTemplates", {"uriTemplate": 1}),
+        (
+            "resources/templates/list",
+            "resourceTemplates",
+            {"uriTemplate": "a://{x}", "name": 1},
+        ),
+    ],
+)
+def test_rejects_an_invalid_resource_or_template_entry(
+    server: _Server, method: str, key: str, entry: object
+) -> None:
+    client = _connect(server)
+    server.set_handler(method, lambda request: {key: [entry]})
+    resources = method == "resources/list"
+
+    for call in (
+        client.list_resources if resources else client.list_resource_templates,
+        client.list_resources_page
+        if resources
+        else client.list_resource_templates_page,
+    ):
+        _raises_invalid(call, f"Invalid entry in MCP {method} result")
+    client.close()
+
+
+def test_reads_text_and_blob_resource_contents(server: _Server) -> None:
+    client = _connect(server)
+    result = {
+        "contents": [
+            {"uri": "file:///a", "mimeType": "text/plain", "text": "hello"},
+            {"uri": "file:///b", "blob": "aGk="},
+        ],
+        "_meta": {"x": 1},
+    }
+    server.set_handler("resources/read", lambda request: result)
+
+    assert client.read_resource("file:///a") == result
+    assert _requests(server, "resources/read")[0]["params"] == {"uri": "file:///a"}
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (None, "Invalid MCP resources/read result"),
+        ({}, "Invalid MCP resources/read result"),
+        ({"contents": {"uri": "a", "text": "b"}}, "Invalid MCP resources/read result"),
+        ({"contents": ["a"]}, "Invalid contents in MCP resources/read result"),
+        (
+            {"contents": [{"text": "no uri"}]},
+            "Invalid contents in MCP resources/read result",
+        ),
+        (
+            {"contents": [{"uri": "file:///a", "text": 1}]},
+            "Invalid contents in MCP resources/read result",
+        ),
+        (
+            {"contents": [{"uri": "file:///a", "blob": None}]},
+            "Invalid contents in MCP resources/read result",
+        ),
+    ],
+)
+def test_rejects_an_invalid_read_resource_result(
+    server: _Server, result: object, message: str
+) -> None:
+    client = _connect(server)
+    server.set_handler("resources/read", lambda request: result)
+
+    _raises_invalid(lambda: client.read_resource("file:///a"), message)
+    client.close()
+
+
+def test_returns_structured_tool_content(server: _Server) -> None:
+    # Pi: "returns structured tool content and surfaces JSON-RPC errors"
+    client = _connect(server)
+
+    def call(request: JsonRpcMessage) -> object:
+        params = request["params"]
+        assert isinstance(params, dict)
+        if params["name"] == "fail":
+            raise _ServerError(1234, "tool failed", {"retryable": False})
+        return {
+            "content": [{"type": "text", "text": "ok"}],
+            "structuredContent": {"count": params.get("arguments", {}).get("count")},
+        }
+
+    server.set_handler("tools/call", call)
+
+    assert client.call_tool("count", {"count": 3}) == {
+        "content": [{"type": "text", "text": "ok"}],
+        "structuredContent": {"count": 3},
+    }
+    with pytest.raises(McpError) as raised:
+        client.call_tool("fail")
+    assert (raised.value.code, raised.value.message, raised.value.data) == (
+        1234,
+        "tool failed",
+        {"retryable": False},
+    )
+    with_arguments, without_arguments = _requests(server, "tools/call")
+    assert with_arguments["params"] == {"name": "count", "arguments": {"count": 3}}
+    assert without_arguments["params"] == {"name": "fail"}
+    client.close()
+
+
+def test_defaults_missing_tool_result_content_to_an_empty_list(server: _Server) -> None:
+    # Pi: "defaults missing tool result content to an empty list"
+    client = _connect(server)
+    server.set_handler(
+        "tools/call", lambda request: {"structuredContent": {"ok": True}}
+    )
+    assert client.call_tool("structured") == {
+        "content": [],
+        "structuredContent": {"ok": True},
+    }
+    server.set_handler("tools/call", lambda request: {"content": "not a list"})
+    _raises_invalid(lambda: client.call_tool("broken"), "Invalid MCP tools/call result")
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (None, "Invalid MCP tools/call result"),
+        ([], "Invalid MCP tools/call result"),
+        ({"content": None}, "Invalid MCP tools/call result"),
+        ({"content": {"type": "text"}}, "Invalid MCP tools/call result"),
+        (
+            {"content": [], "structuredContent": [1]},
+            "Invalid MCP tools/call structured content",
+        ),
+        (
+            {"content": [], "structuredContent": None},
+            "Invalid MCP tools/call structured content",
+        ),
+        ({"structuredContent": "x"}, "Invalid MCP tools/call structured content"),
+    ],
+)
+def test_rejects_an_invalid_tool_result(
+    server: _Server, result: object, message: str
+) -> None:
+    client = _connect(server)
+    server.set_handler("tools/call", lambda request: result)
+
+    _raises_invalid(lambda: client.call_tool("broken"), message)
+    client.close()
+
+
+def test_a_tool_result_keeps_its_error_flag_and_other_fields(server: _Server) -> None:
+    client = _connect(server)
+    result = {"content": [], "isError": True, "_meta": {"trace": "t"}}
+    server.set_handler("tools/call", lambda request: result)
+
+    assert client.call_tool("failing", {}) == result
+    assert _requests(server, "tools/call")[0]["params"] == {
+        "name": "failing",
+        "arguments": {},
+    }
+    client.close()
+
+
+def test_helpers_pass_request_options_to_every_page(server: _Server) -> None:
+    client = _connect(server)
+    progress: list[object] = []
+    options = McpRequestOptions(timeout_ms=30, on_progress=progress.append)
+    server.set_handler(
+        "tools/list",
+        lambda request: (
+            {"tools": [], "nextCursor": "2"}
+            if _cursor(request) is None
+            else server.never(request)
+        ),
+    )
+
+    with pytest.raises(McpTimeoutError):
+        client.list_tools(options)
+
+    first, second = _requests(server, "tools/list")
+    assert first["params"] == {"_meta": {"progressToken": first["id"]}}
+    assert second["params"] == {
+        "cursor": "2",
+        "_meta": {"progressToken": second["id"]},
+    }
+    server.wait_for_method("notifications/cancelled")
+
+    cancel = threading.Event()
+    cancel.set()
+    for call in (
+        lambda: client.call_tool("a", None, McpRequestOptions(cancel_event=cancel)),
+        lambda: client.read_resource("a", McpRequestOptions(cancel_event=cancel)),
+        lambda: client.list_resources_page(
+            None, McpRequestOptions(cancel_event=cancel)
+        ),
+        lambda: client.list_resource_templates(McpRequestOptions(cancel_event=cancel)),
+    ):
+        with pytest.raises(McpAbortError):
+            call()
     client.close()

@@ -1,4 +1,8 @@
-"""Tests for the MCP JSON-RPC predicates and error types."""
+"""Tests for the MCP JSON-RPC predicates, error types and content conversion.
+
+Tests that mirror a case of Pi's ``packages/mcp/test/content.test.ts`` name it
+in a ``Pi:`` comment.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from pipy_harness.native.mcp.protocol import (
     is_json_rpc_request,
     is_json_rpc_response,
     parse_json_rpc_message,
+    to_llm_content,
 )
 
 
@@ -128,3 +133,145 @@ def test_ids_are_rendered_as_json_would() -> None:
     assert format_id("roots") == "roots"
     assert format_id(7) == "7"
     assert format_id(7.0) == "7"
+
+
+def test_passes_text_and_images_through_and_replaces_other_blocks_with_text() -> None:
+    # Pi: "passes text and images through and replaces other blocks with text"
+    blocks = [
+        {"type": "text", "text": "hello", "annotations": {"priority": 1}},
+        {"type": "image", "data": "aW1n", "mimeType": "image/png", "_meta": {"x": 1}},
+        {"type": "audio", "data": "YXVk", "mimeType": "audio/wav"},
+        {"type": "resource_link", "uri": "file:///a.txt", "name": "a.txt"},
+        {"type": "resource", "resource": {"uri": "file:///b.txt", "text": "inline"}},
+        {
+            "type": "resource",
+            "resource": {
+                "uri": "file:///c.png",
+                "mimeType": "image/png",
+                "blob": "Yw==",
+            },
+        },
+        {"type": "resource", "resource": {"uri": "file:///d.bin", "blob": "ZA=="}},
+    ]
+
+    assert to_llm_content({"content": blocks}) == [
+        {"type": "text", "text": "hello"},
+        {"type": "image", "data": "aW1n", "mimeType": "image/png"},
+        {"type": "text", "text": "[audio audio/wav omitted]"},
+        {"type": "text", "text": "a.txt: file:///a.txt"},
+        {"type": "text", "text": "inline"},
+        {"type": "image", "data": "Yw==", "mimeType": "image/png"},
+        {
+            "type": "text",
+            "text": "[binary resource file:///d.bin (unknown type) omitted]",
+        },
+    ]
+
+
+def test_falls_back_to_the_structured_content_as_json_when_there_are_no_blocks() -> (
+    None
+):
+    # Pi: "falls back to the structured content as JSON when there are no blocks"
+    assert to_llm_content({"content": [], "structuredContent": {"n": 1}}) == [
+        {"type": "text", "text": '{\n  "n": 1\n}'}
+    ]
+    assert to_llm_content(
+        {"content": [{"type": "text", "text": "n=1"}], "structuredContent": {"n": 1}}
+    ) == [{"type": "text", "text": "n=1"}]
+
+
+def test_structured_content_json_is_indented_and_keeps_non_ascii_text() -> None:
+    assert to_llm_content(
+        {"structuredContent": {"name": "Grüße", "items": [1, {"ok": True}], "none": {}}}
+    ) == [
+        {
+            "type": "text",
+            "text": (
+                "{\n"
+                '  "name": "Grüße",\n'
+                '  "items": [\n'
+                "    1,\n"
+                "    {\n"
+                '      "ok": true\n'
+                "    }\n"
+                "  ],\n"
+                '  "none": {}\n'
+                "}"
+            ),
+        }
+    ]
+    assert to_llm_content({"content": [], "structuredContent": {}}) == [
+        {"type": "text", "text": "{}"}
+    ]
+
+
+def test_a_result_without_content_or_structured_content_converts_to_nothing() -> None:
+    assert to_llm_content({}) == []
+    assert to_llm_content({"content": []}) == []
+    assert to_llm_content({"content": None, "structuredContent": None}) == []
+
+
+def test_a_binary_resource_names_its_mime_type() -> None:
+    assert to_llm_content(
+        {
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///a.pdf",
+                        "mimeType": "application/pdf",
+                        "blob": "JVBERg==",
+                    },
+                }
+            ]
+        }
+    ) == [
+        {
+            "type": "text",
+            "text": "[binary resource file:///a.pdf (application/pdf) omitted]",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("block", "shown"),
+    [
+        ({"type": "video", "data": "x"}, "video"),
+        ({"data": "x"}, "undefined"),
+        ({"type": 7}, "undefined"),
+        ("text", "undefined"),
+        (None, "undefined"),
+        # A known type without the fields it requires is not passed on.
+        ({"type": "text"}, "text"),
+        ({"type": "text", "text": 1}, "text"),
+        ({"type": "image", "data": "aW1n"}, "image"),
+        ({"type": "image", "mimeType": "image/png"}, "image"),
+        ({"type": "audio", "data": "YXVk"}, "audio"),
+        ({"type": "resource_link", "uri": "file:///a"}, "resource_link"),
+        ({"type": "resource_link", "name": "a"}, "resource_link"),
+        ({"type": "resource"}, "resource"),
+        ({"type": "resource", "resource": "file:///a"}, "resource"),
+        ({"type": "resource", "resource": {"uri": "file:///a"}}, "resource"),
+        ({"type": "resource", "resource": {"blob": "ZA=="}}, "resource"),
+    ],
+)
+def test_unknown_and_malformed_blocks_become_a_placeholder(
+    block: object, shown: str
+) -> None:
+    assert to_llm_content({"content": [block, {"type": "text", "text": "kept"}]}) == [
+        {"type": "text", "text": f"[unsupported MCP content {shown}]"},
+        {"type": "text", "text": "kept"},
+    ]
+
+
+def test_an_embedded_image_blob_needs_no_uri() -> None:
+    assert to_llm_content(
+        {
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"mimeType": "image/jpeg", "blob": "/9g="},
+                }
+            ]
+        }
+    ) == [{"type": "image", "data": "/9g=", "mimeType": "image/jpeg"}]
