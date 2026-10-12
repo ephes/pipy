@@ -499,7 +499,7 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `log.py` | Server log file | `ext/log.ts` |
 | `connection.py` | `McpServerConnection`, default transport factory | `ext/runtime.ts` |
 | `credentials.py` | `McpOAuthCredentialStore`, the connection auth provider, `sign_in_mcp_server` | `ext/oauth.ts` |
-| `tools.py` | Naming, tool ports, result conversion, truncation and spill, result schema | `ext/tools.ts` |
+| `tools.py` | Naming and the session's name table, definitions, tool ports, result conversion, truncation and spill, result schema | `ext/tools.ts`, `ext/index.ts` `assignName` |
 | `resources.py` | The three resource tools | `ext/resources.ts` |
 | `manager.py` | `McpManager`: the per-session owner of servers, readiness, registration, discovery activation, the prompt section and the startup report | `ext/index.ts` |
 | `registry.py` | Extension-registered servers | `core/mcp-servers.ts` `McpServerRegistry` |
@@ -659,6 +659,50 @@ Decided in S15 (`connection.py`, `config_values.py`, `log.py`):
   retry-wait half of CON-09), `withClient`'s retries and session renewal
   (S26), `needs-auth`, `reconnect` and `sign_out` (S21, S30, S31), resources
   at connect time (S23).
+
+Decided in S16 (`tools.py`, and `truncate_middle` in
+`native/tools/truncate.py`):
+
+- `ToolDefinition`'s name rule is not relaxed. `create_mcp_tool_name` yields
+  only letters, digits and `_`, as Pi's does, and at most 64 characters.
+- `McpToolNames` is the session's name table (Pi `toolOwners`, 4.4):
+  `assign(server, tool_names)` returns the names for one tool list in list
+  order and `owner(name)` the `(server, tool)` a name belongs to. The manager
+  owns one instance; it has its own lock. Stricter than Pi: a suffixed name
+  that already belongs to another tool, or is already used in the list, is
+  replaced by one with another suffix, so the names of a list are all
+  different and no name ever changes its owner.
+- `McpToolPort(server=, tool=, name=, exposure=, namespace=, timeout_ms=,
+  get_caller=, readable_resources=None, save_output=save_to_temp_file)` is
+  the tool port of 4.4. `tool` is the server's definition, `exposure` the
+  MCP exposure of the config. `get_caller()` is asked on every call and
+  returns something with the connection's `call_tool`; what it raises (the
+  TLS-19 messages of S17) is the call's error result, like every other
+  failure of a call. `readable_resources()` is asked on every call too
+  (TLS-12; `False` until S23). The timeout is the one of the connection at
+  registration, as in Pi.
+- The constructor raises `ValueError` for a tool that cannot be a pipy
+  definition: an input schema whose `type` is not `object`, or an unknown
+  exposure. Pi registers such a schema as it is. S17 has to leave that tool
+  out and report it instead of failing the server's registration.
+- `convert_mcp_result` returns model-facing content blocks (text and image),
+  the details, the script result and the error flag, as Pi's function does.
+  `ToolExecutionResult` has text only, so the port joins the blocks with
+  newlines and writes `[image <mime> omitted]` for an image
+  (`render_model_text`). S39 replaces that one step.
+- A script result is delivered through `structured_content` and the
+  declared output schema (S04), so CMD-05 needs nothing in the codemode
+  host. A value over the reply limit of 16 MiB is an error in the script.
+- Progress goes to `ToolContext.output_sink` as one line per notification.
+  Pi's update replaces the preliminary result and carries details; pipy's
+  sink takes text only.
+- Spill files are created by `save_to_temp_file` in the temp directory as
+  `pipy-mcp-<16 hex><extension>`, exclusively and with mode 0600. Nothing
+  removes them, as in Pi.
+- Base64 of an embedded blob is decoded as leniently as Node decodes it
+  (either alphabet, other characters skipped, missing padding accepted).
+- `truncate_middle` is Pi's `truncateMiddle`, in `native/tools/truncate.py`
+  next to the other truncation helpers; `format_size` takes a float as well.
 
 Open after the merge, owned by later slices:
 
@@ -1168,10 +1212,11 @@ Decided in S07 (discovery, `codemode/prelude.py`, `codemode/host.py`,
   Names are listed in registration order, no longer sorted.
 - Not changed: the `codemode` tool description (byte-pinned until S08) does
   not mention the helpers. Tool names are still limited to letters, digits
-  and `_` by `ToolDefinition`, so a name with `-` cannot be registered until
-  S16 relaxes that for MCP tools; the mapping and both key forms are tested
-  below the registry with such names, and in a session with the names
-  `class` and `9lives`.
+  and `_` by `ToolDefinition`, so a name with `-` cannot be registered; the
+  mapping and both key forms are tested below the registry with such names,
+  and in a session with the names `class` and `9lives`. (S16: the rule
+  stays. Pi gives an MCP tool a name of letters, digits and `_` only, so no
+  MCP tool needs another character.)
 
 Decided in S08 (description, catalog and `codemode.mode`,
 `coding/codemode_description.py`, `tools/loadout.py`, `tool_capabilities.py`):

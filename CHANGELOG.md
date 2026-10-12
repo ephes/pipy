@@ -147,6 +147,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   Server log messages go to `mcp.log` in the config home, renamed to
   `mcp.log.1` above 5 MB. See
   [server connections](docs/mcp.md#server-connections).
+- MCP tool adaptation, also library code that no session uses yet: a
+  server's tool becomes a pipy tool named `mcp__<server>__<tool>` (other
+  characters as `_`, a hash suffix for names over 64 characters and for
+  tools whose names would collide) in the namespace `mcp__<server>`, with the
+  server's schema, description and annotation hints. Scripts get the whole
+  result, `{content, structuredContent?, isError?}`, and the tool declares
+  that type. The model gets the text: resource links and binary resources as
+  one-line notes (binary data is saved to a temp file), and text over 20 KB
+  as its first and last 10 KB with the full text in a file readable by its
+  owner only. Progress notifications become live output. Images in results
+  are shown as `[image <mime> omitted]` for now. See
+  [server tools](docs/mcp.md#server-tools).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

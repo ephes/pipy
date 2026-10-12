@@ -9,7 +9,8 @@ that reach extension tools, and tool search.
 The MCP client itself exists as library code that no session, command or
 setting uses yet: the protocol client, the stdio and streamable HTTP
 transports, the `mcp.json` reader and editor, the connection to a stdio
-server, and OAuth discovery. See
+server, the adaptation of a server's tools and their results, and OAuth
+discovery. See
 [what exists as a library](#what-exists-as-a-library). The sections on
 configuration below describe the file format that library accepts, so a file
 written now is valid when sessions start to connect. Until then pipy never
@@ -274,6 +275,120 @@ Differences from Pi in connections:
   number such as `1.0` in log data is written `1.0`, not `1`.
 - `mcp.log` is created with mode 0600.
 
+## Server tools
+
+Not used by a session yet: this section describes how the library turns a
+server's tools into pipy tools and a tool's result into what the model and a
+script see. No session registers such a tool so far.
+
+### Names
+
+A tool is named `mcp__<server>__<tool>`, with every character other than
+letters, digits and `_` replaced by `_`: the tool `get.item/v2` of the server
+`my-server` is `mcp__my_server__get_item_v2`. The name is also what a
+codemode script calls, `tools.mcp__my_server__get_item_v2(...)`.
+
+- A name longer than 64 characters is cut and ends in `_` and eight
+  hexadecimal digits computed from the server and tool name.
+- When two tools of a server would get the same name (`a-b` and `a_b`), both
+  get such a suffix, whatever their order in the server's list. When one of
+  them disappears from a later list, the other has its plain name again.
+- A name that one tool had in a session is never given to a different tool,
+  of this or another server; the other tool gets the suffix instead.
+
+The tools of a server form the namespace `mcp__<server>` (with `-` written
+as `_`), which also answers to the server's name. It carries the configured
+`description` and the server's instructions.
+
+### What a tool declares
+
+- Description: the server's description without surrounding whitespace, else
+  the tool's title, else the title in its annotations, else
+  `MCP tool <tool> from server <server>`.
+- Input schema: the server's, with `type: "object"` and `properties: {}`
+  added when they are missing. Everything else is passed on unchanged.
+- Annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and
+  `openWorldHint` where the server gives a boolean.
+- Exposure: `direct` and `hidden` as configured. `codemode` and `deferred`
+  both give a tool that scripts can call and that the `codemode` description
+  does not list.
+- Result type: every tool declares the result a script receives,
+  `{content, structuredContent?, isError?}`. `content` is a list of blocks
+  with `type` and, depending on the type, `text`, `data` and `mimeType`;
+  `structuredContent` has the tool's own output schema when it declares one.
+  The type is written out in the tool's declaration.
+
+### What the model sees
+
+- Text blocks are shown as text. A result without content blocks shows its
+  structured content as JSON.
+- A resource link is shown as
+  `[Resource <uri> "<title or name>" (<mime>, <size>): <description>]`; the
+  parenthesis and the description appear only when the server gives them.
+- An embedded resource with text is shown as that text. One with binary data
+  of a text type (`text/*`, `application/json`, `+json`, `+xml`) is decoded
+  as UTF-8. Other binary data is saved to a file in the temp directory, named
+  with the extension of the resource's URI or `.bin`, and shown as
+  `[Binary resource <uri> (<mime>, <size>) saved to <path>]`, or
+  `... could not be saved: <reason>]`.
+- Audio is shown as `[audio <mime> omitted]`.
+- A result the server marks with `isError` is an error. Without any text it
+  reads `MCP tool <server>/<tool> returned an error`.
+- A call that fails before there is a result (the server cannot be
+  connected, the request times out, is cancelled or is answered with an
+  error) is an error with that message.
+- A progress notification of a running call is shown as a line of live
+  output: its message, else `Progress <p>` or `Progress <p>/<total>`.
+
+Text of more than 20 KB (all text of the result, joined by newlines, in
+UTF-8) is replaced by its first and last 10 KB, cut between characters, with
+the number of characters left out in between:
+
+```text
+Warning: truncated output (original token count: 12345)
+Total output lines: 3000
+
+line 1
+line 2
+<the rest of the first 10 KB>…29012 chars truncated…<the last 10 KB>
+line 3000
+
+[Full output: /tmp/pipy-mcp-0123456789abcdef.txt (read it with offset/limit)]
+```
+
+The full text is in the named file, which pipy creates readable by its owner
+only. The token count is the size in bytes divided by four. When the file
+cannot be written the last line is `[Could not save the full output:
+<reason>]`. The result's details are `{server, tool}`, plus `fullOutputPath`
+when the file was written.
+
+### What a script sees
+
+A script gets the whole result as the server sent it, without `_meta`:
+`content` with every block unchanged, `structuredContent` and `isError`. It
+is never shortened, and a result with `isError` is returned, not raised. A
+call that fails before there is a result raises `ToolError`.
+
+Known gap: pipy tool results carry text only, so an image in a result is
+shown to the model as `[image <mime> omitted]`. A script still gets the image
+block.
+
+Differences from Pi in tools:
+
+- A tool whose input schema declares a type other than `object` cannot be
+  declared by pipy. Pi registers it as it is.
+- Arguments are checked against the server's schema but not converted
+  (`"3"` stays a string).
+- Progress is added to the call's live output line by line; Pi replaces the
+  call's preliminary result.
+- A resource link without a `uri` or `name` is shown as
+  `[unsupported MCP content resource_link]`.
+- The message of a failed call is cut to 20 KB like a result; nothing is
+  saved for it. Reasons for a failed save are Python's.
+- A lone surrogate in text from a server is shown to the model as U+FFFD.
+- A name with a suffix that is already another tool's name, or a tool a
+  server lists twice, gets a different suffix. In Pi the name changes hands.
+
 ## What exists as a library
 
 The package `pipy_harness.native.mcp` is synchronous and uses only the
@@ -290,10 +405,12 @@ session imports it yet.
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
 | `log` | The `mcp.log` writer. |
+| `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session
-renewal, registration of a server's tools, resources, readiness waits, the
+renewal, registration of a server's tools in a session, images in tool
+results, resources, readiness waits, the
 `mcp_servers` prompt section, `--no-mcp`, the `pipy mcp` commands, `/mcp`,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
