@@ -738,6 +738,38 @@ def test_no_cancellation_is_sent_for_a_request_whose_write_failed(
     client.close()
 
 
+def test_a_request_the_transport_gives_up_after_send_ends_with_that_error(
+    server: _Server,
+) -> None:
+    # A transport whose send() returns before the server took the request
+    # (HTTP) reports the failure later, with the request's id.
+    client = _connect(server)
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    server.set_handler("tools/call", server.never)
+    server.set_handler("ping", lambda request: {})
+    thread, raised = _raises_in_thread(lambda: client.request("tools/call"))
+    server.wait_for_method("tools/call")
+    request_id = server.messages[-1]["id"]
+    assert isinstance(request_id, int)
+    failure = OSError("connection reset")
+
+    server.client_transport.emit_request_failure(request_id + 1, OSError("other"))
+    server.client_transport.emit_request_failure(request_id, failure)
+    thread.join(_WAIT_SECONDS)
+
+    assert raised == [failure]
+    # The request is over: no cancellation is sent for it, a second report
+    # changes nothing, and the connection stays usable.
+    server.client_transport.emit_request_failure(request_id, OSError("again"))
+    client.ping()
+    assert "notifications/cancelled" not in server.methods()
+    assert errors == []
+    client.close()
+    # A closed client no longer listens to its transport.
+    server.client_transport.emit_request_failure(request_id, OSError("late"))
+
+
 def test_notify_sends_a_notification(server: _Server) -> None:
     client = _connect(server)
 

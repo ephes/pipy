@@ -359,6 +359,7 @@ class McpClient:
                 # when the transport closes.
                 transport.on_error(self._emit_error),
                 transport.on_close(self._mark_closed),
+                transport.on_request_failure(self._fail_request),
             ]
         try:
             transport.start()
@@ -776,6 +777,15 @@ class McpClient:
             entry.settle(error=error)
             if notify_server:
                 self._queue_cancelled(request_id, entry, reason)
+
+    def _fail_request(self, request_id: JsonRpcId, error: Exception) -> None:
+        """End a request the transport gave up after ``send`` returned.
+
+        The request did not reach the server in a way that gets an answer, so
+        the server is sent no cancellation.
+        """
+
+        self._cancel_pending(request_id, error, notify_server=False)
 
     def _queue_cancelled(
         self, request_id: JsonRpcId, entry: _PendingRequest, reason: str | None

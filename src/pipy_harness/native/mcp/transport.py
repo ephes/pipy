@@ -13,13 +13,18 @@ import threading
 from collections.abc import Callable
 from typing import Final, Protocol, TypeVar
 
-from pipy_harness.native.mcp.protocol import JsonRpcMessage, McpConnectionClosedError
+from pipy_harness.native.mcp.protocol import (
+    JsonRpcId,
+    JsonRpcMessage,
+    McpConnectionClosedError,
+)
 
 DEFAULT_MAX_MESSAGE_BYTES: Final = 16 * 1024 * 1024
 
 MessageListener = Callable[[JsonRpcMessage], None]
 ErrorListener = Callable[[Exception], None]
 CloseListener = Callable[[], None]
+RequestFailureListener = Callable[[JsonRpcId, Exception], None]
 Disposer = Callable[[], None]
 _Listener = TypeVar("_Listener")
 
@@ -27,8 +32,11 @@ _Listener = TypeVar("_Listener")
 class McpTransport(Protocol):
     """What ``McpClient`` needs from a connection to one server.
 
-    ``send`` raises when the message cannot be handed to the server. Each
-    ``on_*`` method returns a callable that removes the listener again.
+    ``send`` raises when the message cannot be handed to the server. A
+    transport whose ``send`` returns before the server took a request reports
+    a later failure to hand it over to the request-failure listeners, with the
+    request's id; that request gets no response. Each ``on_*`` method returns
+    a callable that removes the listener again.
     ``set_protocol_version`` tells the transport which version the handshake
     selected.
     """
@@ -45,6 +53,8 @@ class McpTransport(Protocol):
 
     def on_close(self, listener: CloseListener) -> Disposer: ...
 
+    def on_request_failure(self, listener: RequestFailureListener) -> Disposer: ...
+
     def set_protocol_version(self, version: str) -> None: ...
 
 
@@ -60,6 +70,7 @@ class TransportEvents:
         self._message_listeners: dict[MessageListener, None] = {}
         self._error_listeners: dict[ErrorListener, None] = {}
         self._close_listeners: dict[CloseListener, None] = {}
+        self._request_failure_listeners: dict[RequestFailureListener, None] = {}
         self._close_emitted = False
 
     def on_message(self, listener: MessageListener) -> Disposer:
@@ -77,6 +88,11 @@ class TransportEvents:
             self._close_listeners[listener] = None
         return lambda: self._remove(self._close_listeners, listener)
 
+    def on_request_failure(self, listener: RequestFailureListener) -> Disposer:
+        with self._listener_lock:
+            self._request_failure_listeners[listener] = None
+        return lambda: self._remove(self._request_failure_listeners, listener)
+
     def set_protocol_version(self, version: str) -> None:
         """Ignored by transports that do not put the version on the wire."""
 
@@ -91,6 +107,12 @@ class TransportEvents:
             listeners = list(self._error_listeners)
         for listener in listeners:
             listener(error)
+
+    def emit_request_failure(self, request_id: JsonRpcId, error: Exception) -> None:
+        with self._listener_lock:
+            listeners = list(self._request_failure_listeners)
+        for listener in listeners:
+            listener(request_id, error)
 
     def emit_close(self) -> None:
         with self._listener_lock:
