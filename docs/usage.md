@@ -232,6 +232,23 @@ Local paths and managed git sources are supported. PyPI/npm package sources are
 deferred pending supply-chain policy. See [Pipy Packages](packages.md) for
 source syntax, security notes, package layout, filtering, and update behavior.
 
+### MCP commands
+
+```bash
+pipy mcp add <server> [options] -- <command> [args...]
+pipy mcp add <server> [options] --url <url>
+pipy mcp remove <server> [-l]
+pipy mcp list [--json]
+```
+
+`add` and `remove` change `mcp.json` in the config home, or `.pipy/mcp.json`
+of the current directory with `-l`. `list` connects to every enabled server,
+prints its state, tools and errors, and exits with status 1 when an entry is
+invalid or a server is not connected. The commands start no session and load
+no extensions. `pipy mcp --help` lists the options of `add`; see
+[MCP](mcp.md#the-pipy-mcp-commands) for the details. `pipy mcp login` and
+`logout` do not exist yet.
+
 ### Modes
 
 | Flag | Description |

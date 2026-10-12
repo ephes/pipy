@@ -20,6 +20,7 @@ SUBS = {
     "run",
     "repl",
     "config",
+    "mcp",
     "install",
     "remove",
     "uninstall",

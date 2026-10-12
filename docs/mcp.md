@@ -6,11 +6,27 @@ The work follows the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
 this page grows with them. [Quick setup](#quick-setup) shows what works today
 and [what is missing](#what-is-missing) lists what does not yet: among other
-things HTTP servers, OAuth, `/mcp`, the `pipy mcp` commands and resources.
+things HTTP servers, OAuth, `/mcp` and resources.
 
 ## Quick setup
 
-Write the servers into `mcp.json` in the config home (`~/.pipy/mcp.json`
+Add a server from the shell and check that it connects:
+
+```bash
+pipy mcp add filesystem --exposure direct -- npx -y @modelcontextprotocol/server-filesystem .
+pipy mcp list
+```
+
+With `-l` the server goes into the project's `.pipy/mcp.json`; a value such
+as `${TOOLS_KEY}` is kept as written and read from the environment when the
+server starts:
+
+```bash
+pipy mcp add -l tools --env API_KEY='${TOOLS_KEY}' -- uvx tools-mcp
+```
+
+See [the `pipy mcp` commands](#the-pipy-mcp-commands). Or write the servers
+yourself into `mcp.json` in the config home (`~/.pipy/mcp.json`
 unless `PIPY_CONFIG_HOME` or `XDG_CONFIG_HOME` say otherwise), or into
 `.pipy/mcp.json` of a trusted project:
 
@@ -275,8 +291,7 @@ Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
 ### What is missing
 
-Not built yet, in the order the plan builds it: the `pipy mcp` commands,
-`/mcp` (status, reconnect, enabling and disabling a server, changing its
+Not built yet, in the order the plan builds it: `/mcp` (status, reconnect, enabling and disabling a server, changing its
 exposure), reading `mcp.json` again on `/reload`, resources, HTTP servers,
 OAuth, servers registered by extensions, and images in tool results.
 
@@ -444,8 +459,8 @@ when a server is connected is described under
 
 The library can also change a file: set one server's `enabled` or `exposure`,
 add a server, or remove one. An edit keeps all other content and the file's
-indentation. Nothing calls these functions yet; the `pipy mcp` commands and
-`/mcp` will.
+indentation. [`pipy mcp add` and `pipy mcp remove`](#the-pipy-mcp-commands)
+use the last two; nothing sets `enabled` or `exposure` yet, `/mcp` will.
 
 Differences from Pi in the configuration:
 
@@ -458,6 +473,147 @@ Differences from Pi in the configuration:
 - A file that is not valid UTF-8 is an error, and JSON error messages are
   Python's.
 - A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
+
+## The `pipy mcp` commands
+
+```bash
+pipy mcp add <server> [options] -- <command> [args...]
+pipy mcp add <server> [options] --url <url>
+pipy mcp remove <server> [-l]
+pipy mcp list [--json]
+```
+
+The commands work without a session, in the current directory. They load no
+extension and read no settings, so they see only the servers of the two
+`mcp.json` files, and [turning MCP off](#turning-mcp-off) for sessions does
+not turn them off. `pipy mcp`, `pipy mcp help` and `--help` or `-h` anywhere
+after `mcp` print the usage text.
+
+### Add and remove
+
+`add` writes one entry and `remove` deletes one, in the user-level `mcp.json`
+or, with `-l` or `--local`, in `.pipy/mcp.json` of the current directory. Both
+keep the rest of the file and its indentation. `add` replaces an entry of the
+same name, checks the entry with the
+[configuration rules](#configuration-rules) first and writes nothing when it
+is invalid. It does not connect to the server.
+
+After the server name and the first word of the command, everything belongs
+to the command, so the command's own options need no `--`:
+
+```bash
+pipy mcp add files node server.js --port 1
+```
+
+Options of `pipy mcp add` go before the command, or before `--`:
+
+| Option | Applies to | Writes |
+| --- | --- | --- |
+| `--env KEY=VALUE` (repeatable) | stdio | `env` |
+| `--cwd <dir>` | stdio | `cwd` |
+| `--url <url>` | HTTP | `url`, in place of a command |
+| `--header KEY=VALUE` (repeatable) | HTTP | `headers` |
+| `--bearer-token-env-var <NAME>` | HTTP | the header `Authorization: Bearer ${NAME}` |
+| `--oauth-client-id`, `--oauth-client-secret`, `--oauth-callback-port`, `--oauth-client-name` | HTTP | `oauth.clientId`, `oauth.clientSecret`, `oauth.callbackPort`, `oauth.clientName` |
+| `--exposure <mode>` | both | `exposure` |
+| `--description <text>` | both | `description` |
+
+An option for the other kind of server is an error (`--env only applies to
+stdio servers.`), as is a pair without `=` or without a key. A value is the
+next argument, whatever it looks like.
+
+`add` prints what it did and how to check it:
+
+```text
+Added global MCP server "files" in /home/me/.pipy/mcp.json.
+Check it with: pipy mcp list
+```
+
+For a project server in a project that is not trusted it adds that the file
+is ignored until you start pipy there and trust the project. For an HTTP
+server without an `Authorization` header the last line also names `pipy mcp
+login <server>`; that command, like the rest of OAuth, does not exist yet.
+
+`remove` fails when the file does not have the entry and says where the
+server is defined instead: `It is defined in <path>; use --local.` or `...;
+omit --local.`
+
+### List
+
+`pipy mcp list` connects to every enabled server, all at the same time, reads
+its tools and closes the connection again. For each server it prints the
+state, the exposure and the scope, then the command or URL, and after that
+what applies: the project file that overrides it, its tools, and the error.
+
+```text
+filesystem: connected, 2 tools (direct, global)
+  npx -y @modelcontextprotocol/server-filesystem .
+  tools: read_file, write_file [hidden]
+broken: failed (codemode, global)
+  no-such-server
+  [Errno 2] No such file or directory: 'no-such-server'
+parked: disabled (codemode, project)
+  node server.js
+config error: /home/me/.pipy/mcp.json: server "bad" needs either "command" (stdio) or "url" (streamable HTTP)
+```
+
+A tool is followed by its exposure in brackets when `toolExposure` gives it
+another one than the server's. The exit status is 1 when an entry of a file
+is invalid or an enabled server is not connected, else 0, so a script or an
+agent can use the command to check an `mcp.json` it wrote. A server that
+does not answer is given up after its `timeout` (60 seconds by default).
+
+`--json` prints one object instead:
+
+```json
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "scope": "global",
+      "source": "/home/me/.pipy/mcp.json",
+      "enabled": true,
+      "exposure": "direct",
+      "transport": "npx -y @modelcontextprotocol/server-filesystem .",
+      "state": "connected",
+      "tools": [
+        "read_file",
+        "write_file"
+      ],
+      "toolExposure": {
+        "write_file": "hidden"
+      }
+    }
+  ],
+  "errors": []
+}
+```
+
+`override` (the project file that overrides the server), `toolExposure` and
+`error` are present only when they apply; `note` is the line about an ignored
+project file.
+
+The project file is read only when a decision to trust the project is
+already saved; the commands never ask, and the `defaultProjectTrust` setting
+and `--approve` do not count. A project file that exists but is not read is
+reported: `<path> is ignored because the project is not trusted. Start pipy
+in the project to trust it.`
+
+### Differences from Pi
+
+- `pipy mcp login` and `pipy mcp logout` do not exist yet and say so; the
+  usage text does not list them.
+- A server with a `url` is listed as `failed`, because pipy cannot connect to
+  HTTP servers yet.
+- The list has no `resources:` line and no `resources` and
+  `resourceTemplates` fields yet.
+- `--oauth-callback-port` takes a decimal number. Pi also reads JavaScript's
+  other spellings of a number, such as `0x50`.
+- The usage text and the hint are plain text; Pi prints parts of them bold
+  or dim.
+- A trust store that cannot be read ends `list`, and `add` to a project file
+  before it writes, with the store's error and status 1.
+- Error texts of the operating system and of the JSON parser are Python's.
 
 ## Server connections
 
@@ -672,13 +828,13 @@ standard library. It is not part of the SDK surface.
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
 | `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `describe_state` gives a server's short state. |
+| `shell_cli` | `run_mcp_command`: [the `pipy mcp` commands](#the-pipy-mcp-commands). |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session
-renewal, images in tool results, resources, the
-`mcp_servers` prompt section, the `pipy mcp` commands, `/mcp`,
+renewal, images in tool results, resources, `/mcp`,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
 sign-in).

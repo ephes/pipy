@@ -954,6 +954,30 @@ Decided in S20 (`servers_section.py`, the run's prompt sections):
   has to pass the new manager's `servers_section`. S23, S36: a resource-only
   server and a registered server are listed by the same configuration rule.
 
+Decided in S20a (`shell_cli.py`, `pipy mcp`):
+
+- `run_mcp_command(args, McpCommandOptions(cwd, config_home, client_version,
+  log, error, trust_store, create_transport)) -> int` is the port of Pi
+  `runMcpCommand`, with Pi's own option parser (`--` and the second
+  positional end the options). `cli.py` `main` hands `pipy mcp ...` to it
+  before argparse runs; the `mcp` subparser exists only for `pipy --help`
+  and the router's list of subcommands. The commands use the current
+  directory and `resolve_config_home()` and take no `--cwd`: in `add` that
+  option is the server's working directory.
+- The commands read no settings, so `--no-mcp` and `-builtin:mcp` do not
+  apply, as in Pi.
+- `list` probes each enabled server on its own thread (`mcp-list`) with one
+  `McpServerConnection` and closes it; an interrupted wait closes all.
+- An HTTP entry gets no placeholder of its own in `list`: it fails with the
+  error of the default transport factory (S15), `MCP server "<n>" is an HTTP
+  server; pipy connects only to stdio servers yet`, the text a session
+  reports too. S26 has nothing to remove in `shell_cli.py`.
+- `login` and `logout` answer `pipy mcp <command> is not available yet.`
+  and are not in the usage text; S31 adds both and the `--timeout` line. The
+  login hint of `add` (CMDL-06) is printed already.
+- A trust store that cannot be read fails `list`, and `add -l` before it
+  writes, with the store's error.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -1853,8 +1877,8 @@ their instructions without a configured description".
 **S20a Shell commands.** Build `shell_cli.py` and the `mcp` subparser. `add`
 and `remove` handle both transports (they only write config). `list` connects
 stdio entries; until S26 an HTTP entry is reported in state `failed` with the
-error `streamable HTTP is not available yet`, and until S23 the report has no
-resource counts. Both gaps are named in the slice's changelog line and closed
+error of the default transport factory (see "Decided in S20a"), and until S23
+the report has no resource counts. Both gaps are named in the slice's changelog line and closed
 by the rows' later slices. Tests: mirrors of the eight `mcp-command.test.ts`
 cases except login, with stdio servers. Docs:
 `docs/mcp.md`, `docs/usage.md` "MCP commands".
@@ -1886,8 +1910,8 @@ POST receives no `tools/list` and no GET before it answered, and one that
 rejects that POST fails the connect.
 
 **S26 HTTP connections.** Build: the default transport factory creates the
-HTTP transport for `url` entries (S15 built it for stdio only); remove the
-S20a placeholder error. Tests: `pipy mcp list` and a session against the fake
+HTTP transport for `url` entries (S15 built it for stdio only), which also
+ends the failure `pipy mcp list` reports for them. Tests: `pipy mcp list` and a session against the fake
 HTTP server; mirrors of "starts a new session and retries
 once when the session expired", "retries HTTP connections that fail with a
 transient error", "stops waiting to retry a connection when closed", "retries

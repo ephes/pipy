@@ -27,6 +27,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- `pipy mcp add`, `pipy mcp remove` and `pipy mcp list` configure and check
+  MCP servers from the shell, without starting a session. `add` writes a
+  stdio or HTTP entry into the user-level `mcp.json`, or with `-l` into the
+  project's, after checking it; `list` connects to every enabled server and
+  prints state, tools and errors as text or with `--json`, exiting 1 when
+  something is wrong. Two gaps for now: `list` reports a server with a `url`
+  as failed, because HTTP servers cannot be connected yet, and it shows no
+  resource counts. `pipy mcp login` and `logout` do not exist yet. See
+  [MCP](docs/mcp.md#the-pipy-mcp-commands).
 - The system prompt lists the MCP servers whose tools are not declared to the
   model, in a section named `mcp_servers`: each enabled server with
   `codemode` or `deferred` tools, how its tools are reached, and one line

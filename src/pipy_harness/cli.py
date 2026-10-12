@@ -599,6 +599,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable startup network operations for this run (same as PIPY_OFFLINE=1).",
     )
 
+    # Listed for `pipy --help` and the router; `main` hands the arguments of
+    # `pipy mcp` to the command's own parser before argparse sees them.
+    subparsers.add_parser(
+        "mcp",
+        add_help=False,
+        help="Add, remove and check MCP servers (`pipy mcp --help`).",
+    )
+
     config_parser = subparsers.add_parser(
         "config",
         help=(
@@ -1016,6 +1024,10 @@ def _bind_tool_modifier_values(argv: list[str]) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     incoming_argv = sys.argv[1:] if argv is None else argv
+    if incoming_argv[:1] == ["mcp"]:
+        # Pi-shape: the command parses its own arguments, so the options of a
+        # server command (`pipy mcp add files npx -y server`) pass through.
+        return _cmd_mcp(list(incoming_argv[1:]))
     # Front-controller router (Pi-shape): bare ``pipy``, a positional prompt, or
     # bare repl flags launch the interactive product session by injecting the
     # implicit ``repl`` subcommand; subcommands and the root-only flags
@@ -1752,6 +1764,32 @@ def _cmd_package(args: Any) -> int:
         return 1
     print(message)
     return 0
+
+
+def _cmd_mcp(args: list[str]) -> int:
+    """`pipy mcp`: add, remove and check MCP servers without a session.
+
+    Uses the current directory and the user's config home. No settings are
+    read and no extension is loaded, so `--no-mcp` and `-builtin:mcp` do not
+    apply (Pi `pi mcp`).
+    """
+
+    from pipy_harness.native.mcp.shell_cli import McpCommandOptions, run_mcp_command
+    from pipy_harness.native.settings import resolve_config_home
+    from pipy_harness.native.version_check import pipy_version
+
+    try:
+        return run_mcp_command(
+            args,
+            McpCommandOptions(
+                cwd=Path.cwd(),
+                config_home=resolve_config_home(),
+                client_version=pipy_version(),
+            ),
+        )
+    except OSError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 1
 
 
 def _cmd_config(args: Any) -> int:
