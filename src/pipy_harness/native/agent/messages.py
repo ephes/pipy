@@ -290,6 +290,12 @@ class AgentToolResultMessage:
     # Pi ``ToolResultMessage.details``: stored and rendered, never sent to a
     # provider, so it takes no part in history equality.
     details: Mapping[str, Any] | None = field(default=None, compare=False)
+    # Pi ``AgentToolResult.structuredContent``: the machine-readable result for
+    # programmatic callers (codemode scripts). Pi keeps it on the tool result
+    # and leaves it out of the ``ToolResultMessage`` it stores, so it is never
+    # sent to a provider and never written to the session file. The executor
+    # copies it from a validated ``ToolExecutionResult``.
+    structured_content: Any = field(default=None, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:

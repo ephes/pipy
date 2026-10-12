@@ -27,6 +27,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- Tool model for MCP and tool reach: tool definitions can carry an exposure
+  (`direct`, `model-only`, `codemode`, `deferred`, `hidden`), a namespace,
+  annotations, an output schema and a reach function, and tool results can
+  carry structured content for scripts. A definition can hold a schema pipy
+  did not write (an MCP server's); it reaches the provider unchanged and its
+  arguments are checked by a built-in validator for the common JSON Schema
+  keywords. Existing tools are unchanged, and nothing uses the new fields yet.
+
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

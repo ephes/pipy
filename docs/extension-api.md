@@ -772,6 +772,49 @@ Rules:
   permission policy. Until that policy exists, extension tools should be
   read-only or pure transformations.
 
+### Tool model
+
+Every tool, built-in, extension or MCP, is described by one native
+`ToolDefinition` (`native/tools/base.py`). Besides the name, description and
+input schema it carries the metadata Pi's tools carry, with Pi's meaning:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `exposure` | `direct` (default), `model-only`, `codemode`, `deferred`, `hidden` | How the model reaches the tool. `direct`: declared while active and callable from scripts while active. `model-only`: declared while active, never callable from scripts. `codemode`: callable from scripts whenever registered, listed in the codemode description, not declared unless activated. `deferred`: as `codemode`, but not listed; tool search finds it. `hidden`: registered but unreachable. |
+| `namespace` | `ToolNamespace(name, aliases, description, instructions)` | The group the tool belongs to, such as one MCP server. |
+| `annotations` | `ToolAnnotations` with `read_only_hint`, `destructive_hint`, `idempotent_hint`, `open_world_hint` | The author's hints about what the tool does. They are reported, not verified. |
+| `output_schema` | a JSON Schema object | The shape of the tool's `structured_content`. Declared, not enforced. |
+| `reaches_tools` | a function from the call input to `"all"` or a tuple of words | For a tool that reaches other tools: which ones a call may reach. |
+| `schema_mode` | `strict` (default), `foreign` | Which input schemas the definition accepts. |
+
+The defaults describe today's tools, so existing tools are unchanged. This is
+the model only: extension tools cannot set these fields yet, and exposure does
+not yet change what a request declares or what a script may call. Both follow
+in the next slices of the
+[MCP parity plan](specs/2026-10-12-mcp-parity-plan.md).
+
+`schema_mode="strict"` holds the input schema to the JSON-schema subset above
+and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy
+did not write, such as an MCP server's: the schema only has to be a JSON
+object with `type: "object"`, the description has no cap, and the schema
+reaches the provider unchanged. Arguments of a foreign tool are checked by a
+standard-library validator (`native/tools/foreign_schema.py`) for these
+keywords: `type` (also a list of types, with `number` and `null`),
+`properties`, `required`, `additionalProperties`, `items`, `prefixItems`,
+`enum`, `const`, `anyOf`, `oneOf`, `allOf`, `$ref` within the same schema,
+`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
+`maxLength`, `minItems`, `maxItems` and `pattern`. Other keywords are not
+enforced by pipy; the tool's owner stays the authority on what it accepts.
+The validator never rejects arguments because of a keyword it does not
+enforce, which is why `oneOf` only requires that at least one branch matches.
+Pi validates with a full JSON Schema implementation and converts argument
+types where it can; pipy passes foreign arguments through unchanged.
+
+A tool result may carry `structured_content`, the machine-readable result for
+programmatic callers such as codemode scripts. As in Pi it is never sent to a
+provider and is not written to the session file; `content` stays the
+model-facing result.
+
 First-slice candidates:
 
 - pure text transformation tools

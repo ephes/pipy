@@ -85,6 +85,22 @@ core to catalog selections, extension policy, current product state, concrete
 tools, rendering, and persistence. These adapters are composition seams; the
 canonical package does not import them back.
 
+`native/tools/base.py` holds the one tool model for built-in, extension and
+MCP tools. A `ToolDefinition` carries, besides what a request declares, the
+metadata that decides how a tool is reached (`exposure`, `namespace`,
+`annotations`, `output_schema`, `reaches_tools`) and a `schema_mode`. Strict
+definitions keep pipy's JSON-schema subset. Foreign definitions carry a schema
+pipy did not write and are validated at call time by
+`native/tools/foreign_schema.py`, a standard-library validator for a named
+keyword set, so the runtime needs no JSON Schema dependency. The frozen
+provider-request snapshot keeps only the model-visible part of a definition
+(name, description, input schema, `schema_mode`); the metadata stays on the
+registered definition. `structured_content` on `ToolExecutionResult` and
+`AgentToolResultMessage` is in-memory state for programmatic callers: it takes
+no part in history equality, no provider adapter reads it and the session file
+does not store it, matching Pi, whose stored `ToolResultMessage` has no
+`structuredContent`.
+
 ## Headless coding-session layer
 
 `src/pipy_harness/native/coding/` owns product policy above a single agent run:

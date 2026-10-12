@@ -8,7 +8,9 @@ only fixes the data shapes and validation surface.
 Design boundaries:
 
 - `ToolDefinition` carries model-visible tool name, description, and
-  JSON-schema for arguments.
+  JSON-schema for arguments, plus the metadata that decides how a tool is
+  reached (`exposure`, `namespace`, `annotations`, `output_schema`,
+  `reaches_tools`) and the `schema_mode` its input schema is held to.
 - `ToolRequest` carries the pipy-owned internal `tool_request_id` plus an
   optional `provider_correlation_id`. The internal id must not leak as a
   provider id; the provider id is opaque to pipy logic.
@@ -33,6 +35,10 @@ Supported JSON-schema subset (sufficient for `read`/`write`/`edit`/`ls`/
 - on integers: `minimum`, `maximum`
 
 Anything outside this subset raises a clear error at definition time.
+
+A definition with `schema_mode="foreign"` carries a schema pipy did not write
+(an MCP server's). It only has to be a JSON object with `type: "object"`, and
+its arguments are checked by `tools/foreign_schema.py` instead.
 """
 
 from __future__ import annotations
@@ -44,7 +50,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, get_args, runtime_checkable
 
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
@@ -59,6 +65,29 @@ _ALLOWED_STRING_KEYS = frozenset(
 )
 _ALLOWED_INTEGER_KEYS = frozenset({"type", "minimum", "maximum", "description"})
 _ALLOWED_BOOLEAN_KEYS = frozenset({"type", "description"})
+
+# Pi ``ToolExposure`` (``core/extensions/types.ts``): how the model reaches a
+# tool. "Callable" means callable from another tool, as codemode scripts do.
+#
+# - ``direct``: declared to the model while active, and callable while active.
+# - ``model-only``: declared to the model while active, never callable.
+# - ``codemode``: callable whenever registered; not declared unless activated;
+#   listed in the codemode description.
+# - ``deferred``: like ``codemode``, but not listed; tool search can find it.
+# - ``hidden``: registered but unreachable.
+ToolExposure = Literal["direct", "model-only", "codemode", "deferred", "hidden"]
+TOOL_EXPOSURES: tuple[str, ...] = get_args(ToolExposure)
+
+# ``strict`` holds an input schema to the subset above; ``foreign`` accepts any
+# JSON Schema object and leaves argument checks to ``validate_foreign_arguments``.
+ToolSchemaMode = Literal["strict", "foreign"]
+TOOL_SCHEMA_MODES: tuple[str, ...] = get_args(ToolSchemaMode)
+
+# Pi ``reachesTools``: which tools a call with this input may reach. ``"all"``,
+# or the words of the input that may name them (a word refers to a tool or
+# namespace whose name it contains, so words may over-match).
+ToolReach = Literal["all"] | tuple[str, ...]
+ReachesTools = Callable[[Mapping[str, Any]], ToolReach]
 
 
 class ToolArgumentError(ValueError):
@@ -144,17 +173,83 @@ def _materialize_tool_schema_value(
 
 
 @dataclass(frozen=True, slots=True)
+class ToolNamespace:
+    """A group of related tools, such as the tools of one MCP server.
+
+    Pi ``ToolNamespace``. `aliases` are other names that refer to the group
+    where tools look it up by name. `description` is the short summary shown
+    with the group in tool listings; `instructions` is longer guidance that is
+    returned only when the namespace is described on request.
+    """
+
+    name: str
+    aliases: tuple[str, ...] = ()
+    description: str | None = None
+    instructions: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError("ToolNamespace requires a non-empty name")
+        if type(self.aliases) is not tuple or any(
+            not isinstance(alias, str) or not alias for alias in self.aliases
+        ):
+            raise ValueError("ToolNamespace.aliases must be a tuple of names")
+        for field_name in ("description", "instructions"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"ToolNamespace.{field_name} must be a string or None")
+
+
+@dataclass(frozen=True, slots=True)
+class ToolAnnotations:
+    """Hints about what a tool does, with the meaning of MCP tool annotations.
+
+    Pi ``ToolAnnotations``. They come from the tool's author and are not
+    verified. `None` means the author gave no hint.
+    """
+
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
+    idempotent_hint: bool | None = None
+    open_world_hint: bool | None = None
+
+    def __post_init__(self) -> None:
+        for field_name in self.__slots__:
+            value = getattr(self, field_name)
+            if value is not None and type(value) is not bool:
+                raise ValueError(f"ToolAnnotations.{field_name} must be a bool or None")
+
+
+@dataclass(frozen=True, slots=True)
 class ToolDefinition:
     """Model-visible declaration of one tool.
 
     `input_schema` is a JSON-schema dict in the subset supported by
     `validate_arguments`. It is validated at construction time so later slices
-    do not need to re-check definition shape.
+    do not need to re-check definition shape. With `schema_mode="foreign"` it
+    is any JSON Schema object with `type: "object"`, the description has no
+    length cap, and arguments are checked by `validate_foreign_arguments`.
+
+    The keyword-only fields are tool metadata with Pi's meaning:
+
+    - `exposure`: how the model reaches the tool (see `ToolExposure`).
+    - `namespace`: the group the tool belongs to.
+    - `annotations`: the author's hints about what the tool does.
+    - `output_schema`: JSON Schema of the `structured_content` in the tool's
+      successful results. It is declared, not enforced.
+    - `reaches_tools`: for a tool that reaches other tools, which ones a call
+      with the given input may reach.
     """
 
     name: str
     description: str
     input_schema: Mapping[str, Any]
+    exposure: ToolExposure = field(default="direct", kw_only=True)
+    namespace: ToolNamespace | None = field(default=None, kw_only=True)
+    annotations: ToolAnnotations | None = field(default=None, kw_only=True)
+    output_schema: Mapping[str, Any] | None = field(default=None, kw_only=True)
+    reaches_tools: ReachesTools | None = field(default=None, kw_only=True)
+    schema_mode: ToolSchemaMode = field(default="strict", kw_only=True)
 
     NAME_MAX_LENGTH: ClassVar[int] = 64
     DESCRIPTION_MAX_LENGTH: ClassVar[int] = 4 * 1024
@@ -170,14 +265,53 @@ class ToolDefinition:
             raise ValueError("ToolDefinition name must be alphanumeric or underscore")
         if not isinstance(self.description, str) or not self.description:
             raise ValueError("ToolDefinition requires a non-empty description")
-        if len(self.description) > self.DESCRIPTION_MAX_LENGTH:
+        if self.schema_mode not in TOOL_SCHEMA_MODES:
+            raise ValueError(
+                f"ToolDefinition.schema_mode must be one of {TOOL_SCHEMA_MODES}"
+            )
+        foreign = self.schema_mode == "foreign"
+        if not foreign and len(self.description) > self.DESCRIPTION_MAX_LENGTH:
             raise ValueError(
                 "ToolDefinition description exceeds "
                 f"{self.DESCRIPTION_MAX_LENGTH} characters"
             )
         if not isinstance(self.input_schema, Mapping):
             raise ValueError("ToolDefinition.input_schema must be a mapping")
-        _validate_schema_shape(self.input_schema, top_level=True)
+        if foreign:
+            _require_json_schema_object(self.input_schema, "input_schema")
+            if self.input_schema.get("type") != "object":
+                raise ValueError("ToolDefinition top-level schema must be an object")
+        else:
+            _validate_schema_shape(self.input_schema, top_level=True)
+        self._validate_metadata()
+
+    def _validate_metadata(self) -> None:
+        if self.exposure not in TOOL_EXPOSURES:
+            raise ValueError(f"ToolDefinition.exposure must be one of {TOOL_EXPOSURES}")
+        if self.namespace is not None and type(self.namespace) is not ToolNamespace:
+            raise ValueError("ToolDefinition.namespace must be a ToolNamespace or None")
+        if (
+            self.annotations is not None
+            and type(self.annotations) is not ToolAnnotations
+        ):
+            raise ValueError(
+                "ToolDefinition.annotations must be a ToolAnnotations or None"
+            )
+        if self.output_schema is not None:
+            if not isinstance(self.output_schema, Mapping):
+                raise ValueError("ToolDefinition.output_schema must be a mapping")
+            _require_json_schema_object(self.output_schema, "output_schema")
+        if self.reaches_tools is not None and not callable(self.reaches_tools):
+            raise ValueError("ToolDefinition.reaches_tools must be callable or None")
+
+
+def _require_json_schema_object(schema: Mapping[str, Any], field_name: str) -> None:
+    """Reject a schema that JSON cannot represent (or that contains a cycle)."""
+
+    try:
+        materialize_tool_input_schema(schema)
+    except TypeError as exc:
+        raise ValueError(f"ToolDefinition.{field_name} must be JSON: {exc}") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +366,11 @@ class ToolExecutionResult:
     # Pi ``AgentToolResult.details``: structured data for renderers and the
     # session file, never sent to a provider. A JSON object or None.
     details: Mapping[str, Any] | None = None
+    # Pi ``AgentToolResult.structuredContent``: the machine-readable result of
+    # a tool that declares an ``output_schema``, for programmatic callers such
+    # as codemode scripts. Any JSON value; None means the tool gave none. It is
+    # never sent to a provider and, as in Pi, never written to the session file.
+    structured_content: Any = None
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
@@ -262,6 +401,31 @@ class ToolExecutionResult:
             )
         if self.details is not None and not is_json_object(self.details):
             raise ValueError("ToolExecutionResult.details must be a JSON object")
+        if self.structured_content is not None and not is_json_value(
+            self.structured_content
+        ):
+            raise ValueError("ToolExecutionResult.structured_content must be JSON")
+
+
+def is_json_value(value: object) -> bool:
+    """Whether ``value`` is plain JSON data: no NaN, no non-string keys."""
+
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return False
+    return _has_only_string_keys(value)
+
+
+def _has_only_string_keys(value: object) -> bool:
+    if isinstance(value, dict):
+        return all(
+            type(key) is str and _has_only_string_keys(child)
+            for key, child in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return all(_has_only_string_keys(child) for child in value)
+    return True
 
 
 def is_json_object(value: object) -> bool:

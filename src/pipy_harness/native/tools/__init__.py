@@ -13,23 +13,29 @@ slices of the Tool-Loop Parity Track.
 """
 
 from pipy_harness.native.tools.base import (
+    ToolAnnotations,
     ToolArgumentError,
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolNamespace,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
     validate_arguments,
 )
+from pipy_harness.native.tools.foreign_schema import validate_foreign_arguments
 
 __all__ = [
+    "ToolAnnotations",
     "ToolArgumentError",
     "ToolContext",
     "ToolDefinition",
     "ToolExecutionResult",
+    "ToolNamespace",
     "ToolPort",
     "ToolRequest",
     "make_tool_request_id",
     "validate_arguments",
+    "validate_foreign_arguments",
 ]

@@ -212,10 +212,16 @@ def request_tools(
 
 
 def declaration_definition(declaration: AgentToolDeclaration) -> ToolDefinition:
-    """A transcript declaration as the tool definition adapters serialize."""
+    """A transcript declaration as the tool definition adapters serialize.
+
+    A declaration records what a request already declared, so its schema is
+    not held to the strict subset again: a foreign tool's schema is replayed
+    as it was sent.
+    """
 
     return ToolDefinition(
         name=declaration.name,
         description=declaration.description,
         input_schema=json.loads(declaration.parameters_json),
+        schema_mode="foreign",
     )

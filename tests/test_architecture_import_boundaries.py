@@ -276,6 +276,9 @@ _CODING_STATE_ALLOWED_RUNTIME_PREFIXES = (
     "pipy_harness.native.coding.input_queue",
     "pipy_harness.native.coding.state",
     "pipy_harness.native.tools.base",
+    # The standard-library argument validator for foreign-schema tools; the
+    # canonical tool executor selects it per definition.
+    "pipy_harness.native.tools.foreign_schema",
 )
 
 _CODING_STATE_ALLOWED_RUNTIME_EXACT = frozenset(
@@ -701,6 +704,10 @@ _AGENT_TOOLS_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.base.ToolRequest",
         "pipy_harness.native.tools.base.make_tool_request_id",
         "pipy_harness.native.tools.base.validate_arguments",
+        # Arguments of a foreign-schema tool (an MCP server's) are checked by
+        # the standard-library JSON Schema validator next to the strict one.
+        "pipy_harness.native.tools.foreign_schema",
+        "pipy_harness.native.tools.foreign_schema.validate_foreign_arguments",
     }
 )
 

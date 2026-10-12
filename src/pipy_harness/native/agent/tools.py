@@ -21,6 +21,7 @@ from pipy_harness.native.tools.base import (
     make_tool_request_id,
     validate_arguments,
 )
+from pipy_harness.native.tools.foreign_schema import validate_foreign_arguments
 
 
 class ToolExecutionInterruption(StrEnum):
@@ -351,10 +352,16 @@ class ToolExecutor:
         prepare = getattr(tool, "prepare_arguments", None)
         if callable(prepare):
             raw_arguments = prepare(raw_arguments)
+        definition = tool.definition
+        validate = (
+            validate_foreign_arguments
+            if definition.schema_mode == "foreign"
+            else validate_arguments
+        )
         try:
-            arguments = validate_arguments(
+            arguments = validate(
                 tool_name=call.tool_name,
-                schema=tool.definition.input_schema,
+                schema=definition.input_schema,
                 arguments=raw_arguments,
             )
             request = ToolRequest(
@@ -384,5 +391,6 @@ class ToolExecutor:
                     or call.provider_correlation_id
                 ),
                 details=execution_result.details,
+                structured_content=execution_result.structured_content,
             )
         )

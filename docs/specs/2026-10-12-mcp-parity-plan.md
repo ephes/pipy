@@ -559,6 +559,18 @@ Pi's `core/agent-session.ts` tool-result path (lines 698 and 720 at the
 reference commit), whether Pi persists the field in the session file, and
 follows it.
 
+Decided in S01: not persisted. Pi keeps `structuredContent` on the in-memory
+`AgentToolResult` (hooks, `tool_execution_end`, nested callers), and
+`createToolResultMessage` in `packages/agent/src/agent-loop.ts` builds the
+stored `ToolResultMessage` from `content`, `details`, `usage` and `isError`
+only. pipy's session file therefore omits the field, and a resumed result has
+none.
+
+Also decided in S01: the foreign validator does not convert argument types.
+Pi's `validateToolArguments` coerces (`"3"` to `3`, optional `null` dropped)
+before it validates; pipy passes foreign arguments through unchanged and
+reports a mismatch to the model, under DEV-10.
+
 `ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH` (64 KiB) stays. MCP text is
 already cut to 20 KB plus a short frame before it becomes a result.
 

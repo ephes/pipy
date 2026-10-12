@@ -40,6 +40,7 @@ def materialize_provider_request(
             name=definition.name,
             description=definition.description,
             input_schema=materialize_tool_input_schema(definition.input_schema),
+            schema_mode=definition.schema_mode,
         )
         for definition in snapshot.request.available_tools
     )
