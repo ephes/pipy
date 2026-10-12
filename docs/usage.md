@@ -83,6 +83,7 @@ are invoked as their own `/<template-name>` commands.
 | `/import <file>` | Import a native session JSONL file |
 | `/share` | Upload the session as a private GitHub gist when configured |
 | `/reload` | Reload settings, keybindings, extensions, skills, prompts, themes, and context files |
+| `/mcp`, `/mcp reconnect [server]` | Show the MCP servers with their state and errors, or connect one again (not available with MCP turned off); see [MCP](mcp.md#the-mcp-command) |
 | `/hotkeys` | Show keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/skill:<name> [args]` | Run a discovered skill (the text after the name follows it) |
@@ -247,7 +248,8 @@ prints its state, tools and errors, and exits with status 1 when an entry is
 invalid or a server is not connected. The commands start no session and load
 no extensions. `pipy mcp --help` lists the options of `add`; see
 [MCP](mcp.md#the-pipy-mcp-commands) for the details. `pipy mcp login` and
-`logout` do not exist yet.
+`logout` do not exist yet. In a session, [`/mcp`](mcp.md#the-mcp-command)
+shows the same servers and reconnects one.
 
 ### Modes
 

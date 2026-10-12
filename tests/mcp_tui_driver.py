@@ -6,7 +6,8 @@ read by the session's normal input owner; the provider is the offline fake.
 ``--phase prompt``: the server has ``direct`` tools, so the first prompt waits
 for it (with a limit far beyond the test's patience). ``--phase tool``: the
 server has ``deferred`` tools and the provider's first turn calls
-``tool_search``, which waits for it.
+``tool_search``, which waits for it. ``--phase command``: the same server,
+and no prompt is sent; the test types ``/mcp``.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ _FAKE_SERVER = Path(__file__).with_name("fixtures") / "mcp_fake_server.py"
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, required=True)
-    parser.add_argument("--phase", choices=("prompt", "tool"), required=True)
+    parser.add_argument("--phase", choices=("prompt", "tool", "command"), required=True)
     args = parser.parse_args()
     root = args.workspace.resolve()
     root.mkdir(parents=True)
@@ -78,7 +79,7 @@ def main() -> int:
         provider=FakeNativeProvider(
             supports_tool_calls=True,
             final_text="S18_DONE",
-            programmable_tool_calls=() if args.phase == "prompt" else ((search,), ()),
+            programmable_tool_calls=((search,), ()) if args.phase == "tool" else (),
         ),
         settings_manager=SettingsManager(
             global_path=config / "settings.json",

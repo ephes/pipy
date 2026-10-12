@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
@@ -73,6 +73,7 @@ from pipy_harness.native.extension_hooks import dispatch_tool_call_hooks
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.keybindings import KeybindingsManager
+from pipy_harness.native.mcp.commands import MCP_COMMAND_NAME
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections
@@ -81,6 +82,7 @@ from pipy_harness.native.repl.extension_operations import (
     SessionHookFamily,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.mcp_command import McpSessionCommand
 from pipy_harness.native.repl.provider_config_commands import (
     ProviderConfigurationCommandEffects,
 )
@@ -200,6 +202,10 @@ class SessionCollaborators:
     extension_ui_driver: _LiveExtensionUiDriver | None
     extension_notify: Callable[[str, str], None]
 
+    # ``/mcp``; ``None`` when MCP is turned off. ``session_commands`` is its
+    # entry for the slash menu.
+    mcp_command: McpSessionCommand | None = None
+    session_commands: Mapping[str, str] = field(default_factory=dict)
     summary_retry_status: SummaryRetryObserver | None = None
     summary_retry_loader: SummaryRetryLoader | None = None
 
@@ -391,6 +397,7 @@ class SessionCollaborators:
             diag=self.diag,
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
             extension_send_message=self.custom_renderer.extension_send_message,
+            session_commands=self.session_commands,
         )
 
     def rebuild_messages_from_tree(self) -> None:
@@ -727,6 +734,10 @@ class SessionCollaborators:
             ui_custom_driver=self.extension_custom_driver,
         )
         if extension_dispatch is None:
+            # ``/mcp`` comes after the extensions' commands, so an extension
+            # that registers ``mcp`` replaces it.
+            if self.mcp_command is not None and self.mcp_command.dispatch(command_text):
+                return ExtensionDispatchResolution(name=MCP_COMMAND_NAME, ran=True)
             return None
         return ExtensionDispatchResolution(
             name=extension_dispatch.name,

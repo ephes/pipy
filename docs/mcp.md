@@ -202,8 +202,7 @@ are needed. Where they might not be, pipy waits:
 - **`tool_search`** waits for every enabled server, so it searches all their
   tools.
 - **A call to an MCP tool** waits for its own server while a new connection
-  attempt for it is under way. Nothing starts such an attempt yet; it comes
-  with reconnecting and enabling a server in a session.
+  attempt for it is under way, for example after `/mcp reconnect`.
 
 A wait for a tool call has no time limit of its own. It ends when the server
 connected or its connection failed (the call then runs and reports what it
@@ -270,8 +269,8 @@ Run /mcp to fix.
 There is one `config:` line per error in an `mcp.json` and one line per
 server that failed (with the first line of its error) or needs a sign-in
 (`<name>: needs sign-in`). Nothing is shown when there is nothing to report.
-`/mcp` does not exist yet; correct `mcp.json` and restart pipy. The whole
-error of a failed server is not shown anywhere yet.
+[`/mcp`](#the-mcp-command) shows every server with its whole error. After
+correcting `mcp.json`, restart pipy.
 
 The report and the other warnings on this page are shown before the next
 prompt runs, not at the moment they arise: in the terminal you see them when
@@ -289,11 +288,76 @@ Two more cases are reported, each once:
 
 Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
+### The `/mcp` command
+
+`/mcp` prints one line per configured server, after the servers that started
+with the session have connected or failed:
+
+```text
+docs: connected, 2 tools (direct)
+search: failed (codemode)
+    [Errno 2] No such file or directory: 'no-such-command'
+files: disconnected, reconnects on next call (codemode)
+    Connection closed
+old: disabled (codemode)
+config error: /home/me/.pipy/mcp.json: server "sse": legacy SSE transport is not supported; use the streamable HTTP URL
+```
+
+Each line is `<name>: <state> (<exposure>)`. A connected server also shows
+how many tools it offers. The whole error of a server that is not connected
+follows its line, indented. The states are `connected`, `connecting`,
+`failed`, `disconnected, reconnects on next call`, `disabled`, `starting`
+(enabled, and its previous connection is still closing) and `closed`. After
+the servers come the errors of the `mcp.json` files. Without any server pipy
+prints `No MCP servers configured. Add them to <config home>/mcp.json or
+.pipy/mcp.json.`
+
+`/mcp reconnect [server]` closes a server's connection and connects again,
+which also starts a stdio server's process again. It answers `Reconnected to
+MCP server "<name>" (<state>).` or with the error of the failed connect.
+Without a name pipy takes the only enabled server; with several, the only one
+that is failed or disconnected; otherwise it asks you to choose one in the
+terminal, and does nothing where it cannot ask. A disabled server cannot be
+reconnected (`No enabled MCP server to reconnect.`), and an unknown name
+gives `No MCP server named "<name>".`
+
+`/mcp login [server]` and `/mcp logout [server]` exist as names only: no
+server uses OAuth yet, so both answer `No enabled MCP server uses OAuth. Only
+HTTP servers without an Authorization header do.` Anything else prints
+`Usage: /mcp, /mcp login [server], /mcp logout [server], /mcp reconnect
+[server]`.
+
+In the terminal, `/mcp ` completes the three actions and, after `reconnect`,
+the servers that can be reconnected with their state.
+
+Every form waits for the servers that are still connecting from the start of
+the session. Escape ends that wait: `/mcp` then prints the servers as they
+are, and a subcommand is not run (`MCP servers are still connecting; /mcp
+reconnect was not run.`). Escape during a reconnect stops the waiting only;
+the reconnect goes on, and `/mcp` shows how it ended.
+
+Different from Pi:
+
+- In Pi's terminal, `/mcp` without arguments opens a manager where servers
+  are enabled, disabled and given another exposure. pipy has no such manager
+  yet and prints the status there too, so those three changes cannot be made
+  in a session; edit `mcp.json` and restart pipy.
+- pipy runs `/mcp` only for a line typed into a session. A prompt given on
+  the command line (also with `--print` or `--mode json`) or sent by an RPC
+  client is never run as a slash command; it goes to the model. Pi runs the
+  command there too.
+- A prompt template or custom command named `mcp` takes the place of the
+  command, as does an extension command of that name. In Pi only an
+  extension command does.
+- Pi's command cannot be interrupted; the Escape rules above are pipy's.
+- With MCP [turned off](#turning-mcp-off) there is no `/mcp` command.
+
 ### What is missing
 
-Not built yet, in the order the plan builds it: `/mcp` (status, reconnect, enabling and disabling a server, changing its
-exposure), reading `mcp.json` again on `/reload`, resources, HTTP servers,
-OAuth, servers registered by extensions, and images in tool results.
+Not built yet, in the order the plan builds it: enabling and disabling a
+server and changing its exposure in a session (the `/mcp` manager), reading
+`mcp.json` again on `/reload`, resources, HTTP servers, OAuth, servers
+registered by extensions, and images in tool results.
 
 Until `/reload` handles MCP: `/reload` does not read `mcp.json` or the
 `-builtin:mcp` entry again; restart pipy. When a server connects or changes its tools
@@ -827,14 +891,15 @@ standard library. It is not part of the SDK surface.
 | `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
-| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `describe_state` gives a server's short state. |
+| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `reconnect`, `set_enabled` and `set_exposure` change a server while the session runs and save the last two to `mcp.json`. `describe_state` gives a server's short state. |
+| `commands` | `McpCommand`: [the `/mcp` command](#the-mcp-command), with `format_status` and `complete_mcp_arguments`. |
 | `shell_cli` | `run_mcp_command`: [the `pipy mcp` commands](#the-pipy-mcp-commands). |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session
-renewal, images in tool results, resources, `/mcp`,
+renewal, images in tool results, resources, the `/mcp` manager,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
 sign-in).

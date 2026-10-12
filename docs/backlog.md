@@ -493,6 +493,10 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
 - **Per-model image input limits and resize** (Pi `f5c946480`).
 - **Missing RPC commands:** `clear_queue` (`a79b37334`), prompt disposition
   (`e473b5cd8`), and `get_tree`/`get_entries` (`7ba1b6bfe`).
+- **Slash commands outside typed input:** a prompt given on the command
+  line (print and JSON mode too) or sent by an RPC client goes to the model
+  also when it starts with `/`. Pi's `prompt` runs extension commands, `/mcp` among
+  them, and expands prompt templates and skills there.
 - **Extension events** that Pi's `core/extensions/types.ts` has and pipy's
   `extensions/activation.py` lacks.
 - **Pi's shared OAuth callback server** (`4df157433`). This is a refactor only:

@@ -13,6 +13,8 @@ composition root and the reload owner can reach.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pipy_harness.native.repl_input import DEFAULT_REPL_COMMAND_DESCRIPTIONS
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import ExtensionCommandProjection
@@ -25,6 +27,7 @@ from pipy_harness.native.ui.composition import (
 def tool_loop_command_names(
     resources: WorkspaceResources,
     extension_command_names: tuple[str, ...] = (),
+    session_commands: Mapping[str, str] | None = None,
 ) -> tuple[str, ...]:
     """Tool-loop slash-menu command set, honest to what can execute.
 
@@ -32,8 +35,9 @@ def tool_loop_command_names(
     template registered as its own ``/<name>`` command (Pi shape), every
     discovered, non-reserved custom ``/<name>`` command, any activated
     extension ``/<name>`` commands (never shadowing a built-in or custom
-    command), then Pi's ``/skill:<name>`` commands when skill commands are
-    enabled (Pi lists them after the extension commands).
+    command), the session's own commands that dispatch like extension
+    commands (``/mcp``), then Pi's ``/skill:<name>`` commands when skill
+    commands are enabled (Pi lists them after the extension commands).
     """
 
     names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
@@ -43,7 +47,7 @@ def tool_loop_command_names(
     for slash_name in resources.custom_command_slash_names():
         if slash_name not in names:
             names.append(slash_name)
-    for slash_name in extension_command_names:
+    for slash_name in (*extension_command_names, *(session_commands or ())):
         if slash_name not in names:
             names.append(slash_name)
     for slash_name in resources.skill_slash_names():
@@ -55,13 +59,15 @@ def tool_loop_command_names(
 def tool_loop_command_descriptions(
     resources: WorkspaceResources,
     extension_descriptions: dict[str, str] | None = None,
+    session_commands: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Build the slash-menu descriptions with dispatch-honest precedence.
 
     The menu description for a name must describe what dispatching that name
     actually runs. ``dispatch_resource_command`` resolves a colliding name in
     the order built-in > prompt template > custom command, and extension
-    commands dispatch last (lowest precedence). Descriptions are layered in
+    commands dispatch after them, then the session's own commands (``/mcp``,
+    lowest precedence). Descriptions are layered in
     the reverse order (lowest precedence first) so a later ``update`` for a
     higher-precedence source wins a collision — i.e. for a name shared by a
     template and a custom command, the menu shows the *template's*
@@ -69,6 +75,7 @@ def tool_loop_command_descriptions(
     """
 
     descriptions: dict[str, str] = resources.skill_descriptions()
+    descriptions.update(session_commands or {})
     if extension_descriptions:
         descriptions.update(extension_descriptions)
     descriptions.update(resources.custom_command_descriptions())
@@ -102,6 +109,7 @@ def _with_argument_hint(name: str, description: str) -> str:
 def published_command_surface(
     resources: WorkspaceResources,
     commands: ExtensionCommandProjection,
+    session_commands: Mapping[str, str] | None = None,
 ) -> CommandSurface:
     """The one frozen command surface a generation publishes to the menu owner.
 
@@ -112,9 +120,9 @@ def published_command_surface(
     """
 
     return CommandSurface(
-        names=tool_loop_command_names(resources, commands.menu_names),
+        names=tool_loop_command_names(resources, commands.menu_names, session_commands),
         descriptions=tool_loop_command_descriptions(
-            resources, dict(commands.descriptions)
+            resources, dict(commands.descriptions), session_commands
         ),
         shortcut_keys=frozenset(commands.shortcuts),
     )

@@ -507,7 +507,8 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `readiness.py` | `McpReadiness`: which servers the first prompt and a tool call wait for | `ext/index.ts` `waitForDirectServers`, `tool_call` handler, `reachesServer` |
 | `registry.py` | Extension-registered servers | `core/mcp-servers.ts` `McpServerRegistry` |
 | `shell_cli.py` | `pipy mcp ...` | `ext/cli.ts` |
-| `commands.py`, `manager_view.py` | `/mcp` command; TUI manager | `ext/index.ts` command, `ext/ui.ts` |
+| `commands.py` | `/mcp` command (the session adapter is `repl/mcp_command.py`) | `ext/index.ts` command |
+| `manager_view.py` | TUI manager; not in `native/mcp/`, which may not import the TUI (S34 places it) | `ext/ui.ts` |
 
 Other new modules: `native/tool_search.py` (tokenizer, BM25, document
 builder, the `tool_search` tool) and `native/codemode/declarations.py`
@@ -1037,6 +1038,52 @@ Decided in S21 (changes in a session: `manager.py`, `connection.py`):
 - `set_enabled` and `set_exposure` have no caller in a session before S34;
   they are tested at the manager with in-memory servers, real `mcp.json`
   files and the stdio fake.
+
+Decided in S21 (`commands.py`, `repl/mcp_command.py`, `/mcp`):
+
+- `/mcp` is not a row of the built-in command registry
+  (`coding/command_registry.py`). Pi registers it as a command of its
+  built-in MCP extension, and pipy dispatches it at the port that
+  dispatches extension commands (`SessionCollaborators.
+  dispatch_extension_effect`), after them. So an extension command named
+  `mcp` takes its place (the base of EXT-14, S37), with MCP turned off the
+  name is not a command at all (EXP-11) and the unhandled-command notice
+  answers, and the slash menu gets the name and Pi's description through
+  `session_commands` of `published_command_surface`, at startup and on
+  `/reload`. pipy's order is built-in, prompt template or custom command,
+  extension, `/mcp`; in Pi extension commands come before templates.
+- `native/mcp/commands.py` has no UI import: `McpCommand(manager,
+  config_home=, notify=, select=, ensure_discovery=, run_step=)`,
+  `format_status`, `complete_mcp_arguments`. `repl/mcp_command.py` adapts it
+  to the session: `McpSessionCommand.dispatch(command_text)`,
+  `.completer(fallback)` for the autocomplete owner's argument completer, and
+  `interruptible_steps(waiter)`.
+- Waits. `run_step(step)` runs a step that can take long. In a terminal and
+  in a headless run with an abort signal it runs on a thread (`mcp-command`)
+  while the session thread watches for Escape or the abort, as the readiness
+  waits do. `/mcp` prints the status also when the wait for the startup
+  connections was ended; a subcommand is then not run and says so; a
+  reconnect the user stops waiting for goes on on its thread and its result
+  is dropped (no `ensure_active` then). Pi's command cannot be interrupted.
+- An unknown action prints the usage without waiting for the startup
+  connections; Pi waits first.
+- `login` and `logout` go through the server choice with an eligibility that
+  is false for every server (`_uses_oauth`), so they answer with Pi's
+  messages for "unknown name" and "no server uses OAuth". S30 gives the
+  connection view its OAuth URL and S31 the sign-in.
+- In the terminal `/mcp` without arguments prints the status as everywhere
+  else until S34 builds the manager view, which is also the first caller of
+  `set_enabled` and `set_exposure`.
+- Not done: "RPC mode prints the status". pipy hands a prompt given on the
+  command line (print and JSON mode too) or sent by an RPC client to the
+  model without command dispatch (`loop_step._phase_b_intake`:
+  `command_text` is empty for selected provider content), for extension
+  commands as well. Pi's `prompt` runs extension
+  commands. That is a gap of the automation modes, recorded in
+  `docs/backlog.md`, not of this slice; when it is closed `/mcp` runs there
+  through the same port.
+- The status has no `overridden:` lines yet (S36) and no resource counts in
+  the state of the completion items (S23).
 
 Open after the merge, owned by later slices:
 
@@ -1947,7 +1994,8 @@ cases except login, with stdio servers. Docs:
 completion, `set_enabled`, `set_exposure`, `save_config`. Tests: status text
 for each state; reconnect after the fake server was killed; disable closes the
 process; exposure change moves a tool between declared and callable; a failed
-save changes nothing; RPC mode prints the status.
+save changes nothing; RPC mode prints the status (not done: RPC runs no slash
+command, see "Decided in S21").
 
 **S22 Reload and resume.** Build 4.10. Tests: mirrors of the three "MCP tools
 after resume and reload" cases; reload with a removed, an added and a changed

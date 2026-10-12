@@ -119,6 +119,7 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_tokens
 from pipy_harness.native.keybindings import KeybindingsManager
+from pipy_harness.native.mcp.commands import McpCommand, run_step_inline
 from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
@@ -157,6 +158,12 @@ from pipy_harness.native.repl.extension_operations import (
 from pipy_harness.native.repl.loop_scope import (
     ReplLoopScope,
     RunControlState,
+)
+from pipy_harness.native.repl.mcp_command import (
+    ArgumentCompleter,
+    McpSessionCommand,
+    interruptible_steps,
+    mcp_session_commands,
 )
 from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
@@ -591,6 +598,8 @@ class _ExtensionPhase:
     tool_capabilities: NativeToolCapabilities
     mcp_manager: McpManager
     mcp_discovery: McpDiscovery
+    # Whether MCP is on; with it off there is no ``/mcp`` command.
+    mcp_enabled: bool
     startup_projection: ExtensionProjection
     attachment: StartupGenerationAttachment
     generation_ref: SessionGenerationRef
@@ -902,6 +911,10 @@ def _compose_extension_phase(
         ),
     )
 
+    mcp_enabled = startup.resource_options.mcp_enabled(
+        configured=settings.builtin_extension_enabled("mcp")
+    )
+
     def _prepare_before_publish(
         generation_ref: SessionGenerationRef, projection: ExtensionProjection
     ) -> None:
@@ -910,6 +923,7 @@ def _compose_extension_phase(
             settings=settings,
             workspace_resources=workspace_resources,
             startup_commands=projection.commands,
+            session_commands=mcp_session_commands(enabled=mcp_enabled),
             keybindings=keybindings,
             error_stream=error_stream,
         )
@@ -965,14 +979,7 @@ def _compose_extension_phase(
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
         raise_first((error, _abort_startup_attachment_nonraising(attached)))
         raise AssertionError("startup failure did not propagate")
-    mcp_manager = _mcp_manager(
-        cwd,
-        settings,
-        tool_capabilities,
-        enabled=startup.resource_options.mcp_enabled(
-            configured=settings.builtin_extension_enabled("mcp")
-        ),
-    )
+    mcp_manager = _mcp_manager(cwd, settings, tool_capabilities, enabled=mcp_enabled)
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
@@ -985,6 +992,7 @@ def _compose_extension_phase(
             tools=tool_capabilities,
             notify=mcp_manager.post_notice,
         ),
+        mcp_enabled=mcp_enabled,
         startup_projection=startup_projection,
         attachment=attached,
         generation_ref=generation_ref,
@@ -1045,16 +1053,63 @@ def _mcp_waits(
     in a terminal, the abort signal in a headless run.
     """
 
-    prompt_waiter: ToolInterruptWaiter | None = None
-    if extension.terminal_ui is not None:
-        prompt_waiter = partial(wait_for_escape, extension.terminal_ui)
-    elif abort_event is not None:
-        prompt_waiter = partial(wait_for_external_tool_interrupt, abort_event)
     return McpSessionWaits(
         McpReadiness(extension.mcp_manager, extension.tool_capabilities.all_tools),
         notify=extension.extension_notify,
-        prompt_waiter=prompt_waiter,
+        prompt_waiter=_interrupt_waiter(extension, abort_event),
     )
+
+
+def _interrupt_waiter(
+    extension: _ExtensionPhase,
+    abort_event: threading.Event | _AbortCallbackSignal | None,
+) -> ToolInterruptWaiter | None:
+    """What ends a wait outside a run the way the session is interrupted:
+    Escape in a terminal, the abort signal in a headless run."""
+
+    if extension.terminal_ui is not None:
+        return partial(wait_for_escape, extension.terminal_ui)
+    if abort_event is not None:
+        return partial(wait_for_external_tool_interrupt, abort_event)
+    return None
+
+
+def _mcp_command(
+    extension: _ExtensionPhase,
+    settings: SettingsManager,
+    abort_event: threading.Event | _AbortCallbackSignal | None,
+    argument_completer: ArgumentCompleter,
+) -> McpSessionCommand | None:
+    """The session's ``/mcp`` command, or ``None`` with MCP turned off.
+
+    In a terminal its argument completions join those of the other commands.
+    """
+
+    if not extension.mcp_enabled:
+        return None
+    waiter = _interrupt_waiter(extension, abort_event)
+    driver = extension.extension_ui_driver
+    command = McpSessionCommand(
+        McpCommand(
+            extension.mcp_manager,
+            config_home=settings.global_path.parent,
+            notify=extension.extension_notify,
+            select=driver.select if driver is not None else _select_nothing,
+            ensure_discovery=extension.mcp_discovery.ensure_active,
+            run_step=run_step_inline if waiter is None else interruptible_steps(waiter),
+        )
+    )
+    if extension.terminal_ui is not None:
+        extension.terminal_ui.components.autocomplete.set_argument_completer(
+            command.completer(argument_completer)
+        )
+    return command
+
+
+def _select_nothing(title: str, options: Sequence[str]) -> str | None:
+    """Without a terminal nothing can be asked (Pi's headless ``select``)."""
+
+    return None
 
 
 def _start_session(
@@ -1108,6 +1163,7 @@ def _prepare_startup_extension_consumers(
     settings: SettingsManager,
     workspace_resources: WorkspaceResources,
     startup_commands: ExtensionCommandProjection,
+    session_commands: Mapping[str, str],
     keybindings: KeybindingsManager,
     error_stream: TextIO,
 ) -> None:
@@ -1117,7 +1173,9 @@ def _prepare_startup_extension_consumers(
         settings.get_autocomplete_max_visible()
     )
     terminal_ui.components.autocomplete.replace_command_surface(
-        published_command_surface(workspace_resources, startup_commands)
+        published_command_surface(
+            workspace_resources, startup_commands, session_commands
+        )
     )
     if not keybindings.has_user_binding("app.editor.external"):
         return
@@ -1604,10 +1662,14 @@ def _start_chrome(
             error_stream=error_stream,
             workspace=cwd,
             command_names=tool_loop_command_names(
-                workspace_resources, startup_commands.menu_names
+                workspace_resources,
+                startup_commands.menu_names,
+                mcp_session_commands(enabled=extension.mcp_enabled),
             ),
             command_descriptions=tool_loop_command_descriptions(
-                workspace_resources, dict(startup_commands.descriptions)
+                workspace_resources,
+                dict(startup_commands.descriptions),
+                mcp_session_commands(enabled=extension.mcp_enabled),
             ),
         )
     )
@@ -1813,6 +1875,13 @@ def _compose_collaborators(
         custom_renderer=custom_renderer,
         extension_ui_driver=extension_ui_driver,
         extension_notify=_extension_notify,
+        mcp_command=_mcp_command(
+            extension,
+            settings,
+            _runtime_abort_event(inputs, runtime.loop_controller),
+            slash_argument_completer(inputs.provider_state, settings),
+        ),
+        session_commands=mcp_session_commands(enabled=extension.mcp_enabled),
     )
     transition = SessionTransitionCoordinator(
         workspace=cwd,

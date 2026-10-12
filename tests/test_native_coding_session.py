@@ -814,6 +814,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "redraw_custom_entries_for_active_branch",
             "extension_send_message",
             "extension_ui_driver",
+            "session_commands",
         },
         "BuiltinCommandInterpreter": {
             "session_effects",

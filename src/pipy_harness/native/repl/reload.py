@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import TextIO, cast
@@ -152,6 +152,8 @@ class ReloadCommandEffects:
         [str, str, bool, "Mapping[str, object]", object | None], object
     ]
     extension_ui_driver: _LiveExtensionUiDriver | None = None
+    # The session's own slash commands (``/mcp``), kept in the menu.
+    session_commands: Mapping[str, str] = field(default_factory=dict)
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Reload settings and publish every derived live projection in order."""
@@ -369,7 +371,9 @@ class ReloadCommandEffects:
                 self.settings.get_autocomplete_max_visible()
             )
             self.terminal_ui.components.autocomplete.replace_command_surface(
-                published_command_surface(self.ctl.workspace_resources, commands)
+                published_command_surface(
+                    self.ctl.workspace_resources, commands, self.session_commands
+                )
             )
             self.redraw_custom_entries_for_active_branch()
         for scope, detail in self.settings.load_errors().items():

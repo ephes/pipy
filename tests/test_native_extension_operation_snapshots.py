@@ -469,6 +469,7 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         error_stream=io.StringIO(),
         cwd=tmp_path,
         resource_options=RuntimeResourceOptions(),
+        session_commands={"/mcp": "Manage MCP servers"},
     )
 
     assert (
@@ -484,6 +485,9 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
     assert autocomplete.shortcut_keys == frozenset({"ctrl-k"})
     assert autocomplete.max_visible == 5
     assert generation_ref.snapshot_calls == 1
+    # The session's own command stays in the menu, after the extensions'.
+    assert autocomplete.command_names[-1] == "/mcp"
+    assert autocomplete.command_descriptions["/mcp"] == "Manage MCP servers"
 
 
 class _GenerationTool:
