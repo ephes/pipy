@@ -1451,11 +1451,6 @@ Boundaries:
   `file_reference_failed_count`) cross the archive boundary. No raw paths, file
   contents, provider payloads, or secrets are recorded.
 
-Image attachment limits apply during I/O: each opened descriptor is checked for
-a regular file and read up to the remaining per-image/aggregate budget plus
-one rejection byte. File growth cannot trigger an unbounded read. Explicit
-outside-workspace image paths retain the read tool policy.
-
 ### Native User-Directed @image: Attachments
 
 A genuine user prompt may attach a workspace image with `@image:<path>` (the
@@ -1503,6 +1498,11 @@ to its first provider request, `CodingSessionResult` retains zero-default image
 counters. Correcting those public adapter/archive metadata values requires a
 dedicated compatibility slice with JSON, adapter, and archive contract coverage;
 the coding-session state extraction does not change them.
+
+Image attachment limits apply during I/O: each opened descriptor is checked for
+a regular file and read up to the remaining per-image/aggregate budget plus
+one rejection byte. File growth cannot trigger an unbounded read. Explicit
+outside-workspace image paths retain the read tool policy.
 
 ### Native Explicit Multi-File Context Budget
 
