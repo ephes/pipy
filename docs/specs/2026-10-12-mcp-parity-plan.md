@@ -704,12 +704,73 @@ Decided in S16 (`tools.py`, and `truncate_middle` in
 - `truncate_middle` is Pi's `truncateMiddle`, in `native/tools/truncate.py`
   next to the other truncation helpers; `format_size` takes a float as well.
 
+Decided in S17 (`manager.py` and the session wiring; the capability value
+is under 4.4):
+
+- `McpManager(config=, cwd=, client_version=, publish_tools=, log=,
+  create_transport=)` takes a loaded config and a function that replaces the
+  session's MCP tools (`NativeToolCapabilities.publish_mcp_tools`), so the
+  package does not import the capability owner. `start()` returns at once,
+  `close()` returns when no transport is open, `servers()` gives
+  `McpServerStatus(entry, enabled, connection view)` values,
+  `wait_until_settled(timeout)` waits until every started server connected
+  or failed and its tools were published, and `config_errors` keeps the
+  loader's errors for the startup report (S19). `wait_until_settled` is what
+  S18 builds its waits on; it has no cancel event yet.
+- Threads: one `mcp-start` thread per enabled server asks its connection for
+  a client. A connection's callbacks only put the server on a queue. One
+  `mcp-manager` thread takes servers from the queue, reads the connection's
+  view, builds the tool ports and publishes the tools of all servers. It is
+  the only publisher, so two changes announced in either order end with the
+  newest views published. A session without an enabled server starts no
+  thread.
+- A server's ports are built again only when its tool list or its
+  instructions changed; a state change alone publishes nothing. Tools stay
+  registered while their server is disconnected or its reconnect failed, as
+  in Pi.
+- Locks, in the order they may be taken: the manager's publication lock, the
+  manager lock, a connection's lock, the capability state lock. The
+  publication lock is held from the check that the manager is open to the
+  end of the publication, and `close()` takes it to mark the manager closed,
+  so nothing is published after `close()` returned. `close()` must therefore
+  not be called by a thread that holds the capability state lock. A test
+  wraps the four kinds of lock and fails on an acquisition out of order and
+  on any lock taken while the manager lock is held.
+- The queue of 4.5 is `deliver_notices(sink)`: notices are kept by the
+  manager and handed to the sink on the caller's thread. The session calls it
+  where it drains the extension outboxes, which is before each step is
+  selected: before a prompt starts and when the session becomes idle. It is
+  not called at the start of each provider turn yet. Two notices exist: a
+  tool pipy cannot declare, and a tool whose name another tool has. Each text
+  is reported once in a session.
+- TLS-19: a port's `get_caller` asks the manager, which resolves the server
+  by name when the call runs. After `close()` there are no servers, so the
+  text is `MCP server "<n>" is disabled.`, as after Pi's shutdown. The state
+  "enabled and no connection yet" cannot be reached before S21 adds
+  enabling in a session; its text is tested by setting that state on the
+  manager's record.
+- Session wiring (`repl/wiring.py`): the manager is built with the session's
+  tool capabilities from `load_mcp_config(config_home=<directory of the
+  user-level settings file>, cwd=, project_trusted=settings.project_trusted)`,
+  started after `session_start` fired, and closed in the cleanup every exit
+  of a started session runs (with `close_extension_session`), so also when a
+  lifecycle hook ends the shutdown before `session_shutdown` fired.
+  `.pipy/mcp.json` is a protected project entry
+  (`project_trust.PROTECTED_PROJECT_ENTRIES`), as in Pi's trust manager, so a
+  project that has only that file asks for a trust decision. This is the
+  trust wiring of 4.7.
+- pipy fires `session_start` at startup and on `/reload` only, not when a
+  session is replaced in the same process (`/new`, `/resume`, `/fork`). The
+  manager therefore lives as long as the process serves sessions and keeps
+  its servers across such a switch. Pi closes the servers and reads
+  `mcp.json` again there. S22, which owns the reload path, decides whether a
+  switch restarts the manager.
+- Not in S17, although the session now connects servers: no problem is
+  reported at startup (S19), nothing turns on `codemode` or `tool_search`
+  (S19), and no prompt or script waits for a server (S18).
+
 Open after the merge, owned by later slices:
 
-- The trust wiring of 4.7 (`resolve_project_trusted()` at the call site and
-  `.pipy/mcp.json` in `has_trust_requiring_project_resources`) is not done.
-  CFG-01 is closed at the loader only; the first slice that loads the
-  project file in a session (S17) has to do it.
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
   The HTTP fake has no POST status sequences, no session expiry or
   session-id enforcement and no 403 with a challenge (S26, S30). The OAuth

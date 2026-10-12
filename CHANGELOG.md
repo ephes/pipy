@@ -159,12 +159,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
   owner only. Progress notifications become live output. Images in results
   are shown as `[image <mime> omitted]` for now. See
   [server tools](docs/mcp.md#server-tools).
-- A session's tool set has a place for MCP tools, not filled by a session
-  yet: the tools of connected servers are a third registry next to the
-  built-in and the extension tools, replaced as a whole when a server
-  connects or changes its tool list, without an extension reload. A `direct`
-  MCP tool is active when it registers, `--tools` and `--exclude-tools`
-  apply to tools that register later, and `/reload` keeps the MCP tools.
+- MCP servers in a session. pipy reads `mcp.json` from the config home and,
+  for a trusted project, `.pipy/mcp.json`, and starts connecting every
+  enabled stdio server when a session starts, without waiting for them. A
+  connected server's tools are registered as `mcp__<server>__<tool>` with the
+  exposure the config gives them: `direct` tools are declared to the model,
+  `codemode` (the default) and `deferred` tools are called from codemode
+  scripts or loaded by `tool_search`, which you still have to enable
+  yourself. Calls pass the `tool_call` and `tool_result` hooks, and
+  `ctx.get_all_tools()` reports the tools with their exposure, namespace and
+  annotation hints. A changed tool list adds and removes tools while the
+  session runs, `--tools` and `--exclude-tools` apply to them, `/reload`
+  keeps them, and the session's end closes every server. `.pipy/mcp.json`
+  now counts as a project resource that needs a trust decision. Not yet:
+  HTTP servers, OAuth, a report of servers that failed, the wait for servers
+  that are still connecting, `/mcp`, the `pipy mcp` commands and resources.
+  See [MCP](docs/mcp.md#quick-setup).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

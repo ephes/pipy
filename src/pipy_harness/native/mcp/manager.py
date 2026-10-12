@@ -1,0 +1,409 @@
+"""The MCP servers of one session.
+
+``McpManager`` owns the servers of the loaded ``mcp.json`` files for the life
+of a session: it connects every enabled server in the background, turns each
+server's tools into tool ports, publishes them as the session's MCP tools,
+and closes every connection when the session ends.
+
+Threads. ``start`` returns at once; each enabled server gets a daemon thread
+(``mcp-start``) that asks its connection for a client. A connection announces
+changes on whatever thread made them, so its callbacks only put the server on
+a queue. One daemon thread (``mcp-manager``) takes servers from that queue,
+reads the connection's view and registers what it finds. It is the only
+thread that builds tool ports and publishes them, so publications happen one
+after another and the last one is built from the newest views.
+
+Locks, in the order they may be taken: the publication lock, the manager
+lock, a connection's lock, the capability state lock. The manager lock
+guards the server list and is never held while the manager calls a
+connection or publishes tools. ``close`` takes the publication lock, so it
+must not be called by a thread that holds the capability state lock.
+
+Nothing here calls into a user interface. What the user should see is kept
+as notices, which the session thread collects with ``deliver_notices``.
+
+Not built yet: servers registered by extensions, the wait of the first prompt
+and of scripts for servers that are still connecting, the startup report,
+enabling and disabling a server in a session, and ``/reload``.
+"""
+
+from __future__ import annotations
+
+import queue
+import threading
+import time
+from collections import deque
+from collections.abc import Callable, Collection, Mapping
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
+from typing import Final
+
+from pipy_harness.native.mcp.config import (
+    LoadedMcpConfig,
+    McpServerEntry,
+    get_mcp_tool_exposure,
+)
+from pipy_harness.native.mcp.connection import (
+    ConnectionView,
+    McpServerConnection,
+    McpTransportFactory,
+    create_default_transport,
+)
+from pipy_harness.native.mcp.log import McpServerLog
+from pipy_harness.native.mcp.protocol import JsonObject
+from pipy_harness.native.mcp.tools import (
+    McpToolNames,
+    McpToolPort,
+    mcp_tool_namespace,
+)
+from pipy_harness.native.tools.base import ToolPort
+
+# How long ``close`` waits for the registering thread to end.
+_WORKER_JOIN_SECONDS: Final = 5.0
+
+# Replaces the session's MCP tools and returns the names that were left out
+# because another tool has them (``NativeToolCapabilities.publish_mcp_tools``).
+PublishMcpTools = Callable[[Mapping[str, ToolPort]], Collection[str]]
+NoticeSink = Callable[[str, str], None]
+
+
+class McpToolUnavailableError(Exception):
+    """A tool cannot be called now; the message is the call's error result."""
+
+
+@dataclass(frozen=True, slots=True)
+class McpNotice:
+    """Something the user should be told, for the session thread to show."""
+
+    level: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class McpServerStatus:
+    """One configured server at one moment. A disabled server has no connection."""
+
+    entry: McpServerEntry
+    enabled: bool
+    connection: ConnectionView | None
+
+
+def _is_enabled(entry: McpServerEntry) -> bool:
+    return entry.config.get("enabled") is not False
+
+
+class _Server:
+    """A configured server. Everything but ``ready`` is guarded by the manager lock."""
+
+    __slots__ = ("connection", "entry", "ports", "ready", "source")
+
+    def __init__(self, entry: McpServerEntry) -> None:
+        self.entry = entry
+        self.connection: McpServerConnection | None = None
+        # Set once the outcome of the connect was registered.
+        self.ready = threading.Event()
+        # The registered tools by pipy name, and the tool list and
+        # instructions they were built from.
+        self.ports: dict[str, McpToolPort] = {}
+        self.source: tuple[tuple[JsonObject, ...], str | None] | None = None
+
+
+class McpManager:
+    """The servers of one session. Start once, close once."""
+
+    def __init__(
+        self,
+        *,
+        config: LoadedMcpConfig,
+        cwd: Path | str,
+        client_version: str,
+        publish_tools: PublishMcpTools,
+        log: McpServerLog | None = None,
+        create_transport: McpTransportFactory = create_default_transport,
+    ) -> None:
+        """``publish_tools`` receives the tools of all servers after every
+        change. ``config`` is read once; ``cwd`` is the session directory."""
+
+        self.config_errors: tuple[str, ...] = tuple(config.errors)
+        self._cwd = cwd
+        self._client_version = client_version
+        self._publish_tools = publish_tools
+        self._log = log
+        self._create_transport = create_transport
+        self._publication = threading.Lock()
+        self._lock = threading.Lock()
+        self._servers = [_Server(entry) for entry in config.servers]
+        self._retired: list[McpServerConnection] = []
+        self._worker: threading.Thread | None = None
+        self._started = False
+        self._closed = False
+        self._names = McpToolNames()
+        self._events: queue.SimpleQueue[_Server | None] = queue.SimpleQueue()
+        self._notices: deque[McpNotice] = deque()
+        self._reported: set[str] = set()
+
+    # -- lifecycle --------------------------------------------------------
+
+    def start(self) -> None:
+        """Start connecting every enabled server; does not wait for any."""
+
+        connecting: list[tuple[_Server, McpServerConnection]] = []
+        with self._lock:
+            if self._started or self._closed:
+                return
+            self._started = True
+            for server in self._servers:
+                if _is_enabled(server.entry):
+                    server.connection = self._new_connection(server)
+                    connecting.append((server, server.connection))
+            if not connecting:
+                return
+            self._worker = threading.Thread(
+                target=self._run, name="mcp-manager", daemon=True
+            )
+            self._worker.start()
+        for server, connection in connecting:
+            threading.Thread(
+                target=self._connect,
+                args=(server, connection),
+                name="mcp-start",
+                daemon=True,
+            ).start()
+
+    def close(self) -> None:
+        """Close every connection, also one that is still connecting.
+
+        Returns when no transport of any server is open. Afterwards nothing
+        is published any more and a call to a tool of these servers fails.
+        Every caller waits, also when another thread closed first.
+        """
+
+        with self._publication:
+            with self._lock:
+                self._closed = True
+                servers, self._servers = self._servers, []
+                self._retired.extend(
+                    server.connection
+                    for server in servers
+                    if server.connection is not None
+                )
+                retired = list(self._retired)
+                worker = self._worker
+        closers = [
+            threading.Thread(target=connection.close, name="mcp-close", daemon=True)
+            for connection in retired[1:]
+        ]
+        for closer in closers:
+            closer.start()
+        if retired:
+            retired[0].close()
+        for closer in closers:
+            closer.join()
+        for server in servers:
+            server.ready.set()
+        if worker is not None:
+            self._events.put(None)
+            worker.join(_WORKER_JOIN_SECONDS)
+
+    # -- reading ----------------------------------------------------------
+
+    def servers(self) -> tuple[McpServerStatus, ...]:
+        """Every configured server, in configuration order."""
+
+        with self._lock:
+            servers = [(server.entry, server.connection) for server in self._servers]
+        return tuple(
+            McpServerStatus(
+                entry=entry,
+                enabled=_is_enabled(entry),
+                connection=None if connection is None else connection.view(),
+            )
+            for entry, connection in servers
+        )
+
+    def wait_until_settled(self, timeout: float | None = None) -> bool:
+        """Wait until every server that was started connected or failed and
+        its tools were published. Returns whether that happened in time."""
+
+        with self._lock:
+            waiting = [
+                server.ready
+                for server in self._servers
+                if server.connection is not None
+            ]
+        deadline = None if timeout is None else time.monotonic() + timeout
+        for ready in waiting:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if not ready.wait(None if remaining is None else max(remaining, 0)):
+                return False
+        return True
+
+    def deliver_notices(self, sink: NoticeSink) -> None:
+        """Hand the pending notices to ``sink(level, message)``, on the
+        caller's thread. The session thread calls this; nothing else shows
+        a notice."""
+
+        while True:
+            try:
+                notice = self._notices.popleft()
+            except IndexError:
+                return
+            sink(notice.level, notice.message)
+
+    # -- connecting and registering ---------------------------------------
+
+    def _new_connection(self, server: _Server) -> McpServerConnection:
+        changed = partial(self._changed, server)
+        return McpServerConnection(
+            entry=server.entry,
+            cwd=self._cwd,
+            client_version=self._client_version,
+            on_tools=changed,
+            on_change=changed,
+            create_transport=self._create_transport,
+            log=self._log,
+        )
+
+    def _connect(self, server: _Server, connection: McpServerConnection) -> None:
+        try:
+            connection.get_client()
+        except Exception:  # noqa: BLE001 - a failed connect is the connection's state
+            pass
+        self._events.put(server)
+
+    def _changed(self, server: _Server, connection: McpServerConnection) -> None:
+        """A connection's callback: any thread, so it only leaves a note."""
+
+        self._events.put(server)
+
+    def _run(self) -> None:
+        while True:
+            server = self._events.get()
+            if server is None:
+                return
+            try:
+                self._register(server)
+            except Exception as error:  # noqa: BLE001 - one server's tools must not end the thread
+                self._notify(
+                    "warning",
+                    f'MCP server "{server.entry.name}": '
+                    f"its tools could not be registered: {error}",
+                )
+
+    def _register(self, server: _Server) -> None:
+        """Publish the tools of ``server`` as its connection has them now."""
+
+        with self._publication:
+            with self._lock:
+                if self._closed or server not in self._servers:
+                    return
+                connection = server.connection
+                entry = server.entry
+                source = server.source
+                registered = bool(server.ports)
+            if connection is None:
+                return
+            view = connection.view()
+            if (
+                source is None
+                or source[0] is not view.tools
+                or source[1] != view.instructions
+            ):
+                ports = self._create_ports(entry, connection, view)
+                with self._lock:
+                    server.ports = ports
+                    server.source = (view.tools, view.instructions)
+                    merged: dict[str, ToolPort] = {
+                        name: port
+                        for other in self._servers
+                        for name, port in other.ports.items()
+                    }
+                if ports or registered:
+                    for name in self._publish_tools(merged):
+                        self._notify(
+                            "warning",
+                            f'MCP tool "{name}" is not available: '
+                            "another tool has that name",
+                        )
+            if view.state != "connecting":
+                server.ready.set()
+
+    def _create_ports(
+        self,
+        entry: McpServerEntry,
+        connection: McpServerConnection,
+        view: ConnectionView,
+    ) -> dict[str, McpToolPort]:
+        tools = [str(tool["name"]) for tool in view.tools]
+        namespace = mcp_tool_namespace(
+            entry.name,
+            description=entry.config.get("description"),
+            instructions=view.instructions,
+        )
+        ports: dict[str, McpToolPort] = {}
+        for tool, tool_name, name in zip(
+            view.tools, tools, self._names.assign(entry.name, tools), strict=True
+        ):
+            try:
+                ports[name] = McpToolPort(
+                    server=entry.name,
+                    tool=tool,
+                    name=name,
+                    exposure=get_mcp_tool_exposure(entry.config, tool_name),
+                    namespace=namespace,
+                    timeout_ms=connection.timeout_ms,
+                    get_caller=partial(self._caller, entry.name, tool_name),
+                )
+            except (TypeError, ValueError) as error:
+                # Pi registers such a tool as it is; pipy cannot declare it.
+                self._notify(
+                    "warning",
+                    f'MCP tool "{entry.name}/{tool_name}" is not available: {error}',
+                )
+        return ports
+
+    def _caller(self, server_name: str, tool_name: str) -> McpServerConnection:
+        """The connection a call to ``tool_name`` runs on, resolved now.
+
+        A call that was prepared against an earlier tool list, or before the
+        server was disabled and enabled again, uses what is current.
+        """
+
+        with self._lock:
+            server = next(
+                (
+                    candidate
+                    for candidate in self._servers
+                    if candidate.entry.name == server_name
+                ),
+                None,
+            )
+            if server is None or not _is_enabled(server.entry):
+                raise McpToolUnavailableError(
+                    f'MCP server "{server_name}" is disabled.'
+                )
+            connection = server.connection
+            entry = server.entry
+        if connection is None:
+            raise McpToolUnavailableError(
+                f'MCP server "{server_name}" is still starting.'
+            )
+        view = connection.view()
+        if get_mcp_tool_exposure(entry.config, tool_name) == "hidden" or (
+            view.state == "connected"
+            and not any(offered.get("name") == tool_name for offered in view.tools)
+        ):
+            raise McpToolUnavailableError(
+                f'MCP tool "{server_name}/{tool_name}" is no longer available.'
+            )
+        return connection
+
+    def _notify(self, level: str, message: str) -> None:
+        """Keep a notice for the session thread; each text once per session."""
+
+        with self._lock:
+            if message in self._reported:
+                return
+            self._reported.add(message)
+        self._notices.append(McpNotice(level, message))

@@ -329,8 +329,8 @@ name of an MCP tool, because a server's tools are registered when it connects.
 
 MCP tools are the tools of MCP servers, named `mcp__<server>__<tool>`, and the
 three resource tools `list_mcp_resources`, `list_mcp_resource_templates` and
-`read_mcp_resource`. pipy does not connect to MCP servers yet, so today these
-rules apply to extension tools with such names.
+`read_mcp_resource`. pipy connects to the stdio servers of `mcp.json`, see
+[MCP](mcp.md#quick-setup); the resource tools do not exist yet.
 
 `--tools` selects the tools declared to the model. It does not remove MCP
 tools, whose reach is set by their exposure: `pipy --tools read,codemode`

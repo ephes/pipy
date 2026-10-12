@@ -35,8 +35,8 @@ is stored. For terminal-specific preparation, see
   workflow catalog.
 - [Python codemode sandbox](codemode.md) covers installing the optional
   codemode runtime and the sandbox core (groundwork; not yet a model tool).
-- [MCP](mcp.md) covers the optional `tool_search` tool; MCP servers are not
-  supported yet.
+- [MCP](mcp.md) covers stdio MCP servers configured in `mcp.json` and the
+  optional `tool_search` tool.
 
 ## Behavioral contracts
 

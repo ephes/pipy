@@ -118,6 +118,9 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_tokens
 from pipy_harness.native.keybindings import KeybindingsManager
+from pipy_harness.native.mcp.config import load_mcp_config
+from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
+from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -579,6 +582,7 @@ class _ExtensionPhase:
     extension_notify: Callable[[str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
     tool_capabilities: NativeToolCapabilities
+    mcp_manager: McpManager
     startup_projection: ExtensionProjection
     attachment: StartupGenerationAttachment
     generation_ref: SessionGenerationRef
@@ -958,6 +962,7 @@ def _compose_extension_phase(
         extension_notify=_extension_notify,
         extension_ui_driver=extension_ui_driver,
         tool_capabilities=tool_capabilities,
+        mcp_manager=_mcp_manager(cwd, settings, tool_capabilities),
         startup_projection=startup_projection,
         attachment=attached,
         generation_ref=generation_ref,
@@ -966,6 +971,67 @@ def _compose_extension_phase(
         startup_commands=startup_commands,
         agent_settled_pending=False,
     )
+
+
+def _mcp_manager(
+    cwd: Path, settings: SettingsManager, tool_capabilities: NativeToolCapabilities
+) -> McpManager:
+    """The session's MCP servers, read from ``mcp.json`` and not started yet.
+
+    The user-level file is the one next to the user-level settings file; the
+    project file is read only for a trusted project.
+    """
+
+    config_home = settings.global_path.parent
+    return McpManager(
+        config=load_mcp_config(
+            config_home=config_home,
+            cwd=cwd,
+            project_trusted=settings.project_trusted,
+        ),
+        cwd=cwd,
+        client_version=pipy_version(),
+        publish_tools=tool_capabilities.publish_mcp_tools,
+        log=McpServerLog(mcp_log_path(config_home)),
+    )
+
+
+def _start_session(fire_session_start: Callable[[], None], mcp: McpManager) -> None:
+    """``session_start``, then the MCP servers start connecting in the background."""
+
+    fire_session_start()
+    try:
+        mcp.start()
+    except BaseException:
+        # A start that failed has no shutdown bookend.
+        mcp.close()
+        raise
+
+
+def _close_session(
+    close_extension_session: Callable[[], None], mcp: McpManager
+) -> None:
+    """The cleanup every exit of a started session runs.
+
+    Every MCP connection is closed before it returns, also when a lifecycle
+    hook ended the shutdown early.
+    """
+
+    try:
+        mcp.close()
+    finally:
+        close_extension_session()
+
+
+def _drain_session_outboxes(
+    drain_extension_outboxes: Callable[[], None],
+    mcp: McpManager,
+    notify: Callable[[str, str], None],
+) -> None:
+    """Runs on the session thread wherever the next step is selected."""
+
+    drain_extension_outboxes()
+    mcp.deliver_notices(notify)
 
 
 def _prepare_startup_extension_consumers(
@@ -2031,7 +2097,12 @@ def _assemble_session_wiring(
         declared_context_window=provider_mutation.declared_context_window,
         cycle_thinking_level=provider_mutation.cycle_thinking_level,
         append_agent_message=append_agent_message,
-        drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
+        drain_extension_outboxes=partial(
+            _drain_session_outboxes,
+            custom_renderer.drain_extension_outboxes,
+            extension.mcp_manager,
+            _extension_notify,
+        ),
         active_provider_header_callback=collaborators.active_provider_header_callback,
         extension_custom_driver=collaborators.extension_custom_driver,
         extension_notify=_extension_notify,
@@ -2051,15 +2122,23 @@ def _assemble_session_wiring(
             repl_input=repl_input,
             started_at=started_at,
         ),
-        fire_session_start=partial(repl_loop_step.fire_session_start, emitter=emitter),
+        fire_session_start=partial(
+            _start_session,
+            partial(repl_loop_step.fire_session_start, emitter=emitter),
+            extension.mcp_manager,
+        ),
         fire_session_shutdown=partial(
             repl_loop_step.fire_session_shutdown, emitter=emitter
         ),
         consume_settle_pending=partial(repl_loop_step.consume_settle_pending, ctl=ctl),
         close_extension_session=partial(
-            repl_loop_step.close_extension_session,
-            coding_effects=coding_effects,
-            generation_ref=ctl.generation_ref,
+            _close_session,
+            partial(
+                repl_loop_step.close_extension_session,
+                coding_effects=coding_effects,
+                generation_ref=ctl.generation_ref,
+            ),
+            extension.mcp_manager,
         ),
         clear_extension_chrome=(
             terminal_ui.components.chrome.generation.retire_generation

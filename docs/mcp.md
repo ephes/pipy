@@ -1,21 +1,115 @@
 # MCP
 
-pipy does not connect to MCP servers yet. The work is planned in the
+pipy connects to the stdio MCP servers of your `mcp.json` when a session
+starts and makes their tools available to the model and to codemode scripts.
+The work follows the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
-this page grows with them. What a session can use today is the tool model MCP
-tools will use (exposure, namespaces, structured results), codemode scripts
-that reach extension tools, and tool search.
+this page grows with them. [Quick setup](#quick-setup) shows what works today
+and [what is missing](#what-is-missing) lists what does not yet: among other
+things HTTP servers, OAuth, `/mcp`, the `pipy mcp` commands and resources.
 
-The MCP client itself exists as library code that no session, command or
-setting uses yet: the protocol client, the stdio and streamable HTTP
-transports, the `mcp.json` reader and editor, the connection to a stdio
-server, the adaptation of a server's tools and their results, and OAuth
-discovery. See
-[what exists as a library](#what-exists-as-a-library). The sections on
-configuration below describe the file format that library accepts, so a file
-written now is valid when sessions start to connect. Until then pipy never
-reads an `mcp.json`, starts no server process and sends no request to a
-server.
+## Quick setup
+
+Write the servers into `mcp.json` in the config home (`~/.pipy/mcp.json`
+unless `PIPY_CONFIG_HOME` or `XDG_CONFIG_HOME` say otherwise), or into
+`.pipy/mcp.json` of a trusted project:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "exposure": "direct"
+    }
+  }
+}
+```
+
+Start pipy. Every enabled server starts connecting in the background; pipy
+does not wait for them, so the first prompt may run before a server has
+connected. When a server connects, its tools are registered as
+`mcp__<server>__<tool>`, here for example `mcp__filesystem__read_file`. The
+file is read once, when the session starts: restart pipy after changing it.
+When the session ends, pipy closes every server and waits until its process
+is gone, also for a server that was still starting.
+
+How the tools are reached depends on the server's `exposure` and the
+per-tool `toolExposure` (see [configuration rules](#configuration-rules)):
+
+- `direct`: the tools are declared to the model like built-in tools, from
+  the first model request after the server connected. Scripts can call them
+  too.
+- `codemode`, the default, and `deferred`: the tools are not declared.
+  Codemode scripts call them (`tools.mcp__filesystem__read_file(path="a")`)
+  and find them with `search_tools()`; `tool_search` loads them so that the
+  model can call them directly. pipy does not turn these two tools on for
+  you yet. Enable one yourself, for example with
+  `"defaultTools": ["+codemode"]` in the settings, or the tools cannot be
+  called.
+- `hidden`: the tools are registered and cannot be called.
+
+`--tools` and `--exclude-tools` apply to these tools as described under
+[MCP tools](usage.md#mcp-tools).
+
+### Permissions
+
+A call to an MCP tool, from the model or from a script, runs through the same
+tool pipeline as a call to a built-in tool. An extension's `tool_call`
+handler can block it and a `tool_result` handler can change its result.
+`ctx.get_all_tools()` reports each MCP tool with its exposure, its namespace
+and the hints its server declares (`read_only_hint`, `destructive_hint`,
+`idempotent_hint`, `open_world_hint`), so a permission extension can decide
+by them. The hints are what the server says about itself; pipy does not
+check them. A stdio server runs with your permissions, like `bash`.
+
+### When tools change
+
+A server can announce a new tool list while it runs. New tools are
+registered, and a tool the server no longer offers is removed: the model is
+not given it any more and a call to it is an unknown tool. A tool that comes
+back is available again with its configured exposure. A call that was
+already on its way fails with one of these messages:
+
+| Message | When |
+| --- | --- |
+| `MCP tool "<server>/<tool>" is no longer available.` | The server withdrew the tool, or its exposure is `hidden`. |
+| `MCP server "<server>" is disabled.` | The server is disabled, or the session has ended. |
+| `MCP server "<server>" is still starting.` | The server has no connection yet. |
+
+When a server process exits, its tools stay registered and the next call
+starts it again.
+
+### What you are not told yet
+
+pipy does not report MCP problems at startup yet. A server that fails to
+start, and an error in an `mcp.json`, are silent: the server's tools are just
+not there. Two cases are reported, as a warning before the next prompt:
+
+- `MCP tool "<server>/<tool>" is not available: <reason>` for a tool pipy
+  cannot declare, which is one whose input schema is not an object. The
+  server's other tools are registered. Pi registers such a tool as it is.
+- `MCP tool "<name>" is not available: another tool has that name` when a
+  built-in or extension tool already has the name an MCP tool would get. The
+  MCP tool never replaces the other tool.
+
+Log messages a server sends are in `mcp.log`, see [server log](#server-log).
+
+### What is missing
+
+Not built yet, in the order the plan builds it: the wait of the first prompt
+and of scripts for servers that are still connecting, turning on `codemode`
+and `tool_search` for servers that need them, the startup report, `--no-mcp`,
+the `mcp_servers` section of the system prompt, the `pipy mcp` commands,
+`/mcp` (status, reconnect, enabling and disabling a server, changing its
+exposure), reading `mcp.json` again on `/reload`, resources, HTTP servers,
+OAuth, servers registered by extensions, and images in tool results.
+
+Until `/reload` handles MCP: when a server connects or changes its tools
+while a `/reload` is being prepared, that reload is refused with `prepared
+reload owner state changed`; run it again. A new session in the same pipy
+process (`/new`, `/resume`) keeps the servers of the first one, where Pi
+closes them and reads `mcp.json` again.
 
 ## Tool search
 
@@ -73,9 +167,6 @@ Differences from Pi:
   that passes its own tool registry does not get it.
 
 ## Configure servers
-
-Not read by pipy yet: this section describes what the configuration library
-loads and validates.
 
 User-level servers are in `mcp.json` in the config home (`PIPY_CONFIG_HOME`,
 then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy`, then `~/.config/pipy`), project
@@ -193,9 +284,8 @@ Differences from Pi in the configuration:
 
 ## Server connections
 
-Not used by a session yet: this section describes what the connection library
-does with a configured server. Only stdio servers can be connected; an entry
-with a `url` fails with a message that says so.
+What pipy does with a configured server. Only stdio servers can be connected
+so far; an entry with a `url` fails to connect with a message that says so.
 
 ### Values resolved at connect time
 
@@ -277,9 +367,8 @@ Differences from Pi in connections:
 
 ## Server tools
 
-Not used by a session yet: this section describes how the library turns a
-server's tools into pipy tools and a tool's result into what the model and a
-script see. No session registers such a tool so far.
+How a server's tools become pipy tools, and what the model and a script see
+of a tool's result.
 
 ### Names
 
@@ -392,8 +481,7 @@ Differences from Pi in tools:
 ## What exists as a library
 
 The package `pipy_harness.native.mcp` is synchronous and uses only the
-standard library. It is not part of the SDK surface, and nothing in a pipy
-session imports it yet.
+standard library. It is not part of the SDK surface.
 
 | Module | What it does |
 | --- | --- |
@@ -406,11 +494,11 @@ session imports it yet.
 | `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
+| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, and closes everything at the end. |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session
-renewal, registration of a server's tools in a session, images in tool
-results, resources, readiness waits, the
+renewal, images in tool results, resources, readiness waits, the
 `mcp_servers` prompt section, `--no-mcp`, the `pipy mcp` commands, `/mcp`,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,

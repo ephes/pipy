@@ -311,7 +311,8 @@ manager exposes an empty project scope and refuses project writes while global,
 base-default, and CLI/env layers remain usable.
 
 Protected project defaults are `.pipy/settings.json`, extensions, skills,
-templates, commands, `SYSTEM.md`, and `APPEND_SYSTEM.md`. Standalone
+templates, commands, `SYSTEM.md`, `APPEND_SYSTEM.md`, and `mcp.json` (the
+project's [MCP servers](mcp.md#configure-servers), which start processes). Standalone
 `.pipy/themes` is not a discovery source today; project-package themes are gated
 through project settings. Global
 resources and packages plus explicit `--extension`, `--skill`,

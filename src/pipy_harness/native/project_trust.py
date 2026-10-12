@@ -28,6 +28,7 @@ PROTECTED_PROJECT_ENTRIES = (
     "commands",
     "SYSTEM.md",
     "APPEND_SYSTEM.md",
+    "mcp.json",
 )
 
 _LOCK_TIMEOUT_SECONDS = 5.0
