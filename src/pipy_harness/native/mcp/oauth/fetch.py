@@ -137,17 +137,14 @@ def _cannot_request(url: str) -> http.client.InvalidURL:
 
 def _parse_target(url: str) -> _Target:
     parsed = parse_http_url(url)
-    try:
-        if parsed is None or "@" in urllib.parse.urlsplit(url.strip()).netloc:
-            raise _cannot_request(url)
-    except ValueError as error:
-        raise _cannot_request(url) from error
+    if parsed is None or parsed.has_user_info:
+        raise _cannot_request(url)
     secure = parsed.scheme == "https"
-    path = urllib.parse.quote(parsed.path, safe=_URL_PATH_SAFE)
+    path = urllib.parse.quote(parsed.pathname, safe=_URL_PATH_SAFE)
     if parsed.query:
         path += "?" + urllib.parse.quote(parsed.query, safe=_URL_PATH_SAFE + "?")
     port = parsed.port if parsed.port is not None else (443 if secure else 80)
-    return _Target(url, secure, parsed.hostname.strip("[]"), port, path)
+    return _Target(parsed.href, secure, parsed.hostname.strip("[]"), port, path)
 
 
 class _SocketShutdown:

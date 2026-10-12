@@ -107,6 +107,19 @@ def test_the_path_and_query_are_percent_encoded(server: FakeOAuthServer) -> None
     assert (request.path, request.query) == ("/a%20b/%C3%A4%20c", "q=x%20y&r=%41")
 
 
+def test_dot_segments_are_resolved_before_the_request(
+    server: FakeOAuthServer,
+) -> None:
+    server.route("/a", _redirect("/x/%2E%2e/./b/"))
+    for path in ("/dir/../a", "/dir/%2e%2E/a", "/./a", "/../a"):
+        oauth_fetch(server.origin + path)
+    assert server.paths == ["/a", "/b/"] * 4
+    # A relative redirect starts from the path that was asked for.
+    server.route("/d/e", _redirect("f"))
+    oauth_fetch(f"{server.origin}/d/x/%2e%2e/e")
+    assert server.paths[-2:] == ["/d/e", "/d/f"]
+
+
 def test_text_is_decoded_leniently_and_json_strictly() -> None:
     assert OAuthResponse(200, {}, b"\xef\xbb\xbf{}").json() == {}
     assert OAuthResponse(200, {}, b"a\xffb").text() == "a�b"

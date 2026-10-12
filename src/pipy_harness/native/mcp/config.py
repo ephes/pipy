@@ -190,11 +190,40 @@ class HttpUrl:
     path: str
     query: str
     fragment: str
+    # Whether the URL names a user or a password. They are not kept.
+    has_user_info: bool = False
 
     @property
     def origin(self) -> str:
         port = "" if self.port is None else f":{self.port}"
         return f"{self.scheme}://{self.hostname}{port}"
+
+    @property
+    def pathname(self) -> str:
+        """The path without dot segments, which is the path a request asks for.
+
+        As in a WHATWG URL parser, ``%2e`` in either letter case is a dot.
+        """
+
+        segments = self.path.split("/")[1:]
+        kept: list[str] = []
+        for index, segment in enumerate(segments):
+            dots = segment.lower().replace("%2e", ".")
+            if dots not in (".", ".."):
+                kept.append(segment)
+                continue
+            if dots == ".." and kept:
+                kept.pop()
+            if index == len(segments) - 1:
+                kept.append("")
+        return "/" + "/".join(kept)
+
+    @property
+    def href(self) -> str:
+        """Origin, ``pathname`` and query: the URL without user info and fragment."""
+
+        query = f"?{self.query}" if self.query else ""
+        return f"{self.origin}{self.pathname}{query}"
 
 
 # re.ASCII keeps the case-insensitive match to ASCII letters.
@@ -257,7 +286,13 @@ def parse_http_url(value: object) -> HttpUrl | None:
     if port == _DEFAULT_PORTS[scheme]:
         port = None
     return HttpUrl(
-        scheme, hostname, port, match[3] or "/", match[4] or "", match[5] or ""
+        scheme,
+        hostname,
+        port,
+        match[3] or "/",
+        match[4] or "",
+        match[5] or "",
+        "@" in match[2],
     )
 
 
