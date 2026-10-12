@@ -828,6 +828,51 @@ larger than that cannot cross it; S04 raises the limit for reply lines to the
 transport message limit or streams large replies in parts, and pins the choice
 with a test of a 5 MB structured result.
 
+Decided in S04:
+
+- Replies are not streamed in parts. The 1 MiB limit (`ScriptLimits.line_bytes`)
+  was only ever checked on the lines a guest sends, and stays there. Reply
+  lines get their own limit, `ScriptLimits.reply_bytes`, 16 MiB (the
+  transport message limit of 4.8), measured on the encoded JSON line. A larger
+  result, or a structured value that is not JSON, becomes an error reply: the
+  tool has run, the nested record keeps the tool's own status, and the script
+  gets a `ToolError` that names the tool and the size. Replies are encoded on
+  the session thread, so the I/O thread only copies bytes.
+- The text reply key is `text` and the structured one `value`, as item 2
+  says; the earlier `{"ok": true, "value": str}` form is gone. A reply with
+  `value` is sent with `ok: true` also for an error result (CMD-03); the
+  host's call record and the parent's nested record follow the tool's outcome.
+- `None` stays the marker for "no structured content" (S01), so a tool cannot
+  hand a script JSON `null` as its structured content; it gets the text.
+- Which tools declare an output schema is part of the parent's callable
+  snapshot (`NestedCallableTools.output_schema_names()`), read through
+  `NestedToolCallService.declares_output_schema(name)`. The decision uses the
+  registered definition, not the result: structured content of a tool without
+  an output schema stays with hooks and events and never reaches a script,
+  also when a `tool_result` hook added it.
+- CMD-25: `ToolResultEvent` carries `structured_content`, and
+  `ToolResultTransform` gained an optional `structured_content`. pipy's
+  transform always replaces the content, so Pi's rule "content without
+  structured content drops it" means here: a transform decides both, and one
+  without `structured_content` drops it. To change only the structured content
+  a hook returns the event's content with it. Pi's transform can also replace
+  `details`, `isError` and `usage`; pipy's cannot, and that is not part of
+  this plan. The event hands the value over by reference, as Pi does.
+- The tool policy port (`AgentToolPolicy.transform_result`) may return an
+  `AgentToolResultTransform(content, structured_content)` in place of a bare
+  `ProductContent`. A bare content that differs from the result's drops the
+  structured content, the same rule one level down.
+  `dispatch_tool_result_hooks` now returns the final `ToolResultTransform`
+  instead of a string.
+- `Tool "<name>" failed` is used for a failed result without text, for the
+  script's `ToolError` and for the `error` field of the nested record.
+- The retained nested records drop `structured_content` together with content
+  and details (CMD-26: never results).
+- Not changed: the `codemode` tool description still says that tool results
+  are strings (byte-pinned until S08, CMD-18), and RPC/JSON
+  `tool_execution_end` does not carry structured content (no row of this plan
+  asks for it; Pi's event carries the whole in-memory result).
+
 ### 4.10 Reload and resume
 
 `/reload` runs `McpManager.close()`, loads the config again and starts the

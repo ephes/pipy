@@ -155,6 +155,7 @@ from pipy_harness.native.session_generation import (
     OrderedDeliveryGate,
     OrderedDeliveryToken,
 )
+from pipy_harness.native.tools.base import json_safe_value
 
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.package_resources import PackageRoot
@@ -545,18 +546,23 @@ def dispatch_tool_result_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
-) -> str:
-    """Run `tool_result` hooks over a finalized tool result; return content.
+    structured_content: object | None = None,
+) -> ToolResultTransform:
+    """Run `tool_result` hooks over a finalized tool result; return the result.
 
     Each hook receives a `ToolResultEvent` with the current content and
-    may return a `ToolResultTransform` to replace it for later hooks /
-    the model. Hooks run in registration order. A hook that raises or
-    returns a non-string transform is fail-safe (the current content is
-    kept). The final content is bounded before returning to the model.
-    `KeyboardInterrupt` / `SystemExit` propagate.
+    structured content and may return a `ToolResultTransform` to replace
+    them for later hooks / the model / programmatic callers. Hooks run in
+    registration order. A transform replaces the content and decides the
+    structured content with it: the one it carries, or none (Pi
+    `emitToolResult`). A hook that raises or returns a non-string transform
+    is fail-safe (the current content and structured content are kept). The
+    final content is bounded before returning to the model; the structured
+    content is not. `KeyboardInterrupt` / `SystemExit` propagate.
     """
 
     current = content
+    current_structured = structured_content
     if hooks:
         ctx = _CommandContext(
             cwd,
@@ -569,7 +575,10 @@ def dispatch_tool_result_hooks(
             try:
                 result = hook(
                     ToolResultEvent(
-                        tool_name=tool_name, content=current, is_error=is_error
+                        tool_name=tool_name,
+                        content=current,
+                        is_error=is_error,
+                        structured_content=current_structured,
                     ),
                     ctx,
                 )
@@ -583,12 +592,15 @@ def dispatch_tool_result_hooks(
                 result.content, str
             ):
                 current = result.content
+                if result.structured_content is not current_structured:
+                    # A detached JSON copy; a value that is not JSON is dropped.
+                    current_structured = json_safe_value(result.structured_content)
     if len(current) > _TOOL_RESULT_MAX_CHARS:
         current = (
             current[:_TOOL_RESULT_MAX_CHARS]
             + "\n[pipy: tool_result transform truncated]"
         )
-    return current
+    return ToolResultTransform(content=current, structured_content=current_structured)
 
 
 def dispatch_lifecycle_hooks(

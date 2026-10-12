@@ -48,6 +48,7 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyAction,
     AgentToolPolicyState,
     AgentToolPolicyTransition,
+    AgentToolResultTransform,
     apply_tool_policy_decision,
     decide_tool_admission,
     normalize_provider_status,
@@ -1114,6 +1115,11 @@ class AgentLoop:
             settle,
             self._tools.error_result,
             settle_with_waiter=settle,
+            output_schema_names=(
+                callable_tools.output_schema_names()
+                if callable_tools is not None
+                else frozenset()
+            ),
         )
         started_at = datetime.now(UTC)
         terminal_emit_attempted = False
@@ -1363,11 +1369,22 @@ def _transform_tool_result(
     call: AgentToolCall,
     result: AgentToolResultMessage,
 ) -> AgentToolResultMessage:
-    content = policy.transform_result(call, result)
-    validate_product_content(content, "AgentToolPolicy.transform_result result")
-    if content == result.content:
+    transformed = policy.transform_result(call, result)
+    if isinstance(transformed, AgentToolResultTransform):
+        content = transformed.content
+        validate_product_content(content, "AgentToolPolicy.transform_result result")
+        structured_content = transformed.structured_content
+    else:
+        content = transformed
+        validate_product_content(content, "AgentToolPolicy.transform_result result")
+        # Pi: structured content that is not replaced along with the content
+        # may no longer match it, so replaced content alone drops it.
+        structured_content = (
+            result.structured_content if content == result.content else None
+        )
+    if content == result.content and structured_content is result.structured_content:
         return result
-    return replace(result, content=content)
+    return replace(result, content=content, structured_content=structured_content)
 
 
 def _interruption_reason(

@@ -233,9 +233,10 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
             content=content,
             is_error=False,
         )
-        assert transformed.value == "result"
+        assert transformed.content.value == "result"
+        assert transformed.structured_content is None
         if identity:
-            assert transformed is content
+            assert transformed.content is content
     else:
         assert operations.session_allows(
             "switch",

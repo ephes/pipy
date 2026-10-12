@@ -188,7 +188,7 @@ def _answer(message: dict[str, Any], tools: dict[str, ToolFn]) -> dict[str, Any]
             "type": "result",
             "id": message["id"],
             "ok": True,
-            "value": tool(message["args"]),
+            "text": tool(message["args"]),
         }
     except ToolFailure as exc:
         return {"type": "result", "id": message["id"], "ok": False, "error": str(exc)}

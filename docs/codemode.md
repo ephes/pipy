@@ -104,6 +104,32 @@ except ToolError as error:
     text({"error": str(error)})
 ```
 
+What a call returns depends on the tool:
+
+- A tool that declares an output schema returns its structured content as a
+  Python value (`dict`, `list`, `str`, number, `bool`), not as text. It
+  returns it for a failure too, when the failed result carries structured
+  content, so check the value instead of relying on `ToolError`. None of the
+  built-in tools declares an output schema; an
+  [extension tool](extension-api.md#tool-model) can.
+- Every other call returns the tool's text as one `str`. That includes a tool
+  that declares an output schema when a result carries no structured content.
+- A call that fails without structured content raises `ToolError` with the
+  tool's error text, or `Tool "<name>" failed` when the tool gave none. So do
+  a call that a `tool_call` hook blocked, a call whose arguments do not fit
+  the tool's schema and a call that the tool budget refused.
+
+A `tool_result` hook sees the result before the script does. A hook that
+replaces the content decides the structured content with it: the script
+receives the structured content the hook returned, or the replaced text when
+the hook returned none.
+
+A structured value is not cut to the 64 KiB a tool's text is limited to. One
+tool reply may be up to 16 MiB as JSON; a larger one raises `ToolError` in the
+script, after the tool has run. A script still has 256 MiB of memory for the
+values it keeps and can emit 1 MiB of output, so reduce a large value before
+emitting it.
+
 `text(value)` emits strings unchanged and other values as JSON (falling back to
 `repr` for values JSON cannot encode). `print()` and stdout/stderr writes are
 included in order. Filter before emitting: bulk raw results can exhaust output
@@ -144,8 +170,9 @@ are registered and active at that moment. A change made while the script runs
 (`ctx.set_active_tools(...)` from a nested tool, a `/reload`) applies from the
 next request on and does not change the running script.
 
-The tool description the model sees still names only the seven built-ins;
-extension tools are not listed in it yet.
+The tool description the model sees still names only the seven built-ins and
+says that tool results are strings; extension tools and structured results are
+not described in it yet.
 
 ## Python capabilities and authority
 
@@ -179,7 +206,8 @@ Scripts are not automatically retried after effects.
 | Wall deadline | 120 seconds, including startup and time inside tools |
 | Guest memory | 256 MiB; exhaustion raises catchable `MemoryError` |
 | Source | 256 KiB UTF-8, checked before spawning |
-| Protocol line | 1 MiB; violation fails the sandbox |
+| Protocol line | 1 MiB per line the script sends (a tool call with its arguments, an output message); violation fails the sandbox |
+| Tool reply | 16 MiB as JSON per call; a larger result raises `ToolError` |
 | Emitted output | 1 MiB or 100,000 messages; excess fails the script |
 | Result display | 10,000 estimated tokens (characters / 4), head and tail |
 | Worker diagnostics | 64 KiB stderr retained |
@@ -233,7 +261,6 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-MCP tools, tool discovery from scripts, structured results, parallel calls,
-images, `models.*`, `store()`/`load()`, options lines and structured bash
-results are deferred. A resident engine requires
+MCP tools, tool discovery from scripts, parallel calls, images, `models.*`,
+`store()`/`load()`, options lines and structured bash results are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

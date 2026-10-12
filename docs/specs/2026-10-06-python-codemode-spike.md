@@ -205,7 +205,7 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 |---|---|
 | host → guest | `{"type":"run","code":str,"tools":[str]}` (first line; `tools` names the callable tools, for the `tools.<name>` proxy and "did you mean") |
 | guest → host | `{"type":"call","id":int,"name":str,"args":object}` |
-| host → guest | `{"type":"result","id":int,"ok":true,"value":str}` or `{"type":"result","id":int,"ok":false,"error":str}` |
+| host → guest | `{"type":"result","id":int,"ok":true,"text":str}`, `{"type":"result","id":int,"ok":true,"value":<JSON>}` (the structured content of a tool that declares an output schema; MCP parity plan S04) or `{"type":"result","id":int,"ok":false,"error":str}` |
 | guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
 | guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}` |
 | worker → host (status fd) | `{"type":"ready","backend":"wasi","wasmtime":str,"runtime_sha256":str}`, then `{"type":"exit","reason":"ok"\|"trap-interrupt"\|"trap-stack"\|"error","code"?:int,"detail"?:str}`; a setup failure sends `exit` without `ready` |
@@ -425,7 +425,8 @@ inspected end-to-end/tmux evidence.
 | Guest CPU backstop | wall + 5 s | Epoch deadline (10 ms ticks). The ticks count wall time, including time blocked on host replies (verified in T2), so the host wall timer is primary. |
 | Guest memory | 256 MiB | `Store.set_limits(memory_size=…)`. Verified to give `MemoryError` and let the script continue. |
 | Code size | 256 KiB | Host check before spawn |
-| Protocol line | 1 MiB | Checked while buffering |
+| Protocol line | 1 MiB | Each line the guest sends, checked while buffering |
+| Tool reply | 16 MiB | Each reply line the host sends, checked when it is encoded; a larger result becomes a `ToolError` for that call (MCP parity plan S04) |
 | Total output | 1 MiB or 100 000 `text` messages | Host kills the worker and returns a script error with guidance to write large data through a tool |
 | Model-visible output | 10 000 tokens (chars/4) | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
 | Diagnostic stderr | 64 KiB | Captured, never parsed |
@@ -483,8 +484,9 @@ snapshot:
   nested call goes through the full policy path (§4.2). The spike's
   unprotected `read` stand-in is not representative of pipy's read tool.
 - **Results:** a call returns the tool's model-facing text content as `str`.
-  A tool error raises `ToolError(message)`. Structured results (Pi's `bash`
-  object) are deferred.
+  A tool error raises `ToolError(message)`. Since MCP parity plan S04 a tool
+  that declares an output schema returns its structured content instead.
+  Structured results of the built-ins (Pi's `bash` object) are deferred.
 
 ### 4.8 What the model sees (stable, byte-pinned)
 

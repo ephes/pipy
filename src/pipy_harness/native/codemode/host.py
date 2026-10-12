@@ -12,7 +12,7 @@ Threads (spike result §4.1 host rules, §4.2 step 4):
   deadline and the cancel event are checked on every loop iteration, so a
   guest that floods output or never reads its stdin cannot stall the host.
   It validates every guest line (untrusted) and enforces the line, output and
-  stderr caps. On any protocol violation, cap, deadline or cancel it kills the
+  stderr caps. Replies are encoded and bounded on the calling thread. On any protocol violation, cap, deadline or cancel it kills the
   worker's process group at once and reports the outcome.
 - The calling (session) thread runs the tool callback. The I/O thread hands it
   each ``call`` through a queue; the calling thread runs the callback and posts
@@ -246,6 +246,68 @@ def _encode(message: dict[str, Any]) -> bytes:
     return (json.dumps(message, separators=(",", ":")) + "\n").encode()
 
 
+def _has_only_string_keys(value: object) -> bool:
+    """For a value ``json.dumps`` accepted (so it is finite and acyclic)."""
+
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if any(type(key) is not str for key in item):
+                return False
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
+    return True
+
+
+def _error_reply(call_id: int, text: str) -> bytes:
+    return _encode({"type": "result", "id": call_id, "ok": False, "error": text})
+
+
+def _encode_reply(call_id: int, name: str, result: CallResult, limit: int) -> bytes:
+    """The reply line for one settled call; never raises.
+
+    A reply carries the tool's ``text``, or its structured ``value`` as JSON,
+    or an ``error`` that the guest raises as ``ToolError``. A value that is
+    not JSON, or a reply longer than ``limit``, is replaced by an error: the
+    tool has run, and the script learns why it got no result.
+    """
+
+    head: dict[str, Any] = {"type": "result", "id": call_id, "ok": True}
+    if result.value is not None:
+        try:
+            line = (
+                json.dumps(
+                    head | {"value": result.value},
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode()
+            # After encoding, which refuses a cyclic value: the encoder turns
+            # the key 1 into "1" and would send duplicate keys.
+            if not _has_only_string_keys(result.value):
+                raise TypeError("object keys must be strings")
+        except (TypeError, ValueError, RecursionError) as exc:
+            return _error_reply(
+                call_id,
+                f'Tool "{name}" returned a structured result that is not JSON: '
+                f"{type(exc).__name__}",
+            )
+    elif result.ok:
+        line = _encode(head | {"text": str(result.text)})
+    else:
+        line = _error_reply(call_id, str(result.text))
+    if len(line) > limit:
+        return _error_reply(
+            call_id,
+            f'Tool "{name}" returned a result of {len(line)} bytes, more than the '
+            f"{limit}-byte limit for one result; ask the tool for less",
+        )
+    return line
+
+
 @dataclass(frozen=True, slots=True)
 class _Launch:
     run_line: bytes
@@ -276,7 +338,7 @@ class _Finished:
 @dataclass(frozen=True, slots=True)
 class _Reply:
     id: int
-    result: CallResult
+    line: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,7 +479,8 @@ def _run_call(
     )
     if cancel.is_set():
         return  # the I/O thread ends the run as aborted; no reply
-    channel.reply(call.id, result)
+    # Encoded here, on the calling thread: the I/O thread only copies bytes.
+    channel.reply(call.id, call.name, result)
 
 
 class _Worker:
@@ -572,8 +635,9 @@ class _Channel:
     def alive(self) -> bool:
         return self._thread.is_alive()
 
-    def reply(self, call_id: int, result: CallResult) -> None:
-        self._commands.put(_Reply(call_id, result))
+    def reply(self, call_id: int, name: str, result: CallResult) -> None:
+        line = _encode_reply(call_id, name, result, self._limits.reply_bytes)
+        self._commands.put(_Reply(call_id, line))
         self._wake()
 
     def stop(self, error: ScriptError) -> None:
@@ -671,7 +735,7 @@ class _Channel:
                 return
             if isinstance(command, _StopRequest):
                 raise _Stop(command.error)
-            self._queue_reply(command.id, command.result)
+            self._queue_reply(command.id, command.line)
 
     def _check_time(self) -> None:
         if self._launch.cancel.is_set():
@@ -814,29 +878,15 @@ class _Channel:
         self._next_id += 1
         if name not in self._launch.names:
             message_text = unknown_tool_message(name, self._launch.names)
-            self._queue_reply(call_id, CallResult(ok=False, text=message_text))
+            self._queue_reply(call_id, _error_reply(call_id, message_text))
             return
         self._handoff = _Call(call_id, name, arguments_json)
 
-    def _queue_reply(self, call_id: int, result: CallResult) -> None:
+    def _queue_reply(self, call_id: int, line: bytes) -> None:
         if call_id != self._outstanding or self._reply_queued:
             return  # stale: the run moved on
         self._reply_queued = True
-        if result.ok:
-            reply = {
-                "type": "result",
-                "id": call_id,
-                "ok": True,
-                "value": str(result.text),
-            }
-        else:
-            reply = {
-                "type": "result",
-                "id": call_id,
-                "ok": False,
-                "error": str(result.text),
-            }
-        self._out += _encode(reply)
+        self._out += line
 
     def _on_done(self, message: dict[str, Any]) -> None:
         # ``done`` is terminal: nothing after it is read.

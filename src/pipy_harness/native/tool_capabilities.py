@@ -222,6 +222,15 @@ class NativeToolCapabilitySnapshot:
         """Names a composite tool's nested calls may reach in this value."""
         return _callable_names(self.state)
 
+    def output_schema_names(self) -> frozenset[str]:
+        """The callable names whose tool declares an output schema."""
+        registry = self.state.registry
+        return frozenset(
+            name
+            for name in _callable_names(self.state)
+            if registry[name].definition.output_schema is not None
+        )
+
     def composite_enabled(self) -> bool:
         """Only a visible builtin identity may activate internal dispatch."""
         state = self.state

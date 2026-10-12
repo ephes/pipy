@@ -9,6 +9,7 @@ from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolPolicyDecision,
+    AgentToolResultTransform,
     validate_agent_tool_policy_decision,
 )
 from pipy_harness.native.agent.messages import (
@@ -103,7 +104,8 @@ class NativeAgentToolPolicy:
         self,
         before_execute: Callable[[AgentToolCall], AgentToolPolicyDecision],
         transform_result: Callable[
-            [AgentToolCall, AgentToolResultMessage], ProductContent
+            [AgentToolCall, AgentToolResultMessage],
+            ProductContent | AgentToolResultTransform,
         ],
     ) -> None:
         if not callable(before_execute):
@@ -129,13 +131,21 @@ class NativeAgentToolPolicy:
         call: AgentToolCall,
         result: AgentToolResultMessage,
         /,
-    ) -> ProductContent:
+    ) -> ProductContent | AgentToolResultTransform:
         if type(call) is not AgentToolCall:
             raise TypeError("call must be AgentToolCall")
         if type(result) is not AgentToolResultMessage:
             raise TypeError("result must be AgentToolResultMessage")
-        content = self._transform_result(call, result)
-        if type(content) is not ProductContent:
-            raise TypeError("transform_result callback must return ProductContent")
-        validate_product_content(content, "transform_result callback result")
-        return content
+        transformed = self._transform_result(call, result)
+        if type(transformed) is AgentToolResultTransform:
+            validate_product_content(
+                transformed.content, "transform_result callback result"
+            )
+            return transformed
+        if type(transformed) is not ProductContent:
+            raise TypeError(
+                "transform_result callback must return ProductContent or "
+                "AgentToolResultTransform"
+            )
+        validate_product_content(transformed, "transform_result callback result")
+        return transformed

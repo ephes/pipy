@@ -24,6 +24,13 @@ from pipy_harness.native.agent.tools import (
 )
 
 
+def tool_error_text(tool_name: str, text: str) -> str:
+    """The error a nested caller sees for a failed call (Pi ``toScriptValue``):
+    the tool's error text, or ``Tool "<name>" failed`` when it has none."""
+
+    return text or f'Tool "{tool_name}" failed'
+
+
 @dataclass(frozen=True, slots=True)
 class NestedToolCallOutcome:
     nested_call: AgentToolCall
@@ -70,6 +77,10 @@ class NestedCallableTools(Protocol):
     """
 
     def callable_names(self) -> frozenset[str]: ...
+
+    def output_schema_names(self) -> frozenset[str]:
+        """The callable names whose tool declares an output schema."""
+        ...
 
     def execute(
         self,
@@ -123,11 +134,14 @@ class NestedToolCallService:
             [AgentToolCall, ToolInterruptWaiter], NestedToolCallOutcome
         ]
         | None = None,
+        *,
+        output_schema_names: frozenset[str] = frozenset(),
     ) -> None:
         self._parent_id = parent.provider_correlation_id
         self._thread = threading.current_thread()
         # A composite never reaches itself, whatever the snapshot offers.
         self._eligible = eligible_names - {parent.tool_name}
+        self._output_schema_names = output_schema_names & self._eligible
         self._settle = settle
         self._settle_with_waiter = settle_with_waiter
         self._error_result = error_result
@@ -167,6 +181,12 @@ class NestedToolCallService:
     def eligible_names(self) -> frozenset[str]:
         self._require_thread()
         return self._eligible
+
+    def declares_output_schema(self, tool_name: str) -> bool:
+        """Whether a caller receives this tool's structured content (Pi
+        ``toScriptValue``: ``tool.outputSchema`` in the parent's snapshot)."""
+        self._require_thread()
+        return tool_name in self._output_schema_names
 
     def call(
         self,
@@ -248,17 +268,25 @@ class NestedToolCallService:
             self._argument_bytes += size
             call = outcome.nested_call
             omitted = None
-        error = outcome.result.content.value if outcome.result.is_error else ""
+        error = (
+            tool_error_text(outcome.nested_call.tool_name, outcome.result.content.value)
+            if outcome.result.is_error
+            else ""
+        )
         if len(error) > 500:
             self._complete = False
-        # Retain no nested result output/details, only the bounded error field.
+        # Retain no nested result output, details or structured content, only
+        # the bounded error field.
         self._records.append(
             replace(
                 outcome,
                 nested_call=call,
                 arguments_bytes=omitted,
                 result=replace(
-                    outcome.result, content=ProductContent(error[:500]), details=None
+                    outcome.result,
+                    content=ProductContent(error[:500]),
+                    details=None,
+                    structured_content=None,
                 ),
             )
         )

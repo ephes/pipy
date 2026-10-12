@@ -52,6 +52,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   scripts. Nested calls to extension tools pass argument validation and the
   `tool_call` and `tool_result` hooks and are recorded in the parent result
   like calls to built-ins.
+- Codemode scripts receive structured results. A call to a tool that declares
+  an output schema returns its structured content as a Python value, also when
+  the result is an error that carries one; every other call returns the tool's
+  text, and a failed, blocked or invalid call raises `ToolError` with the
+  tool's error text (`Tool "<name>" failed` when there is none). One tool
+  reply may be up to 16 MiB of JSON, so a large structured result reaches the
+  script whole; a larger one raises `ToolError`.
+- `tool_result` hooks see a result's structured content
+  (`ToolResultEvent.structured_content`) and decide it together with the
+  content: `ToolResultTransform` takes an optional `structured_content`, and
+  a transform without one drops the result's structured content, which may no
+  longer match the replaced content.
 
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.

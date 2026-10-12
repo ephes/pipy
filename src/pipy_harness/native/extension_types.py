@@ -720,19 +720,31 @@ class ToolResultEvent:
 
     `tool_name` is the tool that ran (built-in or extension); `content`
     is the current provider-visible result text; `is_error` marks an
-    error observation.
+    error observation. `structured_content` is the current machine-readable
+    result (`None` when there is none); treat it as read-only and return a
+    `ToolResultTransform` to change it.
     """
 
     tool_name: str
     content: str
     is_error: bool
+    structured_content: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ToolResultTransform:
-    """Returned by a `tool_result` hook to replace the observation content."""
+    """Returned by a `tool_result` hook to replace the observation content.
+
+    The structured content belongs to the content it was produced with, so a
+    transform decides both (Pi `ToolResultEventResult`): `structured_content`
+    replaces the result's structured content, and a transform without one
+    drops it. A hook that redacts `content` and wants codemode scripts to
+    keep receiving a structured value returns the redacted value here; a value
+    that is not JSON is dropped.
+    """
 
     content: str
+    structured_content: object | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -73,6 +73,7 @@ _PRODUCT_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.loop_policy",
         "pipy_harness.native.agent.loop_policy.AgentProviderRequestPolicyInput",
         "pipy_harness.native.agent.loop_policy.AgentToolPolicyDecision",
+        "pipy_harness.native.agent.loop_policy.AgentToolResultTransform",
         "pipy_harness.native.agent.loop_policy.validate_agent_tool_policy_decision",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
@@ -329,6 +330,7 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
     fields = {
         "AgentProviderRequestPolicyInput": ("baseline", "active_input"),
         "AgentToolPolicyDecision": ("blocked_reason",),
+        "AgentToolResultTransform": ("content", "structured_content"),
         "AgentToolPolicyState": (
             "tool_budget",
             "malformed_limit",

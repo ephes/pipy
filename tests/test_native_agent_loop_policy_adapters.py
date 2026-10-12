@@ -15,6 +15,7 @@ from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolPolicy,
     AgentToolPolicyDecision,
+    AgentToolResultTransform,
 )
 from pipy_harness.native.agent.messages import (
     AgentToolCall,
@@ -404,6 +405,18 @@ def test_tool_policy_rejects_bad_callback_returns() -> None:
         before_policy.before_execute(call)
     with pytest.raises(TypeError, match="must return ProductContent"):
         transform_policy.transform_result(call, result)
+
+
+def test_tool_policy_passes_a_transform_with_structured_content_through() -> None:
+    transform = AgentToolResultTransform(ProductContent("0 files"), {"files": 0})
+    policy = NativeAgentToolPolicy(
+        lambda _call: AgentToolPolicyDecision(),
+        lambda _call, _result: transform,
+    )
+
+    assert policy.transform_result(_call(), _result()) is transform
+    with pytest.raises(TypeError, match=r"AgentToolResultTransform\.content"):
+        AgentToolResultTransform(cast(ProductContent, "text"))
 
 
 def test_tool_policy_revalidates_tampered_decision_recursively() -> None:

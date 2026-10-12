@@ -152,6 +152,50 @@ def test_worker_and_prelude_import_only_stdlib_and_wasmtime() -> None:
         assert non_stdlib == allowed, name
 
 
+def test_wire_call_returns_the_text_or_the_structured_value_of_a_reply() -> None:
+    # MCP parity plan 4.9: a reply carries ``text`` or ``value`` (any JSON).
+    for reply, expected in (
+        ({"ok": True, "text": "2 files"}, "2 files"),
+        (
+            {"ok": True, "value": {"files": 2, "names": ["a"]}},
+            {"files": 2, "names": ["a"]},
+        ),
+        ({"ok": True, "value": "a string value"}, "a string value"),
+        ({"ok": True, "value": None}, None),
+        ({"ok": True, "value": 0}, 0),
+    ):
+        read_fd, write_fd = os.pipe()
+        out_read, out_write = os.pipe()
+        try:
+            os.write(
+                write_fd,
+                (json.dumps({"type": "result", "id": 1, **reply}) + "\n").encode(),
+            )
+            wire = prelude.Wire(read_fd, out_write)
+            assert wire.call("stats", {"key": "a"}) == expected
+            assert json.loads(os.read(out_read, 4096)) == {
+                "type": "call",
+                "id": 1,
+                "name": "stats",
+                "args": {"key": "a"},
+            }
+        finally:
+            for fd in (read_fd, write_fd, out_read, out_write):
+                os.close(fd)
+
+
+def test_wire_call_raises_tool_error_for_an_error_reply() -> None:
+    read_fd, write_fd = os.pipe()
+    out_read, out_write = os.pipe()
+    try:
+        os.write(write_fd, b'{"type":"result","id":1,"ok":false,"error":"denied"}\n')
+        with pytest.raises(prelude.ToolError, match="denied"):
+            prelude.Wire(read_fd, out_write).call("stats", {})
+    finally:
+        for fd in (read_fd, write_fd, out_read, out_write):
+            os.close(fd)
+
+
 # --- real runtime -------------------------------------------------------------------
 
 real_runtime = pytest.mark.skipif(
@@ -337,13 +381,71 @@ def test_syntax_error_is_a_script_failure(cache_dir: Path) -> None:
 
 
 @real_runtime
+def test_a_real_guest_receives_structured_values(cache_dir: Path) -> None:
+    replies = iter(
+        [
+            {"ok": True, "value": {"files": 2, "names": ["ä", None, 1.5, True]}},
+            {"ok": True, "value": [1, "two"]},
+            {"ok": True, "text": "plain"},
+        ]
+    )
+    run = _run(
+        "values = [tools.read(), tools.read(), tools.read()]\n"
+        "text([[type(value).__name__, value] for value in values])\n",
+        cache_dir,
+        tool_names=["read"],
+        reply=lambda message: {
+            "type": "result",
+            "id": message["id"],
+            **next(replies),
+        },
+    )
+
+    _ok(run)
+    assert json.loads(run.output) == [
+        ["dict", {"files": 2, "names": ["ä", None, 1.5, True]}],
+        ["list", [1, "two"]],
+        ["str", "plain"],
+    ]
+
+
+@real_runtime
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"ok": True},
+        {"ok": True, "text": 1},
+        {"ok": True, "text": "both", "value": "both"},
+        {"ok": False, "value": {"files": 2}},
+        {"ok": 1, "value": {"files": 2}},
+    ],
+)
+def test_a_reply_that_is_neither_text_value_nor_error_ends_the_guest(
+    cache_dir: Path, reply: dict[str, Any]
+) -> None:
+    run = _run(
+        "try:\n    tools.read()\nexcept BaseException:\n    text('swallowed')\n",
+        cache_dir,
+        tool_names=["read"],
+        reply=lambda message: {"type": "result", "id": message["id"], **reply},
+    )
+
+    assert run.done is None and run.texts == []
+    assert run.exit == {
+        "type": "exit",
+        "reason": "error",
+        "code": prelude.EXIT_PROTOCOL,
+    }
+
+
+@real_runtime
 @pytest.mark.parametrize("reply_id", [2, True, 1.0, "1", None])
 def test_a_malformed_host_reply_ends_the_guest_without_an_outcome(
     cache_dir: Path, reply_id: object
 ) -> None:
     def wrong_id(message: dict[str, Any]) -> dict[str, Any]:
         assert message["id"] == 1
-        return {"type": "result", "id": reply_id, "ok": True, "value": ""}
+        return {"type": "result", "id": reply_id, "ok": True, "text": ""}
 
     run = _run(
         "try:\n    tools.read()\nexcept BaseException:\n    text('swallowed')\n",

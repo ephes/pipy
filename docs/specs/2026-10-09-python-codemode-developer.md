@@ -306,7 +306,9 @@ to WASI, under wasmtime, in a fresh worker process per script. The guest has:
 
 A script calls `tools.<name>(dict)` or `tools.<name>(**kwargs)` to run a nested
 tool through the host, emits its result with `text(value)` or `print(...)`, and
-sees a failed call as `ToolError`. Nested calls are sequential.
+sees a failed call as `ToolError`. A call returns the tool's text, or the
+structured content of a tool that declares an output schema (also for a failed
+result that carries one). Nested calls are sequential.
 
 ## Installing
 
@@ -472,7 +474,8 @@ waiter preserves standalone polling behavior.
 | `wall_seconds` | 120 s, nested tool time included | `timeout` |
 | `memory_bytes` | 256 MiB guest memory (max 4 GiB) | `MemoryError` in the script (catchable; uncaught it is a `script` error) |
 | `code_bytes` | 256 KiB of script source | `script`, before a worker starts |
-| `line_bytes` | 1 MiB per protocol line | `sandbox` |
+| `line_bytes` | 1 MiB per line the guest sends | `sandbox` |
+| `reply_bytes` | 16 MiB per tool reply line the host sends | `ToolError` in the script for that call |
 | `output_bytes` / `output_messages` | 1 MiB / 100,000 | `script`, with guidance to filter output |
 | `stderr_bytes` | 64 KiB kept for diagnostics | truncated |
 | `cpu_margin_seconds` | 5 s | guest CPU backstop at `wall_seconds` + margin |

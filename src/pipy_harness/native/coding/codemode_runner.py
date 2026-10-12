@@ -10,7 +10,10 @@ from pathlib import Path
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
-from pipy_harness.native.agent.nested_calls import NestedToolCallService
+from pipy_harness.native.agent.nested_calls import (
+    NestedToolCallService,
+    tool_error_text,
+)
 from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
@@ -204,11 +207,21 @@ class CodemodeCompositeRunner:
                 control.interruption = outcome.interruption
                 control.cancel.set()
                 service.close()
+            result = outcome.result
+            # Pi ``toScriptValue``: a tool that declares an output schema
+            # resolves to its structured content, also for an error result
+            # that carries one; any other tool resolves to its text, and a
+            # failure raises with the tool's error text.
             return CallResult(
-                ok=not outcome.result.is_error,
-                text=outcome.result.content.value,
+                ok=not result.is_error,
+                text=tool_error_text(name, result.content.value)
+                if result.is_error
+                else result.content.value,
                 cancelled=outcome.interruption is not None
                 or outcome.status is NestedCallStatus.CANCELLED,
+                value=result.structured_content
+                if service.declares_output_schema(name)
+                else None,
             )
 
         try:

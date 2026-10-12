@@ -49,6 +49,7 @@ class _RecordingTool:
     requests: list[ToolRequest] = field(default_factory=list)
     contexts: list[ToolContext] = field(default_factory=list)
     exposure: ToolExposure = "direct"
+    output_schema: dict[str, object] | None = None
 
     @property
     def definition(self) -> ToolDefinition:
@@ -57,6 +58,7 @@ class _RecordingTool:
             description=f"Fixture {self.name} tool.",
             input_schema=_SCHEMA,
             exposure=self.exposure,
+            output_schema=self.output_schema,
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -552,6 +554,31 @@ def test_exposure_decides_the_declared_and_the_callable_set(tmp_path: Path) -> N
 
     assert _names(tools) == ("read", "write", "orchestrate")
     assert _callable(tools) == {"read", "write", "listed", "searchable"}
+
+
+def test_output_schema_names_are_the_callable_tools_that_declare_one(
+    tmp_path: Path,
+) -> None:
+    # CMD-03: a caller receives structured content only from these tools.
+    schema: dict[str, object] = {"type": "object"}
+    tools = _capabilities(
+        tmp_path,
+        builtins=(_exposed("read", "direct"),),
+        extensions=(
+            _RecordingTool("stats", output_schema=schema),
+            _RecordingTool("listed", exposure="codemode", output_schema=schema),
+            _RecordingTool("orchestrate", exposure="model-only", output_schema=schema),
+            _RecordingTool("withdrawn", exposure="hidden", output_schema=schema),
+        ),
+    )
+
+    snapshot = tools.callable_snapshot()
+    assert snapshot.callable_names() == {"read", "stats", "listed"}
+    assert snapshot.output_schema_names() == {"stats", "listed"}
+    assert tools.set_active_tools(["read"])
+    # The pinned snapshot keeps its value; a new one drops the inactive tool.
+    assert snapshot.output_schema_names() == {"stats", "listed"}
+    assert tools.callable_snapshot().output_schema_names() == {"listed"}
 
 
 def test_inactive_direct_tools_are_not_callable(tmp_path: Path) -> None:

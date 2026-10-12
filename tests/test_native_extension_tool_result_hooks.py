@@ -23,6 +23,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_tool_result_hooks,
     extension_event_hooks,
 )
+from pipy_harness.native.extension_types import ToolResultTransform
 from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import (
@@ -64,7 +65,7 @@ def _dispatch(workspace, tool_name, content, is_error=False):
         is_error=is_error,
         cwd=str(workspace),
         has_ui=False,
-    )
+    ).content
 
 
 def test_tool_result_transform(tmp_path: Path) -> None:
@@ -225,3 +226,107 @@ def test_tool_result_hook_transforms_through_session(tmp_path, monkeypatch) -> N
     joined = " ".join(message.content.value for message in second.messages)
     assert "WRAPPED::" in joined
     assert "hello-note" in joined
+
+
+def _dispatch_structured(hooks, structured_content):
+    return dispatch_tool_result_hooks(
+        hooks,
+        tool_name="stats",
+        content="2 files",
+        is_error=False,
+        cwd=".",
+        has_ui=False,
+        structured_content=structured_content,
+    )
+
+
+def test_tool_result_hooks_see_and_decide_the_structured_content() -> None:
+    # MCP parity plan S04 (CMD-25), Pi ``emitToolResult``: a transform
+    # replaces the content and decides the structured content with it.
+    original = {"files": 2, "names": ["a", "b"]}
+    seen: list[object] = []
+
+    def observe(event, ctx):
+        seen.append(event.structured_content)
+
+    def replace_both(event, ctx):
+        return ToolResultTransform(
+            content="0 files", structured_content={"files": 0, "names": []}
+        )
+
+    def content_only(event, ctx):
+        return ToolResultTransform(content="redacted")
+
+    def pass_through(event, ctx):
+        return ToolResultTransform(
+            content=event.content + "!", structured_content=event.structured_content
+        )
+
+    def crash(event, ctx):
+        raise RuntimeError("boom")
+
+    # No hook and an observing hook keep the tool's own value.
+    assert _dispatch_structured((), original).structured_content is original
+    assert _dispatch_structured((observe,), original) == ToolResultTransform(
+        content="2 files", structured_content=original
+    )
+    # A later hook that returns nothing keeps what an earlier one set.
+    assert _dispatch_structured(
+        (replace_both, observe, crash), original
+    ) == ToolResultTransform(
+        content="0 files", structured_content={"files": 0, "names": []}
+    )
+    assert seen == [original, {"files": 0, "names": []}]
+    # Replacing the content alone drops structured content that may not match.
+    assert _dispatch_structured((content_only,), original) == ToolResultTransform(
+        content="redacted"
+    )
+    # Handing the event's value back keeps it, without a copy.
+    kept = _dispatch_structured((pass_through,), original)
+    assert kept.content == "2 files!" and kept.structured_content is original
+
+
+def test_structured_content_from_a_tool_result_hook_is_a_detached_json_copy() -> None:
+    mutable = {"files": [1]}
+    result = _dispatch_structured(
+        (lambda event, ctx: ToolResultTransform("ok", structured_content=mutable),),
+        None,
+    )
+    mutable["files"].append(2)
+    assert result.structured_content == {"files": [1]}
+    # A value that is not JSON is dropped, like one a tool returns.
+    nested: list[object] = []
+    for _ in range(500):
+        nested = [nested]
+    cyclic: list[object] = []
+    cyclic.append(cyclic)
+    # Nesting the encoder accepts is kept, whatever Python's frame limit.
+    kept = _dispatch_structured(
+        (lambda event, ctx: ToolResultTransform("ok", {"deep": nested}),), None
+    )
+    assert json.dumps(kept.structured_content).count("[") == 501
+    for bad in ({1, 2}, float("nan"), {"k": object()}, {1: "a", "1": "b"}, cyclic):
+        dropped = _dispatch_structured(
+            (lambda event, ctx, bad=bad: ToolResultTransform("ok", bad),),
+            {"files": 2},
+        )
+        assert dropped == ToolResultTransform(content="ok")
+
+
+def test_a_structured_value_the_json_round_trip_refuses_is_dropped(
+    monkeypatch,
+) -> None:
+    # How deep the encoder and decoder go differs between Python versions.
+    from types import SimpleNamespace
+
+    from pipy_harness.native.tools import base
+
+    def too_deep(text: str) -> object:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(base, "json", SimpleNamespace(dumps=json.dumps, loads=too_deep))
+    result = _dispatch_structured(
+        (lambda event, ctx: ToolResultTransform("ok", {"files": 0}),), {"files": 2}
+    )
+
+    assert result == ToolResultTransform(content="ok")

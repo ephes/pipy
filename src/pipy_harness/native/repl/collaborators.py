@@ -28,6 +28,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolPolicyDecision,
+    AgentToolResultTransform,
 )
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
@@ -689,11 +690,12 @@ class SessionCollaborators:
 
     def transform_extension_tool_result(
         self, call: AgentToolCall, result: AgentToolResultMessage
-    ) -> ProductContent:
+    ) -> AgentToolResultTransform:
         return self.extension_operations.transform_tool_result(
             tool_name=call.tool_name,
             content=result.content,
             is_error=result.is_error,
+            structured_content=result.structured_content,
         )
 
     def dispatch_resource_effect(

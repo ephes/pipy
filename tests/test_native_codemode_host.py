@@ -139,7 +139,7 @@ def test_a_script_runs_calls_tools_and_completes(
     assert outcome.ok, outcome
     assert outcome.output[0] == "print(1)|read,write"
     assert json.loads(outcome.output[1]) == [
-        {"type": "result", "id": 1, "ok": True, "value": "file body"},
+        {"type": "result", "id": 1, "ok": True, "text": "file body"},
         {"type": "result", "id": 2, "ok": False, "error": "denied"},
     ]
     # Callbacks run on the calling thread, never on the I/O thread.
@@ -152,6 +152,157 @@ def test_a_script_runs_calls_tools_and_completes(
         ("write", CallStatus.ERROR),
     ]
     assert len(spawned) == 1
+
+
+def test_a_reply_carries_text_a_structured_value_or_an_error(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # MCP parity plan 4.9: ``value`` for a tool's structured content, also for
+    # a failed call that carries one (CMD-03); ``text`` or ``error`` otherwise.
+    results = {
+        "stats": CallResult(ok=True, text="2 files", value={"files": 2, "ü": [None]}),
+        "failed": CallResult(ok=False, text="boom", value={"error": "boom"}),
+        "falsy": CallResult(ok=True, text="zero", value=0),
+        "plain": CallResult(ok=True, text="2 files"),
+        "nan": CallResult(ok=True, text="nan", value=[float("nan")]),
+        "object": CallResult(ok=True, text="object", value={"k": object()}),
+        "keys": CallResult(ok=True, text="keys", value=[{1: "int", "1": "str"}]),
+    }
+    cyclic: list[object] = []
+    cyclic.append(cyclic)
+    results["cyclic"] = CallResult(ok=True, text="cyclic", value={"rows": cyclic})
+    names = tuple(results)
+    scenario = (
+        "start()\n"
+        f"replies = [call(n + 1, name, {{}}) for n, name in enumerate({names!r})]\n"
+        "send({'type': 'text', 'value': json.dumps(replies)})\n"
+        "done()\n"
+        "exit_status()\n"
+    )
+
+    outcome = _run(
+        monkeypatch,
+        scenario,
+        call_tool=lambda name, _arguments: results[name],
+        tool_names=names,
+    )
+
+    assert outcome.ok, outcome
+    replies = json.loads(outcome.output[0])
+    assert [reply["id"] for reply in replies] == list(range(1, len(names) + 1))
+    by_name = dict(zip(names, replies, strict=True))
+    assert by_name["stats"] == {
+        "type": "result",
+        "id": 1,
+        "ok": True,
+        "value": {"files": 2, "ü": [None]},
+    }
+    assert by_name["failed"]["ok"] is True
+    assert by_name["failed"]["value"] == {"error": "boom"}
+    assert by_name["falsy"]["value"] == 0 and "text" not in by_name["falsy"]
+    assert by_name["plain"] == {
+        "type": "result",
+        "id": 4,
+        "ok": True,
+        "text": "2 files",
+    }
+    # A value that is not JSON never reaches the wire: the script gets an error.
+    for name, reason in (
+        ("nan", "ValueError"),
+        ("object", "TypeError"),
+        ("keys", "TypeError"),
+        ("cyclic", "ValueError"),
+    ):
+        assert by_name[name]["ok"] is False, name
+        assert by_name[name]["error"] == (
+            f'Tool "{name}" returned a structured result that is not JSON: {reason}'
+        )
+    # The record follows the tool's outcome, not what the script received.
+    assert [(c.name, c.status) for c in outcome.calls] == [
+        ("stats", CallStatus.OK),
+        ("failed", CallStatus.ERROR),
+        ("falsy", CallStatus.OK),
+        ("plain", CallStatus.OK),
+        ("nan", CallStatus.OK),
+        ("object", CallStatus.OK),
+        ("keys", CallStatus.OK),
+        ("cyclic", CallStatus.OK),
+    ]
+
+
+def test_a_value_the_encoder_cannot_nest_becomes_an_error_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # How deep the encoder goes differs between Python versions.
+    real_dumps = json.dumps
+
+    def too_deep(message: dict[str, object], **kwargs: object) -> str:
+        if "value" in message:
+            raise RecursionError("maximum recursion depth exceeded")
+        return real_dumps(message, separators=(",", ":"))
+
+    monkeypatch.setattr(json, "dumps", too_deep)
+    line = host._encode_reply(
+        7, "stats", CallResult(ok=True, text="", value=[[1]]), 1024
+    )
+    monkeypatch.undo()
+
+    assert json.loads(line) == {
+        "type": "result",
+        "id": 7,
+        "ok": False,
+        "error": 'Tool "stats" returned a structured result that is not JSON: '
+        "RecursionError",
+    }
+
+
+def test_a_reply_larger_than_the_reply_limit_becomes_a_tool_error(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # The guest line limit (1 MiB) does not bound replies; ``reply_bytes`` does.
+    limits = ScriptLimits(wall_seconds=5.0, line_bytes=4096, reply_bytes=64 * 1024)
+    results = {
+        "fits": CallResult(ok=True, text="", value={"rows": "x" * 60_000}),
+        "large": CallResult(ok=True, text="", value={"rows": "x" * 70_000}),
+        "text": CallResult(ok=True, text="y" * 70_000),
+        "error": CallResult(ok=False, text="z" * 70_000),
+    }
+    names = tuple(results)
+    scenario = (
+        "start()\n"
+        f"replies = [call(n + 1, name, {{}}) for n, name in enumerate({names!r})]\n"
+        "short = [{k: v if k != 'value' else len(v['rows']) for k, v in r.items()}"
+        " for r in replies]\n"
+        "send({'type': 'text', 'value': json.dumps(short)})\n"
+        "done()\n"
+        "exit_status()\n"
+    )
+
+    outcome = _run(
+        monkeypatch,
+        scenario,
+        call_tool=lambda name, _arguments: results[name],
+        tool_names=names,
+        limits=limits,
+    )
+
+    assert outcome.ok, outcome
+    fits, large, text, error = json.loads(outcome.output[0])
+    assert fits == {"type": "result", "id": 1, "ok": True, "value": 60_000}
+    for reply, name in ((large, "large"), (text, "text"), (error, "error")):
+        assert reply["ok"] is False
+        assert reply["error"].startswith(f'Tool "{name}" returned a result of 70')
+        assert reply["error"].endswith(
+            "bytes, more than the 65536-byte limit for one result; "
+            "ask the tool for less"
+        )
+
+
+def test_reply_limit_defaults_to_the_transport_message_size() -> None:
+    assert ScriptLimits().reply_bytes == 16 * 1024 * 1024
+    assert ScriptLimits().line_bytes == 1024 * 1024
+    with pytest.raises(ValueError, match="reply_bytes"):
+        ScriptLimits(reply_bytes=0)
 
 
 def test_a_script_failure_carries_its_traceback(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import replace
@@ -34,6 +35,7 @@ from pipy_harness.native.agent.loop import AgentLoop
 from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyDecision,
     AgentToolPolicyState,
+    AgentToolResultTransform,
 )
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
@@ -69,6 +71,12 @@ class _NestedTools(_Tools):
 
     def callable_names(self) -> frozenset[str]:
         return self.callable
+
+    # Callable tools that declare an output schema.
+    structured: frozenset[str] = frozenset()
+
+    def output_schema_names(self) -> frozenset[str]:
+        return self.structured
 
     def execute(
         self,
@@ -602,6 +610,9 @@ def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
         def callable_names(self) -> frozenset[str]:
             return self.names
 
+        def output_schema_names(self) -> frozenset[str]:
+            return frozenset()
+
         def execute(
             self,
             call: AgentToolCall,
@@ -990,3 +1001,100 @@ def _secondary_failure_ports(
                     raise secondary
 
     return Policy, Tools, Status
+
+
+def test_structured_content_follows_the_result_policy_and_the_output_schema() -> None:
+    """MCP parity plan S04 (CMD-03, CMD-25): a nested caller gets a result's
+    structured content only for a tool that declares an output schema, and
+    whoever replaces the content decides the structured content with it."""
+
+    class Tools(_NestedTools):
+        callable = frozenset({"stats", "plain", "redacted", "replaced", "kept"})
+        structured = frozenset({"stats", "redacted", "replaced", "kept", "codemode"})
+
+        def execute(self, call, *, output_sink=None, wait_for_interrupt=None):
+            del output_sink, wait_for_interrupt
+            self.executed.append(call)
+            return ToolExecutionOutcome(
+                replace(
+                    _tool_result(call, "2 files"),
+                    structured_content={"files": 2},
+                )
+            )
+
+    class Policy(_ToolPolicy):
+        def transform_result(self, call, result, /):
+            if call.tool_name == "redacted":
+                # Content alone: the structured content may no longer match.
+                return ProductContent("0 files")
+            if call.tool_name == "replaced":
+                return AgentToolResultTransform(ProductContent("0 files"), {"files": 0})
+            if call.tool_name == "kept":
+                return AgentToolResultTransform(
+                    result.content, result.structured_content
+                )
+            return result.content
+
+    seen = {}
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        for name in ("stats", "plain", "redacted", "replaced", "kept"):
+            outcome = service.call(name, "{}")
+            seen[name] = (
+                outcome.result.content.value,
+                outcome.result.structured_content,
+                service.declares_output_schema(name),
+            )
+        # Names outside the callable snapshot never count, the parent included.
+        assert not service.declares_output_schema("codemode")
+        assert not service.declares_output_schema("missing")
+        # CMD-26: the retained records keep no result, structured or not.
+        assert all(
+            record.result.structured_content is None for record in service.records()
+        )
+        return ToolExecutionOutcome(_tool_result(call))
+
+    order: list[str] = []
+    loop, _, _, _ = _setup(
+        _Runner(run),
+        tools=Tools(order),
+        policy=Policy(order),
+        names=("codemode", "stats", "plain", "redacted", "replaced", "kept"),
+    )
+    loop.run(_run_input(tool_budget=10))
+
+    assert seen == {
+        "stats": ("2 files", {"files": 2}, True),
+        "plain": ("2 files", {"files": 2}, False),
+        "redacted": ("0 files", None, True),
+        "replaced": ("0 files", {"files": 0}, True),
+        "kept": ("2 files", {"files": 2}, True),
+    }
+
+
+def test_a_failed_call_without_error_text_is_recorded_as_failed() -> None:
+    """Pi ``toScriptValue``: ``Tool "<name>" failed`` when a failure has no text."""
+
+    class Tools(_NestedTools):
+        def execute(self, call, *, output_sink=None, wait_for_interrupt=None):
+            del output_sink, wait_for_interrupt
+            return ToolExecutionOutcome(_tool_result(call, "", is_error=True))
+
+    records = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        service.call("read", "{}")
+        records.append(service.durable_record())
+        return ToolExecutionOutcome(_tool_result(call))
+
+    order: list[str] = []
+    loop, _, _, _ = _setup(_Runner(run), tools=Tools(order), policy=_ToolPolicy(order))
+    loop.run(_run_input())
+
+    assert (
+        json.dumps(records[0]["calls"]).count('"error": "Tool \\"read\\" failed"') == 1
+    )

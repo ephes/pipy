@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pipy_harness.native.agent import ProductContent
-from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
+from pipy_harness.native.agent.loop_policy import (
+    AgentProviderRequestPolicyInput,
+    AgentToolResultTransform,
+)
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.agent_request import (
     NativeProviderRequestHookContext,
@@ -227,25 +230,28 @@ class SessionExtensionOperations:
         tool_name: str,
         content: ProductContent,
         is_error: bool,
-    ) -> ProductContent:
+        structured_content: object | None = None,
+    ) -> AgentToolResultTransform:
         projection, ui_driver, generation_id = self._projection()
         hooks = projection.hooks.tool_result
         if not hooks:
-            return content
-        return ProductContent(
-            dispatch_tool_result_hooks(
-                hooks,
-                tool_name=tool_name,
-                content=content.value,
-                is_error=is_error,
-                cwd=self.cwd,
-                has_ui=self.has_ui,
-                notify_sink=self.notify_sink,
-                ui_driver=ui_driver,
-                model_runtime=self.model_runtime_factory(generation_id, False),
-                flags=projection.runtime_flags.values,
-                project_trusted=self.project_trusted,
-            )
+            return AgentToolResultTransform(content, structured_content)
+        transformed = dispatch_tool_result_hooks(
+            hooks,
+            tool_name=tool_name,
+            content=content.value,
+            is_error=is_error,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            notify_sink=self.notify_sink,
+            ui_driver=ui_driver,
+            model_runtime=self.model_runtime_factory(generation_id, False),
+            flags=projection.runtime_flags.values,
+            project_trusted=self.project_trusted,
+            structured_content=structured_content,
+        )
+        return AgentToolResultTransform(
+            ProductContent(transformed.content), transformed.structured_content
         )
 
     def session_allows(

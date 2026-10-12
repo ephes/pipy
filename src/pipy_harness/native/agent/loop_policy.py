@@ -124,6 +124,22 @@ def validate_agent_tool_policy_decision(decision: object) -> None:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class AgentToolResultTransform:
+    """What a tool policy makes of one result: its content and, with it, the
+    structured content programmatic callers receive (``None`` for none).
+
+    Pi ``AfterToolCallResult``: structured content belongs to the content it
+    was produced with, so whoever replaces the content decides both.
+    """
+
+    content: ProductContent
+    structured_content: object | None = None
+
+    def __post_init__(self) -> None:
+        validate_product_content(self.content, "AgentToolResultTransform.content")
+
+
 @runtime_checkable
 class AgentToolPolicy(Protocol):
     """Product-owned tool policy constrained to blocking and content transforms."""
@@ -135,7 +151,13 @@ class AgentToolPolicy(Protocol):
         call: AgentToolCall,
         result: AgentToolResultMessage,
         /,
-    ) -> ProductContent: ...
+    ) -> ProductContent | AgentToolResultTransform:
+        """Return the result's content, or the content with its structured content.
+
+        A bare ``ProductContent`` that differs from the result's content drops
+        the result's structured content, which may no longer match it.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)

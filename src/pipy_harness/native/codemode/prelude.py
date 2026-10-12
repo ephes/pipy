@@ -10,8 +10,11 @@ stdin and stdout carry it:
 
 - host -> guest, first line: ``{"type": "run", "code": str, "tools": [str]}``
 - guest -> host: ``{"type": "call", "id": int, "name": str, "args": object}``
-- host -> guest: ``{"type": "result", "id": int, "ok": true, "value": str}`` or
-  ``{"type": "result", "id": int, "ok": false, "error": str}``
+- host -> guest: ``{"type": "result", "id": int, "ok": true, "text": str}``
+  (the call returns the tool's text), ``{"type": "result", "id": int, "ok":
+  true, "value": <JSON>}`` (the call returns the tool's structured content) or
+  ``{"type": "result", "id": int, "ok": false, "error": str}`` (the call
+  raises ``ToolError``)
 - guest -> host: ``{"type": "text", "value": str}``, one per ``text()`` call,
   ``print()`` call or direct write to ``sys.stdout``/``sys.stderr``, in order
   and never buffered
@@ -95,12 +98,12 @@ class Tools:
     __slots__ = ("_call", "_names")
 
     def __init__(
-        self, names: Iterable[str], call: Callable[[str, dict[str, Any]], str]
+        self, names: Iterable[str], call: Callable[[str, dict[str, Any]], Any]
     ) -> None:
         self._names = frozenset(names)
         self._call = call
 
-    def __getattr__(self, name: str) -> Callable[..., str]:
+    def __getattr__(self, name: str) -> Callable[..., Any]:
         if name.startswith("_"):
             raise AttributeError(name)
         if name not in self._names:
@@ -111,7 +114,7 @@ class Tools:
             )
         call = self._call
 
-        def tool(args: object = NO_ARGS, /, **kwargs: Any) -> str:
+        def tool(args: object = NO_ARGS, /, **kwargs: Any) -> Any:
             return call(name, call_arguments(name, args, kwargs))
 
         tool.__name__ = tool.__qualname__ = name
@@ -289,7 +292,7 @@ class Wire:
     def text(self, value: str) -> None:
         self.send({"type": "text", "value": value})
 
-    def call(self, name: str, args: dict[str, Any]) -> str:
+    def call(self, name: str, args: dict[str, Any]) -> Any:
         call_id = self._next_id + 1
         message = {"type": "call", "id": call_id, "name": name, "args": args}
         try:
@@ -308,9 +311,12 @@ class Wire:
             or reply_id != call_id
         ):
             protocol_failure("the host sent an unexpected reply to a tool call")
-        if reply.get("ok") is True and isinstance(reply.get("value"), str):
-            return str(reply["value"])
-        if reply.get("ok") is False and isinstance(reply.get("error"), str):
+        ok = reply.get("ok")
+        if ok is True and "value" in reply and "text" not in reply:
+            return reply["value"]
+        if ok is True and "value" not in reply and isinstance(reply.get("text"), str):
+            return str(reply["text"])
+        if ok is False and isinstance(reply.get("error"), str):
             raise ToolError(reply["error"])
         protocol_failure("the host sent a malformed tool result")
 

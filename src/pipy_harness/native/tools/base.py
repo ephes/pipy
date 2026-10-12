@@ -450,13 +450,17 @@ def is_json_value(value: object) -> bool:
 
 
 def _has_only_string_keys(value: object) -> bool:
-    if isinstance(value, dict):
-        return all(
-            type(key) is str and _has_only_string_keys(child)
-            for key, child in value.items()
-        )
-    if isinstance(value, (list, tuple)):
-        return all(_has_only_string_keys(child) for child in value)
+    # Iterative: a value the encoder accepts may nest deeper than Python
+    # frames can follow.
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if any(type(key) is not str for key in item):
+                return False
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
     return True
 
 
@@ -495,7 +499,10 @@ def json_safe_value(value: object) -> Any:
 
     if value is None or not is_json_value(value):
         return None
-    return json.loads(json.dumps(value, allow_nan=False))
+    try:
+        return json.loads(json.dumps(value, allow_nan=False))
+    except (ValueError, RecursionError):
+        return None
 
 
 @dataclass(frozen=True, slots=True)

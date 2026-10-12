@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, fields
 from enum import StrEnum
+from typing import Any
 
 KIB = 1024
 MIB = 1024 * KIB
@@ -41,6 +42,12 @@ class CallStatus(StrEnum):
 class ScriptLimits:
     """Per-script limits (all provisional, spike result §4.5).
 
+    ``line_bytes`` bounds each line the guest sends. ``reply_bytes`` bounds
+    each tool reply the host sends, as its encoded JSON line: 16 MiB, the size
+    of the largest message an MCP transport accepts, so an untruncated
+    structured result can reach the script. A larger reply becomes a
+    ``ToolError`` in the script.
+
     ``wall_seconds`` covers the whole run, nested tool time included. The
     guest's epoch backstop is set ``cpu_margin_seconds`` above it, because the
     epoch counts wall time, time blocked on a tool reply included, so the
@@ -51,6 +58,7 @@ class ScriptLimits:
     memory_bytes: int = 256 * MIB
     code_bytes: int = 256 * KIB
     line_bytes: int = 1 * MIB
+    reply_bytes: int = 16 * MIB
     output_bytes: int = 1 * MIB
     output_messages: int = 100_000
     stderr_bytes: int = 64 * KIB
@@ -85,15 +93,20 @@ class ScriptLimits:
 class CallResult:
     """What a tool callback returns for one ``tools.<name>(args)`` call.
 
-    ``ok`` with ``text`` becomes the script's return value; otherwise the
-    script gets ``ToolError(text)``. ``cancelled`` means the tool was stopped
-    (by the operator's cancel or the run's stop signal): the run then ends and
-    the call is recorded as cancelled.
+    A result with a ``value`` (any JSON value but ``None``, which means "no
+    value") makes the call return that value, whether or not ``ok``: a tool
+    that declares structured results returns them for its failures too.
+    Otherwise ``ok`` with ``text`` becomes the script's return value, and a
+    result that is not ``ok`` raises ``ToolError(text)``. ``ok`` also decides
+    how the call is recorded. ``cancelled`` means the tool was stopped (by the
+    operator's cancel or the run's stop signal): the run then ends and the
+    call is recorded as cancelled.
     """
 
     ok: bool
     text: str
     cancelled: bool = False
+    value: Any = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -899,9 +899,26 @@ returns the data as `ToolResult(structured_content=...)` next to `content`. It
 is any JSON value; a value that is not JSON is dropped, and the result keeps a
 copy. To report a failure that still carries data, return the result with
 `is_error=True` instead of raising: the model sees `content` as an error, and
-the result keeps its `details` and `structured_content`. Scripts receive the
-structured content of a tool that declares an output schema once codemode
-reaches extension tools (later slices of the plan).
+the result keeps its `details` and `structured_content`. A codemode script
+that calls a tool with an `output_schema` receives the structured content as a
+Python value instead of the text, also from a result with `is_error=True`; a
+tool without an `output_schema` gives scripts its text, and its failures raise
+`ToolError` there. See [codemode](codemode.md#writing-a-script).
+
+**Result hooks.** A `tool_result` handler receives a `ToolResultEvent` with
+`tool_name`, `content`, `is_error` and `structured_content` (the current
+structured content, or `None`; treat it as read-only). It may return
+`ToolResultTransform(content=..., structured_content=...)`. The structured
+content belongs to the content it was produced with, so a transform decides
+both: the `structured_content` it carries replaces the result's (a value that
+is not JSON is dropped), and a transform without one drops it, because it may
+no longer match the replaced content. A handler that redacts `content` of a
+tool with an output schema therefore returns the redacted structured value as
+well, or scripts receive the redacted text. To change only the structured
+content, return the event's `content` with the new value. A handler that
+returns nothing changes nothing. Pi's `ToolResultEventResult` works the same
+way, except that its `content` is optional; pipy's transform does not replace
+`details`, `is_error` or usage.
 
 **Listing tools.** `ctx.get_all_tools()` returns a `ToolInfo` for every
 registered tool, built-in and extension, active or not, in registration
