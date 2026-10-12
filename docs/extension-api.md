@@ -879,7 +879,10 @@ def activate(api):
 - `namespace.aliases` is a tuple of other names the group can be looked up by.
   `description` is the short summary shown with the group; `instructions` is
   longer guidance that is only returned when the namespace is described on
-  request.
+  request. Codemode scripts look a namespace up with
+  `describe_namespace(name)` and `search_tools(query, namespace=name)`, by its
+  name or an alias, as written or as the same identifier (`my-docs` and
+  `my_docs` match alike); see [codemode globals](codemode.md#globals).
 - `annotations` have the meaning of MCP tool annotations. Each hint is `True`,
   `False` or `None` (no hint). Missing hints take the MCP defaults: a tool is
   not read-only, and may be destructive and reach an open world. pipy does not

@@ -75,8 +75,16 @@ class _NestedTools(_Tools):
     # Callable tools that declare an output schema.
     structured: frozenset[str] = frozenset()
 
-    def output_schema_names(self) -> frozenset[str]:
-        return self.structured
+    def callable_tools(self) -> tuple[ToolDefinition, ...]:
+        return tuple(
+            ToolDefinition(
+                name,
+                "fixture",
+                {"type": "object"},
+                output_schema={"type": "object"} if name in self.structured else None,
+            )
+            for name in sorted(self.callable)
+        )
 
     def execute(
         self,
@@ -610,8 +618,11 @@ def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
         def callable_names(self) -> frozenset[str]:
             return self.names
 
-        def output_schema_names(self) -> frozenset[str]:
-            return frozenset()
+        def callable_tools(self) -> tuple[ToolDefinition, ...]:
+            return tuple(
+                ToolDefinition(name, "fixture", {"type": "object"})
+                for name in sorted(self.names)
+            )
 
         def execute(
             self,

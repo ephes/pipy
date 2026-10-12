@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.native.codemode import default_paths
+from pipy_harness.native.codemode.declarations import to_codemode_identifier
 from pipy_harness.native.codemode.selftest import WORKER_PATH
 
 REAL_RUNTIME = default_paths(Path(pwd.getpwuid(os.getuid()).pw_dir)).runtime_dir()
@@ -76,6 +77,21 @@ class WorkerRun:
         return exits[-1] if exits else None
 
 
+def tool_records(
+    names: list[str], descriptions: Mapping[str, str]
+) -> list[dict[str, str]]:
+    """The run request's tool records, as the host builds them."""
+
+    return [
+        {
+            "name": name,
+            "id": to_codemode_identifier(name),
+            "description": descriptions.get(name, ""),
+        }
+        for name in names
+    ]
+
+
 def run_worker(
     code: str,
     *,
@@ -83,6 +99,7 @@ def run_worker(
     cache_dir: Path,
     tools: Mapping[str, ToolFn] | None = None,
     tool_names: list[str] | None = None,
+    descriptions: Mapping[str, str] | None = None,
     memory_bytes: int = 256 * 1024 * 1024,
     cpu_seconds: float = 30.0,
     wall_seconds: float = 30.0,
@@ -119,7 +136,14 @@ def run_worker(
         if first_line is None:
             names = sorted(tools) if tool_names is None else tool_names
             first_line = (
-                json.dumps({"type": "run", "code": code, "tools": names}) + "\n"
+                json.dumps(
+                    {
+                        "type": "run",
+                        "code": code,
+                        "tools": tool_records(names, descriptions or {}),
+                    }
+                )
+                + "\n"
             ).encode()
         process.stdin.write(first_line)
         process.stdin.flush()
@@ -172,7 +196,7 @@ def _pump(
                 line, buffer = buffer.split(b"\n", 1)
                 message = json.loads(line)
                 result.messages.append(message)
-                if message.get("type") == "call":
+                if message.get("type") in ("call", "discover"):
                     answer = (reply or (lambda m: _answer(m, tools)))(message)
                     assert process.stdin is not None
                     process.stdin.write((json.dumps(answer) + "\n").encode())

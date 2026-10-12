@@ -8,13 +8,22 @@ or writes a stream until :func:`main` runs.
 Wire protocol (JSON, one object per line; spike result §4.1). The guest's
 stdin and stdout carry it:
 
-- host -> guest, first line: ``{"type": "run", "code": str, "tools": [str]}``
+- host -> guest, first line: ``{"type": "run", "code": str, "tools": [{"name":
+  str, "id": str, "description": str}]}``: the callable tools in order, each
+  with its own name, the identifier scripts write and its ``ALL_TOOLS``
+  description
 - guest -> host: ``{"type": "call", "id": int, "name": str, "args": object}``
 - host -> guest: ``{"type": "result", "id": int, "ok": true, "text": str}``
   (the call returns the tool's text), ``{"type": "result", "id": int, "ok":
   true, "value": <JSON>}`` (the call returns the tool's structured content) or
   ``{"type": "result", "id": int, "ok": false, "error": str}`` (the call
   raises ``ToolError``)
+- guest -> host: ``{"type": "discover", "id": int, "name": str, "args":
+  object}`` for ``search_tools``, ``describe_tool`` and ``describe_namespace``;
+  ids continue the sequence of the tool calls
+- host -> guest: ``{"type": "result", "id": int, "ok": true, "value": <JSON>}``
+  (the helper returns the value) or ``{"type": "result", "id": int, "ok":
+  false, "error": str}`` (the helper raises ``ValueError``)
 - guest -> host: ``{"type": "text", "value": str}``, one per ``text()`` call,
   ``print()`` call or direct write to ``sys.stdout``/``sys.stderr``, in order
   and never buffered
@@ -47,6 +56,9 @@ if TYPE_CHECKING:
 SCRIPT_FILENAME = "<codemode>"
 EXIT_PROTOCOL = 3
 MAX_LISTED_TOOLS = 20
+MAX_CLOSE_MATCHES = 5
+DISCOVERY_NAMES = ("search_tools", "describe_tool", "describe_namespace")
+DEFAULT_SEARCH_LIMIT = 8
 
 _builtin_print = builtins.print
 
@@ -58,22 +70,86 @@ class ToolError(Exception):
     """A tool call failed; the message is the tool's error text."""
 
 
+def _comparable(name: str) -> str:
+    return "".join(char for char in name.lower() if char.isascii() and char.isalnum())
+
+
 def unknown_tool_message(name: str, available: Iterable[str]) -> str:
-    """Return the ``AttributeError`` text for ``tools.<name>`` (spike §4.6)."""
+    """Return the error text for a tool that does not exist.
 
-    import difflib
+    ``available`` holds the identifiers of the callable tools, in ``ALL_TOOLS``
+    order. Close matches are named as Pi's prelude names them: the tools whose
+    name is the same but for case and punctuation, else the ones whose name
+    contains the wanted one or is contained in it. Without either, the most
+    similar name is offered, which catches a misspelling.
+    """
 
-    names = sorted(available)
-    message = f"tools.{name} is not an available tool."
-    close = difflib.get_close_matches(name, names, n=1)
+    names = list(available)
+    wanted = _comparable(name)
+    close = [candidate for candidate in names if _comparable(candidate) == wanted]
+    if not close and wanted:
+        close = [
+            candidate
+            for candidate in names
+            if (known := _comparable(candidate))
+            and (wanted in known or known in wanted)
+        ]
+    if not close:
+        import difflib
+
+        close = difflib.get_close_matches(name, names, n=1)
+    message = f"tools.{name} does not exist."
     if close:
-        return f"{message} Did you mean tools.{close[0]}?"
-    if not names:
+        listed = ", ".join(f"tools.{c}" for c in close[:MAX_CLOSE_MATCHES])
+        message += f" Did you mean {listed}?"
+    elif not names:
         return f"{message} No tools are available."
-    if len(names) <= MAX_LISTED_TOOLS:
-        listed = ", ".join(f"tools.{candidate}" for candidate in names)
-        return f"{message} Available tools: {listed}."
-    return message
+    elif len(names) <= MAX_LISTED_TOOLS:
+        message += f" Available: {', '.join(names)}."
+    return (
+        f"{message} ALL_TOOLS lists every tool; search_tools(query) finds tools "
+        f'by topic. Check for a tool with "{name}" in tools.'
+    )
+
+
+def tool_table(
+    records: Iterable[dict[str, Any]],
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Return the keys of ``tools`` and the ``ALL_TOOLS`` entries.
+
+    Each run-request record ``{name, id, description}`` is reachable by its
+    identifier and by its own name. The first tool wins when two names give
+    the same identifier, or when a name is another tool's identifier (Pi's
+    prelude). An entry is named by the key that reaches its tool: the
+    identifier, or the tool's own name when an earlier tool has the
+    identifier. A tool that neither key reaches has no entry.
+    """
+
+    keys: dict[str, str] = {}
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for record in records:
+        name, identifier = record["name"], record["id"]
+        if name in seen:
+            continue
+        seen.add(name)
+        keys.setdefault(identifier, name)
+        keys.setdefault(name, name)
+        key = tool_key(keys, name, identifier)
+        if key is not None:
+            entries.append({"name": key, "description": record["description"]})
+    return keys, entries
+
+
+def tool_key(keys: dict[str, str], name: str, identifier: str) -> str | None:
+    """The key that reaches the tool ``name``: its identifier when it has it,
+    else its own name, else ``None`` (earlier tools hold both keys)."""
+
+    if keys.get(identifier) == name:
+        return identifier
+    if keys.get(name) == name:
+        return name
+    return None
 
 
 def call_arguments(name: str, args: object, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -92,39 +168,121 @@ def call_arguments(name: str, args: object, kwargs: dict[str, Any]) -> dict[str,
     return args
 
 
-class Tools:
-    """The ``tools`` object: attribute access returns a callable for that tool."""
+def is_interpreter_attribute(name: str) -> bool:
+    """Whether ``tools.<name>`` is the interpreter's (``__len__``), not a tool.
 
-    __slots__ = ("_call", "_names")
+    A tool with such a name is reached as ``tools["<name>"]`` only.
+    """
+
+    return name.startswith("__") and name.endswith("__")
+
+
+def _bound_tool(
+    key: str, name: str, call: Callable[[str, dict[str, Any]], Any]
+) -> Callable[..., Any]:
+    def tool(args: object = NO_ARGS, /, **kwargs: Any) -> Any:
+        return call(name, call_arguments(key, args, kwargs))
+
+    tool.__name__ = tool.__qualname__ = key
+    return tool
+
+
+class Tools:
+    """The ``tools`` object: ``tools.<identifier>`` and ``tools["<name>"]``
+    return a callable for that tool.
+
+    Every attribute that is not a ``__dunder__`` name is a tool or does not
+    exist, so no tool name is shadowed by the object's own state.
+    """
+
+    __slots__ = ("_state",)
 
     def __init__(
-        self, names: Iterable[str], call: Callable[[str, dict[str, Any]], Any]
+        self,
+        keys: dict[str, str],
+        listed: Iterable[str],
+        call: Callable[[str, dict[str, Any]], Any],
     ) -> None:
-        self._names = frozenset(names)
-        self._call = call
+        """``keys`` maps every key to its tool's name; ``listed`` holds the
+        ``ALL_TOOLS`` names in order."""
 
-    def __getattr__(self, name: str) -> Callable[..., Any]:
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name not in self._names:
-            # An explicit name=None stops the interpreter from filling in name
-            # and obj, so its own "Did you mean" does not repeat ours.
-            raise AttributeError(
-                unknown_tool_message(name, self._names), name=None, obj=None
-            )
-        call = self._call
+        object.__setattr__(self, "_state", (dict(keys), tuple(listed), call))
 
-        def tool(args: object = NO_ARGS, /, **kwargs: Any) -> Any:
-            return call(name, call_arguments(name, args, kwargs))
+    def __getattribute__(self, name: str) -> Any:
+        if is_interpreter_attribute(name):
+            # What the interpreter looks up (methods, copying, pickling).
+            return object.__getattribute__(self, name)
+        try:
+            keys, listed, call = object.__getattribute__(self, "_state")
+        except AttributeError:
+            # An instance made without __init__, as copying makes one.
+            raise AttributeError(name) from None
+        if name in keys:
+            return _bound_tool(name, keys[name], call)
+        # An explicit name=None stops the interpreter from filling in name
+        # and obj, so its own "Did you mean" does not repeat ours.
+        raise AttributeError(unknown_tool_message(name, listed), name=None, obj=None)
 
-        tool.__name__ = tool.__qualname__ = name
-        return tool
+    def __reduce__(self) -> Any:
+        # Copying reads slots by attribute, which here would look for a tool.
+        return type(self), object.__getattribute__(self, "_state")
+
+    def __getitem__(self, key: object) -> Callable[..., Any]:
+        keys, listed, call = object.__getattribute__(self, "_state")
+        if not isinstance(key, str):
+            raise TypeError(f"tools[...] takes a tool name, not {type(key).__name__}")
+        if key not in keys:
+            raise KeyError(unknown_tool_message(key, listed))
+        return _bound_tool(key, keys[key], call)
+
+    def __contains__(self, key: object) -> bool:
+        return (
+            isinstance(key, str) and key in object.__getattribute__(self, "_state")[0]
+        )
+
+    def __iter__(self) -> Any:
+        return iter(object.__getattribute__(self, "_state")[1])
+
+    def __len__(self) -> int:
+        return len(object.__getattribute__(self, "_state")[1])
 
     def __dir__(self) -> list[str]:
-        return sorted(self._names)
+        return sorted(object.__getattribute__(self, "_state")[1])
 
     def __repr__(self) -> str:
-        return f"<tools: {', '.join(sorted(self._names)) or 'none'}>"
+        listed = object.__getattribute__(self, "_state")[1]
+        return f"<tools: {', '.join(listed) or 'none'}>"
+
+
+def discovery_helpers(
+    discover: Callable[[str, dict[str, Any]], Any],
+) -> dict[str, Callable[..., Any]]:
+    """The script globals that find tools; the host answers every call."""
+
+    def search_tools(
+        query: object, limit: object = DEFAULT_SEARCH_LIMIT, namespace: object = None
+    ) -> Any:
+        """Rank the callable tools; returns ``[{"name", "description"}]``."""
+
+        return discover(
+            "search_tools", {"query": query, "limit": limit, "namespace": namespace}
+        )
+
+    def describe_tool(name: object, /) -> Any:
+        """A tool's description and declaration, or ``None``."""
+
+        return discover("describe_tool", {"name": name})
+
+    def describe_namespace(name: object, /) -> Any:
+        """``{"name", "description"?, "instructions"?, "tools"}`` or ``None``."""
+
+        return discover("describe_namespace", {"name": name})
+
+    return {
+        "search_tools": search_tools,
+        "describe_tool": describe_tool,
+        "describe_namespace": describe_namespace,
+    }
 
 
 def text_value(value: object) -> str:
@@ -292,14 +450,16 @@ class Wire:
     def text(self, value: str) -> None:
         self.send({"type": "text", "value": value})
 
-    def call(self, name: str, args: dict[str, Any]) -> Any:
+    def _exchange(self, message: dict[str, Any], label: str) -> dict[str, Any]:
+        """Send one request with the next id and return its ``result`` line."""
+
         call_id = self._next_id + 1
-        message = {"type": "call", "id": call_id, "name": name, "args": args}
+        message["id"] = call_id
         try:
             line = encode(message)
         except (TypeError, ValueError) as exc:
             raise TypeError(
-                f"tools.{name}() arguments must be JSON serializable: {exc}"
+                f"{label}() arguments must be JSON serializable: {exc}"
             ) from None
         self._next_id = call_id
         self._write(line)
@@ -311,6 +471,12 @@ class Wire:
             or reply_id != call_id
         ):
             protocol_failure("the host sent an unexpected reply to a tool call")
+        return reply
+
+    def call(self, name: str, args: dict[str, Any]) -> Any:
+        reply = self._exchange(
+            {"type": "call", "name": name, "args": args}, f"tools.{name}"
+        )
         ok = reply.get("ok")
         if ok is True and "value" in reply and "text" not in reply:
             return reply["value"]
@@ -320,6 +486,15 @@ class Wire:
             raise ToolError(reply["error"])
         protocol_failure("the host sent a malformed tool result")
 
+    def discover(self, name: str, args: dict[str, Any]) -> Any:
+        reply = self._exchange({"type": "discover", "name": name, "args": args}, name)
+        ok = reply.get("ok")
+        if ok is True and "value" in reply:
+            return reply["value"]
+        if ok is False and isinstance(reply.get("error"), str):
+            raise ValueError(reply["error"])
+        protocol_failure("the host sent a malformed discovery result")
+
 
 def protocol_failure(reason: str) -> NoReturn:
     """End the guest at once; never surfaces as a script outcome."""
@@ -328,22 +503,30 @@ def protocol_failure(reason: str) -> NoReturn:
     os._exit(EXIT_PROTOCOL)
 
 
-def _run_request(message: dict[str, Any]) -> tuple[str, list[str]]:
+def _run_request(message: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     code = message.get("code")
-    names = message.get("tools")
+    records = message.get("tools")
     if (
         message.get("type") != "run"
         or not isinstance(code, str)
-        or not isinstance(names, list)
-        or not all(isinstance(name, str) for name in names)
+        or not isinstance(records, list)
+        or not all(
+            isinstance(record, dict)
+            and all(
+                isinstance(record.get(key), str)
+                for key in ("name", "id", "description")
+            )
+            for record in records
+        )
     ):
         protocol_failure("the first host message is not a run request")
-    return code, names
+    return code, records
 
 
 def main() -> None:
     wire = Wire()
-    code, names = _run_request(wire.receive())
+    code, records = _run_request(wire.receive())
+    keys, all_tools = tool_table(records)
     stream = TextStream(wire.text)
     empty = io.StringIO()
     # setattr: these names are typed as final/overloaded, but reassigning
@@ -367,9 +550,11 @@ def main() -> None:
     namespace: dict[str, Any] = {
         "__name__": "__main__",
         "__builtins__": builtins,
-        "tools": Tools(names, wire.call),
+        "tools": Tools(keys, [entry["name"] for entry in all_tools], wire.call),
+        "ALL_TOOLS": all_tools,
         "text": text,
         "ToolError": ToolError,
+        **discovery_helpers(wire.discover),
     }
     wire.send(run_script(code, namespace))
 

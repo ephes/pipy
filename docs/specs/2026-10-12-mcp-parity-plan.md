@@ -931,6 +931,67 @@ Decided in S05 (declaration syntax, `codemode/declarations.py`):
   globals). Nothing in the coding agent uses it; `ALL_TOOLS` and the tool
   description use the per-tool sample.
 
+Decided in S07 (discovery, `codemode/prelude.py`, `codemode/host.py`,
+`coding/codemode_discovery.py`):
+
+- Identifier (CMD-02): Pi's rule, and a Python keyword gets a trailing `_`
+  (`class` is `tools.class_`), so every identifier can be written after
+  `tools.`. `to_codemode_identifier` is the one mapping; declarations,
+  `ALL_TOOLS`, namespace matching and the guest use it. The raw-name key is
+  subscript access: `tools["<name>"]` takes the tool's own name or its
+  identifier (`getattr(tools, "<name>")` works too). As in Pi's prelude the
+  first tool wins an identifier that two names share, and a raw name never
+  replaces an earlier tool's identifier. Different from Pi (review finding):
+  Pi names every discovery result by the identifier, which for a tool that
+  lost its identifier calls the winner. pipy names a tool everywhere
+  (`ALL_TOOLS`, `search_tools`, `describe_namespace`, its declaration) by the
+  key that reaches it: the identifier, else its own name. A tool that neither
+  key reaches is left out of the run request and of discovery. An identifier
+  that starts with `_` is a tool; no tool name is shadowed by the `tools`
+  object's own state. Only `__dunder__` names stay the interpreter's and are
+  reached as keys.
+- The run request carries `{name, id, description}` records in registration
+  order (item 1). The host computes the identifiers; the guest holds no copy
+  of the mapping. `ALL_TOOLS` is a list of `{"name": id, "description": ...}`
+  dicts. A script can change its own copy; that changes nothing on the host.
+- Discovery is one guest message kind, `discover`, with the helper's name
+  (`search_tools`, `describe_tool`, `describe_namespace`) and its arguments by
+  parameter name (item 3). It shares the id sequence and the one-outstanding
+  rule of `call`, is answered on the session thread from the parent's callable
+  snapshot, and its reply is bounded by `ScriptLimits.reply_bytes` like a tool
+  reply. It does not reach the nested service: no record, no event, no tool
+  budget. A helper name other than the three is a protocol violation.
+- Arguments are checked on the host only, as in Pi, because the guest is
+  untrusted: the answers are Pi's messages with the Python names, raised in
+  the script as `ValueError`. `limit` must be an `int` (not `bool`, not a
+  float such as `8.0`, which JavaScript cannot tell from `8`); `None` means
+  the default 8 (Pi `??`). An empty `namespace` is no filter (Pi `&&`). An
+  argument that is not JSON raises `TypeError` in the guest before anything
+  is sent.
+- The callable snapshot hands out definitions: `NestedCallableTools
+  .callable_tools()` replaces `output_schema_names()` (S04), and
+  `NestedToolCallService.callable_tools()` returns the ones the parent may
+  call, in registration order. The codemode sandbox package still imports no
+  tool types; the product builds the records and the discovery callback
+  (`CodemodeDiscovery`) and injects them into `run_script(tools=, discover=)`.
+- The `ALL_TOOLS` description is `render_tool_sample` of the tool's
+  description and schemas. A tool without an output schema is declared
+  `-> str` (Pi `TEXT_OUTPUT_SCHEMA`). Prompt guidelines are not added: pipy
+  tools have none (S02).
+- CMD-17: the message for a missing tool is Pi's in shape (`tools.<name> does
+  not exist.`, up to five close matches, else the names when there are at most
+  20, then the pointer to `ALL_TOOLS` and `search_tools`). Close matches are
+  Pi's two rules; when neither finds one, pipy's earlier nearest-name match
+  (`difflib`) still catches a misspelling such as `reed`. Subscript access
+  raises `KeyError` with the same text, attribute access `AttributeError`.
+  Names are listed in registration order, no longer sorted.
+- Not changed: the `codemode` tool description (byte-pinned until S08) does
+  not mention the helpers. Tool names are still limited to letters, digits
+  and `_` by `ToolDefinition`, so a name with `-` cannot be registered until
+  S16 relaxes that for MCP tools; the mapping and both key forms are tested
+  below the registry with such names, and in a session with the names
+  `class` and `9lives`.
+
 ### 4.10 Reload and resume
 
 `/reload` runs `McpManager.close()`, loads the config again and starts the

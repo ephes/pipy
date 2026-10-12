@@ -1,8 +1,8 @@
 """Codemode host runner: run one script in a fresh sandboxed worker (CM1 T3).
 
 :func:`run_script` starts the worker (:mod:`.worker`) in its own process
-group, feeds it the script, serves its ``tools.<name>(args)`` calls through an
-injected callback and always kills and reaps it. It never raises for anything
+group, feeds it the script, serves its ``tools.<name>(args)`` calls and its
+discovery calls through injected callbacks and always kills and reaps it. It never raises for anything
 the guest does: every failure becomes a :class:`ScriptOutcome` with one of the
 four error kinds (spike result §4.6).
 
@@ -14,10 +14,11 @@ Threads (spike result §4.1 host rules, §4.2 step 4):
   It validates every guest line (untrusted) and enforces the line, output and
   stderr caps. Replies are encoded and bounded on the calling thread. On any protocol violation, cap, deadline or cancel it kills the
   worker's process group at once and reports the outcome.
-- The calling (session) thread runs the tool callback. The I/O thread hands it
-  each ``call`` through a queue; the calling thread runs the callback and posts
-  the reply back. At most one call is outstanding: a second ``call`` before its
-  reply is a protocol violation.
+- The calling (session) thread runs the tool callback and the discovery
+  callback. The I/O thread hands it each ``call`` and ``discover`` through a
+  queue; the calling thread runs the callback and posts the reply back. At
+  most one request is outstanding: a second one before its reply is a
+  protocol violation.
 
 The worker's process group is the only thing ever signalled, and only while
 its leader is unreaped (a reaped pid may be reused). Nothing in the guest can
@@ -41,16 +42,24 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from pipy_harness.native.codemode.declarations import to_codemode_identifier
 from pipy_harness.native.codemode.outcome import (
     CallResult,
     CallStatus,
+    DiscoveryResult,
     ErrorKind,
     ScriptError,
     ScriptLimits,
     ScriptOutcome,
+    ScriptTool,
     ToolCallRecord,
 )
-from pipy_harness.native.codemode.prelude import EXIT_PROTOCOL, unknown_tool_message
+from pipy_harness.native.codemode.prelude import (
+    DISCOVERY_NAMES,
+    EXIT_PROTOCOL,
+    tool_table,
+    unknown_tool_message,
+)
 from pipy_harness.native.codemode.runtime import (
     RUNTIME_PIN,
     CodemodePaths,
@@ -63,6 +72,13 @@ ActivityWaiter = Callable[[threading.Event, threading.Event], None]
 
 ToolCallback = Callable[[str, str], CallResult]
 """``(tool name, arguments as a JSON object string) -> CallResult``."""
+
+DiscoverCallback = Callable[[str, dict[str, Any]], DiscoveryResult]
+"""``(helper name, its arguments by parameter name) -> DiscoveryResult``.
+
+The helper name is one of ``search_tools``, ``describe_tool`` and
+``describe_namespace``. The arguments come from the guest unchecked: any JSON
+values, and any or none of the helper's parameters."""
 
 # The backend the worker must report in its ``ready`` line (worker.BACKEND;
 # the host never imports the worker module).
@@ -88,7 +104,8 @@ def run_script(
     code: str,
     *,
     call_tool: ToolCallback,
-    tool_names: Iterable[str],
+    tools: Iterable[ScriptTool],
+    discover: DiscoverCallback | None = None,
     limits: ScriptLimits | None = None,
     cancel: threading.Event | None = None,
     tool_stop: threading.Event | None = None,
@@ -100,8 +117,14 @@ def run_script(
     """Run ``code`` in a fresh worker and return its outcome; never raises.
 
     ``call_tool`` runs on this (the calling) thread, one call at a time, and
-    only for names in ``tool_names``; any other name gets an error result
-    without reaching it. It must honour ``cancel`` and ``tool_stop`` itself:
+    only for the names of ``tools``; any other name gets an error result
+    without reaching it. ``tools`` is ordered: the script sees it as
+    ``ALL_TOOLS``, and the first tool wins an identifier two names share.
+
+    ``discover`` answers the script's ``search_tools``, ``describe_tool`` and
+    ``describe_namespace`` calls, on this thread too. It executes no tool and
+    its calls are not part of the outcome's ``calls``. Without it the helpers
+    raise in the script. It must honour ``cancel`` and ``tool_stop`` itself:
     the runner cannot interrupt a callback. ``tool_stop`` (if given) is set as
     soon as the run ends for any reason (deadline, violation, cancel, done),
     so a callback still in flight can stop its tool. It must be a fresh event
@@ -133,7 +156,8 @@ def run_script(
         return _run_script(
             code,
             call_tool,
-            tool_names,
+            tools,
+            discover,
             limits or ScriptLimits(),
             cancel,
             tool_stop,
@@ -168,7 +192,8 @@ def _release_tool_stop(tool_stop: threading.Event) -> None:
 def _run_script(
     code: str,
     call_tool: ToolCallback,
-    tool_names: Iterable[str],
+    tools: Iterable[ScriptTool],
+    discover: DiscoverCallback | None,
     limits: ScriptLimits,
     cancel: threading.Event | None,
     tool_stop: threading.Event | None,
@@ -182,8 +207,8 @@ def _run_script(
     early = _precheck(code, limits, cancel)
     if early is not None:
         return ScriptOutcome(early, wall_seconds=time.monotonic() - started)
-    names = sorted(set(tool_names))
-    run_line = _encode({"type": "run", "code": code, "tools": names})
+    records = _tool_records(tools)
+    run_line = _encode({"type": "run", "code": code, "tools": records})
     calls: list[ToolCallRecord] = []
     finished = _launch(
         _Launch(
@@ -192,12 +217,13 @@ def _run_script(
             python=python,
             limits=limits,
             pin=pin,
-            names=frozenset(names),
+            names=frozenset(record["name"] for record in records),
+            identifiers=tuple(entry["name"] for entry in tool_table(records)[1]),
             deadline=started + limits.wall_seconds,
             cancel=cancel,
             tool_stop=tool_stop,
         ),
-        call_tool,
+        _Callbacks(call_tool, discover),
         calls,
         activity_waiter,
     )
@@ -208,6 +234,22 @@ def _run_script(
         wall_seconds=time.monotonic() - started,
         diagnostics=finished.diagnostics,
     )
+
+
+def _tool_records(tools: Iterable[ScriptTool]) -> list[dict[str, str]]:
+    """The run request's tool records: the first entry of a name, in order."""
+
+    records: dict[str, dict[str, str]] = {}
+    for tool in tools:
+        records.setdefault(
+            tool.name,
+            {
+                "name": tool.name,
+                "id": to_codemode_identifier(tool.name),
+                "description": tool.description,
+            },
+        )
+    return list(records.values())
 
 
 def _precheck(
@@ -308,6 +350,48 @@ def _encode_reply(call_id: int, name: str, result: CallResult, limit: int) -> by
     return line
 
 
+def _encode_discovery_reply(
+    call_id: int, name: str, result: DiscoveryResult, limit: int
+) -> bytes:
+    """The reply line for one discovery call; never raises."""
+
+    if result.error is not None:
+        line = _error_reply(call_id, str(result.error))
+    else:
+        try:
+            line = (
+                json.dumps(
+                    {
+                        "type": "result",
+                        "id": call_id,
+                        "ok": True,
+                        "value": result.value,
+                    },
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode()
+        except (TypeError, ValueError, RecursionError) as exc:
+            return _error_reply(
+                call_id,
+                f"{name}() returned a value that is not JSON: {type(exc).__name__}",
+            )
+    if len(line) > limit:
+        return _error_reply(
+            call_id,
+            f"{name}() returned a result of {len(line)} bytes, more than the "
+            f"{limit}-byte limit for one result; narrow the search",
+        )
+    return line
+
+
+@dataclass(frozen=True, slots=True)
+class _Callbacks:
+    call_tool: ToolCallback
+    discover: DiscoverCallback | None
+
+
 @dataclass(frozen=True, slots=True)
 class _Launch:
     run_line: bytes
@@ -316,6 +400,8 @@ class _Launch:
     limits: ScriptLimits
     pin: RuntimePin
     names: frozenset[str]
+    # What scripts write for the tools, in ``ALL_TOOLS`` order.
+    identifiers: tuple[str, ...]
     deadline: float
     cancel: threading.Event
     tool_stop: threading.Event | None
@@ -326,6 +412,13 @@ class _Call:
     id: int
     name: str
     arguments_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Discovery:
+    id: int
+    name: str
+    args: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,7 +441,7 @@ class _StopRequest:
 
 def _launch(
     launch: _Launch,
-    call_tool: ToolCallback,
+    callbacks: _Callbacks,
     calls: list[ToolCallRecord],
     activity_waiter: ActivityWaiter | None,
 ) -> _Finished:
@@ -372,7 +465,7 @@ def _launch(
             channel.start()
         except (OSError, RuntimeError) as exc:  # no fd for the wake pipe, no thread
             return _start_failed(exc)
-        return _serve(channel, call_tool, launch.cancel, calls, activity_waiter)
+        return _serve(channel, callbacks, launch.cancel, calls, activity_waiter)
     finally:
         _cleanup(worker, channel, status_read)
 
@@ -405,12 +498,12 @@ def _cleanup(
 
 def _serve(
     channel: _Channel,
-    call_tool: ToolCallback,
+    callbacks: _Callbacks,
     cancel: threading.Event,
     calls: list[ToolCallRecord],
     activity_waiter: ActivityWaiter | None,
 ) -> _Finished:
-    """Run tool callbacks on this thread until the I/O thread finishes."""
+    """Run the callbacks on this thread until the I/O thread finishes."""
 
     while True:
         event = _take_live_activity(channel)
@@ -436,10 +529,13 @@ def _serve(
             return event
         if channel.finished.is_set() or cancel.is_set():
             continue  # the run is over; its _Finished follows
-        _run_call(channel, call_tool, cancel, calls, event)
+        if isinstance(event, _Discovery):
+            _run_discovery(channel, callbacks.discover, cancel, event)
+        else:
+            _run_call(channel, callbacks.call_tool, cancel, calls, event)
 
 
-def _take_live_activity(channel: _Channel) -> _Call | _Finished | None:
+def _take_live_activity(channel: _Channel) -> _Call | _Discovery | _Finished | None:
     event = channel.take_activity()
     if event is not None or channel.alive():
         return event
@@ -481,6 +577,37 @@ def _run_call(
         return  # the I/O thread ends the run as aborted; no reply
     # Encoded here, on the calling thread: the I/O thread only copies bytes.
     channel.reply(call.id, call.name, result)
+
+
+def _run_discovery(
+    channel: _Channel,
+    discover: DiscoverCallback | None,
+    cancel: threading.Event,
+    request: _Discovery,
+) -> None:
+    """Answer one discovery call; it runs no tool and leaves no call record."""
+
+    try:
+        if discover is None:
+            result = DiscoveryResult(error=f"{request.name}() is not available")
+        else:
+            result = discover(request.name, request.args)
+            if not isinstance(result, DiscoveryResult):
+                raise TypeError(
+                    f"returned {type(result).__name__}, not DiscoveryResult"
+                )
+    except Exception as exc:  # noqa: BLE001 - the runner never raises; a failing callback is a sandbox error
+        channel.stop(
+            ScriptError(
+                ErrorKind.SANDBOX,
+                f"the {request.name} discovery callback failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+        )
+        return
+    if cancel.is_set():
+        return  # the I/O thread ends the run as aborted; no reply
+    channel.reply_discovery(request.id, request.name, result)
 
 
 class _Worker:
@@ -583,7 +710,9 @@ class _Channel:
         self._wake_read, self._wake_write = os.pipe()
         os.set_blocking(self._wake_read, False)
         os.set_blocking(self._wake_write, False)
-        self.inbox: queue.SimpleQueue[_Call | _Finished] = queue.SimpleQueue()
+        self.inbox: queue.SimpleQueue[_Call | _Discovery | _Finished] = (
+            queue.SimpleQueue()
+        )
         self.finished = threading.Event()
         self.activity = threading.Event()
         self._activity_lock = threading.Lock()
@@ -605,7 +734,7 @@ class _Channel:
         # and the reply buffer holds at most one reply.
         self._outstanding: int | None = None
         self._reply_queued = False
-        self._handoff: _Call | None = None
+        self._handoff: _Call | _Discovery | None = None
         self._next_id = 1
         self._ready = False
         self._exit: dict[str, Any] | None = None
@@ -613,14 +742,14 @@ class _Channel:
 
     # --- the calling thread's side -------------------------------------------
 
-    def post_activity(self, event: _Call | _Finished) -> None:
+    def post_activity(self, event: _Call | _Discovery | _Finished) -> None:
         # Publication and empty-queue acknowledgement share this lock. A post
         # cannot slip between the consumer's empty check and event clear.
         with self._activity_lock:
             self.inbox.put(event)
             self.activity.set()
 
-    def take_activity(self) -> _Call | _Finished | None:
+    def take_activity(self) -> _Call | _Discovery | _Finished | None:
         with self._activity_lock:
             try:
                 return self.inbox.get_nowait()
@@ -637,6 +766,11 @@ class _Channel:
 
     def reply(self, call_id: int, name: str, result: CallResult) -> None:
         line = _encode_reply(call_id, name, result, self._limits.reply_bytes)
+        self._commands.put(_Reply(call_id, line))
+        self._wake()
+
+    def reply_discovery(self, call_id: int, name: str, result: DiscoveryResult) -> None:
+        line = _encode_discovery_reply(call_id, name, result, self._limits.reply_bytes)
         self._commands.put(_Reply(call_id, line))
         self._wake()
 
@@ -839,6 +973,8 @@ class _Channel:
             self._on_text(message)
         elif kind == "call":
             self._on_call(message)
+        elif kind == "discover":
+            self._on_discover(message)
         elif kind == "done":
             self._on_done(message)
         else:
@@ -861,15 +997,7 @@ class _Channel:
         return _Stop(ScriptError(ErrorKind.SCRIPT, OUTPUT_GUIDANCE.format(limit=limit)))
 
     def _on_call(self, message: dict[str, Any]) -> None:
-        if not self._ready:
-            raise _violation("a tool call arrived before the worker was ready")
-        call_id = message.get("id")
-        name = message.get("name")
-        args = message.get("args")
-        if type(call_id) is not int or call_id != self._next_id:
-            raise _violation("a tool call had an unexpected id")
-        if not isinstance(name, str) or not isinstance(args, dict):
-            raise _violation("a tool call was malformed")
+        call_id, name, args = self._request(message, "tool")
         try:
             arguments_json = json.dumps(args, ensure_ascii=False, allow_nan=False)
         except ValueError:  # defensive: parsing already rejects non-finite numbers
@@ -877,10 +1005,34 @@ class _Channel:
         self._outstanding = call_id
         self._next_id += 1
         if name not in self._launch.names:
-            message_text = unknown_tool_message(name, self._launch.names)
+            message_text = unknown_tool_message(name, self._launch.identifiers)
             self._queue_reply(call_id, _error_reply(call_id, message_text))
             return
         self._handoff = _Call(call_id, name, arguments_json)
+
+    def _on_discover(self, message: dict[str, Any]) -> None:
+        call_id, name, args = self._request(message, "discovery")
+        if name not in DISCOVERY_NAMES:
+            raise _violation("a discovery call named an unknown helper")
+        self._outstanding = call_id
+        self._next_id += 1
+        self._handoff = _Discovery(call_id, name, args)
+
+    def _request(
+        self, message: dict[str, Any], kind: str
+    ) -> tuple[int, str, dict[str, Any]]:
+        """The id, name and arguments of a ``call`` or ``discover`` message."""
+
+        if not self._ready:
+            raise _violation(f"a {kind} call arrived before the worker was ready")
+        call_id = message.get("id")
+        name = message.get("name")
+        args = message.get("args")
+        if type(call_id) is not int or call_id != self._next_id:
+            raise _violation(f"a {kind} call had an unexpected id")
+        if not isinstance(name, str) or not isinstance(args, dict):
+            raise _violation(f"a {kind} call was malformed")
+        return call_id, name, args
 
     def _queue_reply(self, call_id: int, line: bytes) -> None:
         if call_id != self._outstanding or self._reply_queued:

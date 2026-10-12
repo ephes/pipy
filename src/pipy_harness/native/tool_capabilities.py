@@ -222,13 +222,13 @@ class NativeToolCapabilitySnapshot:
         """Names a composite tool's nested calls may reach in this value."""
         return _callable_names(self.state)
 
-    def output_schema_names(self) -> frozenset[str]:
-        """The callable names whose tool declares an output schema."""
-        registry = self.state.registry
-        return frozenset(
-            name
-            for name in _callable_names(self.state)
-            if registry[name].definition.output_schema is not None
+    def callable_tools(self) -> tuple[ToolDefinition, ...]:
+        """The definitions of the callable names, in registration order."""
+        names = _callable_names(self.state)
+        return tuple(
+            port.definition
+            for name, port in self.state.registry.items()
+            if name in names
         )
 
     def composite_enabled(self) -> bool:

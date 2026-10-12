@@ -72,8 +72,8 @@ class ExecutionCallableSnapshot:
     def callable_names(self) -> frozenset[str]:
         return self.tools.callable_names()
 
-    def output_schema_names(self) -> frozenset[str]:
-        return self.tools.output_schema_names()
+    def callable_tools(self) -> tuple[ToolDefinition, ...]:
+        return self.tools.callable_tools()
 
     def execute(
         self,

@@ -110,6 +110,32 @@ class CallResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ScriptTool:
+    """One tool a script may call.
+
+    ``name`` is the tool's own name; the script reaches it as
+    ``tools.<identifier>`` and by the name as a key. ``description`` is the
+    text of the tool's ``ALL_TOOLS`` entry.
+    """
+
+    name: str
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryResult:
+    """What a discovery callback returns for one ``search_tools``,
+    ``describe_tool`` or ``describe_namespace`` call.
+
+    The call returns ``value`` (any JSON value, ``None`` included), or raises
+    ``ValueError(error)`` in the script when ``error`` is set.
+    """
+
+    value: Any = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCallRecord:
     name: str
     status: CallStatus

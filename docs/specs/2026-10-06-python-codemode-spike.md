@@ -203,8 +203,9 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 
 | Direction | Message |
 |---|---|
-| host → guest | `{"type":"run","code":str,"tools":[str]}` (first line; `tools` names the callable tools, for the `tools.<name>` proxy and "did you mean") |
-| guest → host | `{"type":"call","id":int,"name":str,"args":object}` |
+| host → guest | `{"type":"run","code":str,"tools":[{"name":str,"id":str,"description":str}]}` (first line; `tools` lists the callable tools in registration order, each with its own name, the identifier scripts write and its `ALL_TOOLS` description; MCP parity plan S07) |
+| guest → host | `{"type":"call","id":int,"name":str,"args":object}` (`name` is the tool's own name) |
+| guest → host | `{"type":"discover","id":int,"name":"search_tools"\|"describe_tool"\|"describe_namespace","args":object}` (ids continue the sequence of the calls; answered with a `result` that carries `value` or `error`; runs no tool and is no call record; MCP parity plan S07) |
 | host → guest | `{"type":"result","id":int,"ok":true,"text":str}`, `{"type":"result","id":int,"ok":true,"value":<JSON>}` (the structured content of a tool that declares an output schema; MCP parity plan S04) or `{"type":"result","id":int,"ok":false,"error":str}` |
 | guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
 | guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}` |
@@ -692,12 +693,14 @@ Each task is small and lands with its own tests. The plan's acceptance items
      wall limit.
    - Covers E, F and G.
    - **Implemented** in `codemode/host.py` and `codemode/outcome.py`:
-     - `run_script(code, *, call_tool, tool_names, limits, cancel,
-       tool_stop, paths, pin, python) -> ScriptOutcome` never raises.
+     - `run_script(code, *, call_tool, tools, discover, limits, cancel,
+       tool_stop, paths, pin, python) -> ScriptOutcome` never raises
+       (`tools` and `discover` since MCP parity plan S07; before that a
+       `tool_names` list).
        `call_tool(name, arguments_json) -> CallResult(ok, text, cancelled)`
        runs on the calling thread, one call at a time (§4.2 step 4): the I/O
        thread hands each `call` over a queue and the caller posts the reply
-       back. Names outside `tool_names` get an error result without reaching
+       back. Names outside `tools` get an error result without reaching
        the callback. `tool_stop` is set whenever the run ends, early exits included, so a callback
        still in flight (T6's waiter) can stop its tool; it must be a fresh
        event per run, and one already set or in use by another run (a nested

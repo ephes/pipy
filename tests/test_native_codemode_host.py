@@ -28,6 +28,7 @@ from pipy_harness.native.codemode.outcome import (
     ErrorKind,
     ScriptLimits,
     ScriptOutcome,
+    ScriptTool,
 )
 from pipy_harness.native.codemode.runtime import CodemodePaths, RuntimePin
 
@@ -76,6 +77,7 @@ def _run(
     *,
     call_tool: Callback = _no_tools,
     tool_names: tuple[str, ...] = ("read", "write"),
+    discover: host.DiscoverCallback | None = None,
     limits: ScriptLimits = LIMITS,
     cancel: threading.Event | None = None,
     tool_stop: threading.Event | None = None,
@@ -90,7 +92,8 @@ def _run(
     return host.run_script(
         code,
         call_tool=call_tool,
-        tool_names=tool_names,
+        tools=[ScriptTool(name) for name in tool_names],
+        discover=discover,
         limits=limits,
         cancel=cancel,
         tool_stop=tool_stop,
@@ -122,7 +125,7 @@ def test_a_script_runs_calls_tools_and_completes(
 
     scenario = (
         "run = start()\n"
-        "send({'type': 'text', 'value': run['code'] + '|' + ','.join(run['tools'])})\n"
+        "send({'type': 'text', 'value': run['code'] + '|' + json.dumps(run['tools'])})\n"
         "first = call(1, 'read', {'path': 'a.txt'})\n"
         "second = call(2, 'write', {'path': 'b'})\n"
         "send({'type': 'text', 'value': json.dumps([first, second])})\n"
@@ -137,7 +140,13 @@ def test_a_script_runs_calls_tools_and_completes(
         tool_names=("write", "read"),
     )
     assert outcome.ok, outcome
-    assert outcome.output[0] == "print(1)|read,write"
+    # The run request lists the tools in the order given, not sorted.
+    assert outcome.output[0] == "print(1)|" + json.dumps(
+        [
+            {"name": "write", "id": "write", "description": ""},
+            {"name": "read", "id": "read", "description": ""},
+        ]
+    )
     assert json.loads(outcome.output[1]) == [
         {"type": "result", "id": 1, "ok": True, "text": "file body"},
         {"type": "result", "id": 2, "ok": False, "error": "denied"},
@@ -756,7 +765,7 @@ def test_a_worker_that_cannot_start_is_a_sandbox_error(
     outcome = host.run_script(
         "pass",
         call_tool=_no_tools,
-        tool_names=(),
+        tools=(),
         tool_stop=tool_stop,
         paths=CodemodePaths(Path("/nonexistent-codemode-root")),
         python="/nonexistent/python",
@@ -779,7 +788,7 @@ def test_oversized_code_and_a_preset_cancel_never_spawn(
     big = host.run_script(
         "x" * 101,
         call_tool=_no_tools,
-        tool_names=(),
+        tools=(),
         limits=ScriptLimits(code_bytes=100),
         tool_stop=big_stop,
     )
@@ -793,7 +802,7 @@ def test_oversized_code_and_a_preset_cancel_never_spawn(
     aborted = host.run_script(
         "pass",
         call_tool=_no_tools,
-        tool_names=(),
+        tools=(),
         cancel=cancel,
         tool_stop=aborted_stop,
     )
@@ -952,9 +961,7 @@ def test_a_tool_stop_already_set_is_refused_without_spawning(
     monkeypatch.setattr(host, "_worker_argv", no_spawn)
     used = threading.Event()
     used.set()  # e.g. left over from an earlier run
-    outcome = host.run_script(
-        "pass", call_tool=_no_tools, tool_names=(), tool_stop=used
-    )
+    outcome = host.run_script("pass", call_tool=_no_tools, tools=(), tool_stop=used)
     _sandbox_error(outcome, "tool_stop must be a fresh event")
 
 
@@ -971,9 +978,7 @@ def test_a_nested_run_cannot_share_the_outer_tool_stop(
         stop_at_entry.append(stop.is_set())
         if name == "read":
             inner.append(
-                host.run_script(
-                    "pass", call_tool=_no_tools, tool_names=(), tool_stop=stop
-                )
+                host.run_script("pass", call_tool=_no_tools, tools=(), tool_stop=stop)
             )
         return CallResult(ok=True, text="r")
 
@@ -1280,7 +1285,8 @@ def test_dead_io_thread_never_waits_for_missing_completion(queued: bool) -> None
     def waiter(activity: threading.Event, cancel: threading.Event) -> None:
         pytest.fail("dead I/O thread must not invoke an unbounded waiter")
 
-    outcome = host._serve(channel, _no_tools, threading.Event(), [], waiter)
+    callbacks = host._Callbacks(_no_tools, None)
+    outcome = host._serve(channel, callbacks, threading.Event(), [], waiter)
     if queued:
         assert outcome is completed
     else:

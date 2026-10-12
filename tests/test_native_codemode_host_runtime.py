@@ -26,6 +26,7 @@ from pipy_harness.native.codemode.outcome import (
     ErrorKind,
     ScriptLimits,
     ScriptOutcome,
+    ScriptTool,
 )
 from pipy_harness.native.codemode.result import format_result
 from pipy_harness.native.codemode.runtime import RUNTIME_PIN, CodemodePaths
@@ -83,7 +84,7 @@ def _run(
     return host.run_script(
         code,
         call_tool=call_tool,
-        tool_names=("read", "fail"),
+        tools=(ScriptTool("read"), ScriptTool("fail")),
         limits=ScriptLimits(wall_seconds=wall_seconds, **limits),
         cancel=cancel,
         tool_stop=tool_stop,

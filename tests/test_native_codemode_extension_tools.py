@@ -264,7 +264,7 @@ text({'missing': missing, 'echo': tools.echo(key='active')})
     assert output["echo"] == "echo:active"
     assert len(output["missing"]) == 4
     assert all(
-        message.endswith("Available tools: tools.archive, tools.echo, tools.lookup.")
+        " does not exist. Available: lookup, archive, echo." in message
         for message in output["missing"]
     )
 

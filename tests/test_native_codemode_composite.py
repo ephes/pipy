@@ -512,9 +512,8 @@ text(tools.listed() + ' ' + tools.bash())
     parent = _parent(outcome)
     assert not parent.is_error
     assert (
-        parent.content.value.count(
-            "Available tools: tools.bash, tools.listed, tools.read."
-        )
+        # Registration order: the builtins, then the extension tools.
+        parent.content.value.count(" does not exist. Available: read, bash, listed.")
         == 4
     )
     assert "visible transformed" in parent.content.value

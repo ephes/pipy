@@ -37,15 +37,19 @@ CODEMODE_SRC = WORKER_PATH.parent
 
 def test_unknown_tool_suggests_the_closest_name() -> None:
     message = prelude.unknown_tool_message("reed", ["read", "ls", "grep"])
-    assert message == "tools.reed is not an available tool. Did you mean tools.read?"
+    assert message == (
+        "tools.reed does not exist. Did you mean tools.read? ALL_TOOLS lists "
+        "every tool; search_tools(query) finds tools by topic. Check for a tool "
+        'with "reed" in tools.'
+    )
 
 
 def test_unknown_tool_lists_up_to_twenty_names_and_no_more() -> None:
     few = prelude.unknown_tool_message("zzz", ["read", "ls"])
-    assert few.endswith("Available tools: tools.ls, tools.read.")
+    assert few.startswith("tools.zzz does not exist. Available: read, ls. ALL_TOOLS")
     many = [f"tool{index:02d}" for index in range(21)]
-    assert prelude.unknown_tool_message("zzz", many) == (
-        "tools.zzz is not an available tool."
+    assert prelude.unknown_tool_message("zzz", many).startswith(
+        "tools.zzz does not exist. ALL_TOOLS lists every tool;"
     )
     assert prelude.unknown_tool_message("zzz", []).endswith("No tools are available.")
 
@@ -86,7 +90,7 @@ def test_tools_proxy_routes_attribute_calls_and_hides_private_names() -> None:
         sent.append((name, args))
         return "value"
 
-    tools = prelude.Tools(["read", "ls"], call)
+    tools = prelude.Tools({"read": "read", "ls": "ls"}, ["read", "ls"], call)
     assert tools.read(path="a") == "value"
     assert tools.ls({"path": "."}) == "value"
     assert sent == [("read", {"path": "a"}), ("ls", {"path": "."})]
@@ -94,8 +98,8 @@ def test_tools_proxy_routes_attribute_calls_and_hides_private_names() -> None:
     with pytest.raises(AttributeError) as unknown:
         tools.reed  # noqa: B018 - attribute access is the behaviour under test
     assert unknown.value.name is None
-    with pytest.raises(AttributeError):
-        tools._private  # noqa: B018
+    with pytest.raises(AttributeError, match="__deepcopy__"):
+        tools.__deepcopy__  # noqa: B018
 
 
 def test_traceback_keeps_only_script_frames_through_the_chain() -> None:
@@ -337,8 +341,8 @@ def test_unknown_tool_and_bad_arguments_never_reach_the_host(cache_dir: Path) ->
 
     _ok(run)
     assert run.calls == []
-    assert run.texts[0] == (
-        "AttributeError: tools.reed is not an available tool. Did you mean tools.read?"
+    assert run.texts[0].startswith(
+        "AttributeError: tools.reed does not exist. Did you mean tools.read? "
     )
     assert run.texts[1] == "TypeError: tools.read() takes a dict of arguments, not list"
     assert "not both" in run.texts[2]
@@ -727,7 +731,7 @@ def test_a_worker_dies_with_its_sigkilled_host(code: str, tmp_path: Path) -> Non
         "    on_text(self, message)\n"
         "    print(message['value'], flush=True)\n"
         "host._Channel._on_text = report_text\n"
-        "outcome = host.run_script(sys.argv[1], call_tool=None, tool_names=(),\n"
+        "outcome = host.run_script(sys.argv[1], call_tool=None, tools=(),\n"
         "    limits=host.ScriptLimits(wall_seconds=60),\n"
         "    paths=host.CodemodePaths(Path(sys.argv[2])))\n"
         "print(outcome, flush=True)\n"

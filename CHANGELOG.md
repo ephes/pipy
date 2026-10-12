@@ -63,13 +63,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
   as Python type text, for example
   `tools.search(args: {"query": str, "limit"?: float}) -> list[str]`, with
   property descriptions and the constraints a type cannot express (`@integer`,
-  `@minimum 1`, `@default 20`) on comment lines. It is internal for now; the
-  tool listings that scripts and the model see follow.
+  `@minimum 1`, `@default 20`) on comment lines. Scripts read the declarations
+  in `ALL_TOOLS` and from `describe_tool`; the listing in the tool description
+  the model sees follows.
 - Tool search core: a tokenizer (camelCase and punctuation splits, stop
   words, folded plurals), the search text of a tool (name, description, schema
-  descriptions and property names, namespace) and an Okapi BM25 ranker. It is
-  internal for now; `search_tools` in codemode scripts and the `tool_search`
-  tool follow.
+  descriptions and property names, namespace) and an Okapi BM25 ranker.
+  `search_tools` in codemode scripts uses it; the `tool_search` tool follows.
+- Codemode scripts can find the tools they may call. `ALL_TOOLS` lists every
+  callable tool as `{"name", "description"}` with the tool's declaration,
+  `search_tools(query, limit=8, namespace=None)` ranks them, `describe_tool(name)`
+  returns one tool's description and declaration, and
+  `describe_namespace(name)` returns a namespace's description, instructions
+  and tools. A tool is `tools.<identifier>` (characters an identifier cannot
+  hold become `_`, a Python keyword gets a trailing `_`) and also
+  `tools["<name>"]`, so a tool whose name starts with `_` or is not an
+  identifier is now callable. The helpers run no tool and add no nested call.
+  The message for a tool that does not exist changed: it reads
+  `tools.<name> does not exist.`, names close matches (also ones that differ
+  only in case or punctuation, or that contain the name) and points to
+  `ALL_TOOLS` and `search_tools`. `ALL_TOOLS` and that message list tools in
+  registration order, no longer alphabetically.
 - `tool_result` hooks see a result's structured content
   (`ToolResultEvent.structured_content`) and decide it together with the
   content: `ToolResultTransform` takes an optional `structured_content`, and

@@ -42,6 +42,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
+from keyword import iskeyword
 from typing import TypeGuard
 from urllib.parse import unquote
 
@@ -105,13 +106,17 @@ def to_codemode_identifier(name: str) -> str:
     """The identifier a script uses for a tool (Pi ``toCodemodeIdentifier``).
 
     Characters that are not valid in an ASCII Python identifier become ``_``:
-    ``mcp__docs__search`` stays as it is, ``my-tool`` becomes ``my_tool``.
+    ``mcp__docs__search`` stays as it is, ``my-tool`` becomes ``my_tool``. A
+    Python keyword gets a trailing ``_`` (``class`` becomes ``class_``), so
+    that ``tools.<identifier>`` can always be written.
     """
 
     identifier = ""
     for char in name:
         valid = _IDENTIFIER_PART if identifier else _IDENTIFIER_START
         identifier += char if char in valid else "_"
+    if iskeyword(identifier):
+        identifier += "_"
     return identifier or "_"
 
 

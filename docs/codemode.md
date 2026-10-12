@@ -158,11 +158,75 @@ Calls are sequential. A script can call:
 A script cannot call `codemode` itself, a `model-only` or `hidden` tool, a
 `direct` tool that is not active, a tool that `--tools`, `--exclude-tools` or
 `--no-tools` removed, or a tool that a `before_provider_request` hook withheld
-from the request that started the script. `tools.<name>` for such a name raises
-`AttributeError` and lists the available tools. A tool whose name is not a
-Python identifier is reached with `getattr(tools, "<name>")`; a name that
-starts with `_` cannot be called yet. See
+from the request that started the script. See
 [tool metadata](extension-api.md#tool-model) for the exposures.
+
+Every callable tool is a method of `tools`, named by its identifier: the
+tool's name with each character that an ASCII Python identifier cannot hold
+replaced by `_`, and a trailing `_` when the result is a Python keyword. A
+tool named `mcp__dev-radius__search` is `tools.mcp__dev_radius__search`, and a
+tool named `class` is `tools.class_`. The tool's own name works as a key:
+`tools["mcp__dev-radius__search"]`. So does the identifier, which is what
+`ALL_TOOLS` and `search_tools` return: `tools[match["name"]]`. When two names
+give the same identifier, the tool registered first has it; the other is
+reached by its own name, and `ALL_TOOLS`, the helpers and its declaration name
+it that way (`tools["read-file"](args: ...)`). A tool whose own name is also
+taken, because it is an earlier tool's identifier, cannot be called from a
+script and is not listed. `"<name>" in tools` tests for a tool, and iterating
+over `tools` yields the names `ALL_TOOLS` lists. A name of the form `__x__` is
+reached only as a key, and its declaration says so (`tools["__x__"](args: ...)`).
+
+Reading a tool that does not exist raises `AttributeError` (`tools.<name>`) or
+`KeyError` (`tools["<name>"]`). The message names close matches: tools whose
+name is the same apart from case and punctuation, otherwise tools whose name
+contains the wanted name or is part of it, otherwise the most similar name.
+With no match it lists the tools when there are at most 20.
+
+## Globals
+
+| Global | Purpose |
+| --- | --- |
+| `tools.<identifier>(args)`, `tools["<name>"](args)` | Call a tool with one `dict` or with keyword arguments. |
+| `text(value)` | Emit a string unchanged, another value as JSON. |
+| `ToolError` | Raised by a tool call that failed. |
+| `ALL_TOOLS` | A list with one `{"name": ..., "description": ...}` for every callable tool, in registration order. `name` is the identifier (a key that calls the tool: `tools[entry["name"]]`); `description` is the tool's description followed by its declaration. |
+| `search_tools(query, limit=8, namespace=None)` | Rank the callable tools by relevance to `query` and return up to `limit` entries shaped like those of `ALL_TOOLS`, best first. `namespace` restricts the search to the tools of one namespace. |
+| `describe_tool(name)` | The `description` of the `ALL_TOOLS` entry for a tool, given its name or its identifier, or `None`. |
+| `describe_namespace(name)` | `{"name": ..., "description": ..., "instructions": ..., "tools": [...]}` for a namespace, or `None` when no callable tool belongs to it. `description` and `instructions` are present only when the namespace has them; `tools` lists the identifiers of its callable tools. |
+
+A declaration is the call signature as Python type text, for example:
+
+```python
+tools.mcp__dev_radius__search(args: {
+  # What to look for.
+  "query": str,
+}) -> {"hits"?: list[str]}
+```
+
+`"hits"?` marks an optional key. A tool without an output schema is declared
+`-> str`. The notation is for reading; it is not Python that a script can
+evaluate.
+
+The helpers see exactly the tools the script can call. They return metadata,
+run no tool and do not appear among the nested calls of the result.
+`search_tools` uses BM25 over each tool's name, description, the property
+names and descriptions of its input schema, and its namespace's name,
+description and instructions. Words are split at punctuation and at camelCase
+boundaries and are ASCII only, so a query for `github` does not find a
+description that says `GitHub` (that is the words `git` and `hub`).
+
+A namespace groups related tools, as an MCP server will; an
+[extension tool](extension-api.md#tool-model) can declare one. Its name and
+its aliases refer to it, each as written or as the same identifier:
+`mcp__dev-radius`, `mcp__dev_radius`, and with an alias `dev-radius` also
+`dev-radius` and `dev_radius`. A namespace's `instructions` are returned only
+by `describe_namespace`; they are part of no tool description.
+
+Wrong arguments raise `ValueError`: `search_tools() expects a query string`,
+`search_tools() limit must be a positive integer` (an `int`; `None` means the
+default), `search_tools() namespace must be a string`, `describe_tool() expects
+a tool name` and `describe_namespace() expects a namespace name`. An argument
+that is not JSON raises `TypeError`.
 
 The callable tools are fixed when the script starts, after the `tool_call`
 hooks of the `codemode` call have run: pipy takes one snapshot of the tools that
@@ -171,8 +235,8 @@ are registered and active at that moment. A change made while the script runs
 next request on and does not change the running script.
 
 The tool description the model sees still names only the seven built-ins and
-says that tool results are strings; extension tools and structured results are
-not described in it yet.
+says that tool results are strings; extension tools, structured results and
+the discovery helpers are not described in it yet.
 
 ## Python capabilities and authority
 
@@ -261,6 +325,6 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-MCP tools, tool discovery from scripts, parallel calls, images, `models.*`,
+MCP tools, parallel calls, images, `models.*`,
 `store()`/`load()`, options lines and structured bash results are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

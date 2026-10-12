@@ -22,6 +22,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
+from pipy_harness.native.tools.base import ToolDefinition
 
 
 def tool_error_text(tool_name: str, text: str) -> str:
@@ -78,8 +79,8 @@ class NestedCallableTools(Protocol):
 
     def callable_names(self) -> frozenset[str]: ...
 
-    def output_schema_names(self) -> frozenset[str]:
-        """The callable names whose tool declares an output schema."""
+    def callable_tools(self) -> tuple[ToolDefinition, ...]:
+        """The definitions of the callable names, in registration order."""
         ...
 
     def execute(
@@ -135,13 +136,18 @@ class NestedToolCallService:
         ]
         | None = None,
         *,
-        output_schema_names: frozenset[str] = frozenset(),
+        callable_tools: tuple[ToolDefinition, ...] = (),
     ) -> None:
         self._parent_id = parent.provider_correlation_id
         self._thread = threading.current_thread()
         # A composite never reaches itself, whatever the snapshot offers.
         self._eligible = eligible_names - {parent.tool_name}
-        self._output_schema_names = output_schema_names & self._eligible
+        self._tools = tuple(
+            tool for tool in callable_tools if tool.name in self._eligible
+        )
+        self._output_schema_names = frozenset(
+            tool.name for tool in self._tools if tool.output_schema is not None
+        )
         self._settle = settle
         self._settle_with_waiter = settle_with_waiter
         self._error_result = error_result
@@ -181,6 +187,12 @@ class NestedToolCallService:
     def eligible_names(self) -> frozenset[str]:
         self._require_thread()
         return self._eligible
+
+    def callable_tools(self) -> tuple[ToolDefinition, ...]:
+        """The definitions of the tools this parent may call, in registration
+        order: what a caller lists, searches and describes (Pi ``ctx.tools``)."""
+        self._require_thread()
+        return self._tools
 
     def declares_output_schema(self, tool_name: str) -> bool:
         """Whether a caller receives this tool's structured content (Pi

@@ -1115,10 +1115,8 @@ class AgentLoop:
             settle,
             self._tools.error_result,
             settle_with_waiter=settle,
-            output_schema_names=(
-                callable_tools.output_schema_names()
-                if callable_tools is not None
-                else frozenset()
+            callable_tools=(
+                callable_tools.callable_tools() if callable_tools is not None else ()
             ),
         )
         started_at = datetime.now(UTC)

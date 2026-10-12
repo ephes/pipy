@@ -428,15 +428,25 @@ is qualified by transient EPERM signal issues. See the
 ## Running a script (API)
 
 ```python
-from pipy_harness.native.codemode import CallResult, ScriptLimits, run_script
+from pipy_harness.native.codemode import (
+    CallResult,
+    DiscoveryResult,
+    ScriptLimits,
+    ScriptTool,
+    run_script,
+)
 
 def call_tool(name: str, args_json: str) -> CallResult:
     return CallResult(ok=True, text="...")
 
+def discover(helper: str, arguments: dict) -> DiscoveryResult:
+    return DiscoveryResult([])   # or DiscoveryResult(error="...")
+
 outcome = run_script(
     "text(tools.read(path='README.md')[:100])",
     call_tool=call_tool,
-    tool_names=("read",),
+    tools=(ScriptTool("read", "Read a file."),),
+    discover=discover,        # optional; answers search_tools() and friends
     limits=ScriptLimits(),
     cancel=cancel_event,      # optional threading.Event; set = aborted
     tool_stop=stop_event,     # optional, fresh per run; set when the run ends
@@ -452,8 +462,14 @@ time and, on failure, a `ScriptError` whose kind is `script`, `timeout`,
 time, the output truncated to a token budget, and on failure the error and the
 list of tool calls that are not undone.
 
-`call_tool` runs on the calling thread, one call at a time, and only for names
-in `tool_names`. It must honour `cancel` and `tool_stop` itself. Checking
+`call_tool` runs on the calling thread, one call at a time, and only for the
+names in `tools`. `tools` is ordered: the script sees each entry in `ALL_TOOLS`
+under its identifier, with the given description. `discover` runs on the same
+thread for `search_tools`, `describe_tool` and `describe_namespace`; it gets
+the helper's name and the script's arguments unchecked, and its calls are not
+part of the outcome's calls. In a session the product builds both from the
+parent's callable tools (`coding/codemode_discovery.py`). `call_tool` must
+honour `cancel` and `tool_stop` itself. Checking
 availability first is the caller's job, but the runner fails closed regardless.
 The optional `activity_waiter(activity_event, cancel_event)` runs on that same
 thread while waiting for a queued call or completion. It returns when activity

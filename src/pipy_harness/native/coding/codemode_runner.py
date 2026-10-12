@@ -34,6 +34,7 @@ from pipy_harness.native.codemode.result import (
     format_result,
 )
 from pipy_harness.native.codemode.runtime import CodemodePaths
+from pipy_harness.native.coding.codemode_discovery import CodemodeDiscovery
 from pipy_harness.native.tools.base import (
     make_tool_request_id,
     validate_arguments,
@@ -225,10 +226,12 @@ class CodemodeCompositeRunner:
             )
 
         try:
+            discovery = CodemodeDiscovery(service.callable_tools())
             outcome = run_script(
                 arguments["code"],
                 call_tool=child,
-                tool_names=service.eligible_names(),
+                tools=discovery.script_tools(),
+                discover=discovery,
                 limits=self.limits,
                 paths=self.paths,
                 cancel=control.cancel,
