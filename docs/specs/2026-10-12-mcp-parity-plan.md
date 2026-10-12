@@ -726,7 +726,42 @@ Decided in S03:
   S08.)
 - Declared tools are not checked against the filters again when an extension
   activates a filtered-out name with `set_active_tools`; the callable set is.
-  S10 owns the filter rules (EXP-06 to EXP-09).
+  S10 owns the filter rules (EXP-06 to EXP-09). (Done in S10.)
+
+Decided in S10 (patterns and the MCP rules of the filters):
+
+- `create_tool_name_matcher` and `is_mcp_tool_name` live in the
+  standard-library leaf `native/tools/name_patterns.py`, not in
+  `mcp/config.py`, because the capability value needs them before the MCP
+  package exists; S13 imports them for `toolExposure` patterns. A `*` does
+  not match a line terminator, as in Pi's regular expression. The three
+  resource tool names already count as MCP names (EXP-10 closes when S23
+  registers the tools).
+- `ToolFilterOptions.provider_visible_names` is Pi `_isAllowedTool`: the
+  names the filters keep registered. `allow=()` still means "no allowlist";
+  Pi's empty allowlist is `no_tools`.
+- The active set is stored as it was given and narrowed when it is read
+  (`_declared_names` in `tool_capabilities.py`): an active name is declared
+  only when the filters keep it and it is activatable (Pi `_isActivatable`).
+  Pi drops such names when it applies a loadout. Declarations, the callable
+  names (an undeclared `direct` tool is not callable) and the loadable tools
+  all read the narrowed set. `set_active_tools` still returns `True` for a
+  registered name the filters removed. Explicit `definitions(allowed_names)`
+  still selects from the whole registry.
+- "`tool_search` is registered" in `_isActivatable` means the filters keep
+  it, since pipy registers it in every production session.
+- An allowlist activates only the declarable tools it names or matches; an
+  MCP tool it keeps without naming it stays inactive (Pi
+  `_refreshToolRegistry`).
+- `all_tools()` (`ctx.get_all_tools()`) leaves out the tools the filters
+  removed, as Pi's registry does. `registered_names` and the "Known tools"
+  list of the unknown-name error are unchanged.
+- pipy rejects unknown names in `--tools`, `--exclude-tools` and
+  `defaultTools` at startup (Pi does not). A pattern is never unknown, and
+  neither is an MCP tool name, because a server's tools are registered when
+  it connects.
+- A pattern in `--tools` that matches `codemode` selects the optional
+  built-in like its name does.
 
 ### 4.4 Registration of MCP tools
 

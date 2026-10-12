@@ -774,7 +774,10 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="tools",
         default=None,
         metavar="TOOLS",
-        help="Comma-separated tool allowlist, or exact +name/-name modifiers of defaultTools.",
+        help=(
+            "Comma-separated allowlist of tool names or patterns (* matches any "
+            "characters), or exact +name/-name modifiers of defaultTools."
+        ),
     )
     parser.add_argument(
         "--exclude-tools",
@@ -782,7 +785,10 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="exclude_tools",
         default=None,
         metavar="TOOLS",
-        help="Comma-separated denylist of tool names to disable.",
+        help=(
+            "Comma-separated tool names or patterns (* matches any characters) "
+            "to disable."
+        ),
     )
 
 
@@ -797,8 +803,11 @@ def _tool_filter_options_from_args(args: Any) -> ToolFilterOptions:
     modifiers = tuple(entry for entry in entries if entry.startswith(("+", "-")))
     if modifiers and len(modifiers) != len(entries):
         raise ValueError("tool names cannot be mixed with +name or -name entries")
-    if any("*" in entry for entry in modifiers):
-        raise ValueError("+name and -name entries take exact tool names, not patterns")
+    pattern = next((entry for entry in modifiers if "*" in entry), None)
+    if pattern is not None:
+        raise ValueError(
+            f"+name and -name entries take exact tool names, not patterns: {pattern}"
+        )
     return ToolFilterOptions(
         allow=() if modifiers else entries,
         modifiers=modifiers,

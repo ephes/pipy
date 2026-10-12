@@ -400,7 +400,8 @@ def test_set_active_tools_during_hook_applies_only_to_next_request_snapshot(
     result = CodingSession(
         provider=provider,
         tool_registry=production_tool_registry(),
-        tool_filter_options=ToolFilterOptions(allow=("read",)),
+        # The selection can only name tools the filter keeps registered.
+        tool_filter_options=ToolFilterOptions(allow=("read", "bash")),
     ).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("hello\n"),
@@ -412,7 +413,7 @@ def test_set_active_tools_during_hook_applies_only_to_next_request_snapshot(
     assert [
         tuple(tool.name for tool in request.available_tools)
         for request in provider.requests
-    ] == [("read",), ("bash",)]
+    ] == [("read", "bash"), ("bash",)]
 
 
 def test_each_provider_iteration_starts_with_fresh_request_policy(

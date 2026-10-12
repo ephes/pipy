@@ -294,8 +294,8 @@ trust before saved/default/UI fallback; project extensions remain gated.
 
 | Option | Description |
 | --- | --- |
-| `--tools <list>`, `-t <list>` | Allowlist built-in, extension, and custom tools, or apply exact `+name`/`-name` modifiers to `defaultTools` |
-| `--exclude-tools <list>`, `-xt <list>` | Disable specific built-in, extension, and custom tools |
+| `--tools <list>`, `-t <list>` | Allowlist built-in, extension, and custom tools by name or pattern, or apply exact `+name`/`-name` modifiers to `defaultTools`. MCP tools are kept unless an entry starts with `mcp__` (see [MCP tools](#mcp-tools)) |
+| `--exclude-tools <list>`, `-xt <list>` | Disable tool names or patterns after all other selection options, MCP tools included |
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools |
 
@@ -315,6 +315,38 @@ registered tools that are not declared to the model (exposure `codemode` or
 `deferred`) for a query and declares the matches from the next model request
 on. Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch. See [tool search](mcp.md#tool-search).
+
+Entries of `--tools` and `--exclude-tools` are tool names or patterns in which
+`*` matches any characters: `--exclude-tools 'ext_*'` disables every tool
+whose name starts with `ext_`. Nothing else is special in a pattern, and it
+has to match the whole name. Quote a pattern so that the shell does not expand
+it. `+name` and `-name` entries take exact names, not patterns; use
+`--exclude-tools` to disable tools by pattern. A name that no tool has is an
+error at startup; a pattern that matches nothing is not, and neither is the
+name of an MCP tool, because a server's tools are registered when it connects.
+
+#### MCP tools
+
+MCP tools are the tools of MCP servers, named `mcp__<server>__<tool>`, and the
+three resource tools `list_mcp_resources`, `list_mcp_resource_templates` and
+`read_mcp_resource`. pipy does not connect to MCP servers yet, so today these
+rules apply to extension tools with such names.
+
+`--tools` selects the tools declared to the model. It does not remove MCP
+tools, whose reach is set by their exposure: `pipy --tools read,codemode`
+keeps every MCP tool callable from codemode scripts. An MCP tool that no entry
+names or matches is never declared directly, whatever its exposure, also when
+an extension activates it or `/tree` restores it; only `tool_search`, if
+listed, can load it, and only when its exposure is not `direct`. Once an entry
+starts with `mcp__`, `--tools` filters MCP tools too, so this keeps only the
+tools of the `radius` server:
+
+```bash
+pipy --tools read,bash,codemode,'mcp__radius__*'
+```
+
+To remove MCP tools, use `--exclude-tools 'mcp__*'` (the server tools) or name
+the tools. `--no-tools` removes them as well.
 
 ### Resource options
 

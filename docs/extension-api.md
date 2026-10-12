@@ -810,7 +810,11 @@ The exposure decides two sets:
   `deferred` tool is not activated by being registered; it is declared only
   after something names it, such as `ctx.set_active_tools([...])`. The model
   cannot call a tool that is not declared: a call to it is answered with
-  `unknown tool: <name>`.
+  `unknown tool: <name>`. A tool that `--tools`, `--exclude-tools` or
+  `--no-tools` removed is not declared when something names it, and neither
+  is an [MCP tool](usage.md#mcp-tools) that a `--tools` list keeps without
+  naming it (unless `tool_search` could load it).
+  `ctx.set_active_tools([...])` still accepts such a name.
 - **Callable** from a [codemode](codemode.md) script: the active `direct`
   tools and every registered `codemode` or `deferred` tool, whether or not it
   is active. `model-only` and `hidden` tools and `codemode` itself are never
@@ -936,7 +940,8 @@ way, except that its `content` is optional; pipy's transform does not replace
 **Listing tools.** `ctx.get_all_tools()` returns a `ToolInfo` for every
 registered tool, built-in and extension, active or not (the built-in
 [`tool_search`](mcp.md#tool-search) is registered inactive, and naming it in
-`ctx.set_active_tools(...)` activates it), in registration order: `name`, `description`, `input_schema` (a copy), `exposure`,
+`ctx.set_active_tools(...)` activates it), in registration order, without the
+tools that `--tools`, `--exclude-tools` or `--no-tools` removed: `name`, `description`, `input_schema` (a copy), `exposure`,
 `namespace`, `annotations` and `reaches_tools` (the function, or `None`). It
 is available in command, shortcut, hook and tool handler contexts of a
 session and raises `ExtensionCapabilityError` where no session backs the

@@ -43,7 +43,10 @@ stay declared on that branch: `/tree` to an entry before the load drops the
 tool, and `/tree` to a later entry declares it again.
 
 `tool_search` never loads `direct`, `model-only` or `hidden` tools, and it
-does not load a tool that `--tools` or `--exclude-tools` filters out. Scripts
+does not load a tool that `--tools` or `--exclude-tools` filters out. With
+`--tools read,tool_search` it can still load the MCP tools the list does not
+name, because a list of plain names keeps them registered (see
+[MCP tools](usage.md#mcp-tools)). Scripts
 cannot call it; they use `search_tools()` and call the tool they found. Its
 description is fixed text that names no tool, so it does not change when
 tools register.

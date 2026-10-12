@@ -754,6 +754,12 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.loadout.PrepareToolLoadout",
         "pipy_harness.native.tools.loadout.ToolLoadout",
         "pipy_harness.native.tools.loadout.ToolLoadoutChanges",
+        # Tool name patterns of `--tools`/`--exclude-tools` and the names that
+        # count as MCP tools: a standard-library leaf of the tool contracts.
+        "pipy_harness.native.tools.name_patterns",
+        "pipy_harness.native.tools.name_patterns.MCP_TOOL_NAME_PREFIX",
+        "pipy_harness.native.tools.name_patterns.create_tool_name_matcher",
+        "pipy_harness.native.tools.name_patterns.is_mcp_tool_name",
         # The optional builtin `tool_search` is registered inactive with the
         # production defaults, like `codemode`; it needs the facade itself
         # (the loadable tools and `load_tools`), so the facade constructs it.

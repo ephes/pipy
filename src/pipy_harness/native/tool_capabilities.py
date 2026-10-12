@@ -26,6 +26,11 @@ from pipy_harness.native.tools.loadout import (
     ToolLoadout,
     ToolLoadoutChanges,
 )
+from pipy_harness.native.tools.name_patterns import (
+    MCP_TOOL_NAME_PREFIX,
+    create_tool_name_matcher,
+    is_mcp_tool_name,
+)
 
 DEFAULT_TOOL_NAMES = ("read", "ls", "grep", "find", "write", "edit", "bash")
 
@@ -80,7 +85,11 @@ def resolve_default_tools(entries: Sequence[str]) -> tuple[str, ...]:
 
 @dataclass(frozen=True, slots=True)
 class ToolFilterOptions:
-    """Pi-style per-run tool visibility controls."""
+    """Pi-style per-run tool visibility controls.
+
+    ``allow`` and ``exclude`` entries are exact tool names or patterns in
+    which ``*`` matches any characters; ``modifiers`` take exact names only.
+    """
 
     allow: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
@@ -115,13 +124,40 @@ class ToolFilterOptions:
     def empty(cls) -> ToolFilterOptions:
         return cls()
 
+    def allows(self, name: str) -> bool:
+        """Whether an allowlist entry names or matches the tool."""
+
+        return create_tool_name_matcher(self.allow)(name)
+
+    def excludes(self, name: str) -> bool:
+        """Whether an exclusion entry names or matches the tool."""
+
+        return create_tool_name_matcher(self.exclude)(name)
+
+    @property
+    def allowlist_filters_mcp(self) -> bool:
+        """Whether the allowlist decides which MCP tools stay registered.
+
+        Pi ``_allowlistFiltersMcp``: an allowlist of plain names selects the
+        tools declared to the model and leaves MCP tools registered. Once an
+        entry starts with ``mcp__`` it filters MCP tools like other tools.
+        (Pi's empty allowlist is ``no_tools`` here.)
+        """
+
+        return any(entry.startswith(MCP_TOOL_NAME_PREFIX) for entry in self.allow)
+
     def provider_visible_names(
         self,
         *,
         builtin_names: Collection[str],
         registered_names: Collection[str],
     ) -> frozenset[str]:
-        """Return names visible after applying the product filter policy."""
+        """Return the names the filters keep registered (Pi ``_isAllowedTool``).
+
+        An MCP tool an allowlist keeps without naming or matching it is
+        registered for scripts and ``tool_search`` only; whether a kept tool
+        may be declared is decided with the capability value.
+        """
 
         if self.no_tools:
             return frozenset()
@@ -129,9 +165,14 @@ class ToolFilterOptions:
         if self.no_builtin_tools:
             names.difference_update(builtin_names)
         if self.allow:
-            names.intersection_update(self.allow)
+            keeps_mcp = not self.allowlist_filters_mcp
+            names = {
+                name
+                for name in names
+                if self.allows(name) or (keeps_mcp and is_mcp_tool_name(name))
+            }
         if self.exclude:
-            names.difference_update(self.exclude)
+            names = {name for name in names if not self.excludes(name)}
         return frozenset(names)
 
 
@@ -205,16 +246,21 @@ class ToolCapabilityState:
         if filter_options != ToolFilterOptions.empty():
             # Pi ``_refreshToolRegistry``: a filter keeps a tool registered,
             # and only a declarable tool is activated by being kept. An
-            # allowlist names what it keeps, which activates a tool that is
-            # inactive by default as well.
-            active = filter_options.provider_visible_names(
+            # allowlist activates the tools it names or matches, also one
+            # that is inactive by default; an MCP tool it keeps without
+            # naming it stays inactive.
+            kept = filter_options.provider_visible_names(
                 builtin_names=builtin,
                 registered_names=registry,
-            ) & (
-                declarable(registry)
-                if filter_options.allow
-                else activated_on_registration(registry)
             )
+            if filter_options.allow:
+                active = frozenset(
+                    name
+                    for name in kept & declarable(registry)
+                    if filter_options.allows(name)
+                )
+            else:
+                active = kept & activated_on_registration(registry)
         executor = ToolExecutor(
             registry,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
@@ -409,11 +455,15 @@ class NativeToolCapabilities:
         configured_names.update(
             entry[1:] for entry in state.filter_options.modifiers if entry[1:]
         )
+        # A pattern names no tool, and an MCP tool is registered when its
+        # server connects, which may be after the names are checked.
         return tuple(
             sorted(
-                configured_names.difference(state.registry).difference(
+                name
+                for name in configured_names.difference(state.registry).difference(
                     state.recognized_names
                 )
+                if "*" not in name and not is_mcp_tool_name(name)
             )
         )
 
@@ -421,11 +471,17 @@ class NativeToolCapabilities:
         """Pi ``getAllTools``: every registered tool of the live value.
 
         Hidden and inactive tools are included; the entries report what is
-        registered, not what the next request declares.
+        registered, not what the next request declares. A tool that
+        ``--tools``, ``--exclude-tools`` or ``--no-tools`` removed is not
+        registered in Pi and is left out.
         """
 
+        state = self.state
+        kept = _kept_names(state)
         return tuple(
-            tool_info(port.definition) for port in self.state.registry.values()
+            tool_info(port.definition)
+            for name, port in state.registry.items()
+            if name in kept
         )
 
     def set_active_tools(self, names: Sequence[str]) -> bool:
@@ -574,12 +630,14 @@ class NativeToolCapabilities:
             builtin[TOOL_SEARCH_TOOL_NAME] = state.builtin_registry.get(
                 TOOL_SEARCH_TOOL_NAME
             ) or ToolSearchTool(self)
-        wants_codemode = "codemode" in (options.allow or selected)
+        wants_codemode = (
+            options.allows("codemode") if options.allow else "codemode" in selected
+        )
         wants_codemode = (
             wants_codemode
             and not options.no_tools
             and not options.no_builtin_tools
-            and "codemode" not in options.exclude
+            and not options.excludes("codemode")
         )
         if self._production_defaults and wants_codemode and "codemode" not in mapping:
             if self._probe_codemode():
@@ -769,17 +827,18 @@ def _definitions_for(
 ) -> tuple[ToolDefinition, ...]:
     """Project one capability value's declared definitions. Pure.
 
-    The declared tools are the active ones (Pi ``_applyToolLoadout``). A tool
-    with exposure ``hidden`` is registered but unreachable: it is never
-    declared, also when it is named as active, and a model call to it is
-    therefore an unknown tool. A ``codemode`` or ``deferred`` tool is declared
-    only when it was activated by name.
+    The declared tools are the active ones the filters let be declared (Pi
+    ``_applyToolLoadout``). A tool with exposure ``hidden`` is registered but
+    unreachable: it is never declared, also when it is named as active, and a
+    model call to it is therefore an unknown tool. A ``codemode`` or
+    ``deferred`` tool is declared only when it was activated by name. Explicit
+    ``allowed_names`` select from the whole registry.
     """
 
     allowed = (
         frozenset(str(name) for name in allowed_names)
         if allowed_names is not None
-        else _active_names(state)
+        else _declared_names(state)
     )
     definitions = (
         port.definition for name, port in state.registry.items() if name in allowed
@@ -803,21 +862,60 @@ def _kept_names(state: ToolCapabilityState) -> Collection[str]:
     )
 
 
+def _is_activatable(
+    state: ToolCapabilityState, name: str, kept: Collection[str]
+) -> bool:
+    """Whether a kept tool may be active, which declares it. Pure.
+
+    Pi ``_isActivatable``: an MCP tool that an allowlist keeps without naming
+    or matching it is for scripts and ``tool_search`` only. It may be declared
+    only when ``tool_search`` can load it: its exposure is not ``direct`` and
+    ``tool_search`` is registered, which here means kept by the filters.
+    """
+
+    options = state.filter_options
+    if not options.allow or options.allows(name) or not is_mcp_tool_name(name):
+        return True
+    return state.registry[name].definition.exposure != "direct" and (
+        "tool_search" in kept
+    )
+
+
+def _declared_names(state: ToolCapabilityState) -> frozenset[str]:
+    """The active names that the filters let be declared. Pure.
+
+    Pi drops such names when it applies a loadout, whoever named them: a
+    selection, a restored transcript or an extension. Here the active set is
+    kept as it was given and narrowed whenever it is read, so a reload that
+    changes an exposure needs no second bookkeeping.
+    """
+
+    active = _active_names(state)
+    if not state.filter_configured:
+        return active
+    kept = _kept_names(state)
+    return frozenset(
+        name for name in active if name in kept and _is_activatable(state, name, kept)
+    )
+
+
 def _loadable_tools(state: ToolCapabilityState) -> tuple[ToolDefinition, ...]:
     """The tools ``tool_search`` may load from one capability value. Pure.
 
     Pi ``searchAndLoad``: the registered ``codemode`` and ``deferred`` tools
-    that are not active yet.
+    that are not active yet. A tool that may not be declared is left out,
+    because loading it would declare nothing.
     """
 
     kept = _kept_names(state)
-    active = _active_names(state)
+    declared = _declared_names(state)
     return tuple(
         port.definition
         for name, port in state.registry.items()
         if name in kept
-        and name not in active
+        and name not in declared
         and port.definition.exposure in ("codemode", "deferred")
+        and _is_activatable(state, name, kept)
     )
 
 
@@ -832,7 +930,7 @@ def _callable_names(state: ToolCapabilityState) -> frozenset[str]:
     """
 
     kept = _kept_names(state)
-    active = _active_names(state)
+    active = _declared_names(state)
     names: set[str] = set()
     for name, port in state.registry.items():
         if name not in kept:

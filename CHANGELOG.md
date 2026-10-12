@@ -78,6 +78,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   them. Loaded tools are recorded in the session like other tool changes and
   stay declared on that branch through `/tree`. Scripts cannot call it. See
   [tool search](docs/mcp.md#tool-search).
+- `--tools` and `--exclude-tools` entries may be patterns in which `*` matches
+  any characters (`--exclude-tools 'ext_*'`); `+name`/`-name` entries still
+  take exact names. A `--tools` list of plain names now keeps MCP tools
+  (`mcp__<server>__<tool>` and the resource tools) registered for codemode
+  scripts and `tool_search` without declaring them; once an entry starts with
+  `mcp__` the list filters them like other tools. `--exclude-tools 'mcp__*'`
+  and `--no-tools` remove them. pipy does not connect to MCP servers yet, so
+  the MCP rules apply to extension tools with such names for now. See
+  [tool options](docs/usage.md#tool-options).
 - Codemode scripts can find the tools they may call. `ALL_TOOLS` lists every
   callable tool as `{"name", "description"}` with the tool's declaration,
   `search_tools(query, limit=8, namespace=None)` ranks them, `describe_tool(name)`

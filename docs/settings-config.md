@@ -1176,6 +1176,9 @@ on the resolved setting/default selection. A plain CLI allowlist overrides the
 setting and retains existing builtin/extension filtering. Mixing plain names and
 modifiers, or using wildcard modifiers, is an error. `--no-tools`,
 `--no-builtin-tools` and `--exclude-tools` retain their existing precedence.
+Allowlist and exclusion entries may be patterns in which `*` matches any
+characters, and an allowlist of plain names keeps MCP tools registered; see
+[tool options](usage.md#tool-options).
 
 At a successful reload generation boundary, only newly added default names are
 activated. New extension tools with exposure `direct` or `model-only` remain
