@@ -394,6 +394,31 @@ class McpServerConnection:
         client = self.get_client(None if options is None else options.cancel_event)
         return client.call_tool(name, arguments, options)
 
+    def reconnect(self) -> None:
+        """Drop the connected client and connect again (Pi ``reconnect``).
+
+        Waits for a connect in progress first, whatever it ends with, then
+        closes the client that is connected, waits until its transport has
+        closed, and connects. The dropped client's close is not reported as
+        ``disconnected``. Raises what ``get_client`` raises. A call made from
+        inside a callback of this connection does not wait for the transport.
+        """
+
+        with self._lock:
+            attempt = self._opening
+        if attempt is not None and attempt.thread is not threading.current_thread():
+            attempt.done.wait()
+        with self._lock:
+            # A closed connection has no link; ``get_client`` below refuses.
+            link = self._link
+            self._link = None
+            waits = link is not None and link in self._open_links
+        if link is not None:
+            _close_quietly(link.client)
+            if waits and not getattr(self._callback_depth, "value", 0):
+                link.transport_closed.wait()
+        self.get_client()
+
     def close(self) -> None:
         """Shut the connection down for good.
 

@@ -131,6 +131,62 @@ def test_republishing_does_not_reactivate_a_tool_that_was_deactivated(
     assert _declared(tools) == ("read", "mcp__docs__fetch")
 
 
+def test_indirect_tools_leave_a_selection_and_direct_ones_stay(
+    tmp_path: Path,
+) -> None:
+    # Pi `setExposure`: tools no longer exposed directly leave the declared set.
+    tools = _session(tmp_path)
+    tools.publish_mcp_tools(_mcp(search="direct", fetch="direct", find="deferred"))
+    tools.activate_tools(["mcp__docs__find"])
+    assert _declared(tools) == (
+        "read",
+        "bash",
+        "mcp__docs__search",
+        "mcp__docs__fetch",
+        "mcp__docs__find",
+    )
+    tools.publish_mcp_tools(_mcp(search="direct", fetch="codemode", find="deferred"))
+    assert "mcp__docs__fetch" in _declared(tools)
+
+    tools.deactivate_indirect_mcp_tools(
+        ["mcp__docs__search", "mcp__docs__fetch", "mcp__docs__gone", "read"]
+    )
+
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search", "mcp__docs__find")
+    assert tools.state.active_selection_customized is False
+    # The tool is still callable from scripts.
+    assert "mcp__docs__fetch" in tools.callable_snapshot().callable_names()
+
+
+def test_deactivating_leaves_a_tool_that_has_the_name_of_an_mcp_tool(
+    tmp_path: Path,
+) -> None:
+    """An extension tool with the name an MCP tool would get is not that MCP
+    tool, so a change of the server's exposure leaves it active."""
+
+    extension = _Tool("mcp__docs__search", "deferred")
+    tools = _session(tmp_path, extensions={"mcp__docs__search": extension})
+    assert tools.publish_mcp_tools(_mcp(search="codemode")) == ("mcp__docs__search",)
+    tools.activate_tools(["mcp__docs__search"])
+    assert "mcp__docs__search" in _declared(tools)
+
+    tools.deactivate_indirect_mcp_tools(["mcp__docs__search"])
+
+    assert "mcp__docs__search" in _declared(tools)
+    assert tools.state.registry["mcp__docs__search"] is extension
+
+
+def test_deactivating_without_a_selection_changes_nothing(tmp_path: Path) -> None:
+    tools = _session(tmp_path)
+    tools.publish_mcp_tools(_mcp(search="direct", fetch="codemode"))
+    before = tools.state
+
+    tools.deactivate_indirect_mcp_tools(["mcp__docs__search", "mcp__docs__fetch"])
+
+    assert tools.state is before
+    assert before.active_tool_names is None
+
+
 def test_a_withdrawn_tool_is_gone_and_active_again_when_it_comes_back(
     tmp_path: Path,
 ) -> None:

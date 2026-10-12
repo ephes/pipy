@@ -89,18 +89,19 @@ def _restart_attempt(
 ) -> tuple[threading.Event, threading.Event]:
     """Give a server a new connection attempt that has not settled.
 
-    Nothing queues a second attempt before a server can be enabled or
-    reconnected in a session, so the test does what that code will do: it
-    assigns a new ``ready`` event under the manager lock. Returns the event
-    of the attempt that was replaced and the new one.
+    The test does what enabling or reconnecting a server does: it assigns a
+    new ``ready`` event under the manager lock. Returns the event of the
+    attempt that was replaced and the new one. (The real paths are tested in
+    ``test_native_mcp_manager.py``.)
     """
 
     manager = session.manager
     with manager._lock:
         server = next(s for s in manager._servers if s.entry.name == name)
         replaced = server.ready
-        server.ready = threading.Event()
-        return replaced, server.ready
+        assert replaced is not None
+        ready = server.ready = threading.Event()
+        return replaced, ready
 
 
 def _in_thread(function: Callable[[], Any]) -> tuple[threading.Thread, list[Any]]:

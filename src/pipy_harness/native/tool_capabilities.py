@@ -663,6 +663,34 @@ class NativeToolCapabilities:
                     selection_initialized=True,
                 )
 
+    def deactivate_indirect_mcp_tools(self, names: Collection[str], /) -> None:
+        """Take the named MCP tools out of the active selection unless they
+        are ``direct`` (Pi ``setExposure``: tools that are no longer exposed
+        directly leave the declared set).
+
+        Only a name that an MCP tool has in the merged registry counts: a
+        built-in or extension tool that has the name an MCP tool would get
+        keeps its place. A name that is not registered stays, as in Pi.
+        Without a selection nothing changes: only tools that registration
+        activates are active then, and those are not indirect. Like
+        :meth:`activate_tools` this does not count as a selection an
+        extension made.
+        """
+
+        with self._state_lock:
+            state = self._state
+            active = state.active_tool_names
+            if active is None:
+                return
+            accepted = _accepted_mcp_tools(state.registry, state.mcp_registry)
+            indirect = frozenset(
+                name
+                for name in names
+                if name in accepted and accepted[name].definition.exposure != "direct"
+            )
+            if active & indirect:
+                self._state = replace(state, active_tool_names=active - indirect)
+
     def codemode_selectable(self) -> bool:
         """Whether ``codemode`` is registered, or the built-in could be.
 

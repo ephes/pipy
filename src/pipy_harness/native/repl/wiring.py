@@ -1022,6 +1022,7 @@ def _mcp_manager(
         cwd=cwd,
         client_version=pipy_version(),
         publish_tools=tool_capabilities.publish_mcp_tools,
+        deactivate_tools=tool_capabilities.deactivate_indirect_mcp_tools,
         log=McpServerLog(mcp_log_path(config_home)),
     )
 

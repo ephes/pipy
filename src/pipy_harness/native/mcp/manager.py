@@ -36,8 +36,19 @@ ended and was registered, one notice lists what needs the user: the errors of
 the configuration files and the servers that failed or need a sign-in (Pi
 ``reportProblems``). Without an enabled server ``start`` leaves it at once.
 
-Not built yet: servers registered by extensions, enabling and disabling a
-server in a session, and ``/reload``.
+Changes in a session. ``set_enabled``, ``set_exposure`` and ``reconnect``
+block their caller until the change is made and may be called from any
+thread. A change of a server's configuration is saved to its ``mcp.json``
+first and holds the publication lock while the entry is replaced and the
+tools are published, so two changes never interleave. Closing a connection
+and connecting happen outside every lock. A server that is disabled and
+enabled again gets a new connection object, and nothing is opened for it
+until the old connection has finished closing. Work for a connection that
+is no longer the server's finds a closed connection or reads the current
+one, so a late result of an earlier attempt changes nothing (Pi
+``isCurrent``).
+
+Not built yet: servers registered by extensions and ``/reload``.
 """
 
 from __future__ import annotations
@@ -47,16 +58,19 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 from pipy_harness.native.mcp.config import (
     LoadedMcpConfig,
+    McpExposure,
+    McpServerConfig,
     McpServerEntry,
     configured_exposures,
     get_mcp_tool_exposure,
+    update_mcp_server_config,
 )
 from pipy_harness.native.mcp.connection import (
     ConnectionView,
@@ -88,6 +102,24 @@ PublishMcpTools = Callable[[Mapping[str, ToolPort]], Collection[str]]
 NoticeSink = Callable[[str, str], None]
 # Chooses servers by their configuration entry.
 ServerSelector = Callable[[McpServerEntry], bool]
+# Saves a change of ``enabled`` or ``exposure`` to the file of the entry: its
+# project ``override`` when set, else its ``source``.
+UpdateMcpConfig = Callable[[McpServerEntry, Mapping[str, object]], None]
+# Takes tools out of the session's active selection unless they are
+# ``direct`` (``NativeToolCapabilities.deactivate_indirect_mcp_tools``).
+DeactivateTools = Callable[[Collection[str]], None]
+
+
+def update_config_file(entry: McpServerEntry, patch: Mapping[str, object]) -> None:
+    """Save ``patch`` to the ``mcp.json`` that overrides or defines ``entry``."""
+
+    update_mcp_server_config(
+        entry.source if entry.override is None else entry.override,
+        entry.name,
+        enabled=cast("bool | None", patch.get("enabled")),
+        exposure=cast("McpExposure | None", patch.get("exposure")),
+        override=entry.override is not None,
+    )
 
 
 class McpToolUnavailableError(Exception):
@@ -113,6 +145,14 @@ class McpServerStatus:
 
 def _is_enabled(entry: McpServerEntry) -> bool:
     return entry.config.get("enabled") is not False
+
+
+def _no_server(name: str) -> str:
+    return f'No MCP server named "{name}".'
+
+
+def _error_message(error: BaseException) -> str:
+    return str(error) or type(error).__name__
 
 
 def describe_state(status: McpServerStatus, *, with_error: bool = True) -> str:
@@ -164,17 +204,24 @@ class _Server:
     """A configured server, guarded by the manager lock.
 
     The ``ready`` event itself is set without the lock; which event is the
-    server's current one is read and changed under it.
+    server's current one is read and changed under it. ``entry`` is replaced
+    only by a thread that holds the publication lock.
     """
 
-    __slots__ = ("connection", "entry", "ports", "ready", "source")
+    __slots__ = ("closing", "connection", "entry", "ports", "ready", "source")
 
     def __init__(self, entry: McpServerEntry) -> None:
         self.entry = entry
+        # ``None`` while the server is disabled, and while an enabled server
+        # waits for its previous connection to finish closing.
         self.connection: McpServerConnection | None = None
         # The event of the latest connection attempt: set once what that
-        # attempt ended with was registered and published.
-        self.ready = threading.Event()
+        # attempt ended with was registered and published. ``None`` until
+        # the server is started.
+        self.ready: threading.Event | None = None
+        # Set when the connection a disable detached has finished closing;
+        # ``None`` when nothing is closing.
+        self.closing: threading.Event | None = None
         # The registered tools by pipy name, and the tool list and
         # instructions they were built from.
         self.ports: dict[str, McpToolPort] = {}
@@ -193,13 +240,27 @@ class McpManager:
         publish_tools: PublishMcpTools,
         log: McpServerLog | None = None,
         create_transport: McpTransportFactory = create_default_transport,
+        update_config: UpdateMcpConfig = update_config_file,
+        deactivate_tools: DeactivateTools | None = None,
     ) -> None:
         """``publish_tools`` receives the tools of all servers after every
-        change. ``config`` is read once; ``cwd`` is the session directory."""
+        change. ``config`` is read once; ``cwd`` is the session directory.
+        ``update_config`` saves a change made in the session and
+        ``deactivate_tools`` takes a server's tools that are no longer
+        ``direct`` out of the session's selection."""
 
         self.config_errors: tuple[str, ...] = tuple(config.errors)
         # ``autoEnableCodemode``; true unless a file says false.
         self.auto_enable_codemode: bool = config.auto_enable_codemode is not False
+        # The trusted project's ``mcp.json``, where project overrides of
+        # user-level servers are saved.
+        self.project_config: str | None = config.project_config
+        self._update_config = update_config
+        self._deactivate_tools = deactivate_tools
+        # Set by ``close``; ends the waits of changes made in the session.
+        self._shutdown = threading.Event()
+        # Set once every attempt ``start`` made was registered.
+        self._startup_done = threading.Event()
         self._cwd = cwd
         self._client_version = client_version
         self._publish_tools = publish_tools
@@ -222,6 +283,9 @@ class McpManager:
         # The ``ready`` events of the attempts ``start`` made that have not
         # been registered yet; the startup report waits for them.
         self._startup: set[threading.Event] = set()
+        # The ``ready`` events that are not set yet, also those a later
+        # attempt replaced on their server; ``close`` sets them all.
+        self._unsettled: set[threading.Event] = set()
         self._reported: set[str] = set()
 
     # -- lifecycle --------------------------------------------------------
@@ -237,15 +301,13 @@ class McpManager:
             for server in self._servers:
                 if _is_enabled(server.entry):
                     server.connection = self._new_connection(server)
-                    connecting.append((server, server.connection, server.ready))
+                    connecting.append(
+                        (server, server.connection, self._new_attempt(server))
+                    )
             self._startup = {ready for _, _, ready in connecting}
-            if connecting:
-                self._worker = threading.Thread(
-                    target=self._run, name="mcp-manager", daemon=True
-                )
-                self._worker.start()
         if not connecting:
             self._report_problems()
+            self._startup_done.set()
         for attempt in connecting:
             threading.Thread(
                 target=self._connect,
@@ -265,7 +327,9 @@ class McpManager:
         with self._publication:
             with self._lock:
                 self._closed = True
+                self._shutdown.set()
                 servers, self._servers = self._servers, []
+                unsettled, self._unsettled = self._unsettled, set()
                 self._retired.extend(
                     server.connection
                     for server in servers
@@ -283,8 +347,9 @@ class McpManager:
             retired[0].close()
         for closer in closers:
             closer.join()
-        for server in servers:
-            server.ready.set()
+        for ready in unsettled:
+            ready.set()
+        self._startup_done.set()
         if worker is not None:
             self._events.put(None)
             worker.join(_WORKER_JOIN_SECONDS)
@@ -320,8 +385,9 @@ class McpManager:
     ) -> bool:
         """Wait for the latest connection attempts of the chosen servers.
 
-        A server is waited for while it is enabled and was started; one that
-        is disabled or removed during the wait no longer counts. The servers
+        A server is waited for while it is enabled and has an attempt, also
+        one that still waits for the server's previous connection to close;
+        one that is disabled or removed during the wait no longer counts. The servers
         are chosen once, when the wait begins. An attempt that was queued for
         one of them while waiting is waited for as well (Pi
         ``waitForServers``). Returns ``True`` when every chosen server
@@ -343,7 +409,7 @@ class McpManager:
                     server.ready
                     for server in chosen
                     if id(server) in current
-                    and server.connection is not None
+                    and server.ready is not None
                     and _is_enabled(server.entry)
                     and not server.ready.is_set()
                 ]
@@ -352,6 +418,23 @@ class McpManager:
             for ready in pending:
                 if not _wait_for_event(ready, deadline, cancel_event):
                     return False
+
+    def wait_for_startup(
+        self,
+        *,
+        timeout: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> bool:
+        """Wait until every attempt ``start`` made was registered and the
+        startup report was posted (Pi ``pending``). Attempts made later do
+        not count. Returns at once for a manager that was not started or is
+        closed; ``False`` when the time or the cancellation came first."""
+
+        with self._lock:
+            if not self._started:
+                return True
+        deadline = None if timeout is None else time.monotonic() + timeout
+        return _wait_for_event(self._startup_done, deadline, cancel_event)
 
     def configured_exposures(self) -> frozenset[str]:
         """Exposures the tools of the enabled servers can have, known from
@@ -399,6 +482,244 @@ class McpManager:
             except IndexError:
                 return
             sink(notice.level, notice.message)
+
+    # -- changes in a session ---------------------------------------------
+
+    def reconnect(self, name: str) -> str | None:
+        """Connect the server again; returns the error when that failed.
+
+        Waits for the server's running attempt, drops the connected client
+        and connects. Returns when the outcome was registered and published.
+        The new attempt has its own ``ready`` event, so a call that arrives
+        meanwhile waits for it (Pi ``reconnect``).
+        """
+
+        with self._lock:
+            server = self._find(name)
+            if server is None:
+                return _no_server(name)
+            connection = server.connection
+            if connection is None:
+                return f'MCP server "{name}" is disabled.'
+            previous = server.ready
+            ready = self._new_attempt(server)
+        if previous is not None:
+            self._wait(previous)
+        failure: str | None = None
+        try:
+            connection.reconnect()
+        except Exception as error:  # noqa: BLE001 - the message is the result
+            failure = _error_message(error)
+        self._events.put((server, ready))
+        self._wait(ready)
+        return failure
+
+    def set_enabled(
+        self, name: str, enabled: bool, *, in_project: bool = False
+    ) -> str | None:
+        """Enable or disable a server; returns the error when the change
+        could not be saved (Pi ``setEnabled``).
+
+        Disabling takes the server's tools away at once and returns when its
+        connection has closed, also one that was still connecting. Enabling
+        waits for a connection that is still closing, connects, and returns
+        when the outcome was registered; a failed connect shows in the
+        server's state. ``in_project`` saves the change as an override in the
+        trusted project's file. Enabling a server that is enabled only saves
+        the change.
+        """
+
+        detached: tuple[McpServerConnection | None, threading.Event | None]
+        detached = (None, None)
+        attempt: tuple[threading.Event | None, threading.Event] | None = None
+        with self._publication:
+            with self._lock:
+                server = self._find(name)
+                was_enabled = server is not None and _is_enabled(server.entry)
+            if server is None:
+                return _no_server(name)
+            failed = self._save_config(server, {"enabled": enabled}, in_project)
+            if failed is not None:
+                return failed
+            if not enabled:
+                detached = self._detach(server)
+            elif not was_enabled:
+                attempt = self._queue_attempt(server)
+        if not enabled:
+            self._finish_closing(server, *detached)
+        elif attempt is not None:
+            self._run_attempt(server, *attempt)
+        return None
+
+    def _detach(
+        self, server: _Server
+    ) -> tuple[McpServerConnection | None, threading.Event | None]:
+        """Take a disabled server's connection and tools away (Pi
+        ``hideTools``). The publication lock is held. Returns the connection
+        the caller has to close, and the event of whatever is closing."""
+
+        with self._lock:
+            connection = server.connection
+            server.connection = None
+            if connection is not None:
+                server.closing = threading.Event()
+                # ``close`` waits for it too.
+                self._retired.append(connection)
+            closing = server.closing
+            registered = bool(server.ports)
+            server.ports = {}
+            server.source = None
+            merged = self._merged_ports()
+        if registered:
+            self._publish(merged)
+        return connection, closing
+
+    def _finish_closing(
+        self,
+        server: _Server,
+        connection: McpServerConnection | None,
+        closing: threading.Event | None,
+    ) -> None:
+        """Close what ``_detach`` returned, or wait for the call that does."""
+
+        if closing is None:
+            return
+        if connection is None:
+            self._wait(closing)
+            return
+        try:
+            connection.close()
+        finally:
+            with self._lock:
+                if server.closing is closing:
+                    server.closing = None
+                if connection in self._retired:
+                    self._retired.remove(connection)
+            closing.set()
+
+    def _queue_attempt(
+        self, server: _Server
+    ) -> tuple[threading.Event | None, threading.Event] | None:
+        """Give an enabled server a new attempt. The publication lock is
+        held. Returns the event of a connection that is still closing and
+        the attempt's ``ready`` event; ``None`` when the manager does not
+        run."""
+
+        with self._lock:
+            if not self._started or self._closed or server not in self._servers:
+                return None
+            return server.closing, self._new_attempt(server)
+
+    def _run_attempt(
+        self,
+        server: _Server,
+        closing: threading.Event | None,
+        ready: threading.Event,
+    ) -> None:
+        """Connect an enabled server once its previous connection closed,
+        and wait until the outcome was registered."""
+
+        if closing is not None:
+            self._wait(closing)
+        connection: McpServerConnection | None = None
+        with self._lock:
+            # Disabled again, enabled again by another call, or closed: this
+            # attempt is not the server's any more.
+            if (
+                not self._closed
+                and server in self._servers
+                and server.ready is ready
+                and server.connection is None
+                and _is_enabled(server.entry)
+            ):
+                connection = server.connection = self._new_connection(server)
+        if connection is None:
+            self._settle(ready)
+            return
+        self._connect(server, connection, ready)
+        self._wait(ready)
+
+    def set_exposure(self, name: str, exposure: McpExposure) -> str | None:
+        """Change a server's exposure; returns the error when the change
+        could not be saved (Pi ``setExposure``).
+
+        The server's tools are registered again with the new exposure, and
+        those that are not ``direct`` afterwards leave the session's active
+        selection. A ``toolExposure`` entry still decides for its tools.
+        """
+
+        with self._publication:
+            with self._lock:
+                server = self._find(name)
+            if server is None:
+                return _no_server(name)
+            failed = self._save_config(server, {"exposure": exposure})
+            if failed is not None:
+                return failed
+            self._register_held(server, force=True)
+            with self._lock:
+                names = tuple(server.ports)
+            if names and self._deactivate_tools is not None:
+                self._deactivate_tools(names)
+        return None
+
+    def _find(self, name: str) -> _Server | None:
+        """The server called ``name``. The manager lock is held."""
+
+        return next(
+            (server for server in self._servers if server.entry.name == name), None
+        )
+
+    def _save_config(
+        self, server: _Server, patch: Mapping[str, object], in_project: bool = False
+    ) -> str | None:
+        """Save a change and apply it to the server's entry (Pi
+        ``saveConfig``). The publication lock is held, so no other change of
+        an entry runs. A server an extension registered changes for the
+        session only. Returns the error when the file could not be updated;
+        the entry is unchanged then."""
+
+        with self._lock:
+            entry = server.entry
+        override = self.project_config if in_project else entry.override
+        if override:
+            entry = replace(entry, override=override)
+        if entry.scope != "extension":
+            try:
+                self._update_config(entry, patch)
+            except Exception as error:  # noqa: BLE001 - the message is the result
+                path = entry.source if entry.override is None else entry.override
+                return f"Could not update {path}: {_error_message(error)}"
+        config = cast("McpServerConfig", {**entry.config, **patch})
+        with self._lock:
+            server.entry = replace(entry, config=config)
+        return None
+
+    def _wait(self, event: threading.Event) -> None:
+        """Wait for ``event``, or for the manager to close."""
+
+        _wait_for_event(event, None, self._shutdown)
+
+    def _new_attempt(self, server: _Server) -> threading.Event:
+        """Give ``server`` the ``ready`` event of a new attempt and make sure
+        the registering thread runs. The manager lock is held and the
+        manager is not closed."""
+
+        ready = server.ready = threading.Event()
+        self._unsettled.add(ready)
+        if self._worker is None:
+            self._worker = threading.Thread(
+                target=self._run, name="mcp-manager", daemon=True
+            )
+            self._worker.start()
+        return ready
+
+    def _settle(self, ready: threading.Event) -> None:
+        """An attempt ended and what it ended with was registered."""
+
+        with self._lock:
+            self._unsettled.discard(ready)
+        ready.set()
 
     # -- connecting and registering ---------------------------------------
 
@@ -453,7 +774,7 @@ class McpManager:
                     try:
                         self._attempt_registered(ready)
                     finally:
-                        ready.set()
+                        self._settle(ready)
 
     def _attempt_registered(self, ready: threading.Event) -> None:
         """Report the startup problems once the last attempt ``start`` made
@@ -465,7 +786,10 @@ class McpManager:
             self._startup.discard(ready)
             if self._startup:
                 return
-        self._report_problems()
+        try:
+            self._report_problems()
+        finally:
+            self._startup_done.set()
 
     def _report_problems(self) -> None:
         """One notice for everything that needs the user after startup."""
@@ -492,37 +816,54 @@ class McpManager:
         """Publish the tools of ``server`` as its connection has them now."""
 
         with self._publication:
-            with self._lock:
-                if self._closed or server not in self._servers:
-                    return
-                connection = server.connection
-                entry = server.entry
-                source = server.source
-                registered = bool(server.ports)
-            if connection is None:
+            self._register_held(server, force=False)
+
+    def _register_held(self, server: _Server, *, force: bool) -> None:
+        """Build the server's tool ports again when its tool list or its
+        instructions changed, or always with ``force`` (its configuration
+        changed), and publish. The publication lock is held."""
+
+        with self._lock:
+            if self._closed or server not in self._servers:
                 return
-            view = connection.view()
-            if (
-                source is None
-                or source[0] is not view.tools
-                or source[1] != view.instructions
-            ):
-                ports = self._create_ports(entry, connection, view)
-                with self._lock:
-                    server.ports = ports
-                    server.source = (view.tools, view.instructions)
-                    merged: dict[str, ToolPort] = {
-                        name: port
-                        for other in self._servers
-                        for name, port in other.ports.items()
-                    }
-                if ports or registered:
-                    for name in self._publish_tools(merged):
-                        self._notify(
-                            "warning",
-                            f'MCP tool "{name}" is not available: '
-                            "another tool has that name",
-                        )
+            connection = server.connection
+            entry = server.entry
+            source = server.source
+            registered = bool(server.ports)
+        if connection is None:
+            return
+        view = connection.view()
+        if (
+            force
+            or source is None
+            or source[0] is not view.tools
+            or source[1] != view.instructions
+        ):
+            ports = self._create_ports(entry, connection, view)
+            with self._lock:
+                server.ports = ports
+                server.source = (view.tools, view.instructions)
+                merged = self._merged_ports()
+            if ports or registered:
+                self._publish(merged)
+
+    def _merged_ports(self) -> dict[str, ToolPort]:
+        """The tools of all servers. The manager lock is held."""
+
+        return {
+            name: port
+            for server in self._servers
+            for name, port in server.ports.items()
+        }
+
+    def _publish(self, merged: Mapping[str, ToolPort]) -> None:
+        """Publish the session's MCP tools. The publication lock is held."""
+
+        for name in self._publish_tools(merged):
+            self._notify(
+                "warning",
+                f'MCP tool "{name}" is not available: another tool has that name',
+            )
 
     def _create_ports(
         self,

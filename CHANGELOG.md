@@ -27,6 +27,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- MCP servers can be reconnected, disabled, enabled and given another
+  exposure while a session runs, and the change is saved to the `mcp.json`
+  that defines the server or overrides it. This is the machinery only: the
+  `/mcp` command that reconnects a server follows, and nothing in a session
+  enables, disables or changes the exposure of a server yet.
 - `pipy mcp add`, `pipy mcp remove` and `pipy mcp list` configure and check
   MCP servers from the shell, without starting a session. `add` writes a
   stdio or HTTP entry into the user-level `mcp.json`, or with `-l` into the

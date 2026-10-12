@@ -529,6 +529,106 @@ def test_marks_a_dropped_connection_and_reconnects_on_the_next_call() -> None:
     assert harness.states[-1] == "closed"
 
 
+def test_reconnect_drops_the_client_and_connects_again() -> None:
+    # Pi `reconnect`: the dropped client is not reported as disconnected.
+    servers = [_Server(tools=[_tool("echo")]), _Server(tools=[_tool("echo2")])]
+    closed = threading.Event()
+    servers[0].client_end.on_close(closed.set)
+    harness = _Harness([lambda: servers[0].client_end, lambda: servers[1].client_end])
+    connection = harness.connection
+    first = connection.get_client()
+
+    connection.reconnect()
+
+    # The old transport had closed before the new one was opened.
+    assert closed.is_set()
+    assert first.connection_state != "connected"
+    assert connection.state == "connected"
+    assert _tool_names(connection) == ["echo2"]
+    assert len(harness.opened) == 2
+    assert harness.states == ["connecting", "connected", "connecting", "connected"]
+    assert harness.tool_reports == [("echo",), ("echo2",)]
+    connection.close()
+
+
+def test_reconnect_waits_for_a_connect_in_progress() -> None:
+    release = threading.Event()
+
+    def slow_initialize(message: JsonRpcMessage) -> object:
+        release.wait(_WAIT_SECONDS)
+        return servers[0]._default(message)
+
+    servers = [_Server(handlers={"initialize": slow_initialize}), _Server()]
+    harness = _Harness([lambda: servers[0].client_end, lambda: servers[1].client_end])
+    connection = harness.connection
+    connecting = threading.Thread(target=connection.get_client, daemon=True)
+    connecting.start()
+    _wait_until(lambda: "initialize" in servers[0].methods)
+    reconnecting = threading.Thread(target=connection.reconnect, daemon=True)
+    reconnecting.start()
+    reconnecting.join(0.1)
+
+    assert reconnecting.is_alive() and len(harness.opened) == 1
+    release.set()
+    reconnecting.join(_WAIT_SECONDS)
+    connecting.join(_WAIT_SECONDS)
+
+    assert not reconnecting.is_alive()
+    assert len(harness.opened) == 2
+    assert connection.state == "connected"
+    connection.close()
+
+
+def test_reconnect_connects_a_server_that_failed_or_dropped() -> None:
+    def refuse(message: JsonRpcMessage) -> object:
+        raise _RpcError(-32000, "not today")
+
+    servers = [_Server(handlers={"initialize": refuse}), _Server(), _Server()]
+    harness = _Harness([lambda server=server: server.client_end for server in servers])  # type: ignore[misc]
+    connection = harness.connection
+    with pytest.raises(McpServerConnectionError):
+        connection.get_client()
+
+    connection.reconnect()
+    assert connection.state == "connected"
+    servers[1].end.close()
+    _wait_until(lambda: connection.state == "disconnected")
+    connection.reconnect()
+
+    assert connection.state == "connected" and connection.error is None
+    assert len(harness.opened) == 3
+    connection.close()
+
+
+def test_reconnect_raises_the_failure_of_the_new_connect() -> None:
+    def refuse(message: JsonRpcMessage) -> object:
+        raise _RpcError(-32000, "not today")
+
+    servers = [_Server(), _Server(handlers={"initialize": refuse})]
+    harness = _Harness([lambda: servers[0].client_end, lambda: servers[1].client_end])
+    connection = harness.connection
+    connection.get_client()
+
+    with pytest.raises(McpServerConnectionError) as raised:
+        connection.reconnect()
+
+    assert str(raised.value) == 'MCP server "fake" failed to connect: not today'
+    assert connection.state == "failed"
+    connection.close()
+
+
+def test_reconnect_of_a_closed_connection_is_refused() -> None:
+    server = _Server()
+    harness = _Harness([lambda: server.client_end])
+    harness.connection.get_client()
+    harness.connection.close()
+
+    with pytest.raises(McpServerConnectionError, match="is shut down"):
+        harness.connection.reconnect()
+
+    assert len(harness.opened) == 1 and harness.connection.state == "closed"
+
+
 def test_a_failed_connect_is_recorded_and_the_next_call_tries_again() -> None:
     def refuse(message: JsonRpcMessage) -> object:
         raise _RpcError(-32000, "not today")

@@ -660,8 +660,8 @@ Decided in S15 (`connection.py`, `config_values.py`, `log.py`):
   resolved by S30's `oauth_settings` with `resolve_config_value`.
 - Left to their slices: the retry loop and its wait (S26, with the
   retry-wait half of CON-09), `withClient`'s retries and session renewal
-  (S26), `needs-auth`, `reconnect` and `sign_out` (S21, S30, S31), resources
-  at connect time (S23).
+  (S26), `needs-auth` and `sign_out` (S30, S31), resources at connect time
+  (S23). `reconnect` came with S21.
 
 Decided in S16 (`tools.py`, and `truncate_middle` in
 `native/tools/truncate.py`):
@@ -977,6 +977,66 @@ Decided in S20a (`shell_cli.py`, `pipy mcp`):
   login hint of `add` (CMDL-06) is printed already.
 - A trust store that cannot be read fails `list`, and `add -l` before it
   writes, with the store's error.
+
+Decided in S21 (changes in a session: `manager.py`, `connection.py`):
+
+- `McpServerConnection.reconnect()` is Pi `reconnect`: it waits for a connect
+  in progress, closes the connected client, waits until that client's
+  transport reported its close, and calls `get_client()`. The dropped client
+  is not reported as `disconnected`.
+- `McpManager.reconnect(name)`, `set_enabled(name, enabled, in_project=False)`
+  and `set_exposure(name, exposure)` return `None` or the error text, block
+  their caller until the change is made, and may be called from any thread.
+  They are complete operations; a caller that must stay responsive (the TUI
+  manager of S34) runs them on a thread of its own. An unknown name gives
+  `No MCP server named "<n>".`
+- One writer of a server's entry at a time: every configuration change holds
+  the publication lock from the save to the publication. `save_config` is
+  the manager's `_save_config`; the file is written by an injected
+  `update_config(entry, patch)` (default `update_config_file`, which calls
+  `update_mcp_server_config`). The manager keeps `project_config` for
+  `in_project`. File I/O therefore happens under the publication lock, never
+  under the manager lock.
+- Attempts. A server record's `ready` is `None` until its first attempt and
+  a new event for every attempt (start, enable, reconnect), assigned under
+  the manager lock. `wait_for_servers` counts an enabled server whose
+  current event is not set, also while it has no connection yet. A manager
+  that had no enabled server at startup starts its registering thread with
+  the first attempt.
+- Disable (SES-14): under the publication lock the connection is detached,
+  the server's ports are dropped and the registry is published; then the
+  connection is closed outside every lock, and a `closing` event of the
+  server is set when that returned. Enable assigns the `ready` event at
+  once and leaves the server without a connection (state `starting`, calls
+  answer `is still starting.`) until `closing` is set; then it checks that
+  its event is still the server's, that the server is still enabled and has
+  no connection, creates the connection and connects on the caller's thread.
+  This check is Pi's `isCurrent()`; there is no separate attempt token. A
+  late announcement of a detached connection reaches `_register`, which
+  reads the server's current connection, so it changes nothing. `close()`
+  ends every such wait through a shutdown event and also closes a
+  connection whose disable is still running.
+- Stricter than Pi: enabling a server that is enabled saves the change and
+  opens nothing (Pi would create a second connection; its manager view
+  offers Enable only for a disabled server).
+- Exposure (SES-15): `set_exposure` builds the server's ports again whenever
+  the server has a connection, in any state. Pi registers again only while
+  the server is `connected`, so there a change made while the server is
+  disconnected applies at its next connect. Then the injected
+  `deactivate_tools` (`NativeToolCapabilities.deactivate_indirect_mcp_tools`)
+  takes the server's tools that are not `direct` out of the active
+  selection, also tools `tool_search` had loaded, as Pi's `setActiveTools`
+  filter does. Only names that an MCP tool has in the merged registry are
+  removed: a built-in or extension tool that has the name an MCP tool would
+  get stays active (Pi's filter goes by name). Without a selection nothing is
+  removed, since only tools that registration activates are active then.
+- `wait_for_startup(timeout=, cancel_event=)` is Pi's `pending`: it ends when
+  every attempt `start()` made was registered and the report was posted.
+- The callers of `ensure_active` after a change are outside the manager:
+  `/mcp reconnect` in this slice, the manager view in S34.
+- `set_enabled` and `set_exposure` have no caller in a session before S34;
+  they are tested at the manager with in-memory servers, real `mcp.json`
+  files and the stdio fake.
 
 Open after the merge, owned by later slices:
 

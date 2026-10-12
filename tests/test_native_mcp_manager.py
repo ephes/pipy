@@ -1,4 +1,4 @@
-"""Tests for the session's MCP manager (MCP parity plan S17).
+"""Tests for the session's MCP manager (MCP parity plan S17, S21).
 
 The manager is tested against in-memory servers and a real capability value;
 what depends on a server process against the scripted fake stdio server. The
@@ -9,6 +9,8 @@ session level (a provider, hooks, codemode) is in
 from __future__ import annotations
 
 import json
+import os
+import signal
 import sys
 import threading
 from collections.abc import Iterator
@@ -28,7 +30,11 @@ from test_native_tool_filter_patterns import _Tool
 
 from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.mcp import manager as manager_module
-from pipy_harness.native.mcp.config import LoadedMcpConfig, McpServerEntry
+from pipy_harness.native.mcp.config import (
+    LoadedMcpConfig,
+    McpServerEntry,
+    load_mcp_config,
+)
 from pipy_harness.native.mcp.connection import (
     ConnectionView,
     McpServerConnection,
@@ -78,8 +84,12 @@ class _Session:
         builtins: dict[str, ToolPort] | None = None,
         state_lock: Any = None,
         errors: list[str] | None = None,
+        project_config: str | None = None,
     ) -> None:
         self.servers = servers
+        # What a session change saved, and the error the next save raises.
+        self.saves: list[tuple[McpServerEntry, dict[str, object]]] = []
+        self.save_error: Exception | None = None
         self.opened: list[str] = []
         self.published: list[tuple[str, ...]] = []
         self.tools = NativeToolCapabilities(
@@ -96,12 +106,20 @@ class _Session:
                 if entries is not None
                 else [_entry(name) for name in servers],
                 errors=errors or [],
+                project_config=project_config,
             ),
             cwd=tmp_path,
             client_version="1.2.3",
             publish_tools=self._publish,
             create_transport=self._create,
+            update_config=self._save,
+            deactivate_tools=self.tools.deactivate_indirect_mcp_tools,
         )
+
+    def _save(self, entry: McpServerEntry, patch: Any) -> None:
+        if self.save_error is not None:
+            raise self.save_error
+        self.saves.append((entry, dict(patch)))
 
     def _create(
         self, entry: McpServerEntry, cwd: str, auth: McpAuthProvider | None
@@ -562,9 +580,9 @@ def test_a_call_after_the_session_closed_says_the_server_is_disabled(
 def test_a_call_resolves_its_server_when_it_runs(
     tmp_path: Path, sessions: list[_Session]
 ) -> None:
-    """The port holds names, not a connection. The states a later slice
-    reaches through `/mcp` (disabled, enabled again and not yet started) are
-    set on the manager's record here."""
+    """The port holds names, not a connection. The states are set on the
+    manager's record here; the S21 tests reach them by disabling and
+    enabling the server."""
 
     server = _Server(tools=[_tool("search")])
     session = _Session(tmp_path, {"docs": server})
@@ -1021,3 +1039,852 @@ def test_configured_exposures_come_from_the_enabled_servers(tmp_path: Path) -> N
     assert session.manager.auto_enable_codemode
     session.manager.close()
     assert session.manager.configured_exposures() == frozenset()
+
+
+# -- S21: changes in a session ------------------------------------------------
+
+
+class _SlowClose:
+    """A transport whose ``close`` waits until the test lets it go on."""
+
+    def __init__(self, inner: McpTransport) -> None:
+        self._inner = inner
+        self.closing = threading.Event()
+        self.release = threading.Event()
+
+    def close(self) -> None:
+        self.closing.set()
+        assert self.release.wait(_WAIT_SECONDS)
+        self._inner.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def _serve(session: _Session, *transports: Any) -> None:
+    """Give the session's next connections these transports, in order."""
+
+    def create(
+        entry: McpServerEntry, cwd: str, auth: McpAuthProvider | None
+    ) -> McpTransport:
+        session.opened.append(entry.name)
+        transport: McpTransport = transports[len(session.opened) - 1]
+        return transport
+
+    session.manager._create_transport = create
+
+
+def _in_thread(function: Any) -> tuple[threading.Thread, list[Any]]:
+    results: list[Any] = []
+    thread = threading.Thread(target=lambda: results.append(function()), daemon=True)
+    thread.start()
+    return thread, results
+
+
+def _status_of(session: _Session, name: str) -> McpServerStatus:
+    return next(
+        status for status in session.manager.servers() if status.entry.name == name
+    )
+
+
+def test_disabling_closes_the_connection_and_takes_the_tools_away(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-14, SES-16.
+    docs = _Server(tools=[_tool("search")])
+    other = _Server(tools=[_tool("fetch")])
+    session = _Session(tmp_path, {"docs": docs, "other": other})
+    sessions.append(session)
+    session.start()
+    prepared = session.port("mcp__docs__search")
+    connection = session.manager._servers[0].connection
+    assert connection is not None
+
+    assert session.manager.set_enabled("docs", False) is None
+
+    assert connection.state == "closed"
+    assert session.mcp_names() == ("mcp__other__fetch",)
+    assert _invoke(prepared, tmp_path) == (True, 'MCP server "docs" is disabled.')
+    status = _status_of(session, "docs")
+    assert (status.enabled, status.connection) == (False, None)
+    assert describe_state(status) == "disabled"
+    assert [(entry.name, patch) for entry, patch in session.saves] == [
+        ("docs", {"enabled": False})
+    ]
+    assert session.manager.configured_exposures() == frozenset({"codemode"})
+    assert session.manager.wait_until_settled(0)
+    # Disabling again has nothing to close.
+    assert session.manager.set_enabled("docs", False) is None
+    assert session.mcp_names() == ("mcp__other__fetch",)
+
+
+def test_disabling_closes_a_server_that_is_still_connecting(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-14. The startup report still follows the attempt that was cut off.
+    hanging = _Server(handlers={"initialize": lambda message: _NO_ANSWER})
+    session = _Session(tmp_path, {"slow": hanging}, errors=["bad file"])
+    sessions.append(session)
+    session.manager.start()
+    _wait_until(lambda: "initialize" in hanging.methods)
+    connection = session.manager._servers[0].connection
+    assert connection is not None
+
+    assert session.manager.set_enabled("slow", False) is None
+
+    assert connection.state == "closed"
+    assert session.manager.wait_for_startup(timeout=_WAIT_SECONDS)
+    assert session.notices() == [
+        ("warning", "MCP servers need attention:\n  config: bad file\nRun /mcp to fix.")
+    ]
+
+
+def test_enabling_connects_with_a_new_connection(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-14, TLS-19: a call prepared before uses the new connection.
+    first = _Server(tools=[_tool("search")])
+    second = _Server(tools=[_tool("search"), _tool("fetch")])
+    session = _Session(tmp_path, {"docs": first})
+    sessions.append(session)
+    session.start()
+    prepared = session.port("mcp__docs__search")
+    session.manager.set_enabled("docs", False)
+    session.servers["docs"] = second
+
+    assert session.manager.set_enabled("docs", True) is None
+
+    assert session.opened == ["docs", "docs"]
+    assert session.mcp_names() == ("mcp__docs__search", "mcp__docs__fetch")
+    assert _invoke(prepared, tmp_path) == (False, "ok")
+    assert "tools/call" in second.methods and "tools/call" not in first.methods
+    assert describe_state(_status_of(session, "docs")) == "connected · 2 tools"
+    assert [patch for _, patch in session.saves] == [
+        {"enabled": False},
+        {"enabled": True},
+    ]
+    # Enabling an enabled server saves the change and opens nothing.
+    assert session.manager.set_enabled("docs", True) is None
+    assert session.opened == ["docs", "docs"]
+
+
+def test_enabling_a_server_that_was_disabled_at_startup_connects_it(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # No server was enabled at startup, so nothing ran in the background yet.
+    session = _Session(
+        tmp_path,
+        {"off": _Server(tools=[_tool("search")])},
+        [_entry("off", enabled=False)],
+    )
+    sessions.append(session)
+    session.start()
+    assert session.manager._worker is None
+
+    assert session.manager.set_enabled("off", True) is None
+
+    assert session.mcp_names() == ("mcp__off__search",)
+    # A connection made later is not part of the startup report.
+    assert session.notices() == []
+
+
+def test_enabling_a_server_whose_connect_fails_shows_in_its_state(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(
+        tmp_path,
+        {"off": _Server(handlers={"initialize": _refuse})},
+        [_entry("off", enabled=False)],
+    )
+    sessions.append(session)
+    session.start()
+
+    assert session.manager.set_enabled("off", True) is None
+
+    assert describe_state(_status_of(session, "off")) == "failed: boom"
+    assert session.notices() == []
+
+
+def test_enabling_waits_until_the_previous_connection_has_closed(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-14, SES-10: a wait covers the attempt that is queued meanwhile.
+    first = _Server(tools=[_tool("search")])
+    second = _Server(tools=[_tool("search")])
+    session = _Session(tmp_path, {"docs": first})
+    sessions.append(session)
+    slow = _SlowClose(first.client_end)
+    _serve(session, slow, second.client_end)
+    session.start()
+    prepared = session.port("mcp__docs__search")
+
+    disabling, _ = _in_thread(lambda: session.manager.set_enabled("docs", False))
+    assert slow.closing.wait(_WAIT_SECONDS)
+    enabling, enabled = _in_thread(lambda: session.manager.set_enabled("docs", True))
+    _wait_until(lambda: _status_of(session, "docs").enabled)
+
+    # Enabled, and nothing opened while the old transport is still closing.
+    assert session.opened == ["docs"]
+    status = _status_of(session, "docs")
+    assert status.connection is None and describe_state(status) == "starting"
+    assert _invoke(prepared, tmp_path) == (
+        True,
+        'MCP server "docs" is still starting.',
+    )
+    assert not session.manager.wait_for_servers(timeout=0.05)
+    assert session.manager.reconnect("docs") == 'MCP server "docs" is disabled.'
+
+    slow.release.set()
+    disabling.join(_WAIT_SECONDS)
+    enabling.join(_WAIT_SECONDS)
+
+    assert enabled == [None]
+    assert session.opened == ["docs", "docs"]
+    assert session.manager.wait_for_servers(timeout=0)
+    assert _invoke(prepared, tmp_path) == (False, "ok")
+
+
+def test_an_enable_that_was_overtaken_by_a_disable_opens_nothing(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    """Attempt currency: the enable finds the server disabled again once the
+    old connection has closed."""
+
+    first = _Server(tools=[_tool("search")])
+    session = _Session(tmp_path, {"docs": first})
+    sessions.append(session)
+    slow = _SlowClose(first.client_end)
+    _serve(session, slow)
+    session.start()
+
+    disabling, _ = _in_thread(lambda: session.manager.set_enabled("docs", False))
+    assert slow.closing.wait(_WAIT_SECONDS)
+    enabling, _ = _in_thread(lambda: session.manager.set_enabled("docs", True))
+    _wait_until(lambda: _status_of(session, "docs").enabled)
+    again, _ = _in_thread(lambda: session.manager.set_enabled("docs", False))
+    _wait_until(lambda: not _status_of(session, "docs").enabled)
+    slow.release.set()
+    for thread in (disabling, enabling, again):
+        thread.join(_WAIT_SECONDS)
+        assert not thread.is_alive()
+
+    assert session.opened == ["docs"]
+    assert _status_of(session, "docs").connection is None
+    assert session.manager.wait_until_settled(0)
+    assert session.mcp_names() == ()
+
+
+def test_close_ends_an_enable_that_waits_for_a_closing_connection(
+    tmp_path: Path,
+) -> None:
+    first = _Server(tools=[_tool("search")])
+    session = _Session(tmp_path, {"docs": first})
+    slow = _SlowClose(first.client_end)
+    _serve(session, slow)
+    session.start()
+    disabling, _ = _in_thread(lambda: session.manager.set_enabled("docs", False))
+    assert slow.closing.wait(_WAIT_SECONDS)
+    enabling, enabled = _in_thread(lambda: session.manager.set_enabled("docs", True))
+    _wait_until(lambda: _status_of(session, "docs").enabled)
+
+    closing, _ = _in_thread(session.manager.close)
+    enabling.join(_WAIT_SECONDS)
+
+    assert enabled == [None]
+    assert session.opened == ["docs"]
+    # ``close`` itself still waits for the transport that is closing.
+    assert closing.is_alive()
+    slow.release.set()
+    closing.join(_WAIT_SECONDS)
+    disabling.join(_WAIT_SECONDS)
+    assert not closing.is_alive() and not disabling.is_alive()
+
+
+def test_a_failed_save_changes_nothing(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-16.
+    session = _Session(
+        tmp_path,
+        {"docs": _Server(tools=[_tool("search")])},
+        [
+            McpServerEntry(
+                name="docs",
+                config={"command": "unused"},
+                source="/home/mcp.json",
+                scope="global",
+            )
+        ],
+    )
+    sessions.append(session)
+    session.start()
+    published = list(session.published)
+    session.save_error = OSError("read-only file system")
+
+    assert session.manager.set_enabled("docs", False) == (
+        "Could not update /home/mcp.json: read-only file system"
+    )
+    assert session.manager.set_exposure("docs", "direct") == (
+        "Could not update /home/mcp.json: read-only file system"
+    )
+
+    status = _status_of(session, "docs")
+    assert status.enabled and status.entry.config == {"command": "unused"}
+    assert status.connection is not None and status.connection.state == "connected"
+    assert session.published == published
+    assert session.declared() == ("read",)
+
+
+def test_a_change_is_saved_to_the_override_file_when_there_is_one(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-16.
+    entries = [
+        McpServerEntry(
+            name="plain",
+            config={"command": "unused", "enabled": False},
+            source="/home/mcp.json",
+            scope="global",
+        ),
+        McpServerEntry(
+            name="overridden",
+            config={"command": "unused", "enabled": False},
+            source="/home/mcp.json",
+            scope="global",
+            override="/work/.pipy/mcp.json",
+        ),
+    ]
+    session = _Session(
+        tmp_path,
+        {"plain": _Server(), "overridden": _Server()},
+        entries,
+        project_config="/work/.pipy/mcp.json",
+    )
+    sessions.append(session)
+    assert session.manager.project_config == "/work/.pipy/mcp.json"
+
+    session.manager.set_exposure("plain", "deferred")
+    session.manager.set_exposure("overridden", "direct")
+    session.save_error = OSError("denied")
+    failed = session.manager.set_exposure("overridden", "hidden")
+    session.save_error = None
+    session.manager.set_enabled("plain", True, in_project=True)
+
+    assert [(entry.name, entry.override, patch) for entry, patch in session.saves] == [
+        ("plain", None, {"exposure": "deferred"}),
+        ("overridden", "/work/.pipy/mcp.json", {"exposure": "direct"}),
+        ("plain", "/work/.pipy/mcp.json", {"enabled": True}),
+    ]
+    assert failed == "Could not update /work/.pipy/mcp.json: denied"
+    plain = _status_of(session, "plain").entry
+    assert plain.override == "/work/.pipy/mcp.json"
+    assert plain.config == {
+        "command": "unused",
+        "enabled": True,
+        "exposure": "deferred",
+    }
+    assert _status_of(session, "overridden").entry.config["exposure"] == "direct"
+    # The override the first project change made is where the next one goes.
+    session.manager.set_enabled("plain", False)
+    assert session.saves[-1][0].override == "/work/.pipy/mcp.json"
+
+
+def test_a_server_an_extension_registered_changes_for_the_session_only(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-16.
+    session = _Session(
+        tmp_path,
+        {"ext": _Server(tools=[_tool("search")])},
+        [
+            McpServerEntry(
+                name="ext",
+                config={"command": "unused"},
+                source="/ext/plugin.py",
+                scope="extension",
+            )
+        ],
+    )
+    sessions.append(session)
+    session.start()
+    session.save_error = OSError("must not be called")
+
+    assert session.manager.set_exposure("ext", "direct") is None
+    assert session.manager.set_enabled("ext", False) is None
+
+    assert session.saves == []
+    entry = _status_of(session, "ext").entry
+    assert entry.config == {"command": "unused", "exposure": "direct", "enabled": False}
+
+
+def test_session_changes_are_written_to_the_mcp_json_files(tmp_path: Path) -> None:
+    # SES-16 with the real files: the default ``update_config``.
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    (work / ".pipy").mkdir(parents=True)
+    home.mkdir()
+    user_file = home / "mcp.json"
+    project_file = work / ".pipy" / "mcp.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "a": {"command": "unused", "enabled": False},
+                    "b": {"command": "unused", "enabled": False},
+                    "c": {"command": "unused", "enabled": False},
+                }
+            }
+        )
+    )
+    project_file.write_text(json.dumps({"mcpServers": {"b": {"enabled": False}}}))
+    manager = McpManager(
+        config=load_mcp_config(config_home=home, cwd=work, project_trusted=True),
+        cwd=work,
+        client_version="1.2.3",
+        publish_tools=lambda registry: (),
+    )
+
+    assert manager.set_exposure("a", "direct") is None
+    assert manager.set_exposure("b", "deferred") is None
+    assert manager.set_enabled("c", False, in_project=True) is None
+
+    assert json.loads(user_file.read_text())["mcpServers"] == {
+        "a": {"command": "unused", "enabled": False, "exposure": "direct"},
+        "b": {"command": "unused", "enabled": False},
+        "c": {"command": "unused", "enabled": False},
+    }
+    assert json.loads(project_file.read_text())["mcpServers"] == {
+        "b": {"enabled": False, "exposure": "deferred"},
+        "c": {"enabled": False},
+    }
+    # A file that cannot be edited: the change is refused and names the file.
+    user_file.write_text("{ not json")
+    failed = manager.set_exposure("a", "hidden")
+    assert failed is not None
+    assert failed.startswith(f"Could not update {user_file}: ")
+    entry = next(s.entry for s in manager.servers() if s.entry.name == "a")
+    assert entry.config["exposure"] == "direct"
+    manager.close()
+
+
+def test_an_unknown_server_cannot_be_changed(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(tmp_path, {"docs": _Server()})
+    sessions.append(session)
+    session.start()
+
+    for change in (
+        lambda: session.manager.set_enabled("nope", False),
+        lambda: session.manager.set_exposure("nope", "direct"),
+        lambda: session.manager.reconnect("nope"),
+    ):
+        assert change() == 'No MCP server named "nope".'
+    assert session.saves == []
+
+
+def test_an_exposure_change_registers_the_tools_again(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-15: a tool moves between the declared and the callable set.
+    session = _Session(
+        tmp_path,
+        {"docs": _Server(tools=[_tool("search"), _tool("fetch")])},
+        [_entry("docs", toolExposure={"fetch": "hidden"})],
+    )
+    sessions.append(session)
+    session.start()
+    assert session.declared() == ("read",)
+    assert session.callable_names() >= {"mcp__docs__search"}
+
+    assert session.manager.set_exposure("docs", "direct") is None
+
+    assert session.declared() == ("read", "mcp__docs__search")
+    assert session.port("mcp__docs__search").definition.exposure == "direct"
+    # ``toolExposure`` still decides for its tool.
+    assert session.port("mcp__docs__fetch").definition.exposure == "hidden"
+    assert session.manager.configured_exposures() == frozenset({"direct", "hidden"})
+
+    assert session.manager.set_exposure("docs", "codemode") is None
+
+    assert session.declared() == ("read",)
+    assert "mcp__docs__search" in session.callable_names()
+    assert session.call("mcp__docs__search") == "ok"
+
+    assert session.manager.set_exposure("docs", "hidden") is None
+
+    assert "mcp__docs__search" not in session.callable_names()
+    assert [patch for _, patch in session.saves] == [
+        {"exposure": "direct"},
+        {"exposure": "codemode"},
+        {"exposure": "hidden"},
+    ]
+
+
+def test_tools_that_are_no_longer_direct_leave_a_selection(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-15 with a selection, where registration alone would keep the names.
+    session = _Session(
+        tmp_path,
+        {
+            "docs": _Server(tools=[_tool("search")]),
+            "other": _Server(tools=[_tool("fetch")]),
+        },
+        [_entry("docs", exposure="direct"), _entry("other", exposure="deferred")],
+    )
+    sessions.append(session)
+    session.start()
+    # As `tool_search` does: the deferred tool is loaded by name.
+    assert session.tools.load_tools(["mcp__other__fetch"]) == ("mcp__other__fetch",)
+    assert session.declared() == ("read", "mcp__docs__search", "mcp__other__fetch")
+
+    assert session.manager.set_exposure("docs", "deferred") is None
+
+    # The other server's loaded tool stays; this server's leaves.
+    assert session.declared() == ("read", "mcp__other__fetch")
+    assert session.tools.state.active_tool_names == frozenset(
+        {"read", "mcp__other__fetch"}
+    )
+
+    assert session.manager.set_exposure("docs", "direct") is None
+
+    assert session.declared() == ("read", "mcp__docs__search", "mcp__other__fetch")
+
+
+def test_an_exposure_change_leaves_another_tool_that_has_an_mcp_name(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    """A tool that has the name an MCP tool would get is left out of the MCP
+    tools (S17), so the server's exposure does not decide whether it is
+    active."""
+
+    other = _Tool("mcp__docs__search", "deferred")
+    session = _Session(
+        tmp_path,
+        {"docs": _Server(tools=[_tool("search"), _tool("fetch")])},
+        builtins={"read": _Tool("read"), "mcp__docs__search": other},
+    )
+    sessions.append(session)
+    session.start()
+    session.tools.activate_tools(["mcp__docs__search", "mcp__docs__fetch"])
+    assert session.declared() == ("read", "mcp__docs__search", "mcp__docs__fetch")
+
+    assert session.manager.set_exposure("docs", "deferred") is None
+
+    assert session.declared() == ("read", "mcp__docs__search")
+    assert session.tools.state.registry["mcp__docs__search"] is other
+
+
+def test_an_exposure_change_of_a_disabled_server_only_changes_the_entry(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(
+        tmp_path,
+        {"off": _Server(tools=[_tool("search")])},
+        [_entry("off", enabled=False)],
+    )
+    sessions.append(session)
+    session.start()
+
+    assert session.manager.set_exposure("off", "direct") is None
+    assert session.published == []
+    session.manager.set_enabled("off", True)
+
+    assert session.declared() == ("read", "mcp__off__search")
+
+
+def test_reconnect_replaces_the_connection_of_a_server(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SLH-03 at the manager.
+    first = _Server(tools=[_tool("search")])
+    second = _Server(tools=[_tool("fetch")], instructions="Fetch first.")
+    session = _Session(tmp_path, {"docs": first})
+    sessions.append(session)
+    session.start()
+    closed = threading.Event()
+    first.end.on_close(closed.set)
+    session.servers["docs"] = second
+
+    assert session.manager.reconnect("docs") is None
+
+    assert closed.is_set()
+    assert session.opened == ["docs", "docs"]
+    # Registered when the call returns.
+    assert session.mcp_names() == ("mcp__docs__fetch",)
+    status = _status_of(session, "docs")
+    assert describe_state(status) == "connected · 1 tool"
+    assert status.connection is not None
+    assert status.connection.instructions == "Fetch first."
+    assert session.manager.wait_until_settled(0)
+    assert session.notices() == []
+
+
+def test_reconnect_returns_the_error_of_a_failed_connect(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(tmp_path, {"docs": _Server(tools=[_tool("search")])})
+    sessions.append(session)
+    session.start()
+    session.servers["docs"] = _Server(handlers={"initialize": _refuse})
+
+    failure = session.manager.reconnect("docs")
+
+    assert failure == 'MCP server "docs" failed to connect: boom\nsecond line'
+    assert describe_state(_status_of(session, "docs")) == "failed: boom"
+    # The tools stay registered while the server is not connected, as before.
+    assert session.mcp_names() == ("mcp__docs__search",)
+
+
+def test_reconnect_of_a_disabled_server_says_so(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    session = _Session(tmp_path, {"off": _Server()}, [_entry("off", enabled=False)])
+    sessions.append(session)
+    session.start()
+
+    assert session.manager.reconnect("off") == 'MCP server "off" is disabled.'
+    assert session.opened == []
+
+
+def test_a_wait_covers_a_reconnect_in_progress(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # SES-09, SES-10 with a real second attempt.
+    release = threading.Event()
+
+    def slow_initialize(message: Any) -> object:
+        release.wait(_WAIT_SECONDS)
+        return second._default(message)
+
+    first = _Server(tools=[_tool("search")])
+    second = _Server(tools=[_tool("search")], handlers={"initialize": slow_initialize})
+    session = _Session(tmp_path, {"docs": first})
+    sessions.append(session)
+    session.start()
+    session.servers["docs"] = second
+
+    reconnecting, results = _in_thread(lambda: session.manager.reconnect("docs"))
+    _wait_until(lambda: "initialize" in second.methods)
+    assert not session.manager.wait_for_servers(timeout=0.05)
+    assert not session.manager.wait_for_servers(
+        lambda entry: entry.name == "docs", timeout=0.05
+    )
+    waiting, waited = _in_thread(lambda: session.manager.wait_for_servers())
+    release.set()
+    reconnecting.join(_WAIT_SECONDS)
+    waiting.join(_WAIT_SECONDS)
+
+    assert results == [None] and waited == [True]
+
+
+def test_a_reconnect_waits_for_the_attempt_that_is_running(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    release = threading.Event()
+
+    def slow_initialize(message: Any) -> object:
+        release.wait(_WAIT_SECONDS)
+        return first._default(message)
+
+    first = _Server(tools=[_tool("search")], handlers={"initialize": slow_initialize})
+    second = _Server(tools=[_tool("fetch")])
+    session = _Session(tmp_path, {"docs": first})
+    sessions.append(session)
+    session.manager.start()
+    _wait_until(lambda: "initialize" in first.methods)
+    session.servers["docs"] = second
+
+    reconnecting, results = _in_thread(lambda: session.manager.reconnect("docs"))
+    reconnecting.join(0.1)
+    assert reconnecting.is_alive() and session.opened == ["docs"]
+    release.set()
+    reconnecting.join(_WAIT_SECONDS)
+
+    assert results == [None]
+    assert session.opened == ["docs", "docs"]
+    assert session.mcp_names() == ("mcp__docs__fetch",)
+
+
+def test_close_ends_a_reconnect_that_waits(tmp_path: Path) -> None:
+    hanging = _Server(handlers={"initialize": lambda message: _NO_ANSWER})
+    session = _Session(tmp_path, {"docs": hanging})
+    session.manager.start()
+    _wait_until(lambda: "initialize" in hanging.methods)
+
+    # This wait holds the event of the attempt the reconnect replaces.
+    waiting, waited = _in_thread(session.manager.wait_for_servers)
+    reconnecting, results = _in_thread(lambda: session.manager.reconnect("docs"))
+    reconnecting.join(0.1)
+    assert reconnecting.is_alive() and waiting.is_alive()
+    session.manager.close()
+    reconnecting.join(_WAIT_SECONDS)
+    waiting.join(_WAIT_SECONDS)
+
+    assert results == ['MCP server "docs" is shut down']
+    assert waited == [True]
+    assert session.manager._unsettled == set()
+
+
+def test_wait_for_startup_counts_only_the_attempts_of_start(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    release = threading.Event()
+
+    def slow_initialize(message: Any) -> object:
+        release.wait(_WAIT_SECONDS)
+        return slow._default(message)
+
+    slow = _Server(handlers={"initialize": slow_initialize})
+    session = _Session(tmp_path, {"docs": _Server(), "slow": slow})
+    sessions.append(session)
+    assert session.manager.wait_for_startup(
+        timeout=0
+    )  # not started: nothing to wait for
+
+    session.manager.start()
+    assert not session.manager.wait_for_startup(timeout=0.05)
+    cancel = threading.Event()
+    cancel.set()
+    assert not session.manager.wait_for_startup(cancel_event=cancel)
+    release.set()
+    assert session.manager.wait_for_startup(timeout=_WAIT_SECONDS)
+
+    # A later attempt is not startup.
+    blocked = threading.Event()
+    session.servers["docs"] = _Server(
+        handlers={
+            "initialize": lambda message: (blocked.wait(_WAIT_SECONDS), _NO_ANSWER)[1]
+        }
+    )
+    reconnecting, _ = _in_thread(lambda: session.manager.reconnect("docs"))
+    _wait_until(lambda: len(session.opened) == 3)
+    assert session.manager.wait_for_startup(timeout=0)
+    session.manager.close()
+    blocked.set()
+    reconnecting.join(_WAIT_SECONDS)
+    assert session.manager.wait_for_startup(timeout=0)
+
+
+def test_wait_for_startup_without_an_enabled_server(tmp_path: Path) -> None:
+    session = _Session(tmp_path, {"off": _Server()}, [_entry("off", enabled=False)])
+    session.manager.start()
+
+    assert session.manager.wait_for_startup(timeout=0)
+    session.manager.close()
+
+
+def _stdio_manager(
+    tmp_path: Path, scenario: dict[str, Any]
+) -> tuple[McpManager, list[StdioTransport], Path]:
+    record = tmp_path / "record.jsonl"
+    path = tmp_path / "scenario.json"
+    path.write_text(json.dumps({"record": str(record), **scenario}))
+    transports: list[StdioTransport] = []
+
+    def create(
+        entry: McpServerEntry, cwd: str, auth: McpAuthProvider | None
+    ) -> McpTransport:
+        transport = create_default_transport(entry, cwd, auth)
+        assert isinstance(transport, StdioTransport)
+        transports.append(transport)
+        return transport
+
+    manager = McpManager(
+        config=LoadedMcpConfig(
+            servers=[
+                McpServerEntry(
+                    name="docs",
+                    config={
+                        "command": sys.executable,
+                        "args": ["-I", str(_FAKE_SERVER), "--scenario", str(path)],
+                    },
+                    source="test",
+                    scope="extension",
+                )
+            ],
+            errors=[],
+        ),
+        cwd=tmp_path,
+        client_version="1.2.3",
+        publish_tools=lambda registry: (),
+        create_transport=create,
+    )
+    return manager, transports, record
+
+
+def test_disabling_ends_the_server_process(tmp_path: Path) -> None:
+    # SES-14 with a real process.
+    manager, transports, _ = _stdio_manager(tmp_path, {"tools": [_tool("search")]})
+    manager.start()
+    assert manager.wait_until_settled(_WAIT_SECONDS)
+    pid = transports[0].pid
+    assert pid is not None and _is_alive(pid)
+
+    assert manager.set_enabled("docs", False) is None
+
+    assert not _is_alive(pid)
+    assert manager.set_enabled("docs", True) is None
+    second = transports[1].pid
+    assert second is not None and second != pid and _is_alive(second)
+    manager.close()
+    assert not _is_alive(second)
+
+
+def test_reconnect_after_the_server_process_was_killed(tmp_path: Path) -> None:
+    # SLH-03 with a real process.
+    manager, transports, _ = _stdio_manager(tmp_path, {"tools": [_tool("search")]})
+    manager.start()
+    assert manager.wait_until_settled(_WAIT_SECONDS)
+    pid = transports[0].pid
+    assert pid is not None
+    os.kill(pid, signal.SIGKILL)
+    _wait_until(lambda: manager.servers()[0].connection.state == "disconnected")  # type: ignore[union-attr]
+    status = manager.servers()[0]
+    assert describe_state(status) == "disconnected"
+
+    assert manager.reconnect("docs") is None
+
+    status = manager.servers()[0]
+    assert describe_state(status) == "connected · 1 tool"
+    second = transports[1].pid
+    assert second is not None and second != pid and _is_alive(second)
+    manager.close()
+    assert not _is_alive(second)
+
+
+def test_session_changes_take_the_locks_in_the_documented_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order = _LockOrder()
+
+    def recorded_connection(**kwargs: Any) -> McpServerConnection:
+        connection = McpServerConnection(**kwargs)
+        connection._lock = order.lock("connection", connection._lock)
+        return connection
+
+    monkeypatch.setattr(manager_module, "McpServerConnection", recorded_connection)
+    session = _Session(
+        tmp_path,
+        {"docs": _Server(tools=[_tool("search")])},
+        [_entry("docs", exposure="direct")],
+        state_lock=order.lock("state", threading.RLock()),
+    )
+    manager = session.manager
+    manager._lock = order.lock("manager", manager._lock)  # type: ignore[assignment]
+    manager._publication = order.lock("publication", manager._publication)  # type: ignore[assignment]
+    session.start()
+    session.tools.activate_tools(["mcp__docs__search"])
+
+    assert manager.set_exposure("docs", "codemode") is None
+    session.servers["docs"] = _Server(tools=[_tool("search")])
+    assert manager.reconnect("docs") is None
+    assert manager.set_enabled("docs", False) is None
+    session.servers["docs"] = _Server(tools=[_tool("search")])
+    assert manager.set_enabled("docs", True) is None
+    manager.wait_for_startup()
+    manager.close()
+
+    assert order.taken == {"publication", "manager", "connection", "state"}
+    assert order.violations == []
