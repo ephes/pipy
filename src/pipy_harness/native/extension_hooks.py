@@ -95,6 +95,7 @@ from pipy_harness.native.extension_types import (
     QueuedUserMessage,
     SessionBeforeEvent,
     SessionDecision,
+    SystemPromptOptions,
     ToolBlock,
     ToolCallEvent,
     ToolResultEvent,
@@ -485,6 +486,8 @@ def dispatch_before_agent_start_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
+    sections: dict[str, str] | None = None,
+    render_system_prompt: Callable[[], str] | None = None,
 ) -> BeforeAgentStartResult:
     """Run `before_agent_start` hooks; aggregate their context injections.
 
@@ -492,6 +495,14 @@ def dispatch_before_agent_start_hooks(
     prompt) and may return a `BeforeAgentStartResult` whose
     `append_system_prompt` is concatenated (in order). A hook that raises
     is fail-safe (ignored). `KeyboardInterrupt` / `SystemExit` propagate.
+
+    ``sections`` is the run's own prompt sections; every hook gets the same
+    mapping as ``event.system_prompt_options.sections`` and changes it in
+    place, so the caller reads the outcome from it (what a hook changed
+    before it raised stays). ``render_system_prompt`` renders the prompt for
+    the mapping as it is now, so a later hook's ``event.system_prompt`` shows
+    the sections earlier hooks changed; without it every hook is shown
+    ``system_prompt``.
     """
 
     appended: list[str] = []
@@ -503,10 +514,20 @@ def dispatch_before_agent_start_hooks(
             flags=flags,
             project_trusted=project_trusted,
         )
-        current_prompt = system_prompt
-        for hook in hooks:
+        options = SystemPromptOptions(sections={} if sections is None else sections)
+        for index, hook in enumerate(hooks):
+            if index and render_system_prompt is not None:
+                system_prompt = render_system_prompt()
+            # Later hooks see earlier hooks' appended context (ordered
+            # composition), matching `BeforeAgentStartEvent.system_prompt`.
+            current_prompt = "\n".join([system_prompt, *appended])
             try:
-                result = hook(BeforeAgentStartEvent(system_prompt=current_prompt), ctx)
+                result = hook(
+                    BeforeAgentStartEvent(
+                        system_prompt=current_prompt, system_prompt_options=options
+                    ),
+                    ctx,
+                )
                 if inspect.isawaitable(result):
                     result = _drive_awaitable(result)
             except (KeyboardInterrupt, SystemExit):
@@ -519,9 +540,6 @@ def dispatch_before_agent_start_hooks(
                 and result.append_system_prompt
             ):
                 appended.append(result.append_system_prompt)
-                # Later hooks see earlier hooks' appended context (ordered
-                # composition), matching `BeforeAgentStartEvent.system_prompt`.
-                current_prompt = current_prompt + "\n" + result.append_system_prompt
     if not appended:
         return BeforeAgentStartResult(append_system_prompt=None)
     combined = "\n".join(appended)

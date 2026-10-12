@@ -8,7 +8,7 @@ single shared ``scope.ctl`` instance; no phase snapshots or copies it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
 from typing import cast
@@ -125,7 +125,12 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.settings import retry_policy_from_settings
-from pipy_harness.native.system_prompt_sections import render_system_prompt
+from pipy_harness.native.system_prompt_sections import (
+    SystemPromptSections,
+    render_system_prompt,
+    split_custom_sections,
+    with_custom_sections,
+)
 from pipy_harness.native.tools import ToolDefinition
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
@@ -161,6 +166,8 @@ class _AcceptedRun:
     turn_input: _TurnInput
     accepted_turn: CodingAcceptedTurn
     resource_provider_text: str | None
+    # The run's tagged prompt sections, which the transcript records.
+    system_sections: SystemPromptSections
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,12 +191,6 @@ class _AcceptedInputEffects:
             workspace_root=scope.cwd,
         )
 
-    def system_prompt_suffix(self, base_prompt: str) -> str | None:
-        result = self.turn.scope.extension_operations.dispatch_before_agent_start(
-            base_prompt
-        )
-        return result.append_system_prompt
-
     def emit_diagnostic(self, message: str) -> None:
         scope = self.turn.scope
         emit_diagnostic(
@@ -198,6 +199,73 @@ class _AcceptedInputEffects:
             else None,
             scope.error_stream,
             message,
+        )
+
+
+@dataclass(slots=True)
+class _RunSystemPrompt:
+    """The system prompt of one run that is about to start.
+
+    Pi builds a run's prompt from options its ``before_agent_start`` handlers
+    may change. Here ``custom`` is the changeable part: the sections the run
+    adds to the session's own (Pi's ``sections`` option). It starts with what
+    the session lists, the ``mcp_servers`` section, and the hooks change it in
+    place. ``sections`` is the outcome, which the transcript records.
+    """
+
+    turn: _TurnScope
+    custom: dict[str, str] = field(default_factory=dict)
+    sections: SystemPromptSections = ()
+
+    def base(self) -> str:
+        """Render the prompt the hooks are shown.
+
+        The session's first prompt first waits for MCP servers with ``direct``
+        tools, so the prompt and the first request list their tools and the
+        ``mcp_servers`` section has their summaries (Pi waits in its
+        ``before_agent_start`` handler, before it renders the section).
+        """
+
+        scope = self.turn.scope
+        scope.mcp_waits.before_first_prompt()
+        self.custom.update(scope.session_prompt_sections())
+        return self.current()
+
+    def current(self) -> str:
+        return render_system_prompt(self._sections()[0])
+
+    def suffix(self, base_prompt: str) -> str | None:
+        result = self.turn.scope.extension_operations.dispatch_before_agent_start(
+            base_prompt, sections=self.custom, render_system_prompt=self.current
+        )
+        return result.append_system_prompt
+
+    def after_hooks(self) -> str:
+        """Settle the run's sections and render them.
+
+        Rebuilt for the tools active now, so a hook that changed the active
+        tools is reflected as well. An entry a hook set that cannot be a
+        section is left out and reported (Pi fails the prompt).
+        """
+
+        scope = self.turn.scope
+        self.sections, invalid = self._sections()
+        for name in invalid:
+            emit_diagnostic(
+                scope.terminal_ui.components.transcript
+                if scope.terminal_ui is not None
+                else None,
+                scope.error_stream,
+                f"pipy: ignored invalid system prompt section {name!r} set by a "
+                "before_agent_start hook",
+            )
+        return render_system_prompt(self.sections)
+
+    def _sections(self) -> tuple[SystemPromptSections, tuple[str, ...]]:
+        valid, invalid = split_custom_sections(self.custom)
+        return (
+            with_custom_sections(self.turn.scope.system_sections(), valid),
+            invalid,
         )
 
 
@@ -669,44 +737,35 @@ def _phase_d_dispatch(
     return resolution
 
 
-def _base_system_prompt(scope: ReplLoopScope) -> str:
-    """Render the prompt for a run that is about to start.
-
-    The session's first prompt first waits for MCP servers with ``direct``
-    tools, so the prompt and the first request list their tools (Pi waits in
-    its ``before_agent_start`` handler, before it renders the prompt).
-    """
-
-    scope.mcp_waits.before_first_prompt()
-    return render_system_prompt(scope.system_sections())
-
-
 def _phase_e_accepted_input(
     turn_input: _TurnInput,
     resolution: CommandDispatchResolution,
 ) -> _AcceptedRun:
     scope = turn_input.turn.scope
     effects = _AcceptedInputEffects(turn_input.turn)
+    run_prompt = _RunSystemPrompt(turn_input.turn)
     accepted_turn = CodingAcceptedInputPreparer(
         transform_input=effects.transform_input,
         resolve_file_references=effects.resolve_file_references,
         resolve_image_attachments=effects.resolve_image_attachments,
-        system_prompt_suffix=effects.system_prompt_suffix,
+        system_prompt_suffix=run_prompt.suffix,
         next_turn_context=scope.coding_input_queue.take_next_turn_context,
         emit_diagnostic=effects.emit_diagnostic,
         state_recorder=CodingSessionAcceptedInputRecorder(
             scope.coding_state, tool_budget=scope.tool_budget
         ),
+        system_prompt_after_hooks=run_prompt.after_hooks,
     ).prepare(
         user_input=resolution.user_input,
         resource_provider_text=resolution.resource_provider_text,
         selected_provider_content=resolution.selected_provider_content,
-        base_system_prompt=partial(_base_system_prompt, scope),
+        base_system_prompt=run_prompt.base,
     )
     return _AcceptedRun(
         turn_input=turn_input,
         accepted_turn=accepted_turn,
         resource_provider_text=resolution.resource_provider_text,
+        system_sections=run_prompt.sections,
     )
 
 
@@ -762,11 +821,12 @@ def _phase_f2_run_and_settle(
     scope.ctl.agent_settled_pending = True
     with scope.ctl.session_tree_section() as tree:
         transcript = tree.build_context().messages
-    # The transcript records the prompt's tagged sections, rebuilt for the
-    # tools active now (after the run's input hooks, as Pi's
-    # ``prepareNextTurn``); a ``before_agent_start`` suffix forces the run's
-    # prompt without being recorded (Pi ``16292398a``).
-    system_prompt = system_prompt_input(transcript, scope.system_sections())
+    # The transcript records the prompt's tagged sections as the run's hooks
+    # left them (built after the ``input`` and ``before_agent_start`` hooks,
+    # for the tools active then, as Pi's ``_prepareRun``); a
+    # ``before_agent_start`` suffix forces the run's prompt without being
+    # recorded (Pi ``16292398a``).
+    system_prompt = system_prompt_input(transcript, accepted.system_sections)
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,

@@ -45,6 +45,9 @@ AcceptedImageAttachmentResolver = Callable[[str], ImageAttachmentResolution]
 # prompt, or ``None`` when no hook injected context. The preparer owns the
 # single-newline concatenation onto the base prompt.
 AcceptedSystemPromptSuffixSource = Callable[[str], str | None]
+# Returns the run's base prompt as the ``before_agent_start`` hooks left it:
+# they may change the prompt's sections. Called once, after the suffix source.
+AcceptedSystemPromptAfterHooks = Callable[[], str]
 AcceptedNextTurnContextSource = Callable[[], tuple[ProductContent, ...]]
 AcceptedInputDiagnosticSink = Callable[[str], None]
 
@@ -203,6 +206,7 @@ class CodingAcceptedInputPreparer:
         next_turn_context: AcceptedNextTurnContextSource,
         emit_diagnostic: AcceptedInputDiagnosticSink,
         state_recorder: AcceptedInputStateRecorder,
+        system_prompt_after_hooks: AcceptedSystemPromptAfterHooks | None = None,
     ) -> None:
         self._transform_input = transform_input
         self._resolve_file_references = resolve_file_references
@@ -211,6 +215,7 @@ class CodingAcceptedInputPreparer:
         self._next_turn_context = next_turn_context
         self._emit_diagnostic = emit_diagnostic
         self._state_recorder = state_recorder
+        self._system_prompt_after_hooks = system_prompt_after_hooks
 
     def prepare(
         self,
@@ -273,8 +278,12 @@ class CodingAcceptedInputPreparer:
         # the prompt after `input` handlers).
         if callable(base_system_prompt):
             base_system_prompt = base_system_prompt()
-        agent_system_prompt = base_system_prompt
         system_prompt_suffix = self._system_prompt_suffix(base_system_prompt)
+        # The hooks may also have changed the prompt's sections. That is not
+        # a forced prompt: the changed sections are the run's base prompt.
+        if self._system_prompt_after_hooks is not None:
+            base_system_prompt = self._system_prompt_after_hooks()
+        agent_system_prompt = base_system_prompt
         if system_prompt_suffix:
             agent_system_prompt = base_system_prompt + "\n" + system_prompt_suffix
         active_input = AgentActiveInput(

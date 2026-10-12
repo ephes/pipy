@@ -247,7 +247,9 @@ transcript. pipy does the same (SYS1a, SYS1b):
 - **Sections.** The prompt is Pi's ordered sections (`buildSystemPromptSections`):
   the untagged `preamble` (pipy's default or custom prompt), then `addendum`, `project_context`, `skills` and `cwd`, each wrapped
   in a tag of its name, and pipy's `resume` block as a trailing custom
-  section. Empty optional sections are left out. Pi's `tools`/`rules`/`docs`
+  section. Sections a run adds follow: the `mcp_servers` list of
+  [MCP servers](mcp.md#the-servers-in-the-system-prompt) and what a
+  `before_agent_start` handler sets. Empty optional sections are left out. Pi's `tools`/`rules`/`docs`
   sections are a backlog follow-on (SYS1c remainder).
 - **Forced prompts.** A `before_agent_start` suffix is not recorded: it forces
   that run's prompt, and those requests collapse to it (Pi `16292398a`).

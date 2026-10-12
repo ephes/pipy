@@ -677,10 +677,35 @@ class InputTransform:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemPromptOptions:
+    """What the coming run's system prompt is built from, for a
+    `before_agent_start` hook to change (Pi `systemPromptOptions`).
+
+    `sections` maps the name of a prompt section the run adds, such as
+    `mcp_servers`, to its text without the tag. A hook changes the mapping
+    in place: setting a name adds that section, or replaces a section the
+    prompt already has (`tools`, `rules`, `cwd` and so on); deleting a name
+    takes the run's own section out again. Later hooks see the changes of
+    earlier ones. A name must match `[a-z][a-z0-9_-]*` and must not be
+    `preamble`, and a text must be a string; other entries are ignored and
+    reported.
+    """
+
+    sections: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class BeforeAgentStartEvent:
-    """Presented to a `before_agent_start` hook before an agent run."""
+    """Presented to a `before_agent_start` hook before an agent run.
+
+    `system_prompt` is the prompt as it was when the hook was called, with
+    the changes of earlier hooks.
+    """
 
     system_prompt: str
+    system_prompt_options: SystemPromptOptions = field(
+        default_factory=SystemPromptOptions
+    )
 
 
 @dataclass(frozen=True, slots=True)

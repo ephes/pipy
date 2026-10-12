@@ -567,8 +567,9 @@ Minimum entry types:
   removes one) and `toolsAdded`/`toolsRemoved`. Replaying them in order yields
   the current prompt and tools. The prompt is Pi's tagged sections (SYS1b):
   `preamble`, then Pi's `tools`, `rules` and `docs` (the default prompt only),
-  the optional `addendum`, `project_context` and `skills`, `cwd`, and pipy's
-  optional `resume`. `tools`, `rules` and `skills` follow the active tools, so
+  the optional `addendum`, `project_context` and `skills`, `cwd`, pipy's
+  optional `resume`, and the sections a run adds (`mcp_servers`, sections set
+  by a `before_agent_start` handler). `tools`, `rules` and `skills` follow the active tools, so
   a later run whose tools changed patches them:
 
   ```json

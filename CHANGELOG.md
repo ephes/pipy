@@ -27,6 +27,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- The system prompt lists the MCP servers whose tools are not declared to the
+  model, in a section named `mcp_servers`: each enabled server with
+  `codemode` or `deferred` tools, how its tools are reached, and one line
+  from its `description` or, once connected, from its instructions. The
+  section is written when a prompt starts and, when it changed, appended to
+  the conversation without touching earlier messages or tool declarations.
+  See [MCP](docs/mcp.md#the-servers-in-the-system-prompt).
+- `before_agent_start` handlers can read and change the prompt sections of
+  the coming run through `event.system_prompt_options.sections`: add a
+  section, replace one of pipy's by name, or remove the MCP server list.
+  Changed sections are recorded in the conversation like pipy's own. See the
+  [extension API](docs/extension-api.md#prompt-sections).
 - MCP servers turn on the tool that reaches their tools: `codemode` for a
   server with `codemode` exposure (the default) unless `autoEnableCodemode`
   is false in `mcp.json`, `tool_search` for one with `deferred` tools. This

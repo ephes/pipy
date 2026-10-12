@@ -20,7 +20,7 @@ without letting the agent tier see either the concrete UI or the session.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Iterator, MutableMapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -322,6 +322,9 @@ class ReplLoopScope:
     coding_session_control: Callable[[], ExtensionCodingSessionControl]
     # The waits for MCP servers that are still connecting.
     mcp_waits: McpSessionWaits
+    # The sections the session adds to the coming run's prompt, by name and
+    # without their tags: the `mcp_servers` list. Read when a run starts.
+    session_prompt_sections: Callable[[], Mapping[str, str]]
     compaction_event: (
         Callable[[str, str, CodingCompactionOutcome | None], None] | None
     ) = None

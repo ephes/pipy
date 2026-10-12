@@ -612,6 +612,69 @@ before the buffered terminal agent_end envelope and logical claim settlement;
 intermediate retry envelopes precede their hooks. A blocking final hook therefore
 keeps get_state.isStreaming true and a queued successor pending until it returns.
 
+<a id="prompt-sections"></a>
+### `before_agent_start`: the prompt and its sections
+
+A `before_agent_start` handler runs once before a run starts, after the
+`input` handlers. Its event has:
+
+- `event.system_prompt`: the prompt as it is when the handler is called, with
+  what earlier handlers changed.
+- `event.system_prompt_options.sections`: a `dict` of the prompt sections the
+  run adds to pipy's own, name to text. pipy puts the list of MCP servers
+  there as `mcp_servers` (see
+  [MCP](mcp.md#the-servers-in-the-system-prompt)); otherwise it is empty.
+
+Change the `dict` in place to change the coming request's prompt:
+
+```python
+from pipy_harness.extensions import BeforeAgentStartResult
+
+
+def activate(api):
+    @api.on("before_agent_start")
+    def sections(event, ctx):
+        sections = event.system_prompt_options.sections
+        sections["review_rules"] = "Never approve a change without tests."
+        sections.pop("mcp_servers", None)  # do not list the MCP servers
+```
+
+- A new name adds a section. The text is wrapped in a tag of that name
+  (`<review_rules>` ... `</review_rules>`) and follows the prompt's last
+  section; several new sections keep the order they were set in.
+- The name of a section the prompt already has (`tools`, `rules`, `docs`,
+  `addendum`, `project_context`, `skills`, `cwd`, `resume`) replaces that
+  section's text where it stands. pipy's own sections are not in the `dict`;
+  read them from `event.system_prompt`.
+- Deleting a name takes the run's own section out again. An empty text does
+  the same for a new name and leaves one of pipy's sections as it is.
+- A name must match `[a-z][a-z0-9_-]*` and must not be `preamble`, and a text
+  must be a string. pipy leaves any other entry out and reports it
+  (`pipy: ignored invalid system prompt section '<name>' set by a
+  before_agent_start hook`).
+
+The `dict` is built anew for every run, so set a section in every run you
+want it in. Later handlers see the changes of earlier ones, in the `dict` and
+in `event.system_prompt`; what a handler changed before it raised stays.
+
+Sections are recorded in the conversation: when a run's sections differ from
+the ones the conversation has, only the changed ones are appended as a change
+of the system prompt (a section that is gone is removed by name), and earlier
+messages stay as they are. Returning
+`BeforeAgentStartResult(append_system_prompt=...)` works differently: the
+text is appended to the prompt of that one run and is not recorded. Prefer
+sections where a provider's prompt cache matters.
+
+Different from Pi: `system_prompt_options` has only `sections`. Pi's other
+fields (`selectedTools`, `toolSnippets`, `toolGuidelines`,
+`promptGuidelines`, `appendSystemPrompt`, `contextFiles`, `skills`,
+`customPrompt`, `forceSystemPrompt`) do not exist, and the event has no
+`messageType`, `prompt` or `images`. `event.system_prompt` is a plain string
+taken when the handler is called, so it does not show what the handler itself
+has changed; Pi renders it on every read. An invalid section name fails the
+prompt in Pi; pipy reports it and goes on. Assign into the `dict`; replacing
+`system_prompt_options.sections` with another `dict` is not possible.
+
 ### D6b public and RPC transition ordering
 
 D6b3 implements this ordering for public `ProductSession.fork`, `clone`,

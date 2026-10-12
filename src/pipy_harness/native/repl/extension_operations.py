@@ -173,13 +173,21 @@ class SessionExtensionOperations:
     def dispatch_before_agent_start(
         self,
         system_prompt: str,
+        *,
+        sections: dict[str, str] | None = None,
+        render_system_prompt: Callable[[], str] | None = None,
     ) -> BeforeAgentStartResult:
+        """``sections`` is the run's own prompt sections, which the hooks
+        change in place; ``render_system_prompt`` renders the prompt for it."""
+
         projection, ui_driver, generation_id = self._projection()
         return dispatch_before_agent_start_hooks(
             projection.hooks.before_agent_start,
             cwd=self.cwd,
             has_ui=self.has_ui,
             system_prompt=system_prompt,
+            sections=sections,
+            render_system_prompt=render_system_prompt,
             notify_sink=self.notify_sink,
             ui_driver=ui_driver,
             model_runtime=self.model_runtime_factory(generation_id, True),

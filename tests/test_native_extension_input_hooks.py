@@ -13,6 +13,7 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pipy_harness.extensions import BeforeAgentStartEvent, SystemPromptOptions
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_hooks import (
@@ -243,6 +244,81 @@ def test_before_agent_start_concatenates(tmp_path: Path) -> None:
 
     assert "ONE" in (result.append_system_prompt or "")
     assert "TWO" in (result.append_system_prompt or "")
+
+
+def test_before_agent_start_hooks_share_the_prompt_sections(tmp_path: Path) -> None:
+    # EXT-16 (Pi `systemPromptOptions.sections`): hooks change one mapping in
+    # place, a later hook is shown the prompt rendered from it, and what a
+    # hook changed before it raised stays.
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "a",
+        "from pipy_harness.extensions import BeforeAgentStartResult\n"
+        "def activate(api):\n"
+        "    @api.on('before_agent_start')\n"
+        "    def first(event, ctx):\n"
+        "        sections = event.system_prompt_options.sections\n"
+        "        sections['notes'] = sections.pop('seed') + '+first'\n"
+        "        sections['seen_by_first'] = event.system_prompt\n"
+        "        return BeforeAgentStartResult(append_system_prompt='EXTRA')\n"
+        "    @api.on('before_agent_start')\n"
+        "    def failing(event, ctx):\n"
+        "        event.system_prompt_options.sections['kept'] = 'yes'\n"
+        "        raise RuntimeError('x')\n"
+        "    @api.on('before_agent_start')\n"
+        "    def last(event, ctx):\n"
+        "        sections = event.system_prompt_options.sections\n"
+        "        sections['seen_by_last'] = event.system_prompt\n",
+    )
+    hooks = extension_event_hooks(_activate(workspace), "before_agent_start")
+    sections = {"seed": "S"}
+
+    result = dispatch_before_agent_start_hooks(
+        hooks,
+        cwd=str(workspace),
+        has_ui=False,
+        system_prompt="BASE",
+        sections=sections,
+        render_system_prompt=lambda: "RENDERED:" + ",".join(sorted(sections)),
+    )
+
+    assert result.append_system_prompt == "EXTRA"
+    assert sections == {
+        "notes": "S+first",
+        "seen_by_first": "BASE",
+        "kept": "yes",
+        "seen_by_last": "RENDERED:kept,notes,seen_by_first\nEXTRA",
+    }
+
+
+def test_before_agent_start_event_has_empty_sections_by_default(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "a",
+        "from pipy_harness.extensions import BeforeAgentStartResult\n"
+        "def activate(api):\n"
+        "    @api.on('before_agent_start')\n"
+        "    def first(event, ctx):\n"
+        "        event.system_prompt_options.sections['x'] = 'y'\n"
+        "    @api.on('before_agent_start')\n"
+        "    def second(event, ctx):\n"
+        "        sections = event.system_prompt_options.sections\n"
+        "        return BeforeAgentStartResult(\n"
+        "            append_system_prompt=repr(sections) + event.system_prompt)\n",
+    )
+    hooks = extension_event_hooks(_activate(workspace), "before_agent_start")
+
+    result = dispatch_before_agent_start_hooks(
+        hooks, cwd=str(workspace), has_ui=False, system_prompt="BASE"
+    )
+
+    assert result.append_system_prompt == "{'x': 'y'}BASE"
+    assert SystemPromptOptions().sections == {}
+    assert BeforeAgentStartEvent(system_prompt="p").system_prompt_options.sections == {}
 
 
 def test_before_agent_start_injection_is_bounded(tmp_path: Path) -> None:

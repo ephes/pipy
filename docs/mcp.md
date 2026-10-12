@@ -81,6 +81,10 @@ another exposure.
 `--tools` and `--exclude-tools` apply to MCP tools as described under
 [MCP tools](usage.md#mcp-tools).
 
+The model is not given the tools of `codemode` and `deferred` servers, so it
+is told which servers there are, see
+[the servers in the system prompt](#the-servers-in-the-system-prompt).
+
 Different from Pi:
 
 - Pi always has `codemode` registered. pipy registers its built-in `codemode`
@@ -90,6 +94,53 @@ Different from Pi:
 - With `autoEnableCodemode` false pipy does not test the runtime. The warning
   then names that setting whenever the tool filters would keep `codemode`,
   also when the runtime is not installed.
+
+### The servers in the system prompt
+
+Every enabled server that has `codemode` or `deferred` tools is listed in the
+`mcp_servers` section of the system prompt, sorted by name:
+
+```text
+<mcp_servers>
+MCP servers whose tools are not declared to you. Call the tools of `codemode` servers from codemode scripts. Load the tools of `tool_search` servers with `tool_search`.
+- mcp__docs (codemode): Search the product docs
+- mcp__tracker (tool_search): Issues and pull requests of the tracker.
+</mcp_servers>
+```
+
+- The first line explains only the ways the listed servers use.
+- A server is listed as `codemode` when its `exposure`, or any `toolExposure`
+  value, is `codemode`, and as `tool_search` otherwise. This is read from the
+  configuration, so a server is listed before it has connected. A server
+  that has only `direct` tools is not listed, because the model is given
+  its tools themselves. A server that has only `hidden` tools is not listed
+  either: its tools cannot be called. Without a listed server there is no
+  section.
+- The text after the colon is the first line of the server's `description`
+  in `mcp.json`. Without one it is the first line of the instructions the
+  server sent when it connected, so it is missing until then. It is cut to
+  250 characters, ending in `…`.
+- The section is at most 4096 characters long. With many servers the
+  summaries are cut to the same shorter length. When even the names do not
+  fit, the last servers are left out and the section ends with
+  `- … <N> more servers; find their tools with search_tools()`.
+
+pipy writes the section when a prompt starts, after the
+[first prompt's wait](#waiting-for-servers) for servers with `direct` tools.
+When it differs from the section the conversation already has, for example
+because a server connected and its summary is now known, the new section is
+appended to the conversation as a change of the system prompt. The earlier
+messages and the tool declarations stay as they are, so a provider's prompt
+cache keeps them. The rest of a server's instructions is never put into the
+prompt; a script reads them with `describe_namespace("mcp__docs")`.
+
+An extension can read, change or remove the section before a run, see
+[prompt sections](extension-api.md#prompt-sections).
+
+Different from Pi: the closing line names `search_tools()`, the name of the
+function in pipy's Python scripts (`searchTools()` in Pi). A summary is never
+cut in the middle of a character; Pi can cut one outside the Basic
+Multilingual Plane in half.
 
 ### Turning MCP off
 
@@ -224,8 +275,7 @@ Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
 ### What is missing
 
-Not built yet, in the order the plan builds it:
-the `mcp_servers` section of the system prompt, the `pipy mcp` commands,
+Not built yet, in the order the plan builds it: the `pipy mcp` commands,
 `/mcp` (status, reconnect, enabling and disabling a server, changing its
 exposure), reading `mcp.json` again on `/reload`, resources, HTTP servers,
 OAuth, servers registered by extensions, and images in tool results.

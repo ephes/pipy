@@ -502,6 +502,7 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `tools.py` | Naming and the session's name table, definitions, tool ports, result conversion, truncation and spill, result schema | `ext/tools.ts`, `ext/index.ts` `assignName` |
 | `resources.py` | The three resource tools | `ext/resources.ts` |
 | `manager.py` | `McpManager`: the per-session owner of servers, readiness, registration, the prompt section and the startup report | `ext/index.ts` |
+| `servers_section.py` | `render_servers_section`: the text of the `mcp_servers` prompt section | `ext/index.ts` `renderServersSection` |
 | `discovery.py` | `McpDiscovery`: activates `codemode` and `tool_search` from the configured exposures, and the warning | `ext/index.ts` `ensureDiscoveryActive` |
 | `readiness.py` | `McpReadiness`: which servers the first prompt and a tool call wait for | `ext/index.ts` `waitForDirectServers`, `tool_call` handler, `reachesServer` |
 | `registry.py` | Extension-registered servers | `core/mcp-servers.ts` `McpServerRegistry` |
@@ -913,6 +914,46 @@ Decided in S19 (`discovery.py`, the startup report, the switches):
   `-builtin:mcp` into the `extensions` array of the chosen scope, read from
   that scope alone.
 
+Decided in S20 (`servers_section.py`, the run's prompt sections):
+
+- `render_servers_section(listings)` and its constants are in
+  `mcp/servers_section.py`, a module without state;
+  `McpManager.servers_section()` renders it for the servers as they are.
+  Sizes are UTF-16 code units as in Pi, a summary is never cut inside a
+  character, names are sorted like `localeCompare` (case-insensitive, lower
+  case first on a tie), and the closing line says `search_tools()`.
+- The section does not join `SystemPromptTemplate`. A run has *custom
+  sections* (Pi's `sections` option): a `dict` of name to untagged text that
+  starts with what the session lists (`ReplLoopScope.session_prompt_sections`,
+  today only `mcp_servers`) and that `before_agent_start` hooks change in
+  place. `system_prompt_sections.with_custom_sections(sections, custom)`
+  applies it to the rendered sections with Pi's rule: a known name replaces
+  that section in place, a new name follows the last section (so after
+  pipy's `resume`), an empty text changes nothing. It works on fixed
+  sections too (a session that was given only a prompt string).
+- One object per run (`loop_step._RunSystemPrompt`) renders the prompt for
+  the first hook (after the first-prompt wait), again for each later hook,
+  and once after the hooks. The last rendering is the run's base
+  prompt and its sections go to `system_prompt_input`, so the prompt text and
+  the recorded sections come from one rendering. Before S20 the base prompt
+  was rendered before the hooks and the sections again after them.
+  `CodingAcceptedInputPreparer` has an optional port
+  `system_prompt_after_hooks` for this; a hook that changed only sections
+  does not force a prompt, and a suffix is appended to the changed base.
+- EXT-16 is `event.system_prompt_options.sections` only
+  (`SystemPromptOptions` in `extension_types.py`, exported from
+  `pipy_harness.extensions`). Pi's other option fields are not there.
+  Different from Pi: `event.system_prompt` is a string taken when the hook
+  is called; an entry with an invalid name or a text that is not a string is
+  left out with a diagnostic where Pi fails the prompt; the sections are not
+  bounded in size (as in Pi), unlike the `append_system_prompt` suffix.
+- The section is rendered once per run, when the prompt starts. A queued
+  follow-up or a steering message inside a run does not render it again
+  (pipy rebuilds sections per run, see `docs/backlog.md`).
+- S22: nothing here is cached, so a reload that replaces the manager only
+  has to pass the new manager's `servers_section`. S23, S36: a resource-only
+  server and a registered server are listed by the same configuration rule.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -931,7 +972,7 @@ Changed modules, by seam:
 | Capability value | `tool_capabilities.py` | A third registry (`mcp_registry`); declared set and callable set derived from exposure; pattern matching for filters; the MCP allowlist rules. |
 | Request snapshot | `agent/request.py`, `agent/loop.py`, `agent/nested_calls.py` | The frozen snapshot keeps the declared names. Composite admission captures a callable snapshot (4.3). The built-in name guard in `NestedToolCallService` is replaced by that snapshot. |
 | Codemode | `codemode/prelude.py`, `codemode/host.py`, `coding/codemode_runner.py`, `tools/codemode.py` | Structured values in replies, discovery messages, `ALL_TOOLS`, dynamic description. |
-| Prompt | `system_prompt_sections.py`, `agent/system_messages.py` | The `mcp_servers` section joins the template; the existing section diff appends changes. |
+| Prompt | `system_prompt_sections.py`, `agent/system_messages.py`, `repl/loop_step.py` | The `mcp_servers` section is one of a run's custom sections (`with_custom_sections`, see "Decided in S20"); the existing section diff appends changes. |
 | Extensions | `extension_types.py`, `extensions/activation.py`, `extension_hooks.py` | Tool metadata, `reaches_tools`, MCP server registration, `mcp_servers_change`, nested execution, loadout hook. |
 | Settings and CLI | `settings.py`, `cli.py`, `resource_enablement.py` | `codemode.mode`, `codemode.inlineBudget`, `-builtin:mcp`, `--no-mcp`, patterns, the `mcp` subcommand. |
 | Session lifecycle | `repl/wiring.py`, `repl/reload.py`, `coding/session_controller.py`, `automation/rpc.py` | Create, start, reload and shut down the manager; first-prompt wait; turn-start hook. |

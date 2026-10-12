@@ -334,6 +334,47 @@ def test_before_agent_start_suffix_appended_once() -> None:
     assert turn.agent_system_prompt == "BASE\ninjected context"
 
 
+def test_the_base_prompt_is_what_the_hooks_left() -> None:
+    # A hook that changed the prompt's sections did not force a prompt: the
+    # changed rendering is the run's base, and a suffix is appended to it.
+    calls: list[str] = []
+
+    def _suffix(base_prompt: str) -> str | None:
+        calls.append(f"suffix:{base_prompt}")
+        return None
+
+    def _after_hooks() -> str:
+        calls.append("after")
+        return "CHANGED"
+
+    def _prepare(suffix) -> CodingAcceptedTurn:
+        return CodingAcceptedInputPreparer(
+            transform_input=lambda prompt: prompt,
+            resolve_file_references=_empty_files,
+            resolve_image_attachments=_empty_images,
+            system_prompt_suffix=suffix,
+            next_turn_context=_no_context,
+            emit_diagnostic=lambda message: None,
+            state_recorder=_RecordingRecorder(AgentToolPolicyState(tool_budget=25)),
+            system_prompt_after_hooks=_after_hooks,
+        ).prepare(
+            user_input="hi",
+            resource_provider_text=None,
+            selected_provider_content=None,
+            base_system_prompt=lambda: "BASE",
+        )
+
+    turn = _prepare(_suffix)
+
+    assert calls == ["suffix:BASE", "after"]
+    assert (turn.base_system_prompt, turn.agent_system_prompt) == ("CHANGED",) * 2
+
+    forced = _prepare(lambda _: "injected")
+
+    assert forced.base_system_prompt == "CHANGED"
+    assert forced.agent_system_prompt == "CHANGED\ninjected"
+
+
 def test_empty_before_agent_start_suffix_leaves_base_prompt() -> None:
     turn = _make_preparer(system_prompt_suffix=lambda _: "").prepare(
         user_input="hi",

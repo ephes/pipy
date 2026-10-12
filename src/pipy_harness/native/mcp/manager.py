@@ -66,6 +66,10 @@ from pipy_harness.native.mcp.connection import (
 )
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import JsonObject
+from pipy_harness.native.mcp.servers_section import (
+    McpServerListing,
+    render_servers_section,
+)
 from pipy_harness.native.mcp.tools import (
     McpToolNames,
     McpToolPort,
@@ -360,6 +364,22 @@ class McpManager:
             for entry in entries
             if _is_enabled(entry)
             for exposure in configured_exposures(entry)
+        )
+
+    def servers_section(self) -> str | None:
+        """The text of the system prompt's ``mcp_servers`` section for the
+        servers as they are now, or ``None`` when no server is listed.
+
+        A server is listed from its configuration, so also before it
+        connected; its instructions can only be its summary afterwards.
+        """
+
+        return render_servers_section(
+            McpServerListing(
+                status.entry,
+                None if status.connection is None else status.connection.instructions,
+            )
+            for status in self.servers()
         )
 
     def tool_owner(self, name: str) -> str | None:

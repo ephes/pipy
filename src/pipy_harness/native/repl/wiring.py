@@ -124,6 +124,7 @@ from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import McpReadiness
+from pipy_harness.native.mcp.servers_section import MCP_SERVERS_SECTION
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -1023,6 +1024,14 @@ def _mcp_manager(
         publish_tools=tool_capabilities.publish_mcp_tools,
         log=McpServerLog(mcp_log_path(config_home)),
     )
+
+
+def _session_prompt_sections(manager: McpManager) -> dict[str, str]:
+    """The sections the session adds to a run's prompt: the list of MCP
+    servers whose tools are not declared, as the servers are now."""
+
+    section = manager.servers_section()
+    return {} if section is None else {MCP_SERVERS_SECTION: section}
 
 
 def _mcp_waits(
@@ -2166,6 +2175,9 @@ def _assemble_session_wiring(
         extension_notify=_extension_notify,
         coding_session_control=collaborators.coding_session_control,
         mcp_waits=_mcp_waits(extension, _runtime_abort_event(inputs, loop_controller)),
+        session_prompt_sections=partial(
+            _session_prompt_sections, extension.mcp_manager
+        ),
         compaction_event=_compaction_event,
     )
     delegation = _LoopDelegation(

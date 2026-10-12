@@ -13,14 +13,20 @@ The default prompt is Pi's (with ``pipy`` for ``pi``): the preamble, then the
 ``skills`` sections depend on the active tools, so a session keeps a
 :class:`SystemPromptTemplate` and renders it for each run's tools (Pi
 rebuilds them from ``getActiveToolNames()`` before a request).
+
+A run can add sections of its own (Pi's ``sections`` option): the
+``mcp_servers`` list and whatever a ``before_agent_start`` handler sets.
+:func:`with_custom_sections` puts them into the rendered sections.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 from pipy_harness.native.skills import SkillFile, skills_section_body
 
@@ -326,6 +332,57 @@ class SystemPromptTemplate:
 
 SystemPromptSource = SystemPromptSections | SystemPromptTemplate
 """What a session is given: fixed sections, or a template rendered per run."""
+
+# Pi ``SYSTEM_PROMPT_SECTION_NAME``.
+_CUSTOM_SECTION_NAME = re.compile(r"[a-z][a-z0-9_-]*", re.ASCII)
+
+
+def is_custom_section_name(name: object) -> bool:
+    """Whether a run may set a section of this name: a lowercase tag name
+    other than ``preamble``, which is the untagged start of the prompt."""
+
+    return (
+        isinstance(name, str)
+        and _CUSTOM_SECTION_NAME.fullmatch(name) is not None
+        and name != "preamble"
+    )
+
+
+def split_custom_sections(
+    custom: Mapping[Any, Any],
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """The entries :func:`with_custom_sections` accepts, and the names of
+    the others (a name that is not a section name, or a text that is not a
+    string)."""
+
+    valid: dict[str, str] = {}
+    invalid: list[str] = []
+    for name, content in custom.items():
+        if is_custom_section_name(name) and isinstance(content, str):
+            valid[str(name)] = content
+        else:
+            invalid.append(str(name))
+    return valid, tuple(invalid)
+
+
+def with_custom_sections(
+    sections: Sequence[tuple[str, str]], custom: Mapping[str, str]
+) -> SystemPromptSections:
+    """``sections`` with a run's own sections (Pi's ``sections`` option).
+
+    ``custom`` maps a section name to its text without the tag. A name the
+    prompt already has replaces that section where it stands; a new name
+    follows the last section, in the mapping's order. An empty text changes
+    nothing. Raises ``ValueError`` for a name that is not a section name.
+    """
+
+    result = dict(sections)
+    for name, content in custom.items():
+        if not is_custom_section_name(name):
+            raise ValueError(f"Invalid system prompt section name: {name}")
+        if content:
+            result[name] = tagged_section(name, content)
+    return tuple(result.items())
 
 
 def render_system_prompt(sections: Sequence[tuple[str, str]]) -> str:
