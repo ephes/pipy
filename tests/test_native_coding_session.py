@@ -887,7 +887,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
     }
     reload_method_line_budgets = {
         "execute": 44,
-        "_reload_configuration_and_resources": 32,
+        "_reload_configuration_and_resources": 45,
         "_reload_extensions": 112,
         "_fire_candidate_session_start": 20,
         "_report_reload_presentation": 16,

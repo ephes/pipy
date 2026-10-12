@@ -17,7 +17,7 @@ rebuilds them from ``getActiveToolNames()`` before a request).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -278,6 +278,13 @@ class SystemPromptTemplate:
     project_context: str = ""
     skills: tuple[SkillFile, ...] = ()
     resume: str = ""
+    # Adapter-owned file inputs; absent for caller-supplied fixed templates.
+    reload_inputs: (
+        Callable[
+            [SystemPromptTemplate, bool, Callable[[str], None]], SystemPromptTemplate
+        ]
+        | None
+    ) = field(default=None, repr=False, compare=False)
     tool_snippets: Mapping[str, str] = field(
         default_factory=lambda: {
             name: prompt.snippet for name, prompt in BUILTIN_TOOL_PROMPTS.items()
