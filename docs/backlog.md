@@ -1,7 +1,7 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-04.
+updated 2026-10-04 and 2026-10-12 (MCP1 selected).
 
 ## Status
 
@@ -87,6 +87,30 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
+### MCP1 — MCP and codemode tool reach (planned 2026-10-12)
+
+Owner-requested 2026-10-12: the whole Pi MCP feature at functionality parity,
+against Pi `a447ba11f`. The
+[parity plan](specs/2026-10-12-mcp-parity-plan.md) holds the acceptance
+checklist (280 rows with Pi sources), the proposed deviations, the design, the
+ordered slices S01–S40 and the test strategy. Scope: codemode reaching
+extension and MCP tools with discovery, the MCP client (stdio and streamable
+HTTP), `mcp.json` configuration and project overrides, exposure modes,
+`tool_search`, the `mcp_servers` prompt section, resources, OAuth, result
+truncation, `pipy mcp`, the `/mcp` manager, `--no-mcp` and `mcp__` tool
+patterns, reload, and the extension and SDK hooks.
+
+Fixed by the owner: the synchronous native core stays (no async runtime, no
+`mcp` SDK dependency; the client is written in pipy), codemode stays Python
+on WASI with Python names, and configuration uses Pi's `mcp.json` format at
+pipy's locations under the existing project-trust rules. Nested calls stay
+sequential (plan DEV-03). No implementation slice has landed. Decided
+2026-10-12 (plan section 7): images in tool results and the extension
+orchestration hooks are in scope, the client name is `pipy`, and slices land
+on `feat/mcp-parity`, pushed per slice, as a campaign exception to the trunk
+rule; the merge to `main` needs owner approval. Still open: the default CIMD
+document (none is built in until decided).
+
 ### CM1 — Python codemode (done 2026-10-09)
 
 Owner-requested 2026-10-04; bounded implementation and T11 user documentation
@@ -110,9 +134,10 @@ Per-slice full checks and independent reviews, the cumulative whole-campaign
 review and final main/CI/worktree outcomes are recorded separately in the
 coordinator campaign report. This product index does not assert a review verdict.
 
-Follow-ons require separately selected slices: extension-tool generalization,
-MCP/discovery/exposure, parallel calls/shared state, images, `models.*`,
-`store()`/`load()`, options lines and structured bash results. Compact-script
+Extension-tool generalization and MCP/discovery/exposure are now MCP1 above.
+Other follow-ons require separately selected slices: parallel calls/shared
+state, images (the tool-result part is MCP1 slice S39), `models.*`, `store()`/`load()`, options lines and structured bash
+results. Compact-script
 model adherence needs further evidence; the T10 repeat is retained as a limitation.
 **CM1-A1 — adherence guidance (review closed).** The owner-selected follow-on adds
 direct string-processing guidance,
@@ -162,11 +187,12 @@ assessment, not a completed rebaseline or a fresh parity-gate result:
   newly outstanding work. GPT-6.1 Sol and OpenAI ChatGPT sign-in have already
   landed in pipy 0.3.0.
 - **MCP / codemode / tool search** (Python-codemode planning split out as
-  CM1 on 2026-10-04; MCP/tool search retain this deferral) was the next
-  substantial feature-scope
-  decision, separate from UP1. OAuth, tool naming, discovery, exposure and
-  reload behavior are still changing upstream. Revisit around 2026-10-13;
-  selection requires a bounded plan and any dependency decisions.
+  CM1 on 2026-10-04) was the next substantial feature-scope decision, separate
+  from UP1. The owner selected it on 2026-10-12 as MCP1, with the bounded plan
+  and the dependency decision (no `mcp` SDK, no async runtime) recorded in the
+  [parity plan](specs/2026-10-12-mcp-parity-plan.md). OAuth, tool naming,
+  discovery, exposure and reload behavior were still changing upstream until
+  the plan's reference commit; later Pi changes are not in its checklist.
 - **Virtual models and classifier operations** are separate coverage decisions;
   current realignment does not establish parity for them. Image generation
   remains deferred.
@@ -184,8 +210,9 @@ assessment, not a completed rebaseline or a fresh parity-gate result:
 UP1 should also triage smaller established-agent changes such as provider/model
 CLI validation, provider retry and tool-schema handling, extension validation
 and tool previews. Compare each with pipy's implementation before calling it a
-gap. This decision does not authorize MCP implementation, parallel tools or a
-durable-runtime migration.
+gap. This decision did not authorize MCP implementation, parallel tools or a
+durable-runtime migration; MCP was authorized separately on 2026-10-12 (MCP1).
+Parallel tools and a durable-runtime migration remain unauthorized.
 
 ## Done (2026-09-29)
 
@@ -450,10 +477,11 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 
 Revisit these when an active item needs them or the Pi surface stabilizes.
 
-- **Pi MCP / tool search** (`8562bcf66`, 2026-09-29). This is L and
-  still moving. Python codemode planning is now CM1, without MCP. Revisit MCP
-  around 2026-10-13 as a feature-scope decision; see
-  [Upstream scope decision](#upstream-scope-decision-2026-10-01).
+- **Pi MCP / tool search:** no longer deferred. Selected on 2026-10-12 as
+  [MCP1](#mcp1-mcp-and-codemode-tool-reach-planned-2026-10-12). What MCP1
+  proposes not to port is listed in the plan's deviations table (parallel
+  nested calls, the non-reach codemode globals, Radius setup, Windows process
+  handling).
 - **Pi durable execution and experimental TUI** (`5609b0d6c`): a separate
   architecture watch track, not the established-agent parity target. Reassess
   when contracts stabilize or a user need requires it; see the scope decision.
