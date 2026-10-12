@@ -59,6 +59,7 @@ from pipy_harness.native.agent.system_messages import AgentSystemPromptInput
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
     ToolInterruptWaiter,
+    ToolReadinessWaiter,
 )
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.coding.state import CodingSessionState
@@ -233,6 +234,7 @@ class CodingAgentRunCoordinator:
         tool_waiter: ToolInterruptWaiter | None = None,
         composite_runner: AgentCompositeToolRunner | None = None,
         nested_eligibility: NestedToolEligibility | None = None,
+        tool_readiness: ToolReadinessWaiter | None = None,
     ) -> None:
         if type(coding_state) is not CodingSessionState:
             raise TypeError("coding_state must be an exact CodingSessionState")
@@ -251,6 +253,7 @@ class CodingAgentRunCoordinator:
         self._tool_waiter = tool_waiter
         self._composite_runner = composite_runner
         self._nested_eligibility = nested_eligibility
+        self._tool_readiness = tool_readiness
 
     def run_turn(
         self,
@@ -273,6 +276,7 @@ class CodingAgentRunCoordinator:
             tool_waiter=self._tool_waiter,
             composite_runner=self._composite_runner,
             nested_eligibility=self._nested_eligibility,
+            tool_readiness=self._tool_readiness,
         )
         witness = self._coding_state.begin_agent_run()
         try:

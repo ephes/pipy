@@ -909,7 +909,18 @@ def activate(api):
   word refers to every tool or namespace whose name it contains, so words may
   over-match. The built-in `codemode` tool declares it: `"all"` for a script
   that uses `search_tools`, `describe_tool`, `describe_namespace` or
-  `ALL_TOOLS`, otherwise the words of the script.
+  `ALL_TOOLS`, otherwise the words of the script. `tool_search` declares
+  `"all"`.
+
+  pipy uses the reach before each call of the tool, after the `tool_call`
+  handlers: it waits for the MCP servers that are still connecting and that
+  the call may reach, so their tools are registered when the handler runs.
+  `"all"` waits for every enabled server; a word waits for the server whose
+  namespace (`mcp__<server>`, with `-` as `_`) it contains. Returning `None`
+  for a call means the call reaches no other tool. The function runs on the
+  session thread and must not block. If it raises, or returns something
+  else, the call waits for every server (Pi fails the call). See
+  [waiting for servers](mcp.md#waiting-for-servers).
 
 **Results.** A handler that returns data declares an `output_schema` and
 returns the data as `ToolResult(structured_content=...)` next to `content`. It

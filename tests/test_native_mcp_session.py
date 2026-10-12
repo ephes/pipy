@@ -1,4 +1,4 @@
-"""MCP servers in a session (MCP parity plan S17).
+"""MCP servers in a session (MCP parity plan S17 and S18).
 
 A coding session with a scripted provider and the fake stdio server as a real
 child process: the servers of ``mcp.json`` start with the session, their
@@ -6,8 +6,10 @@ tools reach the model and codemode scripts through the normal tool pipeline,
 and the session's end closes them. Rows SES-01 to SES-03, SES-17, SES-19,
 EXP-05, the MCP part of EXT-03 and CFG-01's trust wiring.
 
-Nothing waits for a server yet (that is S18), so the provider's first turn
-calls an extension tool that waits until the server's tools are registered.
+The S17 tests have a server with `codemode` tools, which no prompt waits
+for, so the provider's first turn calls an extension tool that waits until
+the server's tools are registered. The readiness waits themselves (S18, rows
+SES-05 to SES-10) are at the end.
 """
 
 from __future__ import annotations
@@ -38,6 +40,8 @@ from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
 )
+from pipy_harness.native.mcp import readiness as readiness_module
+from pipy_harness.native.mcp.readiness import STILL_CONNECTING_NOTICE
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
@@ -245,6 +249,7 @@ def _run(
     prompts: str = "go\n",
     *,
     settings: SettingsManager | None = None,
+    abort_event: threading.Event | None = None,
 ) -> tuple[HarnessStatus, str]:
     errors = io.StringIO()
     session = CodingSession(
@@ -252,6 +257,7 @@ def _run(
         tool_registry=production_tool_registry(),
         tool_budget=8,
         settings_manager=settings,
+        abort_event=abort_event,
     )
     result = session.run(
         workspace_root=workspace,
@@ -476,6 +482,9 @@ def test_session_end_closes_a_server_that_is_still_connecting(
     status, errors = _run(workspace, provider)
 
     assert status is HarnessStatus.SUCCEEDED, errors
+    # SES-06; Pi: "does not hold the first prompt for codemode servers that
+    # are still connecting".
+    assert STILL_CONNECTING_NOTICE not in errors
     assert not _is_alive(int(pid_file.read_text()))
     # A transport's own threads end just after it reported its close.
     _wait_until(lambda: _mcp_threads(before) == [])
@@ -625,3 +634,287 @@ def test_a_broken_mcp_json_does_not_stop_the_session(
     status, errors = _run(workspace, provider)
 
     assert status is HarnessStatus.SUCCEEDED, errors
+
+
+# -- S18: readiness waits -----------------------------------------------------
+
+# The server answers `initialize` late, or never.
+_LATE = {"initialize": [{"record": "initialize"}, {"sleep": 0.5}, {"default": True}]}
+_NEVER = {"initialize": [{"record": "initialize"}, {"sleep": 120}]}
+
+
+def _settings(workspace: Path, *default_tools: str) -> SettingsManager:
+    """Settings whose user-level directory, and so `mcp.json`, is the workspace."""
+
+    return SettingsManager(
+        global_path=workspace / "global.json",
+        project_path=workspace / "project.json",
+        overrides={"defaultTools": list(default_tools), "theme": "pi"},
+    )
+
+
+def _codemode_output(result: Any) -> Any:
+    assert not result.is_error, result.content.value
+    text = result.content.value.split("Output:\n", 1)[1].split("\nTool calls", 1)[0]
+    return json.loads(text)
+
+
+def test_the_first_prompt_waits_for_a_server_with_direct_tools(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-05; Pi: "holds the first prompt for servers with direct tools".
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(config / "mcp.json", {"slow": {**entry, "exposure": "direct"}})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "mcp__slow__search", '{"query": "q"}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The first request already declares the tools.
+    assert _tool_names(provider.requests[0])[-2:] == [
+        "mcp__slow__search",
+        "mcp__slow__wipe",
+    ]
+    assert _tool_results(provider.requests[1])[-1].content.value == (
+        "pipy guide\npipy faq"
+    )
+    assert STILL_CONNECTING_NOTICE not in errors
+
+
+def test_the_first_prompt_waits_for_a_single_direct_tool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-05: "server exposure or any `toolExposure` value".
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(
+        config / "mcp.json", {"slow": {**entry, "toolExposure": {"wipe": "direct"}}}
+    )
+    provider = _Provider([_result(final_text="done")])
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "mcp__slow__wipe" in names and "mcp__slow__search" not in names
+
+
+def test_the_first_prompt_waits_only_up_to_the_startup_limit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-05; Pi: "holds the first prompt for servers with direct tools only
+    # up to startupWaitMs". The second prompt does not wait again.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    monkeypatch.setattr(readiness_module, "STARTUP_WAIT_SECONDS", 0.2)
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers", "slow", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(config / "mcp.json", {"slow": {**entry, "exposure": "direct"}})
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+    started = time.monotonic()
+
+    status, errors = _run(workspace, provider, "go\nagain\n")
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert time.monotonic() - started < _WAIT_SECONDS
+    assert len(provider.requests) == 2
+    assert not [name for name in _tool_names(provider.requests[1]) if "mcp__" in name]
+    assert errors.count(STILL_CONNECTING_NOTICE) == 1, errors
+    assert "initialize" in _events(record)
+
+
+def test_a_script_waits_for_the_server_it_names(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-07, SES-08; Pi: "waits for the servers a codemode script names" and
+    # "waits for servers whose script identifiers differ from their names".
+    # The second server never connects and is not waited for.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "slow-docs", methods=_LATE)
+    other, _other_record = _server(
+        tmp_path / "servers", "other", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(workspace / "mcp.json", {"slow-docs": entry, "other": other})
+    code = (
+        "found = tools.mcp__slow_docs__search(query='q')\n"
+        "text(found['structuredContent'])"
+    )
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "codemode", json.dumps({"code": code})),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The first prompt did not wait: its request has no MCP tool.
+    assert not [name for name in _tool_names(provider.requests[0]) if "mcp__" in name]
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == {
+        "hits": ["pipy guide", "pipy faq"]
+    }
+    assert _tool_calls(record) == [("search", {"query": "q"})]
+
+
+def test_a_script_does_not_wait_for_a_server_it_does_not_name(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-08; Pi: "does not wait for servers a codemode script does not name".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers", "slow", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(workspace / "mcp.json", {"slow": entry})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall(
+                        "c1", "codemode", json.dumps({"code": "text(1 + 1)"})
+                    ),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+    started = time.monotonic()
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert time.monotonic() - started < _WAIT_SECONDS
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == 2
+    assert not _received(record, "tools/list")
+
+
+def test_a_script_that_searches_tools_waits_for_every_server(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-08: a discovery global reaches every tool.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"slow": entry})
+    code = "text([tool['name'] for tool in search_tools('search the docs')])"
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "codemode", json.dumps({"code": code})),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "mcp__slow__search" in _codemode_output(
+        _tool_results(provider.requests[1])[-1]
+    )
+
+
+def test_tool_search_waits_for_the_servers_before_it_searches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-09; Pi: "waits for servers before tool_search searches".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"slow": {**entry, "exposure": "deferred"}})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall(
+                        "c1", "tool_search", '{"query": "search the docs", "limit": 1}'
+                    ),
+                )
+            ),
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c2", "mcp__slow__search", '{"query": "late"}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(
+        workspace, provider, settings=_settings(workspace, "+tool_search")
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "mcp__slow__search" not in _tool_names(provider.requests[0])
+    assert "mcp__slow__search" in _tool_names(provider.requests[1])
+    called = _tool_results(provider.requests[2])[-1]
+    assert (called.is_error, called.content.value) == (False, "pipy guide\npipy faq")
+    assert _tool_calls(record) == [("search", {"query": "late"})]
+
+
+def test_an_abort_ends_the_wait_of_a_tool_call(tmp_path: Path, monkeypatch) -> None:
+    # SES-10: "Every readiness wait ends when the turn is cancelled."
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers", "slow", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(workspace / "mcp.json", {"slow": {**entry, "exposure": "deferred"}})
+    abort = threading.Event()
+    provider = _Provider(
+        [
+            lambda: threading.Timer(0.3, abort.set).start(),
+            _result(
+                tool_calls=(ProviderToolCall("c1", "tool_search", '{"query": "docs"}'),)
+            ),
+            _result(final_text="not reached"),
+        ]
+    )
+    started = time.monotonic()
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace, "+tool_search"),
+        abort_event=abort,
+    )
+
+    assert time.monotonic() - started < _WAIT_SECONDS
+    assert abort.is_set()
+    # The call was cancelled while it waited; the turn ended with it.
+    assert len(provider.requests) == 1, errors
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert not _received(record, "tools/list")

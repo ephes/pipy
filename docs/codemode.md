@@ -343,8 +343,11 @@ Scripts are not automatically retried after effects.
 | Worker diagnostics | 64 KiB stderr retained |
 | CPU backstop | wall deadline + 5 seconds |
 
-Escape cancels computation or the active nested tool through the normal input
-waiter. RPC abort works during either phase. The host wall deadline includes tool
+Before a script starts, pipy waits for the MCP servers the script names that
+are still connecting (see [waiting for servers](mcp.md#waiting-for-servers));
+that wait is not part of the wall limit, and Escape or an RPC abort ends it
+and cancels the script. Escape cancels computation or the active nested tool
+through the normal input waiter. RPC abort works during either phase. The host wall deadline includes tool
 time and stops an active child; the CPU backstop is secondary. Worker groups are
 killed and reaped; subsequent scripts start fresh. As with direct tools, a
 noncooperative host tool can outlive its bounded cancellation join. Accepted

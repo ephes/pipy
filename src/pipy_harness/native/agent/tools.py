@@ -76,6 +76,23 @@ class ToolInterruptWaiter(Protocol):
     ) -> ToolExecutionInterruption: ...
 
 
+class ToolReadinessWaiter(Protocol):
+    """Product-owned wait that precedes an admitted tool call.
+
+    Called on the loop's thread after the ``tool_call`` policy admitted the
+    call and before it runs, with the waiter the call itself would get. It
+    returns ``SETTLED`` when the call may run; any other value cancels the
+    call the way an interruption of the running tool would.
+    """
+
+    def __call__(
+        self,
+        call: AgentToolCall,
+        wait_for_interrupt: ToolInterruptWaiter | None,
+        /,
+    ) -> ToolExecutionInterruption: ...
+
+
 @runtime_checkable
 class AgentToolCapabilities(Protocol):
     """Canonical tool surface consumed by the reusable agent loop."""
@@ -100,6 +117,30 @@ class AgentToolCapabilities(Protocol):
         output_text: str,
         /,
     ) -> AgentToolResultMessage: ...
+
+
+def cancelled_tool_outcome(
+    error_result: Callable[[AgentToolCall, str], AgentToolResultMessage],
+    call: AgentToolCall,
+    interruption: ToolExecutionInterruption,
+) -> ToolExecutionOutcome:
+    """The outcome of a call that ``interruption`` cancelled before it finished."""
+
+    if interruption is ToolExecutionInterruption.SCRIPT_STOP:
+        return ToolExecutionOutcome(
+            error_result(call, "tool stopped by script backend"),
+            cancelled=True,
+        )
+    label = (
+        "local command"
+        if interruption is ToolExecutionInterruption.LOCAL_COMMAND
+        else "escape"
+    )
+    return ToolExecutionOutcome(
+        error_result(call, f"tool cancelled by {label}"),
+        interruption=interruption,
+        cancelled=True,
+    )
 
 
 class _InvocationOutputGate:
@@ -314,21 +355,7 @@ class ToolExecutor:
         call: AgentToolCall,
         interruption: ToolExecutionInterruption,
     ) -> ToolExecutionOutcome:
-        if interruption is ToolExecutionInterruption.SCRIPT_STOP:
-            return ToolExecutionOutcome(
-                self.error_result(call, "tool stopped by script backend"),
-                cancelled=True,
-            )
-        label = (
-            "local command"
-            if interruption is ToolExecutionInterruption.LOCAL_COMMAND
-            else "escape"
-        )
-        return ToolExecutionOutcome(
-            self.error_result(call, f"tool cancelled by {label}"),
-            interruption=interruption,
-            cancelled=True,
-        )
+        return cancelled_tool_outcome(self.error_result, call, interruption)
 
     def _execute_once(
         self,

@@ -669,6 +669,18 @@ def _phase_d_dispatch(
     return resolution
 
 
+def _base_system_prompt(scope: ReplLoopScope) -> str:
+    """Render the prompt for a run that is about to start.
+
+    The session's first prompt first waits for MCP servers with ``direct``
+    tools, so the prompt and the first request list their tools (Pi waits in
+    its ``before_agent_start`` handler, before it renders the prompt).
+    """
+
+    scope.mcp_waits.before_first_prompt()
+    return render_system_prompt(scope.system_sections())
+
+
 def _phase_e_accepted_input(
     turn_input: _TurnInput,
     resolution: CommandDispatchResolution,
@@ -689,7 +701,7 @@ def _phase_e_accepted_input(
         user_input=resolution.user_input,
         resource_provider_text=resolution.resource_provider_text,
         selected_provider_content=resolution.selected_provider_content,
-        base_system_prompt=lambda: render_system_prompt(scope.system_sections()),
+        base_system_prompt=partial(_base_system_prompt, scope),
     )
     return _AcceptedRun(
         turn_input=turn_input,
@@ -738,6 +750,7 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         tool_waiter=tool_waiter,
         composite_runner=CodemodeCompositeRunner(),
         nested_eligibility=scope.execution_projections,
+        tool_readiness=scope.mcp_waits.before_tool_call,
     )
 
 

@@ -66,6 +66,7 @@ from pipy_harness.native.package_runtime import PackageResourceRoots
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
+from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
@@ -319,6 +320,8 @@ class ReplLoopScope:
     extension_custom_driver: Callable[..., object]
     extension_notify: Callable[[str, str], None]
     coding_session_control: Callable[[], ExtensionCodingSessionControl]
+    # The waits for MCP servers that are still connecting.
+    mcp_waits: McpSessionWaits
     compaction_event: (
         Callable[[str, str, CodingCompactionOutcome | None], None] | None
     ) = None

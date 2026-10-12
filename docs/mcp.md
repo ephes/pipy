@@ -26,9 +26,10 @@ unless `PIPY_CONFIG_HOME` or `XDG_CONFIG_HOME` say otherwise), or into
 }
 ```
 
-Start pipy. Every enabled server starts connecting in the background; pipy
-does not wait for them, so the first prompt may run before a server has
-connected. When a server connects, its tools are registered as
+Start pipy. Every enabled server starts connecting in the background, and
+pipy waits for a server only when its tools are needed (see
+[waiting for servers](#waiting-for-servers)). When a server connects, its
+tools are registered as
 `mcp__<server>__<tool>`, here for example `mcp__filesystem__read_file`. The
 file is read once, when the session starts: restart pipy after changing it.
 When the session ends, pipy closes every server and waits until its process
@@ -37,9 +38,10 @@ is gone, also for a server that was still starting.
 How the tools are reached depends on the server's `exposure` and the
 per-tool `toolExposure` (see [configuration rules](#configuration-rules)):
 
-- `direct`: the tools are declared to the model like built-in tools, from
-  the first model request after the server connected. Scripts can call them
-  too.
+- `direct`: the tools are declared to the model like built-in tools. The
+  first prompt waits for the server, so its first request declares them; a
+  server that connects later adds them to the next model request. Scripts
+  can call them too.
 - `codemode`, the default, and `deferred`: the tools are not declared.
   Codemode scripts call them (`tools.mcp__filesystem__read_file(path="a")`)
   and find them with `search_tools()`; `tool_search` loads them so that the
@@ -51,6 +53,54 @@ per-tool `toolExposure` (see [configuration rules](#configuration-rules)):
 
 `--tools` and `--exclude-tools` apply to these tools as described under
 [MCP tools](usage.md#mcp-tools).
+
+### Waiting for servers
+
+Servers connect while you type, so their tools are usually there when they
+are needed. Where they might not be, pipy waits:
+
+- **The first prompt** of a session waits for the servers that have `direct`
+  tools (the server's `exposure`, or any `toolExposure` value, is `direct`)
+  and are still connecting, so that the first model request declares those
+  tools. It waits at most 10 seconds. After that the prompt is sent and pipy
+  shows `MCP servers are still connecting; their tools become available once
+  connected.`; the tools follow with the request after the server connected.
+  Later prompts do not wait. Servers without `direct` tools never hold a
+  prompt.
+- **A codemode script** waits for the servers it names before it starts.
+  pipy reads the script's source: `tools.mcp__docs__search(...)` and a name
+  built as `"mcp__docs__" + kind` both wait for the server `docs` (a `-` in
+  a server's name is a `_` in the script). A script that uses
+  `search_tools`, `describe_namespace`, `describe_tool` or `ALL_TOOLS` waits
+  for every enabled server, since it may call whatever it finds. A script
+  that names no server waits for none.
+- **`tool_search`** waits for every enabled server, so it searches all their
+  tools.
+- **A call to an MCP tool** waits for its own server while a new connection
+  attempt for it is under way. Nothing starts such an attempt yet; it comes
+  with reconnecting and enabling a server in a session.
+
+A wait for a tool call has no time limit of its own. It ends when the server
+connected or its connection failed (the call then runs and reports what it
+finds), and when you cancel the turn: Escape in the terminal, or an abort in
+the JSON and RPC modes, ends the wait and cancels the call like a running
+tool. Escape during the first prompt's wait only ends the wait: the prompt
+is sent without waiting further.
+
+An extension tool that reaches other tools gets the same wait by declaring
+`reaches_tools`, see the
+[extension API](extension-api.md#extension-tool-metadata).
+
+Different from Pi:
+
+- In Pi the first prompt's wait cannot be interrupted; it always runs to its
+  10 seconds or to the server's answer.
+- Pi lets an embedding program set the 10 seconds (`startupWaitMs`). pipy has
+  no setting for it yet.
+- A `reaches_tools` function that raises fails the call in Pi. In pipy the
+  call waits for every server and then runs, as if the function had returned
+  `"all"`; the same holds for a return value that is neither `"all"` nor a
+  list of words.
 
 ### Permissions
 
@@ -97,8 +147,7 @@ Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
 ### What is missing
 
-Not built yet, in the order the plan builds it: the wait of the first prompt
-and of scripts for servers that are still connecting, turning on `codemode`
+Not built yet, in the order the plan builds it: turning on `codemode`
 and `tool_search` for servers that need them, the startup report, `--no-mcp`,
 the `mcp_servers` section of the system prompt, the `pipy mcp` commands,
 `/mcp` (status, reconnect, enabling and disabling a server, changing its
@@ -494,11 +543,12 @@ standard library. It is not part of the SDK surface.
 | `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
-| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, and closes everything at the end. |
+| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), and closes everything at the end. |
+| `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session
-renewal, images in tool results, resources, readiness waits, the
+renewal, images in tool results, resources, the
 `mcp_servers` prompt section, `--no-mcp`, the `pipy mcp` commands, `/mcp`,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,

@@ -69,6 +69,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
     ToolInterruptWaiter,
+    ToolReadinessWaiter,
 )
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
@@ -424,6 +425,7 @@ def _make_loop(
     usage_publisher: _UsagePublisher | None = None,
     queued_input_port: AgentQueuedInputPort | None = None,
     emit_delta: bool = False,
+    tool_readiness: ToolReadinessWaiter | None = None,
 ) -> tuple[AgentLoop, _ProviderTurn, _EventSink, _UsagePublisher]:
     provider_turn = _ProviderTurn(order, outcomes, emit_delta=emit_delta)
     events = event_sink or _EventSink(order)
@@ -437,6 +439,7 @@ def _make_loop(
         usage_publisher=usage,
         queued_input_port=queued_input_port or _QueuedInputs(),
         status_policy=status_policy or _StatusPolicy(order),
+        tool_readiness=tool_readiness,
     )
     return loop, provider_turn, events, usage
 
@@ -1276,6 +1279,143 @@ def test_tool_interruption_appends_skipped_results_and_cancels_run(
         "event:AgentRunCompleted",
         "event:AgentRunSettled",
     ]
+
+
+def test_readiness_wait_runs_after_the_policy_and_before_the_tool() -> None:
+    order: list[str] = []
+    waiters: list[object] = []
+
+    def ready(
+        call: AgentToolCall, waiter: ToolInterruptWaiter | None, /
+    ) -> ToolExecutionInterruption:
+        order.append(f"ready:{call.provider_correlation_id}")
+        waiters.append(waiter)
+        return ToolExecutionInterruption.SETTLED
+
+    tools = _Tools(order)
+    loop, _provider, _events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(_provider_call("p1"),))
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tools=tools,
+        tool_readiness=ready,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
+    steps = [
+        step for step in order if step.split(":")[0] in {"policy", "ready", "tool"}
+    ]
+    assert steps[:3] == ["policy:before:p1", "ready:p1", "tool:execute:p1"]
+    # The loop has no tool waiter here, so the wait gets none either.
+    assert waiters == [None]
+
+
+def test_a_blocked_call_does_not_wait_for_readiness() -> None:
+    order: list[str] = []
+    waited: list[str] = []
+
+    def ready(
+        call: AgentToolCall, waiter: ToolInterruptWaiter | None, /
+    ) -> ToolExecutionInterruption:
+        waited.append(call.provider_correlation_id)
+        return ToolExecutionInterruption.SETTLED
+
+    loop, _provider, _events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(_provider_call("p1"),))
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tool_policy=_ToolPolicy(order, blocked=True),
+        tool_readiness=ready,
+    )
+
+    loop.run(_run_input())
+
+    assert waited == []
+
+
+@pytest.mark.parametrize(
+    ("interruption", "reason", "text"),
+    [
+        (
+            ToolExecutionInterruption.OPERATOR_ABORT,
+            AgentCancellationReason.OPERATOR_ABORT,
+            "tool cancelled by escape",
+        ),
+        (
+            ToolExecutionInterruption.LOCAL_COMMAND,
+            AgentCancellationReason.LOCAL_COMMAND,
+            "tool cancelled by local command",
+        ),
+    ],
+)
+def test_an_interrupted_readiness_wait_cancels_the_call_and_the_run(
+    interruption: ToolExecutionInterruption,
+    reason: AgentCancellationReason,
+    text: str,
+) -> None:
+    # SES-10: the wait ends with the turn; the tool never runs.
+    order: list[str] = []
+    tools = _Tools(order)
+    loop, provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling", calls=(_provider_call("p1"), _provider_call("p2"))
+                )
+            )
+        ],
+        tools=tools,
+        tool_readiness=lambda call, waiter: interruption,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.result.outcome is AgentRunOutcome.CANCELLED
+    assert outcome.result.cancellation_reason is reason
+    assert tools.executed == []
+    completed = [
+        event.result for event in events.events if isinstance(event, ToolCallCompleted)
+    ]
+    assert [(result.is_error, result.content.value) for result in completed] == [
+        (True, text)
+    ]
+    results = [
+        message
+        for message in outcome.final_history
+        if isinstance(message, AgentToolResultMessage)
+    ]
+    assert [result.content.value for result in results] == [
+        text,
+        "tool skipped because the turn was interrupted",
+    ]
+    assert outcome.final_tool_state.tool_invocation_count == 0
+
+
+def test_readiness_must_return_an_interruption() -> None:
+    order: list[str] = []
+    loop, _provider, _events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(_provider_call("p1"),))
+            )
+        ],
+        tool_readiness=lambda call, waiter: True,  # type: ignore[arg-type,return-value]
+    )
+
+    with pytest.raises(TypeError, match="tool readiness must return"):
+        loop.run(_run_input())
 
 
 def test_provider_failure_publishes_usage_then_fails_without_retry() -> None:

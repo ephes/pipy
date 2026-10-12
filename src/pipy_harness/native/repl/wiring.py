@@ -36,6 +36,7 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
     AgentQueuedInputPort,
 )
+from pipy_harness.native.agent.tools import ToolInterruptWaiter
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentUsageAccumulator,
@@ -121,6 +122,7 @@ from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.mcp.config import load_mcp_config
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -154,6 +156,7 @@ from pipy_harness.native.repl.loop_scope import (
     ReplLoopScope,
     RunControlState,
 )
+from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
@@ -169,6 +172,8 @@ from pipy_harness.native.repl.turn_leaves import (
     CANCEL_JOIN_TIMEOUT_SECONDS,
     pricing_for,
     raise_first,
+    wait_for_escape,
+    wait_for_external_tool_interrupt,
 )
 from pipy_harness.native.repl_input import (
     NativeReplInput,
@@ -993,6 +998,28 @@ def _mcp_manager(
         client_version=pipy_version(),
         publish_tools=tool_capabilities.publish_mcp_tools,
         log=McpServerLog(mcp_log_path(config_home)),
+    )
+
+
+def _mcp_waits(
+    extension: _ExtensionPhase,
+    abort_event: threading.Event | _AbortCallbackSignal | None,
+) -> McpSessionWaits:
+    """The session's waits for MCP servers that are still connecting.
+
+    The first prompt's wait is interruptible the way the session is: Escape
+    in a terminal, the abort signal in a headless run.
+    """
+
+    prompt_waiter: ToolInterruptWaiter | None = None
+    if extension.terminal_ui is not None:
+        prompt_waiter = partial(wait_for_escape, extension.terminal_ui)
+    elif abort_event is not None:
+        prompt_waiter = partial(wait_for_external_tool_interrupt, abort_event)
+    return McpSessionWaits(
+        McpReadiness(extension.mcp_manager, extension.tool_capabilities.all_tools),
+        notify=extension.extension_notify,
+        prompt_waiter=prompt_waiter,
     )
 
 
@@ -2107,6 +2134,7 @@ def _assemble_session_wiring(
         extension_custom_driver=collaborators.extension_custom_driver,
         extension_notify=_extension_notify,
         coding_session_control=collaborators.coding_session_control,
+        mcp_waits=_mcp_waits(extension, _runtime_abort_event(inputs, loop_controller)),
         compaction_event=_compaction_event,
     )
     delegation = _LoopDelegation(

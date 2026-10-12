@@ -472,6 +472,7 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.tools",
         "pipy_harness.native.agent.tools.AgentToolCapabilities",
         "pipy_harness.native.agent.tools.ToolInterruptWaiter",
+        "pipy_harness.native.agent.tools.ToolReadinessWaiter",
         "pipy_harness.native.agent.usage",
         "pipy_harness.native.agent.usage.AgentTokenPricing",
         "pipy_harness.native.coding.state",

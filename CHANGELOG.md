@@ -172,9 +172,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
   session runs, `--tools` and `--exclude-tools` apply to them, `/reload`
   keeps them, and the session's end closes every server. `.pipy/mcp.json`
   now counts as a project resource that needs a trust decision. Not yet:
-  HTTP servers, OAuth, a report of servers that failed, the wait for servers
-  that are still connecting, `/mcp`, the `pipy mcp` commands and resources.
+  HTTP servers, OAuth, a report of servers that failed, `/mcp`, the
+  `pipy mcp` commands and resources.
   See [MCP](docs/mcp.md#quick-setup).
+- Waiting for MCP servers that are still connecting. The first prompt of a
+  session waits up to 10 seconds for servers with `direct` tools, so its
+  first request declares them, and then says `MCP servers are still
+  connecting; their tools become available once connected.` A codemode
+  script waits for the servers its source names, or for every server when it
+  uses `search_tools`, `describe_namespace`, `describe_tool` or `ALL_TOOLS`;
+  `tool_search` waits for every server; a call to an MCP tool waits for its
+  own server. Escape or an abort ends a wait and cancels the call. An
+  extension tool gets the same wait by declaring `reaches_tools`. See
+  [MCP](docs/mcp.md#waiting-for-servers).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

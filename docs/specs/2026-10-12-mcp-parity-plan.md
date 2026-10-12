@@ -502,6 +502,7 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `tools.py` | Naming and the session's name table, definitions, tool ports, result conversion, truncation and spill, result schema | `ext/tools.ts`, `ext/index.ts` `assignName` |
 | `resources.py` | The three resource tools | `ext/resources.ts` |
 | `manager.py` | `McpManager`: the per-session owner of servers, readiness, registration, discovery activation, the prompt section and the startup report | `ext/index.ts` |
+| `readiness.py` | `McpReadiness`: which servers the first prompt and a tool call wait for | `ext/index.ts` `waitForDirectServers`, `tool_call` handler, `reachesServer` |
 | `registry.py` | Extension-registered servers | `core/mcp-servers.ts` `McpServerRegistry` |
 | `shell_cli.py` | `pipy mcp ...` | `ext/cli.ts` |
 | `commands.py`, `manager_view.py` | `/mcp` command; TUI manager | `ext/index.ts` command, `ext/ui.ts` |
@@ -716,7 +717,8 @@ is under 4.4):
   `wait_until_settled(timeout)` waits until every started server connected
   or failed and its tools were published, and `config_errors` keeps the
   loader's errors for the startup report (S19). `wait_until_settled` is what
-  S18 builds its waits on; it has no cancel event yet.
+  S18 builds its waits on; it has no cancel event yet. (S18: it is now
+  `wait_for_servers` without a selection; see "Decided in S18".)
 - Threads: one `mcp-start` thread per enabled server asks its connection for
   a client. A connection's callbacks only put the server on a queue. One
   `mcp-manager` thread takes servers from the queue, reads the connection's
@@ -767,7 +769,78 @@ is under 4.4):
   switch restarts the manager.
 - Not in S17, although the session now connects servers: no problem is
   reported at startup (S19), nothing turns on `codemode` or `tool_search`
-  (S19), and no prompt or script waits for a server (S18).
+  (S19), and no prompt or script waits for a server (S18, done).
+
+Decided in S18 (`readiness.py`, `McpManager.wait_for_servers`, the loop's
+readiness port and `repl/mcp_waits.py`):
+
+- `McpManager.wait_for_servers(select=None, *, timeout=None,
+  cancel_event=None)` is Pi `waitForServers`. `select` chooses servers by
+  their config entry, once, when the wait begins. The wait counts a chosen
+  server while it is enabled, was started and is still one of the manager's
+  servers. After waiting it reads the servers' `ready` events again, so an
+  attempt that replaced the one it waited for is waited for as well. It polls
+  the cancel event and the deadline every 50 ms, as the client does.
+  `timeout=0` only looks. `close()` ends every wait. `tool_owner(name)` gives
+  the server a pipy tool name was assigned to.
+- A `ready` event belongs to one connection attempt. The thread that made
+  the attempt (`mcp-start`) hands the event to the registering thread with
+  its queue entry, and that thread sets it after the registration, whatever
+  the registration did. A change a connection announces never sets it. In
+  S17 `_register` set the server's current event whenever the state it read
+  was not `connecting`; with a second attempt that would have settled the
+  new attempt on a late change of the old one, and Pi's handler says that
+  readiness can be pending while the state still reads `connected`.
+  **S21** (enable, disable, reconnect) has to give every new attempt a new
+  event, assign it to the server record under the manager lock, and pass it
+  along as `start()` does. The tests simulate a second attempt by assigning
+  the event themselves, since nothing queues one yet.
+- `McpReadiness(manager, all_tools, startup_wait_seconds=None)` decides what
+  to wait for and returns a function that waits, or `None` when nothing is
+  connecting. The usual case, every server settled, costs one look at the
+  servers per tool call and does not list the tools. `first_prompt_wait()`
+  is Pi `waitForDirectServers` (once per `McpReadiness`, so once per process
+  run while the manager lives that long; S22 resets it if a reload restarts
+  the servers). `call_wait(tool_name, arguments_json)` is Pi's `tool_call`
+  handler: the reach of a tool that declares `reaches_tools`, every server
+  for the three resource tool names, the owner for an MCP tool, nothing
+  otherwise. The tool is looked up in `NativeToolCapabilities.all_tools()`,
+  as Pi looks it up in `getAllTools()`.
+- Where the tool wait runs: the agent loop has an optional port,
+  `AgentLoop(tool_readiness=)` of type `ToolReadinessWaiter`
+  (`agent/tools.py`), called in `_execute_admitted_tool` after the
+  `tool_call` policy admitted the call and before a composite parent takes
+  its callable snapshot (4.3) or a tool runs. It serves direct calls,
+  composite parents and nested calls with one call site, and it gets the
+  waiter the call itself would get. A result other than `SETTLED` cancels the
+  call with the outcome `ToolExecutor` gives a tool that was interrupted
+  while running (`cancelled_tool_outcome`, now a function of
+  `agent/tools.py`), so the turn ends the same way. A blocked call does not
+  wait. In Pi the wait is one `tool_call` handler among the extensions';
+  pipy runs it after all of them.
+- `repl/mcp_waits.py` runs a wait: the wait itself on a short-lived thread
+  `mcp-wait`, the session thread in the tool interrupt waiter, as 4.5 says.
+  Without a waiter (a plain non-interactive run without an abort signal) the
+  session thread just waits. The scope carries one `McpSessionWaits`.
+- The first prompt's wait is made where the run's system prompt is rendered
+  (`loop_step._base_system_prompt`), after the `input` hooks and before
+  `before_agent_start`, so the prompt, the transcript's sections (S20's
+  `mcp_servers` section too) and the first request see the tools. That point
+  is before the run exists, so there is nothing to cancel: an interruption
+  (Escape through `turn_leaves.wait_for_escape`, or the abort signal of a
+  headless run) ends the wait and the prompt goes on, with the notice. This
+  is how SES-10 holds for the first prompt; Pi does not interrupt that wait
+  at all.
+- The startup limit is `readiness.STARTUP_WAIT_SECONDS` (10 s), read when the
+  session is wired. Pi's `startupWaitMs` option belongs to the SDK slice
+  (S38), which can pass `startup_wait_seconds`.
+- A `reaches_tools` function that raises, or returns neither `"all"` nor a
+  list of strings, counts as `"all"`. Pi fails the call. Arguments that are
+  not a JSON object reach the function as `{}`.
+- Not reachable through a public path yet, tested with a simulated second
+  attempt: SES-09 "including a reconnect in progress" and the second
+  sentence of SES-10 (S21 makes them reachable). The resource tools do not
+  exist before S23; the rule for their names is tested on `McpReadiness`.
 
 Open after the merge, owned by later slices:
 

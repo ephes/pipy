@@ -22,9 +22,17 @@ must not be called by a thread that holds the capability state lock.
 Nothing here calls into a user interface. What the user should see is kept
 as notices, which the session thread collects with ``deliver_notices``.
 
-Not built yet: servers registered by extensions, the wait of the first prompt
-and of scripts for servers that are still connecting, the startup report,
-enabling and disabling a server in a session, and ``/reload``.
+Waiting. ``wait_for_servers`` is what the session's readiness waits are
+built on (``readiness.py``). A connection attempt has a ``ready`` event; the
+thread that made the attempt hands it to the registering thread, which sets
+it once what the attempt ended with was registered and published. A change
+announced by a connection never sets it. The server record holds the event
+of its latest attempt. A new attempt gets a new event, assigned under the
+manager lock, so a wait that reads the events again after waiting also
+covers an attempt that was queued in the meantime.
+
+Not built yet: servers registered by extensions, the startup report, enabling
+and disabling a server in a session, and ``/reload``.
 """
 
 from __future__ import annotations
@@ -61,11 +69,15 @@ from pipy_harness.native.tools.base import ToolPort
 
 # How long ``close`` waits for the registering thread to end.
 _WORKER_JOIN_SECONDS: Final = 5.0
+# How often a wait looks at its cancel event and its deadline.
+_WAIT_POLL_SECONDS: Final = 0.05
 
 # Replaces the session's MCP tools and returns the names that were left out
 # because another tool has them (``NativeToolCapabilities.publish_mcp_tools``).
 PublishMcpTools = Callable[[Mapping[str, ToolPort]], Collection[str]]
 NoticeSink = Callable[[str, str], None]
+# Chooses servers by their configuration entry.
+ServerSelector = Callable[[McpServerEntry], bool]
 
 
 class McpToolUnavailableError(Exception):
@@ -93,15 +105,41 @@ def _is_enabled(entry: McpServerEntry) -> bool:
     return entry.config.get("enabled") is not False
 
 
+def _wait_for_event(
+    event: threading.Event,
+    deadline: float | None,
+    cancel_event: threading.Event | None,
+) -> bool:
+    """Whether ``event`` was set before the deadline and the cancellation."""
+
+    while not event.is_set():
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        wait: float | None = None
+        if deadline is not None:
+            wait = deadline - time.monotonic()
+            if wait <= 0:
+                return False
+        if cancel_event is not None:
+            wait = _WAIT_POLL_SECONDS if wait is None else min(wait, _WAIT_POLL_SECONDS)
+        event.wait(wait)
+    return True
+
+
 class _Server:
-    """A configured server. Everything but ``ready`` is guarded by the manager lock."""
+    """A configured server, guarded by the manager lock.
+
+    The ``ready`` event itself is set without the lock; which event is the
+    server's current one is read and changed under it.
+    """
 
     __slots__ = ("connection", "entry", "ports", "ready", "source")
 
     def __init__(self, entry: McpServerEntry) -> None:
         self.entry = entry
         self.connection: McpServerConnection | None = None
-        # Set once the outcome of the connect was registered.
+        # The event of the latest connection attempt: set once what that
+        # attempt ended with was registered and published.
         self.ready = threading.Event()
         # The registered tools by pipy name, and the tool list and
         # instructions they were built from.
@@ -139,7 +177,11 @@ class McpManager:
         self._started = False
         self._closed = False
         self._names = McpToolNames()
-        self._events: queue.SimpleQueue[_Server | None] = queue.SimpleQueue()
+        # A server whose connection changed, and the ``ready`` event of the
+        # connection attempt that ended with this change, if one did.
+        self._events: queue.SimpleQueue[
+            tuple[_Server, threading.Event | None] | None
+        ] = queue.SimpleQueue()
         self._notices: deque[McpNotice] = deque()
         self._reported: set[str] = set()
 
@@ -148,7 +190,7 @@ class McpManager:
     def start(self) -> None:
         """Start connecting every enabled server; does not wait for any."""
 
-        connecting: list[tuple[_Server, McpServerConnection]] = []
+        connecting: list[tuple[_Server, McpServerConnection, threading.Event]] = []
         with self._lock:
             if self._started or self._closed:
                 return
@@ -156,17 +198,17 @@ class McpManager:
             for server in self._servers:
                 if _is_enabled(server.entry):
                     server.connection = self._new_connection(server)
-                    connecting.append((server, server.connection))
+                    connecting.append((server, server.connection, server.ready))
             if not connecting:
                 return
             self._worker = threading.Thread(
                 target=self._run, name="mcp-manager", daemon=True
             )
             self._worker.start()
-        for server, connection in connecting:
+        for attempt in connecting:
             threading.Thread(
                 target=self._connect,
-                args=(server, connection),
+                args=attempt,
                 name="mcp-start",
                 daemon=True,
             ).start()
@@ -226,18 +268,55 @@ class McpManager:
         """Wait until every server that was started connected or failed and
         its tools were published. Returns whether that happened in time."""
 
+        return self.wait_for_servers(timeout=timeout)
+
+    def wait_for_servers(
+        self,
+        select: ServerSelector | None = None,
+        *,
+        timeout: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> bool:
+        """Wait for the latest connection attempts of the chosen servers.
+
+        A server is waited for while it is enabled and was started; one that
+        is disabled or removed during the wait no longer counts. The servers
+        are chosen once, when the wait begins. An attempt that was queued for
+        one of them while waiting is waited for as well (Pi
+        ``waitForServers``). Returns ``True`` when every chosen server
+        connected or failed and its tools were published, ``False`` when
+        ``timeout`` seconds passed or ``cancel_event`` was set first. With
+        ``timeout=0`` it only looks. ``close`` ends every wait.
+        """
+
         with self._lock:
-            waiting = [
-                server.ready
-                for server in self._servers
-                if server.connection is not None
-            ]
+            candidates = [(server, server.entry) for server in self._servers]
+        chosen = [
+            server for server, entry in candidates if select is None or select(entry)
+        ]
         deadline = None if timeout is None else time.monotonic() + timeout
-        for ready in waiting:
-            remaining = None if deadline is None else deadline - time.monotonic()
-            if not ready.wait(None if remaining is None else max(remaining, 0)):
-                return False
-        return True
+        while True:
+            with self._lock:
+                current = {id(server) for server in self._servers}
+                pending = [
+                    server.ready
+                    for server in chosen
+                    if id(server) in current
+                    and server.connection is not None
+                    and _is_enabled(server.entry)
+                    and not server.ready.is_set()
+                ]
+            if not pending:
+                return True
+            for ready in pending:
+                if not _wait_for_event(ready, deadline, cancel_event):
+                    return False
+
+    def tool_owner(self, name: str) -> str | None:
+        """The server whose tool was registered under ``name``, if any."""
+
+        owner = self._names.owner(name)
+        return None if owner is None else owner[0]
 
     def deliver_notices(self, sink: NoticeSink) -> None:
         """Hand the pending notices to ``sink(level, message)``, on the
@@ -265,23 +344,32 @@ class McpManager:
             log=self._log,
         )
 
-    def _connect(self, server: _Server, connection: McpServerConnection) -> None:
+    def _connect(
+        self,
+        server: _Server,
+        connection: McpServerConnection,
+        ready: threading.Event,
+    ) -> None:
+        """One connection attempt. ``ready`` is its event: it is set when
+        what the attempt ended with was registered, by nothing else."""
+
         try:
             connection.get_client()
         except Exception:  # noqa: BLE001 - a failed connect is the connection's state
             pass
-        self._events.put(server)
+        self._events.put((server, ready))
 
     def _changed(self, server: _Server, connection: McpServerConnection) -> None:
         """A connection's callback: any thread, so it only leaves a note."""
 
-        self._events.put(server)
+        self._events.put((server, None))
 
     def _run(self) -> None:
         while True:
-            server = self._events.get()
-            if server is None:
+            event = self._events.get()
+            if event is None:
                 return
+            server, ready = event
             try:
                 self._register(server)
             except Exception as error:  # noqa: BLE001 - one server's tools must not end the thread
@@ -290,6 +378,9 @@ class McpManager:
                     f'MCP server "{server.entry.name}": '
                     f"its tools could not be registered: {error}",
                 )
+            finally:
+                if ready is not None:
+                    ready.set()
 
     def _register(self, server: _Server) -> None:
         """Publish the tools of ``server`` as its connection has them now."""
@@ -326,8 +417,6 @@ class McpManager:
                             f'MCP tool "{name}" is not available: '
                             "another tool has that name",
                         )
-            if view.state != "connecting":
-                server.ready.set()
 
     def _create_ports(
         self,

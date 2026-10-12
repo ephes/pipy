@@ -111,6 +111,8 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
     ToolInterruptWaiter,
+    ToolReadinessWaiter,
+    cancelled_tool_outcome,
 )
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
@@ -394,6 +396,7 @@ class AgentLoop:
         tool_waiter: ToolInterruptWaiter | None = None,
         composite_runner: AgentCompositeToolRunner | None = None,
         nested_eligibility: NestedToolEligibility | None = None,
+        tool_readiness: ToolReadinessWaiter | None = None,
     ) -> None:
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
@@ -409,6 +412,8 @@ class AgentLoop:
         _require_protocol(status_policy, AgentLoopStatusPolicy, "status_policy")
         if tool_waiter is not None and not callable(tool_waiter):
             raise TypeError("tool_waiter must be callable or None")
+        if tool_readiness is not None and not callable(tool_readiness):
+            raise TypeError("tool_readiness must be callable or None")
         self._request_source = request_source
         self._provider_turn = provider_turn
         self._tools = tool_capabilities
@@ -420,6 +425,7 @@ class AgentLoop:
         self._tool_waiter = tool_waiter
         self._composite_runner = composite_runner
         self._nested_eligibility = nested_eligibility
+        self._tool_readiness = tool_readiness
 
     def run(self, run_input: AgentLoopRunInput) -> AgentLoopOutcome:
         if type(run_input) is not AgentLoopRunInput:
@@ -983,7 +989,12 @@ class AgentLoop:
             if emit_events:
                 self._emit_tool_completed(call, result, turn_index)
             return _SettledToolCall(result, transition)
-        if composite_execute is not None:
+        # The product's wait for what the call needs (MCP servers that are
+        # still connecting) comes after the hooks and before a composite
+        # parent takes its callable snapshot, so that snapshot has the tools
+        # the wait was for.
+        interrupted = self._wait_until_ready(call, nested_waiter)
+        if interrupted is None and composite_execute is not None:
             composite = composite_execute(transition)
             if composite is not None:
                 return composite
@@ -995,7 +1006,21 @@ class AgentLoop:
             emit_events=emit_events,
             nested_waiter=nested_waiter,
             nested_tools=nested_tools,
+            interrupted=interrupted,
         )
+
+    def _wait_until_ready(
+        self, call: AgentToolCall, nested_waiter: ToolInterruptWaiter | None
+    ) -> ToolExecutionOutcome | None:
+        """Run the readiness wait; the cancelled outcome when it was interrupted."""
+        if self._tool_readiness is None:
+            return None
+        interruption = self._tool_readiness(call, nested_waiter or self._tool_waiter)
+        if not isinstance(interruption, ToolExecutionInterruption):
+            raise TypeError("tool readiness must return ToolExecutionInterruption")
+        if interruption is ToolExecutionInterruption.SETTLED:
+            return None
+        return cancelled_tool_outcome(self._tools.error_result, call, interruption)
 
     def _execute_tool(
         self,
@@ -1007,10 +1032,16 @@ class AgentLoop:
         emit_events: bool = True,
         nested_waiter: ToolInterruptWaiter | None = None,
         nested_tools: NestedCallableTools | None = None,
+        interrupted: ToolExecutionOutcome | None = None,
     ) -> _SettledToolCall:
+        """Run the call and settle it. ``interrupted`` is the outcome of a call
+        that was cancelled before it ran; it is settled like one cancelled
+        while running."""
         started_at = datetime.now(UTC)
         # A nested call runs on the executor its parent's snapshot is bound to.
-        execution = (self._tools if nested_tools is None else nested_tools).execute(
+        execution = interrupted or (
+            self._tools if nested_tools is None else nested_tools
+        ).execute(
             call,
             output_sink=self._tool_output_sink(turn_index, call)
             if emit_events
