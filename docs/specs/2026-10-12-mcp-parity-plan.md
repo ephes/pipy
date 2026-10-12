@@ -571,6 +571,29 @@ Pi's `validateToolArguments` coerces (`"3"` to `3`, optional `null` dropped)
 before it validates; pipy passes foreign arguments through unchanged and
 reports a mismatch to the model, under DEV-10.
 
+Decided in S02:
+
+- pipy had no `get_all_tools()`. It is added on the handler context
+  (`ctx.get_all_tools()`), next to `ctx.set_active_tools(...)`, not on the
+  activation API as Pi's `pi.getAllTools()`: pipy's activation API is closed
+  after `activate(api)` returns. An entry (`ToolInfo`) carries name,
+  description, input schema, exposure, namespace, annotations and the reach
+  function. Pi's `promptGuidelines` and `sourceInfo` are not reported; pipy
+  tools have neither yet.
+- Registration is open only during activation, so EXT-04 reads: an extension
+  that registers one of its own tool names again replaces the earlier
+  registration (Pi `extension.tools.set`), and a tool whose last registration
+  is `hidden` is registered but never declared. A session sees a withdrawal
+  after the next activation (`/reload`). A name another extension registered
+  stays a duplicate that disables the second extension; Pi lets the first
+  extension win silently.
+- `hidden` is the one exposure S02 enforces (the definitions a capability
+  value projects leave hidden tools out). The other exposures are stored and
+  reported; S03 makes them decide the declared and callable sets, and sets
+  the `codemode` tool's own exposure to `model-only`.
+- `codemode` declares `reaches_tools` with the Python discovery names of
+  DEV-01, ahead of the helpers themselves (S07).
+
 `ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH` (64 KiB) stays. MCP text is
 already cut to 20 KB plus a short frame before it becomes a result.
 

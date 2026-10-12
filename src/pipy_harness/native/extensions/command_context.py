@@ -18,7 +18,7 @@ are re-exported from `pipy_harness.extensions`.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
@@ -35,6 +35,9 @@ from pipy_harness.native.extensions.session_views import (
     _ConversationView,
     _ReadOnlySessionManagerView,
 )
+
+if TYPE_CHECKING:
+    from pipy_harness.native.tools.base import ToolInfo
 
 
 def make_extension_context(
@@ -109,6 +112,14 @@ class CommandContext(Protocol):
 
     def set_active_tools(self, tool_names: Sequence[str]) -> bool:
         """Restrict the active model-visible tools for later provider turns."""
+        ...
+
+    def get_all_tools(self) -> "tuple[ToolInfo, ...]":
+        """Every registered tool, active or not, with its metadata.
+
+        Pi ``getAllTools``: name, description, input schema, exposure,
+        namespace, annotations and the reach function of each tool.
+        """
         ...
 
     def set_model(self, reference: str) -> bool:
@@ -189,6 +200,13 @@ class _CommandContext:
         return self._model_runtime.set_active_tools_fn(
             tuple(str(name) for name in tool_names)
         )
+
+    def get_all_tools(self) -> "tuple[ToolInfo, ...]":
+        if self._model_runtime.get_all_tools_fn is None:
+            raise ExtensionCapabilityError(
+                "the tool list is not available in this context"
+            )
+        return tuple(self._model_runtime.get_all_tools_fn())
 
     def set_model(self, reference: str) -> bool:
         if self._model_runtime.set_model_fn is None:

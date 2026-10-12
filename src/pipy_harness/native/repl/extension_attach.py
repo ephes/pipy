@@ -277,6 +277,7 @@ def _build_projection_and_route(
         has_ui=inputs.has_ui,
         notify_sink=inputs.notify_sink,
         set_active_tools=inputs.set_active_tools,
+        get_all_tools=inputs.tool_capabilities.all_tools,
         project_trusted=inputs.project_trusted,
         prepare_capability=inputs.tool_capabilities.prepare_extensions,
         chrome=(

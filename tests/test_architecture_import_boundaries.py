@@ -744,6 +744,10 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.ToolContext",
         "pipy_harness.native.tools.ToolDefinition",
         "pipy_harness.native.tools.ToolPort",
+        # `all_tools` reports the registered tools to extensions (Pi
+        # `getAllTools`); the report type belongs to the tool contracts.
+        "pipy_harness.native.tools.ToolInfo",
+        "pipy_harness.native.tools.tool_info",
         # The live capability state pointer is guarded state (an extension tool
         # handler can reach `set_active_tools` from a worker thread while the
         # session publishes a reloaded generation), and published registries are

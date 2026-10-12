@@ -38,6 +38,13 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
     # import cycle.
     from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.themes import ChromePalette
+    from pipy_harness.native.tools.base import (
+        ReachesTools,
+        ToolAnnotations,
+        ToolExposure,
+        ToolInfo,
+        ToolNamespace,
+    )
 
 # Activation reason codes (safe, enumerable labels).
 REASON_IMPORT_ERROR: str = "import_error"
@@ -196,24 +203,27 @@ ExtensionMode = Literal["tui", "print", "json", "rpc"]
 # model-visible tool set, switch the active model, or set the reasoning level.
 # Each returns ``True`` when the mutation was accepted.
 ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
+ControlGetAllToolsFn = Callable[[], "Sequence[ToolInfo]"]
 ControlSetModelFn = Callable[[str], bool]
 ControlSetThinkingLevelFn = Callable[[str], bool]
 
 
 @dataclass(frozen=True, slots=True)
 class ExtensionModelRuntimeControl:
-    """Frozen bundle of the three model-runtime control callables.
+    """Frozen bundle of the model-runtime control callables.
 
     Groups the ``set_active_tools`` / ``set_model`` / ``set_thinking_level``
     capability functions the extension host threads into every command, hook,
-    and tool context as a single port instead of an ad-hoc callable fan-out.
-    Each field is ``None`` when that mutation is not offered in the current
+    and tool context as a single port instead of an ad-hoc callable fan-out,
+    plus the ``get_all_tools`` read of the registered tools.
+    Each field is ``None`` when that capability is not offered in the current
     context (the context then raises ``ExtensionCapabilityError``).
     """
 
     set_active_tools_fn: ControlSetActiveToolsFn | None = None
     set_model_fn: ControlSetModelFn | None = None
     set_thinking_level_fn: ControlSetThinkingLevelFn | None = None
+    get_all_tools_fn: ControlGetAllToolsFn | None = None
 
 
 # Coding-session host collaborators an activated extension may invoke through a
@@ -735,10 +745,19 @@ class ToolResult:
     session file stores it (a JSON object; a value that does not survive a
     JSON round trip is dropped). (Pi-shaped `content`/`details`; the richer
     block-content + `terminate` shape arrives in a later slice.)
+
+    `structured_content` is the machine-readable result of a tool that
+    declares an `output_schema`, for programmatic callers; any JSON value (a
+    value that is not JSON is dropped). It is never sent to the provider and
+    not written to the session file. `is_error` reports a failure without
+    raising: the model sees `content` as an error, and the result keeps its
+    `details` and `structured_content`.
     """
 
     content: str
     details: Mapping[str, object] | None = None
+    structured_content: object | None = None
+    is_error: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -751,6 +770,19 @@ class ExtensionTool:
     `ToolResult`. `render_call` and `render_result` are optional callables
     that receive a `ToolRenderContext` and return a `ToolRenderComponent`
     (or object) controlling how the tool's call and result rows render.
+
+    The keyword-only fields are the tool metadata of Pi's `ToolDefinition`,
+    validated at registration:
+
+    - `exposure`: how the model reaches the tool; default `"direct"`.
+      Registering one of the extension's own tool names again replaces the
+      earlier registration, so `exposure="hidden"` withdraws a tool.
+    - `namespace`: the `ToolNamespace` group the tool belongs to.
+    - `annotations`: `ToolAnnotations` hints about what the tool does.
+    - `output_schema`: JSON Schema of the `structured_content` in the tool's
+      successful results.
+    - `reaches_tools(input)`: for a tool that reaches other tools, `"all"` or
+      the words of the input that may name them.
     """
 
     name: str
@@ -759,6 +791,11 @@ class ExtensionTool:
     handler: Callable[..., object]
     render_call: Callable[["ToolRenderContext"], object] | None = None
     render_result: Callable[["ToolRenderContext"], object] | None = None
+    exposure: "ToolExposure" = field(default="direct", kw_only=True)
+    namespace: "ToolNamespace | None" = field(default=None, kw_only=True)
+    annotations: "ToolAnnotations | None" = field(default=None, kw_only=True)
+    output_schema: Mapping[str, object] | None = field(default=None, kw_only=True)
+    reaches_tools: "ReachesTools | None" = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)

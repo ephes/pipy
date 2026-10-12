@@ -143,6 +143,12 @@ from pipy_harness.native.extensions.session_views import (
 )
 from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.provider_construction import build_extension_provider_port
+from pipy_harness.native.tools.base import (
+    ToolAnnotations,
+    ToolExposure,
+    ToolInfo,
+    ToolNamespace,
+)
 
 __all__ = [
     "PipyExtensionAPI",
@@ -242,4 +248,8 @@ __all__ = [
     "discover_extensions",
     "safe_extension_metadata",
     "apply_provider_headers",
+    "ToolAnnotations",
+    "ToolExposure",
+    "ToolInfo",
+    "ToolNamespace",
 ]

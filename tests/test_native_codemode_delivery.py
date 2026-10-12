@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,12 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tools.codemode import CodemodeTool
 from pipy_harness.sdk import create_product_session
+
+
+def _declared_codemode():
+    # A request carries what a provider sees; the reach function stays with
+    # the registered definition.
+    return replace(CodemodeTool().definition, reaches_tools=None)
 
 
 def wait_until(predicate, timeout=10):
@@ -220,7 +227,7 @@ def test_public_multifile_summary_and_durable_replay(
     )
     assert (
         next(t for t in requests[0].available_tools if t.name == "codemode")
-        == CodemodeTool().definition
+        == _declared_codemode()
     )
     results = [m for m in requests[1].messages if isinstance(m, AgentToolResultMessage)]
     assert len(results) == 1 and results[0].provider_correlation_id == "parent"
@@ -313,7 +320,7 @@ def test_cli_modes_real_delivery(tmp_path, monkeypatch, capfd, runtime, mode):
     assert cli.main(args) == 0
     assert (
         next(t for t in requests[0].available_tools if t.name == "codemode")
-        == CodemodeTool().definition
+        == _declared_codemode()
     )
     results = [m for m in requests[1].messages if isinstance(m, AgentToolResultMessage)]
     assert len(results) == 1 and results[0].provider_correlation_id == "parent"

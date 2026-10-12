@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from pipy_harness.native.extension_types import (
+    ControlGetAllToolsFn,
     ExtensionModelRuntimeControl,
     ToolResult,
 )
@@ -16,6 +17,7 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
     json_safe_details,
+    json_safe_value,
 )
 
 if TYPE_CHECKING:
@@ -53,6 +55,7 @@ class _ExtensionToolPort:
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
         set_active_tools_fn: Callable[[int, Sequence[str]], bool] | None = None,
+        get_all_tools_fn: ControlGetAllToolsFn | None = None,
         flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
     ) -> None:
@@ -60,6 +63,7 @@ class _ExtensionToolPort:
         self._has_ui = has_ui
         self._notify_sink = notify_sink
         self._set_active_tools_fn = set_active_tools_fn
+        self._get_all_tools_fn = get_all_tools_fn
         self._flags = dict(flags or {})
         self._project_trusted = bool(project_trusted)
         tool = registered.tool
@@ -67,6 +71,11 @@ class _ExtensionToolPort:
             name=tool.name,
             description=str(tool.description),
             input_schema=dict(tool.input_schema),
+            exposure=tool.exposure,
+            namespace=tool.namespace,
+            annotations=tool.annotations,
+            output_schema=tool.output_schema,
+            reaches_tools=tool.reaches_tools,
         )
 
     @property
@@ -86,7 +95,8 @@ class _ExtensionToolPort:
             self._has_ui,
             self._notify_sink,
             model_runtime=ExtensionModelRuntimeControl(
-                set_active_tools_fn=set_active_tools
+                set_active_tools_fn=set_active_tools,
+                get_all_tools_fn=self._get_all_tools_fn,
             ),
             flags=self._flags,
             project_trusted=self._project_trusted,
@@ -115,10 +125,17 @@ class _ExtensionToolPort:
         # renderer; the JSON copy is what the session file keeps, so live and
         # restored rows render from the same value.
         details = result.details if isinstance(result, ToolResult) else None
+        # Pi `isError` and `structuredContent`: a handler reports a failure
+        # that still carries data by returning it instead of raising.
+        is_error = isinstance(result, ToolResult) and bool(result.is_error)
+        structured_content = (
+            result.structured_content if isinstance(result, ToolResult) else None
+        )
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=content,
-            is_error=False,
+            is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
             details=json_safe_details(details),
+            structured_content=json_safe_value(structured_content),
         )

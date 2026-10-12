@@ -1144,6 +1144,7 @@ def test_production_projection_tool_port_is_detached_and_stable(
         has_ui=has_ui,
         notify_sink=notify,
         set_active_tools=set_active_tools,
+        get_all_tools=lambda: (),
         project_trusted=project_trusted,
         prepare_capability=prepare,
         chrome=None,
@@ -1293,6 +1294,7 @@ def test_invalid_builder_results_fail_before_returning_a_projection(
             has_ui=False,
             notify_sink=lambda *_args: None,
             set_active_tools=lambda _generation_id, _names: True,
+            get_all_tools=lambda: (),
             flags=flags,
             project_trusted=True,
         )

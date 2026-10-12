@@ -92,7 +92,9 @@ from pipy_harness.native.extensions.provider_normalization import (
     _normalize_provider_name,
     _normalize_provider_oauth,
 )
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.extensions.tool_normalization import (
+    _normalize_extension_tool,
+)
 
 # Event names (the dispatched subset grows per slice).
 EVENT_TOOL_CALL: str = "tool_call"
@@ -557,6 +559,11 @@ class _ActivationApi:
         elif family == "tool" and name in self._reserved_tools:
             reserved_reason = REASON_RESERVED_TOOL
         taken, staged, duplicate_reason = registries[family]
+        if family == "tool":
+            # Pi `extension.tools.set`: an extension that registers one of its
+            # own tool names again replaces its earlier registration. Only a
+            # name another extension took is a duplicate.
+            staged = ()
         failure_reason = reserved_reason
         if failure_reason is None and (name in taken or name in staged):
             failure_reason = duplicate_reason
@@ -694,7 +701,9 @@ class _ActivationApi:
         self._stage_registration(
             "tool",
             lambda: self._normalize_tool_name(tool),
-            lambda name: self._normalize_tool(tool, name=name),
+            lambda name: _normalize_extension_tool(
+                tool, name=name, extension=self._extension_name
+            ),
         )
 
     @staticmethod
@@ -705,32 +714,6 @@ class _ActivationApi:
         if not name:
             raise _ActivationError(REASON_INVALID_TOOL)
         return name
-
-    def _normalize_tool(self, tool: ExtensionTool, *, name: str) -> RegisteredTool:
-        """Validate extension-controlled non-name values without the host guard."""
-
-        description = tool.description
-        input_schema = tool.input_schema
-        handler = tool.handler
-        if not callable(handler) or not isinstance(input_schema, Mapping):
-            raise _ActivationError(REASON_INVALID_TOOL)
-        try:
-            normalized_description = str(description)
-            normalized_schema = dict(input_schema)
-            ToolDefinition(
-                name=name,
-                description=normalized_description,
-                input_schema=normalized_schema,
-            )
-        except (ValueError, TypeError) as exc:
-            raise _ActivationError(REASON_INVALID_TOOL, _safe_diagnostic(exc)) from None
-        normalized = replace(
-            tool,
-            name=name,
-            description=normalized_description,
-            input_schema=normalized_schema,
-        )
-        return RegisteredTool(tool=normalized, extension=self._extension_name)
 
     def register_provider(self, provider: ExtensionProvider) -> None:
         self._stage_registration(

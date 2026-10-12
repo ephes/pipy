@@ -18,10 +18,12 @@ from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolInfo,
     ToolNamespace,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
+    tool_info,
     validate_arguments,
 )
 from pipy_harness.native.tools.foreign_schema import validate_foreign_arguments
@@ -32,10 +34,12 @@ __all__ = [
     "ToolContext",
     "ToolDefinition",
     "ToolExecutionResult",
+    "ToolInfo",
     "ToolNamespace",
     "ToolPort",
     "ToolRequest",
     "make_tool_request_id",
+    "tool_info",
     "validate_arguments",
     "validate_foreign_arguments",
 ]

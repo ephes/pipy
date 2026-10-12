@@ -437,12 +437,20 @@ class ExtensionTool:
     description: str
     input_schema: JsonSchema
     handler: Callable[["ToolCallContext", Mapping[str, Any]], "ToolResult"]
+    # Keyword-only tool metadata; see "Tool model" below.
+    exposure: Literal["direct", "model-only", "codemode", "deferred", "hidden"] = "direct"
+    namespace: "ToolNamespace | None" = None
+    annotations: "ToolAnnotations | None" = None
+    output_schema: JsonSchema | None = None
+    reaches_tools: Callable[[Mapping[str, Any]], Literal["all"] | Sequence[str]] | None = None
 
 
 @dataclass(frozen=True)
 class ToolResult:
     content: ToolContent
     details: Mapping[str, Any] | None = None
+    structured_content: Any = None
+    is_error: bool = False
     terminate: bool = False
 
 
@@ -509,7 +517,6 @@ class PipyExtensionAPI(Protocol):
     # activation-time API only registers the renderer.
 
     def get_commands(self) -> Sequence["CommandInfo"]: ...
-    def get_all_tools(self) -> Sequence["ToolInfo"]: ...
     def on(self, event: str, handler: Callable[..., object] | None = None) -> object: ...
 
 
@@ -540,6 +547,7 @@ class CommandContext(Protocol):
 
     def complete(self, system_prompt: str, user_text: str) -> str: ...
     def set_active_tools(self, tool_names: Sequence[str]) -> bool: ...
+    def get_all_tools(self) -> tuple["ToolInfo", ...]: ...
     def set_model(self, reference: str) -> bool: ...
     def set_thinking_level(self, level: str) -> bool: ...
     def append_entry(self, custom_type: str, data: object | None = None) -> object: ...
@@ -752,6 +760,9 @@ Rules:
 
 - Tool names must not shadow built-ins unless a later explicit override policy
   is designed.
+- A tool name another extension registered is a duplicate and disables the
+  second extension. An extension that registers one of its own tool names
+  again replaces its earlier registration, as in Pi.
 - Tool schemas use the same JSON-schema subset as native tools.
 - Tool descriptions are model-visible and should support optional
   tool-specific prompt guidance in a later slice.
@@ -761,6 +772,8 @@ Rules:
 - Tool results use Pi-shaped `content` plus `details`, where `content` is the
   provider-visible result and `details` is structured local state/metadata that
   can support rendering, state reconstruction, or later hooks.
+- A tool result may also carry `structured_content` and `is_error`; see
+  "Extension tool metadata" below.
 - Tool handlers may signal early termination for workflows where the tool
   result is final and no automatic follow-up model turn is needed.
 - Raised exceptions become bounded tool errors, not uncaught session crashes.
@@ -787,10 +800,12 @@ input schema it carries the metadata Pi's tools carry, with Pi's meaning:
 | `reaches_tools` | a function from the call input to `"all"` or a tuple of words | For a tool that reaches other tools: which ones a call may reach. |
 | `schema_mode` | `strict` (default), `foreign` | Which input schemas the definition accepts. |
 
-The defaults describe today's tools, so existing tools are unchanged. This is
-the model only: extension tools cannot set these fields yet, and exposure does
-not yet change what a request declares or what a script may call. Both follow
-in the next slices of the
+The defaults describe today's tools, so existing tools are unchanged.
+Extension tools set these fields on `ExtensionTool` (next section). Of the
+exposures only `hidden` changes behaviour so far: a hidden tool is never
+declared to the model. The others are recorded and reported, but a request
+still declares every active tool and scripts still reach only the built-in
+tools; the declared and callable sets follow in the next slice of the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md).
 
 `schema_mode="strict"` holds the input schema to the JSON-schema subset above
@@ -814,6 +829,97 @@ A tool result may carry `structured_content`, the machine-readable result for
 programmatic callers such as codemode scripts. As in Pi it is never sent to a
 provider and is not written to the session file; `content` stays the
 model-facing result.
+
+### Extension tool metadata
+
+`ExtensionTool` takes the metadata as keyword arguments. `ToolNamespace`,
+`ToolAnnotations` and `ToolInfo` are importable from `pipy_harness.extensions`.
+
+```python
+from pipy_harness.extensions import (
+    ExtensionTool, ToolAnnotations, ToolNamespace, ToolResult,
+)
+
+def activate(api):
+    api.register_tool(ExtensionTool(
+        name="find_issue",
+        description="Find an issue by key.",
+        input_schema={"type": "object", "properties": {"key": {"type": "string"}},
+                      "required": ["key"]},
+        handler=find_issue,
+        exposure="codemode",
+        namespace=ToolNamespace(
+            name="tracker",
+            aliases=("issues",),
+            description="Issue tracker",
+            instructions="Search before you create an issue.",
+        ),
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True),
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    ))
+```
+
+- `exposure` is one of the five values in the table above. Any other value
+  disables the extension with `invalid_tool`, as does a `namespace` that is not
+  a `ToolNamespace`, `annotations` that are not `ToolAnnotations`, an
+  `output_schema` that is not a JSON object, or a `reaches_tools` that is not
+  callable.
+- `namespace.aliases` is a tuple of other names the group can be looked up by.
+  `description` is the short summary shown with the group; `instructions` is
+  longer guidance that is only returned when the namespace is described on
+  request.
+- `annotations` have the meaning of MCP tool annotations. Each hint is `True`,
+  `False` or `None` (no hint). Missing hints take the MCP defaults: a tool is
+  not read-only, and may be destructive and reach an open world. pipy does not
+  verify them.
+- `output_schema` is the JSON Schema of the tool's `structured_content`. It may
+  use any JSON Schema keyword (the input schema stays in pipy's subset). pipy
+  keeps a copy made at registration and does not enforce it.
+- `reaches_tools(input)` is for a tool that reaches other tools. It returns
+  `"all"`, or the words of the input that may name the tools it reaches; a
+  word refers to every tool or namespace whose name it contains, so words may
+  over-match. The built-in `codemode` tool declares it: `"all"` for a script
+  that uses `search_tools`, `describe_tool`, `describe_namespace` or
+  `ALL_TOOLS`, otherwise the words of the script.
+
+**Results.** A handler that returns data declares an `output_schema` and
+returns the data as `ToolResult(structured_content=...)` next to `content`. It
+is any JSON value; a value that is not JSON is dropped, and the result keeps a
+copy. To report a failure that still carries data, return the result with
+`is_error=True` instead of raising: the model sees `content` as an error, and
+the result keeps its `details` and `structured_content`. Scripts receive the
+structured content of a tool that declares an output schema once codemode
+reaches extension tools (later slices of the plan).
+
+**Listing tools.** `ctx.get_all_tools()` returns a `ToolInfo` for every
+registered tool, built-in and extension, active or not, in registration
+order: `name`, `description`, `input_schema` (a copy), `exposure`,
+`namespace`, `annotations` and `reaches_tools` (the function, or `None`). It
+is available in command, shortcut, hook and tool handler contexts of a
+session and raises `ExtensionCapabilityError` where no session backs the
+context. In Pi this is `pi.getAllTools()`; pipy puts it on the context, next
+to `ctx.set_active_tools(...)`. A permission hook can decide by the
+annotations:
+
+```python
+@api.on("tool_call")
+def gate(event, ctx):
+    hints = next(
+        (tool.annotations for tool in ctx.get_all_tools()
+         if tool.name == event.tool_name),
+        None,
+    )
+    if hints is not None and hints.destructive_hint is True:
+        return ToolBlock(reason=f"{event.tool_name} was not approved")
+```
+
+**Withdrawing a tool.** Tools cannot be unregistered. Register the name again
+with `exposure="hidden"` to withdraw it: the tool stays registered and
+`get_all_tools()` reports it as `hidden`, but no request declares it,
+`ctx.set_active_tools(...)` cannot bring it back, and a model call to it is
+answered with `unknown tool`. Registration is open only while `activate(api)`
+runs, so a tool is withdrawn for a session by the extension's next activation
+(a `/reload`); the transcript then tells the model that the tool was removed.
 
 First-slice candidates:
 

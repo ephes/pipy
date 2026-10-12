@@ -22,6 +22,7 @@ from pipy_harness.native.agent.tools import ToolExecutionOutcome, ToolInterruptW
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.extension_types import (
+    ControlGetAllToolsFn,
     ExtensionTool,
     ExtensionUiDriver,
     RegisteredTool,
@@ -177,6 +178,7 @@ def build_projected_extension_tool_port(
     has_ui: bool,
     notify_sink: Callable[[str, str], None],
     set_active_tools: Callable[[int, Sequence[str]], bool],
+    get_all_tools: ControlGetAllToolsFn,
     flags: Mapping[str, object],
     project_trusted: bool,
 ) -> ToolPort:
@@ -187,6 +189,7 @@ def build_projected_extension_tool_port(
         has_ui=has_ui,
         notify_sink=notify_sink,
         set_active_tools_fn=set_active_tools,
+        get_all_tools_fn=get_all_tools,
         flags=flags,
         project_trusted=project_trusted,
     )
@@ -201,6 +204,7 @@ def build_candidate_extension_projection(
     has_ui: bool,
     notify_sink: Callable[[str, str], None],
     set_active_tools: Callable[[int, Sequence[str]], bool],
+    get_all_tools: ControlGetAllToolsFn,
     project_trusted: bool,
     prepare_capability: Callable[[Mapping[str, ToolPort]], ToolCapabilityState],
     chrome: ExtensionChromeHandle | None,
@@ -215,6 +219,7 @@ def build_candidate_extension_projection(
             has_ui=has_ui,
             notify_sink=notify_sink,
             set_active_tools=set_active_tools,
+            get_all_tools=get_all_tools,
             flags=frozen_flags,
             project_trusted=project_trusted,
         )

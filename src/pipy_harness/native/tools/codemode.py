@@ -2,12 +2,41 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+from typing import Any
+
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolReach,
     ToolRequest,
 )
+
+# Script globals that list or look up tools and namespaces, which the script
+# may then call by any name (Pi ``DISCOVERY_GLOBALS``, with the Python names).
+_DISCOVERY_GLOBALS = re.compile(
+    r"\b(search_tools|describe_namespace|describe_tool|ALL_TOOLS)\b", re.ASCII
+)
+_WORDS = re.compile(r"\w+", re.ASCII)
+
+
+def script_reach(arguments: Mapping[str, Any]) -> ToolReach:
+    """The tools a script may call (Pi ``getScriptReach``).
+
+    Every tool when the script uses a discovery global, else the words of its
+    source, so ``tools.mcp__docs__search`` and ``tools["mcp__docs__" + name]``
+    both name the ``mcp__docs`` namespace.
+    """
+
+    code = arguments.get("code")
+    if not isinstance(code, str):
+        return ()
+    if _DISCOVERY_GLOBALS.search(code):
+        return "all"
+    return tuple(_WORDS.findall(code))
+
 
 # This small-file example is executed through the real product pipeline in tests.
 _READ_FILTER_EXAMPLE = """matches = []
@@ -48,6 +77,7 @@ def codemode_definition() -> ToolDefinition:
             "required": ["code"],
             "additionalProperties": False,
         },
+        reaches_tools=script_reach,
     )
 
 

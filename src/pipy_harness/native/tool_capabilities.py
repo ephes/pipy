@@ -14,7 +14,13 @@ from pipy_harness.native.agent.tools import (
     ToolExecutor,
     ToolInterruptWaiter,
 )
-from pipy_harness.native.tools import ToolContext, ToolDefinition, ToolPort
+from pipy_harness.native.tools import (
+    ToolContext,
+    ToolDefinition,
+    ToolInfo,
+    ToolPort,
+    tool_info,
+)
 
 DEFAULT_TOOL_NAMES = ("read", "ls", "grep", "find", "write", "edit", "bash")
 
@@ -319,6 +325,17 @@ class NativeToolCapabilities:
             )
         )
 
+    def all_tools(self) -> tuple[ToolInfo, ...]:
+        """Pi ``getAllTools``: every registered tool of the live value.
+
+        Hidden and inactive tools are included; the entries report what is
+        registered, not what the next request declares.
+        """
+
+        return tuple(
+            tool_info(port.definition) for port in self.state.registry.values()
+        )
+
     def set_active_tools(self, names: Sequence[str]) -> bool:
         """Atomically replace the provider-visible tool-name selection.
 
@@ -572,15 +589,23 @@ def _definitions_for(
     state: ToolCapabilityState,
     allowed_names: Sequence[str] | None,
 ) -> tuple[ToolDefinition, ...]:
-    """Project one capability value's visible definitions. Pure."""
+    """Project one capability value's visible definitions. Pure.
+
+    A tool with exposure ``hidden`` is registered but unreachable (Pi
+    ``_applyToolLoadout``): it is never declared, also when it is named as
+    active, and a model call to it is therefore an unknown tool.
+    """
 
     allowed: frozenset[str] | None = (
         frozenset(str(name) for name in allowed_names)
         if allowed_names is not None
         else state.active_tool_names
     )
-    return tuple(
+    definitions = (
         port.definition
         for name, port in state.registry.items()
         if allowed is None or name in allowed
+    )
+    return tuple(
+        definition for definition in definitions if definition.exposure != "hidden"
     )

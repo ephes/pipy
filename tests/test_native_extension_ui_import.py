@@ -29,6 +29,7 @@ import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.extensions.session_views as extension_session_views
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
+import pipy_harness.native.tools.base as tools_base
 
 _PUBLIC_EXTENSION_NAMES = (
     "PipyExtensionAPI",
@@ -128,9 +129,17 @@ _PUBLIC_EXTENSION_NAMES = (
     "discover_extensions",
     "safe_extension_metadata",
     "apply_provider_headers",
+    "ToolAnnotations",
+    "ToolExposure",
+    "ToolInfo",
+    "ToolNamespace",
 )
 
 _OWNER_GROUPS = (
+    (
+        tools_base,
+        ("ToolAnnotations", "ToolExposure", "ToolInfo", "ToolNamespace"),
+    ),
     (
         extension_activation,
         ("activate_extensions", "safe_activation_metadata"),
@@ -404,10 +413,10 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
-    assert len(_PUBLIC_EXTENSION_NAMES) == 97
+    assert len(_PUBLIC_EXTENSION_NAMES) == 101
 
     owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
-    assert len(owned_names) == len(set(owned_names)) == 97
+    assert len(owned_names) == len(set(owned_names)) == 101
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
         for name in names:
@@ -428,7 +437,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
         if (alias.asname or alias.name) in expected_owners
     ]
 
-    assert len(direct_imports) == len(dict(direct_imports)) == 97
+    assert len(direct_imports) == len(dict(direct_imports)) == 101
     assert dict(direct_imports) == expected_owners
 
 

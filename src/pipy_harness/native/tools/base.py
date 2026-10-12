@@ -305,6 +305,38 @@ class ToolDefinition:
             raise ValueError("ToolDefinition.reaches_tools must be callable or None")
 
 
+@dataclass(frozen=True, slots=True)
+class ToolInfo:
+    """One registered tool as an extension sees it (Pi ``ToolInfo``).
+
+    `ctx.get_all_tools()` returns one per registered tool, whether or not the
+    tool is active. `input_schema` is a detached copy. `reaches_tools` is the
+    tool's reach function, or None when the tool reaches no other tools.
+    """
+
+    name: str
+    description: str
+    input_schema: Mapping[str, Any]
+    exposure: ToolExposure
+    namespace: ToolNamespace | None = None
+    annotations: ToolAnnotations | None = None
+    reaches_tools: ReachesTools | None = None
+
+
+def tool_info(definition: ToolDefinition) -> ToolInfo:
+    """Report one definition's extension-visible metadata."""
+
+    return ToolInfo(
+        name=definition.name,
+        description=definition.description,
+        input_schema=materialize_tool_input_schema(definition.input_schema),
+        exposure=definition.exposure,
+        namespace=definition.namespace,
+        annotations=definition.annotations,
+        reaches_tools=definition.reaches_tools,
+    )
+
+
 def _require_json_schema_object(schema: Mapping[str, Any], field_name: str) -> None:
     """Reject a schema that JSON cannot represent (or that contains a cycle)."""
 
@@ -452,6 +484,18 @@ def json_safe_details(value: object) -> dict[str, Any] | None:
         return None
     copied = json.loads(json.dumps(value, allow_nan=False))
     return copied if isinstance(copied, dict) else None
+
+
+def json_safe_value(value: object) -> Any:
+    """A detached JSON copy of ``value`` when it is JSON data, else None.
+
+    The copy is what a tool result keeps as ``structured_content``, so a
+    handler that goes on mutating its own value cannot change the result.
+    """
+
+    if value is None or not is_json_value(value):
+        return None
+    return json.loads(json.dumps(value, allow_nan=False))
 
 
 @dataclass(frozen=True, slots=True)

@@ -862,6 +862,7 @@ class ProviderMutationEffects:
             set_thinking_level_fn=partial(
                 self.extension_set_thinking_level, generation_id
             ),
+            get_all_tools_fn=self.tool_capabilities.all_tools,
         )
 
     def _prepare_model_mutation(

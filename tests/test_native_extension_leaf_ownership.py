@@ -11,10 +11,17 @@ from pipy_harness.native.extensions import (
     contracts,
     flag_tokens,
     provider_normalization,
+    tool_normalization,
 )
 
 REPO_ROOT = Path(__file__).parents[1]
-LEAF_MODULES = (contracts, collectors, flag_tokens, provider_normalization)
+LEAF_MODULES = (
+    contracts,
+    collectors,
+    flag_tokens,
+    provider_normalization,
+    tool_normalization,
+)
 MOVED_OWNERS = {
     contracts: {
         "CommandHandler",
@@ -56,6 +63,7 @@ MOVED_OWNERS = {
         "_normalize_default_model",
         "_normalize_provider_oauth",
     },
+    tool_normalization: {"_normalize_extension_tool"},
 }
 PUBLIC_MOVED_OWNERS = {
     "PipyExtensionAPI": contracts,

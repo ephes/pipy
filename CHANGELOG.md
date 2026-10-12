@@ -34,6 +34,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   did not write (an MCP server's); it reaches the provider unchanged and its
   arguments are checked by a built-in validator for the common JSON Schema
   keywords. Existing tools are unchanged, and nothing uses the new fields yet.
+- Extension tools can declare that metadata: `ExtensionTool` takes `exposure`,
+  `namespace`, `annotations`, `output_schema` and `reaches_tools`, and a
+  `ToolResult` can carry `structured_content` and `is_error` (the model sees
+  the content as an error, without the handler raising).
+  `ctx.get_all_tools()` lists every registered tool with its exposure,
+  namespace, annotations and reach function, so a permission hook can decide
+  by the annotations. A tool registered with exposure `hidden` is never
+  declared to the model; the other exposures do not change requests yet.
+  The built-in `codemode` tool declares which tools a script may reach.
 
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
