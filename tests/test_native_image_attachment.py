@@ -14,6 +14,8 @@ import base64
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.native.image_attachment import (
     MAX_IMAGE_ATTACHMENT_BYTES,
     MAX_IMAGE_ATTACHMENTS_PER_TURN,
@@ -178,3 +180,129 @@ def test_empty_when_no_references(tmp_path: Path) -> None:
     resolution = resolve_image_attachments("just text", workspace_root=tmp_path)
     assert resolution == ImageAttachmentResolution()
     assert resolution.attachments() == ()
+
+
+@pytest.mark.parametrize("total,requested", [(64, 65), (48, 49)])
+def test_growing_image_read_is_bounded(monkeypatch, tmp_path, total, requested):
+    import io
+    import os
+
+    path = tmp_path / "growing.png"
+    _write(path, _PNG)
+    reads = []
+    stream = io.BytesIO(_PNG + b"x" * 1000)
+
+    class GrowingFile:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            stream.close()
+
+        def fileno(self):
+            return 123
+
+        def read(self, size=-1):
+            reads.append(size)
+            return stream.read(size)
+
+    monkeypatch.setattr(os, "fdopen", lambda *args, **kwargs: GrowingFile())
+    monkeypatch.setattr(os, "open", lambda *args: 123)
+    monkeypatch.setattr(os, "fstat", lambda fd: path.stat())
+    resolution = resolve_image_attachments(
+        "@image:growing.png",
+        workspace_root=tmp_path,
+        max_attachment_bytes=64,
+        max_total_bytes=total,
+    )
+    assert resolution.attachments() == ()
+    assert resolution.references[0].reason == "oversized_image"
+    assert reads == [requested]
+    assert stream.closed
+
+
+def test_image_exact_aggregate_boundary(tmp_path):
+    _write(tmp_path / "first.png", _PNG)
+    _write(tmp_path / "second.png", _PNG)
+    resolution = resolve_image_attachments(
+        "@image:first.png @image:second.png",
+        workspace_root=tmp_path,
+        max_attachment_bytes=len(_PNG),
+        max_total_bytes=2 * len(_PNG),
+    )
+    assert resolution.loaded_count == 2
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_image_descriptor_validation_closes_on_rejection(monkeypatch, tmp_path, broken):
+    import os
+    import stat
+    from types import SimpleNamespace
+
+    _write(tmp_path / "image.png", _PNG)
+    original_open = os.open
+    original_fstat = os.fstat
+    descriptors = []
+
+    def opened(*args):
+        fd = original_open(*args)
+        descriptors.append(fd)
+        return fd
+
+    def inspected(fd):
+        if broken:
+            raise OSError("synthetic descriptor error")
+        return SimpleNamespace(st_mode=stat.S_IFIFO)
+
+    monkeypatch.setattr(os, "open", opened)
+    monkeypatch.setattr(os, "fstat", inspected)
+    resolution = resolve_image_attachments("@image:image.png", workspace_root=tmp_path)
+    assert resolution.attachments() == ()
+    assert resolution.references[0].reason == (
+        "read_failed" if broken else "not_a_regular_file"
+    )
+    assert len(descriptors) == 1
+    with pytest.raises(OSError):
+        original_fstat(descriptors[0])
+
+
+def test_image_fdopen_failure_closes_descriptor(monkeypatch, tmp_path):
+    import os
+
+    _write(tmp_path / "image.png", _PNG)
+    descriptors = []
+    original_fdopen = os.fdopen
+
+    def broken(fd, *args, **kwargs):
+        descriptors.append(fd)
+        raise OSError("synthetic fdopen failure")
+
+    monkeypatch.setattr(os, "fdopen", broken)
+    result = resolve_image_attachments("@image:image.png", workspace_root=tmp_path)
+    assert result.references[0].reason == "read_failed"
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])
+    monkeypatch.setattr(os, "fdopen", original_fdopen)
+
+
+def test_real_image_growth_after_path_validation(monkeypatch, tmp_path):
+    import os
+
+    path = tmp_path / "image.png"
+    _write(path, _PNG)
+    original_open = os.open
+
+    def grow(candidate, flags):
+        with path.open("ab") as stream:
+            stream.write(b"x" * 1000)
+        return original_open(candidate, flags)
+
+    monkeypatch.setattr(os, "open", grow)
+    result = resolve_image_attachments(
+        "@image:image.png",
+        workspace_root=tmp_path,
+        max_attachment_bytes=64,
+        max_total_bytes=64,
+    )
+    assert result.attachments() == ()
+    assert result.references[0].reason == "oversized_image"

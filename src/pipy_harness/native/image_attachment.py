@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -249,7 +251,7 @@ def _prevalidate_candidate(
     Returns ``(candidate, reason)``. On success ``candidate`` is the resolved
     file path and ``reason`` is ``_LOADED_REASON``; on any rejection
     ``candidate`` is ``None`` and ``reason`` is the specific rejection reason.
-    The on-disk read (and the authoritative post-read budget re-check) stays in
+    The bounded descriptor read and authoritative size re-check stay in
     :func:`_resolve_one`.
     """
 
@@ -292,13 +294,26 @@ def _resolve_one(
     if candidate is None:
         return ResolvedImageAttachment(raw=token, loaded=False, reason=reason)
     try:
-        data = candidate.read_bytes()
+        # Nonblocking open prevents a replacement FIFO from hanging before fstat.
+        descriptor = os.open(candidate, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                return ResolvedImageAttachment(
+                    raw=token, loaded=False, reason=_NOT_FILE_REASON
+                )
+            stream = os.fdopen(descriptor, "rb", buffering=0)
+            descriptor = -1  # stream now owns the descriptor
+            with stream:
+                budget = min(max_attachment_bytes, max_total_bytes - loaded_bytes)
+                data = stream.read(budget + 1)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
     except OSError:
         return ResolvedImageAttachment(
             raw=token, loaded=False, reason=_READ_FAILED_REASON
         )
-    # Re-check the in-memory size after reading: the on-disk file could have
-    # grown between stat and read, and the aggregate budget is authoritative.
+    # The extra byte detects growth without allocating beyond the I/O budget.
     if len(data) > max_attachment_bytes or loaded_bytes + len(data) > max_total_bytes:
         return ResolvedImageAttachment(
             raw=token, loaded=False, reason=_OVERSIZED_REASON
