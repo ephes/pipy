@@ -697,3 +697,119 @@ def test_wrapped_agent_records_partial_lifecycle(tmp_path):
     assert events[0]["agent"] == "pi"
     assert events[0]["partial"] is True
     assert events[-1]["payload"]["return_code"] == 3
+
+
+def test_simultaneous_starts_claim_one_record(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    import pipy_session.auto_capture as capture
+
+    barrier = Barrier(2)
+    original_flock = capture.fcntl.flock
+
+    def simultaneous_lock(fd, operation):
+        barrier.wait(timeout=5)
+        return original_flock(fd, operation)
+
+    monkeypatch.setattr(capture.fcntl, "flock", simultaneous_lock)
+    with ThreadPoolExecutor(2) as pool:
+        futures = [
+            pool.submit(
+                start_auto_capture,
+                agent="claude",
+                slug=f"start-{i}",
+                platform_session_id="shared",
+                root=tmp_path,
+                now=FIXED_NOW,
+            )
+            for i in range(2)
+        ]
+        states = [future.result(timeout=5) for future in futures]
+    assert states[0].active_path == states[1].active_path
+    assert len(list((tmp_path / ".in-progress/pipy").glob("*.jsonl"))) == 1
+
+
+def test_unrelated_starts_do_not_share_lock(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    import pipy_session.auto_capture as capture
+
+    barrier = Barrier(2)
+    original_init = capture.init_session
+
+    def simultaneous_init(**kwargs):
+        barrier.wait(timeout=5)
+        return original_init(**kwargs)
+
+    monkeypatch.setattr(capture, "init_session", simultaneous_init)
+    with ThreadPoolExecutor(2) as pool:
+        futures = [
+            pool.submit(
+                start_auto_capture,
+                agent="claude",
+                slug=f"start-{i}",
+                platform_session_id=f"session-{i}",
+                root=tmp_path,
+                now=FIXED_NOW,
+            )
+            for i in range(2)
+        ]
+        states = [future.result(timeout=5) for future in futures]
+    assert states[0].active_path != states[1].active_path
+
+
+def test_failed_publication_removes_only_owned_files(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    directory = state_dir(tmp_path)
+    directory.mkdir(parents=True)
+    foreign = directory / "claude-session.json.partial"
+    foreign.write_text("other writer")
+    original_replace = Path.replace
+    attempted = []
+
+    def fail_publication(path, target):
+        if Path(target).name == "claude-session.json":
+            attempted.append(path)
+            raise OSError("publication failed")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publication)
+    with pytest.raises(OSError, match="publication failed"):
+        start_auto_capture(
+            agent="claude",
+            slug="failure",
+            platform_session_id="session",
+            root=tmp_path,
+            now=FIXED_NOW,
+        )
+    assert attempted and attempted[0] != foreign
+    assert foreign.read_text() == "other writer"
+    assert not attempted[0].exists()
+    assert not list((tmp_path / ".in-progress/pipy").glob("*.jsonl"))
+
+
+def test_failed_start_event_removes_new_active_record(tmp_path, monkeypatch):
+    import pipy_session.auto_capture as capture
+
+    attempted = []
+
+    def fail_event(active, **kwargs):
+        attempted.append(active)
+        assert active.exists()
+        raise OSError("event failed")
+
+    monkeypatch.setattr(capture, "append_event", fail_event)
+    with pytest.raises(OSError, match="event failed"):
+        start_auto_capture(
+            agent="claude",
+            slug="failure",
+            platform_session_id="session",
+            root=tmp_path,
+            now=FIXED_NOW,
+        )
+    assert attempted
+    assert not attempted[0].exists()
+    assert not list(state_dir(tmp_path).glob("*.json"))

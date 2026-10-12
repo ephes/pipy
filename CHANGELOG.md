@@ -8,6 +8,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Serialize automatic capture starts per platform session and clean up owned
+  files when mapping publication fails.
+
 - Refuse native session export paths that alias the backing session and publish
   exports atomically, preserving existing output on failure. Exports are now
   owner-only (0600) and replace destination symlinks rather than their targets.
