@@ -1153,6 +1153,9 @@ For example, a global `{"defaultTools": ["read", "bash"]}` plus a trusted projec
 `pipy --tools +codemode` modifies that resolved selection; `pipy --tools read,codemode`
 overrides it with a plain allowlist. If selected codemode is unavailable, one
 warning is emitted and the remaining tools continue; nothing installs automatically.
+`{"defaultTools": ["+tool_search"]}` activates the optional
+[`tool_search`](mcp.md#tool-search) builtin, which is registered inactive and
+needs no runtime.
 
 Settings layers apply base defaults, global settings, trusted project settings,
 then run overrides. A list containing plain names replaces inherited entries. A list

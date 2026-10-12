@@ -434,6 +434,8 @@ def test_get_all_tools_reports_every_registered_tool(tmp_path, monkeypatch) -> N
         "write",
         "edit",
         "bash",
+        # Registered inactive with the production built-ins (TSR-01).
+        "tool_search",
         "reporter",
         "lookup",
         "withdrawn",

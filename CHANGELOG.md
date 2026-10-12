@@ -70,6 +70,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   words, folded plurals), the search text of a tool (name, description, schema
   descriptions and property names, namespace) and an Okapi BM25 ranker.
   `search_tools` in codemode scripts uses it; the `tool_search` tool follows.
+- `tool_search`, an optional built-in tool that finds tools the model has not
+  been given and loads them. It is registered inactive; enable it with
+  `"defaultTools": ["+tool_search"]` or `--tools +tool_search`. It ranks the
+  registered tools with exposure `codemode` or `deferred` that are not
+  declared yet and activates the matches, so the next model request declares
+  them. Loaded tools are recorded in the session like other tool changes and
+  stay declared on that branch through `/tree`. Scripts cannot call it. See
+  [tool search](docs/mcp.md#tool-search).
 - Codemode scripts can find the tools they may call. `ALL_TOOLS` lists every
   callable tool as `{"name", "description"}` with the tool's declaration,
   `search_tools(query, limit=8, namespace=None)` ranks them, `describe_tool(name)`

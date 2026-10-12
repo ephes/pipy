@@ -754,6 +754,12 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.loadout.PrepareToolLoadout",
         "pipy_harness.native.tools.loadout.ToolLoadout",
         "pipy_harness.native.tools.loadout.ToolLoadoutChanges",
+        # The optional builtin `tool_search` is registered inactive with the
+        # production defaults, like `codemode`; it needs the facade itself
+        # (the loadable tools and `load_tools`), so the facade constructs it.
+        "pipy_harness.native.tool_search",
+        "pipy_harness.native.tool_search.TOOL_SEARCH_TOOL_NAME",
+        "pipy_harness.native.tool_search.ToolSearchTool",
         # The live capability state pointer is guarded state (an extension tool
         # handler can reach `set_active_tools` from a worker thread while the
         # session publishes a reloaded generation), and published registries are

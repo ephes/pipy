@@ -239,6 +239,9 @@ class ToolDefinition:
       successful results. It is declared, not enforced.
     - `reaches_tools`: for a tool that reaches other tools, which ones a call
       with the given input may reach.
+    - `default_active`: whether registering the tool activates it. A `direct`
+      or `model-only` tool with `False` is registered inactive, until a tool
+      selection names it.
     """
 
     name: str
@@ -249,6 +252,7 @@ class ToolDefinition:
     annotations: ToolAnnotations | None = field(default=None, kw_only=True)
     output_schema: Mapping[str, Any] | None = field(default=None, kw_only=True)
     reaches_tools: ReachesTools | None = field(default=None, kw_only=True)
+    default_active: bool = field(default=True, kw_only=True)
     schema_mode: ToolSchemaMode = field(default="strict", kw_only=True)
 
     NAME_MAX_LENGTH: ClassVar[int] = 64
@@ -303,6 +307,8 @@ class ToolDefinition:
             _require_json_schema_object(self.output_schema, "output_schema")
         if self.reaches_tools is not None and not callable(self.reaches_tools):
             raise ValueError("ToolDefinition.reaches_tools must be callable or None")
+        if type(self.default_active) is not bool:
+            raise ValueError("ToolDefinition.default_active must be a bool")
 
 
 @dataclass(frozen=True, slots=True)

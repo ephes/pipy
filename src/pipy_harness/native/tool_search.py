@@ -1,13 +1,17 @@
-"""Tool discovery: a BM25 ranker over tool metadata.
+"""Tool discovery: a BM25 ranker over tool metadata, and the `tool_search` tool.
 
-The port of the ranking half of Pi's
+The port of Pi's
 ``packages/coding-agent/src/extensions/tool-search/tool.ts``: the tokenizer,
-the search text of one tool and the ranker. Codemode's ``search_tools`` and
-the ``tool_search`` tool share it.
+the search text of one tool, the ranker and the tool. Codemode's
+``search_tools`` and `tool_search` share the ranking.
 
-Standard library only. A schema handed to `create_tool_search_document` is a
-JSON value as a tool definition holds it: mappings and sequences without
-cycles.
+`tool_search` searches the tools that are not declared to the model
+(``codemode`` and ``deferred`` exposure) and loads the matches, so the next
+model request declares them. Loading changes the active tool set, so the
+transcript records it like any other tool change.
+
+A schema handed to `create_tool_search_document` is a JSON value as a tool
+definition holds it: mappings and sequences without cycles.
 """
 
 from __future__ import annotations
@@ -19,18 +23,47 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from pipy_harness.native.tools.base import ToolNamespace
+from pipy_harness.native.tools.base import (
+    ToolContext,
+    ToolDefinition,
+    ToolExecutionResult,
+    ToolNamespace,
+    ToolReach,
+    ToolRequest,
+)
 
 __all__ = [
+    "DEFAULT_TOOL_SEARCH_LIMIT",
+    "TOOL_SEARCH_DESCRIPTION",
+    "TOOL_SEARCH_TOOL_NAME",
     "Bm25Ranker",
+    "LoadableTools",
     "SearchableTool",
     "ToolRanker",
     "ToolSearchDocument",
     "ToolSearchMatch",
+    "ToolSearchTool",
     "create_tool_search_document",
     "stem",
     "tokenize",
+    "tool_search_definition",
 ]
+
+TOOL_SEARCH_TOOL_NAME = "tool_search"
+DEFAULT_TOOL_SEARCH_LIMIT = 8
+
+# Pi ``TOOL_SEARCH_DESCRIPTION``. It names no searchable tool and no
+# namespace, so it stays the same while tools are registered, for example
+# when MCP servers connect.
+TOOL_SEARCH_DESCRIPTION = (
+    "# Tool discovery\n\n"
+    "Searches over deferred tool metadata with BM25 and exposes matching tools "
+    "for the next model call.\n\n"
+    "Some of the tools, such as tools of MCP servers, may not have been "
+    "provided to you upfront, and you should use this tool "
+    f"(`{TOOL_SEARCH_TOOL_NAME}`) to search for the required tools. For MCP "
+    f"tool discovery, always use `{TOOL_SEARCH_TOOL_NAME}`."
+)
 
 _STOP_WORDS = frozenset(
     {
@@ -66,7 +99,10 @@ _VARIANT_KEYWORDS = ("anyOf", "oneOf", "allOf")
 
 # What JavaScript's ``String.prototype.trim`` removes, so a part is dropped
 # exactly when Pi drops it.
-_JS_BLANK = re.compile("[\t\n\v\f\r    -     　﻿]*")
+_JS_BLANK_CLASS = "[\t\n\v\f\r    -     　﻿]"
+_JS_BLANK = re.compile(f"{_JS_BLANK_CLASS}*")
+_JS_BLANK_ENDS = re.compile(f"^{_JS_BLANK_CLASS}+|{_JS_BLANK_CLASS}+$")
+_LINE_BREAK = re.compile(r"\r?\n")
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,3 +286,160 @@ class Bm25Ranker:
 
 def _inverse_document_frequency(document_count: int, frequency: int) -> float:
     return math.log(1 + (document_count - frequency + 0.5) / (frequency + 0.5))
+
+
+class LoadableTools(Protocol):
+    """The session's tools as `tool_search` needs them.
+
+    `NativeToolCapabilities` fits.
+    """
+
+    def loadable_tools(self) -> tuple[ToolDefinition, ...]:
+        """The tools a search may load, in registration order."""
+        ...
+
+    def load_tools(self, names: Sequence[str], /) -> tuple[str, ...]:
+        """Activate the named loadable tools and return the names it loaded."""
+        ...
+
+
+def _reaches_all(_arguments: Mapping[str, Any]) -> ToolReach:
+    # A query can match any tool that is not declared yet.
+    return "all"
+
+
+def tool_search_definition() -> ToolDefinition:
+    """The `tool_search` declaration (Pi ``createToolSearchToolDefinition``).
+
+    The schema is Pi's, with ``limit`` as a JSON number, which the strict
+    subset does not have; it is therefore a foreign schema.
+    """
+
+    return ToolDefinition(
+        name=TOOL_SEARCH_TOOL_NAME,
+        description=TOOL_SEARCH_DESCRIPTION,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for deferred tools.",
+                },
+                "limit": {
+                    "type": "number",
+                    "description": (
+                        "Maximum number of tools to return. Defaults to "
+                        f"{DEFAULT_TOOL_SEARCH_LIMIT}."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+        # Searching is not something scripts need; it changes what the model
+        # sees.
+        exposure="model-only",
+        reaches_tools=_reaches_all,
+        default_active=False,
+        schema_mode="foreign",
+    )
+
+
+def _positive_integer(value: object) -> int | None:
+    """JavaScript ``Number.isInteger(value) && value > 0``, as an int."""
+
+    if type(value) is float and value.is_integer():
+        value = int(value)
+    if type(value) is int and value > 0:
+        return value
+    return None
+
+
+def _loaded_text(tools: Sequence[ToolDefinition]) -> str:
+    """The result text; lines the result cannot hold are counted, not listed."""
+
+    if not tools:
+        return "No matching tools found."
+    plural = "" if len(tools) == 1 else "s"
+    text = f"Loaded {len(tools)} tool{plural}. They are available from your next call:"
+    for listed, tool in enumerate(tools):
+        description = _JS_BLANK_ENDS.sub("", tool.description)
+        line = f"\n- {tool.name}: {_LINE_BREAK.split(description, maxsplit=1)[0]}"
+        rest = f"\n(and {len(tools) - listed} more)"
+        if (
+            len(text) + len(line) + len(rest)
+            > ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+        ):
+            return text + rest
+        text += line
+    return text
+
+
+class ToolSearchTool:
+    """The built-in `tool_search` tool.
+
+    It ranks the loadable tools of the session for the query and loads the
+    matches. Without `tools` it finds nothing.
+    """
+
+    def __init__(
+        self,
+        tools: LoadableTools | None = None,
+        *,
+        ranker: ToolRanker | None = None,
+    ) -> None:
+        self._tools = tools
+        self._ranker = ranker if ranker is not None else Bm25Ranker()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return tool_search_definition()
+
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        query = request.arguments.get("query")
+        if not isinstance(query, str) or _JS_BLANK.fullmatch(query):
+            return self._result(request, "query must not be empty", is_error=True)
+        limit = _positive_integer(
+            request.arguments.get("limit", DEFAULT_TOOL_SEARCH_LIMIT)
+        )
+        if limit is None:
+            return self._result(
+                request, "limit must be a positive integer", is_error=True
+            )
+        loaded = self._search_and_load(query, limit)
+        return self._result(
+            request,
+            _loaded_text(loaded),
+            details={"loaded": [tool.name for tool in loaded]},
+        )
+
+    def _search_and_load(self, query: str, limit: int) -> tuple[ToolDefinition, ...]:
+        """Rank the loadable tools and activate the matches (Pi ``searchAndLoad``)."""
+
+        if self._tools is None:
+            return ()
+        candidates = {tool.name: tool for tool in self._tools.loadable_tools()}
+        documents = [
+            create_tool_search_document(tool, tool.namespace)
+            for tool in candidates.values()
+        ]
+        matches = self._ranker.rank(query, documents, limit)
+        if not matches:
+            return ()
+        loaded = self._tools.load_tools([match.name for match in matches])
+        return tuple(candidates[name] for name in loaded if name in candidates)
+
+    @staticmethod
+    def _result(
+        request: ToolRequest,
+        text: str,
+        *,
+        is_error: bool = False,
+        details: Mapping[str, Any] | None = None,
+    ) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            tool_request_id=request.tool_request_id,
+            output_text=text,
+            is_error=is_error,
+            provider_correlation_id=request.provider_correlation_id,
+            details=details,
+        )

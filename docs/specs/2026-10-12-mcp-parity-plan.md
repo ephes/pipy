@@ -530,6 +530,44 @@ Decided in S06 (search core, `native/tool_search.py`):
 - The ranker was compared with Pi's on generated tools and queries (same
   token lists, search texts, orders and scores).
 
+Decided in S09 (the `tool_search` tool, `native/tool_search.py`):
+
+- `ToolDefinition` gains `default_active` (Pi `defaultActive`): a `direct` or
+  `model-only` tool with `False` is registered without being activated.
+  `tool_search` is the one tool that uses it. `ExtensionTool` does not take
+  it yet; S37 needs it for an extension that replaces `tool_search` and
+  wants the replacement inactive. Like the other metadata it is dropped from
+  the frozen request definition.
+- `NativeToolCapabilities.prepare_extensions` registers `tool_search` with
+  the production built-ins on every preparation; it needs no runtime, so
+  there is no probe as for `codemode`. A caller-injected plain registry does
+  not get it. `codemode` is still registered only when it is named.
+- An allowlist (`--tools a,b`) activates every declarable tool it names,
+  also one that is inactive by default (Pi `_refreshToolRegistry`); a filter
+  that names nothing (`--exclude-tools`, `--no-builtin-tools`) leaves it
+  inactive. `+tool_search` in `--tools` or `defaultTools` and
+  `set_active_tools` activate it as they activate any name.
+- Loading is `NativeToolCapabilities.loadable_tools()` (registered, kept by
+  the filters, `codemode` or `deferred`, not active) and
+  `load_tools(names)`, which adds the names to the selection that is live at
+  that moment, inside the state lock, and returns what it added. Pi replaces
+  the active list with a copy it read before ranking; pipy adds, because an
+  extension handler on another thread may change the selection in between.
+  The tool reads the live capability value, not the value of the provider
+  turn that called it. A load is not marked as a selection an extension
+  customized, so a later `/reload` still activates new extension tools.
+- The schema is Pi's, with `limit` as a JSON number, so the definition is a
+  foreign schema. `1.0` is an integer as in JavaScript; a string or boolean
+  is refused by argument validation (DEV-10: Pi would convert `"3"`).
+- A listing longer than one tool result (64 KiB) ends with `(and <n> more)`;
+  all matches are loaded and named in `details.loaded`. Pi has no cap.
+- TSR-09: a load is recorded by the system message of the next request
+  (`tools_added` holds only the loaded tool), `/tree` restores it through
+  `restore_active_tools`, and `/clone` keeps it because the capability value
+  does not change. A resumed session starts from the configured tools, as
+  Pi's CLI does (it always passes the initial tool names); declaring loaded
+  tools again after resume and reload is TSR-10 (S22).
+
 Changed modules, by seam:
 
 | Seam | Module | Change |

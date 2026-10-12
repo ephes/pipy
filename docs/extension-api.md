@@ -934,8 +934,9 @@ way, except that its `content` is optional; pipy's transform does not replace
 `details`, `is_error` or usage.
 
 **Listing tools.** `ctx.get_all_tools()` returns a `ToolInfo` for every
-registered tool, built-in and extension, active or not, in registration
-order: `name`, `description`, `input_schema` (a copy), `exposure`,
+registered tool, built-in and extension, active or not (the built-in
+[`tool_search`](mcp.md#tool-search) is registered inactive, and naming it in
+`ctx.set_active_tools(...)` activates it), in registration order: `name`, `description`, `input_schema` (a copy), `exposure`,
 `namespace`, `annotations` and `reaches_tools` (the function, or `None`). It
 is available in command, shortcut, hook and tool handler contexts of a
 session and raises `ExtensionCapabilityError` where no session backs the

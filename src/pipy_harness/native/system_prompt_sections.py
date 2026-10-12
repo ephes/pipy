@@ -95,6 +95,10 @@ BUILTIN_TOOL_PROMPTS: Mapping[str, ToolPrompt] = MappingProxyType(
                 "Keep intermediate tool results in Python and emit only the task-relevant answer; parse documented text output directly instead of adding format-probe calls.",
             ),
         ),
+        # Pi `extensions/tool-search/tool.ts`.
+        "tool_search": ToolPrompt(
+            "Search for tools that are not loaded yet and load the matches"
+        ),
     }
 )
 

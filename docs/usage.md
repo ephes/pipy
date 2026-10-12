@@ -309,6 +309,13 @@ the settings selection; `pipy --tools +codemode,-read` modifies it. Unavailable
 selected codemode is omitted with one TUI notice or headless stderr warning;
 remaining tools continue with no automatic install/fallback. See [default selection](settings-config.md#default-tool-selection).
 
+Optional `tool_search` is off by default as well; enable it with
+`--tools +tool_search` or `"defaultTools": ["+tool_search"]`. It ranks the
+registered tools that are not declared to the model (exposure `codemode` or
+`deferred`) for a query and declares the matches from the next model request
+on. Loaded tools are recorded in the session like other tool changes, so they
+stay declared on that branch. See [tool search](mcp.md#tool-search).
+
 ### Resource options
 
 | Option | Description |

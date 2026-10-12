@@ -123,17 +123,20 @@ def test_sections_match_pi(name: str) -> None:
 def test_builtin_tool_prompts_are_pis_contributions() -> None:
     pi = FIXTURE["cases"]["pi_default"]["input"]
     # The pinned driver covers the seven existing tools. Optional codemode
-    # adapts Pi's JavaScript contribution to CM1's sequential Python contract.
-    assert set(BUILTIN_TOOL_PROMPTS) == set(pi["toolSnippets"]) | {"codemode"}
+    # adapts Pi's JavaScript contribution to CM1's sequential Python contract;
+    # optional tool_search has Pi's snippet and no guidelines
+    # (tests/test_native_tool_search_tool.py).
+    optional = {"codemode", "tool_search"}
+    assert set(BUILTIN_TOOL_PROMPTS) == set(pi["toolSnippets"]) | optional
     assert {
         name: p.snippet
         for name, p in BUILTIN_TOOL_PROMPTS.items()
-        if name != "codemode"
+        if name not in optional
     } == pi["toolSnippets"]
     guidelines = {
         name: list(p.guidelines)
         for name, p in BUILTIN_TOOL_PROMPTS.items()
-        if p.guidelines and name != "codemode"
+        if p.guidelines and name not in optional
     }
     # pipy's bash tool sets no PI_* session variables, so it has no guideline
     # (Pi without `exposeSessionEnvironment`).

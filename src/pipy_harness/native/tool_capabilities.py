@@ -30,19 +30,30 @@ from pipy_harness.native.tools.loadout import (
 DEFAULT_TOOL_NAMES = ("read", "ls", "grep", "find", "write", "edit", "bash")
 
 
+def declarable(registry: Mapping[str, ToolPort]) -> frozenset[str]:
+    """Names whose activation declares them to the model (Pi ``_isDeclarable``)."""
+
+    return frozenset(
+        name
+        for name, port in registry.items()
+        if port.definition.exposure in ("direct", "model-only")
+    )
+
+
 def activated_on_registration(registry: Mapping[str, ToolPort]) -> frozenset[str]:
     """Names whose registration activates them (Pi ``_isActivatedOnRegistration``).
 
     Only ``direct`` and ``model-only`` tools are declared without being named:
     a ``codemode`` or ``deferred`` tool becomes active when something names it
     (``set_active_tools``, a restored transcript), and a ``hidden`` tool never
-    is declared.
+    is declared. A declarable tool registered with ``default_active=False``,
+    such as ``tool_search``, also waits to be named.
     """
 
     return frozenset(
         name
-        for name, port in registry.items()
-        if port.definition.exposure in ("direct", "model-only")
+        for name in declarable(registry)
+        if registry[name].definition.default_active
     )
 
 
@@ -193,11 +204,17 @@ class ToolCapabilityState:
         active = carried_active_tool_names
         if filter_options != ToolFilterOptions.empty():
             # Pi ``_refreshToolRegistry``: a filter keeps a tool registered,
-            # and only a declarable tool is activated by being kept.
+            # and only a declarable tool is activated by being kept. An
+            # allowlist names what it keeps, which activates a tool that is
+            # inactive by default as well.
             active = filter_options.provider_visible_names(
                 builtin_names=builtin,
                 registered_names=registry,
-            ) & activated_on_registration(registry)
+            ) & (
+                declarable(registry)
+                if filter_options.allow
+                else activated_on_registration(registry)
+            )
         executor = ToolExecutor(
             registry,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
@@ -432,6 +449,34 @@ class NativeToolCapabilities:
             )
         return True
 
+    def loadable_tools(self) -> tuple[ToolDefinition, ...]:
+        """The tools ``tool_search`` may load, in registration order."""
+
+        return _loadable_tools(self.state)
+
+    def load_tools(self, names: Sequence[str], /) -> tuple[str, ...]:
+        """Activate the named loadable tools; return the names it activated.
+
+        The names are added to the selection that is live now, in the same
+        critical section that checks them, so a selection or a publication
+        made since the caller ranked the tools is kept. A name that is no
+        longer loadable is left out. Like any change of the active tools,
+        the next request's system message records it. Loading only adds, so
+        it does not count as a selection an extension made.
+        """
+
+        with self._state_lock:
+            state = self._state
+            loadable = {definition.name for definition in _loadable_tools(state)}
+            loaded = tuple(dict.fromkeys(name for name in names if name in loadable))
+            if loaded:
+                self._state = replace(
+                    state,
+                    active_tool_names=_active_names(state) | frozenset(loaded),
+                    selection_initialized=True,
+                )
+        return loaded
+
     def restore_active_tools(self, names: Sequence[str]) -> None:
         """Pi ``setActiveToolsByName`` from a transcript's declared tools.
 
@@ -444,12 +489,7 @@ class NativeToolCapabilities:
 
         with self._state_lock:
             state = self._state
-            visible: Collection[str] = state.registry
-            if state.filter_configured:
-                visible = state.filter_options.provider_visible_names(
-                    builtin_names=state.builtin_registry,
-                    registered_names=state.registry,
-                )
+            visible = _kept_names(state)
             restored = frozenset(name for name in names if name in visible)
             self._state = replace(
                 state,
@@ -523,6 +563,17 @@ class NativeToolCapabilities:
         # registry; removing a default does not deactivate an active tool.
         if self._production_defaults and "codemode" in state.builtin_registry:
             builtin["codemode"] = state.builtin_registry["codemode"]
+        if self._production_defaults:
+            from pipy_harness.native.tool_search import (
+                TOOL_SEARCH_TOOL_NAME,
+                ToolSearchTool,
+            )
+
+            # Registered inactive (Pi ``defaultActive: false``): naming it in
+            # a tool selection activates it.
+            builtin[TOOL_SEARCH_TOOL_NAME] = state.builtin_registry.get(
+                TOOL_SEARCH_TOOL_NAME
+            ) or ToolSearchTool(self)
         wants_codemode = "codemode" in (options.allow or selected)
         wants_codemode = (
             wants_codemode
@@ -738,6 +789,38 @@ def _definitions_for(
     )
 
 
+def _kept_names(state: ToolCapabilityState) -> Collection[str]:
+    """Registered names the ``--tools``/``--exclude-tools`` filter keeps.
+
+    A tool the filter does not keep is not registered in Pi.
+    """
+
+    if not state.filter_configured:
+        return state.registry
+    return state.filter_options.provider_visible_names(
+        builtin_names=state.builtin_registry,
+        registered_names=state.registry,
+    )
+
+
+def _loadable_tools(state: ToolCapabilityState) -> tuple[ToolDefinition, ...]:
+    """The tools ``tool_search`` may load from one capability value. Pure.
+
+    Pi ``searchAndLoad``: the registered ``codemode`` and ``deferred`` tools
+    that are not active yet.
+    """
+
+    kept = _kept_names(state)
+    active = _active_names(state)
+    return tuple(
+        port.definition
+        for name, port in state.registry.items()
+        if name in kept
+        and name not in active
+        and port.definition.exposure in ("codemode", "deferred")
+    )
+
+
 def _callable_names(state: ToolCapabilityState) -> frozenset[str]:
     """Names other tools may call in one capability value. Pure.
 
@@ -748,12 +831,7 @@ def _callable_names(state: ToolCapabilityState) -> frozenset[str]:
     are never callable.
     """
 
-    kept: Collection[str] = state.registry
-    if state.filter_configured:
-        kept = state.filter_options.provider_visible_names(
-            builtin_names=state.builtin_registry,
-            registered_names=state.registry,
-        )
+    kept = _kept_names(state)
     active = _active_names(state)
     names: set[str] = set()
     for name, port in state.registry.items():
