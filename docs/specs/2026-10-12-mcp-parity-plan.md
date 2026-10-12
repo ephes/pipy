@@ -873,6 +873,43 @@ Decided in S04:
   `tool_execution_end` does not carry structured content (no row of this plan
   asks for it; Pi's event carries the whole in-memory result).
 
+Decided in S05 (declaration syntax, `codemode/declarations.py`):
+
+- A declaration is notation for the model, not evaluated code. Signature:
+  `name(args: T) -> R` with the tool's identifier; the sample is the
+  description, a blank line, `codemode tool declaration:` and a `python`
+  fence holding `tools.<signature>`. A tool without output schema returns
+  `Any`.
+- Types: `str`, `float` (number and integer), `bool`, `None`, `Any` (Pi
+  `unknown`), `Never` (Pi `never`: the `false` schema, an empty `enum` or
+  union), `list[T]`, `[A, B]` for positional arrays (the value is a list),
+  `A | B`, `A & B` for `allOf`.
+- Objects: `{"a": str, "b"?: float}` with every property name quoted, sorted
+  as Pi sorts them (by UTF-16 code unit) and separated by commas. Pi's index
+  signature `[key: string]: T` is a last member `str: T`; an object without
+  declared properties is `dict[str, T]` (`dict[str, Any]` for a bare
+  `{"type": "object"}`), and `{}` when it allows no properties at all. The
+  multi-line form puts one member per line with a trailing comma and the
+  description and tag lines as `#` comments above it.
+- `const` and `enum` values are Python literals (`None`, `True`, `False`,
+  compact dicts and lists). Constraint tags keep the JSON Schema keyword names
+  and JSON values (`@default true`), as CMD-12 says. Numbers are printed as
+  JavaScript prints them (`1.0` is `1`), so tags match Pi's.
+- Line terminators (`\r`, `\n`, U+2028, U+2029) are escaped in literals and
+  property names as well as in tags, so no value can end its line.
+- Lengths (the 80 characters of a tag, the 16000 of an input type) count
+  Python characters, where Pi counts UTF-16 units.
+- A schema nested deeper than the interpreter can follow renders as `Any`
+  instead of raising.
+- `to_codemode_identifier` lives in the same module: the ASCII rule of Pi
+  without `$`, which Python cannot spell. It does not treat Python keywords:
+  a tool named `class` keeps the identifier `class`, which a script cannot
+  write as `tools.class`. S07 decides that together with the raw-name key
+  (CMD-02).
+- Not ported: `renderDeclarations` (a whole `tools` object and script
+  globals). Nothing in the coding agent uses it; `ALL_TOOLS` and the tool
+  description use the per-tool sample.
+
 ### 4.10 Reload and resume
 
 `/reload` runs `McpManager.close()`, loads the config again and starts the

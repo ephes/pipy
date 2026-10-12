@@ -59,6 +59,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   tool's error text (`Tool "<name>" failed` when there is none). One tool
   reply may be up to 16 MiB of JSON, so a large structured result reaches the
   script whole; a larger one raises `ToolError`.
+- Tool declarations for codemode: a renderer that writes a tool's JSON Schema
+  as Python type text, for example
+  `tools.search(args: {"query": str, "limit"?: float}) -> list[str]`, with
+  property descriptions and the constraints a type cannot express (`@integer`,
+  `@minimum 1`, `@default 20`) on comment lines. It is internal for now; the
+  tool listings that scripts and the model see follow.
 - `tool_result` hooks see a result's structured content
   (`ToolResultEvent.structured_content`) and decide it together with the
   content: `ToolResultTransform` takes an optional `structured_content`, and
