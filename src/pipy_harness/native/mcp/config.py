@@ -179,7 +179,9 @@ def get_mcp_tool_exposure(config: Mapping[str, Any], tool_name: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class _Url:
+class HttpUrl:
+    """The parts of an ``http`` or ``https`` URL, as ``parse_http_url`` reads it."""
+
     scheme: str
     # Lower case; an IPv6 address is compressed and in brackets.
     hostname: str
@@ -188,6 +190,11 @@ class _Url:
     path: str
     query: str
     fragment: str
+
+    @property
+    def origin(self) -> str:
+        port = "" if self.port is None else f":{self.port}"
+        return f"{self.scheme}://{self.hostname}{port}"
 
 
 # re.ASCII keeps the case-insensitive match to ASCII letters.
@@ -223,7 +230,7 @@ def _parse_host(text: str) -> str | None:
     return host
 
 
-def _parse_http_url(value: object) -> _Url | None:
+def parse_http_url(value: object) -> HttpUrl | None:
     """The parts of an ``http`` or ``https`` URL, or None for anything else."""
 
     if not isinstance(value, str):
@@ -249,13 +256,15 @@ def _parse_http_url(value: object) -> _Url | None:
         return None
     if port == _DEFAULT_PORTS[scheme]:
         port = None
-    return _Url(scheme, hostname, port, match[3] or "/", match[4] or "", match[5] or "")
+    return HttpUrl(
+        scheme, hostname, port, match[3] or "/", match[4] or "", match[5] or ""
+    )
 
 
 def is_loopback_redirect_uri(value: object) -> bool:
     """Whether a redirect URI can be served by the loopback callback server."""
 
-    url = _parse_http_url(value)
+    url = parse_http_url(value)
     return (
         url is not None
         and url.scheme == "http"
@@ -302,16 +311,16 @@ def _is_non_blank_string(value: object) -> bool:
 
 
 def _is_https_url(value: object) -> bool:
-    url = _parse_http_url(value)
+    url = parse_http_url(value)
     return url is not None and url.scheme == "https"
 
 
-def _is_secure_or_loopback(url: _Url | None) -> bool:
+def _is_secure_or_loopback(url: HttpUrl | None) -> bool:
     return url is not None and (url.scheme == "https" or url.hostname in LOOPBACK_HOSTS)
 
 
 def _is_secure_or_loopback_url(value: object) -> bool:
-    return _is_secure_or_loopback(_parse_http_url(value))
+    return _is_secure_or_loopback(parse_http_url(value))
 
 
 # A check looks at one object and returns what is wrong with it, or None. The
@@ -349,7 +358,7 @@ def _check_callback_port(oauth: dict[str, Any]) -> str | None:
 def _check_callback_url(oauth: dict[str, Any]) -> str | None:
     if "callbackUrl" not in oauth:
         return None
-    callback = _parse_http_url(oauth["callbackUrl"])
+    callback = parse_http_url(oauth["callbackUrl"])
     if callback is None or not is_loopback_redirect_uri(oauth["callbackUrl"]):
         return (
             "oauth.callbackUrl must be an http URI on localhost, 127.0.0.1, "
@@ -375,7 +384,7 @@ def _check_client_registration(oauth: dict[str, Any]) -> str | None:
             "oauth.clientId or oauth.clientName"
         )
     # Runs after the callback URL check, so a URL that is present parses.
-    callback = _parse_http_url(oauth.get("callbackUrl"))
+    callback = parse_http_url(oauth.get("callbackUrl"))
     if callback is not None and (
         callback.hostname == "[::1]" or callback.path != "/callback"
     ):
@@ -453,7 +462,7 @@ def _check_not_sse(config: dict[str, Any]) -> str | None:
 
 
 def _check_url(config: dict[str, Any]) -> str | None:
-    if _parse_http_url(config["url"]) is None:
+    if parse_http_url(config["url"]) is None:
         return "url must be an http or https URL"
     return None
 
