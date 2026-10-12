@@ -388,3 +388,167 @@ def test_resolve_request_auth_stored_oauth_via_resolver(tmp_path):
         oauth_token_resolver=lambda provider, cred: cred["access"],
     )
     assert resolved.ok and resolved.api_key == "tok"
+
+
+def test_command_invalid_utf8_is_unavailable(capsys):
+    import shlex
+    import sys
+
+    command = shlex.join(
+        [sys.executable, "-c", "import os; os.write(1, b'fake-marker\\xff')"]
+    )
+    assert resolve_config_value("!" + command, env={}) is None
+    captured = capsys.readouterr()
+    assert "fake-marker" not in captured.out + captured.err
+
+
+def test_command_unicode_success_and_nonzero():
+    import shlex
+    import sys
+
+    for script, expected in [
+        ("import os; os.write(1, '  clé  '.encode('utf-8'))", "clé"),
+        ("print('invented'); raise SystemExit(1)", None),
+    ]:
+        command = shlex.join([sys.executable, "-c", script])
+        assert resolve_config_value("!" + command, env={}) == expected
+
+
+def test_command_timeout_owns_descendant_group(monkeypatch):
+    import signal
+    from unittest.mock import MagicMock
+
+    from pipy_harness.native import auth_store
+
+    process = MagicMock()
+    process.pid = 12345
+    selector = MagicMock()
+    selector.__enter__.return_value = selector
+    selector.get_map.return_value = {1: object()}
+    # The child keeps pipes open; no readiness arrives before the deadline.
+    selector.select.return_value = []
+    from types import SimpleNamespace
+
+    clock = iter([0.0, 0.0, 10.0])
+    monkeypatch.setattr(auth_store.subprocess, "Popen", lambda *a, **kw: process)
+    monkeypatch.setattr(auth_store.selectors, "DefaultSelector", lambda: selector)
+    monkeypatch.setattr(
+        auth_store, "time", SimpleNamespace(monotonic=lambda: next(clock, 10.0))
+    )
+    monkeypatch.setattr(auth_store.os, "set_blocking", lambda *a: None)
+    signals = []
+    monkeypatch.setattr(
+        auth_store.os, "killpg", lambda pid, sig: signals.append((pid, sig))
+    )
+    assert resolve_config_value("!synthetic-child", env={}) is None
+    assert signals == [(12345, signal.SIGTERM), (12345, signal.SIGKILL)]
+    selector.select.assert_called_once_with(10.0)
+    process.wait.assert_called_with(timeout=auth_store._COMMAND_CLEANUP_GRACE)
+    process.stdout.close.assert_called_once()
+    process.stderr.close.assert_called_once()
+
+
+def test_command_output_is_bounded(monkeypatch):
+    from pipy_harness.native import auth_store
+
+    monkeypatch.setattr(auth_store, "_COMMAND_OUTPUT_LIMIT", 32)
+    assert resolve_config_value("!printf '%1000s' x", env={}) is None
+
+
+def test_command_real_descendant_pipe_cleanup(monkeypatch, tmp_path):
+    import os
+    import shlex
+    import sys
+
+    import pytest
+
+    from pipy_harness.native import auth_store
+
+    if not hasattr(os, "fork"):
+        pytest.skip("POSIX process groups required")
+    pid_file = tmp_path / "child.pid"
+    script = """
+import os, signal
+read_fd, write_fd = os.pipe()
+child = os.fork()
+if child == 0:
+    os.close(write_fd)
+    os.read(read_fd, 1)
+    print("ready", flush=True)
+    while True:
+        signal.pause()
+def stop(sig, frame):
+    os.waitpid(child, 0)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+with open(os.environ["SYNTHETIC_CHILD_PID"], "w") as f:
+    f.write(str(child))
+os.close(read_fd)
+os.write(write_fd, b"x")
+os.close(write_fd)
+while True:
+    signal.pause()
+"""
+    monkeypatch.setenv("SYNTHETIC_CHILD_PID", str(pid_file))
+    import time
+    from types import SimpleNamespace
+
+    original_read = auth_store._read_command_output
+    started = time.monotonic()
+    ready = False
+
+    def read(fd, size):
+        nonlocal ready
+        data = original_read(fd, size)
+        # Only advance after the child has started and holds stdout open.
+        if data:
+            ready = True
+        return data
+
+    monkeypatch.setattr(auth_store, "_read_command_output", read)
+    monkeypatch.setattr(
+        auth_store,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: float("inf") if ready else time.monotonic() - started
+        ),
+    )
+    monkeypatch.setattr(auth_store, "_COMMAND_CLEANUP_GRACE", 5.0)
+    command = "exec " + shlex.join([sys.executable, "-c", script])
+    assert resolve_config_value("!" + command, env={}) is None
+    assert ready
+    child = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child, 0)
+
+
+def test_completed_command_does_not_terminate_group(monkeypatch):
+    from pipy_harness.native import auth_store
+
+    signals = []
+    monkeypatch.setattr(auth_store.os, "killpg", lambda *args: signals.append(args))
+    assert resolve_config_value("!printf synthetic", env={}) == "synthetic"
+    assert signals == []
+
+
+def test_command_stderr_budget_and_exact_limit(monkeypatch):
+    from pipy_harness.native import auth_store
+
+    monkeypatch.setattr(auth_store, "_COMMAND_OUTPUT_LIMIT", 8)
+    assert resolve_config_value("!printf 12345678", env={}) == "12345678"
+    assert resolve_config_value("!printf 12345678; printf x >&2", env={}) is None
+
+
+def test_command_cleanup_reaps_even_if_group_signal_fails(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from pipy_harness.native import auth_store
+
+    process = MagicMock()
+
+    def denied(*args):
+        raise PermissionError("synthetic")
+
+    monkeypatch.setattr(auth_store.os, "killpg", denied)
+    auth_store._stop_command(process)
+    assert process.wait.call_count == 2

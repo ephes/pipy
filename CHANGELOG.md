@@ -26,6 +26,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Reserve private import destinations exclusively so concurrent imports and
   dangling symlink collisions cannot overwrite sessions; clean up failed copies.
 
+- Treat invalid UTF-8 auth-command output as unavailable without exposing it.
+- Bound auth-command capture and terminate the owned process group on timeout.
+
 ### Added
 
 - Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with

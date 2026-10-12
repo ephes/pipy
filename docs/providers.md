@@ -483,6 +483,18 @@ and custom models (which cost nothing unless they set `cost`).
   including all branches and compacted history, as Pi does. They survive model
   switches, re-login and resume, and reset only with a new session.
 
+## Credential command helpers
+
+Configured auth `!command` helpers require strict UTF-8 stdout. Invalid encoding,
+nonzero exits, timeouts and output above 64 KiB (stdout plus stderr) quietly
+resolve as unavailable, without logging output. Helpers run in an owned POSIX
+process group with a ten-second deadline; cleanup sends TERM, waits up to
+0.2 seconds, then sends KILL and waits up to 0.2 seconds for the direct child.
+Descendants must stay in that group; deliberately detached helpers are unsupported.
+
+Successful completed helpers retain background work with redirected stdio.
+Helpers run as background jobs; interactive terminal input is unsupported.
+
 ## Follow-ons
 
 Provider/model parity is mostly wired, but these user-visible improvements are
