@@ -136,6 +136,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `mcp.json`, start a server or connect to one. See
   [MCP](docs/mcp.md#configure-servers) for the file format and for what is
   built.
+- MCP server connection, also library code that no session uses yet: one
+  connection per configured stdio server with the states `connecting`,
+  `connected`, `disconnected`, `failed` and `closed`, a shared connect for
+  concurrent callers, a reconnect on the next call after the server dropped,
+  the tool list read again on `notifications/tools/list_changed`, and the
+  end of the server's stderr in the error. `env` values resolve `${NAME}`
+  and `!command`, a leading `~` in `command`, `args` and `cwd` is the home
+  directory, and a relative `cwd` is relative to the session directory.
+  Server log messages go to `mcp.log` in the config home, renamed to
+  `mcp.log.1` above 5 MB. See
+  [server connections](docs/mcp.md#server-connections).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

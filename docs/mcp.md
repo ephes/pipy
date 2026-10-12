@@ -8,7 +8,8 @@ that reach extension tools, and tool search.
 
 The MCP client itself exists as library code that no session, command or
 setting uses yet: the protocol client, the stdio and streamable HTTP
-transports, the `mcp.json` reader and editor, and OAuth discovery. See
+transports, the `mcp.json` reader and editor, the connection to a stdio
+server, and OAuth discovery. See
 [what exists as a library](#what-exists-as-a-library). The sections on
 configuration below describe the file format that library accepts, so a file
 written now is valid when sessions start to connect. Until then pipy never
@@ -130,10 +131,9 @@ The top-level key `autoEnableCodemode` (a boolean, default true) says whether
 the codemode tool is activated when a server with `codemode` exposure
 connects. A project value overrides the user-level one.
 
-What these fields do at run time (the default timeout, `${NAME}` and
-`!command` values in `env` and `headers`, a leading `~` in `command`, where a
-relative `cwd` points) belongs to the server connection, which is not built
-yet. The loader checks types and keeps the values as written.
+The loader checks types and keeps the values as written. What the fields do
+when a server is connected is described under
+[server connections](#server-connections).
 
 ### Configuration rules
 
@@ -190,6 +190,90 @@ Differences from Pi in the configuration:
   Python's.
 - A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
 
+## Server connections
+
+Not used by a session yet: this section describes what the connection library
+does with a configured server. Only stdio servers can be connected; an entry
+with a `url` fails with a message that says so.
+
+### Values resolved at connect time
+
+- `timeout` is the time a request to the server may take, 60 seconds when not
+  set. A progress notification for a request starts its time again.
+- Each `env` value may refer to environment variables with `${NAME}` or
+  `$NAME`; `$$` is a literal `$` and `$!` a literal `!`. A value that starts
+  with `!` is a shell command, and its trimmed standard output is the value.
+  The command runs on every connect, with a limit of 10 seconds. A variable
+  that is unset or empty, or a command that fails or prints nothing, fails
+  the connect with a message naming the server and the key, for example
+  `Failed to resolve MCP server "docs" env "API_KEY" from environment
+  variable: DOCS_TOKEN`. The server process gets pipy's environment plus the
+  resolved `env`.
+- A leading `~` or `~/` in `command`, in each of `args` and in `cwd` is the
+  home directory. `--root=~/x` is passed as written.
+- A relative `cwd` is relative to the session directory, and the session
+  directory is the default.
+
+The same rules will apply to `headers` and `oauth.clientSecret` of HTTP
+servers once those can be connected.
+
+### States
+
+A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
+(`needs-auth` comes with sign-in).
+
+- The first call connects. Calls that arrive while a connect is in progress
+  wait for that one attempt. A stdio connect is not retried.
+- The tools are listed only when the server declares the `tools` capability.
+  When the server sends `notifications/tools/list_changed` they are listed
+  again; if that fails, the error is `Failed to refresh tools: <reason>` and
+  the earlier tools stay.
+- The server's `instructions` are kept with surrounding whitespace removed.
+- A connect that fails leaves the server `failed` with the reason, followed
+  by the last 2000 characters of the server's stderr, and the call fails with
+  `MCP server "<name>" failed to connect: <reason>`. The next call tries
+  again.
+- When the server exits or the connection drops, the server is
+  `disconnected` with the error `Connection closed` and the end of its
+  stderr. The next call starts it again.
+- Closing a server stops a connect in progress and returns when the server
+  process is gone. Calls then fail with `MCP server "<name>" is shut down`.
+
+pipy tells the server its name (`pipy`) and version, and announces one root:
+the session directory as a `file://` URI, named by its last path component.
+
+### Server log
+
+Log messages a server sends with `notifications/message` are appended to
+`mcp.log` in the config home, one per line:
+
+```text
+2026-10-12T08:30:05.120Z [docs] warning db: slow query
+```
+
+The level is `info` when the message has none, the logger name is left out
+when there is none, data that is not text is written as JSON, and further
+lines of a message are indented by four spaces. When the file is larger than
+5 MB it is renamed to `mcp.log.1`, replacing an earlier one, before the next
+line is written. A line that cannot be written is dropped. The text comes
+from the server; pipy creates the file readable by its owner only.
+
+Differences from Pi in connections:
+
+- Config values with `${NAME}` follow Pi's current rules. pipy's API key
+  settings still use the older rule (a whole value that is the name of a
+  variable); the two are separate.
+- A failed refresh of the tool list is recorded only for the connection that
+  is current. In Pi a refresh that fails after the connection was replaced
+  still sets the error.
+- A caller waiting for a connect stops waiting when its call is cancelled;
+  the connect goes on for the other callers.
+- Messages of failures come from Python: a missing executable is reported as
+  `[Errno 2] No such file or directory: '<command>'`.
+- The stderr tail is 2000 characters, not 2000 UTF-16 units, and a JSON
+  number such as `1.0` in log data is written `1.0`, not `1`.
+- `mcp.log` is created with mode 0600.
+
 ## What exists as a library
 
 The package `pipy_harness.native.mcp` is synchronous and uses only the
@@ -203,15 +287,17 @@ session imports it yet.
 | `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group. POSIX only. |
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. |
 | `config` | Validation, loading and editing of `mcp.json`, as described above. |
+| `config_values` | `${NAME}` and `!command` in config values. |
+| `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
+| `log` | The `mcp.log` writer. |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
-Not built yet: the server connection and its retries, the log file,
-registration of a server's tools, resources, readiness waits, the
+Not built yet: connections to HTTP servers with their retries and session
+renewal, registration of a server's tools, resources, readiness waits, the
 `mcp_servers` prompt section, `--no-mcp`, the `pipy mcp` commands, `/mcp`,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
-sign-in). Resolving `${NAME}` and `!command` values is part of the server
-connection.
+sign-in).
 
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:

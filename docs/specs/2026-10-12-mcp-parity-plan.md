@@ -495,6 +495,7 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `sse.py`, `http.py` | SSE parser; `StreamableHttpTransport`, HTTP error types | `mcp/transports/streamable-http.ts` |
 | `oauth/` (`types.py`, `errors.py`, `fetch.py`, `discovery.py`, `flow.py`, `provider.py`, `callback.py`) | The OAuth client library; `fetch.py` is the HTTP fetch Pi gets from JavaScript | `mcp/oauth/*` |
 | `config.py` | Entry validation, exposure resolution, load, edit, the strict URL parser (the name matcher is in `native/tools/name_patterns.py`) | `core/mcp-servers.ts`, `ext/config.ts` |
+| `config_values.py` | `${NAME}` and `!command` resolution of config values | `core/resolve-config-value.ts` |
 | `log.py` | Server log file | `ext/log.ts` |
 | `connection.py` | `McpServerConnection`, default transport factory | `ext/runtime.ts` |
 | `credentials.py` | `McpOAuthCredentialStore`, the connection auth provider, `sign_in_mcp_server` | `ext/oauth.ts` |
@@ -612,6 +613,52 @@ Decided in S11 to S14, S24, S25 and S27 (the client track, merged in INT1):
 - An architecture rule keeps `native/mcp/` free of imports from `native/ui`
   and `native/tui`. S34 has to place the manager view accordingly or change
   the rule on purpose.
+
+Decided in S15 (`connection.py`, `config_values.py`, `log.py`):
+
+- `auth_store.resolve_config_value` implements Pi's older rule (a whole
+  value that names a variable), which API keys keep. MCP values follow Pi's
+  current template rules in `mcp/config_values.py`:
+  `resolve_config_value(value, description)` and
+  `resolve_config_headers(headers, description)` raise `McpConfigValueError`
+  with Pi's texts. Only the command runner of `auth_store` is reused.
+- `McpServerConnection(entry=, cwd=, client_version=, on_tools=, on_change=,
+  create_transport=, log=)`. The version is passed in, because the function
+  that knows it lives in `native/chrome.py`. `get_client(cancel_event=None)`
+  and `call_tool(name, arguments, options)` block; `view()` returns the
+  `ConnectionView` of 4.5 (`name`, `state`, `error`, `tools`,
+  `instructions`). Failures are `McpServerConnectionError`.
+- A connect runs on its own daemon thread (`mcp-connect`) and every caller,
+  the first included, waits for it and can stop waiting through its cancel
+  event. A tool list change is handled by a thread (`mcp-refresh`) that lives
+  only while a refresh is wanted and lists again when changes arrived in the
+  meantime; a change announced while the first list is read is refreshed
+  after the connection is published. This is the "connection's own worker
+  thread" of 4.5.
+- `on_tools` and `on_change` say that something changed and are called on
+  the thread that made the change, without a lock. The receiver reads
+  `view()`; two changes may be announced in either order, and one may arrive
+  just after `close()` returned. The manager's queue (4.5) has to take that
+  into account. An exception from a callback is dropped.
+- `close()` closes the connected client and the client of a running attempt,
+  then waits for the attempt and for every transport that started and has
+  not reported its close, including one another thread is closing. The
+  contract a transport has to keep for this: after a `start` that succeeded
+  it reports its close exactly once, whoever closes it (S26 checks this for
+  the HTTP transport). A transport that never started is not waited for.
+  Every caller waits for those facts, not for the first caller. A `close()` made
+  from inside a callback of the connection shuts it down and waits for
+  nothing, because a transport may need that thread back before it can
+  finish closing; the manager must not rely on such a call having ended the
+  server process.
+- The default transport factory raises for a `url` entry until S26. The
+  factory signature already carries the auth provider (always `None` until
+  S30). `resolve_config_headers` exists for S26; `oauth.clientSecret` is
+  resolved by S30's `oauth_settings` with `resolve_config_value`.
+- Left to their slices: the retry loop and its wait (S26, with the
+  retry-wait half of CON-09), `withClient`'s retries and session renewal
+  (S26), `needs-auth`, `reconnect` and `sign_out` (S21, S30, S31), resources
+  at connect time (S23).
 
 Open after the merge, owned by later slices:
 
