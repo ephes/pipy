@@ -159,6 +159,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   owner only. Progress notifications become live output. Images in results
   are shown as `[image <mime> omitted]` for now. See
   [server tools](docs/mcp.md#server-tools).
+- A session's tool set has a place for MCP tools, not filled by a session
+  yet: the tools of connected servers are a third registry next to the
+  built-in and the extension tools, replaced as a whole when a server
+  connects or changes its tool list, without an extension reload. A `direct`
+  MCP tool is active when it registers, `--tools` and `--exclude-tools`
+  apply to tools that register later, and `/reload` keeps the MCP tools.
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

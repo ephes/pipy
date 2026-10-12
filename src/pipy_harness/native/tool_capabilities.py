@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 
@@ -186,6 +186,11 @@ class ToolCapabilityState:
     assignment, so no reader can observe a registry that has been rebuilt while
     its executor or visibility selection still belongs to the previous
     generation.
+
+    ``registry`` is the built-in tools, then the extension tools, then the
+    MCP tools whose names neither of them uses. The MCP tools change while a
+    session runs (a server connects or announces another list); such a value
+    keeps the ``extension_generation`` of the value it was made from.
     """
 
     builtin_registry: Mapping[str, ToolPort]
@@ -203,6 +208,12 @@ class ToolCapabilityState:
     # (Pi ``prepareLoadout``): part of the value, so one value always gives
     # the same declarations. ``None`` leaves every description as registered.
     codemode_loadout: PrepareToolLoadout | None = None
+    # The tools of the connected MCP servers, by pipy tool name.
+    mcp_registry: Mapping[str, ToolPort] = field(default_factory=dict)
+    # Identity of the extension generation this value was built for; a new
+    # one unless given. A value that differs only in its MCP tools or its
+    # selection keeps it (``dataclasses.replace`` passes it on).
+    extension_generation: object | None = None
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -210,10 +221,17 @@ class ToolCapabilityState:
         # wrapping a caller's dict without copying would still let whoever
         # retains that dict edit a published registry outside the lock and
         # desynchronize it from the executor built over it.
-        for field_name in ("builtin_registry", "extension_registry", "registry"):
+        for field_name in (
+            "builtin_registry",
+            "extension_registry",
+            "mcp_registry",
+            "registry",
+        ):
             object.__setattr__(
                 self, field_name, MappingProxyType(dict(getattr(self, field_name)))
             )
+        if self.extension_generation is None:
+            object.__setattr__(self, "extension_generation", object())
 
     @property
     def filter_configured(self) -> bool:
@@ -229,6 +247,7 @@ class ToolCapabilityState:
         cancel_join_timeout_seconds: float,
         carried_active_tool_names: frozenset[str] | None = None,
         codemode_loadout: PrepareToolLoadout | None = None,
+        mcp_registry: Mapping[str, ToolPort] | None = None,
     ) -> "ToolCapabilityState":
         """Build a complete capability value without touching any live state.
 
@@ -240,8 +259,8 @@ class ToolCapabilityState:
 
         builtin = dict(builtin_registry)
         extensions = dict(extension_registry)
-        registry = dict(builtin)
-        registry.update(extensions)
+        mcp = dict(mcp_registry or {})
+        registry = _merged_registry(builtin, extensions, mcp)
         active = carried_active_tool_names
         if filter_options != ToolFilterOptions.empty():
             # Pi ``_refreshToolRegistry``: a filter keeps a tool registered,
@@ -275,7 +294,79 @@ class ToolCapabilityState:
             filter_options=filter_options,
             active_tool_names=active,
             codemode_loadout=codemode_loadout,
+            mcp_registry=mcp,
         )
+
+    def with_mcp_registry(
+        self,
+        mcp_registry: Mapping[str, ToolPort],
+        *,
+        cancel_join_timeout_seconds: float,
+    ) -> "ToolCapabilityState":
+        """This value with other MCP tools, as a new complete value.
+
+        The selection is kept and extended as registering the tools would
+        extend it (Pi ``_refreshToolRegistry``): with an allowlist, every
+        declarable MCP tool it names or matches is active; otherwise a tool
+        becomes active when registration activates it and it was not
+        registered that way before. A selection of ``None`` already means
+        "as registration left it". A name whose tool is gone stays in the
+        selection, so the tool is active again when its server offers it
+        again.
+        """
+
+        mcp = dict(mcp_registry)
+        registry = _merged_registry(self.builtin_registry, self.extension_registry, mcp)
+        active = self.active_tool_names
+        if active is not None:
+            # A name a built-in or extension tool has is not an MCP tool.
+            offered = frozenset(_accepted_mcp_tools(registry, mcp))
+            if self.filter_options.allow:
+                activated = frozenset(
+                    name
+                    for name in offered & declarable(registry)
+                    if self.filter_options.allows(name)
+                )
+            else:
+                activated = (
+                    offered & activated_on_registration(registry)
+                ) - activated_on_registration(self.registry)
+            active = active | activated
+        return replace(
+            self,
+            mcp_registry=mcp,
+            registry=registry,
+            executor=ToolExecutor(
+                registry,
+                cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+            ),
+            active_tool_names=active,
+        )
+
+
+def _merged_registry(
+    builtin: Mapping[str, ToolPort],
+    extensions: Mapping[str, ToolPort],
+    mcp: Mapping[str, ToolPort],
+) -> dict[str, ToolPort]:
+    """Built-in tools, extension tools over them, then the other MCP tools.
+
+    An MCP tool never replaces a built-in or extension tool of its name.
+    """
+
+    registry = dict(builtin)
+    registry.update(extensions)
+    for name, port in mcp.items():
+        registry.setdefault(name, port)
+    return registry
+
+
+def _accepted_mcp_tools(
+    registry: Mapping[str, ToolPort], mcp: Mapping[str, ToolPort]
+) -> dict[str, ToolPort]:
+    """The MCP tools that are in the merged registry under their names."""
+
+    return {name: port for name, port in mcp.items() if registry.get(name) is port}
 
 
 @dataclass(frozen=True, slots=True)
@@ -653,11 +744,18 @@ class NativeToolCapabilities:
             cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
             carried_active_tool_names=state.active_tool_names,
             codemode_loadout=codemode_loadout,
+            mcp_registry=state.mcp_registry,
         )
         defaults = frozenset(selected) if explicit else None
         active = candidate.active_tool_names
         if explicit and not options.allow:
-            active = frozenset(selected) | activated_on_registration(mapping)
+            active = (
+                frozenset(selected)
+                | activated_on_registration(mapping)
+                | activated_on_registration(
+                    _accepted_mcp_tools(candidate.registry, candidate.mcp_registry)
+                )
+            )
             active &= options.provider_visible_names(
                 builtin_names=builtin, registered_names=candidate.registry
             )
@@ -686,6 +784,12 @@ class NativeToolCapabilities:
         """
 
         with self._state_lock:
+            if not _same_ports(self._state.mcp_registry, state.mcp_registry):
+                # A server's tools changed while this value was prepared.
+                state = state.with_mcp_registry(
+                    self._state.mcp_registry,
+                    cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
+                )
             if not state.filter_configured:
                 live = self._state
                 active = (
@@ -733,14 +837,39 @@ class NativeToolCapabilities:
                 )
             self._state = state
 
+    def publish_mcp_tools(
+        self, mcp_registry: Mapping[str, ToolPort]
+    ) -> tuple[str, ...]:
+        """Replace the MCP tools of the live value; return the names left out.
+
+        A name is left out when a built-in or extension tool has it. The new
+        value is built from the live one and assigned in one critical
+        section, so it keeps a selection or a reload published just before,
+        and a reader sees either the old tools or the new ones. May be called
+        from any thread.
+        """
+
+        with self._state_lock:
+            state = self._state.with_mcp_registry(
+                mcp_registry,
+                cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
+            )
+            self._state = state
+        accepted = _accepted_mcp_tools(state.registry, state.mcp_registry)
+        return tuple(name for name in state.mcp_registry if name not in accepted)
+
     def snapshot_for_projection(
         self, projection_state: ToolCapabilityState
     ) -> NativeToolCapabilitySnapshot:
-        """Bind one immutable live selection to its projected registry/executor."""
+        """Bind one immutable live selection to its projected extension generation.
+
+        The live value may have other MCP tools, and so another registry and
+        executor, than the value the generation was published with.
+        """
 
         with self._state_lock:
             state = self._state
-            if state.executor is not projection_state.executor:
+            if state.extension_generation is not projection_state.extension_generation:
                 raise RuntimeError("tool capability generation is incoherent")
             return NativeToolCapabilitySnapshot(self, state)
 
@@ -781,6 +910,15 @@ class NativeToolCapabilities:
         return NativeToolCapabilitySnapshot(self, self.state).error_result(
             call, output_text
         )
+
+
+def _same_ports(left: Mapping[str, ToolPort], right: Mapping[str, ToolPort]) -> bool:
+    """Whether two registries hold the same ports under the same names, in order."""
+
+    return len(left) == len(right) and all(
+        name == other and port is right[other]
+        for (name, port), other in zip(left.items(), right, strict=True)
+    )
 
 
 def _is_builtin_codemode(state: ToolCapabilityState) -> bool:

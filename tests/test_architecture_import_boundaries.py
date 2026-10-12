@@ -722,6 +722,7 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "collections.abc.Sequence",
         "dataclasses",
         "dataclasses.dataclass",
+        "dataclasses.field",
         "dataclasses.replace",
         "pathlib",
         "pathlib.Path",

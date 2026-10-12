@@ -933,6 +933,46 @@ tool, while collision suffixes are recomputed from every new list as in Pi.
 A tool port holds the server name and tool name, not a connection: it asks the
 manager for the current connection when it runs (TLS-19).
 
+Decided in S17 (the capability value, `tool_capabilities.py`):
+
+- `ToolCapabilityState.mcp_registry` is the third registry. The merged
+  registry is the built-in tools, the extension tools over them, then the MCP
+  tools. An MCP tool never replaces a built-in or extension tool of its
+  name; `NativeToolCapabilities.publish_mcp_tools(registry)` returns the
+  names it left out for that reason. Pi registers MCP tools as extension
+  tools, where the first registration of a name wins.
+- `publish_mcp_tools` builds the new value from the live one and assigns it
+  inside the state lock, from any thread. The value has a new registry and a
+  new executor and keeps the selection, the filters and the extension
+  registry.
+- A capability value carries `extension_generation`, an identity that
+  `build` creates and every derived value keeps (a selection, other MCP
+  tools). `snapshot_for_projection` compares it where it compared the
+  executor, so a provider turn and a composite parent bind to the live value
+  also after a server's tools changed. This is the loosening the S03 note
+  asked for.
+- Activation follows Pi's `_refreshToolRegistry`. Without a selection
+  (`active_tool_names` is `None`) the `direct` MCP tools are active because
+  registration activates them. With a selection, a published MCP tool joins
+  it when registration activates it and it was not registered that way in
+  the value before, so a tool that was deactivated is not activated again by
+  the next list, and a tool whose exposure becomes `direct` is. With an
+  allowlist, every declarable MCP tool it names or matches is active after
+  each publication, as after each refresh in Pi. The narrowing of S10
+  (`_declared_names`) applies as to any name.
+- The name of a tool that is gone stays in the selection. Requests declare
+  only registered tools, so nothing declares it, and the tool is active
+  again when its server offers it again (SES-03). Pi keeps such a tool
+  registered as `hidden`, with the same effect. A reload drops names that
+  are not registered, as before.
+- A reload carries the MCP tools: `prepare_extensions` builds its candidate
+  with the live `mcp_registry`, and `publish` replaces a candidate's MCP
+  tools with the live ones when they differ at the swap. The reload gate
+  (`accept_prepared_reload`) still refuses a reload when the live value
+  changed during its preparation, so a server that connects in that window
+  makes `/reload` report `prepared reload owner state changed`. S22 closes
+  the manager before it prepares the reload, which removes the window.
+
 ### 4.5 Threading
 
 pipy's core is synchronous and stays so. MCP adds threads only inside
