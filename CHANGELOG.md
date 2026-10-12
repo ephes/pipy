@@ -33,7 +33,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   is decided from the configuration at startup. When neither tool is active
   pipy warns once that the MCP tools cannot be called. After startup one
   warning lists the errors of `mcp.json` and the servers that failed
-  (`MCP servers need attention:`). See
+  (`MCP servers need attention:`). `--no-mcp` turns MCP off for a run,
+  `"extensions": ["-builtin:mcp"]` in the settings turns it off for good
+  (`pipy config disable builtin mcp`), and `--no-extensions` now turns it off
+  too unless `--extension builtin:mcp` is given. See
   [MCP](docs/mcp.md#control-tool-exposure).
 - Tool model for MCP and tool reach: tool definitions can carry an exposure
   (`direct`, `model-only`, `codemode`, `deferred`, `hidden`), a namespace,

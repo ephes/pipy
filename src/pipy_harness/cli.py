@@ -365,8 +365,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Load an extension file, extension directory, or directory of "
-            "extensions for this run. May be repeated. Explicit extensions "
-            "still load with --no-extensions."
+            "extensions for this run, or a built-in extension such as "
+            "builtin:mcp. May be repeated. Explicit extensions still load "
+            "with --no-extensions."
         ),
     )
     repl_parser.add_argument(
@@ -374,8 +375,17 @@ def build_parser() -> argparse.ArgumentParser:
         "-ne",
         action="store_true",
         help=(
-            "Disable default workspace/global/package extension discovery for "
-            "this run. Explicit --extension paths still load."
+            "Disable default workspace/global/package extension discovery and "
+            "the built-in MCP support for this run. Explicit --extension "
+            "paths still load, and --extension builtin:mcp keeps MCP."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help=(
+            "Disable the built-in MCP support for this run: no mcp.json is "
+            "read, no server connects and there are no MCP tools."
         ),
     )
     repl_parser.add_argument(
@@ -591,7 +601,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_parser = subparsers.add_parser(
         "config",
-        help="View or toggle resource enablement (skills/prompts/themes/extensions).",
+        help=(
+            "View or toggle resource enablement (skills/prompts/themes/"
+            "extensions and the built-in MCP support)."
+        ),
     )
     config_parser.add_argument(
         "action",
@@ -604,8 +617,8 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument(
         "resource_type",
         nargs="?",
-        choices=["skill", "prompt", "theme", "extension"],
-        help="Resource type for enable/disable.",
+        choices=["skill", "prompt", "theme", "extension", "builtin"],
+        help="Resource type for enable/disable; builtin names a part of pipy (mcp).",
     )
     config_parser.add_argument(
         "name", nargs="?", help="Resource name (or glob) for enable/disable."
@@ -1751,6 +1764,9 @@ def _cmd_config(args: Any) -> int:
     """
 
     from pipy_harness.native.resource_enablement import (
+        BUILTIN_EXTENSION_PREFIX,
+        BUILTIN_EXTENSIONS,
+        builtin_extension_name,
         disable_entry,
         enable_entry,
         is_resource_enabled,
@@ -1838,8 +1854,17 @@ def _cmd_config(args: Any) -> int:
             }
             for d in descriptors
         ]
+        # Parts of pipy that `-builtin:<name>` in `extensions` turns off.
+        builtin_items = [
+            {
+                "name": BUILTIN_EXTENSION_PREFIX + builtin,
+                "enabled": manager.builtin_extension_enabled(builtin),
+            }
+            for builtin in BUILTIN_EXTENSIONS
+        ]
         report = {
             "enableSkillCommands": enable_skill_commands,
+            "builtin": builtin_items,
             "skills": skills,
             "prompts": prompts,
             "themes": theme_items,
@@ -1859,6 +1884,7 @@ def _cmd_config(args: Any) -> int:
                 ("prompts", prompts),
                 ("themes", theme_items),
                 ("extensions", extension_items),
+                ("built-in", builtin_items),
             ):
                 print(f"  {label}:")
                 if not items:
@@ -1877,8 +1903,39 @@ def _cmd_config(args: Any) -> int:
             file=sys.stderr,
         )
         return 2
-    key = _CONFIG_RESOURCE_KEYS[resource_type]
     scope = SCOPE_PROJECT if args.scope == "project" else SCOPE_GLOBAL
+    if resource_type == "builtin":
+        # Stored as `-builtin:<name>` in the scope's own `extensions` array;
+        # a project entry decides over the user-level one.
+        builtin = builtin_extension_name(name) or name
+        if builtin not in BUILTIN_EXTENSIONS:
+            print(
+                f"pipy: unknown built-in {name!r}; known: "
+                f"{', '.join(BUILTIN_EXTENSIONS)}.",
+                file=sys.stderr,
+            )
+            return 2
+        name = BUILTIN_EXTENSION_PREFIX + builtin
+        scope_value = manager.raw_scope(scope).get("extensions")
+        scope_patterns = [
+            entry
+            for entry in (scope_value if isinstance(scope_value, list) else [])
+            if isinstance(entry, str)
+        ]
+        try:
+            manager.set_resource_patterns(
+                "extensions",
+                enable_entry(scope_patterns, name)
+                if action == "enable"
+                else disable_entry(scope_patterns, name),
+                scope=scope,
+            )
+        except (RuntimeError, ValueError) as exc:
+            print(f"pipy: could not update extensions: {exc}", file=sys.stderr)
+            return 1
+        print(f"pipy: {action}d built-in {builtin!r} in {scope} settings (extensions).")
+        return 0
+    key = _CONFIG_RESOURCE_KEYS[resource_type]
     current = (
         manager.get_extensions_patterns()
         if key == "extensions"
@@ -2571,11 +2628,24 @@ def _run_repl_automation(
 def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
     """Resolve Pi-shaped source-loading flags for one REPL run."""
 
+    from pipy_harness.native.resource_enablement import (
+        BUILTIN_EXTENSIONS,
+        builtin_extension_name,
+    )
+
     cwd = args.cwd.expanduser().resolve()
+    extension_paths: list[str] = []
+    builtin_extensions: list[str] = []
+    for value in getattr(args, "extensions", None) or []:
+        name = builtin_extension_name(value)
+        if name is None:
+            extension_paths.append(value)
+        elif name not in BUILTIN_EXTENSIONS:
+            raise ValueError(f"Unknown built-in extension: {value}")
+        elif name not in builtin_extensions:
+            builtin_extensions.append(name)
     return RuntimeResourceOptions(
-        extension_paths=_resolve_cli_resource_paths(
-            cwd, getattr(args, "extensions", None)
-        ),
+        extension_paths=_resolve_cli_resource_paths(cwd, extension_paths),
         skill_paths=_resolve_cli_resource_paths(cwd, getattr(args, "skills", None)),
         prompt_template_paths=_resolve_cli_resource_paths(
             cwd, getattr(args, "prompt_templates", None)
@@ -2586,6 +2656,8 @@ def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
         no_prompt_templates=bool(getattr(args, "no_prompt_templates", False)),
         no_themes=bool(getattr(args, "no_themes", False)),
         extension_flag_tokens=tuple(getattr(args, "extension_flag_tokens", ())),
+        no_mcp=bool(getattr(args, "no_mcp", False)),
+        builtin_extensions=tuple(builtin_extensions),
     )
 
 

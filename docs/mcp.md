@@ -91,6 +91,27 @@ Different from Pi:
   then names that setting whenever the tool filters would keep `codemode`,
   also when the runtime is not installed.
 
+### Turning MCP off
+
+- `pipy --no-mcp` turns MCP off for one run: no `mcp.json` is read, no server
+  connects and there are no MCP tools.
+- `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
+  until you remove the entry. A `+builtin:mcp` or `-builtin:mcp` entry in the
+  settings of a trusted project decides over the user-level entry.
+  `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
+  write the entry (with `--scope project` into the project's settings), and
+  `pipy config list` shows the state under `built-in`.
+- `--no-extensions` turns MCP off as well. `--extension builtin:mcp` turns it
+  on for the run, also against the settings entry and `--no-extensions`:
+  `pipy -ne -e builtin:mcp` runs without extensions and with MCP.
+  `--no-mcp` wins over it.
+
+With MCP off, pipy does not turn on `codemode` or `tool_search` and reports
+nothing about `mcp.json`. `mcp` is the only built-in entry; Pi also has
+`builtin:codemode`, `builtin:tool-search` and `builtin:llama.cpp`, which in
+pipy are selected as tools (`--tools`, `defaultTools`) or do not exist. An
+unknown `builtin:` name after `--extension` is an error at startup.
+
 ### Waiting for servers
 
 Servers connect while you type, so their tools are usually there when they
@@ -203,14 +224,14 @@ Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
 ### What is missing
 
-Not built yet, in the order the plan builds it: `--no-mcp`,
+Not built yet, in the order the plan builds it:
 the `mcp_servers` section of the system prompt, the `pipy mcp` commands,
 `/mcp` (status, reconnect, enabling and disabling a server, changing its
 exposure), reading `mcp.json` again on `/reload`, resources, HTTP servers,
 OAuth, servers registered by extensions, and images in tool results.
 
-Until `/reload` handles MCP: `/reload` does not read `mcp.json` again;
-restart pipy. When a server connects or changes its tools
+Until `/reload` handles MCP: `/reload` does not read `mcp.json` or the
+`-builtin:mcp` entry again; restart pipy. When a server connects or changes its tools
 while a `/reload` is being prepared, that reload is refused with `prepared
 reload owner state changed`; run it again. A new session in the same pipy
 process (`/new`, `/resume`) keeps the servers of the first one, where Pi
@@ -607,7 +628,7 @@ standard library. It is not part of the SDK surface.
 
 Not built yet: connections to HTTP servers with their retries and session
 renewal, images in tool results, resources, the
-`mcp_servers` prompt section, `--no-mcp`, the `pipy mcp` commands, `/mcp`,
+`mcp_servers` prompt section, the `pipy mcp` commands, `/mcp`,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
 sign-in).

@@ -843,8 +843,7 @@ readiness port and `repl/mcp_waits.py`):
   sentence of SES-10 (S21 makes them reachable). The resource tools do not
   exist before S23; the rule for their names is tested on `McpReadiness`.
 
-Decided in S19 (`discovery.py` and the startup report; the switches follow
-in a second commit):
+Decided in S19 (`discovery.py`, the startup report, the switches):
 
 - `McpDiscovery(configured_exposures=, auto_enable_codemode=, tools=,
   notify=)` is Pi `ensureDiscoveryActive`; `ensure_active()` is called on the
@@ -892,6 +891,27 @@ in a second commit):
   notice (each text once per session); `configured_exposures()` and
   `auto_enable_codemode` give discovery its input. `configured_exposures(entry)`
   is in `config.py` and `has_direct_tools` uses it.
+- MCP on or off is decided once, when the session is wired:
+  `RuntimeResourceOptions.mcp_enabled(configured=
+  settings.builtin_extension_enabled("mcp"))`. Off means the manager gets an
+  empty configuration: `load_mcp_config` is not called, nothing starts and
+  nothing is reported. S21 must not register `/mcp` then (EXP-11), and S22
+  has to evaluate the switch again on reload. Whether the `pipy mcp` shell
+  commands look at the switch is S20a's to decide from Pi's `cli.ts`.
+- `builtin:<name>` is a name in the `extensions` array and after
+  `--extension`, not an extension pipy loads (DEV-11). Only `mcp` exists
+  (`resource_enablement.BUILTIN_EXTENSIONS`); an unknown name after
+  `--extension` is a startup error (`Unknown built-in extension: <value>`,
+  Pi's text, which Pi reports as a load error). The settings rule is
+  `is_builtin_extension_enabled`: the user-level array decides unless the
+  project array has a `+`/`-` directive that matches, with pipy's pattern
+  rules (last matching directive wins, `fnmatch`) in place of Pi's
+  (`!pattern`, exact `+`/`-`).
+- The config command has no interactive list in pipy. `pipy config list`
+  shows `built-in:` with `builtin:mcp` (JSON key `builtin`), and
+  `pipy config enable|disable builtin mcp` writes `+builtin:mcp` or
+  `-builtin:mcp` into the `extensions` array of the chosen scope, read from
+  that scope alone.
 
 Open after the merge, owned by later slices:
 

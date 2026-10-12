@@ -119,7 +119,7 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_tokens
 from pipy_harness.native.keybindings import KeybindingsManager
-from pipy_harness.native.mcp.config import load_mcp_config
+from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
@@ -964,7 +964,14 @@ def _compose_extension_phase(
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
         raise_first((error, _abort_startup_attachment_nonraising(attached)))
         raise AssertionError("startup failure did not propagate")
-    mcp_manager = _mcp_manager(cwd, settings, tool_capabilities)
+    mcp_manager = _mcp_manager(
+        cwd,
+        settings,
+        tool_capabilities,
+        enabled=startup.resource_options.mcp_enabled(
+            configured=settings.builtin_extension_enabled("mcp")
+        ),
+    )
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
@@ -988,12 +995,18 @@ def _compose_extension_phase(
 
 
 def _mcp_manager(
-    cwd: Path, settings: SettingsManager, tool_capabilities: NativeToolCapabilities
+    cwd: Path,
+    settings: SettingsManager,
+    tool_capabilities: NativeToolCapabilities,
+    *,
+    enabled: bool,
 ) -> McpManager:
     """The session's MCP servers, read from ``mcp.json`` and not started yet.
 
     The user-level file is the one next to the user-level settings file; the
-    project file is read only for a trusted project.
+    project file is read only for a trusted project. With MCP turned off
+    (``--no-mcp``, ``-builtin:mcp``) no file is read and the manager has no
+    server, so it starts nothing and reports nothing.
     """
 
     config_home = settings.global_path.parent
@@ -1002,7 +1015,9 @@ def _mcp_manager(
             config_home=config_home,
             cwd=cwd,
             project_trusted=settings.project_trusted,
-        ),
+        )
+        if enabled
+        else LoadedMcpConfig(servers=[], errors=[]),
         cwd=cwd,
         client_version=pipy_version(),
         publish_tools=tool_capabilities.publish_mcp_tools,

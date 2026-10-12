@@ -9,11 +9,21 @@ match its name, the last one wins. Bare entries (resource source paths) are
 additive sources and do not affect enablement.
 
 Patterns match a resource name exactly or as an fnmatch glob (e.g. ``draft-*``).
+
+Built-in extensions are parts of pipy that can be turned off like an
+extension (Pi's built-in extensions). One is named ``builtin:<name>`` in the
+``extensions`` array and on the command line. Only ``mcp`` exists.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from fnmatch import fnmatch
+from typing import Final
+
+BUILTIN_EXTENSION_PREFIX: Final = "builtin:"
+# The parts of pipy that ``-builtin:<name>`` in ``extensions`` turns off.
+BUILTIN_EXTENSIONS: Final = ("mcp",)
 
 
 def _matches(name: str, pattern: str) -> bool:
@@ -72,3 +82,32 @@ def enable_entry(patterns: list[str], name: str) -> list[str]:
     result = _without_directives(patterns, name)
     result.append(f"+{name}")
     return result
+
+
+def builtin_extension_name(value: str) -> str | None:
+    """The name in ``builtin:<name>``, or ``None`` for anything else."""
+
+    if not value.startswith(BUILTIN_EXTENSION_PREFIX):
+        return None
+    return value[len(BUILTIN_EXTENSION_PREFIX) :]
+
+
+def is_builtin_extension_enabled(
+    name: str, *, user_patterns: Sequence[object], project_patterns: Sequence[object]
+) -> bool:
+    """Whether the ``extensions`` settings leave a built-in extension on.
+
+    Enabled unless the user-level array turns ``builtin:<name>`` off. A
+    directive in the project array that matches it decides instead (Pi
+    ``resolve`` in ``package-manager.ts``).
+    """
+
+    resource = BUILTIN_EXTENSION_PREFIX + name
+    project = [entry for entry in project_patterns if isinstance(entry, str)]
+    if any(
+        entry[:1] in ("+", "-") and _matches(resource, entry[1:]) for entry in project
+    ):
+        return is_resource_enabled(resource, project)
+    return is_resource_enabled(
+        resource, [entry for entry in user_patterns if isinstance(entry, str)]
+    )

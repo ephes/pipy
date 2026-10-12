@@ -290,7 +290,8 @@ Initial discovery should support:
   -> `~/.config/pipy`
 - Explicit CLI paths: repeated `--extension <PATH>` accepts a Python file, a
   direct extension directory, or a directory of extension candidates. Matching
-  `--no-extensions` disables workspace/global/package discovery but still
+  `--no-extensions` disables workspace/global/package discovery (and the
+  built-in [MCP support](mcp.md#turning-mcp-off)) but still
   honors explicit paths, and explicit paths also override persisted resource
   filters for the same resource name. The same per-run pattern exists for
   `--skill`, `--prompt-template`, and `--theme`.

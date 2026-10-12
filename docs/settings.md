@@ -157,7 +157,7 @@ settings layers as other preferences and is not discovered provider capability.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `packages` | array | Installed local-path or managed-git package sources, or objects with resource filters. |
-| `extensions` | string array | Extension path patterns. |
+| `extensions` | string array | Extension path patterns. `-builtin:mcp` turns the built-in MCP support off; a `+builtin:mcp` or `-builtin:mcp` entry in project settings decides over the user-level one. See [turning MCP off](mcp.md#turning-mcp-off). |
 | `skills` | string array | Skill path patterns. |
 | `prompts` | string array | Prompt-template path patterns. |
 | `themes` | string array | Theme path patterns. |

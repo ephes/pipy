@@ -26,7 +26,25 @@ class RuntimeResourceOptions:
     no_prompt_templates: bool = False
     no_themes: bool = False
     extension_flag_tokens: tuple[str, ...] = ()
+    # ``--no-mcp``: MCP is off for this run, whatever else says.
+    no_mcp: bool = False
+    # Built-in extensions named with ``--extension builtin:<name>``.
+    builtin_extensions: tuple[str, ...] = ()
 
     @classmethod
     def empty(cls) -> "RuntimeResourceOptions":
         return cls()
+
+    def mcp_enabled(self, *, configured: bool) -> bool:
+        """Whether this run has MCP (the built-in extension ``mcp``).
+
+        ``configured`` is what the ``extensions`` settings say. ``--no-mcp``
+        turns it off; otherwise ``--extension builtin:mcp`` turns it on, also
+        with ``--no-extensions``, which turns it off like the settings can.
+        """
+
+        if self.no_mcp:
+            return False
+        if "mcp" in self.builtin_extensions:
+            return True
+        return configured and not self.no_extensions

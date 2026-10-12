@@ -155,13 +155,16 @@ pipy config --json
 pipy config enable skill review
 pipy config disable prompt legacy-*
 pipy config --scope project disable extension experimental
+pipy config disable builtin mcp
 ```
 
 `pipy config` uses its own explicit scope flag: `--scope global` writes resource
 filters to the user settings file, and `--scope project` writes them to
 `.pipy/settings.json`. Filters are glob-style patterns applied by resource type,
 so a package can stay installed while selected skills, prompts, themes, or
-extensions are disabled.
+extensions are disabled. `builtin` names a part of pipy rather than a
+discovered resource; `mcp` is the only one, see
+[turning MCP off](mcp.md#turning-mcp-off).
 
 ## Runtime loading
 

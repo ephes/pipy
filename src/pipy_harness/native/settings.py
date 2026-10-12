@@ -906,6 +906,29 @@ class SettingsManager:
     def get_extensions_patterns(self) -> list[str]:
         return self._get_str_list("extensions")
 
+    def builtin_extension_enabled(self, name: str) -> bool:
+        """Whether ``extensions`` leaves the built-in extension ``name`` on.
+
+        The user-level array decides unless the project array has a
+        directive for ``builtin:<name>``, for example ``-builtin:mcp``.
+        """
+
+        from pipy_harness.native.resource_enablement import (
+            is_builtin_extension_enabled,
+        )
+
+        state = self.state
+
+        def patterns(scope: str) -> list[object]:
+            value = state.scope_body(scope).get("extensions")
+            return value if isinstance(value, list) else []
+
+        return is_builtin_extension_enabled(
+            name,
+            user_patterns=patterns(SCOPE_GLOBAL),
+            project_patterns=patterns(SCOPE_PROJECT),
+        )
+
     def get_enable_skill_commands(self) -> bool:
         return self._get_bool("enableSkillCommands", default=True)
 

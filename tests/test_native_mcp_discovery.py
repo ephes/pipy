@@ -1,5 +1,5 @@
 """Activating ``codemode`` and ``tool_search`` for MCP servers (MCP parity
-plan S19, rows SES-11 and SES-13).
+plan S19, rows SES-11 and SES-13), and the MCP switches (EXP-11, EXP-12).
 
 ``McpDiscovery`` is tested against a real capability value over a production
 registry with a stubbed runtime probe. The session level is in
@@ -8,6 +8,7 @@ registry with a stubbed runtime probe. The session level is in
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -15,8 +16,12 @@ import pytest
 from test_native_tool_filter_patterns import _Tool
 from test_native_tool_search_tool import _capabilities, _declared
 
+from pipy_harness.cli import _resource_options_from_args, build_parser, main
 from pipy_harness.native.codemode import selftest
 from pipy_harness.native.mcp.discovery import McpDiscovery, unreachable_warning
+from pipy_harness.native.resource_enablement import is_builtin_extension_enabled
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
@@ -431,3 +436,166 @@ def test_activate_tools_ignores_unknown_names_and_keeps_an_unset_selection(
     tools.activate_tools(["read", "nope"])
 
     assert tools.state is state
+
+
+# -- EXP-11, EXP-12: the switches ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("user", "project", "enabled"),
+    [
+        ([], [], True),
+        (["-builtin:mcp"], [], False),
+        (["-builtin:mcp", "+builtin:mcp"], [], True),
+        (["-builtin:mcp"], ["+builtin:mcp"], True),
+        ([], ["-builtin:mcp"], False),
+        (["-builtin:mcp"], ["-other", "ext.py"], False),
+        (["-builtin:*"], [], False),
+        (["-mcp", "builtin:mcp", 3], [], True),
+    ],
+)
+def test_builtin_extension_enablement(
+    user: list[object], project: list[object], enabled: bool
+) -> None:
+    assert (
+        is_builtin_extension_enabled(
+            "mcp", user_patterns=user, project_patterns=project
+        )
+        is enabled
+    )
+
+
+def test_settings_read_the_builtin_entry_per_scope(tmp_path: Path) -> None:
+    global_path = tmp_path / "config" / "settings.json"
+    project_path = tmp_path / "work" / ".pipy" / "settings.json"
+    global_path.parent.mkdir(parents=True)
+    project_path.parent.mkdir(parents=True)
+    global_path.write_text('{"extensions": ["-builtin:mcp"]}')
+
+    def enabled(*, trusted: bool) -> bool:
+        manager = SettingsManager(
+            global_path=global_path,
+            project_path=project_path,
+            project_trusted=trusted,
+        )
+        return manager.builtin_extension_enabled("mcp")
+
+    assert not enabled(trusted=True)
+    project_path.write_text('{"extensions": ["+builtin:mcp"]}')
+    assert enabled(trusted=True)
+    # An untrusted project's settings are not read.
+    assert not enabled(trusted=False)
+
+
+@pytest.mark.parametrize(
+    ("options", "configured", "enabled"),
+    [
+        (RuntimeResourceOptions(), True, True),
+        (RuntimeResourceOptions(), False, False),
+        (RuntimeResourceOptions(no_mcp=True), True, False),
+        (RuntimeResourceOptions(no_extensions=True), True, False),
+        (RuntimeResourceOptions(builtin_extensions=("mcp",)), False, True),
+        (
+            RuntimeResourceOptions(no_extensions=True, builtin_extensions=("mcp",)),
+            True,
+            True,
+        ),
+        (RuntimeResourceOptions(no_mcp=True, builtin_extensions=("mcp",)), True, False),
+    ],
+)
+def test_run_options_decide_whether_mcp_is_on(
+    options: RuntimeResourceOptions, configured: bool, enabled: bool
+) -> None:
+    assert options.mcp_enabled(configured=configured) is enabled
+
+
+def test_cli_flags_parse_to_run_options(tmp_path: Path) -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        ["repl", "--cwd", str(tmp_path), "--no-mcp", "-ne", "-e", "ext.py"]
+        + ["-e", "builtin:mcp", "-e", "builtin:mcp"]
+    )
+    options = _resource_options_from_args(args)
+
+    assert options.no_mcp and options.no_extensions
+    assert options.builtin_extensions == ("mcp",)
+    assert options.extension_paths == (tmp_path.resolve() / "ext.py",)
+    plain = _resource_options_from_args(
+        parser.parse_args(["repl", "--cwd", str(tmp_path)])
+    )
+    assert not plain.no_mcp and plain.builtin_extensions == ()
+
+
+def test_an_unknown_builtin_extension_is_an_error(tmp_path: Path) -> None:
+    args = build_parser().parse_args(
+        ["repl", "--cwd", str(tmp_path), "-e", "builtin:nope"]
+    )
+
+    with pytest.raises(ValueError, match="Unknown built-in extension: builtin:nope"):
+        _resource_options_from_args(args)
+
+
+# -- EXP-12: the config command -----------------------------------------------
+
+
+def _builtin_report(capfd: pytest.CaptureFixture[str], workspace: Path) -> object:
+    capfd.readouterr()
+    assert main(["config", "list", "--json", "--approve", "--cwd", str(workspace)]) == 0
+    return json.loads(capfd.readouterr().out)["builtin"]
+
+
+def test_config_command_lists_and_toggles_the_builtin_mcp_entry(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    workspace = tmp_path / "ws"
+    (workspace / ".pipy").mkdir(parents=True)
+    user_file = config_home / "settings.json"
+    user_file.write_text('{"extensions": ["-other", "ext.py"]}')
+    cwd = ["--cwd", str(workspace)]
+
+    assert _builtin_report(capfd, workspace) == [
+        {"name": "builtin:mcp", "enabled": True}
+    ]
+
+    assert main(["config", "disable", "builtin", "mcp", *cwd]) == 0
+    assert json.loads(user_file.read_text())["extensions"] == [
+        "-other",
+        "ext.py",
+        "-builtin:mcp",
+    ]
+    assert _builtin_report(capfd, workspace) == [
+        {"name": "builtin:mcp", "enabled": False}
+    ]
+
+    # A project entry decides over the user-level one, and is written to the
+    # project file alone.
+    assert (
+        main(["config", "enable", "builtin", "builtin:mcp", "-l", "--approve", *cwd])
+        == 0
+    )
+    project = json.loads((workspace / ".pipy" / "settings.json").read_text())
+    assert project["extensions"] == ["+builtin:mcp"]
+    assert _builtin_report(capfd, workspace) == [
+        {"name": "builtin:mcp", "enabled": True}
+    ]
+
+    assert main(["config", "list", "--approve", *cwd]) == 0
+    listing = capfd.readouterr().out
+    assert "  built-in:\n    builtin:mcp [enabled]\n" in listing
+
+
+def test_config_command_refuses_an_unknown_builtin(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+
+    assert main(["config", "disable", "builtin", "nope", "--cwd", str(tmp_path)]) == 2
+
+    assert "unknown built-in 'nope'; known: mcp." in capfd.readouterr().err
+    assert not (config_home / "settings.json").exists()

@@ -10,7 +10,8 @@ The S17 tests have a server with `codemode` tools, which no prompt waits
 for, so the provider's first turn calls an extension tool that waits until
 the server's tools are registered. The readiness waits themselves (S18, rows
 SES-05 to SES-10) follow, then S19: activating `codemode` and `tool_search`
-from the configuration and the startup report (SES-04, SES-11 to SES-13).
+from the configuration, the startup report and the switches that turn MCP
+off (SES-04, SES-11 to SES-13, EXP-11, EXP-12).
 """
 
 from __future__ import annotations
@@ -930,7 +931,7 @@ def test_an_abort_ends_the_wait_of_a_tool_call(tmp_path: Path, monkeypatch) -> N
     assert not _received(record, "tools/list")
 
 
-# -- S19: discovery activation and the startup report -------------------------
+# -- S19: discovery activation, the startup report, the switches --------------
 
 _UNREACHABLE = (
     "MCP tools are only reachable from the codemode or tool_search tool, "
@@ -1186,3 +1187,88 @@ def test_startup_problems_are_reported_once(tmp_path: Path, monkeypatch) -> None
     # The working server was not listed, and its tools were declared.
     assert "  docs:" not in errors
     assert "mcp__docs__search" in _tool_names(provider.requests[0])
+
+
+def test_no_mcp_reads_no_file_and_starts_no_process(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # EXP-11.
+    def refuse(**_kwargs: object) -> None:
+        raise AssertionError("mcp.json was read")
+
+    monkeypatch.setattr(wiring, "load_mcp_config", refuse)
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers")
+    (workspace / "mcp.json").write_text(
+        json.dumps(
+            {
+                "autoEnableCodemode": "yes",
+                "mcpServers": {"docs": {**entry, "exposure": "direct"}},
+            }
+        )
+    )
+    threads: list[list[str]] = []
+    before = set(threading.enumerate())
+    provider = _Provider([lambda: threads.append(_mcp_threads(before)), _result()])
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace),
+        resource_options=RuntimeResourceOptions(no_mcp=True),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert threads == [[]]
+    assert not record.exists()
+    names = _tool_names(provider.requests[0])
+    assert not [name for name in names if "mcp__" in name]
+    assert "codemode" not in names and "tool_search" not in names
+    assert "MCP" not in errors
+
+
+@pytest.mark.parametrize(
+    ("extensions", "options", "connects"),
+    [
+        (["-builtin:mcp"], RuntimeResourceOptions(), False),
+        ([], RuntimeResourceOptions(no_extensions=True), False),
+        (
+            ["-builtin:mcp"],
+            RuntimeResourceOptions(no_extensions=True, builtin_extensions=("mcp",)),
+            True,
+        ),
+        ([], RuntimeResourceOptions(), True),
+    ],
+)
+def test_the_builtin_mcp_entry_turns_mcp_off_and_on(
+    tmp_path: Path,
+    monkeypatch,
+    extensions: list[str],
+    options: RuntimeResourceOptions,
+    connects: bool,
+) -> None:
+    # EXP-12: `-builtin:mcp` in `extensions`, `--no-extensions`, and
+    # `--extension builtin:mcp`.
+    config = tmp_path / "config"
+    config.mkdir()
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    (config / "settings.json").write_text(json.dumps({"extensions": extensions}))
+    entry, record = _server(tmp_path / "servers")
+    _write_mcp_json(config / "mcp.json", {"docs": {**entry, "exposure": "direct"}})
+    settings = SettingsManager(
+        global_path=config / "settings.json",
+        project_path=workspace / ".pipy" / "settings.json",
+        overrides={"theme": "pi"},
+    )
+    provider = _Provider([_result()])
+
+    status, errors = _run(
+        workspace, provider, settings=settings, resource_options=options
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    declared = "mcp__docs__search" in _tool_names(provider.requests[0])
+    assert declared is connects
+    assert record.exists() is connects

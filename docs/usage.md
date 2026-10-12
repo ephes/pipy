@@ -350,14 +350,16 @@ pipy --tools read,bash,codemode,'mcp__radius__*'
 ```
 
 To remove MCP tools, use `--exclude-tools 'mcp__*'` (the server tools) or name
-the tools. `--no-tools` removes them as well.
+the tools. `--no-tools` removes them as well. [`--no-mcp`](#resource-options)
+turns MCP off altogether.
 
 ### Resource options
 
 | Option | Description |
 | --- | --- |
-| `--extension PATH`, `-e PATH` | Load an extension file or directory for this run |
-| `--no-extensions`, `-ne` | Disable default extension discovery; explicit `--extension` still loads |
+| `--extension PATH`, `-e PATH` | Load an extension file or directory for this run, or the built-in MCP support with `builtin:mcp` |
+| `--no-extensions`, `-ne` | Disable default extension discovery and the built-in MCP support; explicit `--extension` still loads, so `pipy -ne -e builtin:mcp` keeps MCP |
+| `--no-mcp` | Disable the built-in MCP support for this run: no `mcp.json` is read, no server connects and there are no MCP tools. See [turning MCP off](mcp.md#turning-mcp-off) |
 | `--skill PATH` | Load a skill Markdown file or directory for this run |
 | `--no-skills`, `-ns` | Disable default skill discovery; explicit `--skill` still loads |
 | `--prompt-template PATH` | Load a prompt-template Markdown file or directory |
