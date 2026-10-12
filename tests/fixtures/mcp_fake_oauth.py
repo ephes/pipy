@@ -14,7 +14,8 @@ answered 404. Every response closes its connection.
 ``FakeAuthorizationServer`` is such a server with the endpoints of a sign-in:
 metadata, dynamic registration, authorize and token.
 ``authorization_response`` asks its authorize endpoint as a browser would and
-returns the parameters of the redirect.
+returns the parameters of the redirect. ``FakeBrowser`` follows the redirect
+too, to the page a loopback callback server answers with.
 """
 
 from __future__ import annotations
@@ -405,3 +406,52 @@ def authorization_response(authorization_url: str) -> dict[str, str]:
     finally:
         connection.close()
     return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(location).query, True))
+
+
+@dataclass(frozen=True)
+class BrowserPage:
+    """What a ``FakeBrowser`` was answered with at ``url``."""
+
+    url: str
+    status: int
+    headers: dict[str, str]
+    text: str
+
+
+class FakeBrowser:
+    """Opens a URL as a browser would and follows its redirects.
+
+    ``visited`` lists every URL it asked, in order.
+    """
+
+    def __init__(self) -> None:
+        self.visited: list[str] = []
+
+    def get(self, url: str, method: str = "GET") -> BrowserPage:
+        """One request, without following a redirect. Header names are lower case."""
+
+        parts = urllib.parse.urlsplit(url)
+        assert parts.scheme == "http" and parts.hostname is not None, url
+        target = parts.path or "/"
+        if parts.query:
+            target += f"?{parts.query}"
+        self.visited.append(url)
+        connection = http.client.HTTPConnection(parts.hostname, parts.port, timeout=10)
+        try:
+            connection.request(method, target)
+            response = connection.getresponse()
+            body = response.read()
+            headers = {name.lower(): value for name, value in response.getheaders()}
+            return BrowserPage(url, response.status, headers, body.decode("utf-8"))
+        finally:
+            connection.close()
+
+    def open(self, url: str) -> BrowserPage:
+        """Ask ``url`` and follow redirects to the page a user would end on."""
+
+        for _ in range(10):
+            page = self.get(url)
+            if page.status not in (301, 302, 303, 307, 308):
+                return page
+            url = urllib.parse.urljoin(url, page.headers["location"])
+        raise AssertionError(f"too many redirects, last to {url}")
