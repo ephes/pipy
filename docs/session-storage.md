@@ -442,6 +442,13 @@ The `.state/` files map a platform session id to a pipy active JSONL file. They
 are operational state, not durable history, and they stay under `.in-progress/`
 so `just sessions-sync` does not copy them.
 
+Only concurrent starts are serialized: event, stop and prune operations do not
+participate in the start lock. Concurrent starts for the same agent/platform session identity use an OS-backed
+lock across state lookup, record creation and mapping publication. Different
+identities use independent locks. Persistent `.lock` sidecars are not pruned;
+publication uses owned unique temporary files, and failed publication removes
+only the newly created active record and its temporary mapping.
+
 The scriptable commands are:
 
 ```sh

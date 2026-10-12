@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
 import subprocess
+import tempfile
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -101,90 +104,104 @@ def start_auto_capture(
     """Create an active partial record and state mapping for an adapter."""
 
     safe_agent = _safe_component(agent, "agent")
-    if platform_session_id is not None:
-        existing_state_path = _state_path(root, safe_agent, platform_session_id)
-        existing = _existing_live_state(
-            existing_state_path,
-            platform_session_id=platform_session_id,
-            root=root,
-        )
-        if existing is not None:
-            append_event(
-                existing.active_path,
+    lock_path = (
+        _state_path(root, safe_agent, platform_session_id).with_suffix(".lock")
+        if platform_session_id is not None
+        else None
+    )
+    if lock_path is not None:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a") if lock_path is not None else nullcontext() as lock:
+        if lock is not None:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if platform_session_id is not None:
+            existing_state_path = _state_path(root, safe_agent, platform_session_id)
+            existing = _existing_live_state(
+                existing_state_path,
+                platform_session_id=platform_session_id,
                 root=root,
-                event_type="auto_capture.resumed",
+            )
+            if existing is not None:
+                append_event(
+                    existing.active_path,
+                    root=root,
+                    event_type="auto_capture.resumed",
+                    agent=safe_agent,
+                    summary=f"Automatic capture reused existing state for {safe_agent}.",
+                    payload={
+                        "capture_complete": not existing.partial,
+                        "metadata": _sanitize_metadata(metadata or {}),
+                        "platform_session_id": _public_session_id(
+                            existing.platform_session_id
+                        ),
+                    },
+                    now=now,
+                )
+                return existing
+            if existing_state_path.exists():
+                existing_state_path.unlink()
+
+        active_path = init_session(
+            agent=agent,
+            slug=slug,
+            root=root,
+            goal=goal,
+            partial=partial,
+            machine=machine,
+            now=now,
+        )
+        try:
+            session_id = platform_session_id or active_path.stem
+            public_session_id = _public_session_id(session_id)
+
+            sanitized_metadata = _sanitize_metadata(metadata or {})
+
+            append_event(
+                active_path,
+                root=root,
+                event_type="auto_capture.started",
                 agent=safe_agent,
-                summary=f"Automatic capture reused existing state for {safe_agent}.",
+                summary=f"Automatic capture started for {safe_agent}.",
                 payload={
-                    "capture_complete": not existing.partial,
-                    "metadata": _sanitize_metadata(metadata or {}),
-                    "platform_session_id": _public_session_id(
-                        existing.platform_session_id
-                    ),
+                    "capture_complete": not partial,
+                    "metadata": sanitized_metadata,
+                    "platform_session_id": public_session_id,
                 },
                 now=now,
             )
-            return existing
-        if existing_state_path.exists():
-            existing_state_path.unlink()
+            public_model = _public_model_from_metadata(sanitized_metadata)
+            if public_model is not None:
+                append_event(
+                    active_path,
+                    root=root,
+                    event_type="model.used",
+                    agent=safe_agent,
+                    summary=f"Model used: agent={safe_agent}, model={public_model}.",
+                    payload={"agent": safe_agent, "model": public_model},
+                    now=now,
+                )
 
-    active_path = init_session(
-        agent=agent,
-        slug=slug,
-        root=root,
-        goal=goal,
-        partial=partial,
-        machine=machine,
-        now=now,
-    )
-    session_id = platform_session_id or active_path.stem
-    public_session_id = _public_session_id(session_id)
-
-    sanitized_metadata = _sanitize_metadata(metadata or {})
-
-    append_event(
-        active_path,
-        root=root,
-        event_type="auto_capture.started",
-        agent=safe_agent,
-        summary=f"Automatic capture started for {safe_agent}.",
-        payload={
-            "capture_complete": not partial,
-            "metadata": sanitized_metadata,
-            "platform_session_id": public_session_id,
-        },
-        now=now,
-    )
-    public_model = _public_model_from_metadata(sanitized_metadata)
-    if public_model is not None:
-        append_event(
-            active_path,
-            root=root,
-            event_type="model.used",
+            path = _state_path(root, safe_agent, session_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            state = {
+                "version": STATE_VERSION,
+                "agent": safe_agent,
+                "platform_session_id": public_session_id,
+                "active_path": str(active_path),
+                "partial": partial,
+                "updated_at": _timestamp(now),
+            }
+            _write_state(path, state)
+        except BaseException:
+            active_path.unlink(missing_ok=True)
+            raise
+        return AutoCaptureState(
             agent=safe_agent,
-            summary=f"Model used: agent={safe_agent}, model={public_model}.",
-            payload={"agent": safe_agent, "model": public_model},
-            now=now,
+            platform_session_id=session_id,
+            active_path=active_path,
+            state_path=path,
+            partial=partial,
         )
-
-    path = _state_path(root, safe_agent, session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    state = {
-        "version": STATE_VERSION,
-        "agent": safe_agent,
-        "platform_session_id": public_session_id,
-        "active_path": str(active_path),
-        "partial": partial,
-        "updated_at": _timestamp(now),
-    }
-    _write_state(path, state)
-    return AutoCaptureState(
-        agent=safe_agent,
-        platform_session_id=session_id,
-        active_path=active_path,
-        state_path=path,
-        partial=partial,
-    )
 
 
 def append_auto_event(
@@ -496,13 +513,23 @@ def _existing_live_state(
 
 
 def _write_state(path: Path, state: Mapping[str, Any]) -> None:
-    temp_path = path.with_name(f"{path.name}.partial")
-    if temp_path.exists():
-        temp_path.unlink()
-    with temp_path.open("x", encoding="utf-8") as handle:
-        json.dump(dict(state), handle, sort_keys=True, separators=(",", ":"))
-        handle.write("\n")
-    temp_path.replace(path)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f"{path.name}.",
+        suffix=".partial",
+        delete=False,
+    ) as handle:
+        temp_path = Path(handle.name)
+        try:
+            json.dump(dict(state), handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.close()
+            temp_path.replace(path)
+        except BaseException:
+            temp_path.unlink(missing_ok=True)
+            raise
 
 
 def _metadata_for_hook(payload: Mapping[str, Any]) -> dict[str, Any]:
