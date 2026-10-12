@@ -18,7 +18,7 @@ import json
 import threading
 from collections.abc import Mapping
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO, cast
@@ -82,6 +82,7 @@ from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.system_prompt_sections import (
     BUILTIN_TOOL_PROMPTS,
     SystemPromptTemplate,
+    pipy_docs_info,
     render_system_prompt,
 )
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -1246,7 +1247,16 @@ def test_production_tool_inventories_match_exact_pi_manifest() -> None:
         "edit",
         "bash",
     )
-    sections = dict(SystemPromptTemplate(cwd="/w").sections(tuple(registry)))
+    # The docs section names the checkout's own paths. Fixed paths keep the
+    # whole-prompt assertions below independent of where the repository lives.
+    docs = replace(
+        pipy_docs_info(),
+        readme="/p/README.md",
+        docs="/p/docs",
+        examples="/p/docs/examples",
+    )
+    template = SystemPromptTemplate(cwd="/w", docs=docs)
+    sections = dict(template.sections(tuple(registry)))
     prompt_tool_section = sections["tools"].split("\n\n", maxsplit=1)[0]
     prompt_names = tuple(
         line.removeprefix("<tools>\n").removeprefix("- ").split(":", maxsplit=1)[0]
