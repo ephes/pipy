@@ -509,6 +509,27 @@ Other new modules: `native/tool_search.py` (tokenizer, BM25, document
 builder, the `tool_search` tool) and `native/codemode/declarations.py`
 (schema to Python type text, tool samples).
 
+Decided in S06 (search core, `native/tool_search.py`):
+
+- The API is `tokenize`, `stem`, `create_tool_search_document(tool,
+  namespace=None)`, `Bm25Ranker(k1=1.2, b=0.75).rank(query, documents, limit)`
+  and the values `ToolSearchDocument` and `ToolSearchMatch`. A `ToolInfo` and a
+  `ToolDefinition` both serve as `tool`; the namespace is passed separately,
+  as in Pi.
+- Terms are ASCII, as in Pi: every other character separates terms. Text is
+  split at camelCase boundaries like names, so `GitHub` in a description is
+  the terms `git` and `hub` and the query `github` does not find it.
+- The schema walk reads `description`, `properties`, `items` (a single
+  schema only) and `anyOf`/`oneOf`/`allOf`, and nothing else (no `$defs`,
+  `additionalProperties`, `prefixItems`, `title` or `enum`). It uses its own
+  stack, so a deeply nested schema is read to the bottom where Pi's recursion
+  would overflow.
+- A text part is left out when JavaScript's `trim` would empty it, so the
+  search text equals Pi's except for the order of property names that look
+  like array indexes (JavaScript lists those first).
+- The ranker was compared with Pi's on generated tools and queries (same
+  token lists, search texts, orders and scores).
+
 Changed modules, by seam:
 
 | Seam | Module | Change |

@@ -65,6 +65,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   property descriptions and the constraints a type cannot express (`@integer`,
   `@minimum 1`, `@default 20`) on comment lines. It is internal for now; the
   tool listings that scripts and the model see follow.
+- Tool search core: a tokenizer (camelCase and punctuation splits, stop
+  words, folded plurals), the search text of a tool (name, description, schema
+  descriptions and property names, namespace) and an Okapi BM25 ranker. It is
+  internal for now; `search_tools` in codemode scripts and the `tool_search`
+  tool follow.
 - `tool_result` hooks see a result's structured content
   (`ToolResultEvent.structured_content`) and decide it together with the
   content: `ToolResultTransform` takes an optional `structured_content`, and
