@@ -419,5 +419,6 @@ class ToolExecutor:
                 ),
                 details=execution_result.details,
                 structured_content=execution_result.structured_content,
+                blocks=execution_result.blocks,
             )
         )

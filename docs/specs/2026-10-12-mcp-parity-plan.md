@@ -2173,6 +2173,39 @@ Decided in X1 (RPC UI requests; `automation/rpc_ui.py`,
   - A waiting request is polled, so it ends up to 50 ms after its cancel
     event.
 
+Decided in S39 (images, part 1: content model, session file, replay;
+`agent/content.py`, `tools/base.py`, `agent/messages.py`,
+`assistant_blocks_json.py`, `session_tree.py`):
+
+- `ImageContent(data, mime_type)` is Pi's image block: base64 data and a
+  MIME type, checked for type only (Pi checks nothing; a producer that takes
+  data from a script checks it first, see part 4).
+- A tool result keeps its text where it was (`ToolExecutionResult.output_text`,
+  `AgentToolResultMessage.content`) and gains `blocks`: Pi's ordered `content`
+  of `TextContent` and `ImageContent`, present only when the result has an
+  image. The text is then the text blocks joined by newlines, which is how
+  Pi's adapters and rows join them, and the constructors refuse blocks that
+  say otherwise. Blocks without an image are dropped, so such a result equals
+  one built from its text. Every reader that shows or measures text is
+  unchanged. `blocks` takes part in history equality, since images are sent.
+- Kept in order rather than as "text plus images" because Pi's Anthropic
+  and Bedrock adapters send the blocks in order; the other adapters join the
+  text and append the images (part 2).
+- Session file: a `tool` message with an image has `blocks` in Pi's shape
+  (`{"type":"text","text"}`, `{"type":"image","data","mimeType"}`) next to
+  `output_text`; a result stored without its call keeps them when the file
+  is written again. JSON and RPC `toolResult` messages carry the same list
+  as `content`; `tool_execution_end.result` stays the text.
+- Estimates: an image counts 4800 characters in `estimate_message_tokens`
+  (Pi `ESTIMATED_IMAGE_CHARS`) and as one image (4096 tokens) in
+  `estimate_request`, where `image_count` was the attachments only.
+- A `tool_result` hook that replaces the content replaces the images too
+  (Pi: the handler's `content` is the whole content); one that returns the
+  text unchanged keeps them. The hook is not shown the images, and an
+  extension tool cannot return one: `ToolResult.content` stays a string.
+- A compaction summary request quotes a result's text only (Pi
+  `serializeConversation`); the bounded nested-call record keeps no image.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

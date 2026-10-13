@@ -194,6 +194,11 @@ the coding-agent extended messages `BashExecutionMessage`, `CustomMessage`,
 message/tool dataclasses serialized to the same role/content discriminators;
 exact byte-for-byte field matching with Pi is not the gate (see Verification).
 
+A `toolResult` message's `content` is one text block, or, when the result has
+an image, Pi's ordered blocks: `{"type":"text","text"}` and
+`{"type":"image","data","mimeType"}` with base64 data. The `result` of
+`tool_execution_end` stays the result's text.
+
 ### Canonical `--mode json` sequence (deterministic fake provider, no tools)
 
 The leading `version` below is the pipy native-session-tree format version (see

@@ -600,6 +600,15 @@ Minimum entry types:
   their text followed by their tool calls. An aborted or failed message keeps
   the thinking and tool calls streamed so far; its tool calls are never run
   or sent again.
+
+  A tool result (`"role":"tool"`) stores its text as `output_text`. When the
+  result has an image, it also stores a `blocks` list with its ordered
+  content in Pi's shape: `{"type":"text","text"}` and
+  `{"type":"image","data","mimeType"}`, the data base64. `output_text` is
+  then the text blocks joined by newlines; an entry whose blocks say
+  otherwise, or hold anything else, is not read. A result without an image
+  has no `blocks`. The image data is stored in full, so a session with
+  screenshots grows by their size.
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using
   Pi's entry type name.

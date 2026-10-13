@@ -1493,7 +1493,14 @@ def _transform_tool_result(
         )
     if content == result.content and structured_content is result.structured_content:
         return result
-    return replace(result, content=content, structured_content=structured_content)
+    # Pi: a handler's ``content`` replaces the whole content, images included;
+    # one that leaves the text as it is keeps them.
+    return replace(
+        result,
+        content=content,
+        structured_content=structured_content,
+        blocks=result.blocks if content == result.content else (),
+    )
 
 
 def _interruption_reason(

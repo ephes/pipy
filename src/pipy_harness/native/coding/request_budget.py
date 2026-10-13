@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, fields, replace
 
+from pipy_harness.native.agent.content import tool_result_images
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentToolResultMessage,
@@ -115,7 +116,8 @@ def estimate_request(
 ) -> RequestEstimate:
     """Measure supplied frozen request values plus an extracted image count.
 
-    The caller supplies the count for this request's images. Attachment objects,
+    The caller supplies the count of this request's attached images; the images
+    of the tool results in its messages are counted here. Attachment objects,
     raw image data and header callbacks are neither inspected nor invoked here.
     Tool schemas must already be frozen by the canonical request boundary; a
     callback-free pre-hook snapshot can use that same boundary before measuring.
@@ -141,6 +143,7 @@ def estimate_request(
                     str(message.is_error).lower(),
                 )
             )
+            image_count += len(tool_result_images(message.blocks))
         else:
             message_tokens += _text_tokens(message.content.value)
         if isinstance(message, AgentAssistantMessage):

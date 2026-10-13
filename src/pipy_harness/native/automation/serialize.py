@@ -28,6 +28,7 @@ from pipy_harness.native.agent.content import TextContent, ThinkingContent
 from pipy_harness.native.agent.messages import AgentContentBlock
 from pipy_harness.native.agent.system_messages import system_message_to_json
 from pipy_harness.native.agent.usage_json import usage_to_json
+from pipy_harness.native.assistant_blocks_json import tool_result_blocks_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
@@ -140,7 +141,9 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
             **codemode_parent_details(message),
             "role": "toolResult",
             "toolCallId": message.provider_correlation_id,
-            "content": [{"type": "text", "text": message.content.value}],
+            # Pi's ordered text and image blocks when the result has an image.
+            "content": tool_result_blocks_to_json(message.blocks)
+            or [{"type": "text", "text": message.content.value}],
             "isError": message.is_error,
         }
     raise TypeError(f"unserializable loop message: {type(message)!r}")

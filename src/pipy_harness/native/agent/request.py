@@ -7,7 +7,10 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    ProductContent,
+    require_tool_result_blocks,
+)
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
@@ -490,6 +493,9 @@ def validate_agent_tool_result_message(result: object) -> None:
     validate_product_content(result.content, "AgentToolResultMessage.content")
     if type(result.is_error) is not bool:
         raise TypeError("AgentToolResultMessage.is_error must be an exact bool")
+    require_tool_result_blocks(
+        result.blocks, result.content.value, "AgentToolResultMessage"
+    )
 
 
 def validate_product_content(content: object, field_name: str) -> None:

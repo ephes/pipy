@@ -52,6 +52,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, get_args, runtime_checkable
 
+from pipy_harness.native.agent.content import (
+    ToolResultBlock,
+    normalized_tool_result_blocks,
+)
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
 _ALLOWED_TOP_LEVEL_TYPES = ("object",)
@@ -415,6 +419,10 @@ class ToolExecutionResult:
     # as codemode scripts. Any JSON value; None means the tool gave none. It is
     # never sent to a provider and, as in Pi, never written to the session file.
     structured_content: Any = None
+    # Pi ``AgentToolResult.content`` when the result has an image: the ordered
+    # text and image blocks the model receives. ``output_text`` is then the
+    # text blocks joined by newlines. Empty for a result that is text only.
+    blocks: tuple[ToolResultBlock, ...] = ()
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
@@ -449,6 +457,13 @@ class ToolExecutionResult:
             self.structured_content
         ):
             raise ValueError("ToolExecutionResult.structured_content must be JSON")
+        object.__setattr__(
+            self,
+            "blocks",
+            normalized_tool_result_blocks(
+                self.blocks, self.output_text, "ToolExecutionResult"
+            ),
+        )
 
 
 def is_json_value(value: object) -> bool:

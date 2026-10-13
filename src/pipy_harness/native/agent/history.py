@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from .content import ESTIMATED_IMAGE_CHARS, tool_result_images
 from .messages import (
     AgentAssistantMessage,
     AgentMessage,
@@ -323,6 +324,8 @@ def estimate_message_tokens(message: AgentMessage) -> int:
     """Pi ``estimateTokens``: characters divided by four, rounded up."""
 
     chars = len(message.content.value)
+    if isinstance(message, AgentToolResultMessage):
+        chars += ESTIMATED_IMAGE_CHARS * len(tool_result_images(message.blocks))
     if isinstance(message, AgentAssistantMessage):
         chars += sum(len(block.thinking) for block in message.thinking_blocks())
         chars += sum(

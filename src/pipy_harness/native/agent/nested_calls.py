@@ -323,6 +323,7 @@ class NestedToolCallService:
                     content=ProductContent(error[:500]),
                     details=None,
                     structured_content=None,
+                    blocks=(),
                 ),
             )
         )

@@ -17,6 +17,8 @@ from pipy_harness.native.agent.content import (
     ProductContent,
     TextContent,
     ThinkingContent,
+    ToolResultBlock,
+    normalized_tool_result_blocks,
 )
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
@@ -280,7 +282,14 @@ def _validate_turn_metadata(message: AgentAssistantMessage) -> None:
 
 @dataclass(frozen=True, slots=True)
 class AgentToolResultMessage:
-    """One provider-visible result carrying both tool identity domains."""
+    """One provider-visible result carrying both tool identity domains.
+
+    ``blocks`` is Pi's ordered ``content`` (text and image blocks) for a
+    result that has an image; ``content`` is then its text blocks joined by
+    newlines, which is what every reader that shows or measures text uses.
+    A result without an image stores no blocks. Images are sent to the
+    provider, so ``blocks`` takes part in history equality.
+    """
 
     tool_request_id: str
     tool_name: str
@@ -296,6 +305,7 @@ class AgentToolResultMessage:
     # sent to a provider and never written to the session file. The executor
     # copies it from a validated ``ToolExecutionResult``.
     structured_content: Any = field(default=None, compare=False)
+    blocks: tuple[ToolResultBlock, ...] = ()
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
@@ -322,6 +332,13 @@ class AgentToolResultMessage:
                 "AgentToolResultMessage.tool_request_id must be pipy-owned "
                 f"(prefix '{AGENT_TOOL_REQUEST_ID_PREFIX}')"
             )
+        object.__setattr__(
+            self,
+            "blocks",
+            normalized_tool_result_blocks(
+                self.blocks, self.content.value, "AgentToolResultMessage"
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

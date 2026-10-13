@@ -7,13 +7,22 @@ shape: ``{"type":"text","text","textSignature"?}``,
 ``{"type":"thinking","thinking","thinkingSignature"?,"redacted"?}`` and
 ``{"type":"toolCall","index"}``, a position in ``tool_calls`` so arguments are
 stored once.
+
+A stored tool result keeps ``output_text`` (its text). When it has an image,
+``blocks`` lists its ordered content in Pi's shape: ``{"type":"text","text"}``
+and ``{"type":"image","data","mimeType"}`` with base64 data.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    ThinkingContent,
+    ToolResultBlock,
+)
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentContentBlock,
@@ -95,4 +104,49 @@ def _optional(entry: dict[str, Any], key: str) -> str | None:
     value = entry.get(key)
     if value is not None and type(value) is not str:
         raise ValueError(f"assistant block {key} must be a string")
+    return value
+
+
+def tool_result_blocks_to_json(
+    blocks: tuple[ToolResultBlock, ...],
+) -> list[dict[str, Any]]:
+    """A tool result's ordered content in Pi's shape."""
+
+    return [
+        {"type": "text", "text": block.text}
+        if isinstance(block, TextContent)
+        else {"type": "image", "data": block.data, "mimeType": block.mime_type}
+        for block in blocks
+    ]
+
+
+def tool_result_blocks_from_json(raw: object) -> tuple[ToolResultBlock, ...]:
+    """Read a tool result's ``blocks`` back; an entry without them has none."""
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("tool result blocks must be a list")
+    blocks: list[ToolResultBlock] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise ValueError("tool result block must be an object")
+        kind = entry.get("type")
+        if kind == "text":
+            blocks.append(TextContent(_result_string(entry, "text")))
+        elif kind == "image":
+            data = _result_string(entry, "data")
+            mime_type = _result_string(entry, "mimeType")
+            if not data or not mime_type:
+                raise ValueError("tool result image block needs data and a mimeType")
+            blocks.append(ImageContent(data, mime_type))
+        else:
+            raise ValueError(f"unsupported tool result block type: {kind!r}")
+    return tuple(blocks)
+
+
+def _result_string(entry: dict[str, Any], key: str) -> str:
+    value = entry.get(key)
+    if type(value) is not str:
+        raise ValueError(f"tool result block {key} must be a string")
     return value
