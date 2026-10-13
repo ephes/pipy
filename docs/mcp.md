@@ -514,9 +514,8 @@ Different from Pi:
 
 Not built yet, in the order the plan builds it: enabling and disabling a
 server and changing its exposure in a session (the `/mcp` manager, which
-also has the sign-in screen that takes a pasted redirect URL), the
-`oauth.clientRegistration` setting and the `auth` setting, servers
-registered by extensions, and images in tool results and resources.
+also has the sign-in screen that takes a pasted redirect URL), the `auth`
+setting, servers registered by extensions, and images in tool results and resources.
 
 ## Tool search
 
@@ -668,8 +667,10 @@ when a server is connected is described under
   one, equals `callbackPort`, `authServerMetadataUrl` is `https` or `http` on
   a loopback host, and `clientRegistration` is `dcr` or `cimd`. `cimd` cannot
   be combined with `clientId` or `clientName` and requires
-  `clientMetadataBaseUrl`, an `https` URL; a `callbackUrl` set with it must be
-  on `localhost` or `127.0.0.1` with path `/callback`.
+  `clientMetadataBaseUrl`, an `https` URL without query or fragment; a
+  `callbackUrl` set with it must be on `localhost` or `127.0.0.1` with path
+  `/callback`. What the settings do is described under
+  [OAuth settings](#oauth-settings).
 - `auth` needs a non-empty `provider` and a server URL that is `https`, or
   `http` on a loopback host.
 - An invalid entry is reported as `<path>: <reason>` and skipped. The other
@@ -688,7 +689,8 @@ Differences from Pi in the configuration:
   `127.1` is a configuration error here, where Pi's URL parser accepts it.
 - `oauth.clientMetadataBaseUrl` exists only in pipy. Pi serves its Client ID
   Metadata Documents from its own site; pipy has no such document, so `cimd`
-  needs the address where you host one.
+  needs the address where you host one, see
+  [OAuth settings](#oauth-settings).
 - A file that is not valid UTF-8 is an error, and JSON error messages are
   Python's.
 - A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
@@ -886,8 +888,6 @@ server again, see [sign-in with OAuth](#sign-in-with-oauth).
   <path>: <reason>` with status 1.
 - When the question for the redirect URL ends without an answer, pipy ends
   its line, so the next output starts on a new one.
-- `oauth.clientRegistration: "cimd"` is not acted on yet: `login` registers
-  a client.
 - The usage text and the hint are plain text; Pi prints parts of them bold
   or dim.
 - A trust store that cannot be read ends `list`, and `add` to a project file
@@ -1024,6 +1024,105 @@ What a sign-in does:
 - An authorization response from another issuer than the server's
   authorization server is refused.
 - Each request to the authorization server is limited to 15 seconds.
+
+### OAuth settings
+
+The `oauth` object of an HTTP server entry changes how pipy signs in. All
+of it is optional; without it pipy registers itself with the server's
+authorization server and listens on a free port.
+
+```json
+{
+  "mcpServers": {
+    "issues": {
+      "url": "https://issues.example.com/mcp",
+      "oauth": {
+        "clientId": "pipy-desktop",
+        "callbackPort": 8123,
+        "scope": "issues:read issues:write"
+      }
+    }
+  }
+}
+```
+
+- `clientId` names a client you registered with the authorization server
+  yourself, for a server that does not let clients register. pipy then
+  never registers and stores no client. `clientSecret` is that client's
+  secret, [resolved](#values-resolved-at-connect-time) each time a token
+  is requested.
+- `callbackPort` is the port the sign-in listens on. The redirect address
+  is then `http://127.0.0.1:<port>/callback`, which is what you register
+  with a client of your own.
+- `callbackUrl` is the redirect address, for a client that was registered
+  with another host name or path, for example
+  `http://localhost:8123/oauth/done`. With a port it is sent to the
+  authorization server exactly as you wrote it. Without one, the port pipy
+  listens on is added: `callbackPort`, or a free port. `localhost` is
+  served on `127.0.0.1`.
+- `scope` lists the scopes to ask for, separated by spaces.
+- `clientName` is the name pipy registers under, instead of `pipy`. It is
+  sent only when a client is registered. A server you already signed in to
+  keeps its registered client, so after changing the name run `pipy mcp
+  logout <server>` and sign in again.
+- `authServerMetadataUrl` is the address of the authorization server's
+  metadata document, for a server whose own discovery does not lead to it.
+  The document is used as it is: its `issuer` is not compared with what
+  discovery would expect. Nothing about it is stored with the credentials,
+  so a changed address needs no new sign-in.
+- `clientRegistration` is `dcr` (the default: dynamic client registration)
+  or `cimd`, see below.
+
+With `"clientRegistration": "cimd"` pipy registers no client. It identifies
+with a Client ID Metadata Document: its client ID is the `https` address of
+a JSON document that describes the client, which the authorization server
+fetches. pipy has no document of its own, so you host the documents and
+name their directory in `clientMetadataBaseUrl`:
+
+```json
+"oauth": {
+  "clientRegistration": "cimd",
+  "clientMetadataBaseUrl": "https://id.example.com/oauth"
+}
+```
+
+- The authorization server must say in its metadata that it accepts such
+  documents (`client_id_metadata_document_supported`) from clients without
+  a secret (`none` among `token_endpoint_auth_methods_supported`).
+  Otherwise the sign-in fails with `The authorization server does not
+  support Client ID Metadata Documents for public clients; remove
+  oauth.clientRegistration "cimd"`, and no client is registered instead.
+- For an authorization server that names itself in its responses
+  (`authorization_response_iss_parameter_supported`), the client ID is
+  `<base>/client.json` and the redirect address is
+  `http://127.0.0.1:<port>/callback`.
+- For any other, the client ID is `<base>/<id>/client.json` and the
+  redirect address ends in `/callback/<id>`. `<id>` identifies the MCP
+  server: 12 characters, the URL-safe base64 of the first 9 bytes of the
+  SHA-256 of the server's URL without its fragment. The response is
+  accepted only at that address, so one from another authorization server
+  cannot be taken for it. The URL is hashed in the form pipy reads it in
+  (host in lower case, no default port, `/` for an empty path), so compute
+  the `<id>` with pipy's own function, using the Python pipy is installed
+  in (`uv run python` in a checkout):
+
+  ```sh
+  python -c 'import sys; from pipy_harness.native.mcp.credentials import callback_id; print(callback_id(sys.argv[1]))' https://issues.example.com/mcp
+  ```
+
+- Each document has to list the redirect address its sign-ins use, with
+  the port left to the authorization server's rules for loopback addresses
+  or fixed with `callbackPort`. A `callbackUrl` set with `cimd` keeps the
+  path `/callback`; it can change the host name to `localhost` and name the
+  port.
+- The document is not stored with the credentials. A client that was
+  registered before you set `cimd` is dropped with its tokens at the next
+  sign-in.
+
+Differences from Pi: Pi identifies with documents on its own site and has
+no `clientMetadataBaseUrl`. The `<id>` is computed over the URL as pipy's
+URL parser reads it, which for a URL with unusual characters may not be the
+text Pi's parser produces.
 
 ### States
 
@@ -1245,9 +1344,9 @@ manager.
 `pipy_harness.native.mcp.oauth` holds the parts of a sign-in to an HTTP MCP
 server. A connection uses the flow to refresh a stored token
 ([sign-in with OAuth](#sign-in-with-oauth)), and `/mcp login` and
-[`pipy mcp login`](#log-in-and-out) sign in with it. Of the `oauth`
-settings of a server entry, `clientRegistration` is checked when the file is
-read and otherwise unused, as is `auth`. This section describes what the
+[`pipy mcp login`](#log-in-and-out) sign in with it. The `auth` setting of a
+server entry is checked when the file is read and otherwise unused. This
+section describes what the
 modules do for those who read or build on the code.
 
 | Module | What it does |

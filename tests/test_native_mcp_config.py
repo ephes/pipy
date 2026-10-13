@@ -68,6 +68,9 @@ CALLBACK_ERROR = (
     "oauth.callbackUrl must be an http URI on localhost, 127.0.0.1, or [::1] "
     "without query or fragment"
 )
+BASE_URL_ERROR = (
+    "oauth.clientMetadataBaseUrl must be an https URL without query or fragment"
+)
 METADATA_ERROR = (
     "oauth.authServerMetadataUrl must be an https URL, or http on localhost, "
     "127.0.0.1, or [::1]"
@@ -239,13 +242,15 @@ ENTRY_ERRORS: list[tuple[object, str]] = [
         'server "s": oauth.clientRegistration "cimd" requires '
         "oauth.clientMetadataBaseUrl",
     ),
-    (
-        oauth(clientMetadataBaseUrl="http://id.example/oauth/"),
-        'server "s": oauth.clientMetadataBaseUrl must be an https URL',
-    ),
-    (
-        oauth(clientMetadataBaseUrl=1),
-        'server "s": oauth.clientMetadataBaseUrl must be an https URL',
+    *(
+        (oauth(clientMetadataBaseUrl=base), f'server "s": {BASE_URL_ERROR}')
+        for base in (
+            "http://id.example/oauth/",
+            1,
+            "https://id.example/oauth?tenant=a",
+            "https://id.example/oauth#top",
+            "https://user@id.example/oauth",
+        )
     ),
     # CFG-20
     (

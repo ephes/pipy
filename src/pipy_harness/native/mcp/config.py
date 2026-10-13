@@ -345,9 +345,18 @@ def _is_non_blank_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip(_JS_WHITESPACE))
 
 
-def _is_https_url(value: object) -> bool:
+def _is_document_base_url(value: object) -> bool:
+    """Whether Client ID Metadata Document URLs can be built under ``value``:
+    such a URL is a client ID, which names no user, query or fragment."""
+
     url = parse_http_url(value)
-    return url is not None and url.scheme == "https"
+    return (
+        url is not None
+        and url.scheme == "https"
+        and not url.has_user_info
+        and url.query == ""
+        and url.fragment == ""
+    )
 
 
 def _is_secure_or_loopback(url: HttpUrl | None) -> bool:
@@ -445,8 +454,8 @@ _OAUTH_CHECKS: Final[tuple[_Check, ...]] = (
     ),
     _typed(
         "clientMetadataBaseUrl",
-        _is_https_url,
-        "oauth.clientMetadataBaseUrl must be an https URL",
+        _is_document_base_url,
+        "oauth.clientMetadataBaseUrl must be an https URL without query or fragment",
     ),
     _check_client_registration,
     _typed(

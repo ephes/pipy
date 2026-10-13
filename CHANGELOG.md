@@ -74,6 +74,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   server's tools. Ending a session cancels a sign-in that is running. See
   [the `/mcp` command](docs/mcp.md#the-mcp-command) and
   [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- `oauth.clientRegistration: "cimd"` for an HTTP MCP server: pipy signs in
+  with a Client ID Metadata Document under `oauth.clientMetadataBaseUrl`
+  instead of registering a client, with a document and a redirect address of
+  the MCP server alone when the authorization server does not name itself
+  in its responses. A server that does not accept such documents fails the
+  sign-in. `oauth.clientMetadataBaseUrl` must now be an `https` URL without
+  query or fragment. The other `oauth` settings (`clientId`, `clientSecret`,
+  `callbackPort`, `callbackUrl`, `clientName`, `scope`,
+  `authServerMetadataUrl`) are described in one place. See
+  [OAuth settings](docs/mcp.md#oauth-settings).
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with

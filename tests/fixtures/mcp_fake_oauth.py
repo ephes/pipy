@@ -228,7 +228,9 @@ class FakeAuthorizationServer(FakeOAuthServer):
     ``access-<n>`` and ``refresh-<n>``.
 
     ``metadata`` changes fields of the metadata document; a ``None`` value
-    removes one. With ``serve_metadata=False`` there is no document.
+    removes one. With ``serve_metadata=False`` there is no document. A server
+    whose metadata has ``client_id_metadata_document_supported`` knows every
+    client whose ID is an ``https`` URL, without a registration.
 
     A test may set, at any time:
 
@@ -236,6 +238,8 @@ class FakeAuthorizationServer(FakeOAuthServer):
       and the old one stops working (the default); else it answers with none.
     - ``send_iss``: the authorization response carries ``iss``.
     - ``response_iss``: the ``iss`` it carries instead of the server's own.
+    - ``redirect_path``: the path the browser is redirected to instead of
+      the redirect URI's, as a mixed-up authorization server would.
     - ``granted_scope``: the ``scope`` of token answers; ``None`` for none.
     - ``expires_in``: the ``expires_in`` of token answers; ``None`` for none.
     - ``token_replies``: answers to the next token requests, used up in order
@@ -252,6 +256,7 @@ class FakeAuthorizationServer(FakeOAuthServer):
         self.rotate_refresh_tokens = True
         self.send_iss = False
         self.response_iss: str | None = None
+        self.redirect_path: str | None = None
         self.granted_scope: str | None = None
         self.expires_in: int | None = 3600
         self.token_replies: list[Reply] = []
@@ -301,6 +306,24 @@ class FakeAuthorizationServer(FakeOAuthServer):
         return [json.loads(request.body) for request in self.requests_to("/register")]
 
     @property
+    def authorizations(self) -> list[dict[str, str]]:
+        """The parameters of the authorization requests received so far."""
+
+        return [
+            dict(urllib.parse.parse_qsl(request.query, True))
+            for request in self.requests_to("/authorize")
+        ]
+
+    def _knows(self, client_id: str | None) -> bool:
+        if client_id in self.clients:
+            return True
+        return bool(
+            client_id
+            and client_id.startswith("https://")
+            and self.metadata.get("client_id_metadata_document_supported")
+        )
+
+    @property
     def token_forms(self) -> list[dict[str, str]]:
         """The form fields of the token requests received so far."""
 
@@ -316,7 +339,7 @@ class FakeAuthorizationServer(FakeOAuthServer):
     def _authorize(self, request: OAuthRequest) -> Reply:
         query = dict(urllib.parse.parse_qsl(request.query, True))
         with self.lock:
-            if query.get("client_id") not in self.clients:
+            if not self._knows(query.get("client_id")):
                 return error_reply("invalid_client")
             if (
                 query.get("response_type") != "code"
@@ -334,7 +357,10 @@ class FakeAuthorizationServer(FakeOAuthServer):
                 answer["iss"] = self.response_iss
             elif self.send_iss:
                 answer["iss"] = self.origin
-        location = f"{query['redirect_uri']}?{urllib.parse.urlencode(answer)}"
+            redirect = urllib.parse.urlsplit(query["redirect_uri"])
+            if self.redirect_path is not None:
+                redirect = redirect._replace(path=self.redirect_path)
+        location = f"{redirect.geturl()}?{urllib.parse.urlencode(answer)}"
         return Reply(302, {"Location": location})
 
     def _client_of(self, request: OAuthRequest, fields: dict[str, str]) -> str | None:
@@ -377,7 +403,7 @@ class FakeAuthorizationServer(FakeOAuthServer):
             if self.token_replies:
                 return self.token_replies.pop(0)
             client_id = self._client_of(request, fields)
-            if client_id is None or client_id not in self.clients:
+            if client_id is None or not self._knows(client_id):
                 return error_reply("invalid_client", 401)
             grant = self._grant(client_id, fields)
             if isinstance(grant, str):

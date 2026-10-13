@@ -77,14 +77,20 @@ Where this differs from Pi:
   read.
 - The requests of a refresh are sent by the provider's own fetch. Pi sends
   them with the fetch of the transport that was rejected.
-- ``oauth.clientRegistration: "cimd"`` is not acted on yet: the provider of
-  a refresh offers no Client ID Metadata Document.
+- Pi identifies with the Client ID Metadata Documents at
+  ``https://pi.dev/oauth``. pipy has no document of its own: with
+  ``oauth.clientRegistration: "cimd"`` the documents are the ones under the
+  configured ``oauth.clientMetadataBaseUrl``.
+- The identifier of a server in a document's path is computed over the URL
+  ``config.parse_http_url`` reads, which is not in every case the text a
+  WHATWG URL parser gives.
 - ``remove`` holds the refresh lock; Pi's does not, so there a refresh that
   ends after a sign-out stores the server's tokens again.
 """
 
 from __future__ import annotations
 
+import base64
 import fcntl
 import hashlib
 import json
@@ -101,16 +107,27 @@ from pipy_harness.native.auth_store import auth_file_lock
 from pipy_harness.native.mcp.config import mcp_namespace, parse_http_url
 from pipy_harness.native.mcp.http import UnauthorizedContext
 from pipy_harness.native.mcp.oauth.discovery import parse_www_authenticate
-from pipy_harness.native.mcp.oauth.errors import McpOAuthAuthorizationRequiredError
+from pipy_harness.native.mcp.oauth.errors import (
+    McpOAuthAuthorizationRequiredError,
+    OAuthFlowError,
+)
 from pipy_harness.native.mcp.oauth.fetch import OAuthFetch, create_oauth_fetch
-from pipy_harness.native.mcp.oauth.flow import OAuthFlowOptions, authorize_mcp
+from pipy_harness.native.mcp.oauth.flow import (
+    OAuthClientMetadataDocument,
+    OAuthFlowOptions,
+    authorize_mcp,
+)
 from pipy_harness.native.mcp.oauth.provider import (
     McpOAuthProvider,
     McpOAuthProviderOptions,
     McpOAuthState,
     McpOAuthStateStore,
 )
-from pipy_harness.native.mcp.oauth.types import OAuthChallenge, OAuthTokens
+from pipy_harness.native.mcp.oauth.types import (
+    AuthorizationServerMetadata,
+    OAuthChallenge,
+    OAuthTokens,
+)
 from pipy_harness.native.mcp.protocol import (
     McpConnectionClosedError,
     is_number,
@@ -363,6 +380,10 @@ class McpOAuthSettings:
     ``client_secret`` is the resolved value. ``scope`` holds the scopes to
     request, separated by spaces. ``client_name`` is the ``client_name`` of a
     dynamic client registration, ``pipy`` when it is ``None``.
+
+    With ``client_registration`` ``"cimd"`` no client is registered: the
+    client identifies with a Client ID Metadata Document under
+    ``client_metadata_base_url`` (``client_metadata_document``).
     """
 
     client_id: str | None = None
@@ -372,6 +393,7 @@ class McpOAuthSettings:
     scope: str | None = None
     client_name: str | None = None
     client_registration: str | None = None
+    client_metadata_base_url: str | None = None
     auth_server_metadata_url: str | None = None
 
 
@@ -427,6 +449,70 @@ def _expires_soon(state: McpOAuthState | None) -> bool:
     return expires_at - REFRESH_SKEW_MS <= time.time() * 1000
 
 
+def callback_id(server_url: str) -> str:
+    """Twelve characters that identify an MCP server URL in the path of a
+    redirect URI and of a Client ID Metadata Document: the URL-safe base64
+    of the first nine bytes of the SHA-256 of the URL without its fragment
+    (computed as Codex and Pi do)."""
+
+    url = parse_http_url(server_url)
+    if url is None:
+        raise ValueError(f"Invalid MCP server URL: {server_url}")
+    digest = hashlib.sha256(url.href.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest[:9]).decode("ascii")
+
+
+def client_metadata_document(
+    server_url: str,
+    redirect_url: str,
+    base_url: str | None,
+    metadata: AuthorizationServerMetadata | None,
+) -> OAuthClientMetadataDocument:
+    """The Client ID Metadata Document to identify with at an authorization
+    server, for ``oauth.clientRegistration: "cimd"`` (Pi
+    ``clientMetadataDocument``).
+
+    ``base_url`` is ``oauth.clientMetadataBaseUrl``, where the user serves
+    the documents. An authorization server that names itself in its
+    responses (the ``iss`` parameter, RFC 9207) gets ``<base>/client.json``
+    and ``redirect_url``. Any other gets a document and a redirect URI of
+    this MCP server alone, ``<base>/<id>/client.json`` and the path
+    ``/callback/<id>``, so that its response cannot be taken for the one of
+    another authorization server (RFC 9700, section 4.4.2.2).
+
+    Raises ``OAuthFlowError`` when the server does not accept such
+    documents from a client without a secret.
+    """
+
+    methods = (metadata or {}).get("token_endpoint_auth_methods_supported")
+    if (
+        metadata is None
+        or not metadata.get("client_id_metadata_document_supported")
+        or not isinstance(methods, list)
+        or "none" not in methods
+    ):
+        raise OAuthFlowError(
+            "The authorization server does not support Client ID Metadata "
+            'Documents for public clients; remove oauth.clientRegistration "cimd"'
+        )
+    base = parse_http_url(base_url)
+    if base is None:
+        raise OAuthFlowError(
+            'oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl'
+        )
+    prefix = f"{base.origin}{base.pathname.removesuffix('/')}"
+    if metadata.get("authorization_response_iss_parameter_supported"):
+        return OAuthClientMetadataDocument(f"{prefix}/client.json", redirect_url)
+    identifier = callback_id(server_url)
+    redirect = parse_http_url(redirect_url)
+    if redirect is None:
+        raise OAuthFlowError(f"Invalid OAuth redirect URI: {redirect_url}")
+    return OAuthClientMetadataDocument(
+        f"{prefix}/{identifier}/client.json",
+        replace(redirect, path=f"{CALLBACK_PATH}/{identifier}").href,
+    )
+
+
 def create_oauth_provider(
     server_url: str,
     store: McpOAuthStateStore,
@@ -434,13 +520,25 @@ def create_oauth_provider(
     redirect_url: str,
     on_redirect: Callable[[str], None],
 ) -> McpOAuthProvider:
-    """The provider the OAuth flow of a configured server is run with."""
+    """The provider the OAuth flow of a configured server is run with (Pi
+    ``createProvider``): for a sign-in, and for a refresh, which has to
+    name the same client."""
+
+    def choose_document(
+        metadata: AuthorizationServerMetadata | None,
+    ) -> OAuthClientMetadataDocument:
+        return client_metadata_document(
+            server_url, redirect_url, settings.client_metadata_base_url, metadata
+        )
 
     return McpOAuthProvider(
         McpOAuthProviderOptions(
             server_url=server_url,
             redirect_url=redirect_url,
             client_metadata={"client_name": settings.client_name or APP_NAME},
+            client_metadata_document=choose_document
+            if settings.client_registration == "cimd"
+            else None,
             client_id=settings.client_id,
             client_secret=settings.client_secret,
             store=store,

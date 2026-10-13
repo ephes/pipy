@@ -699,6 +699,8 @@ def test_the_oauth_settings_come_from_the_entry(
         "callbackUrl": "http://localhost/cb",
         "scope": "issues:read",
         "clientName": "Claude Code",
+        "clientRegistration": "dcr",
+        "clientMetadataBaseUrl": "https://id.example/oauth",
         "authServerMetadataUrl": "https://as.example/metadata",
     }
     fixture = _Protected(server, credentials, oauth)
@@ -711,6 +713,8 @@ def test_the_oauth_settings_come_from_the_entry(
         callback_url="http://localhost/cb",
         scope="issues:read",
         client_name="Claude Code",
+        client_registration="dcr",
+        client_metadata_base_url="https://id.example/oauth",
         auth_server_metadata_url="https://as.example/metadata",
     )
     assert _Protected(server, credentials).connection.oauth_settings() == (

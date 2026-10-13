@@ -11,12 +11,18 @@ with ``/mcp login`` or ``pipy mcp login``:
    free one unless it was configured.
 2. It forgets the ``state`` parameter of an earlier sign-in. A stored client
    that was registered for another redirect URI is dropped with its tokens,
-   unless the client is configured (``oauth.clientId``).
+   unless the client is configured (``oauth.clientId``). With
+   ``oauth.clientRegistration: "cimd"`` every stored client is dropped with
+   its tokens: a Client ID Metadata Document is never stored, so a stored
+   client was registered before the setting was changed.
 3. It runs the flow once. A stored refresh token is tried first, which needs
    no browser, unless the server asked for more scope.
 4. Otherwise the prompt is shown the authorization URL, and the sign-in
    waits for the browser to arrive at the loopback port or for the redirect
-   URL the user pasted, whichever comes first.
+   URL the user pasted, whichever comes first. The response is accepted
+   only on the path of the redirect URI the flow chose, which with a Client
+   ID Metadata Document may be one of this MCP server alone
+   (``/callback/<id>``, see ``credentials.client_metadata_document``).
 5. The code is exchanged for tokens, which the store keeps.
 
 The scope asked for is the configured ``oauth.scope`` together with the
@@ -43,8 +49,6 @@ Where this differs from Pi:
   is answered as one that does not match the redirect URI.
 - Scopes are separated with ``str.split``, whose white space is not exactly
   JavaScript's ``\\s``.
-- ``oauth.clientRegistration: "cimd"`` is not acted on yet: the client is
-  registered.
 - As in Pi, the refresh a sign-in tries first does not take the refresh
   lock of the server's store.
 """
@@ -63,6 +67,7 @@ from pipy_harness.native.mcp.credentials import (
     CALLBACK_PATH,
     OAUTH_REQUEST_TIMEOUT_MS,
     McpOAuthSettings,
+    callback_id,
     create_oauth_provider,
     fixed_redirect_url,
     registered_redirect_urls,
@@ -293,7 +298,10 @@ def _wait_for_authorization_response(
 
 
 def _listen_for_callback(
-    settings: CallbackSettings, port: int | None, required: bool
+    settings: CallbackSettings,
+    extra_paths: tuple[str, ...],
+    port: int | None,
+    required: bool,
 ) -> OAuthCallbackServer:
     """Listen on ``port``, or on a free port when it is taken and not
     ``required`` (Pi ``listenForCallback``)."""
@@ -303,6 +311,7 @@ def _listen_for_callback(
         redirect_host=settings.redirect_host,
         port=port,
         path=settings.path,
+        extra_paths=extra_paths,
         render_page=render_sign_in_page,
     )
     try:
@@ -333,8 +342,15 @@ def _forget_previous_sign_in(
     # Every sign-in gets a new `state` parameter.
     state.pop("oauthState", None)
     # A registered client cannot use another redirect URI, and its tokens
-    # belong to it.
-    if not settings.client_id and redirect_url not in registered_redirect_urls(stored):
+    # belong to it. A Client ID Metadata Document is not stored, so with
+    # one, a stored client was registered before and is replaced.
+    if settings.client_id:
+        keep_client = True
+    elif settings.client_registration == "cimd":
+        keep_client = not stored.get("clientInformation")
+    else:
+        keep_client = redirect_url in registered_redirect_urls(stored)
+    if not keep_client:
         for key in ("clientInformation", "tokens", "tokensExpireAt"):
             state.pop(key, None)
     store.save(state)
@@ -384,7 +400,14 @@ def sign_in_mcp_server(
         if listen.port is None
         else listen.port
     )
-    callback = _listen_for_callback(listen, preferred_port, listen.port is not None)
+    cimd = settings.client_registration == "cimd"
+    callback = _listen_for_callback(
+        listen,
+        # The redirect URI of a server-specific Client ID Metadata Document.
+        (f"{CALLBACK_PATH}/{callback_id(server_url)}",) if cimd else (),
+        preferred_port,
+        listen.port is not None,
+    )
     redirect_url = listen.fixed_redirect_url or callback.redirect_url
     try:
         if stored is not None:

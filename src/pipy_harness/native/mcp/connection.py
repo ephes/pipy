@@ -511,6 +511,7 @@ class McpServerConnection:
             scope=oauth.get("scope"),
             client_name=oauth.get("clientName"),
             client_registration=oauth.get("clientRegistration"),
+            client_metadata_base_url=oauth.get("clientMetadataBaseUrl"),
             auth_server_metadata_url=oauth.get("authServerMetadataUrl"),
         )
 

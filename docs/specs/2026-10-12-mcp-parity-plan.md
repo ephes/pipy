@@ -1455,10 +1455,45 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
   read `connection.state` under it: an update that read the state before
   taking the lock could delete what a later change had noted.
 
+Decided in S32 (the `oauth` options; `credentials.py`, `sign_in.py`,
+`connection.py`, `config.py`):
+
+- S30 and S31 had already wired `clientId`, `clientSecret`, `callbackPort`,
+  `callbackUrl`, `clientName`, `scope` and `authServerMetadataUrl` through
+  `oauth_settings()`, `callback_settings` and the flow. S32 added the tests
+  that mirror Pi's for them (`tests/test_native_mcp_oauth_options.py`) and
+  the user documentation, and built `clientRegistration: "cimd"`.
+- `McpOAuthSettings.client_metadata_base_url` is DEV-06's
+  `oauth.clientMetadataBaseUrl`. `credentials.callback_id(server_url)` and
+  `credentials.client_metadata_document(server_url, redirect_url, base_url,
+  metadata)` are Pi's `callbackId` and `clientMetadataDocument`;
+  `create_oauth_provider` passes the chooser when the setting is `cimd`, so
+  a sign-in and a connection's refresh name the same client. The document
+  URL is the base URL's origin and path without a trailing slash, then
+  `/client.json` or `/<id>/client.json`.
+- `callback_id` hashes the `href` of `config.parse_http_url`, as the
+  credential store's key does; for a URL that parser writes differently
+  from a WHATWG parser the identifier differs from Pi's. The user hosts the
+  documents, so `docs/mcp.md` gives a command that computes the identifier.
+- Config, changed after S14: `oauth.clientMetadataBaseUrl` must be an
+  `https` URL without user info, query or fragment (`oauth.clientMetadataBaseUrl
+  must be an https URL without query or fragment`), because document URLs
+  are built under it and a client ID has none of these.
+- Settings made by hand with `cimd` and no base URL fail the flow with
+  `oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`
+  (the config's text), after the check of the server's metadata.
+- Sign-in: with `cimd` the callback server also serves
+  `/callback/<id>`, and a stored client is dropped with its tokens (a
+  document client is never stored, so a stored one was registered before).
+- Fixture: a `FakeAuthorizationServer` whose metadata has
+  `client_id_metadata_document_supported` knows every client whose ID is an
+  `https` URL; `redirect_path` is the `redirectPath` option of Pi's
+  `startOAuthMcpServer`, and `authorizations` lists the authorization
+  requests.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
-  The OAuth fake has nothing for CIMD (S32).
 
 Changed modules, by seam:
 
