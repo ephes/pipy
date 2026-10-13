@@ -508,6 +508,7 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `registry.py` | Extension-registered servers | `core/mcp-servers.ts` `McpServerRegistry` |
 | `shell_cli.py` | `pipy mcp ...` | `ext/cli.ts` |
 | `commands.py` | `/mcp` command (the session adapter is `repl/mcp_command.py`) | `ext/index.ts` command |
+| `repl/mcp_session.py` (outside `native/mcp/`) | `McpSession`: the servers in use, replaced on `/reload` | `ext/index.ts` `session_start`, `session_shutdown` |
 | `manager_view.py` | TUI manager; not in `native/mcp/`, which may not import the TUI (S34 places it) | `ext/ui.ts` |
 
 Other new modules: `native/tool_search.py` (tokenizer, BM25, document
@@ -1085,6 +1086,60 @@ Decided in S21 (`commands.py`, `repl/mcp_command.py`, `/mcp`):
 - The status has no `overridden:` lines yet (S36) and no resource counts in
   the state of the completion items (S23).
 
+Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
+
+- A manager still serves one loaded configuration and is not started twice.
+  The session holds an `McpSession` (`repl/mcp_session.py`), which has the
+  `McpServers` in use (manager, `McpDiscovery`, `McpReadiness`, and whether
+  MCP is on) and replaces them on reload. The waits, `/mcp`, the prompt
+  section, the notices and the session's command list ask it for the current
+  ones: `McpSessionWaits` and `McpSessionCommand` take a function instead of
+  an object, and `McpSession.commands` is a mapping that follows the switch.
+  New objects give "warned once" and the first-prompt wait their reset.
+- `McpSession.reloading()` is the reload's part (4.10). It loads the new
+  `McpServers` (reads `mcp.json` and the `builtin:mcp` switch; connects
+  nothing), runs the block that activates and attaches the extensions, and
+  replaces the servers after it when the block accepted: close the old
+  manager, show its remaining notices, `restart_mcp_tools`, then start the
+  new manager and call `ensure_active`. A reload that keeps the previous
+  extensions keeps the old manager; the loaded one never opened anything.
+  Pi restarts its servers on every reload because its reload is not
+  transactional.
+- 4.4 said that S22 closes the manager before the reload is prepared. That
+  would have left a refused reload without servers. Instead the running
+  manager's publication lock is held while the block runs
+  (`McpManager.publications_held`), so the capability value the reload was
+  prepared with is the one it is accepted with. The lock order stays
+  publication lock, then the capability state lock.
+- A new session in the same process (`/new`, `/resume`, `/fork`) keeps the
+  manager; only `/reload` replaces it. Pi closes and reloads there. pipy
+  fires no `session_start` for such a switch, and the servers are not bound
+  to a conversation. Documented as a difference.
+- TSR-10: `ToolCapabilityState.pending_tool_names` (Pi `_pendingToolNames`).
+  Names enter it in three places: `publish` on reload keeps the declared
+  MCP tools of the live value (a configured filter derives the selection
+  again, so they are read in the critical section of the swap),
+  `restart_mcp_tools` moves the MCP tools declared at that moment out of the
+  selection in the critical section that unregisters them (so a publication
+  of the old servers between the two cannot lose a name), and
+  `restore_active_tools` does it for `/tree`. Only names of MCP tools that no tool
+  has and that the filters keep are pending. `with_mcp_registry` activates a
+  pending name when its tool is offered; `set_active_tools` and
+  `deactivate_indirect_mcp_tools` drop the pending names when they deactivate
+  a tool (one that was declared); `drop_pending_tools` clears
+  them when a run's prompt is settled (`ReplLoopScope.run_prepared`, called
+  from `_RunSystemPrompt.after_hooks`, so after the first-prompt wait and
+  the `before_agent_start` hooks, as in Pi `_startRun`).
+- On reload the names of MCP tools leave the active selection, so a tool
+  that registers after the next run started is a new tool: a `direct` one is
+  activated by registration, another one is not active. A tool list change
+  of a running server keeps the S17 rule (the name stays in the selection).
+- "After resume": a resumed pipy session starts from the configured tools
+  and restores nothing from the transcript, as Pi's CLI does (it always
+  passes the initial tool names; Pi's resume case in
+  `agent-session-mcp.test.ts` runs through the SDK without that option).
+  The transcript restore pipy has is `/tree`, which got the pending names.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -1346,9 +1401,10 @@ Decided in S17 (the capability value, `tool_capabilities.py`):
   with the live `mcp_registry`, and `publish` replaces a candidate's MCP
   tools with the live ones when they differ at the swap. The reload gate
   (`accept_prepared_reload`) still refuses a reload when the live value
-  changed during its preparation, so a server that connects in that window
-  makes `/reload` report `prepared reload owner state changed`. S22 closes
-  the manager before it prepares the reload, which removes the window.
+  changed during its preparation. A server that connected in that window
+  made `/reload` report `prepared reload owner state changed` until S22,
+  which holds the manager's publications while the reload is decided (see
+  "Decided in S22" in 4.1).
 
 ### 4.5 Threading
 
@@ -1720,11 +1776,12 @@ after the new generation is published. A reload that fails before the swap
 leaves the old manager running.
 
 Tools that `tool_search` loaded are active names in the transcript. After
-resume and reload the names are restored through
-`NativeToolCapabilities.restore_active_tools`, which today drops unknown
-names. For TSR-10 the dropped names that look like MCP tools are kept as
-pending names in the capability value and activated when their tool registers
-before the next prompt starts; the pending set is cleared at prompt start.
+`/tree` the names are restored through
+`NativeToolCapabilities.restore_active_tools`, which drops unknown names; a
+reload unregisters the MCP tools. For TSR-10 the names that look like MCP
+tools are kept as pending names in the capability value and activated when
+their tool registers before the next prompt starts; the pending set is
+cleared at prompt start. How S22 built this is in 4.1, "Decided in S22".
 
 ## 5. Ordered slices
 
@@ -1997,9 +2054,12 @@ process; exposure change moves a tool between declared and callable; a failed
 save changes nothing; RPC mode prints the status (not done: RPC runs no slash
 command, see "Decided in S21").
 
-**S22 Reload and resume.** Build 4.10. Tests: mirrors of the three "MCP tools
-after resume and reload" cases; reload with a removed, an added and a changed
-server; a reload that fails validation keeps the running manager.
+**S22 Reload and resume.** Build 4.10. Tests: mirrors of the "MCP tools
+after resume and reload" cases (the two reload cases in a session, the
+resume and the loadout cases at the capability value, since pipy restores a
+transcript's tools only on `/tree`); reload with a removed, an added and a
+changed server; a reload that is refused keeps the running manager; the
+`builtin:mcp` switch is read again.
 
 **S23 Resources.** Build `resources.py`, connection resource calls, exposure
 sync. Tests: mirrors of "lists and reads resources with Codex's resource

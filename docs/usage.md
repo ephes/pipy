@@ -82,7 +82,7 @@ are invoked as their own `/<template-name>` commands.
 | `/export [file]` | Export the current session to HTML by default, or active-branch JSONL when `file` ends in `.jsonl` |
 | `/import <file>` | Import a native session JSONL file |
 | `/share` | Upload the session as a private GitHub gist when configured |
-| `/reload` | Reload settings, keybindings, extensions, skills, prompts, themes, and context files |
+| `/reload` | Reload settings, keybindings, extensions, skills, prompts, themes, and context files, and start the [MCP servers](mcp.md#reloading) again from `mcp.json` |
 | `/mcp`, `/mcp reconnect [server]` | Show the MCP servers with their state and errors, or connect one again (not available with MCP turned off); see [MCP](mcp.md#the-mcp-command) |
 | `/hotkeys` | Show keyboard shortcuts |
 | `/changelog` | Display version history |

@@ -244,11 +244,13 @@ class _RunSystemPrompt:
         """Settle the run's sections and render them.
 
         Rebuilt for the tools active now, so a hook that changed the active
-        tools is reflected as well. An entry a hook set that cannot be a
+        tools is reflected as well. From here on the run has its tools: a
+        restored tool that registers later is not activated for it. An entry a hook set that cannot be a
         section is left out and reported (Pi fails the prompt).
         """
 
         scope = self.turn.scope
+        scope.run_prepared()
         self.sections, invalid = self._sections()
         for name in invalid:
             emit_diagnostic(

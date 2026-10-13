@@ -82,26 +82,34 @@ def interruptible_steps(waiter: ToolInterruptWaiter) -> RunStep:
 class McpSessionCommand:
     """Dispatch and argument completion of ``/mcp`` for one session."""
 
-    def __init__(self, command: McpCommand) -> None:
+    def __init__(self, command: Callable[[], McpCommand | None]) -> None:
+        """``command`` gives the command for the servers as they are now,
+        or ``None`` while MCP is turned off. It is asked every time, because
+        a ``/reload`` replaces the servers and may turn MCP on or off."""
+
         self._command = command
 
     def dispatch(self, command_text: str) -> bool:
         """Run ``command_text`` when it is ``/mcp`` with or without
-        arguments; returns whether it was."""
+        arguments; returns whether it was. With MCP off it never is."""
 
         name, _, args = command_text.partition(" ")
         if name != MCP_SLASH_NAME:
             return False
-        self._command.run(args)
+        command = self._command()
+        if command is None:
+            return False
+        command.run(args)
         return True
 
     def completer(self, fallback: ArgumentCompleter) -> ArgumentCompleter:
         """``fallback`` extended by the arguments of ``/mcp``."""
 
         def complete(command: str, argument: str) -> tuple[CompletionItem, ...] | None:
-            if command != MCP_COMMAND_NAME:
+            mcp = self._command() if command == MCP_COMMAND_NAME else None
+            if mcp is None:
                 return fallback(command, argument)
-            items = self._command.complete(argument)
+            items = mcp.complete(argument)
             if items is None:
                 return None
             return tuple(

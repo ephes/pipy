@@ -65,12 +65,14 @@ class McpSessionWaits:
 
     def __init__(
         self,
-        readiness: McpReadiness,
+        readiness: Callable[[], McpReadiness],
         *,
         notify: Callable[[str, str], None],
         prompt_waiter: ToolInterruptWaiter | None,
     ) -> None:
-        """``prompt_waiter`` watches for an interruption while the first
+        """``readiness`` gives the waits of the servers as they are now; a
+        ``/reload`` replaces them, and the first prompt after it waits
+        again. ``prompt_waiter`` watches for an interruption while the first
         prompt waits; without one that wait only ends by its time limit."""
 
         self._readiness = readiness
@@ -78,14 +80,15 @@ class McpSessionWaits:
         self._prompt_waiter = prompt_waiter
 
     def before_first_prompt(self) -> None:
-        """Hold the session's first prompt for servers with ``direct`` tools.
+        """Hold the first prompt of the session, and the first one after a
+        reload, for servers with ``direct`` tools.
 
         Returns at once for every later prompt. An interruption ends the
         wait like its time limit does: the prompt goes on, and the tools
         follow when their server connected.
         """
 
-        wait = self._readiness.first_prompt_wait()
+        wait = self._readiness().first_prompt_wait()
         if wait is None:
             return
         if self._prompt_waiter is None:
@@ -100,7 +103,7 @@ class McpSessionWaits:
     ) -> ToolExecutionInterruption:
         """Wait for the servers ``call`` may reach (``ToolReadinessWaiter``)."""
 
-        wait = self._readiness.call_wait(call.tool_name, call.arguments_json.value)
+        wait = self._readiness().call_wait(call.tool_name, call.arguments_json.value)
         if wait is None:
             return ToolExecutionInterruption.SETTLED
         if waiter is None:

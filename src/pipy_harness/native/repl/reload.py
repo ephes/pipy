@@ -4,6 +4,8 @@ One command, and the most ordered thing in the product. It re-reads settings,
 keybindings, resources and packages, activates a *candidate* extension
 generation beside the live one, and only then swaps -- so a broken extension
 set leaves the previous generation running instead of a half-reloaded session.
+The MCP servers follow the extensions: an accepted reload reads ``mcp.json``
+again and starts the servers again, a refused one keeps them as they are.
 
 The publication gate is what makes that atomic. Between `publishing()` opening
 and the accepted generation being installed, no turn may observe a partial
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -58,6 +61,7 @@ from pipy_harness.native.repl.extension_attach import (
     attach_generation,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.mcp_session import McpSession
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.turn_leaves import pricing_for, raise_first
 from pipy_harness.native.repl_state import (
@@ -127,6 +131,14 @@ def maybe_save_implicit_trust_after_reload(
     return True
 
 
+def _mcp_reloading(
+    mcp: McpSession | None,
+) -> AbstractContextManager[Callable[[], None]]:
+    """The MCP part of a reload (``McpSession.reloading``)."""
+
+    return mcp.reloading() if mcp is not None else nullcontext(lambda: None)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ReloadCommandEffects:
     """Execute ``/reload`` through explicit behavior-preserving phases."""
@@ -154,6 +166,9 @@ class ReloadCommandEffects:
     extension_ui_driver: _LiveExtensionUiDriver | None = None
     # The session's own slash commands (``/mcp``), kept in the menu.
     session_commands: Mapping[str, str] = field(default_factory=dict)
+    # The session's MCP servers: an accepted reload reads ``mcp.json`` again
+    # and starts them again. ``None`` for a reload composed without them.
+    mcp: McpSession | None = None
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Reload settings and publish every derived live projection in order."""
@@ -170,7 +185,10 @@ class ReloadCommandEffects:
             self._reload_configuration_and_resources()
             replacement_accepted = False
             try:
-                replacement_accepted = self._reload_extensions(candidate)
+                with _mcp_reloading(self.mcp) as accept_mcp_reload:
+                    replacement_accepted = self._reload_extensions(candidate)
+                    if replacement_accepted:
+                        accept_mcp_reload()
             except ReloadPreparationRefused as error:
                 self.diag(f"pipy: {error}")
                 self.diag("pipy: keeping the previous extensions.")

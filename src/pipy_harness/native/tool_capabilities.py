@@ -214,6 +214,11 @@ class ToolCapabilityState:
     # one unless given. A value that differs only in its MCP tools or its
     # selection keeps it (``dataclasses.replace`` passes it on).
     extension_generation: object | None = None
+    # MCP tool names that were active before their servers were started
+    # again (``/reload``) or that a restored transcript declares, and that
+    # are not registered now (Pi ``_pendingToolNames``). A name becomes
+    # active when its tool registers and is dropped when the next run starts.
+    pending_tool_names: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -312,12 +317,13 @@ class ToolCapabilityState:
         registered that way before. A selection of ``None`` already means
         "as registration left it". A name whose tool is gone stays in the
         selection, so the tool is active again when its server offers it
-        again.
+        again. A pending name whose tool is offered now becomes active.
         """
 
         mcp = dict(mcp_registry)
         registry = _merged_registry(self.builtin_registry, self.extension_registry, mcp)
         active = self.active_tool_names
+        pending = self.pending_tool_names
         if active is not None:
             # A name a built-in or extension tool has is not an MCP tool.
             offered = frozenset(_accepted_mcp_tools(registry, mcp))
@@ -331,7 +337,9 @@ class ToolCapabilityState:
                 activated = (
                     offered & activated_on_registration(registry)
                 ) - activated_on_registration(self.registry)
-            active = active | activated
+            arrived = pending & offered
+            active = active | activated | arrived
+            pending = pending - arrived
         return replace(
             self,
             mcp_registry=mcp,
@@ -341,6 +349,7 @@ class ToolCapabilityState:
                 cancel_join_timeout_seconds=cancel_join_timeout_seconds,
             ),
             active_tool_names=active,
+            pending_tool_names=pending,
         )
 
 
@@ -592,6 +601,10 @@ class NativeToolCapabilities:
         Validation and assignment share one critical section, so a concurrent
         publication can neither be undone by a selection derived from the
         superseded registry nor slip a name past the registry check.
+
+        A selection that deactivates a tool replaces a restored one, whose
+        pending names are dropped; one that only adds tools keeps them (Pi
+        ``setActiveToolsByName``).
         """
 
         normalized = frozenset(str(name) for name in names if str(name))
@@ -599,11 +612,20 @@ class NativeToolCapabilities:
             state = self._state
             if any(name not in state.registry for name in normalized):
                 return False
+            # What counts is what was declared: a name the filters hide was
+            # not active for the model, so dropping it deactivates nothing.
+            deactivates = any(
+                name in state.registry and name not in normalized
+                for name in _declared_names(state)
+            )
             self._state = replace(
                 state,
                 active_tool_names=normalized,
                 selection_initialized=True,
                 active_selection_customized=True,
+                pending_tool_names=frozenset()
+                if deactivates
+                else state.pending_tool_names,
             )
         return True
 
@@ -674,7 +696,8 @@ class NativeToolCapabilities:
         Without a selection nothing changes: only tools that registration
         activates are active then, and those are not indirect. Like
         :meth:`activate_tools` this does not count as a selection an
-        extension made.
+        extension made. Taking a tool out drops the pending names, as any
+        selection that deactivates a tool does.
         """
 
         with self._state_lock:
@@ -689,7 +712,11 @@ class NativeToolCapabilities:
                 if name in accepted and accepted[name].definition.exposure != "direct"
             )
             if active & indirect:
-                self._state = replace(state, active_tool_names=active - indirect)
+                self._state = replace(
+                    state,
+                    active_tool_names=active - indirect,
+                    pending_tool_names=frozenset(),
+                )
 
     def codemode_selectable(self) -> bool:
         """Whether ``codemode`` is registered, or the built-in could be.
@@ -755,6 +782,11 @@ class NativeToolCapabilities:
         already excludes names a ``--allow``/``--exclude`` filter hides, so a
         configured filter narrows the restored set too. Filtering and
         assignment share one critical section.
+
+        An MCP tool the transcript declares may not be registered yet,
+        because its server is still connecting. Such a name is pending: it
+        becomes active when the tool registers before the next run starts
+        (Pi ``_restoreToolsFromTranscript``).
         """
 
         with self._state_lock:
@@ -766,7 +798,50 @@ class NativeToolCapabilities:
                 active_tool_names=restored,
                 selection_initialized=True,
                 active_selection_customized=True,
+                pending_tool_names=_unregistered_mcp_names(state, names),
             )
+
+    def restart_mcp_tools(self) -> None:
+        """Unregister the MCP tools: their servers are started again.
+
+        The MCP tools that are declared now are pending afterwards, with the
+        names that were pending already (the reload that restarts the
+        servers kept what was declared before it, see :meth:`publish`). A
+        pending name is active again when its tool registers before the next
+        run starts (Pi ``reload``). Every name of an MCP tool leaves the
+        selection, so a tool that registers later is treated as a new one.
+        One critical section: no publication of a server can fall between
+        reading what is declared and unregistering the tools.
+        """
+
+        with self._state_lock:
+            declared = _declared_names(self._state)
+            state = self._state.with_mcp_registry(
+                {}, cancel_join_timeout_seconds=self._cancel_join_timeout_seconds
+            )
+            active = state.active_tool_names
+            if active is not None:
+                gone = frozenset(
+                    name
+                    for name in active
+                    if is_mcp_tool_name(name) and name not in state.registry
+                )
+                state = replace(
+                    state,
+                    active_tool_names=active - gone,
+                    pending_tool_names=state.pending_tool_names
+                    | _unregistered_mcp_names(state, declared),
+                )
+            self._state = state
+
+    def drop_pending_tools(self) -> None:
+        """A run starts: restored tools that did not register by now stay
+        inactive, so a tool that never registers does not stay pending (Pi
+        ``_startRun``)."""
+
+        with self._state_lock:
+            if self._state.pending_tool_names:
+                self._state = replace(self._state, pending_tool_names=frozenset())
 
     def _probe_codemode(self) -> bool:
         """Cache one probe; present its warning outside both coordination locks."""
@@ -959,6 +1034,20 @@ class NativeToolCapabilities:
                     active_tool_names=active,
                     active_selection_customized=live.active_selection_customized,
                 )
+            live = self._state
+            if live.active_tool_names is not None:
+                # Pi ``reload``: what was active is pending, with what was
+                # pending already. Here that is the declared MCP tools, read
+                # in this critical section because a configured filter
+                # derives the selection again and drops what ``tool_search``
+                # loaded. While their servers keep running the names are
+                # active as well and only wait for the next run to start;
+                # :meth:`restart_mcp_tools` is what unregisters the tools.
+                restorable = live.pending_tool_names | frozenset(
+                    name for name in _declared_names(live) if is_mcp_tool_name(name)
+                )
+                if restorable:
+                    state = replace(state, pending_tool_names=restorable)
             self._state = state
 
     def publish_mcp_tools(
@@ -1072,6 +1161,22 @@ def _redescribed(definition: ToolDefinition, description: str) -> ToolDefinition
         definition,
         description=description,
         schema_mode="foreign" if oversized else definition.schema_mode,
+    )
+
+
+def _unregistered_mcp_names(
+    state: ToolCapabilityState, names: Collection[str]
+) -> frozenset[str]:
+    """The names of MCP tools among ``names`` that no tool has in ``state``
+    and that the filters would keep registered. Pure."""
+
+    missing = frozenset(
+        name for name in names if is_mcp_tool_name(name) and name not in state.registry
+    )
+    if not missing or not state.filter_configured:
+        return missing
+    return state.filter_options.provider_visible_names(
+        builtin_names=(), registered_names=missing
     )
 
 

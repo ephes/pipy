@@ -83,6 +83,7 @@ from pipy_harness.native.repl.extension_operations import (
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.mcp_command import McpSessionCommand
+from pipy_harness.native.repl.mcp_session import McpSession
 from pipy_harness.native.repl.provider_config_commands import (
     ProviderConfigurationCommandEffects,
 )
@@ -206,6 +207,8 @@ class SessionCollaborators:
     # entry for the slash menu.
     mcp_command: McpSessionCommand | None = None
     session_commands: Mapping[str, str] = field(default_factory=dict)
+    # The session's MCP servers, which ``/reload`` starts again.
+    mcp: McpSession | None = None
     summary_retry_status: SummaryRetryObserver | None = None
     summary_retry_loader: SummaryRetryLoader | None = None
 
@@ -398,6 +401,7 @@ class SessionCollaborators:
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
             extension_send_message=self.custom_renderer.extension_send_message,
             session_commands=self.session_commands,
+            mcp=self.mcp,
         )
 
     def rebuild_messages_from_tree(self) -> None:

@@ -520,3 +520,222 @@ def test_concurrent_publications_and_selections_lose_nothing(tmp_path: Path) -> 
     assert state.mcp_registry == registries[-1]
     assert tuple(state.registry) == ("read", "bash", *registries[-1])
     assert _run(tools, "mcp__docs__t19") == "ran mcp__docs__t19"
+
+
+# -- S22: tools restored by a reload or a transcript (TSR-10) ---------------
+
+
+def _loaded(tmp_path: Path, options: ToolFilterOptions | None = None):
+    """A session whose `deferred` tool `find` was loaded by `tool_search`."""
+
+    tools = _session(tmp_path, options)
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
+    assert tools.load_tools(("mcp__docs__find",)) == ("mcp__docs__find",)
+    return tools
+
+
+def _reload(tools: NativeToolCapabilities) -> None:
+    """What an accepted `/reload` does to the capability value."""
+
+    tools.publish(tools.prepare_extensions({}))
+    tools.restart_mcp_tools()
+
+
+def test_a_reload_declares_loaded_tools_again_once_their_server_connects(
+    tmp_path: Path,
+) -> None:
+    # Pi: "declares tools tool_search loaded again after /reload".
+    tools = _loaded(tmp_path)
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search", "mcp__docs__find")
+
+    _reload(tools)
+
+    assert _registered(tools) == ("read", "bash")
+    assert _declared(tools) == ("read", "bash")
+    assert tools.state.pending_tool_names == {"mcp__docs__search", "mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search", "mcp__docs__find")
+    assert tools.state.pending_tool_names == frozenset()
+
+
+def test_a_restored_tool_that_registers_after_the_run_started_is_not_activated(
+    tmp_path: Path,
+) -> None:
+    # Pi: "does not activate restored tools that register after the next
+    # prompt starts". A `direct` tool is activated by registering, as ever.
+    tools = _loaded(tmp_path)
+    _reload(tools)
+
+    tools.drop_pending_tools()
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
+
+    assert tools.state.pending_tool_names == frozenset()
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search")
+    assert "mcp__docs__find" in _callable(tools)
+
+
+def test_pending_tools_arrive_one_server_at_a_time(tmp_path: Path) -> None:
+    tools = _loaded(tmp_path)
+    _reload(tools)
+
+    tools.publish_mcp_tools(_mcp(search="direct"))
+    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search", "mcp__docs__find")
+
+
+def test_a_second_reload_keeps_the_pending_tools(tmp_path: Path) -> None:
+    tools = _loaded(tmp_path)
+    _reload(tools)
+
+    _reload(tools)
+
+    assert tools.state.pending_tool_names == {"mcp__docs__search", "mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+    assert _declared(tools) == ("read", "bash", "mcp__docs__find")
+
+
+def test_a_reload_with_a_tool_filter_keeps_what_tool_search_loaded(
+    tmp_path: Path,
+) -> None:
+    # The filter derives the selection again on every reload, which drops a
+    # loaded tool; the names are read before that.
+    tools = _loaded(tmp_path, ToolFilterOptions(exclude=("bash", "mcp__docs__fetch")))
+    assert _declared(tools) == ("read", "mcp__docs__search", "mcp__docs__find")
+
+    _reload(tools)
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
+
+    assert _declared(tools) == ("read", "mcp__docs__search", "mcp__docs__find")
+
+
+def test_a_reload_without_a_selection_leaves_nothing_pending(tmp_path: Path) -> None:
+    # No selection means "as registration left it": only tools registration
+    # activates were declared, and registering activates them again.
+    tools = NativeToolCapabilities(
+        {"read": _Tool("read")},
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+    )
+    tools.publish_mcp_tools(_mcp(search="direct"))
+    assert tools.state.active_tool_names is None
+
+    tools.restart_mcp_tools()
+
+    assert tools.state.pending_tool_names == frozenset()
+    assert tools.state.active_tool_names is None
+    assert _declared(tools) == ("read",)
+    tools.publish_mcp_tools(_mcp(search="direct"))
+    assert _declared(tools) == ("read", "mcp__docs__search")
+
+
+def test_a_reload_treats_a_deactivated_direct_tool_as_new(tmp_path: Path) -> None:
+    # Pi builds a new registry on reload, so the tool registers anew and
+    # registering activates it.
+    tools = _session(tmp_path)
+    tools.publish_mcp_tools(_mcp(search="direct"))
+    assert tools.set_active_tools(("read",))
+
+    _reload(tools)
+    tools.drop_pending_tools()
+    tools.publish_mcp_tools(_mcp(search="direct"))
+
+    assert _declared(tools) == ("read", "mcp__docs__search")
+
+
+@pytest.mark.parametrize("kept", [False, True])
+def test_a_selection_made_before_restored_tools_register(
+    tmp_path: Path, kept: bool
+) -> None:
+    # Pi: "drops/keeps restored tools when an extension sets the loadout
+    # before they register". A selection that deactivates a tool replaces
+    # the restored one; a selection that only adds keeps it.
+    tools = _session(tmp_path, extensions={"lookup": _Tool("lookup")})
+    tools.restore_active_tools(("read", "mcp__docs__find", "mcp__docs__gone"))
+    assert _declared(tools) == ("read",)
+    assert tools.state.pending_tool_names == {"mcp__docs__find", "mcp__docs__gone"}
+
+    assert tools.set_active_tools(("read", "lookup") if kept else ("lookup",))
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+
+    assert ("mcp__docs__find" in _declared(tools)) is kept
+    assert tools.state.pending_tool_names == (
+        {"mcp__docs__gone"} if kept else frozenset()
+    )
+
+
+def test_a_restored_transcript_declares_its_tools_once_their_server_connects(
+    tmp_path: Path,
+) -> None:
+    # Pi: "declares tools tool_search loaded again on resume once their
+    # server connects". Only names of MCP tools wait; the filters apply.
+    tools = _session(tmp_path, ToolFilterOptions(exclude=("mcp__docs__fetch",)))
+
+    tools.restore_active_tools(
+        ("read", "vanished", "mcp__docs__find", "mcp__docs__fetch")
+    )
+
+    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(find="deferred", fetch="deferred"))
+    assert _declared(tools) == ("read", "mcp__docs__find")
+    # A later restore replaces what was pending.
+    tools.restore_active_tools(("read",))
+    assert tools.state.pending_tool_names == frozenset()
+
+
+def test_adding_tools_keeps_the_pending_ones_and_an_exposure_change_drops_them(
+    tmp_path: Path,
+) -> None:
+    tools = _loaded(tmp_path)
+    _reload(tools)
+    tools.activate_tools(("read",))
+    tools.publish_mcp_tools(_mcp(fetch="deferred"))
+    assert tools.load_tools(("mcp__docs__fetch",)) == ("mcp__docs__fetch",)
+    assert tools.state.pending_tool_names == {"mcp__docs__search", "mcp__docs__find"}
+
+    tools.deactivate_indirect_mcp_tools(("mcp__docs__fetch",))
+
+    assert tools.state.pending_tool_names == frozenset()
+
+
+def test_a_pending_tool_that_registers_while_a_reload_is_under_way_stays_restored(
+    tmp_path: Path,
+) -> None:
+    # The old servers may still publish before the reload is published and
+    # between that and their end. A pending name they consume is declared
+    # then, and what is declared is what the restart keeps.
+    tools = _loaded(tmp_path)
+    _reload(tools)
+    assert tools.state.pending_tool_names == {"mcp__docs__search", "mcp__docs__find"}
+
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+    tools.publish(tools.prepare_extensions({}))
+    tools.publish_mcp_tools(_mcp(find="deferred", search="direct"))
+    tools.restart_mcp_tools()
+
+    assert _registered(tools) == ("read", "bash")
+    assert tools.state.pending_tool_names == {"mcp__docs__search", "mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+    assert _declared(tools) == ("read", "bash", "mcp__docs__find")
+
+
+def test_dropping_a_tool_the_filters_hide_keeps_the_pending_tools(
+    tmp_path: Path,
+) -> None:
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(exclude=("bash",)),
+        extensions={"lookup": _Tool("lookup")},
+    )
+    assert tools.set_active_tools(("read", "bash"))
+    tools.restore_active_tools(("read", "bash", "mcp__docs__find"))
+    assert _declared(tools) == ("read",)
+
+    assert tools.set_active_tools(("read", "lookup"))
+
+    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+    assert _declared(tools) == ("read", "lookup", "mcp__docs__find")

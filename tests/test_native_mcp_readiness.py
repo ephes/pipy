@@ -696,8 +696,9 @@ def _waits(
     startup_wait_seconds: float | None = None,
 ) -> tuple[McpSessionWaits, list[tuple[str, str]]]:
     notices: list[tuple[str, str]] = []
+    readiness = _readiness(session, *tools, startup_wait_seconds=startup_wait_seconds)
     waits = McpSessionWaits(
-        _readiness(session, *tools, startup_wait_seconds=startup_wait_seconds),
+        lambda: readiness,
         notify=lambda level, message: notices.append((level, message)),
         prompt_waiter=prompt_waiter,
     )

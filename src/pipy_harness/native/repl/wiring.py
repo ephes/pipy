@@ -125,7 +125,6 @@ from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import McpReadiness
-from pipy_harness.native.mcp.servers_section import MCP_SERVERS_SECTION
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -163,8 +162,8 @@ from pipy_harness.native.repl.mcp_command import (
     ArgumentCompleter,
     McpSessionCommand,
     interruptible_steps,
-    mcp_session_commands,
 )
+from pipy_harness.native.repl.mcp_session import McpServers, McpSession
 from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
@@ -596,10 +595,8 @@ class _ExtensionPhase:
     extension_notify: Callable[[str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
     tool_capabilities: NativeToolCapabilities
-    mcp_manager: McpManager
-    mcp_discovery: McpDiscovery
-    # Whether MCP is on; with it off there is no ``/mcp`` command.
-    mcp_enabled: bool
+    # The MCP servers; ``/reload`` replaces what it holds.
+    mcp: McpSession
     startup_projection: ExtensionProjection
     attachment: StartupGenerationAttachment
     generation_ref: SessionGenerationRef
@@ -911,8 +908,12 @@ def _compose_extension_phase(
         ),
     )
 
-    mcp_enabled = startup.resource_options.mcp_enabled(
-        configured=settings.builtin_extension_enabled("mcp")
+    mcp = McpSession(
+        partial(
+            _mcp_servers, cwd, settings, startup.resource_options, tool_capabilities
+        ),
+        tools=tool_capabilities,
+        notify=_extension_notify,
     )
 
     def _prepare_before_publish(
@@ -923,7 +924,7 @@ def _compose_extension_phase(
             settings=settings,
             workspace_resources=workspace_resources,
             startup_commands=projection.commands,
-            session_commands=mcp_session_commands(enabled=mcp_enabled),
+            session_commands=mcp.commands,
             keybindings=keybindings,
             error_stream=error_stream,
         )
@@ -979,20 +980,12 @@ def _compose_extension_phase(
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
         raise_first((error, _abort_startup_attachment_nonraising(attached)))
         raise AssertionError("startup failure did not propagate")
-    mcp_manager = _mcp_manager(cwd, settings, tool_capabilities, enabled=mcp_enabled)
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
         extension_ui_driver=extension_ui_driver,
         tool_capabilities=tool_capabilities,
-        mcp_manager=mcp_manager,
-        mcp_discovery=McpDiscovery(
-            configured_exposures=mcp_manager.configured_exposures,
-            auto_enable_codemode=mcp_manager.auto_enable_codemode,
-            tools=tool_capabilities,
-            notify=mcp_manager.post_notice,
-        ),
-        mcp_enabled=mcp_enabled,
+        mcp=mcp,
         startup_projection=startup_projection,
         attachment=attached,
         generation_ref=generation_ref,
@@ -1003,14 +996,14 @@ def _compose_extension_phase(
     )
 
 
-def _mcp_manager(
+def _mcp_servers(
     cwd: Path,
     settings: SettingsManager,
+    resource_options: RuntimeResourceOptions,
     tool_capabilities: NativeToolCapabilities,
-    *,
-    enabled: bool,
-) -> McpManager:
-    """The session's MCP servers, read from ``mcp.json`` and not started yet.
+) -> McpServers:
+    """The session's MCP servers as ``mcp.json`` and the settings say now,
+    not started yet. Called at the start of the session and by every reload.
 
     The user-level file is the one next to the user-level settings file; the
     project file is read only for a trusted project. With MCP turned off
@@ -1018,8 +1011,11 @@ def _mcp_manager(
     server, so it starts nothing and reports nothing.
     """
 
+    enabled = resource_options.mcp_enabled(
+        configured=settings.builtin_extension_enabled("mcp")
+    )
     config_home = settings.global_path.parent
-    return McpManager(
+    manager = McpManager(
         config=load_mcp_config(
             config_home=config_home,
             cwd=cwd,
@@ -1033,14 +1029,17 @@ def _mcp_manager(
         deactivate_tools=tool_capabilities.deactivate_indirect_mcp_tools,
         log=McpServerLog(mcp_log_path(config_home)),
     )
-
-
-def _session_prompt_sections(manager: McpManager) -> dict[str, str]:
-    """The sections the session adds to a run's prompt: the list of MCP
-    servers whose tools are not declared, as the servers are now."""
-
-    section = manager.servers_section()
-    return {} if section is None else {MCP_SERVERS_SECTION: section}
+    return McpServers(
+        manager=manager,
+        discovery=McpDiscovery(
+            configured_exposures=manager.configured_exposures,
+            auto_enable_codemode=manager.auto_enable_codemode,
+            tools=tool_capabilities,
+            notify=manager.post_notice,
+        ),
+        readiness=McpReadiness(manager, tool_capabilities.all_tools),
+        enabled=enabled,
+    )
 
 
 def _mcp_waits(
@@ -1053,8 +1052,9 @@ def _mcp_waits(
     in a terminal, the abort signal in a headless run.
     """
 
+    mcp = extension.mcp
     return McpSessionWaits(
-        McpReadiness(extension.mcp_manager, extension.tool_capabilities.all_tools),
+        lambda: mcp.servers.readiness,
         notify=extension.extension_notify,
         prompt_waiter=_interrupt_waiter(extension, abort_event),
     )
@@ -1079,26 +1079,32 @@ def _mcp_command(
     settings: SettingsManager,
     abort_event: threading.Event | _AbortCallbackSignal | None,
     argument_completer: ArgumentCompleter,
-) -> McpSessionCommand | None:
-    """The session's ``/mcp`` command, or ``None`` with MCP turned off.
+) -> McpSessionCommand:
+    """The session's ``/mcp`` command, which exists while MCP is on.
 
-    In a terminal its argument completions join those of the other commands.
+    It is built for the servers as they are when it is used, so it follows
+    a ``/reload``. In a terminal its argument completions join those of the
+    other commands.
     """
 
-    if not extension.mcp_enabled:
-        return None
     waiter = _interrupt_waiter(extension, abort_event)
     driver = extension.extension_ui_driver
-    command = McpSessionCommand(
-        McpCommand(
-            extension.mcp_manager,
+    mcp = extension.mcp
+
+    def current() -> McpCommand | None:
+        servers = mcp.servers
+        if not servers.enabled:
+            return None
+        return McpCommand(
+            servers.manager,
             config_home=settings.global_path.parent,
             notify=extension.extension_notify,
             select=driver.select if driver is not None else _select_nothing,
-            ensure_discovery=extension.mcp_discovery.ensure_active,
+            ensure_discovery=servers.discovery.ensure_active,
             run_step=run_step_inline if waiter is None else interruptible_steps(waiter),
         )
-    )
+
+    command = McpSessionCommand(current)
     if extension.terminal_ui is not None:
         extension.terminal_ui.components.autocomplete.set_argument_completer(
             command.completer(argument_completer)
@@ -1112,27 +1118,15 @@ def _select_nothing(title: str, options: Sequence[str]) -> str | None:
     return None
 
 
-def _start_session(
-    fire_session_start: Callable[[], None], mcp: McpManager, discovery: McpDiscovery
-) -> None:
-    """``session_start``, then the MCP servers start connecting in the background.
-
-    ``codemode`` or ``tool_search`` is activated from the configuration, so it
-    is active before the servers connect and the first prompt declares it.
-    """
+def _start_session(fire_session_start: Callable[[], None], mcp: McpSession) -> None:
+    """``session_start``, then the MCP servers start connecting in the background."""
 
     fire_session_start()
-    try:
-        mcp.start()
-        discovery.ensure_active()
-    except BaseException:
-        # A start that failed has no shutdown bookend.
-        mcp.close()
-        raise
+    mcp.start()
 
 
 def _close_session(
-    close_extension_session: Callable[[], None], mcp: McpManager
+    close_extension_session: Callable[[], None], mcp: McpSession
 ) -> None:
     """The cleanup every exit of a started session runs.
 
@@ -1147,14 +1141,12 @@ def _close_session(
 
 
 def _drain_session_outboxes(
-    drain_extension_outboxes: Callable[[], None],
-    mcp: McpManager,
-    notify: Callable[[str, str], None],
+    drain_extension_outboxes: Callable[[], None], mcp: McpSession
 ) -> None:
     """Runs on the session thread wherever the next step is selected."""
 
     drain_extension_outboxes()
-    mcp.deliver_notices(notify)
+    mcp.deliver_notices()
 
 
 def _prepare_startup_extension_consumers(
@@ -1664,12 +1656,12 @@ def _start_chrome(
             command_names=tool_loop_command_names(
                 workspace_resources,
                 startup_commands.menu_names,
-                mcp_session_commands(enabled=extension.mcp_enabled),
+                extension.mcp.commands,
             ),
             command_descriptions=tool_loop_command_descriptions(
                 workspace_resources,
                 dict(startup_commands.descriptions),
-                mcp_session_commands(enabled=extension.mcp_enabled),
+                extension.mcp.commands,
             ),
         )
     )
@@ -1881,7 +1873,8 @@ def _compose_collaborators(
             _runtime_abort_event(inputs, runtime.loop_controller),
             slash_argument_completer(inputs.provider_state, settings),
         ),
-        session_commands=mcp_session_commands(enabled=extension.mcp_enabled),
+        session_commands=extension.mcp.commands,
+        mcp=extension.mcp,
     )
     transition = SessionTransitionCoordinator(
         workspace=cwd,
@@ -2237,17 +2230,15 @@ def _assemble_session_wiring(
         drain_extension_outboxes=partial(
             _drain_session_outboxes,
             custom_renderer.drain_extension_outboxes,
-            extension.mcp_manager,
-            _extension_notify,
+            extension.mcp,
         ),
         active_provider_header_callback=collaborators.active_provider_header_callback,
         extension_custom_driver=collaborators.extension_custom_driver,
         extension_notify=_extension_notify,
         coding_session_control=collaborators.coding_session_control,
         mcp_waits=_mcp_waits(extension, _runtime_abort_event(inputs, loop_controller)),
-        session_prompt_sections=partial(
-            _session_prompt_sections, extension.mcp_manager
-        ),
+        session_prompt_sections=extension.mcp.prompt_sections,
+        run_prepared=extension.tool_capabilities.drop_pending_tools,
         compaction_event=_compaction_event,
     )
     delegation = _LoopDelegation(
@@ -2266,8 +2257,7 @@ def _assemble_session_wiring(
         fire_session_start=partial(
             _start_session,
             partial(repl_loop_step.fire_session_start, emitter=emitter),
-            extension.mcp_manager,
-            extension.mcp_discovery,
+            extension.mcp,
         ),
         fire_session_shutdown=partial(
             repl_loop_step.fire_session_shutdown, emitter=emitter
@@ -2280,7 +2270,7 @@ def _assemble_session_wiring(
                 coding_effects=coding_effects,
                 generation_ref=ctl.generation_ref,
             ),
-            extension.mcp_manager,
+            extension.mcp,
         ),
         clear_extension_chrome=(
             terminal_ui.components.chrome.generation.retire_generation

@@ -27,6 +27,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- `/reload` reads `mcp.json` and the `builtin:mcp` setting again: it closes
+  the MCP servers and starts the ones configured now, so a server that was
+  removed is gone, a new one connects and a changed one runs with its new
+  entry. The startup report is made again and the next prompt waits for
+  servers with `direct` tools like a first prompt. A tool that `tool_search`
+  loaded is declared again when its server has connected before the next
+  prompt starts; the same holds for `/tree` to an entry that declares a tool
+  of a server that is still connecting. A reload that keeps the previous
+  extensions keeps the servers too. A server that connects or changes its
+  tools while a reload is prepared no longer makes that reload fail. See
+  [Reloading](docs/mcp.md#reloading).
 - `/mcp` shows the MCP servers of a session: one line per server with its
   state, tool count and exposure, the whole error of a server that is not
   connected, and the errors of the `mcp.json` files. `/mcp reconnect

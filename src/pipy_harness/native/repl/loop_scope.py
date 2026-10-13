@@ -325,6 +325,10 @@ class ReplLoopScope:
     # The sections the session adds to the coming run's prompt, by name and
     # without their tags: the `mcp_servers` list. Read when a run starts.
     session_prompt_sections: Callable[[], Mapping[str, str]]
+    # Called once when a run's prompt is settled, after its hooks: tools a
+    # reload or `/tree` restored that have not registered by now stay
+    # inactive (Pi `_pendingToolNames`).
+    run_prepared: Callable[[], None]
     compaction_event: (
         Callable[[str, str, CodingCompactionOutcome | None], None] | None
     ) = None

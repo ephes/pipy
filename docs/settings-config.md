@@ -792,6 +792,10 @@ listed above are re-read from settings on the next use but have no live
 re-application surface yet (they are accepted + reported, per the honoring-status
 note in the Compaction/Retry section).
 
+An accepted `/reload` also closes the MCP servers and starts the ones that
+`mcp.json` and the `builtin:mcp` entry name now; see
+[Reloading](mcp.md#reloading).
+
 ## `/changelog`
 
 `/changelog` prints the full changelog (Pi `handleChangelogCommand` reads

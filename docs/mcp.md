@@ -47,7 +47,8 @@ pipy waits for a server only when its tools are needed (see
 [waiting for servers](#waiting-for-servers)). When a server connects, its
 tools are registered as
 `mcp__<server>__<tool>`, here for example `mcp__filesystem__read_file`. The
-file is read once, when the session starts: restart pipy after changing it.
+files are read when the session starts and again on
+[`/reload`](#reloading): run it after changing them.
 When the session ends, pipy closes every server and waits until its process
 is gone, also for a server that was still starting.
 
@@ -173,6 +174,9 @@ Multilingual Plane in half.
   `pipy -ne -e builtin:mcp` runs without extensions and with MCP.
   `--no-mcp` wins over it.
 
+`/reload` reads the settings entry again, so MCP can be turned off and on
+in a running session; the flags hold for the whole run.
+
 With MCP off, pipy does not turn on `codemode` or `tool_search` and reports
 nothing about `mcp.json`. `mcp` is the only built-in entry; Pi also has
 `builtin:codemode`, `builtin:tool-search` and `builtin:llama.cpp`, which in
@@ -184,7 +188,8 @@ unknown `builtin:` name after `--extension` is an error at startup.
 Servers connect while you type, so their tools are usually there when they
 are needed. Where they might not be, pipy waits:
 
-- **The first prompt** of a session waits for the servers that have `direct`
+- **The first prompt** of a session, and the first one after a `/reload`,
+  waits for the servers that have `direct`
   tools (the server's `exposure`, or any `toolExposure` value, is `direct`)
   and are still connecting, so that the first model request declares those
   tools. It waits at most 10 seconds. After that the prompt is sent and pipy
@@ -254,6 +259,43 @@ already on its way fails with one of these messages:
 When a server process exits, its tools stay registered and the next call
 starts it again.
 
+### Reloading
+
+Run `/reload` after you added, removed or changed a server outside the
+session. It closes every connection, reads the `mcp.json` files and the
+[`builtin:mcp` setting](#turning-mcp-off) again and starts the servers they
+name now, as at the start of a session:
+
+- A server that is no longer configured is closed and its tools are gone. A
+  new server connects. Every other server is started again too, with its
+  entry as it is now; a stdio server gets a new process.
+- `/reload` returns when the old connections are closed. The servers connect
+  in the background, the [startup report](#startup-report) is made again, and
+  the next prompt [waits](#waiting-for-servers) for the servers with `direct`
+  tools like a first prompt.
+- A tool that `tool_search` loaded, or that was declared for another
+  reason, is declared again when its server has connected before the next
+  prompt starts. A tool of a server that connects later is not: it is
+  registered like a new tool, so a `direct` tool is declared anyway and a
+  `codemode` or `deferred` tool has to be loaded again. The same holds after
+  `/tree` to an entry that declares a tool of a server that is still
+  connecting.
+- When `/reload` keeps the previous extensions because the new ones were
+  refused (`pipy: keeping the previous extensions.`), it also keeps the
+  servers as they are and does not use the `mcp.json` it read.
+
+Different from Pi:
+
+- Pi closes the servers and reads `mcp.json` again for every new session in
+  one process (`/new`, `/resume`, `/fork`) as well. pipy keeps the servers
+  there; only `/reload` and a restart read the files again. The first-prompt
+  wait and the startup report are not repeated for such a session.
+- Pi's reload is not undone when an extension fails to load, so its servers
+  restart in every case.
+- While `/reload` decides whether the new extensions are accepted, a change
+  of a running server's tools waits; it is registered afterwards, or dropped
+  when the servers are replaced.
+
 ### Startup report
 
 When every server that started with the session has connected or failed,
@@ -270,7 +312,7 @@ There is one `config:` line per error in an `mcp.json` and one line per
 server that failed (with the first line of its error) or needs a sign-in
 (`<name>: needs sign-in`). Nothing is shown when there is nothing to report.
 [`/mcp`](#the-mcp-command) shows every server with its whole error. After
-correcting `mcp.json`, restart pipy.
+correcting `mcp.json`, run `/reload`.
 
 The report and the other warnings on this page are shown before the next
 prompt runs, not at the moment they arise: in the terminal you see them when
@@ -341,7 +383,7 @@ Different from Pi:
 - In Pi's terminal, `/mcp` without arguments opens a manager where servers
   are enabled, disabled and given another exposure. pipy has no such manager
   yet and prints the status there too, so those three changes cannot be made
-  in a session; edit `mcp.json` and restart pipy.
+  in a session; edit `mcp.json` and run `/reload`.
 - pipy runs `/mcp` only for a line typed into a session. A prompt given on
   the command line (also with `--print` or `--mode json`) or sent by an RPC
   client is never run as a slash command; it goes to the model. Pi runs the
@@ -355,16 +397,9 @@ Different from Pi:
 ### What is missing
 
 Not built yet, in the order the plan builds it: enabling and disabling a
-server and changing its exposure in a session (the `/mcp` manager), reading
-`mcp.json` again on `/reload`, resources, HTTP servers, OAuth, servers
-registered by extensions, and images in tool results.
-
-Until `/reload` handles MCP: `/reload` does not read `mcp.json` or the
-`-builtin:mcp` entry again; restart pipy. When a server connects or changes its tools
-while a `/reload` is being prepared, that reload is refused with `prepared
-reload owner state changed`; run it again. A new session in the same pipy
-process (`/new`, `/resume`) keeps the servers of the first one, where Pi
-closes them and reads `mcp.json` again.
+server and changing its exposure in a session (the `/mcp` manager),
+resources, HTTP servers, OAuth, servers registered by extensions, and images
+in tool results.
 
 ## Tool search
 
@@ -400,7 +435,10 @@ a positive integer`.
 
 Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch: `/tree` to an entry before the load drops the
-tool, and `/tree` to a later entry declares it again.
+tool, and `/tree` to a later entry declares it again. After a `/reload` a
+loaded MCP tool is declared again once its server has connected, see
+[Reloading](#reloading). A session that is resumed in a new pipy process
+starts from the configured tools, as in Pi's CLI.
 
 `tool_search` never loads `direct`, `model-only` or `hidden` tools, and it
 does not load a tool that `--tools` or `--exclude-tools` filters out. With

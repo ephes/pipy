@@ -48,7 +48,12 @@ is no longer the server's finds a closed connection or reads the current
 one, so a late result of an earlier attempt changes nothing (Pi
 ``isCurrent``).
 
-Not built yet: servers registered by extensions and ``/reload``.
+Reload. A manager is not started twice: ``/reload`` closes this one and
+starts another for the configuration it read again. While the reload decides
+whether it is accepted it holds this manager's publications
+(``publications_held``), so the session's tools do not change under it.
+
+Not built yet: servers registered by extensions.
 """
 
 from __future__ import annotations
@@ -57,7 +62,8 @@ import queue
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
@@ -353,6 +359,20 @@ class McpManager:
         if worker is not None:
             self._events.put(None)
             worker.join(_WORKER_JOIN_SECONDS)
+
+    @contextmanager
+    def publications_held(self) -> Iterator[None]:
+        """Publish nothing while the block runs.
+
+        A change a server announces meanwhile is registered when the block
+        ends, and a change made in the session (``set_enabled``,
+        ``set_exposure``) waits for it. The block must not call those or
+        ``close``, and must not be entered by a thread that holds the
+        capability state lock.
+        """
+
+        with self._publication:
+            yield
 
     # -- reading ----------------------------------------------------------
 

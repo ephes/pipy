@@ -579,7 +579,8 @@ def test_the_session_command_dispatches_only_mcp_and_completes_its_arguments(
     sessions.append(session)
     session.start()
     ui = _Ui()
-    command = McpSessionCommand(_command(session, ui, tmp_path))
+    current: list[Any] = [_command(session, ui, tmp_path)]
+    command = McpSessionCommand(lambda: current[0])
 
     assert not command.dispatch("/mcpx")
     assert not command.dispatch("/model x")
@@ -601,6 +602,12 @@ def test_the_session_command_dispatches_only_mcp_and_completes_its_arguments(
     )
     assert complete("mcp", "nope") is None
     assert McpArgumentCompletion("a", "b").description is None
+
+    # A reload turned MCP off: there is no `/mcp` any more.
+    current[0] = None
+    assert not command.dispatch("/mcp")
+    assert complete("mcp", "rec") == other
+    assert len(ui.notices) == 2
 
 
 def test_the_slash_menu_lists_mcp_after_the_extension_commands(
