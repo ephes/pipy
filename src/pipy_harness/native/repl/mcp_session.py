@@ -13,6 +13,11 @@ ran through ``bash`` for example, is picked up when the next turn starts:
 ``before_turn`` connects the servers again that were waiting for a sign-in
 and have other credentials stored now (Pi's ``turn_start`` handler).
 
+A server that was enabled or reconnected in the ``/mcp`` manager may finish
+connecting after the manager was closed. ``before_turn`` then activates what
+the server's exposure needs (``McpDiscovery.ensure_active``), as the manager
+does while it is open.
+
 A reload has two parts. Before the session decides whether the reload is
 accepted, the configuration is read again and a manager is built for it that
 connects nothing. Once the reload was accepted, the running manager is
@@ -39,6 +44,7 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.mcp.servers_section import MCP_SERVERS_SECTION
 from pipy_harness.native.repl.mcp_command import mcp_session_commands
@@ -55,6 +61,8 @@ class McpServers:
     # Whether MCP is on (``--no-mcp``, ``-builtin:mcp``). With it off the
     # manager has no server and there is no ``/mcp`` command.
     enabled: bool
+    # The changes the ``/mcp`` manager view started and did not wait for.
+    actions: McpBackgroundActions
 
 
 class RestartableMcpTools(Protocol):
@@ -146,8 +154,10 @@ class McpSession:
         """Connect again the servers somebody signed in to since they began
         to need a sign-in, so that this turn has their tools.
 
-        Runs on the session thread at the start of every turn. It returns at
-        once when no server waits for a sign-in, and after a look at the
+        Runs on the session thread at the start of every turn. First it
+        activates ``codemode`` or ``tool_search`` when a change made in the
+        ``/mcp`` manager ended since the manager was closed. Then it returns
+        at once when no server waits for a sign-in, and after a look at the
         credentials file when nobody signed in. ``waiter`` watches for an
         interruption while the servers connect: Escape or an abort then
         cancels the run, which is what is returned, and the reconnects go on
@@ -156,6 +166,8 @@ class McpSession:
 
         servers = self.servers
         manager = servers.manager
+        if servers.actions.take_finished():
+            servers.discovery.ensure_active()
         signed_in = manager.take_signed_in()
         if not signed_in:
             return None

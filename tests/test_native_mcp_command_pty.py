@@ -1,7 +1,8 @@
-"""``/mcp`` in the real terminal UI (MCP parity plan S21, SLH-01, SLH-02).
+"""``/mcp`` in the real terminal UI (MCP parity plan S21, SLH-01; S34,
+MGR-02).
 
-The server never finishes connecting, so every wait of the command has to be
-ended with Escape.
+The server never finishes connecting: the manager opens all the same, and
+the wait of a subcommand has to be ended with Escape.
 """
 
 from __future__ import annotations
@@ -29,13 +30,18 @@ def test_mcp_is_in_the_menu_completes_and_can_be_interrupted(tmp_path: Path) -> 
         listed = wait_for_output(chunks, "Manage MCP servers", timeout=_TIMEOUT)
         assert listed is not None
         os.write(fd, b"p\r")
-        # SLH-02: the status waits for the startup connections ...
-        assert wait_for_output(chunks, "slow: ", after=listed, timeout=1.0) is None
-        os.write(fd, b"\x1b")
-        # ... and Escape ends the wait; the server is shown as it is.
-        shown = wait_for_input_ready_after(
-            chunks, "slow: connecting (deferred)", after=listed, timeout=_TIMEOUT
+        # MGR-02: the manager opens without waiting for the server, which
+        # is listed as it is.
+        opened = wait_for_input_ready_after(
+            chunks,
+            "connecting\u2026 \u00b7 deferred \u00b7 global",
+            after=listed,
+            timeout=_TIMEOUT,
         )
+        assert opened is not None
+        # Escape closes it, and the editor is back.
+        os.write(fd, b"\x1b")
+        shown = wait_for_output(chunks, b"\x1b[?2004h", after=opened, timeout=_TIMEOUT)
         assert shown is not None
         # SLH-01: the arguments complete the action, then the server with
         # its state.

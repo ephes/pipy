@@ -29,6 +29,7 @@ from pipy_harness.native.mcp.credentials import (
     mcp_auth_path,
 )
 from pipy_harness.native.mcp.manager import SIGN_IN_CANCELLED, McpManager
+from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.sign_in import sign_in_mcp_server, wait_for_cancel
 from pipy_harness.native.repl.mcp_session import McpServers, McpSession
 
@@ -514,6 +515,7 @@ def _session(oauth: Servers) -> tuple[McpSession, _Discovery]:
         discovery=discovery,  # type: ignore[arg-type]
         readiness=None,  # type: ignore[arg-type]
         enabled=True,
+        actions=McpBackgroundActions(oauth.manager),
     )
     session = McpSession(
         lambda: loaded, tools=_Tools(), notify=lambda level, message: None
@@ -535,6 +537,24 @@ def _refusing(
     done: threading.Event, cancel: threading.Event
 ) -> ToolExecutionInterruption:
     raise AssertionError("there is nothing to wait for")
+
+
+def test_the_turn_start_follows_a_change_the_manager_view_did_not_wait_for(
+    oauth: Servers,
+) -> None:
+    # S34, MGR-08: the view was closed before the change ended.
+    session, discovery = _session(oauth)
+    actions = session.servers.actions
+    actions.run("issues", lambda: None)
+    _wait_until(
+        lambda: not [t for t in threading.enumerate() if t.name == "mcp-manager-action"]
+    )
+
+    assert session.before_turn(_refusing) is None
+
+    assert discovery.calls == 1
+    assert session.before_turn(_refusing) is None
+    assert discovery.calls == 1
 
 
 @pytest.mark.parametrize("waiter", [None, _watching])

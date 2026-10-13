@@ -83,7 +83,7 @@ are invoked as their own `/<template-name>` commands.
 | `/import <file>` | Import a native session JSONL file |
 | `/share` | Upload the session as a private GitHub gist when configured |
 | `/reload` | Reload settings, keybindings, extensions, skills, prompts, themes, and context files, and start the [MCP servers](mcp.md#reloading) again from `mcp.json` |
-| `/mcp`, `/mcp reconnect [server]` | Show the MCP servers with their state and errors, or connect one again (not available with MCP turned off); see [MCP](mcp.md#the-mcp-command) |
+| `/mcp`, `/mcp login [server]`, `/mcp logout [server]`, `/mcp reconnect [server]` | Open the [MCP manager](mcp.md#the-mcp-manager) to see the servers and sign in, reconnect, enable, disable or change the exposure of one; the subcommands sign in to, sign out of or reconnect a server directly (not available with MCP turned off); see [MCP](mcp.md#the-mcp-command) |
 | `/hotkeys` | Show keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/skill:<name> [args]` | Run a discovered skill (the text after the name follows it) |
@@ -251,7 +251,8 @@ no extensions. `pipy mcp --help` lists the options of `add`; see
 signs in to an HTTP server that uses OAuth, through your browser, and `pipy
 mcp logout <server>` deletes the stored credentials; a running session uses
 a new sign-in from its next turn on. In a session, [`/mcp`](mcp.md#the-mcp-command)
-shows the same servers, reconnects one and signs in to or out of one.
+opens a manager for the same servers: it reconnects, enables or disables
+one, changes its exposure and signs in to or out of one.
 
 ### Modes
 

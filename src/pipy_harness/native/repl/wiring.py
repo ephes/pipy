@@ -130,6 +130,7 @@ from pipy_harness.native.mcp.credentials import (
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.mcp.sign_in import open_browser
 from pipy_harness.native.oauth_providers import PER_REQUEST_OAUTH_PROVIDERS
@@ -171,6 +172,7 @@ from pipy_harness.native.repl.mcp_command import (
     ArgumentCompleter,
     McpSessionCommand,
     interruptible_steps,
+    terminal_manager_view,
 )
 from pipy_harness.native.repl.mcp_session import McpServers, McpSession
 from pipy_harness.native.repl.mcp_waits import McpSessionWaits
@@ -1056,6 +1058,7 @@ def _mcp_servers(
         ),
         readiness=McpReadiness(manager, tool_capabilities.all_tools),
         enabled=enabled,
+        actions=McpBackgroundActions(manager),
     )
 
 
@@ -1136,17 +1139,20 @@ def _mcp_command(
     settings: SettingsManager,
     abort_event: threading.Event | _AbortCallbackSignal | None,
     argument_completer: ArgumentCompleter,
+    clipboard_copy: Callable[..., ClipboardResult],
 ) -> McpSessionCommand:
     """The session's ``/mcp`` command, which exists while MCP is on.
 
     It is built for the servers as they are when it is used, so it follows
     a ``/reload``. In a terminal its argument completions join those of the
-    other commands.
+    other commands and ``/mcp`` opens the manager view.
     """
 
     waiter = _interrupt_waiter(extension, abort_event)
     driver = extension.extension_ui_driver
     mcp = extension.mcp
+    terminal_ui = extension.terminal_ui
+    view = terminal_manager_view(terminal_ui, clipboard_copy)
 
     def current() -> McpCommand | None:
         servers = mcp.servers
@@ -1160,7 +1166,9 @@ def _mcp_command(
             ensure_discovery=servers.discovery.ensure_active,
             run_step=run_step_inline if waiter is None else interruptible_steps(waiter),
             # Signing in needs somebody at a terminal.
-            open_url=open_browser if extension.terminal_ui is not None else None,
+            open_url=open_browser if terminal_ui is not None else None,
+            show_manager=view,
+            actions=servers.actions,
         )
 
     command = McpSessionCommand(current)
@@ -1931,6 +1939,7 @@ def _compose_collaborators(
             settings,
             _runtime_abort_event(inputs, runtime.loop_controller),
             slash_argument_completer(inputs.provider_state, settings),
+            inputs.clipboard_copy,
         ),
         session_commands=extension.mcp.commands,
         mcp=extension.mcp,

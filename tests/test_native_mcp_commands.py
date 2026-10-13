@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Any
 import pytest
 from test_native_mcp_connection import _NO_ANSWER, _RpcError, _Server, _wait_until
 from test_native_mcp_manager import _entry, _Session, _tool
+from test_native_mcp_manager_flow import _Ui as _FlowUi
 from test_native_mcp_manager_oauth import Servers, oauth, server  # noqa: F401
 
 from pipy_harness.native.agent.tools import ToolExecutionInterruption
@@ -36,6 +38,11 @@ from pipy_harness.native.mcp.commands import (
 from pipy_harness.native.mcp.config import McpServerEntry
 from pipy_harness.native.mcp.connection import ConnectionView
 from pipy_harness.native.mcp.manager import McpManager, McpServerStatus
+from pipy_harness.native.mcp.manager_flow import (
+    CONNECTING_TEXT,
+    CONTACTING_TEXT,
+    McpManagerFlow,
+)
 from pipy_harness.native.repl.command_menu import (
     tool_loop_command_descriptions,
     tool_loop_command_names,
@@ -53,6 +60,12 @@ sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 from mcp_fake_oauth import FakeBrowser, Reply  # noqa: E402
 
 _WAIT_SECONDS = 10.0
+
+
+class _View(_FlowUi):
+    """The manager view's double, with whether its user answered."""
+
+    answered = False
 
 
 def _status(
@@ -215,6 +228,164 @@ def test_mcp_waits_for_the_startup_connections_and_prints_the_status(
             "config error: bad file",
         )
     ]
+
+
+# -- S34: the manager view in a terminal ---------------------------------------
+
+
+class _Manager:
+    """Stands for the manager view of a terminal: it runs the flow it is
+    given the way the key loop does, with ``user`` at the screen."""
+
+    def __init__(self, user: Callable[[_View], None]) -> None:
+        self.user = user
+        self.views: list[_View] = []
+
+    def show(self, start: Callable[[_View], McpManagerFlow]) -> None:
+        view = _View()
+        self.views.append(view)
+        flow = start(view)
+        try:
+            deadline = time.monotonic() + _WAIT_SECONDS
+            while not view.closed:
+                assert time.monotonic() < deadline, view.shown
+                flow.poll()
+                self.user(view)
+                time.sleep(0.005)
+        finally:
+            flow.stop()
+
+
+def test_in_a_terminal_mcp_opens_the_manager_without_waiting(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # MGR-02: the server never finishes connecting, and the list is there.
+    hanging = _Server(handlers={"initialize": lambda message: _NO_ANSWER})
+    session = _Session(tmp_path, {"slow": hanging})
+    sessions.append(session)
+    session.manager.start()
+    ui = _Ui()
+    seen: list[str | None] = []
+
+    def user(view: _View) -> None:
+        seen.append(view.description("slow"))
+        view.choose(None)
+
+    manager = _Manager(user)
+    command = McpCommand(
+        session.manager,
+        config_home=tmp_path / "home",
+        notify=ui.notify,
+        select=ui.select,
+        ensure_discovery=ui.ensure_discovery,
+        run_step=_refuse_step,
+        show_manager=manager.show,
+    )
+
+    command.run("")
+
+    assert seen == ["connecting… · codemode · test"]
+    assert manager.views[0].shown == ["MCP servers"]
+    assert ui.notices == []
+
+
+def _refuse_step(step: Callable[[threading.Event], object]) -> bool:
+    raise AssertionError("the manager view waits for nothing")
+
+
+def _login_command(
+    oauth: Servers,  # noqa: F811
+    ui: _Ui,
+    tmp_path: Path,
+    manager: _Manager,
+    open_url: Callable[[str], object],
+) -> McpCommand:
+    return McpCommand(
+        oauth.manager,
+        config_home=tmp_path / "home",
+        notify=ui.notify,
+        select=ui.select,
+        ensure_discovery=ui.ensure_discovery,
+        open_url=open_url,
+        show_manager=manager.show,
+    )
+
+
+def test_in_a_terminal_login_uses_the_sign_in_screen(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # SLH-04, MGR-09: the URL is on the sign-in screen, not in a notice.
+    oauth.start()
+    ui = _Ui()
+    manager = _Manager(lambda view: None)
+    opened: list[str] = []
+
+    def open_url(url: str) -> None:
+        opened.append(url)
+        threading.Thread(target=lambda: FakeBrowser().open(url)).start()
+
+    _login_command(oauth, ui, tmp_path, manager, open_url).run("login issues")
+
+    assert ui.notices == [("info", 'Signed in to MCP server "issues" (1 tools).')]
+    assert manager.views[0].shown == [CONTACTING_TEXT, "redirect", CONNECTING_TEXT]
+    assert len(opened) == 1
+    assert ui.discovery_calls == 1
+    assert oauth.state() == "connected"
+
+
+def test_in_a_terminal_login_takes_a_pasted_redirect_url_and_can_be_cancelled(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    oauth.start()
+    ui = _Ui()
+    opened: list[str] = []
+    answers: list[Callable[[str], str | None]] = [
+        lambda url: FakeBrowser().get(url).headers["location"],
+        lambda url: None,
+    ]
+
+    def user(view: _View) -> None:
+        if view.screen[0] == "redirect" and not view.answered:
+            view.answered = True
+            view.screen[3](answers.pop(0)(opened[-1]))
+
+    manager = _Manager(user)
+    command = _login_command(oauth, ui, tmp_path, manager, opened.append)
+
+    command.run("login issues")
+
+    assert ui.notices == [("info", 'Signed in to MCP server "issues" (1 tools).')]
+    oauth.manager.sign_out("issues")
+    _wait_until(lambda: oauth.state() == "needs-auth")
+    command.run("login issues")
+    assert ui.notices[-1] == ("info", "Sign-in cancelled.")
+    assert ui.discovery_calls == 1
+
+
+def test_a_sign_in_screen_that_is_closed_cancels_the_login(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # The terminal's input ended: the view closes without an outcome.
+    oauth.start()
+    ui = _Ui()
+
+    def user(view: _View) -> None:
+        if view.screen[0] == "redirect":
+            view.close()
+
+    manager = _Manager(user)
+    command = _login_command(oauth, ui, tmp_path, manager, lambda url: None)
+
+    command.run("login issues")
+
+    assert ui.notices == [("info", "Sign-in cancelled.")]
+    _wait_until(
+        lambda: not [t for t in threading.enumerate() if t.name == "mcp-sign-in"]
+    )
+    assert oauth.state() == "needs-auth"
 
 
 # -- SLH-06: usage -------------------------------------------------------------

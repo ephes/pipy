@@ -1,8 +1,9 @@
 """The ``/mcp`` command of a session (Pi ``registerCommand("mcp")``).
 
-``/mcp`` prints one line per configured server. ``/mcp reconnect [server]``
-connects a server again. ``/mcp login [server]`` signs in to a server that
-uses OAuth and ``/mcp logout [server]`` deletes its stored credentials.
+``/mcp`` opens the manager in a terminal and prints one line per configured
+server elsewhere. ``/mcp reconnect [server]`` connects a server again.
+``/mcp login [server]`` signs in to a server that uses OAuth and ``/mcp
+logout [server]`` deletes its stored credentials.
 
 Nothing here touches a user interface. The command reports through
 ``notify(level, message)``, asks through ``select(title, options)``, opens
@@ -11,23 +12,29 @@ thread. A step that can take long (waiting for the startup connections, a
 reconnect, a sign-out) is handed to ``run_step``, which the session supplies
 so that Escape or an abort ends the waiting.
 
-Login. The sign-in runs on a thread of its own (``mcp-sign-in``), because
-it blocks until the browser came back, while everything the user sees
-happens on the session thread: the command waits, through ``run_step``, for
-the authorization URL, shows it as a notice and opens the browser, and
-waits again for the end of the sign-in. Ending either wait cancels the
-sign-in. Without ``open_url`` the session has no user interface to sign in
-with, and login says so.
+The manager. A session with a terminal UI supplies ``show_manager``, which
+shows the manager view and runs a flow in it (``manager_flow.py``) until the
+view closes. ``/mcp`` then opens the list of servers at once, without
+waiting for the startup connections, and ``/mcp login`` signs in with the
+view's sign-in screen, which also takes a pasted redirect URL.
+
+Login without the manager view (a session that has a user interface but no
+terminal UI; no such session exists yet). The sign-in runs on a thread of
+its own (``mcp-sign-in``), because it blocks until the browser came back,
+while everything the user sees happens on the session thread: the command
+waits, through ``run_step``, for the authorization URL, shows it as a notice
+and opens the browser, and waits again for the end of the sign-in. Ending
+either wait cancels the sign-in. Without ``open_url`` the session has no
+user interface to sign in with, and login says so.
 
 Different from Pi: the usage text for an unknown action is printed without
 waiting for the startup connections first. Pi's command cannot be
 interrupted. Here a wait can be: ``/mcp`` then prints the servers as they
 are, a subcommand is not run when the wait for the startup connections was
 ended, a reconnect or a sign-out the user stops waiting for goes on in the
-background, and a sign-in is cancelled. Login never asks for a pasted
-redirect URL: Pi asks through its input dialog where it has no terminal UI,
-and in the terminal through the sign-in screen of its ``/mcp`` manager,
-which pipy has not built yet.
+background, and a sign-in is cancelled. Login without the manager view
+never asks for a pasted redirect URL; Pi asks through its input dialog
+there.
 """
 
 from __future__ import annotations
@@ -50,6 +57,11 @@ from pipy_harness.native.mcp.manager import (
     McpManager,
     McpServerStatus,
     describe_state,
+)
+from pipy_harness.native.mcp.manager_flow import (
+    McpBackgroundActions,
+    McpManagerFlow,
+    McpUi,
 )
 from pipy_harness.native.mcp.sign_in import wait_for_cancel
 
@@ -76,6 +88,15 @@ Select = Callable[[str, Sequence[str]], str | None]
 # means the user stopped waiting: the cancel event is set, and a step that
 # does not look at it goes on in the background.
 RunStep = Callable[[Callable[[threading.Event], object]], bool]
+# Shows the manager view until it closes. It calls what it is given with the
+# view, once; that shows the first screen and returns the flow, which the
+# view polls while it is open and stops when it closed.
+ShowManager = Callable[[Callable[[McpUi], McpManagerFlow]], None]
+
+
+def _open_nothing(url: str) -> None:
+    """For a manager view in a session that cannot open a browser: the
+    sign-in screen shows the URL."""
 
 
 def run_step_inline(step: Callable[[threading.Event], object]) -> bool:
@@ -310,12 +331,18 @@ class McpCommand:
         ensure_discovery: Callable[[], None],
         run_step: RunStep = run_step_inline,
         open_url: Callable[[str], object] | None = None,
+        show_manager: ShowManager | None = None,
+        actions: McpBackgroundActions | None = None,
     ) -> None:
         """``ensure_discovery`` is ``McpDiscovery.ensure_active``, called
         after a reconnect and a sign-in. ``select`` returns ``None`` when
         nothing was chosen or nothing can be asked. ``open_url`` opens the
         authorization URL of a sign-in in the user's browser; ``None`` says
-        that the session has no user interface, and nobody can sign in."""
+        that the session has no user interface, and nobody can sign in.
+        ``show_manager`` shows the manager view of a terminal UI; ``None``
+        says that the session has none. ``actions`` runs the changes the
+        manager does not wait for; a session passes the one of its servers,
+        so that it learns of a change that ends after the view closed."""
 
         self._manager = manager
         self._config_home = config_home
@@ -324,6 +351,8 @@ class McpCommand:
         self._ensure_discovery = ensure_discovery
         self._run_step = run_step
         self._open_url = open_url
+        self._show_manager = show_manager
+        self._actions = McpBackgroundActions(manager) if actions is None else actions
 
     def complete(self, prefix: str) -> tuple[McpArgumentCompletion, ...] | None:
         return complete_mcp_arguments(self._manager.servers(), prefix)
@@ -332,6 +361,10 @@ class McpCommand:
         """Run ``/mcp <args>`` on the session thread."""
 
         words = args.split()
+        if not words and self._show_manager is not None:
+            # The manager opens at once and follows the servers itself.
+            self._show_manager(self._manage)
+            return
         if not words:
             self._wait_for_startup()
             self._notify(
@@ -366,6 +399,40 @@ class McpCommand:
             self._login(server)
         else:
             self._logout(server)
+
+    def _flow(self, view: McpUi) -> McpManagerFlow:
+        return McpManagerFlow(
+            view,
+            self._manager,
+            actions=self._actions,
+            config_home=self._config_home,
+            ensure_discovery=self._ensure_discovery,
+            open_url=self._open_url or _open_nothing,
+        )
+
+    def _manage(self, view: McpUi) -> McpManagerFlow:
+        flow = self._flow(view)
+        flow.manage()
+        return flow
+
+    def _sign_in_with_view(self, show_manager: ShowManager, name: str) -> str | None:
+        """Sign in with the sign-in screen of the manager view, which is
+        closed when the sign-in ended. A view that was closed before that
+        cancelled the sign-in."""
+
+        outcome: list[str | None] = []
+
+        def start(view: McpUi) -> McpManagerFlow:
+            def done(failure: str | None) -> None:
+                outcome.append(failure)
+                view.close()
+
+            flow = self._flow(view)
+            flow.sign_in(name, done)
+            return flow
+
+        show_manager(start)
+        return outcome[0] if outcome else SIGN_IN_CANCELLED
 
     def _wait_for_startup(self) -> bool:
         """Pi ``await pending``; ``False`` when the user stopped waiting.
@@ -446,14 +513,17 @@ class McpCommand:
                 f'Signing in to MCP server "{name}" requires interactive mode.',
             )
             return
-        sign_in = _RunningSignIn(self._manager, name, self._run_step)
-        url = sign_in.authorization_url()
-        if url is not None:
-            self._notify(
-                "info", f'Sign in to MCP server "{name}" in your browser:\n{url}'
-            )
-            open_url(url)
-        failure = sign_in.result()
+        if self._show_manager is not None:
+            failure = self._sign_in_with_view(self._show_manager, name)
+        else:
+            sign_in = _RunningSignIn(self._manager, name, self._run_step)
+            url = sign_in.authorization_url()
+            if url is not None:
+                self._notify(
+                    "info", f'Sign in to MCP server "{name}" in your browser:\n{url}'
+                )
+                open_url(url)
+            failure = sign_in.result()
         if failure is not None:
             self._notify("info" if failure == SIGN_IN_CANCELLED else "error", failure)
             return

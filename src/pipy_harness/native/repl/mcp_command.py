@@ -10,24 +10,34 @@ an extension command.
 A step of the command that can take long runs on a short-lived thread while
 the session thread watches for Escape or an abort, as the readiness waits do
 (``mcp_waits.py``).
+
+In a terminal the command gets the manager view (``terminal_manager_view``):
+``/mcp`` opens the manager there, and ``/mcp login`` its sign-in screen.
 """
 
 from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolInterruptWaiter,
 )
+from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.editor_state import CompletionItem
 from pipy_harness.native.mcp.commands import (
     MCP_COMMAND_DESCRIPTION,
     MCP_COMMAND_NAME,
     McpCommand,
     RunStep,
+    ShowManager,
 )
+from pipy_harness.native.mcp.manager_flow import McpManagerFlow, McpUi
+
+if TYPE_CHECKING:
+    from pipy_harness.native.tui import TerminalUi
 
 ArgumentCompleter = Callable[[str, str], tuple[CompletionItem, ...] | None]
 
@@ -38,6 +48,30 @@ def mcp_session_commands(*, enabled: bool) -> Mapping[str, str]:
     """The slash commands MCP adds to a session, with their descriptions."""
 
     return {MCP_SLASH_NAME: MCP_COMMAND_DESCRIPTION} if enabled else {}
+
+
+def terminal_manager_view(
+    terminal_ui: TerminalUi | None, clipboard_copy: Callable[..., ClipboardResult]
+) -> ShowManager | None:
+    """The manager view of a terminal UI, for ``McpCommand(show_manager=)``;
+    ``None`` for a session without one.
+
+    The copy key of the view's sign-in screen copies through
+    ``clipboard_copy``, as ``/copy`` does.
+    """
+
+    if terminal_ui is None:
+        return None
+    ui = terminal_ui
+
+    def copy(text: str) -> str | None:
+        result = clipboard_copy(text, terminal_stream=ui.terminal_stream)
+        return None if result.copied else result.detail
+
+    def show_manager(start: Callable[[McpUi], McpManagerFlow]) -> None:
+        ui.components.modals.run_mcp_manager(start, copy=copy)
+
+    return show_manager
 
 
 def interruptible_steps(waiter: ToolInterruptWaiter) -> RunStep:

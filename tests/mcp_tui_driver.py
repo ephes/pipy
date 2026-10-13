@@ -10,6 +10,9 @@ server has ``deferred`` tools and the provider's first turn calls
 ``tool_search``, which waits for it. ``--phase command``: the same server,
 and no prompt is sent; the test types ``/mcp``.
 
+``--phase manager``: a server with one ``direct`` tool that connects at
+once; the test types ``/mcp`` and uses the manager.
+
 ``--phase login`` and ``--phase login-cancel``: the server is the fake OAuth
 MCP server, running in this process, and the test types ``/mcp login``. The
 browser is a double: for ``login`` it asks the authorization URL and follows
@@ -37,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).with_name("fixtures")))
 from mcp_fake_oauth import FakeBrowser, FakeOAuthMcpServer  # noqa: E402
 
 _FAKE_SERVER = Path(__file__).with_name("fixtures") / "mcp_fake_server.py"
-_PHASES = ("prompt", "tool", "command", "login", "login-cancel")
+_PHASES = ("prompt", "tool", "command", "manager", "login", "login-cancel")
 
 
 def main() -> int:
@@ -65,7 +68,9 @@ def main() -> int:
     scenario = root / "scenario.json"
     scenario.write_text(
         json.dumps(
-            {
+            {"tools": [{"name": "search", "inputSchema": {"type": "object"}}]}
+            if args.phase == "manager"
+            else {
                 "record": str(root / "record.jsonl"),
                 "methods": {"initialize": [{"record": "initialize"}, {"sleep": 600}]},
                 "onStdinClose": [],
@@ -81,7 +86,9 @@ def main() -> int:
                     "slow": {
                         "command": sys.executable,
                         "args": ["-I", str(_FAKE_SERVER), "--scenario", str(scenario)],
-                        "exposure": "direct" if args.phase == "prompt" else "deferred",
+                        "exposure": "deferred"
+                        if args.phase in ("tool", "command")
+                        else "direct",
                     }
                 }
             }

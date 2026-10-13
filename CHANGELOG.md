@@ -74,6 +74,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
   whole sign-in ends after the timeout (300 seconds by default). `pipy mcp
   logout <server>` deletes the stored credentials. See
   [log in and out](docs/mcp.md#log-in-and-out).
+- The `/mcp` manager. In the terminal, `/mcp` now opens a manager instead
+  of printing the status: it lists every MCP server with its state, exposure
+  and source, the ones that need attention first, and follows them while
+  they connect. A server's menu shows its transport, configuration file,
+  state and whole error and offers what the state allows: `Sign in`,
+  `Tools`, `Reconnect`, `Sign out`, `Exposure` (`codemode`, `deferred`,
+  `direct`), `Disable` or `Enable`, and for a user-level server in a trusted
+  project `Disable in this project` and `Enable in this project`, which
+  write an override to the project's `mcp.json`. Enabling, disabling and
+  reconnecting run in the background. `Sign in` and `/mcp login` show a
+  sign-in screen with the authorization URL, Ctrl+X to copy it and an input
+  for the redirect URL pasted from a browser that cannot reach this machine;
+  `/mcp login` printed the URL as a notice and could not take a pasted URL
+  before. Outside the terminal UI `/mcp` prints the status as before. See
+  [the `/mcp` manager](docs/mcp.md#the-mcp-manager).
 - `/mcp login [server]` signs in to an OAuth MCP server from a session in
   the terminal: it shows the authorization URL, opens the browser, waits for
   it and connects the server; Escape cancels. `/mcp logout [server]` deletes

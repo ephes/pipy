@@ -1,4 +1,5 @@
-"""``/mcp login`` in the real terminal UI (MCP parity plan S31, SLH-04).
+"""``/mcp login`` in the real terminal UI (MCP parity plan S31, SLH-04; S34,
+MGR-09: the sign-in screen).
 
 The server is the fake OAuth MCP server inside the session's process, and
 the browser is a double (``mcp_tui_driver.py``).
@@ -38,14 +39,10 @@ def test_mcp_login_signs_in_through_the_browser(tmp_path: Path) -> None:
     try:
         assert wait_for_output(chunks, b"\x1b[?2004h", timeout=_TIMEOUT)
         _type(fd, chunks, "login", "needs sign-in")
-        # The URL is shown while the sign-in waits for the browser ...
-        shown = wait_for_output(
-            chunks,
-            'Sign in to MCP server "issues" in your browser:',
-            timeout=_TIMEOUT,
-        )
+        # The sign-in screen is shown while the sign-in runs; the browser's
+        # callback ends it and closes the screen.
+        shown = wait_for_output(chunks, "Sign in to issues", timeout=_TIMEOUT)
         assert shown is not None
-        # ... and the browser's callback ends it.
         signed_in = wait_for_input_ready_after(
             chunks,
             'Signed in to MCP server "issues" (1 tools).',
@@ -53,12 +50,18 @@ def test_mcp_login_signs_in_through_the_browser(tmp_path: Path) -> None:
             timeout=_TIMEOUT,
         )
         assert signed_in is not None
+        # The manager lists the server as connected.
         os.write(fd, b"/mcp\r")
-        connected = wait_for_input_ready_after(
+        listed = wait_for_input_ready_after(
             chunks,
-            "issues: connected, 1 tools (direct)",
+            "connected \u00b7 1 tool \u00b7 direct \u00b7 global",
             after=signed_in,
             timeout=_TIMEOUT,
+        )
+        assert listed is not None
+        os.write(fd, b"\x1b")
+        connected = wait_for_output(
+            chunks, b"\x1b[?2004h", after=listed, timeout=_TIMEOUT
         )
         assert connected is not None
         _type(fd, chunks, "logout", "connected \u00b7 1 tool", after=connected)
@@ -83,28 +86,45 @@ def test_escape_cancels_a_login_that_waits_for_the_browser(tmp_path: Path) -> No
     try:
         assert wait_for_output(chunks, b"\x1b[?2004h", timeout=_TIMEOUT)
         _type(fd, chunks, "login", "needs sign-in")
+        # MGR-09: the sign-in screen has the URL, the copy key and the
+        # input for a pasted redirect URL.
+        # The screen opens with a status line, and reads keys from then on.
+        opened = wait_for_input_ready_after(
+            chunks, "Sign in to issues", timeout=_TIMEOUT
+        )
+        assert opened is not None
         shown = wait_for_output(
-            chunks,
-            'Sign in to MCP server "issues" in your browser:',
-            timeout=_TIMEOUT,
+            chunks, "Approve access in your browser.", timeout=_TIMEOUT
         )
         assert shown is not None
+        assert wait_for_output(chunks, "/authorize?", after=shown, timeout=_TIMEOUT)
+        assert wait_for_output(chunks, " to copy", after=shown, timeout=_TIMEOUT)
+        assert wait_for_output(chunks, "paste the URL", after=shown, timeout=_TIMEOUT)
         assert (
             wait_for_output(chunks, "Sign-in cancelled.", after=shown, timeout=1.0)
             is None
         )
+        # A paste goes into the input; Escape cancels the sign-in.
+        os.write(fd, b"\x1b[200~http://pasted.example/\x1b[201~")
+        pasted = wait_for_output(
+            chunks, "http://pasted.example/", after=shown, timeout=_TIMEOUT
+        )
+        assert pasted is not None
         os.write(fd, b"\x1b")
         cancelled = wait_for_input_ready_after(
-            chunks, "Sign-in cancelled.", after=shown, timeout=_TIMEOUT
+            chunks, "Sign-in cancelled.", after=pasted, timeout=_TIMEOUT
         )
         assert cancelled is not None
         os.write(fd, b"/mcp\r")
-        assert wait_for_input_ready_after(
+        listed = wait_for_input_ready_after(
             chunks,
-            "issues: needs sign-in, run /mcp login issues (direct)",
+            "needs sign-in \u00b7 direct \u00b7 global",
             after=cancelled,
             timeout=_TIMEOUT,
         )
+        assert listed is not None
+        os.write(fd, b"\x1b")
+        assert wait_for_output(chunks, b"\x1b[?2004h", after=listed, timeout=_TIMEOUT)
         os.write(fd, b"/exit\r")
     finally:
         _finish(process, fd, chunks, stop, reader)

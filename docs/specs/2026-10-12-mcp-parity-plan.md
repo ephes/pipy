@@ -510,7 +510,8 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `shell_cli.py` | `pipy mcp ...` | `ext/cli.ts` |
 | `commands.py` | `/mcp` command (the session adapter is `repl/mcp_command.py`) | `ext/index.ts` command |
 | `repl/mcp_session.py` (outside `native/mcp/`) | `McpSession`: the servers in use, replaced on `/reload` | `ext/index.ts` `session_start`, `session_shutdown` |
-| `manager_view.py` | TUI manager; not in `native/mcp/`, which may not import the TUI (S34 places it) | `ext/ui.ts` |
+| `manager_menus.py`, `manager_flow.py` | The manager without its drawing: the menus as values, and the flow that decides what a choice does | `ext/index.ts` `serversMenu`, `serverMenu`, `showTools`, `chooseExposure`, `manage`, `runAction`, `signInWithUi`, `runInBackground` |
+| `ui/components/mcp_manager_view.py` (outside `native/mcp/`, which may not import the UI) | The manager view | `ext/ui.ts` |
 
 Other new modules: `native/tool_search.py` (tokenizer, BM25, document
 builder, the `tool_search` tool) and `native/codemode/declarations.py`
@@ -1540,6 +1541,83 @@ Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
   watch never fires for such a server (it has no stored MCP tokens).
 - Fixture: `FakeOAuthMcpServer.accept(token)` makes the protected MCP
   server accept a token it did not issue.
+
+Decided in S34 (the `/mcp` manager; `manager_menus.py`, `manager_flow.py`,
+`ui/components/mcp_manager_view.py`, `ui/modal_driver.py`, `ui/screen.py`,
+`commands.py`, `repl/mcp_session.py`):
+
+- Three parts, as S21 split the command. `manager_menus.py` builds a menu
+  as a value (`McpMenu`) from `McpManager.servers()`; `manager_flow.py`
+  (`McpManagerFlow`) is Pi's `manage`, `runAction`, `signInWithUi` and
+  `runInBackground` over the protocol `McpUi`; both are in `native/mcp/`
+  and import no UI, so the architecture rule that keeps `native/mcp/` free
+  of UI imports stands unchanged. The
+  view is `native/ui/components/mcp_manager_view.py` (`McpManagerView`).
+- No async. Pi's screens are promises; here a screen is shown with the
+  function that takes its outcome, and the whole flow runs on the session
+  thread: the view calls those functions from its key handling, and the
+  modal key loop calls `McpManagerFlow.poll()` on every pass of its 100 ms
+  input wait. For that `DriveOwner` gained `poll` and
+  `Screen.read_key_polling_resize` an optional second argument; an owner
+  without `poll` is driven exactly as before. `poll` shows a sign-in's next
+  step, and has the view build its live menus again (Pi `subscribe`); the
+  view repaints only when the built menu differs.
+- The view stands in place of the editor through the existing
+  `search_selector` overlay, which now takes any component with
+  `render(width, style)`; no overlay kind was added. A component with
+  `render_within(width, height, style)` is asked to fit the rows that are
+  free, because pipy's live region drops what does not fit from the bottom
+  where Pi's output scrolls: the view cuts the text above its controls
+  short and shows fewer list items.
+- Locks. The view has a lock of its own for its state, taken by `render`
+  on any painting thread; it is never held while a callback runs or a menu
+  is built. `TerminalModalDriver.run_mcp_manager` does not hold the paint
+  lock around the view's key handling or the flow's poll, because their
+  callbacks take the manager's publication lock (`set_exposure`,
+  `sign_out`), which publishing threads hold.
+- Background changes (MGR-08). `set_enabled` and `reconnect` block, so
+  `McpBackgroundActions.run` gives each a thread (`mcp-manager-action`).
+  There is one `McpBackgroundActions` per loaded configuration
+  (`McpServers.actions`), not per view, because a change may end after the
+  view was closed. Its message is recorded by the thread itself
+  (`McpManager.set_message`, the per-server `message` of
+  `McpServerStatus`, Pi `server.message`) unless a later change of the
+  same server was started; Pi compares the connection attempt.
+  `ensure_active` must run on the session thread, so the thread only notes
+  that a change ended (`take_finished`): the flow's `poll` asks while the
+  view is open, `McpSession.before_turn` afterwards.
+- Sign-in (MGR-09). The flow's `_SignIn` runs `McpManager.sign_in` on the
+  thread `mcp-sign-in` and is its prompt: the URL, the request for a pasted
+  redirect URL and the end travel through a queue that `poll` empties, so
+  the browser is opened and every screen is shown on the session thread.
+  The view's answer sets an event the prompt waits for. Closing the view
+  (end of input) cancels the sign-in through `McpManagerFlow.stop()`.
+  The cancel key sets the sign-in's cancel event and reports `Sign-in
+  cancelled.` at once, without waiting for the thread: `McpManager.sign_in`
+  does not look at the event during the reconnect that follows a sign-in
+  (nor does Pi's `signIn`), and S31's `/mcp login` ended that wait with
+  Escape too. Before the tokens are stored the event cancels the sign-in
+  and nothing is stored; afterwards the reconnect goes on and shows in the
+  server's state.
+  `/mcp login` in a terminal runs the same flow with only the sign-in
+  screen (`McpCommand(show_manager=)`); S31's wait through `run_step`
+  remains for a session that can open a browser but has no manager view,
+  which no session is today.
+- `/mcp` in a terminal no longer waits for the startup connections
+  (MGR-02); the subcommands still do.
+- Narrower than Pi, documented in `docs/mcp.md`: the authorization URL is
+  plain text, not an OSC 8 hyperlink (the frame carries only SGR
+  sequences), with no click hint; the copy key is fixed to `ctrl+x`
+  because pipy has no `app.message.copy` action; the title is not bold and
+  the copy note has no colour of its own; the input is the selectors'
+  `SearchInput`. No `overridden:` lines until S36 registers servers from
+  extensions; `servers_menu` then takes them with the config errors.
+- Different from Pi: a sign-out that fails is the server's message instead
+  of an exception.
+- Still open, not owned by a slice: notices are shown when the session
+  drains them, so the startup report of a session whose first action is
+  `/mcp` appears after the manager was closed (see "Decided in S19"). The
+  poll hook of the key loop could show them while the session is idle.
 
 Open after the merge, owned by later slices:
 

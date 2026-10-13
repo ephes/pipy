@@ -56,6 +56,7 @@ from pipy_harness.native.mcp.commands import MCP_COMMAND_DESCRIPTION
 from pipy_harness.native.mcp.config import LoadedMcpConfig, McpServerEntry
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.readiness import STILL_CONNECTING_NOTICE, McpReadiness
 from pipy_harness.native.mcp.transport import McpTransport
 from pipy_harness.native.models import ProviderToolCall
@@ -553,6 +554,7 @@ class _Loads:
             ),
             readiness=McpReadiness(manager, self.tools.all_tools),
             enabled=True,
+            actions=McpBackgroundActions(manager),
         )
         self.loaded.append(loaded)
         return loaded

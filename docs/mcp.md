@@ -75,7 +75,10 @@ per-tool `toolExposure`, see [control tool exposure](#control-tool-exposure).
 | `hidden` | Registered, and cannot be called. |
 
 `toolExposure` sets the exposure of single tools, see
-[configuration rules](#configuration-rules).
+[configuration rules](#configuration-rules). In the terminal,
+[the `/mcp` manager](#the-mcp-manager) changes a server's exposure and
+enables or disables a server while the session runs, and saves the change
+to `mcp.json`.
 
 pipy turns on the tool that reaches the undeclared tools. When an enabled
 server has a tool with `codemode` exposure it activates `codemode`, and when
@@ -422,8 +425,12 @@ Log messages a server sends are in `mcp.log`, see [server log](#server-log).
 
 ### The `/mcp` command
 
-`/mcp` prints one line per configured server, after the servers that started
-with the session have connected or failed:
+In the terminal, `/mcp` opens [the manager](#the-mcp-manager), where you see
+every server and sign in, reconnect, enable or disable one, look at its
+tools and change its exposure.
+
+Where pipy has no terminal UI, `/mcp` prints one line per configured server,
+after the servers that started with the session have connected or failed:
 
 ```text
 docs: connected, 2 tools (direct)
@@ -454,19 +461,18 @@ reconnected (`No enabled MCP server to reconnect.`), and an unknown name
 gives `No MCP server named "<name>".`
 
 `/mcp login [server]` signs in to a server that
-[uses OAuth](#sign-in-with-oauth). It shows `Sign in to MCP server "<name>"
-in your browser:` with the authorization URL, opens the URL in your browser
-and waits until the browser came back. Then it connects the server and
-answers `Signed in to MCP server "<name>" (<n> tools).`; the server's tools
-are available from the next prompt on. When a stored refresh token is enough,
-no browser is opened. Escape cancels the sign-in at any moment (`Sign-in
-cancelled.`), as does the end of the session. A failure is reported as
-`Sign-in failed: <error>`, and a connect that fails after the sign-in as
-`Signed in, but <error>`. Login needs the terminal UI; in a session without
-one it answers `Signing in to MCP server "<name>" requires interactive
-mode.` When the browser cannot reach this machine, over SSH for example, use
-[`pipy mcp login`](#log-in-and-out) in a terminal, which takes the pasted
-redirect URL.
+[uses OAuth](#sign-in-with-oauth). It opens the manager's
+[sign-in screen](#signing-in-from-the-manager), which shows the
+authorization URL, opens the URL in your browser and waits until the browser
+came back or you pasted the redirect URL. Then it connects the server,
+closes the screen and answers `Signed in to MCP server "<name>" (<n>
+tools).`; the server's tools are available from the next prompt on. When a
+stored refresh token is enough, no browser is opened. Escape cancels the
+sign-in at any moment (`Sign-in cancelled.`), as does the end of the
+session. A failure is reported as `Sign-in failed: <error>`, and a connect
+that fails after the sign-in as `Signed in, but <error>`. Login needs the
+terminal UI; in a session without one it answers `Signing in to MCP server
+"<name>" requires interactive mode.`
 
 `/mcp logout [server]` deletes the server's stored credentials and closes
 its connection: `Signed out of MCP server "<name>".`, or `No stored
@@ -484,8 +490,9 @@ In the terminal, `/mcp ` completes the three actions and then the servers
 the action can name, with their state: after `reconnect` the enabled servers,
 after `login` and `logout` those that use OAuth.
 
-Every form waits for the servers that are still connecting from the start of
-the session. Escape ends that wait: `/mcp` then prints the servers as they
+The three subcommands, and `/mcp` where it prints the status, wait for the
+servers that are still connecting from the start of the session; the manager
+does not. Escape ends that wait: `/mcp` then prints the servers as they
 are, and a subcommand is not run (`MCP servers are still connecting; /mcp
 reconnect was not run.`). Escape during a reconnect or a logout stops the
 waiting only; it goes on, and `/mcp` shows how it ended. Escape during a
@@ -493,10 +500,6 @@ login cancels the sign-in.
 
 Different from Pi:
 
-- In Pi's terminal, `/mcp` without arguments opens a manager where servers
-  are enabled, disabled and given another exposure. pipy has no such manager
-  yet and prints the status there too, so those three changes cannot be made
-  in a session; edit `mcp.json` and run `/reload`.
 - pipy runs `/mcp` only for a line typed into a session. A prompt given on
   the command line (also with `--print` or `--mode json`) or sent by an RPC
   client is never run as a slash command; it goes to the model. Pi runs the
@@ -505,17 +508,133 @@ Different from Pi:
   command, as does an extension command of that name. In Pi only an
   extension command does.
 - Pi's command cannot be interrupted; the Escape rules above are pipy's.
-- `/mcp login` does not ask for a pasted redirect URL. Pi asks in the
-  sign-in screen of its manager, which pipy has not built; `pipy mcp login`
-  asks.
 - With MCP [turned off](#turning-mcp-off) there is no `/mcp` command.
+
+### The `/mcp` manager
+
+`/mcp` in the terminal opens at once, also while servers are still
+connecting, and stands in place of the editor until you close it. It lists
+every configured server, disabled ones too:
+
+```text
+ MCP servers
+
+→ issues                          needs sign-in · direct · global
+  search                          failed: [Errno 2] No such file or directory: 'no-such-command' · codemode · project
+  docs                            connected · 2 tools · codemode · global, project override
+  old                             disabled · codemode · global
+
+ enter manage • escape/ctrl+c close
+```
+
+Each row is the server's state, its exposure and where it is configured:
+`global` (the `mcp.json` in the config home), `project`, or `global, project
+override` for a user-level server that the project's `mcp.json` overrides.
+Servers that need you come first: those that need a sign-in, then failed,
+disconnected, starting or connecting, connected and disabled ones, each
+group by name. The errors of the `mcp.json` files are shown above the list
+as `config: <error>`. Without any server the manager says where to add
+them. The list follows the servers while it is open: a server that connects
+or fails changes its row, and the selected server stays selected.
+
+Up and Down move, Enter opens the selected server, and Escape or Ctrl+C
+closes the manager; in a server's menu they go back to the list. Every
+screen names both keys with what they do.
+
+A server's menu shows its URL or command line, the file that configures it
+(and the project file that overrides it), its state, what the last action
+said if it failed, and the whole error of a server that is not connected,
+with the end of a stdio server's stderr. Below are the actions its state
+allows:
+
+| Action | Offered for | What it does |
+| --- | --- | --- |
+| `Sign in` | a server that needs a sign-in | Opens the [sign-in screen](#signing-in-from-the-manager). |
+| `Tools` | a connected server | Lists its tools with the first line of their description, and `[<exposure>]` in front of a tool whose `toolExposure` differs from the server's exposure. Above the list is what the server's exposure means. |
+| `Reconnect` | a connected, failed or disconnected server and one that needs a sign-in | Closes the connection and connects again. |
+| `Sign out` | a connected server that uses OAuth | Deletes its stored credentials; the server then needs a sign-in. |
+| `Exposure` | every enabled server | Offers `codemode`, `deferred` and `direct` with what they mean, the current one marked. Enter saves the choice, and the server's tools are registered again with it at once. |
+| `Disable`, `Enable` | an enabled, a disabled server | Saves `enabled` and closes or opens the connection. |
+| `Disable in this project`, `Enable in this project` | a user-level server without a project override, in a trusted project | Saves the change as an override in the project's `.pipy/mcp.json`. From then on the server's changes go to that override. |
+
+Each of the last three rows says where the change is saved: `saved to the
+global mcp.json`, `saved to the project mcp.json`. A change that cannot be
+saved is not made, and the menu shows why (`Could not update <file>:
+<reason>`).
+
+Enabling, disabling and reconnecting do not hold the manager: the menu comes
+back at once and its `State:` line follows the server while it connects or
+closes. You can go back to the list, open another server or close the
+manager meanwhile. A server that finishes connecting after the manager was
+closed gets `codemode` or `tool_search` activated, when its exposure needs
+one, before the next prompt runs.
+
+A screen that is taller than the terminal keeps its controls on the screen:
+a long error or URL is cut short, with a line such as `… 16 more lines`, and
+a long list shows fewer servers at a time. [`pipy mcp list`](#list) in a
+shell prints a server's whole error.
+
+#### Signing in from the manager
+
+`Sign in`, and `/mcp login` in the terminal, show the sign-in screen. First
+it says `Contacting the authorization server…`. Then it shows the
+authorization URL, which pipy also opens in your browser, and an input:
+
+```text
+ Sign in to issues
+
+ Approve access in your browser. If it did not open, visit:
+ https://auth.example.com/authorize?response_type=code&client_id=…
+ ctrl+x to copy
+
+ If the browser runs on another machine, paste the URL it was redirected to:
+>
+
+ enter submit • escape/ctrl+c cancel
+```
+
+When the browser comes back to this machine the sign-in goes on by itself.
+When it cannot reach this machine, over SSH for example, copy the URL from
+the address bar of the page the browser ended on (it starts with
+`http://127.0.0.1:`), paste it into the input and press Enter; an empty
+input is not submitted. Ctrl+X copies the authorization URL to the
+clipboard, for a URL too long to select in the terminal. While the server
+is connected again the screen says `Connecting…`. Escape or Ctrl+C cancels
+the sign-in at each of these steps and closes the screen at once.
+`Connecting…` covers two things: the exchange of the browser's answer for
+tokens, and then the new connection to the server. Cancelling during the
+exchange stores nothing. Once the tokens are stored, cancelling only stops
+the waiting: the server still connects, and its state shows how that ended.
+In the manager the outcome is shown in
+the server's menu (`Sign-in cancelled.`, `Sign-in failed: <error>`, or the
+connected state).
+
+Different from Pi in the manager:
+
+- The authorization URL is plain text, not a terminal hyperlink, so there
+  is no "click to open" hint. Most terminals still let you click a URL that
+  fits on one line; use Ctrl+X for one that wraps.
+- Ctrl+X is fixed. In Pi it is the key bound to `app.message.copy`, an
+  action pipy does not have.
+- The title of a screen is not bold, and the note after a copy has no colour
+  of its own.
+- The pasted URL is edited with the keys of pipy's selector input:
+  Backspace, Left and Right, Home and End, Ctrl+U and Ctrl+K.
+- Pi's screen scrolls with the terminal when it is taller than the window.
+  pipy cuts the text above the controls short instead, as described above.
+- In Pi the cancel key does nothing while the server is connected again
+  after the tokens were stored; in pipy it ends the waiting.
+- A `Sign out` that cannot delete the credentials (the credentials file
+  cannot be read, or a token refresh holds the server's lock for 25 seconds)
+  is shown in the server's menu as `Could not sign out of MCP server
+  "<name>": <reason>`.
+- The list has no `overridden:` lines, because pipy has no servers
+  registered by extensions yet.
 
 ### What is missing
 
-Not built yet, in the order the plan builds it: enabling and disabling a
-server and changing its exposure in a session (the `/mcp` manager, which
-also has the sign-in screen that takes a pasted redirect URL), servers
-registered by extensions, and images in tool results and resources.
+Not built yet, in the order the plan builds it: servers registered by
+extensions, and images in tool results and resources.
 
 ## Tool search
 
@@ -681,7 +800,8 @@ when a server is connected is described under
 The library can also change a file: set one server's `enabled` or `exposure`,
 add a server, or remove one. An edit keeps all other content and the file's
 indentation. [`pipy mcp add` and `pipy mcp remove`](#the-pipy-mcp-commands)
-use the last two; nothing sets `enabled` or `exposure` yet, `/mcp` will.
+use the last two, and [the `/mcp` manager](#the-mcp-manager) sets `enabled`
+and `exposure`.
 
 Differences from Pi in the configuration:
 
@@ -1391,6 +1511,7 @@ standard library. It is not part of the SDK surface.
 | `resources` | `create_mcp_resource_tools`: the three [resource tools](#use-resources) over the servers a function returns at call time; `is_mcp_app_resource`. |
 | `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools and the resource tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `reconnect`, `set_enabled` and `set_exposure` change a server while the session runs and save the last two to `mcp.json`. `sign_in` signs in to a server and connects it again, `sign_out` deletes its credentials, and `take_signed_in` with `reconnect_servers` picks up a sign-in made elsewhere. `close` cancels running sign-ins. `describe_state` gives a server's short state. |
 | `commands` | `McpCommand`: [the `/mcp` command](#the-mcp-command), with `format_status` and `complete_mcp_arguments`. |
+| `manager_menus`, `manager_flow` | [The `/mcp` manager](#the-mcp-manager) without its drawing: the menus as values built from the servers' status (`servers_menu`, `server_menu`, `tools_menu`, `exposure_menu`), and `McpManagerFlow`, which decides what a choice does and shows the screens through an `McpUi` object. `McpBackgroundActions` runs the changes the manager does not wait for. The terminal view is `pipy_harness.native.ui.components.mcp_manager_view`. |
 | `shell_cli` | `run_mcp_command`: [the `pipy mcp` commands](#the-pipy-mcp-commands). |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
@@ -1398,8 +1519,7 @@ standard library. It is not part of the SDK surface.
 | `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, and `McpServerAuthProvider`: the auth provider that sends a server's stored token and refreshes it. Both are described under [the credentials file](#the-credentials-file). Sessions and the `pipy mcp` commands create them for the config home. |
 | `sign_in` | `sign_in_mcp_server`: [the sign-in](#sign-in-with-oauth) to one server, with the loopback callback server, a prompt object that shows the authorization URL and asks for a pasted redirect URL, and a cancel event. `/mcp login` (through the manager) and `pipy mcp login` run it. |
 
-Not built yet: images in tool results and resources, and the `/mcp`
-manager.
+Not built yet: images in tool results and resources.
 
 ### The OAuth library
 
