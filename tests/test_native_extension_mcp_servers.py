@@ -48,6 +48,7 @@ from pipy_harness.native.extensions.activation import (
 )
 from pipy_harness.native.extensions.contracts import ExtensionActivationBatch
 from pipy_harness.native.extensions.packages import discover_extensions
+from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.registry import McpServerRegistry
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.repl.mcp_session import McpSession
@@ -669,6 +670,16 @@ def test_a_server_registered_during_the_session_activates_tool_search(
     assert "tool_search" in _tool_names(provider.requests[1])
 
 
+def _has_notice(manager: McpManager, text: str) -> bool:
+    """Whether a notice that waits to be shown has ``text``. Other threads
+    post notices meanwhile."""
+
+    try:
+        return any(text in notice.message for notice in tuple(manager._notices))
+    except RuntimeError:  # the deque changed while it was copied
+        return False
+
+
 def test_a_later_registered_server_that_fails_is_reported(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -680,7 +691,9 @@ def test_a_later_registered_server_that_fails_is_reported(
     provider = _Provider(
         [
             _result(tool_calls=(_call("c1", "add_server", name="gone"),)),
-            lambda: _wait_until(lambda: bool(managers[0]._notices)),
+            # The server's report, not the notice that nothing reaches its
+            # tools, which the start of the turn posted already.
+            lambda: _wait_until(lambda: _has_notice(managers[0], "gone:")),
             _result(final_text="one"),
             _result(final_text="two"),
         ]
