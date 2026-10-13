@@ -8,7 +8,6 @@ owned by ``RunControlState`` and the collaborators assembled here.
 from __future__ import annotations
 
 import io
-import os
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -74,7 +73,6 @@ from pipy_harness.native.chrome import (
 )
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
-from pipy_harness.native.coding.codemode_description import CodemodeLoadout
 from pipy_harness.native.coding.compaction import CodingCompactionOutcome
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
@@ -121,19 +119,7 @@ from pipy_harness.native.extensions.contracts import (
 from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_tokens
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.mcp.commands import McpCommand, run_step_inline
-from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
-from pipy_harness.native.mcp.connection import ProviderToken
-from pipy_harness.native.mcp.credentials import (
-    McpOAuthCredentialStore,
-    mcp_auth_path,
-)
-from pipy_harness.native.mcp.discovery import McpDiscovery
-from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
-from pipy_harness.native.mcp.manager import McpManager, RegisteredServers
-from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
-from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.mcp.sign_in import open_browser
-from pipy_harness.native.oauth_providers import PER_REQUEST_OAUTH_PROVIDERS
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -142,7 +128,6 @@ from pipy_harness.native.project_trust import (
     has_trust_requiring_project_resources,
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
-from pipy_harness.native.provider_login_token import provider_login_token
 from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.command_menu import (
     published_command_surface,
@@ -174,7 +159,8 @@ from pipy_harness.native.repl.mcp_command import (
     interruptible_steps,
     terminal_manager_view,
 )
-from pipy_harness.native.repl.mcp_session import McpServers, McpSession
+from pipy_harness.native.repl.mcp_loading import load_mcp_servers
+from pipy_harness.native.repl.mcp_session import McpSession
 from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
@@ -205,6 +191,7 @@ from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.resources import (
     WorkspaceResources,
 )
+from pipy_harness.native.session_builtins import codemode_loadout
 from pipy_harness.native.session_generation import (
     ExtensionCommandProjection,
     ExtensionProjection,
@@ -904,6 +891,7 @@ def _compose_extension_phase(
         if terminal_ui is not None
         else None
     )
+    builtins = startup.resource_options.builtins
     tool_capabilities = NativeToolCapabilities(
         inputs.tool_registry,
         {},
@@ -913,15 +901,13 @@ def _compose_extension_phase(
         state_lock=session_state_lock,
         default_tools=settings.get_default_tools,
         diagnostic=partial(_extension_notify, "warning"),
-        codemode_loadout=lambda: CodemodeLoadout(
-            mode=settings.get_codemode_mode(),
-            inline_budget=settings.get_codemode_inline_budget(),
-        ),
+        codemode_loadout=partial(codemode_loadout, settings, builtins),
+        optional_builtins=None if builtins is None else builtins.tool_names,
     )
 
     mcp = McpSession(
         partial(
-            _mcp_servers,
+            load_mcp_servers,
             cwd,
             settings,
             startup.resource_options,
@@ -1014,102 +1000,6 @@ def _compose_extension_phase(
     )
 
 
-def _mcp_servers(
-    cwd: Path,
-    settings: SettingsManager,
-    resource_options: RuntimeResourceOptions,
-    tool_capabilities: NativeToolCapabilities,
-    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
-    registered: RegisteredServers,
-    replaced_by: str | None,
-) -> McpServers:
-    """The session's MCP servers as ``mcp.json`` and the settings say now,
-    not started yet. Called at the start of the session and by every reload.
-
-    The user-level file is the one next to the user-level settings file; the
-    project file is read only for a trusted project. With MCP turned off
-    (``--no-mcp``, ``-builtin:mcp``, or ``replaced_by``, an extension that
-    has the ``/mcp`` command) no file is read and the manager has no server,
-    so it starts nothing and reports nothing.
-    """
-
-    wanted = resource_options.mcp_enabled(
-        configured=settings.builtin_extension_enabled("mcp")
-    )
-    enabled = wanted and replaced_by is None
-    config_home = settings.global_path.parent
-    manager = McpManager(
-        config=load_mcp_config(
-            config_home=config_home,
-            cwd=cwd,
-            project_trusted=settings.project_trusted,
-        )
-        if enabled
-        else LoadedMcpConfig(servers=[], errors=[]),
-        cwd=cwd,
-        client_version=pipy_version(),
-        publish_tools=tool_capabilities.publish_mcp_tools,
-        deactivate_tools=tool_capabilities.deactivate_indirect_mcp_tools,
-        log=McpServerLog(mcp_log_path(config_home)),
-        credentials=McpOAuthCredentialStore(mcp_auth_path(config_home)),
-        provider_token=_provider_token(provider_state),
-        registered=registered if enabled else None,
-    )
-    return McpServers(
-        manager=manager,
-        discovery=McpDiscovery(
-            configured_exposures=manager.configured_exposures,
-            auto_enable_codemode=manager.auto_enable_codemode,
-            tools=tool_capabilities,
-            notify=manager.post_notice,
-        ),
-        readiness=McpReadiness(manager, tool_capabilities.all_tools),
-        enabled=enabled,
-        actions=McpBackgroundActions(manager),
-        replaced_by=replaced_by if wanted else None,
-    )
-
-
-def _provider_token(
-    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
-) -> ProviderToken | None:
-    """What answers an MCP server's ``auth.provider`` with that provider's
-    current token, or ``None`` for a session without provider logins: one
-    with an injected provider, or one whose auth store is unavailable.
-
-    The function it returns runs on MCP request threads. It is given the
-    path of ``auth.json``, the environment and the lock-protected OAuth
-    cache, and not the catalog's auth store, which belongs to the session
-    thread. Of the catalog it reads one thing there: whether an extension
-    registered the provider now (an immutable map that a reload replaces by
-    assignment). A snapshot taken here would be the one before a reload's
-    new extensions, because the servers are loaded first.
-    """
-
-    if not isinstance(provider_state, NativeReplProviderState):
-        return None
-    catalog = provider_state.model_runtime.catalog
-    auth_store = catalog.auth_store
-    if auth_store is None:
-        return None
-
-    def refreshes(provider: str) -> bool:
-        # As ``per_request_oauth_credential``: a login of a provider that an
-        # extension replaced is not one the built-in refresh understands.
-        return (
-            provider in PER_REQUEST_OAUTH_PROVIDERS
-            and catalog.extension_provider_for(provider) is None
-        )
-
-    return partial(
-        provider_login_token,
-        auth_path=auth_store.path,
-        env=catalog.env if catalog.env is not None else os.environ,
-        oauth_credentials=catalog.oauth_credentials,
-        refreshes=refreshes,
-    )
-
-
 def _mcp_waits(
     extension: _ExtensionPhase,
     abort_event: threading.Event | _AbortCallbackSignal | None,
@@ -1174,7 +1064,8 @@ def _mcp_command(
             ensure_discovery=servers.discovery.ensure_active,
             run_step=run_step_inline if waiter is None else interruptible_steps(waiter),
             # Signing in needs somebody at a terminal.
-            open_url=open_browser if terminal_ui is not None else None,
+            open_url=servers.open_url
+            or (open_browser if terminal_ui is not None else None),
             show_manager=view,
             actions=servers.actions,
         )

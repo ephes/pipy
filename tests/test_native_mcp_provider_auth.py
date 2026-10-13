@@ -52,7 +52,7 @@ from pipy_harness.native.mcp.protocol import McpConnectionClosedError
 from pipy_harness.native.mcp.shell_cli import McpCommandOptions, run_mcp_command
 from pipy_harness.native.oauth_providers import OAuthCredentialCache, OAuthError
 from pipy_harness.native.provider_login_token import provider_login_token
-from pipy_harness.native.repl.wiring import _provider_token
+from pipy_harness.native.repl.mcp_loading import provider_token as _provider_token
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,

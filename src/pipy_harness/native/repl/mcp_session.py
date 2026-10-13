@@ -108,6 +108,9 @@ class McpServers:
     # The extension whose ``/mcp`` command replaced MCP, when that is why
     # it is off; ``None`` also when it would be off anyway.
     replaced_by: str | None = None
+    # What opens the authorization URL of a sign-in when the embedder chose
+    # it (``McpOptions.open_url``); ``None`` leaves it to the session.
+    open_url: Callable[[str], None] | None = None
 
 
 # Loads the servers: with what returns the registrations of the extensions,

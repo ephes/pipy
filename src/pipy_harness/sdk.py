@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from pipy_harness.native.agent import AgentEvent, AgentEventSink
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
+from pipy_harness.native.mcp.options import McpOptions
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.session_builtins import CodemodeOptions
 from pipy_harness.product_api import (
     ProductSession,
     ProductSessionTarget,
@@ -26,7 +28,9 @@ from pipy_harness.product_api import (
 __all__ = [
     "AgentEvent",
     "AgentEventSink",
+    "CodemodeOptions",
     "CodingSessionResultSnapshot",
+    "McpOptions",
     "ProductSession",
     "ProductSessionTarget",
     "ProductSessionTransitionError",

@@ -510,6 +510,9 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `shell_cli.py` | `pipy mcp ...` | `ext/cli.ts` |
 | `commands.py` | `/mcp` command (the session adapter is `repl/mcp_command.py`) | `ext/index.ts` command |
 | `repl/mcp_session.py` (outside `native/mcp/`) | `McpSession`: the servers in use, replaced on `/reload` | `ext/index.ts` `session_start`, `session_shutdown` |
+| `options.py` | `McpOptions`: what an embedder may replace | `ext/index.ts` `McpExtensionOptions` |
+| `repl/mcp_loading.py` (outside `native/mcp/`) | `load_mcp_servers`: builds the manager for the configuration as it is now, from the settings, the flags and the embedder's options | `ext/index.ts` `createMcpExtension`, `defaultLoadConfig` |
+| `session_builtins.py` (in `native/`) | `SessionBuiltins`, `CodemodeOptions`: which of `codemode`, `tool_search` and MCP an embedded session has | `cm/index.ts` `CodemodeExtensionOptions`; `examples/sdk/14-codemode-mcp.ts` |
 | `manager_menus.py`, `manager_flow.py` | The manager without its drawing: the menus as values, and the flow that decides what a choice does | `ext/index.ts` `serversMenu`, `serverMenu`, `showTools`, `chooseExposure`, `manage`, `runAction`, `signInWithUi`, `runInBackground` |
 | `ui/components/mcp_manager_view.py` (outside `native/mcp/`, which may not import the UI) | The manager view | `ext/ui.ts` |
 
@@ -1984,6 +1987,63 @@ Decided in S37 (replaceable built-ins; `repl/mcp_session.py`,
   shown to users who never asked for it), and replacement through a flag
   name (pipy's MCP flags are not extension flags).
 - `repl/wiring.py` is at 2447 of 2452 lines.
+
+Decided in S38 (SDK; `session_builtins.py`, `mcp/options.py`,
+`repl/mcp_loading.py`, `product_api.py`):
+
+- Pi's SDK session has none of the three because they are extensions the
+  CLI loads and an SDK caller adds as factories. pipy's three are not
+  extensions, so the choice is a value: `SessionBuiltins(codemode=,
+  tool_search=, mcp=)`, carried as `RuntimeResourceOptions.builtins`
+  beside `no_mcp` and `builtin_extensions`, so it reaches the wiring and the
+  loader without new session plumbing (`coding/session.py` is at its size
+  bound). `None` there is the `pipy` command's (all three, by its settings
+  and flags), which is what every caller but the product API has; the
+  product API replaces whatever the embedder's `resources` had there. `create_product_session` and
+  `open_product_session` always pass one, built from their new arguments
+  `codemode`, `tool_search` and `mcp`, so a product session has none by
+  default. Before this slice a product session had all three like the
+  command, including the servers of the user's `mcp.json`.
+- The tools: `NativeToolCapabilities(optional_builtins=)` names the optional
+  built-in tools the session may register. `None` keeps the rule "a session
+  of the production registry may register both". With a value the registry
+  does not matter, so an embedder's own `tools` can be combined with
+  `codemode` (then only MCP activates it, because `defaultTools` is read for
+  the production registry only). `codemode` and `tool_search` are both
+  names the settings may select without anything having them: a
+  `defaultTools` entry of the user must not fail a product session that was
+  not given the tool.
+- MCP: `mcp_wanted` is `resource_options.mcp_enabled(...)` for the command
+  and "`mcp` was passed and not `no_mcp`" for a session with builtins
+  (`builtin_extensions` does not turn it on there). The
+  `extensions` settings do not decide for the second (Pi: an inline factory
+  is not a built-in extension the settings turn off). A replacing extension
+  (`replaced_by`) turns MCP off in both; Pi's inline factory is not
+  replaceable, which is recorded as a difference.
+- `McpOptions` (frozen, every field `None` by default): `load_config(*,
+  config_home, cwd, project_trusted)`, `create_transport`, `credentials`,
+  `log_path`, `open_url`, `update_config`, `startup_wait_seconds`. The
+  loader applies them where it built the defaults before;
+  `McpManager` and `McpReadiness` already had the parameters. `open_url`
+  travels on `McpServers.open_url` to where the `/mcp` command is built and
+  comes before the rule "the browser, in a terminal only".
+- The loader and `provider_token` moved from `repl/wiring.py` to
+  `repl/mcp_loading.py` (`load_mcp_servers`, `mcp_wanted`). `repl/wiring.py`
+  is at 2342 of 2452 lines.
+- `CodemodeOptions(mode=, inline_budget=)`; `codemode_loadout(settings,
+  builtins)` is what the capabilities call for the loadout, at the start and
+  on reload as before.
+- Narrower than Pi, in `docs/sdk.md`: `open_url` and `update_config` are
+  accepted and reach the command and the manager, but a product session
+  runs no slash command, so nothing uses them there today (tested through a
+  session without a terminal that runs `/mcp`, and at the manager). No
+  `models` option for codemode. `load_config` gets three values instead of
+  an extension context. The options are validated when made.
+- The SDK surface gained two names, `CodemodeOptions` and `McpOptions`; the
+  types their fields take are imported from `native/mcp`.
+- The example is `docs/examples/sdk_codemode_mcp.py`, with a server in the
+  same process over the in-memory transport pair so that it runs offline;
+  `tests/test_sdk_codemode_mcp_example.py` runs it.
 
 Open after the merge, owned by later slices:
 

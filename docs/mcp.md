@@ -239,8 +239,10 @@ Different from Pi:
 
 - In Pi the first prompt's wait cannot be interrupted; it always runs to its
   10 seconds or to the server's answer.
-- Pi lets an embedding program set the 10 seconds (`startupWaitMs`). pipy has
-  no setting for it yet.
+- An embedding program sets the 10 seconds with
+  `McpOptions(startup_wait_seconds=...)` (Pi `startupWaitMs`, in
+  milliseconds), see [MCP in an embedded session](#mcp-in-an-embedded-session).
+  There is no setting for it.
 - A `reaches_tools` function that raises fails the call in Pi. In pipy the
   call waits for every server and then runs, as if the function had returned
   `"all"`; the same holds for a return value that is neither `"all"` nor a
@@ -715,6 +717,34 @@ Different from Pi:
   load. When the reload brings an extension with `/mcp`, what was read is
   dropped: nothing connects and nothing is reported.
 
+### MCP in an embedded session
+
+A session made with the [Python SDK](sdk.md) has no MCP, no `codemode` and
+no `tool_search` unless the program that creates it asks:
+
+```python
+from pipy_harness.sdk import CodemodeOptions, McpOptions, create_product_session
+
+session = create_product_session(
+    workspace=workspace,
+    provider=provider,
+    codemode=CodemodeOptions(),
+    tool_search=True,
+    mcp=McpOptions(),
+)
+```
+
+`McpOptions()` is MCP as this page describes it: `mcp.json` from the config
+home and the trusted project, the same transports, `mcp-auth.json` and
+`mcp.log`. Its fields replace the configuration loader, the transport
+factory, the credential store, the log path, the function that opens a
+sign-in URL, the function that saves a change to a server, and the time the
+first prompt waits. `-builtin:mcp` in the settings does not turn MCP off for
+such a session; `RuntimeResourceOptions(no_mcp=True)` does.
+[Codemode, tool search and MCP](sdk.md#codemode-tool-search-and-mcp) in the
+SDK page has the fields, what activates the two tools, the differences from
+Pi and a runnable example.
+
 ### What is missing
 
 Not built yet, in the order the plan builds it: images in tool results and
@@ -775,8 +805,9 @@ Differences from Pi:
   loaded all the same.
 - `limit` is declared as a JSON number, as in Pi. A value of another type
   (`"3"`) is refused by argument validation; Pi converts it first.
-- `tool_search` is registered with pipy's own built-in tools. An SDK caller
-  that passes its own tool registry does not get it.
+- `tool_search` is registered with pipy's own built-in tools. A session made
+  with the [Python SDK](sdk.md#codemode-tool-search-and-mcp) has it only when
+  it is created with `tool_search=True`.
 
 ## Configure servers
 
@@ -1626,7 +1657,9 @@ Differences from Pi in tools:
 ## What exists as a library
 
 The package `pipy_harness.native.mcp` is synchronous and uses only the
-standard library. It is not part of the SDK surface.
+standard library. Of it, the SDK surface (`pipy_harness.sdk`) has
+`McpOptions`; the types its fields take are imported from the modules
+below.
 
 | Module | What it does |
 | --- | --- |
@@ -1638,6 +1671,7 @@ standard library. It is not part of the SDK surface.
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), its `provider_token` function for a server with [`auth`](#a-providers-token), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
 | `log` | The `mcp.log` writer. |
+| `options` | `McpOptions`: what a program that embeds a session may replace of its MCP support, see [MCP in an embedded session](#mcp-in-an-embedded-session). |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
 | `resources` | `create_mcp_resource_tools`: the three [resource tools](#use-resources) over the servers a function returns at call time; `is_mcp_app_resource`. |
 | `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools and the resource tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `reconnect`, `set_enabled` and `set_exposure` change a server while the session runs and save the last two to `mcp.json`. `sign_in` signs in to a server and connects it again, `sign_out` deletes its credentials, and `take_signed_in` with `reconnect_servers` picks up a sign-in made elsewhere. `close` cancels running sign-ins. `describe_state` gives a server's short state. |

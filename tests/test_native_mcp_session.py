@@ -52,7 +52,7 @@ from pipy_harness.native.models import (
     ProviderToolCall,
 )
 from pipy_harness.native.project_trust import has_trust_requiring_project_resources
-from pipy_harness.native.repl import wiring
+from pipy_harness.native.repl import mcp_loading
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -1174,7 +1174,7 @@ def _recorded_managers(monkeypatch) -> list[Any]:
             super().__init__(**kwargs)
             managers.append(self)
 
-    monkeypatch.setattr(wiring, "McpManager", Recording)
+    monkeypatch.setattr(mcp_loading, "McpManager", Recording)
     return managers
 
 
@@ -1233,7 +1233,7 @@ def test_no_mcp_reads_no_file_and_starts_no_process(
     def refuse(**_kwargs: object) -> None:
         raise AssertionError("mcp.json was read")
 
-    monkeypatch.setattr(wiring, "load_mcp_config", refuse)
+    monkeypatch.setattr(mcp_loading, "load_mcp_config", refuse)
     workspace = tmp_path / "work"
     workspace.mkdir()
     entry, record = _server(tmp_path / "servers")

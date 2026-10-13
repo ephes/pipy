@@ -82,6 +82,10 @@ offline with an explicit deterministic fake:
 uv run python docs/examples/product_session_embedding.py
 ```
 
+A [second example](docs/examples/sdk_codemode_mcp.py) gives a session
+`codemode`, `tool_search` and MCP servers, which an embedded session has only
+when asked.
+
 In production, construct a real provider through pipy's provider boundary and
 inject it into `create_product_session(...)`; the factory never selects a
 provider or credentials for you. See [`docs/sdk.md`](docs/sdk.md) for the API

@@ -55,8 +55,12 @@ All factory arguments are keyword-only:
 | `observer: AgentEventSink` | Optional fixed canonical sink implementing `emit(event)`; receives full-content `AgentEvent` values. |
 | `diagnostic_sink: Callable[[str], None]` | Optional synchronous diagnostic destination. |
 | `load_context_files: bool = True` | Discover workspace instructions normally; `False` matches `--no-context-files`. |
+| `codemode: CodemodeOptions` | Optional; gives the session the `codemode` tool. See [Codemode, tool search and MCP](#codemode-tool-search-and-mcp). |
+| `tool_search: bool = False` | Gives the session the `tool_search` tool. |
+| `mcp: McpOptions` | Optional; gives the session MCP servers. |
 
-`ProductSession`, `CodingSessionResultSnapshot`, `AgentEvent` and `AgentEventSink`
+`ProductSession`, `CodingSessionResultSnapshot`, `AgentEvent`, `AgentEventSink`,
+`CodemodeOptions` and `McpOptions`
 are exported alongside both product-session factories from `pipy_harness.sdk`. There is no workflow
 archive or caller-owned stream requirement. Mutable injected settings, private
 trees and other resources retain their native ownership requirements; do not
@@ -83,6 +87,113 @@ with open_product_session(
 ) as session:
     session.submit("Continue from the durable conversation")
 ```
+
+### Codemode, tool search and MCP
+
+The `pipy` command has [`codemode`](codemode.md),
+[`tool_search`](mcp.md#tool-search) and [MCP](mcp.md) built in. A product
+session has none of them until you ask: without the three arguments below it
+has no `codemode` or `tool_search` tool whatever the `defaultTools` setting
+says, reads no `mcp.json` and connects to no server.
+
+```python
+from pipy_harness.sdk import CodemodeOptions, McpOptions, create_product_session
+
+with create_product_session(
+    workspace=workspace,
+    provider=provider,
+    settings=settings,
+    codemode=CodemodeOptions(),
+    tool_search=True,
+    mcp=McpOptions(),
+) as session:
+    session.submit("Count the Python files and list the three largest.")
+```
+
+`codemode=CodemodeOptions()` and `tool_search=True` register the tool without
+activating it, as Pi does. A tool becomes active in one of two ways:
+
+- The `defaultTools` setting names it. `["+codemode", "+tool_search"]` adds
+  both to the default tools; a list without `+` replaces the default tools.
+  The setting is read only when the session uses pipy's own tools, that is
+  when you do not pass `tools`.
+- MCP activates it for its servers: `codemode` for a server with `codemode`
+  tools, `tool_search` for a server with `deferred` tools
+  ([control tool exposure](mcp.md#control-tool-exposure)). This also works
+  with your own `tools`.
+
+`codemode` needs its runtime (`pipy codemode install`). Where the runtime is
+missing, the session says so once through `diagnostic_sink` and goes on
+without the tool. A session with MCP but without the tool that reaches a
+server's tools gets the warning `MCP tools are only reachable from the
+codemode or tool_search tool, but neither is active; they cannot be called.`
+
+`CodemodeOptions` replaces the [`codemode` settings](settings.md) for the
+session. A field left at `None` keeps the setting.
+
+| Field | Replaces |
+| --- | --- |
+| `mode: "on" \| "only"` | `codemode.mode` |
+| `inline_budget: float` | `codemode.inlineBudget`; a finite number that is not negative |
+
+`mcp=McpOptions()` gives the session MCP as the `pipy` command has it: the
+servers of `mcp.json` in the config home, and of the project's `mcp.json`
+when `settings` says the project is trusted (without `settings` it is not).
+The servers start connecting when the session is created and are closed when
+it is closed. Every field of `McpOptions` replaces one part and defaults to
+what the command does.
+
+| Field | Meaning | Default |
+| --- | --- | --- |
+| `load_config` | `load_config(*, config_home, cwd, project_trusted)` returns the servers as a `LoadedMcpConfig`. It is called when the session is created. | `load_mcp_config`, which reads the `mcp.json` files |
+| `create_transport` | `create_transport(entry, cwd, auth_provider)` returns the transport to one server. | stdio for a `command`, streamable HTTP for a `url` |
+| `credentials` | The `McpOAuthCredentialStore` with the servers' OAuth credentials. | `mcp-auth.json` in the config home |
+| `log_path` | The file server log messages are appended to. | `mcp.log` in the config home |
+| `open_url` | `open_url(url)` opens the authorization URL of a sign-in. | the system's browser in a terminal session, nothing otherwise |
+| `update_config` | `update_config(entry, patch)` saves a change that `/mcp` made to a server (`enabled`, `exposure`). | editing the `mcp.json` that defines or overrides the server |
+| `startup_wait_seconds` | How long the first prompt waits for servers with `direct` tools that are still connecting ([waiting for servers](mcp.md#waiting-for-servers)). | 10 |
+
+`LoadedMcpConfig` and `McpServerEntry` are in
+`pipy_harness.native.mcp.config`, `McpOAuthCredentialStore` in
+`pipy_harness.native.mcp.credentials`, and the transport contract with an
+in-memory pair in `pipy_harness.native.mcp.transport`.
+
+The `extensions` setting that turns MCP off for the command
+(`-builtin:mcp`) does not apply to a session that passes `mcp`.
+`RuntimeResourceOptions(no_mcp=True)` still turns MCP off. An extension that
+registers the `/mcp` command [replaces MCP](mcp.md#replace-the-built-in-mcp-support)
+in such a session as in the command.
+
+`open_url` and `update_config` serve the `/mcp` command and its sign-in.
+`submit()` sends its text to the model and runs no slash command, so a
+product session has no way to use them today.
+
+The executable, offline
+[`sdk_codemode_mcp.py`](examples/sdk_codemode_mcp.py) example turns all
+three on, passes its own `load_config` and a `create_transport` to a server
+in the same process, and runs one prompt in which a scripted provider finds
+the server's tool with `tool_search` and calls it.
+
+Different from Pi:
+
+- Pi's SDK adds three extension factories to a resource loader
+  (`createCodemodeExtension`, `createToolSearchExtension`,
+  `createMcpExtension`). In pipy the three are not extensions, so they are
+  arguments of the session factories.
+- Pi's `loadConfig` gets the extension context. pipy's gets the three values
+  the default reads from it.
+- `CodemodeOptions` has no `models` field: pipy's scripts have no model
+  catalog.
+- Pi's MCP extension connects on `session_start`, which an SDK caller
+  triggers with `bindExtensions()`. A pipy product session starts its
+  extensions and servers when it is created.
+- Pi's `/mcp` runs from `session.prompt("/mcp ...")`. A pipy product session
+  runs no slash commands (see above).
+- `startup_wait_seconds`, `inline_budget` and `mode` are checked when the
+  options are made; Pi takes any value.
+- In Pi's SDK an MCP factory is not left out when another extension
+  registers `/mcp`; that rule is for the CLI's built-in extensions. pipy
+  applies it to every session with MCP.
 
 ### Operations and failures
 

@@ -76,6 +76,12 @@ a plain CLI allowlist overrides it and filters extensions. For example,
 modifies the defaults. CLI lists cannot mix plain names and modifiers.
 See [selection rules](settings-config.md#default-tool-selection).
 
+A session made with the [Python SDK](sdk.md#codemode-tool-search-and-mcp) has
+`codemode` only when it is created with `codemode=CodemodeOptions()`; the
+setting then activates it as above. `CodemodeOptions(mode=...,
+inline_budget=...)` replaces the `codemode.mode` and `codemode.inlineBudget`
+settings for that session.
+
 Disabled codemode does not probe. Selected but unavailable codemode is omitted
 with one bounded warning (TUI transcript notice or headless stderr line); the
 session continues with remaining tools. There is no automatic download or host

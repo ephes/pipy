@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipy_harness.native.session_builtins import SessionBuiltins
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +34,10 @@ class RuntimeResourceOptions:
     no_mcp: bool = False
     # Built-in extensions named with ``--extension builtin:<name>``.
     builtin_extensions: tuple[str, ...] = ()
+    # Which of ``codemode``, ``tool_search`` and MCP an embedded session has.
+    # ``None`` is the ``pipy`` command's: all three, as its settings and the
+    # flags above say. The product API sets it for every session it makes.
+    builtins: SessionBuiltins | None = None
 
     @classmethod
     def empty(cls) -> "RuntimeResourceOptions":

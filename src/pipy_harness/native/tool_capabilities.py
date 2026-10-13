@@ -573,13 +573,29 @@ class NativeToolCapabilities:
         default_tools: Callable[[], Sequence[str] | None] | None = None,
         diagnostic: Callable[[str], None] | None = None,
         codemode_loadout: Callable[[], PrepareToolLoadout] | None = None,
+        optional_builtins: Collection[str] | None = None,
     ) -> None:
+        """``optional_builtins`` names the optional built-in tools
+        (``codemode``, ``tool_search``) this session may register, whatever
+        its registry is. Without it a session of the production registry may
+        register both and another session neither."""
+
         self._context = ToolContext(workspace_root=workspace_root)
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
         self._state_lock = state_lock if state_lock is not None else threading.RLock()
         from pipy_harness.native.tools.registry import ProductionToolRegistry
 
         self._production_defaults = isinstance(builtin_registry, ProductionToolRegistry)
+        self._offers_codemode = (
+            self._production_defaults
+            if optional_builtins is None
+            else "codemode" in optional_builtins
+        )
+        self._offers_tool_search = (
+            self._production_defaults
+            if optional_builtins is None
+            else "tool_search" in optional_builtins
+        )
         self._base_registry = dict(builtin_registry)
         self._default_tools = default_tools
         self._diagnostic = diagnostic
@@ -805,9 +821,7 @@ class NativeToolCapabilities:
         state = self.state
         if "codemode" in state.registry:
             return "codemode" in _kept_names(state)
-        return self._production_defaults and _filters_keep_codemode(
-            state.filter_options
-        )
+        return self._offers_codemode and _filters_keep_codemode(state.filter_options)
 
     def register_codemode(self) -> bool:
         """Register the optional built-in ``codemode`` for this run.
@@ -824,9 +838,7 @@ class NativeToolCapabilities:
         state = self.state
         if "codemode" in state.registry:
             return True
-        if not (
-            self._production_defaults and _filters_keep_codemode(state.filter_options)
-        ):
+        if not (self._offers_codemode and _filters_keep_codemode(state.filter_options)):
             return False
         if not self._probe_codemode():
             return False
@@ -983,9 +995,9 @@ class NativeToolCapabilities:
         builtin = dict(self._base_registry)
         # Registered optional ports persist for this lifetime, like Pi's
         # registry; removing a default does not deactivate an active tool.
-        if self._production_defaults and "codemode" in state.builtin_registry:
+        if self._offers_codemode and "codemode" in state.builtin_registry:
             builtin["codemode"] = state.builtin_registry["codemode"]
-        if self._production_defaults:
+        if self._offers_tool_search:
             from pipy_harness.native.tool_search import (
                 TOOL_SEARCH_TOOL_NAME,
                 ToolSearchTool,
@@ -1005,7 +1017,7 @@ class NativeToolCapabilities:
             and not options.no_builtin_tools
             and not options.excludes("codemode")
         )
-        if self._production_defaults and wants_codemode and "codemode" not in mapping:
+        if self._offers_codemode and wants_codemode and "codemode" not in mapping:
             if self._probe_codemode():
                 from pipy_harness.native.tools.codemode import CodemodeTool
 
@@ -1039,7 +1051,10 @@ class NativeToolCapabilities:
             active_tool_names=active,
             default_tool_names=defaults,
             selected_names=tuple(configured or ()) if not options.allow else (),
-            recognized_names=frozenset({"codemode"})
+            # Names the settings may select although nothing has them: the
+            # runtime of ``codemode`` is unavailable, or the session was not
+            # given the tool.
+            recognized_names=frozenset({"codemode", "tool_search"})
             if self._production_defaults
             else frozenset(),
             selection_initialized=True,

@@ -28,7 +28,7 @@ from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tools.codemode import CodemodeTool
-from pipy_harness.sdk import create_product_session
+from pipy_harness.sdk import CodemodeOptions, create_product_session
 
 
 def _declared_codemode():
@@ -163,6 +163,7 @@ def test_advertised_read_filter_example_runs_without_bulk_output(
         tree=tree,
         observer=sink,
         load_context_files=False,
+        codemode=CodemodeOptions(),
     ) as session:
         result = session.submit("filter the small fixture files")
         assert result.provider_failure is result.preparation_failure is None

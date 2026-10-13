@@ -96,6 +96,8 @@ The notes call out the most important limits.
 | `codemode.inlineBudget` | number | Estimated tokens (characters / 4) the `codemode` description may spend on tool declarations. Default `3000`. Tools that do not fit are left out and found with `search_tools()`. `0` lists only namespaces. A value that is not a nonnegative number is the default. |
 
 The two `codemode` settings are read when a session starts and on `/reload`.
+A program that embeds a session can replace them for that session
+([`CodemodeOptions`](sdk.md#codemode-tool-search-and-mcp)).
 
 ### UI and startup
 

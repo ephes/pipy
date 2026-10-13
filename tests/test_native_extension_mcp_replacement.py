@@ -35,7 +35,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.codemode import selftest
 from pipy_harness.native.mcp.registry import McpServerRegistry
 from pipy_harness.native.models import ProviderToolCall
-from pipy_harness.native.repl import wiring
+from pipy_harness.native.repl import mcp_loading
 from pipy_harness.native.repl.mcp_session import (
     McpSession,
     mcp_command_owner,
@@ -202,7 +202,7 @@ def _refuse_mcp_json(monkeypatch) -> None:
     def refuse(**_kwargs: object) -> None:
         raise AssertionError("mcp.json was read")
 
-    monkeypatch.setattr(wiring, "load_mcp_config", refuse)
+    monkeypatch.setattr(mcp_loading, "load_mcp_config", refuse)
 
 
 def test_an_extension_with_the_mcp_command_replaces_builtin_mcp(

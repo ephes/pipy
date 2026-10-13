@@ -143,6 +143,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
   calls, only when it declares `reaches_tools`. The `pipy mcp` commands
   keep using the built-in implementation. See
   [replace the built-in MCP support](docs/mcp.md#replace-the-built-in-mcp-support).
+- Python SDK: `create_product_session` and `open_product_session` take
+  `codemode=CodemodeOptions(...)`, `tool_search=True` and
+  `mcp=McpOptions(...)`. A product session has the `codemode` tool, the
+  `tool_search` tool and MCP servers only when it is created with them;
+  without them it reads no `mcp.json` and connects to nothing, whatever the
+  settings say. `CodemodeOptions` replaces the `codemode.mode` and
+  `codemode.inlineBudget` settings for the session. `McpOptions` can replace
+  the configuration loader, the transport factory, the credential store, the
+  log path, the function that opens a sign-in URL, the function that saves a
+  change to a server and the time the first prompt waits for servers; what it
+  leaves out is what the `pipy` command does. The new example
+  `docs/examples/sdk_codemode_mcp.py` runs a prompt with all three. See
+  [Codemode, tool search and MCP](docs/sdk.md#codemode-tool-search-and-mcp).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`
