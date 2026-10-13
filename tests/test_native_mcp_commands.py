@@ -1,20 +1,24 @@
 """Tests for the ``/mcp`` command (MCP parity plan S21, rows SLH-01 to
-SLH-03, SLH-05, SLH-06).
+SLH-03, SLH-05, SLH-06; S31, row SLH-04).
 
-The command is tested over a manager with in-memory servers; the session
-level is in ``test_native_mcp_session_command.py``.
+The command is tested over a manager with in-memory servers, and its login
+and logout over the fake OAuth server; the session level is in
+``test_native_mcp_session_command.py``.
 """
 
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 from test_native_mcp_connection import _NO_ANSWER, _RpcError, _Server, _wait_until
 from test_native_mcp_manager import _entry, _Session, _tool
+from test_native_mcp_manager_oauth import Servers, oauth, server  # noqa: F401
 
 from pipy_harness.native.agent.tools import ToolExecutionInterruption
 from pipy_harness.native.editor_state import CompletionItem
@@ -31,7 +35,7 @@ from pipy_harness.native.mcp.commands import (
 )
 from pipy_harness.native.mcp.config import McpServerEntry
 from pipy_harness.native.mcp.connection import ConnectionView
-from pipy_harness.native.mcp.manager import McpServerStatus
+from pipy_harness.native.mcp.manager import McpManager, McpServerStatus
 from pipy_harness.native.repl.command_menu import (
     tool_loop_command_descriptions,
     tool_loop_command_names,
@@ -43,6 +47,10 @@ from pipy_harness.native.repl.mcp_command import (
     mcp_session_commands,
 )
 from pipy_harness.native.resources import WorkspaceResources
+
+sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
+
+from mcp_fake_oauth import FakeBrowser, Reply  # noqa: E402
 
 _WAIT_SECONDS = 10.0
 
@@ -97,18 +105,21 @@ class _Ui:
 
 
 def _command(
-    session: _Session,
+    session: _Session | Servers,
     ui: _Ui,
     tmp_path: Path,
     run_step: Callable[..., bool] = run_step_inline,
+    open_url: Callable[[str], object] | None = None,
 ) -> McpCommand:
+    manager: McpManager = session.manager
     return McpCommand(
-        session.manager,
+        manager,
         config_home=tmp_path / "home",
         notify=ui.notify,
         select=ui.select,
         ensure_discovery=ui.ensure_discovery,
         run_step=run_step,
+        open_url=open_url,
     )
 
 
@@ -461,6 +472,231 @@ def test_a_cancelled_startup_wait_that_returned_in_time_is_not_a_finished_one(
     assert session.opened == ["slow"]
 
 
+# -- SLH-04: login and logout --------------------------------------------------
+
+
+def _browser(url: str) -> None:
+    """The user approves in a browser that reaches the loopback port."""
+
+    FakeBrowser().open(url)
+
+
+def _no_browser(url: str) -> None:
+    raise AssertionError(f"no browser is opened here, but was asked for {url}")
+
+
+def test_login_shows_the_url_opens_the_browser_and_reports_the_tools(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # Pi: "signs in through the browser, refreshes expired tokens, and signs
+    # out" (the command's part). SLH-04, OAU-26, OAU-29.
+    oauth.start()
+    ui = _Ui()
+    opened: list[str] = []
+    session_thread = threading.current_thread()
+
+    def open_url(url: str) -> None:
+        # The browser is opened by the thread the command runs on.
+        assert threading.current_thread() is session_thread
+        opened.append(url)
+        _browser(url)
+
+    command = _command(oauth, ui, tmp_path, open_url=open_url)
+
+    command.run("login issues")
+
+    assert ui.notices == [
+        ("info", f'Sign in to MCP server "issues" in your browser:\n{opened[0]}'),
+        ("info", 'Signed in to MCP server "issues" (1 tools).'),
+    ]
+    assert ui.discovery_calls == 1
+    assert oauth.server.log == ["401 none", "register", "token code"]
+    assert oauth.state() == "connected"
+
+
+def test_login_without_a_name_takes_the_server_that_needs_a_sign_in(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # SLH-05: `off` is disabled, so `issues` is the only eligible server.
+    oauth.start()
+    ui = _Ui()
+
+    _command(oauth, ui, tmp_path, open_url=_browser).run("login")
+
+    assert ui.notices[-1] == ("info", 'Signed in to MCP server "issues" (1 tools).')
+    assert ui.selections == []
+
+
+def test_login_requires_a_user_interface(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # SLH-04: without one nothing is contacted.
+    oauth.start()
+    ui = _Ui()
+    requests = len(oauth.server.requests)
+
+    _command(oauth, ui, tmp_path).run("login issues")
+
+    assert ui.notices == [
+        ("error", 'Signing in to MCP server "issues" requires interactive mode.')
+    ]
+    assert len(oauth.server.requests) == requests
+    assert ui.discovery_calls == 0
+
+
+def test_login_of_a_signed_in_server_refreshes_without_a_browser(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # OAU-24: no URL is shown when the stored refresh token does it.
+    oauth.start()
+    oauth.sign_in_elsewhere()
+    ui = _Ui()
+
+    _command(oauth, ui, tmp_path, open_url=_no_browser).run("login issues")
+
+    assert ui.notices == [("info", 'Signed in to MCP server "issues" (1 tools).')]
+    assert oauth.server.log[-1] == "token refresh"
+
+
+def test_login_reports_a_failure_as_an_error(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # OAU-29.
+    oauth.start()
+    oauth.server.response_iss = "https://attacker.example"
+    ui = _Ui()
+
+    _command(oauth, ui, tmp_path, open_url=_browser).run("login issues")
+
+    level, message = ui.notices[-1]
+    assert level == "error"
+    assert message.startswith("Sign-in failed: OAuth issuer mismatch")
+    assert ui.discovery_calls == 0
+
+
+def _interrupted_when(
+    condition: Callable[[], bool],
+) -> Callable[[Callable[[threading.Event], object]], bool]:
+    """A ``RunStep`` whose user stops waiting once ``condition`` holds."""
+
+    def run_step(step: Callable[[threading.Event], object]) -> bool:
+        stop = threading.Event()
+        thread = threading.Thread(target=step, args=(stop,))
+        thread.start()
+        while thread.is_alive() and not condition():
+            thread.join(0.01)
+        finished = not thread.is_alive()
+        stop.set()
+        thread.join()
+        return finished
+
+    return run_step
+
+
+def test_a_login_the_user_stops_waiting_for_is_cancelled(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # OAU-28: Escape while the browser is open.
+    oauth.start()
+    ui = _Ui()
+    opened: list[str] = []
+    command = _command(
+        oauth,
+        ui,
+        tmp_path,
+        run_step=_interrupted_when(lambda: bool(opened)),
+        open_url=opened.append,
+    )
+
+    command.run("login issues")
+
+    assert ui.notices == [
+        ("info", f'Sign in to MCP server "issues" in your browser:\n{opened[0]}'),
+        ("info", "Sign-in cancelled."),
+    ]
+    assert ui.discovery_calls == 0
+    # The sign-in itself ends; nothing was stored.
+    _wait_until(
+        lambda: not [t for t in threading.enumerate() if t.name == "mcp-sign-in"]
+    )
+    assert oauth.credentials().tokens("issues", oauth.server.url) is None
+    assert oauth.state() == "needs-auth"
+
+
+def test_a_login_is_cancelled_while_the_authorization_server_hangs(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # OAU-28: Escape before there is a URL to show.
+    oauth.start()
+    path = "/.well-known/oauth-authorization-server"
+    oauth.server.route(path, Reply(hang=True))
+    ui = _Ui()
+    command = _command(
+        oauth,
+        ui,
+        tmp_path,
+        run_step=_interrupted_when(lambda: path in oauth.server.paths),
+        open_url=_no_browser,
+    )
+
+    command.run("login issues")
+
+    assert ui.notices == [("info", "Sign-in cancelled.")]
+    _wait_until(
+        lambda: not [t for t in threading.enumerate() if t.name == "mcp-sign-in"]
+    )
+
+
+def test_logout_deletes_the_credentials_and_says_whether_there_were_any(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # SLH-04.
+    oauth.start()
+    oauth.sign_in_elsewhere()
+    assert oauth.manager.reconnect_signed_in()
+    ui = _Ui()
+    command = _command(oauth, ui, tmp_path)
+
+    command.run("logout issues")
+    command.run("logout")
+
+    assert ui.notices == [
+        ("info", 'Signed out of MCP server "issues".'),
+        ("info", 'No stored credentials for MCP server "issues".'),
+    ]
+    assert oauth.state() == "needs-auth"
+    assert ui.discovery_calls == 0
+
+
+def test_logout_reports_a_credentials_file_it_cannot_read(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    oauth.start()
+    oauth.sign_in_elsewhere()
+    assert oauth.manager.reconnect_signed_in()
+    path = oauth.home / "mcp-auth.json"
+    content = path.read_text(encoding="utf-8")
+    path.write_text("{not json", encoding="utf-8")
+    ui = _Ui()
+
+    _command(oauth, ui, tmp_path).run("logout issues")
+
+    ((level, message),) = ui.notices
+    assert level == "error"
+    assert message.startswith('Could not sign out of MCP server "issues": ')
+    assert oauth.state() == "connected"
+    path.write_text(content, encoding="utf-8")
+
+
 # -- interruptible steps -------------------------------------------------------
 
 
@@ -567,9 +803,37 @@ def test_arguments_complete_the_actions_then_the_eligible_servers() -> None:
     assert complete("reconnect z") is None
     assert complete("reconnect docs ") is None
     assert complete("enable ") is None
-    # No server signs in with OAuth yet.
+    # None of these servers signs in with OAuth.
     assert complete("login ") is None
     assert complete("logout d") is None
+
+
+def test_login_and_logout_complete_the_servers_that_use_oauth() -> None:
+    # SLH-01.
+    def signing_in(name: str, state: str) -> McpServerStatus:
+        status = _status(name, state)
+        assert status.connection is not None
+        view = replace(status.connection, oauth_url=f"https://{name}.example/mcp")
+        return McpServerStatus(status.entry, True, view)
+
+    statuses = [
+        _status("docs", "connected", tools=2),
+        signing_in("issues", "needs-auth"),
+        signing_in("wiki", "connected"),
+    ]
+
+    def complete(prefix: str) -> list[tuple[str, str, str | None]] | None:
+        items = complete_mcp_arguments(statuses, prefix)
+        if items is None:
+            return None
+        return [(item.value, item.label, item.description) for item in items]
+
+    assert complete("login ") == [
+        ("login issues", "issues", "needs sign-in"),
+        ("login wiki", "wiki", "connected · 0 tools"),
+    ]
+    assert complete("logout w") == [("logout wiki", "wiki", "connected · 0 tools")]
+    assert complete("login d") is None
 
 
 def test_the_session_command_dispatches_only_mcp_and_completes_its_arguments(

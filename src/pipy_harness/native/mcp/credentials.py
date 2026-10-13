@@ -12,7 +12,8 @@ separate accounts, and a server with the same name and URL in two
 ``mcp.json`` files has one.
 
 ``for_server`` gives the store of one server, which is what an
-``McpOAuthProvider`` is created with. A write takes the file's lock
+``McpOAuthProvider`` is created with. ``remove`` deletes a server's entry
+while it holds that server's refresh lock (below). A write takes the file's lock
 (``auth_file_lock``: a lock in the process and ``flock`` on
 ``mcp-auth.json.lock``), reads the file again under that lock and replaces
 it as a whole, so the entries of other servers and of other processes are
@@ -78,6 +79,8 @@ Where this differs from Pi:
   them with the fetch of the transport that was rejected.
 - ``oauth.clientRegistration: "cimd"`` is not acted on yet: the provider of
   a refresh offers no Client ID Metadata Document.
+- ``remove`` holds the refresh lock; Pi's does not, so there a refresh that
+  ends after a sign-out stores the server's tokens again.
 """
 
 from __future__ import annotations
@@ -293,7 +296,15 @@ class McpOAuthCredentialStore:
         return tokens
 
     def remove(self, name: str, server_url: str) -> bool:
-        """Delete a server's credentials. Returns whether there were any."""
+        """Delete a server's credentials. Returns whether there were any.
+
+        The server's refresh lock is held meanwhile. A token refresh that is
+        running, in this process or another, has therefore saved its tokens
+        before they are deleted, and one that starts afterwards finds
+        nothing to refresh: a sign-out is not undone by a refresh. Raises
+        ``McpRefreshLockTimeoutError`` when a refresh holds the lock for the
+        whole wait.
+        """
 
         key = _store_key(name, server_url)
 
@@ -303,7 +314,8 @@ class McpOAuthCredentialStore:
             del states[key]
             return True
 
-        return self._write(change)
+        with McpOAuthServerStore(self, key).refresh_lock():
+            return self._write(change)
 
     def _read(self, read: Callable[[_States], _T]) -> _T:
         # Without the lock: a write replaces the file as a whole.

@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import threading
 import urllib.parse
+import webbrowser
 from dataclasses import dataclass, replace
 from typing import Final, Protocol
 
@@ -107,6 +108,17 @@ class McpSignInPrompt(Protocol):
         A prompt that cannot ask waits for the event and returns ``None``
         (``wait_for_cancel``).
         """
+
+
+def open_browser(url: str) -> None:
+    """Open ``url`` in the system's browser, for ``show_authorization_url``.
+    The user is shown the URL as well, so a browser that cannot be started
+    is not an error."""
+
+    try:
+        webbrowser.open(url)
+    except Exception:  # noqa: BLE001 - best effort: the user has the URL
+        pass
 
 
 def wait_for_cancel(cancel_event: threading.Event) -> None:

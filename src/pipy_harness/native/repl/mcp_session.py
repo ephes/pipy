@@ -8,6 +8,11 @@ replaces them when a reload is accepted (Pi closes its servers on
 Everything else in the session asks it for the current ones, so nothing
 keeps a manager that was closed.
 
+A sign-in made outside the session, by ``pipy mcp login`` that the agent
+ran through ``bash`` for example, is picked up when the next turn starts:
+``before_turn`` connects the servers again that were waiting for a sign-in
+and have other credentials stored now (Pi's ``turn_start`` handler).
+
 A reload has two parts. Before the session decides whether the reload is
 accepted, the configuration is read again and a manager is built for it that
 connects nothing. Once the reload was accepted, the running manager is
@@ -24,13 +29,20 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import Protocol
 
+from pipy_harness.native.agent import AgentCancellationReason
+from pipy_harness.native.agent.tools import (
+    ToolExecutionInterruption,
+    ToolInterruptWaiter,
+)
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.mcp.servers_section import MCP_SERVERS_SECTION
 from pipy_harness.native.repl.mcp_command import mcp_session_commands
+from pipy_harness.native.repl.mcp_waits import run_readiness_wait
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +139,40 @@ class McpSession:
         """Show what the servers have to tell the user, on this thread."""
 
         self.servers.manager.deliver_notices(self._notify)
+
+    def before_turn(
+        self, waiter: ToolInterruptWaiter | None
+    ) -> AgentCancellationReason | None:
+        """Connect again the servers somebody signed in to since they began
+        to need a sign-in, so that this turn has their tools.
+
+        Runs on the session thread at the start of every turn. It returns at
+        once when no server waits for a sign-in, and after a look at the
+        credentials file when nobody signed in. ``waiter`` watches for an
+        interruption while the servers connect: Escape or an abort then
+        cancels the run, which is what is returned, and the reconnects go on
+        in the background. Without a waiter the wait cannot be ended.
+        """
+
+        servers = self.servers
+        manager = servers.manager
+        signed_in = manager.take_signed_in()
+        if not signed_in:
+            return None
+        reconnect = partial(manager.reconnect_servers, signed_in)
+        if waiter is None:
+            reconnected = reconnect()
+        else:
+            try:
+                reconnected, interruption = run_readiness_wait(reconnect, waiter)
+            except KeyboardInterrupt:
+                # As for a running tool: Ctrl-C while waiting aborts the run.
+                return AgentCancellationReason.OPERATOR_ABORT
+            if interruption is not ToolExecutionInterruption.SETTLED:
+                return AgentCancellationReason.OPERATOR_ABORT
+        if reconnected:
+            servers.discovery.ensure_active()
+        return None
 
     def prompt_sections(self) -> dict[str, str]:
         """The sections the session adds to a run's prompt: the list of MCP

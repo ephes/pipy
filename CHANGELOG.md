@@ -63,8 +63,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   reach it. A stored refresh token is tried before the browser, a server
   that asked for more scope gets the scopes granted so far as well, and the
   whole sign-in ends after the timeout (300 seconds by default). `pipy mcp
-  logout <server>` deletes the stored credentials. `/mcp login` in a session
-  is not built yet. See [log in and out](docs/mcp.md#log-in-and-out).
+  logout <server>` deletes the stored credentials. See
+  [log in and out](docs/mcp.md#log-in-and-out).
+- `/mcp login [server]` signs in to an OAuth MCP server from a session in
+  the terminal: it shows the authorization URL, opens the browser, waits for
+  it and connects the server; Escape cancels. `/mcp logout [server]` deletes
+  the stored credentials. A session also notices a sign-in made outside it,
+  for example by `pipy mcp login` that the agent ran through `bash`: at the
+  start of the next turn it connects the server again, so that turn has the
+  server's tools. Ending a session cancels a sign-in that is running. See
+  [the `/mcp` command](docs/mcp.md#the-mcp-command) and
+  [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with
@@ -109,7 +118,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [server]` connects a server again, which restarts a stdio server's
   process, and the terminal completes the action and the server name. The
   command waits for the servers that are still connecting; Escape ends the
-  wait. `/mcp login` and `logout` only say that no server uses OAuth yet.
+  wait.
   Enabling, disabling and changing the exposure of a server in a session are
   built into the MCP manager, with the change saved to the `mcp.json` that
   defines or overrides the server, but nothing in a session reaches them

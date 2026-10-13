@@ -249,8 +249,9 @@ invalid or a server is not connected. The commands start no session and load
 no extensions. `pipy mcp --help` lists the options of `add`; see
 [MCP](mcp.md#the-pipy-mcp-commands) for the details. `pipy mcp login <server>`
 signs in to an HTTP server that uses OAuth, through your browser, and `pipy
-mcp logout <server>` deletes the stored credentials. In a session, [`/mcp`](mcp.md#the-mcp-command)
-shows the same servers and reconnects one.
+mcp logout <server>` deletes the stored credentials; a running session uses
+a new sign-in from its next turn on. In a session, [`/mcp`](mcp.md#the-mcp-command)
+shows the same servers, reconnects one and signs in to or out of one.
 
 ### Modes
 

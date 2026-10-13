@@ -45,7 +45,6 @@ import re
 import select
 import sys
 import threading
-import webbrowser
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,12 +73,14 @@ from pipy_harness.native.mcp.connection import (
 )
 from pipy_harness.native.mcp.credentials import (
     McpOAuthCredentialStore,
+    McpRefreshLockTimeoutError,
     mcp_auth_path,
 )
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.protocol import McpAbortError
 from pipy_harness.native.mcp.sign_in import (
     McpSignInCancelledError,
+    open_browser,
     sign_in_mcp_server,
     wait_for_cancel,
 )
@@ -725,7 +726,7 @@ def _login_or_logout(
     if command == "logout":
         try:
             removed = credentials.remove(name, url)
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, McpRefreshLockTimeoutError) as exc:
             error(f"Could not update {path}: {exc}")
             return 1
         log(
@@ -819,16 +820,6 @@ def _login(
     return 0
 
 
-def _open_browser(url: str) -> None:
-    """Open ``url`` in the system's browser. The URL was printed as well,
-    so a browser that cannot be started is not an error."""
-
-    try:
-        webbrowser.open(url)
-    except Exception:  # noqa: BLE001 - best effort: the user has the printed URL
-        pass
-
-
 def read_redirect_url(
     fd: int, cancel_event: threading.Event, write: Callable[[str], object]
 ) -> str | None:
@@ -867,7 +858,7 @@ class _LoginPrompt:
 
     def __init__(self, name: str, options: McpCommandOptions, log: Sink) -> None:
         self._name = name
-        self._open_url = options.open_url or _open_browser
+        self._open_url = options.open_url or open_browser
         self._log = log
         # In a terminal the redirect URL can be pasted; elsewhere only the
         # browser's callback can finish the sign-in.

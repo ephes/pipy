@@ -444,6 +444,7 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.loop.AgentLoopRequestSource",
         "pipy_harness.native.agent.loop.AgentLoopRunInput",
         "pipy_harness.native.agent.loop.AgentLoopStatusPolicy",
+        "pipy_harness.native.agent.loop.TurnStartHook",
         "pipy_harness.native.agent.loop_policy",
         "pipy_harness.native.agent.loop_policy.AgentProviderStatusDecision",
         "pipy_harness.native.agent.loop_policy.AgentToolPolicy",

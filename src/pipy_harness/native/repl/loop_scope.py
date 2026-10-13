@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
+    AgentCancellationReason,
     AgentFailure,
     AgentSystemMessage,
     AgentTranscriptMessage,
@@ -322,6 +323,10 @@ class ReplLoopScope:
     coding_session_control: Callable[[], ExtensionCodingSessionControl]
     # The waits for MCP servers that are still connecting.
     mcp_waits: McpSessionWaits
+    # Runs when a turn starts, before its tools are read: connects MCP
+    # servers again that somebody signed in to outside the session. A reason
+    # it returns cancels the run.
+    before_turn: Callable[[], AgentCancellationReason | None]
     # The sections the session adds to the coming run's prompt, by name and
     # without their tags: the `mcp_servers` list. Read when a run starts.
     session_prompt_sections: Callable[[], Mapping[str, str]]

@@ -32,6 +32,7 @@ from pipy_harness.native.agent.loop import (
     AgentLoopRequestSource,
     AgentLoopRunInput,
     AgentLoopStatusPolicy,
+    TurnStartHook,
 )
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderStatusDecision,
@@ -235,6 +236,7 @@ class CodingAgentRunCoordinator:
         composite_runner: AgentCompositeToolRunner | None = None,
         nested_eligibility: NestedToolEligibility | None = None,
         tool_readiness: ToolReadinessWaiter | None = None,
+        before_turn: TurnStartHook | None = None,
     ) -> None:
         if type(coding_state) is not CodingSessionState:
             raise TypeError("coding_state must be an exact CodingSessionState")
@@ -254,6 +256,7 @@ class CodingAgentRunCoordinator:
         self._composite_runner = composite_runner
         self._nested_eligibility = nested_eligibility
         self._tool_readiness = tool_readiness
+        self._before_turn = before_turn
 
     def run_turn(
         self,
@@ -277,6 +280,7 @@ class CodingAgentRunCoordinator:
             composite_runner=self._composite_runner,
             nested_eligibility=self._nested_eligibility,
             tool_readiness=self._tool_readiness,
+            before_turn=self._before_turn,
         )
         witness = self._coding_state.begin_agent_run()
         try:

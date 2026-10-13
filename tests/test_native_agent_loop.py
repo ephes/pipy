@@ -426,6 +426,7 @@ def _make_loop(
     queued_input_port: AgentQueuedInputPort | None = None,
     emit_delta: bool = False,
     tool_readiness: ToolReadinessWaiter | None = None,
+    before_turn: Callable[[], AgentCancellationReason | None] | None = None,
 ) -> tuple[AgentLoop, _ProviderTurn, _EventSink, _UsagePublisher]:
     provider_turn = _ProviderTurn(order, outcomes, emit_delta=emit_delta)
     events = event_sink or _EventSink(order)
@@ -440,6 +441,7 @@ def _make_loop(
         queued_input_port=queued_input_port or _QueuedInputs(),
         status_policy=status_policy or _StatusPolicy(order),
         tool_readiness=tool_readiness,
+        before_turn=before_turn,
     )
     return loop, provider_turn, events, usage
 
@@ -1314,6 +1316,76 @@ def test_readiness_wait_runs_after_the_policy_and_before_the_tool() -> None:
     assert steps[:3] == ["policy:before:p1", "ready:p1", "tool:execute:p1"]
     # The loop has no tool waiter here, so the wait gets none either.
     assert waiters == [None]
+
+
+def test_the_turn_start_hook_runs_before_the_tools_of_every_turn_are_read() -> None:
+    # SES-18: what the hook makes available is declared to the same turn.
+    order: list[str] = []
+
+    def before_turn() -> None:
+        order.append("before_turn")
+
+    loop, _provider, _events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(_provider_call("p1"),))
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        before_turn=before_turn,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
+    steps = [
+        step
+        for step in order
+        if step in ("before_turn", "tools:definitions") or step.startswith("request:")
+    ]
+    assert steps == [
+        "before_turn",
+        "tools:definitions",
+        "request:0",
+        "before_turn",
+        "tools:definitions",
+        "request:1",
+    ]
+
+
+def test_a_turn_start_hook_that_cancels_ends_the_run_without_a_request() -> None:
+    order: list[str] = []
+    loop, provider, events, _usage = _make_loop(
+        order,
+        [ProviderTurnOutcome(result=_provider_result())],
+        before_turn=lambda: AgentCancellationReason.OPERATOR_ABORT,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.result.outcome is AgentRunOutcome.CANCELLED
+    assert outcome.result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
+    # Neither the request source nor the provider was asked.
+    assert not [step for step in order if step.startswith("request:")]
+    assert provider.calls == 0
+    assert any(isinstance(event, RunCancelled) for event in events.events)
+    # The accepted prompt stays in the history, as after any cancelled turn.
+    assert isinstance(outcome.final_history[0], AgentUserMessage)
+
+
+def test_a_turn_start_hook_must_return_a_reason_or_nothing() -> None:
+    order: list[str] = []
+    loop, _provider, _events, _usage = _make_loop(
+        order,
+        [ProviderTurnOutcome(result=_provider_result())],
+        before_turn=lambda: "operator_abort",  # type: ignore[arg-type,return-value]
+    )
+
+    with pytest.raises(TypeError, match="before_turn must return"):
+        loop.run(_run_input())
+    with pytest.raises(TypeError, match="before_turn must be callable or None"):
+        _make_loop(order, [], before_turn="soon")  # type: ignore[arg-type]
 
 
 def test_a_blocked_call_does_not_wait_for_readiness() -> None:

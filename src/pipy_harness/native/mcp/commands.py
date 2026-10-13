@@ -1,21 +1,33 @@
 """The ``/mcp`` command of a session (Pi ``registerCommand("mcp")``).
 
 ``/mcp`` prints one line per configured server. ``/mcp reconnect [server]``
-connects a server again. ``/mcp login`` and ``/mcp logout`` choose a server
-as Pi does; the sign-in is not built, so no server is eligible and they end
-with the message for that.
+connects a server again. ``/mcp login [server]`` signs in to a server that
+uses OAuth and ``/mcp logout [server]`` deletes its stored credentials.
 
 Nothing here touches a user interface. The command reports through
-``notify(level, message)``, asks through ``select(title, options)`` and is run
-on the session thread. A step that can take long (waiting for the startup
-connections, a reconnect) is handed to ``run_step``, which the session
-supplies so that Escape or an abort ends the waiting.
+``notify(level, message)``, asks through ``select(title, options)``, opens
+the browser of a sign-in through ``open_url(url)`` and is run on the session
+thread. A step that can take long (waiting for the startup connections, a
+reconnect, a sign-out) is handed to ``run_step``, which the session supplies
+so that Escape or an abort ends the waiting.
+
+Login. The sign-in runs on a thread of its own (``mcp-sign-in``), because
+it blocks until the browser came back, while everything the user sees
+happens on the session thread: the command waits, through ``run_step``, for
+the authorization URL, shows it as a notice and opens the browser, and
+waits again for the end of the sign-in. Ending either wait cancels the
+sign-in. Without ``open_url`` the session has no user interface to sign in
+with, and login says so.
 
 Different from Pi: the usage text for an unknown action is printed without
 waiting for the startup connections first. Pi's command cannot be
 interrupted. Here a wait can be: ``/mcp`` then prints the servers as they
 are, a subcommand is not run when the wait for the startup connections was
-ended, and a reconnect the user stops waiting for goes on in the background.
+ended, a reconnect or a sign-out the user stops waiting for goes on in the
+background, and a sign-in is cancelled. Login never asks for a pasted
+redirect URL: Pi asks through its input dialog where it has no terminal UI,
+and in the terminal through the sign-in screen of its ``/mcp`` manager,
+which pipy has not built yet.
 """
 
 from __future__ import annotations
@@ -32,11 +44,14 @@ from pipy_harness.native.mcp.config import (
     McpServerEntry,
     global_mcp_config_path,
 )
+from pipy_harness.native.mcp.credentials import McpRefreshLockTimeoutError
 from pipy_harness.native.mcp.manager import (
+    SIGN_IN_CANCELLED,
     McpManager,
     McpServerStatus,
     describe_state,
 )
+from pipy_harness.native.mcp.sign_in import wait_for_cancel
 
 MCP_COMMAND_NAME: Final = "mcp"
 MCP_COMMAND_DESCRIPTION: Final = (
@@ -52,6 +67,8 @@ NO_OAUTH_SERVER: Final = (
 NO_SERVER_TO_RECONNECT: Final = "No enabled MCP server to reconnect."
 _ACTIONS: Final = ("login", "logout", "reconnect")
 _WHITESPACE: Final = re.compile(r"\s+")
+# How often a wait of a login looks at what it waits for.
+_POLL_SECONDS: Final = 0.05
 
 Notify = Callable[[str, str], None]
 Select = Callable[[str, Sequence[str]], str | None]
@@ -92,11 +109,10 @@ def _exposure(entry: McpServerEntry) -> str:
 
 
 def _uses_oauth(status: McpServerStatus) -> bool:
-    """Whether ``login`` and ``logout`` can act on the server. On none
-    until the sign-in is built; then on those whose connection view has an
-    ``oauth_url``."""
+    """Whether ``login`` and ``logout`` can act on the server: an enabled
+    HTTP server that signs in with OAuth."""
 
-    return False
+    return status.connection is not None and status.connection.oauth_url is not None
 
 
 def _has_connection(status: McpServerStatus) -> bool:
@@ -197,6 +213,90 @@ def complete_mcp_arguments(
     )
 
 
+class _AuthorizationUrl:
+    """The prompt of a sign-in the session runs (``McpSignInPrompt``): it
+    keeps the authorization URL for the session thread, which shows it."""
+
+    def __init__(self) -> None:
+        self.shown = threading.Event()
+        self.url = ""
+
+    def show_authorization_url(self, url: str) -> None:
+        self.url = url
+        self.shown.set()
+
+    def prompt_for_redirect_url(self, cancel_event: threading.Event) -> str | None:
+        wait_for_cancel(cancel_event)
+        return None
+
+
+class _RunningSignIn:
+    """A sign-in of the manager on a thread of its own (``mcp-sign-in``),
+    and the waits of the session thread for it.
+
+    Both waits go through ``run_step``, so the user can end them; ending
+    one cancels the sign-in, whose result is then ``Sign-in cancelled.``
+    """
+
+    def __init__(self, manager: McpManager, name: str, run_step: RunStep) -> None:
+        self._run_step = run_step
+        self._prompt = _AuthorizationUrl()
+        self._cancel = threading.Event()
+        self._done = threading.Event()
+        self._failures: list[str | None] = []
+        self._stopped = False
+
+        def sign_in() -> None:
+            try:
+                self._failures.append(manager.sign_in(name, self._prompt, self._cancel))
+            except Exception as error:  # noqa: BLE001 - cross-thread capture: reported by the session thread
+                self._failures.append(f"Sign-in failed: {error}")
+            finally:
+                self._done.set()
+
+        threading.Thread(target=sign_in, name="mcp-sign-in", daemon=True).start()
+
+    def authorization_url(self) -> str | None:
+        """Wait for the URL the user has to open. ``None`` when the sign-in
+        ended without one, or the user stopped waiting."""
+
+        shown = self._prompt.shown
+        self._wait_for(shown)
+        if self._stopped or self._done.is_set() or not shown.is_set():
+            return None
+        return self._prompt.url
+
+    def result(self) -> str | None:
+        """Wait for the end of the sign-in: ``None`` when the server is
+        signed in to and connected, else what went wrong."""
+
+        if not self._stopped:
+            self._wait_for(self._done)
+        if self._stopped:
+            return SIGN_IN_CANCELLED
+        return self._failures[0]
+
+    def _wait_for(self, event: threading.Event) -> None:
+        """Wait for ``event`` or the end of the sign-in. When the user
+        stops waiting the sign-in is cancelled and counts as stopped."""
+
+        done = self._done
+
+        def wait(stop: threading.Event) -> None:
+            while not (event.is_set() or done.is_set()):
+                if stop.wait(_POLL_SECONDS):
+                    return
+
+        try:
+            finished = self._run_step(wait)
+        except BaseException:
+            self._cancel.set()
+            raise
+        if not finished or not (event.is_set() or done.is_set()):
+            self._cancel.set()
+            self._stopped = True
+
+
 class McpCommand:
     """``/mcp`` for one session."""
 
@@ -209,10 +309,13 @@ class McpCommand:
         select: Select,
         ensure_discovery: Callable[[], None],
         run_step: RunStep = run_step_inline,
+        open_url: Callable[[str], object] | None = None,
     ) -> None:
         """``ensure_discovery`` is ``McpDiscovery.ensure_active``, called
-        after a reconnect. ``select`` returns ``None`` when nothing was
-        chosen or nothing can be asked."""
+        after a reconnect and a sign-in. ``select`` returns ``None`` when
+        nothing was chosen or nothing can be asked. ``open_url`` opens the
+        authorization URL of a sign-in in the user's browser; ``None`` says
+        that the session has no user interface, and nobody can sign in."""
 
         self._manager = manager
         self._config_home = config_home
@@ -220,6 +323,7 @@ class McpCommand:
         self._select = select
         self._ensure_discovery = ensure_discovery
         self._run_step = run_step
+        self._open_url = open_url
 
     def complete(self, prefix: str) -> tuple[McpArgumentCompletion, ...] | None:
         return complete_mcp_arguments(self._manager.servers(), prefix)
@@ -255,8 +359,13 @@ class McpCommand:
             if server is not None:
                 self._reconnect(server)
             return
-        # login, logout: no server is eligible yet, so the pick reports it.
-        self._pick(name, _OAUTH_PICK)
+        server = self._pick(name, _OAUTH_PICK)
+        if server is None:
+            return
+        if action == "login":
+            self._login(server)
+        else:
+            self._logout(server)
 
     def _wait_for_startup(self) -> bool:
         """Pi ``await pending``; ``False`` when the user stopped waiting.
@@ -318,3 +427,61 @@ class McpCommand:
         status = next((s for s in manager.servers() if s.entry.name == name), None)
         state = "disabled" if status is None else describe_state(status)
         self._notify("info", f'Reconnected to MCP server "{name}" ({state}).')
+
+    def _tool_count(self, name: str) -> int:
+        status = next(
+            (s for s in self._manager.servers() if s.entry.name == name), None
+        )
+        view = None if status is None else status.connection
+        return 0 if view is None else len(view.tools)
+
+    def _login(self, name: str) -> None:
+        """Sign in to the server and report how it ended (Pi
+        ``loginCommand``)."""
+
+        open_url = self._open_url
+        if open_url is None:
+            self._notify(
+                "error",
+                f'Signing in to MCP server "{name}" requires interactive mode.',
+            )
+            return
+        sign_in = _RunningSignIn(self._manager, name, self._run_step)
+        url = sign_in.authorization_url()
+        if url is not None:
+            self._notify(
+                "info", f'Sign in to MCP server "{name}" in your browser:\n{url}'
+            )
+            open_url(url)
+        failure = sign_in.result()
+        if failure is not None:
+            self._notify("info" if failure == SIGN_IN_CANCELLED else "error", failure)
+            return
+        self._ensure_discovery()
+        self._notify(
+            "info",
+            f'Signed in to MCP server "{name}" ({self._tool_count(name)} tools).',
+        )
+
+    def _logout(self, name: str) -> None:
+        manager = self._manager
+        removed: list[bool] = []
+        try:
+            finished = self._run_step(
+                lambda cancel: removed.append(manager.sign_out(name))
+            )
+        except (ValueError, OSError, McpRefreshLockTimeoutError) as error:
+            self._notify("error", f'Could not sign out of MCP server "{name}": {error}')
+            return
+        if not finished:
+            self._notify(
+                "info",
+                f'Still signing out of MCP server "{name}". Run /mcp to see its state.',
+            )
+            return
+        self._notify(
+            "info",
+            f'Signed out of MCP server "{name}".'
+            if removed[0]
+            else f'No stored credentials for MCP server "{name}".',
+        )

@@ -129,6 +129,7 @@ from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import McpReadiness
+from pipy_harness.native.mcp.sign_in import open_browser
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -1107,6 +1108,8 @@ def _mcp_command(
             select=driver.select if driver is not None else _select_nothing,
             ensure_discovery=servers.discovery.ensure_active,
             run_step=run_step_inline if waiter is None else interruptible_steps(waiter),
+            # Signing in needs somebody at a terminal.
+            open_url=open_browser if extension.terminal_ui is not None else None,
         )
 
     command = McpSessionCommand(current)
@@ -2242,6 +2245,10 @@ def _assemble_session_wiring(
         extension_notify=_extension_notify,
         coding_session_control=collaborators.coding_session_control,
         mcp_waits=_mcp_waits(extension, _runtime_abort_event(inputs, loop_controller)),
+        before_turn=partial(
+            extension.mcp.before_turn,
+            _interrupt_waiter(extension, _runtime_abort_event(inputs, loop_controller)),
+        ),
         session_prompt_sections=extension.mcp.prompt_sections,
         run_prepared=extension.tool_capabilities.drop_pending_tools,
         compaction_event=_compaction_event,

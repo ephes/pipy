@@ -16,7 +16,10 @@ after another and the last one is built from the newest views.
 Locks, in the order they may be taken: the publication lock, the manager
 lock, a connection's lock, the capability state lock. The manager lock
 guards the server list and is never held while the manager calls a
-connection or publishes tools. ``close`` takes the publication lock, so it
+connection or publishes tools. The watch for sign-ins (below) has a lock of
+its own, which is taken with neither of the other two manager locks held;
+under it the manager reads a connection's ``state``, so it comes before a
+connection's lock. ``close`` takes the publication lock, so it
 must not be called by a thread that holds the capability state lock.
 
 Nothing here calls into a user interface. What the user should see is kept
@@ -64,12 +67,27 @@ as the server's tools; with no such server left they stay registered as
 OAuth. Every connection is given the manager's credential store, so a
 server that signs in with OAuth is sent its stored token. One that needs a
 sign-in is in the state ``needs-auth``; the startup report names it.
+``sign_in`` runs the sign-in of a server on its caller's thread and then
+connects the server again; ``sign_out`` deletes its credentials. ``close``
+cancels the sign-ins that are running and returns when they have ended.
 
-Not built yet: servers registered by extensions, and the sign-in.
+A sign-in made elsewhere, by ``pipy mcp login`` in a shell for example, is
+noticed through the credentials file. When a connection enters
+``needs-auth`` the manager remembers the server's stored tokens as they are
+at that moment; it forgets them when the connection leaves the state. A
+connection announces its changes on any thread and in any order, so each
+update of this watch reads the connection's state itself, under the watch's
+lock: whichever update runs last has seen the latest state.
+``take_signed_in``, which the session calls when a turn starts, names every
+such server whose stored tokens are different now, and ``reconnect_servers``
+connects them again.
+
+Not built yet: servers registered by extensions.
 """
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -105,6 +123,11 @@ from pipy_harness.native.mcp.servers_section import (
     McpServerListing,
     render_servers_section,
 )
+from pipy_harness.native.mcp.sign_in import (
+    McpSignInCancelledError,
+    McpSignInPrompt,
+    sign_in_mcp_server,
+)
 from pipy_harness.native.mcp.tools import (
     McpToolNames,
     McpToolPort,
@@ -116,6 +139,11 @@ from pipy_harness.native.tools.base import ToolPort
 _WORKER_JOIN_SECONDS: Final = 5.0
 # How often a wait looks at its cancel event and its deadline.
 _WAIT_POLL_SECONDS: Final = 0.05
+# What ``sign_in`` returns for a sign-in that was cancelled.
+SIGN_IN_CANCELLED: Final = "Sign-in cancelled."
+# Stands for the stored tokens of a server while the credentials file cannot
+# be read.
+_UNREADABLE_TOKENS: Final = "unreadable"
 
 # Replaces the session's MCP tools and returns the names that were left out
 # because another tool has them (``NativeToolCapabilities.publish_mcp_tools``).
@@ -261,6 +289,16 @@ class _Server:
         self.source: tuple[tuple[JsonObject, ...], str | None] | None = None
 
 
+class _SignIn:
+    """A sign-in that is running: how to cancel it, and when it has ended."""
+
+    __slots__ = ("cancel", "done")
+
+    def __init__(self, cancel: threading.Event) -> None:
+        self.cancel = cancel
+        self.done = threading.Event()
+
+
 class McpManager:
     """The servers of one session. Start once, close once."""
 
@@ -329,6 +367,13 @@ class McpManager:
         # attempt replaced on their server; ``close`` sets them all.
         self._unsettled: set[threading.Event] = set()
         self._reported: set[str] = set()
+        # The sign-ins that are running; ``close`` cancels them.
+        self._sign_ins: set[_SignIn] = set()
+        # The connections that need a sign-in, each with the server's stored
+        # tokens (as JSON) at the time it began to need one. Guarded by the
+        # watch lock, under which a connection's state is read too.
+        self._watch = threading.Lock()
+        self._tokens_at_sign_in: dict[McpServerConnection, str] = {}
 
     # -- lifecycle --------------------------------------------------------
 
@@ -361,15 +406,18 @@ class McpManager:
     def close(self) -> None:
         """Close every connection, also one that is still connecting.
 
-        Returns when no transport of any server is open. Afterwards nothing
-        is published any more and a call to a tool of these servers fails.
-        Every caller waits, also when another thread closed first.
+        Returns when no transport of any server is open and no sign-in is
+        running: a sign-in is cancelled, and waited for, since it may be
+        saving tokens. Afterwards nothing is published any more and a call
+        to a tool of these servers fails. Every caller waits, also when
+        another thread closed first.
         """
 
         with self._publication:
             with self._lock:
                 self._closed = True
                 self._shutdown.set()
+                sign_ins = list(self._sign_ins)
                 servers, self._servers = self._servers, []
                 unsettled, self._unsettled = self._unsettled, set()
                 self._retired.extend(
@@ -379,6 +427,11 @@ class McpManager:
                 )
                 retired = list(self._retired)
                 worker = self._worker
+        for running in sign_ins:
+            running.cancel.set()
+        with self._watch:
+            # ``_shutdown`` is set: nothing is noted from here on.
+            self._tokens_at_sign_in.clear()
         closers = [
             threading.Thread(target=connection.close, name="mcp-close", daemon=True)
             for connection in retired[1:]
@@ -389,6 +442,8 @@ class McpManager:
             retired[0].close()
         for closer in closers:
             closer.join()
+        for running in sign_ins:
+            running.done.wait()
         for ready in unsettled:
             ready.set()
         self._startup_done.set()
@@ -569,6 +624,194 @@ class McpManager:
         self._events.put((server, ready))
         self._wait(ready)
         return failure
+
+    def sign_in(
+        self,
+        name: str,
+        prompt: McpSignInPrompt,
+        cancel_event: threading.Event | None = None,
+    ) -> str | None:
+        """Sign in to the server, then connect it again (Pi ``signIn``).
+
+        Blocks its caller until both are done and returns ``None``, or what
+        went wrong: ``Sign-in cancelled.``, ``Sign-in failed: <error>``, or
+        ``Signed in, but <error>`` when the connect failed afterwards.
+        ``prompt`` is used as ``sign_in.py`` describes. Setting
+        ``cancel_event`` cancels the sign-in at any step, and so does
+        ``close``, which sets that event too.
+        """
+
+        running = _SignIn(threading.Event() if cancel_event is None else cancel_event)
+        with self._lock:
+            if self._closed:
+                return SIGN_IN_CANCELLED
+            server = self._find(name)
+            if server is None:
+                return _no_server(name)
+            connection = server.connection
+            credentials = self._credentials
+            url = None if connection is None else connection.oauth_url
+            if connection is None or url is None or credentials is None:
+                return f'MCP server "{name}" does not use OAuth.'
+            self._sign_ins.add(running)
+        try:
+            sign_in_mcp_server(
+                server_url=url,
+                store=credentials.for_server(name, url),
+                settings=connection.oauth_settings(),
+                challenge=connection.challenge,
+                prompt=prompt,
+                cancel_event=running.cancel,
+            )
+        except McpSignInCancelledError:
+            return SIGN_IN_CANCELLED
+        except Exception as error:  # noqa: BLE001 - the message is the result
+            return f"Sign-in failed: {_error_message(error)}"
+        finally:
+            with self._lock:
+                self._sign_ins.discard(running)
+            running.done.set()
+        if self._shutdown.is_set():
+            # The session ended meanwhile; nothing is connected any more.
+            return SIGN_IN_CANCELLED
+        # The challenge that asked for this sign-in is answered.
+        connection.clear_challenge()
+        failure = self.reconnect(name)
+        return None if failure is None else f"Signed in, but {failure}"
+
+    def sign_out(self, name: str) -> bool:
+        """Delete the server's stored credentials and drop its connection,
+        which then needs a sign-in (Pi ``signOut``). Returns whether there
+        were credentials; ``False`` also for a server without OAuth.
+
+        The credentials are deleted under the server's refresh lock, so a
+        token refresh that is running has saved its tokens before and none
+        is saved afterwards. Raises ``ValueError`` or ``OSError`` when the
+        credentials file cannot be read or written, and
+        ``McpRefreshLockTimeoutError`` when a refresh held that lock for too
+        long; the connection is left alone then.
+        """
+
+        with self._lock:
+            server = self._find(name)
+            connection = None if server is None else server.connection
+            credentials = self._credentials
+        url = None if connection is None else connection.oauth_url
+        if connection is None or url is None or credentials is None:
+            return False
+        removed = credentials.remove(name, url)
+        connection.sign_out()
+        return removed
+
+    def awaits_sign_in(self) -> bool:
+        """Whether a server needs a sign-in and is watched for one made
+        elsewhere."""
+
+        with self._watch:
+            return bool(self._tokens_at_sign_in)
+
+    def take_signed_in(self) -> tuple[str, ...]:
+        """The servers that need a sign-in and whose stored tokens changed
+        since they began to need one: somebody signed in, in another
+        process. Each is named once; the caller connects them again
+        (``reconnect_servers``).
+
+        Returns at once when no server needs a sign-in; else it reads the
+        credentials file.
+        """
+
+        with self._watch:
+            waiting = list(self._tokens_at_sign_in.items())
+        if not waiting:
+            return ()
+        with self._lock:
+            names = {
+                server.connection: server.entry.name
+                for server in self._servers
+                if server.connection is not None
+            }
+        signed_in: list[str] = []
+        for connection, tokens in waiting:
+            name = names.get(connection)
+            stored = self._stored_tokens(connection)
+            with self._watch:
+                if self._tokens_at_sign_in.get(connection) != tokens:
+                    # Forgotten or noted again since the list was read.
+                    continue
+                current = name is not None and connection.state == "needs-auth"
+                if current and stored == tokens:
+                    continue
+                del self._tokens_at_sign_in[connection]
+            if current and name is not None:
+                signed_in.append(name)
+        return tuple(signed_in)
+
+    def reconnect_servers(
+        self, names: Collection[str], cancel_event: threading.Event | None = None
+    ) -> bool:
+        """Connect the named servers again, all at the same time. Returns
+        whether all of them are done; ``False`` when ``cancel_event`` was
+        set first, after which the reconnects go on."""
+
+        reconnects = [
+            threading.Thread(
+                target=self.reconnect, args=(name,), name="mcp-reconnect", daemon=True
+            )
+            for name in names
+        ]
+        for reconnect in reconnects:
+            reconnect.start()
+        for reconnect in reconnects:
+            while reconnect.is_alive():
+                if cancel_event is not None and cancel_event.is_set():
+                    return False
+                reconnect.join(_WAIT_POLL_SECONDS)
+        return True
+
+    def reconnect_signed_in(self, cancel_event: threading.Event | None = None) -> bool:
+        """Connect again every server somebody signed in to elsewhere (Pi
+        ``reconnectSignedIn``). Returns whether there was one and all are
+        done."""
+
+        names = self.take_signed_in()
+        return bool(names) and self.reconnect_servers(names, cancel_event)
+
+    def _stored_tokens(self, connection: McpServerConnection) -> str:
+        """The stored tokens of the connection's server, as text to compare."""
+
+        url = connection.oauth_url
+        if url is None or self._credentials is None:
+            return "null"
+        try:
+            tokens = self._credentials.tokens(connection.name, url)
+        except (ValueError, OSError):
+            return _UNREADABLE_TOKENS
+        return json.dumps(tokens, sort_keys=True)
+
+    def _note_sign_in_state(self, connection: McpServerConnection) -> None:
+        """Remember the stored tokens of a connection that began to need a
+        sign-in, and forget those of one that no longer does (Pi
+        ``onConnectionChange``). Called on the thread that changed the
+        connection.
+
+        The connection's state is read under the watch lock, in the step
+        that acts on it, so an update that was overtaken by a later change
+        cannot undo what the later update did.
+        """
+
+        with self._watch:
+            if self._shutdown.is_set():
+                return
+            if connection.state != "needs-auth":
+                self._tokens_at_sign_in.pop(connection, None)
+                return
+            if connection in self._tokens_at_sign_in:
+                return
+        # The file is read without a lock.
+        tokens = self._stored_tokens(connection)
+        with self._watch:
+            if not self._shutdown.is_set() and connection.state == "needs-auth":
+                self._tokens_at_sign_in.setdefault(connection, tokens)
 
     def set_enabled(
         self, name: str, enabled: bool, *, in_project: bool = False
@@ -806,8 +1049,10 @@ class McpManager:
         self._events.put((server, ready))
 
     def _changed(self, server: _Server, connection: McpServerConnection) -> None:
-        """A connection's callback: any thread, so it only leaves a note."""
+        """A connection's callback: any thread, so it only leaves a note,
+        after it looked whether the connection needs a sign-in."""
 
+        self._note_sign_in_state(connection)
         self._events.put((server, None))
 
     def _run(self) -> None:

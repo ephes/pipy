@@ -1364,7 +1364,8 @@ in three commits:
   paragraph.
 
 Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
-`shell_cli.py`; the session's part follows in its own commit):
+`shell_cli.py`; then, in a second commit, the session's part in
+`manager.py`, `commands.py`, `repl/mcp_session.py` and the agent loop):
 
 - `sign_in_mcp_server(server_url=, store=, settings=, prompt=, challenge=,
   cancel_event=, fetch=)` is Pi's `signInMcpServer`, with
@@ -1396,6 +1397,63 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
   `--oauth-callback-port`, as a decimal number.
 - Fixture: `FakeOAuthMcpServer` logs `register` and has `response_iss` (the
   `iss` option of Pi's `startOAuthMcpServer`).
+- `McpManager.sign_in(name, prompt, cancel_event=None)` is Pi's `signIn`: it
+  blocks its caller and returns `None` or the message (`Sign-in cancelled.`,
+  `Sign-in failed: <error>`, `Signed in, but <error>`, `MCP server "<n>"
+  does not use OAuth.`). `sign_out(name)` is Pi's `signOut`. `close()` sets
+  the cancel event of every running sign-in (the caller's own event, so no
+  second event is needed) and returns when they have ended (SES-17,
+  OAU-28).
+- SES-18. The manager keeps Pi's `tokensAtSignIn`: a connection's callback
+  notes the server's stored tokens when the connection is in `needs-auth`
+  and forgets them otherwise; it reads the connection's state itself, so the
+  order in which two changes are announced does not matter. `take_signed_in()`
+  names the servers whose stored tokens differ now and `reconnect_servers`
+  connects them at the same time (Pi `reconnectSignedIn`); a note that went
+  stale is dropped there. A credentials file that cannot be read counts as
+  a value of its own.
+- The turn-start hook. Pi's `turn_start` handler has no place in pipy's
+  extension events for built-in MCP, so the agent loop gained
+  `before_turn: Callable[[], AgentCancellationReason | None]`, called at the
+  top of every iteration before the turn's tools are read; a reason it
+  returns ends the run as a request source does that found it cancelled.
+  The session passes `McpSession.before_turn`, which looks at the
+  credentials file only while a server needs a sign-in, runs the reconnects
+  under the session's interrupt waiter and returns `OPERATOR_ABORT` for
+  Escape, Ctrl-C or an abort; then `ensure_active` (S19) is called. Pi's
+  handler cannot be interrupted.
+- `/mcp login`. `McpCommand(open_url=)` is the UI a sign-in needs: `None`
+  (a session without a terminal UI) answers `Signing in to MCP server "<n>"
+  requires interactive mode.` With one, the sign-in runs on a thread
+  `mcp-sign-in` while the session thread waits twice through `run_step`,
+  for the authorization URL and for the end; in between it shows the URL as
+  a notice and opens the browser, so every UI call stays on the session
+  thread. Ending either wait cancels the sign-in.
+- Not done in S31, left to S34 (MGR-09): the pasted redirect URL in a
+  session. Pi asks through `ctx.ui.input` where it has a UI without the TUI
+  (RPC mode, which in pipy runs no slash command, see S21) and through the
+  manager's sign-in screen in the TUI. pipy's input dialog can neither be
+  closed when the browser arrives first nor take a bracketed paste, so
+  `/mcp login` in the terminal waits for the browser only and its prompt is
+  `wait_for_cancel`. S34 replaces that prompt with the sign-in screen;
+  `prompt_for_redirect_url` is where the pasted URL arrives. Until then a
+  user whose browser cannot reach the machine uses `pipy mcp login` in a
+  terminal, and the session picks the sign-in up.
+- `/mcp logout` runs `sign_out` through `run_step`; a credentials file that
+  cannot be read is reported as `Could not sign out of MCP server "<n>":
+  <reason>` (Pi's command would fail).
+- Stricter than Pi, after the review: `McpOAuthCredentialStore.remove` holds
+  the server's refresh lock, for `/mcp logout` and `pipy mcp logout`. In Pi
+  a refresh that is answered after a sign-out saves its tokens, the stored
+  tokens then differ from the ones noted for the `needs-auth` server, and
+  the next turn connects it again. A lock that is held for the whole wait
+  (25 s) is `McpRefreshLockTimeoutError`, reported like an unreadable file.
+- The sign-in watch has a lock of its own (`McpManager._watch`), taken with
+  neither the publication lock nor the manager lock held, so the rule that
+  the manager lock is never held while a connection is called stands (S17's
+  lock-order test). Its updates (`_note_sign_in_state`, `take_signed_in`)
+  read `connection.state` under it: an update that read the state before
+  taking the lock could delete what a later change had noted.
 
 Open after the merge, owned by later slices:
 

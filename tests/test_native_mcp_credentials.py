@@ -398,3 +398,46 @@ def test_another_process_is_kept_out_and_its_lock_is_free_when_it_dies(
         process.wait(_WAIT_SECONDS)
         assert process.stdout is not None
         process.stdout.close()
+
+
+def test_remove_waits_for_a_refresh_that_is_running(tmp_path: Path) -> None:
+    # A sign-out is not undone by a refresh that ends after it: the tokens
+    # the refresh saves are deleted too.
+    store = McpOAuthCredentialStore(mcp_auth_path(tmp_path / "home"))
+    other = McpOAuthCredentialStore(store.path)
+    refreshing = other.for_server("work", _SERVER_URL)
+    refreshing.save(_state("old-token"))
+    removed: list[bool] = []
+    remover = threading.Thread(
+        target=lambda: removed.append(store.remove("work", _SERVER_URL))
+    )
+
+    with refreshing.refresh_lock():
+        remover.start()
+        remover.join(0.3)
+        # The entry is still there: the refresh has not saved yet.
+        assert remover.is_alive()
+        assert _access_token(refreshing.load()) == "old-token"
+        refreshing.save(_state("new-token"))
+    remover.join(_WAIT_SECONDS)
+
+    assert removed == [True]
+    assert refreshing.load() is None
+    assert _lock_files(store.path.parent) == []
+
+
+def test_remove_gives_up_when_a_refresh_holds_the_lock_too_long(
+    tmp_path: Path,
+) -> None:
+    store = McpOAuthCredentialStore(
+        mcp_auth_path(tmp_path / "home"), lock_wait_ms=100, lock_retry_ms=10
+    )
+    held = McpOAuthCredentialStore(store.path).for_server("work", _SERVER_URL)
+    held.save(_state("token"))
+
+    with held.refresh_lock():
+        with pytest.raises(McpRefreshLockTimeoutError):
+            store.remove("work", _SERVER_URL)
+
+    # Nothing was deleted.
+    assert _access_token(held.load()) == "token"

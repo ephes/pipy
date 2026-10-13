@@ -6,7 +6,9 @@ HTTP with its configured headers, its tools are called like any other, a
 server that forgot its session gets a new one in the middle of the session
 (CON-12), and the session's end closes the connection. A server that signs
 in with OAuth is sent the token stored for it, refreshed when the server
-rejects it, and is reported once when it needs a sign-in (S30).
+rejects it, and is reported once when it needs a sign-in (S30). A sign-in
+made by ``pipy mcp login`` while the session runs is used from the next
+turn on, and ``/mcp logout`` deletes the credentials (S31).
 """
 
 from __future__ import annotations
@@ -38,12 +40,13 @@ from pipy_harness.native.mcp.credentials import (
     McpOAuthCredentialStore,
     mcp_auth_path,
 )
+from pipy_harness.native.mcp.shell_cli import McpCommandOptions, run_mcp_command
 from pipy_harness.native.models import ProviderToolCall
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 
 from mcp_fake_http_server import FakeMcpHttpServer  # noqa: E402
-from mcp_fake_oauth import FakeOAuthMcpServer  # noqa: E402
+from mcp_fake_oauth import FakeBrowser, FakeOAuthMcpServer  # noqa: E402
 
 _SCENARIO: dict[str, Any] = {
     "tools": [_SEARCH, _WIPE],
@@ -193,4 +196,123 @@ def test_an_oauth_server_nobody_signed_in_to_is_reported_once(
         # One request without a token; no browser, no registration.
         assert server.paths == ["/mcp"]
         assert not mcp_auth_path(config).exists()
+        _wait_until(lambda: _mcp_threads(before) == [])
+
+
+def test_uses_credentials_from_pipy_mcp_login_on_the_next_turn(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Pi: "uses credentials from pi mcp login on the next turn". SES-18.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    before = set(threading.enumerate())
+    with FakeOAuthMcpServer() as server:
+        _write_mcp_json(
+            config / "mcp.json", {"issues": {"url": server.url, "exposure": "direct"}}
+        )
+        output: list[str] = []
+
+        def login() -> None:
+            # The agent runs `pipy mcp login issues` through bash; the user
+            # approves in the browser.
+            status = run_mcp_command(
+                ["login", "issues"],
+                McpCommandOptions(
+                    cwd=workspace,
+                    config_home=config,
+                    client_version="0.0.0-test",
+                    log=output.append,
+                    error=output.append,
+                    open_url=lambda url: FakeBrowser().open(url),
+                ),
+            )
+            assert status == 0, output
+
+        provider = _Provider(
+            [
+                login,
+                # The model does not have the tool in this turn yet.
+                _result(tool_calls=(_whoami("c0"),)),
+                _result(tool_calls=(_whoami("c1"),)),
+                _result(final_text="done"),
+            ]
+        )
+
+        status, errors = _run(workspace, provider)
+
+        assert status is HarnessStatus.SUCCEEDED, errors
+        assert output[-1] == 'Signed in to MCP server "issues" (1 tools).'
+        # The session waited for a sign-in, and reconnected when the next
+        # turn started: that turn's request declares the tool.
+        assert "mcp__issues__whoami" not in _tool_names(provider.requests[0])
+        assert _tool_names(provider.requests[1])[-1] == "mcp__issues__whoami"
+        tokens = McpOAuthCredentialStore(mcp_auth_path(config)).tokens(
+            "issues", server.url
+        )
+        assert tokens is not None
+        answered = _tool_results(provider.requests[2])[-1]
+        assert (answered.is_error, answered.content.value) == (
+            False,
+            f"token {tokens['access_token']}",
+        )
+        assert _tool_results(provider.requests[1])[-1].is_error
+        _wait_until(lambda: _mcp_threads(before) == [])
+
+
+def test_logout_in_a_session_and_login_only_with_a_terminal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Pi: "signs in through the browser, refreshes expired tokens, and signs
+    # out" (the sign-out). SLH-04: a session without a terminal cannot sign
+    # in.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    before = set(threading.enumerate())
+    with FakeOAuthMcpServer() as server:
+        _write_mcp_json(
+            config / "mcp.json", {"issues": {"url": server.url, "exposure": "direct"}}
+        )
+        store = McpOAuthCredentialStore(mcp_auth_path(config))
+        token = _sign_in(server, store.for_server("issues", server.url))
+        provider = _Provider(
+            [
+                _result(tool_calls=(_whoami("c1"),)),
+                _result(final_text="one"),
+                _result(tool_calls=(_whoami("c2"),)),
+                _result(final_text="two"),
+            ]
+        )
+
+        status, errors = _run(
+            workspace,
+            provider,
+            "go\n/mcp logout issues\n/mcp logout\n/mcp login issues\n/mcp\nagain\n",
+        )
+
+        assert status is HarnessStatus.SUCCEEDED, errors
+        signed_out = errors.index('Signed out of MCP server "issues".')
+        nothing = errors.index(
+            'No stored credentials for MCP server "issues".', signed_out
+        )
+        refused = errors.index(
+            'Signing in to MCP server "issues" requires interactive mode.', nothing
+        )
+        assert errors.index(
+            "issues: needs sign-in, run /mcp login issues (direct)", refused
+        )
+        assert store.tokens("issues", server.url) is None
+        first = _tool_results(provider.requests[1])[-1]
+        assert (first.is_error, first.content.value) == (False, f"token {token}")
+        # The tool is still declared, and a call says what to do.
+        second = _tool_results(provider.requests[3])[-1]
+        assert (second.is_error, second.content.value) == (
+            True,
+            'MCP server "issues" requires sign-in. Run /mcp to sign in.',
+        )
+        # The refused login contacted nobody.
+        assert server.log == ["register", "token code", f"call {token}", "401 none"]
         _wait_until(lambda: _mcp_threads(before) == [])

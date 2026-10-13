@@ -812,6 +812,7 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         composite_runner=CodemodeCompositeRunner(),
         nested_eligibility=scope.execution_projections,
         tool_readiness=scope.mcp_waits.before_tool_call,
+        before_turn=scope.before_turn,
     )
 
 

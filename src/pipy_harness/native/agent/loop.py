@@ -232,6 +232,15 @@ def _validate_preparation_failure(failure: object) -> None:
     AgentFailure.__post_init__(failure)
 
 
+TurnStartHook = Callable[[], AgentCancellationReason | None]
+"""Product-owned work at the start of every turn.
+
+Called on the loop's thread before the turn's tools are read, so tools it
+makes available are declared to this turn. A reason it returns cancels the
+run at this turn, as a request source does that finds the run cancelled.
+"""
+
+
 @runtime_checkable
 class AgentLoopRequestSource(Protocol):
     """Apply product request and compaction policy for one provider turn."""
@@ -397,6 +406,7 @@ class AgentLoop:
         composite_runner: AgentCompositeToolRunner | None = None,
         nested_eligibility: NestedToolEligibility | None = None,
         tool_readiness: ToolReadinessWaiter | None = None,
+        before_turn: TurnStartHook | None = None,
     ) -> None:
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
@@ -414,6 +424,8 @@ class AgentLoop:
             raise TypeError("tool_waiter must be callable or None")
         if tool_readiness is not None and not callable(tool_readiness):
             raise TypeError("tool_readiness must be callable or None")
+        if before_turn is not None and not callable(before_turn):
+            raise TypeError("before_turn must be callable or None")
         self._request_source = request_source
         self._provider_turn = provider_turn
         self._tools = tool_capabilities
@@ -426,6 +438,7 @@ class AgentLoop:
         self._composite_runner = composite_runner
         self._nested_eligibility = nested_eligibility
         self._tool_readiness = tool_readiness
+        self._before_turn = before_turn
 
     def run(self, run_input: AgentLoopRunInput) -> AgentLoopOutcome:
         if type(run_input) is not AgentLoopRunInput:
@@ -475,6 +488,16 @@ class AgentLoop:
             provider_status=state.provider_status,
         )
 
+    def _turn_starts(self) -> AgentCancellationReason | None:
+        """Run the turn-start hook; the reason when it cancelled the run."""
+
+        if self._before_turn is None:
+            return None
+        cancelled = self._before_turn()
+        if cancelled is not None and type(cancelled) is not AgentCancellationReason:
+            raise TypeError("before_turn must return AgentCancellationReason or None")
+        return cancelled
+
     def _emit_consumed_input(self, run_input: AgentLoopRunInput) -> None:
         queued_input = run_input.accepted_queued_input
         if queued_input is None:
@@ -490,19 +513,27 @@ class AgentLoop:
         active_input: AgentActiveInput,
         turn_index: int,
     ) -> _IterationDisposition:
+        cancelled = self._turn_starts()
         definitions = _validate_tool_definitions(self._tools.definitions())
         system_message = self._system_update(
             state, definitions, active_input.accepted_message
         )
-        preparation = self._request_source.prepare(
-            state.history,
-            (
-                active_input
-                if system_message is None
-                else replace(active_input, turn_system_message=system_message)
-            ),
-            turn_index,
-            definitions,
+        preparation = (
+            self._request_source.prepare(
+                state.history,
+                (
+                    active_input
+                    if system_message is None
+                    else replace(active_input, turn_system_message=system_message)
+                ),
+                turn_index,
+                definitions,
+            )
+            if cancelled is None
+            # As a request source that found the run cancelled.
+            else AgentLoopRequestPreparation(
+                state.history, cancellation_reason=cancelled
+            )
         )
         _validate_request_preparation(preparation)
         _validate_accepted_message_anchor(
