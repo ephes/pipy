@@ -92,6 +92,9 @@ Pipy intentionally removed earlier pipy-only command wrappers such as `/clear`,
 `/status`, `/help`, `/theme`, and `/template`; use `/new`, `/session`,
 `/hotkeys`, `/settings`, and template-specific slash commands instead.
 
+Missing, unreadable or invalid UTF-8 changelog resources do not block startup.
+`/changelog` reports no entries when release notes are unavailable.
+
 ## Message queue and cancellation
 
 During an active turn, pipy supports Pi-style steering and follow-up delivery:
