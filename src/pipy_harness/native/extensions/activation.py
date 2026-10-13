@@ -25,6 +25,7 @@ from pipy_harness.native.extension_types import (
     REASON_DUPLICATE_COMMAND,
     REASON_DUPLICATE_ENTRY_RENDERER,
     REASON_DUPLICATE_FLAG,
+    REASON_DUPLICATE_MCP_SERVER,
     REASON_DUPLICATE_MESSAGE_RENDERER,
     REASON_DUPLICATE_PROVIDER,
     REASON_DUPLICATE_SHORTCUT,
@@ -69,6 +70,7 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
     RegisteredShortcut,
     _activation_message_routings,
+    _batch_mcp_servers,
     _ExtensionRuntime,
     _PendingActivationHost,
 )
@@ -96,6 +98,13 @@ from pipy_harness.native.extensions.provider_normalization import (
 )
 from pipy_harness.native.extensions.tool_normalization import (
     _normalize_extension_tool,
+)
+from pipy_harness.native.mcp.registry import (
+    McpServerRegistrationError,
+    McpServerRegistry,
+    RegisteredMcpServer,
+    registration_conflict,
+    validated_registration,
 )
 
 # Event names (the dispatched subset grows per slice).
@@ -143,6 +152,7 @@ class _FrozenActivation:
     message_renderers: tuple[RegisteredMessageRenderer, ...]
     entry_renderers: tuple[RegisteredEntryRenderer, ...]
     tool_renderers: tuple[ToolRendererResolver, ...]
+    mcp_servers: tuple[RegisteredMcpServer, ...]
     hooks: Mapping[str, tuple[HookHandler, ...]]
     user_messages: tuple[QueuedUserMessage, ...]
     custom_messages: tuple[QueuedCustomMessage, ...]
@@ -328,8 +338,20 @@ class _ActivationApi:
         taken_entry_renderers: frozenset[str] = frozenset(),
         guard: AbstractContextManager[object] | None = None,
         boundary_observer: Callable[[str], None] | None = None,
+        extension_path: str | None = None,
+        mcp_servers: McpServerRegistry | None = None,
     ) -> None:
         self._extension_name = extension_name
+        # What names this extension as the owner of its MCP servers, and
+        # what makes it the owner: two extensions can have one label.
+        self._extension_path = extension_path or extension_name
+        self._mcp_owner = object()
+        # The registry of the extensions that load together. Servers are
+        # staged while this extension loads and registered in it afterwards.
+        self._mcp_servers = (
+            mcp_servers if mcp_servers is not None else McpServerRegistry()
+        )
+        self._staged_mcp_servers: dict[str, RegisteredMcpServer] = {}
         self._guard: AbstractContextManager[object] = (
             guard if guard is not None else threading.RLock()
         )
@@ -692,8 +714,14 @@ class _ActivationApi:
             raise ExtensionCapabilityError("extension activation is unavailable")
         with self._guard:
             snapshot = self._frozen_activation
-            if snapshot is None or not self._transition_locked("committed"):
+            if snapshot is None or not self._allows_transition_locked("committed"):
                 raise ExtensionCapabilityError("extension activation is unavailable")
+            # In the step that lets the MCP methods change the registry: a
+            # call that finds the host committed finds its servers loaded.
+            # A refused load leaves the host sealed.
+            self._mcp_servers.load(snapshot.mcp_servers)
+            if not self._transition_locked("committed"):
+                raise AssertionError("validated activation host did not commit")
             self._activated = True
         # The one seal-time snapshot is authoritative. Sends racing after seal
         # are silent no-ops, so finalization flushes exactly these messages once.
@@ -920,6 +948,65 @@ class _ActivationApi:
             self._require_open_registration()
             self._staged_tool_renderers.append(resolver)
 
+    def register_mcp_server(self, name: str, config: Mapping[str, object]) -> None:
+        """Add an MCP server for the session (Pi ``registerMcpServer``).
+
+        ``config`` is an ``mcpServers`` entry of ``mcp.json``. A server
+        registered while the extension loads connects when the session
+        starts; one registered later connects at once. Registering a name
+        again replaces this extension's registration. Raises
+        ``McpServerRegistrationError`` for an invalid name or entry, a name
+        another extension registered and a name that differs from a
+        registered one only in ``-`` and ``_``; the extension goes on when
+        it catches the error.
+        """
+
+        server = validated_registration(
+            name, config, self._extension_path, self._mcp_owner
+        )
+        with self._guard:
+            registry = self._mcp_registry_locked()
+            if self._state == "open":
+                conflict = registration_conflict(
+                    server, [*registry.list(), *self._staged_mcp_servers.values()]
+                )
+                if conflict is not None:
+                    raise McpServerRegistrationError(conflict)
+                self._staged_mcp_servers[server.name] = server
+                return
+        registry.register(server)
+
+    def unregister_mcp_server(self, name: str) -> None:
+        """Remove an MCP server this extension registered and close its
+        connection (Pi ``unregisterMcpServer``). Another extension's server
+        and an unknown name are left alone."""
+
+        with self._guard:
+            registry = self._mcp_registry_locked()
+            if self._state == "open":
+                self._staged_mcp_servers.pop(name, None)
+                return
+        registry.unregister(name, self._mcp_owner)
+
+    def get_mcp_servers(self) -> list[RegisteredMcpServer]:
+        """Copies of the MCP servers extensions registered, in order (Pi
+        ``getMcpServers``). While the extension loads, its own registrations
+        are not among them yet."""
+
+        with self._guard:
+            registry = self._mcp_registry_locked()
+        # Without the owner tokens, which are the registry's business.
+        return [replace(server, owner=None) for server in registry.list()]
+
+    def _mcp_registry_locked(self) -> McpServerRegistry:
+        """The registry, while the extension loads or is loaded. Between
+        the two (a pending extension before its project is trusted) and
+        after disposal nothing can be registered."""
+
+        if self._state not in ("open", "committed", "published"):
+            raise ExtensionCapabilityError("extension activation is unavailable")
+        return self._mcp_servers
+
     def register_command(
         self,
         name: str,
@@ -1055,6 +1142,7 @@ class _ActivationApi:
                 message_renderers=tuple(self._staged_message_renderers.values()),
                 entry_renderers=tuple(self._staged_entry_renderers.values()),
                 tool_renderers=tuple(self._staged_tool_renderers),
+                mcp_servers=tuple(self._staged_mcp_servers.values()),
                 hooks=MappingProxyType(
                     {event: tuple(handlers) for event, handlers in self._hooks.items()}
                 ),
@@ -1096,6 +1184,7 @@ class _ActivationApi:
         self._staged_message_renderers = {}
         self._staged_entry_renderers = {}
         self._staged_tool_renderers = []
+        self._staged_mcp_servers = {}
         self._staged_messages = []
         self._staged_custom_messages = []
         self._frozen_activation = None
@@ -1202,6 +1291,7 @@ def activate_extensions(
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
     message_routing: GenerationMessageRouting | None = None,
+    mcp_servers: McpServerRegistry | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
@@ -1215,6 +1305,7 @@ def activate_extensions(
     `message_outbox` is the shared list that `api.send_user_message`
     appends to; the session drains it with `drain_user_messages`. When
     omitted, a private outbox is used (messages are simply unread).
+    `mcp_servers` is the registry `api.register_mcp_server` registers in.
     """
 
     batch = activate_extension_batch(
@@ -1224,6 +1315,7 @@ def activate_extensions(
         message_outbox=message_outbox,
         custom_message_outbox=custom_message_outbox,
         message_routing=message_routing,
+        mcp_servers=mcp_servers,
         diagnostic=diagnostic,
     )
     return list(batch.activated)
@@ -1308,11 +1400,19 @@ def activate_extension_batch(
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
     message_routing: GenerationMessageRouting | None = None,
+    mcp_servers: McpServerRegistry | None = None,
     preloaded: ExtensionActivationBatch | None = None,
     pending: bool = False,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ExtensionActivationBatch:
-    """Activate once, or finalize a pending pre-trust batch in final order."""
+    """Activate once, or finalize a pending pre-trust batch in final order.
+
+    The extensions of one batch register MCP servers in one registry, which
+    a final batch takes over from its pending batch. A server is in it once
+    its extension's activation was committed, so an extension that loads
+    later is refused a name an earlier one has; among pending extensions
+    that is decided when they are finalized, and disables the later one.
+    """
 
     if preloaded is not None and not preloaded.pending:
         raise ValueError("preloaded extension batch is already finalized")
@@ -1342,6 +1442,7 @@ def activate_extension_batch(
         supplied=message_routing or retained_routing,
         required=retained_routing,
     )
+    mcp_servers = _batch_mcp_servers(preloaded, mcp_servers)
     results: list[ActivatedExtension] = []
     preloaded_by_key = (
         {
@@ -1368,6 +1469,7 @@ def activate_extension_batch(
                     reserved=reserved,
                     reserved_tools=reserved_tools,
                     taken=taken,
+                    mcp_servers=mcp_servers,
                     diagnostic=diagnostic,
                 )
                 results.append(reused)
@@ -1386,6 +1488,7 @@ def activate_extension_batch(
                 outbox=outbox,
                 custom_outbox=custom_outbox,
                 message_routing=routing,
+                mcp_servers=mcp_servers,
                 commit_activation=not pending,
                 diagnostic=diagnostic,
             )
@@ -1409,6 +1512,7 @@ def activate_extension_batch(
         custom_message_outbox=custom_outbox,
         pending=pending,
         message_routing=routing,
+        mcp_servers=mcp_servers,
     )
 
 
@@ -1462,6 +1566,7 @@ def _finalize_preloaded_extension(
     reserved: frozenset[str],
     reserved_tools: frozenset[str],
     taken: _TakenContributionState,
+    mcp_servers: McpServerRegistry,
     diagnostic: Callable[[str], None] | None,
 ) -> tuple[ActivatedExtension, _TakenContributionState]:
     """Validate and commit one pending preload without running it again."""
@@ -1494,6 +1599,12 @@ def _finalize_preloaded_extension(
         )
         if collision is not None:
             return _disabled(descriptor, collision, None), taken
+        mcp_conflict = mcp_servers.load_conflict(existing.mcp_servers)
+        if mcp_conflict is not None:
+            return (
+                _disabled(descriptor, REASON_DUPLICATE_MCP_SERVER, mcp_conflict),
+                taken,
+            )
         # Complete every potentially fallible hash/equality operation before
         # activation commit can flush the frozen messages.
         prepared_names = _prepare_contribution_names_commit(names, taken)
@@ -1605,6 +1716,7 @@ def _activate_one(
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
     message_routing: GenerationMessageRouting,
+    mcp_servers: McpServerRegistry,
     diagnostic: Callable[[str], None] | None,
     commit_activation: bool = True,
 ) -> tuple[ActivatedExtension, _TakenContributionState]:
@@ -1626,6 +1738,8 @@ def _activate_one(
         outbox=outbox,
         custom_outbox=custom_outbox,
         message_routing=message_routing,
+        extension_path=descriptor.path_label,
+        mcp_servers=mcp_servers,
     )
     ownership_transferred = False
     try:
@@ -1651,6 +1765,14 @@ def _activate_one(
         )
         if collision is not None:
             return _disabled(descriptor, collision, None), taken
+        mcp_conflict = (
+            mcp_servers.load_conflict(staged.mcp_servers) if commit_activation else None
+        )
+        if mcp_conflict is not None:
+            return (
+                _disabled(descriptor, REASON_DUPLICATE_MCP_SERVER, mcp_conflict),
+                taken,
+            )
         prepared_names = _prepare_contribution_names_commit(names, taken)
         # Construct the immutable result before commit can flush staged user
         # messages. Any bad host/result shape is then disabled without effects.
@@ -1671,6 +1793,7 @@ def _activate_one(
             message_renderers=staged.message_renderers,
             entry_renderers=staged.entry_renderers,
             tool_renderers=staged.tool_renderers,
+            mcp_servers=staged.mcp_servers,
             custom_messages=staged.custom_messages,
             _activation_key=_descriptor_activation_key(descriptor),
             _pending_activation=(

@@ -144,6 +144,10 @@ from pipy_harness.native.extensions.session_views import (
     SessionManagerView,
     SessionTreeNodeView,
 )
+from pipy_harness.native.mcp.registry import (
+    McpServerRegistrationError,
+    RegisteredMcpServer,
+)
 from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.provider_construction import build_extension_provider_port
 from pipy_harness.native.tools.base import (
@@ -258,4 +262,6 @@ __all__ = [
     "ToolExposure",
     "ToolInfo",
     "ToolNamespace",
+    "McpServerRegistrationError",
+    "RegisteredMcpServer",
 ]

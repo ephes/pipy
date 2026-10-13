@@ -136,6 +136,60 @@ def test_the_owner_of_the_name_is_reported_before_a_namespace_clash() -> None:
     assert registration_conflict(_server("my_docs", _A), others[:1]) is None
 
 
+def test_an_owner_token_tells_two_extensions_with_one_label_apart() -> None:
+    """The label is for display; with tokens they are what owns."""
+
+    registry = McpServerRegistry()
+    one, two = object(), object()
+    config = {"command": "run"}
+    registry.register(validated_registration("docs", config, _A, one))
+
+    with pytest.raises(McpServerRegistrationError) as taken:
+        registry.register(validated_registration("docs", config, _A, two))
+    registry.unregister("docs", two)
+    registry.unregister("docs", _A)
+    assert str(taken.value) == (
+        f'MCP server "docs" is already registered by extension "{_A}"'
+    )
+    assert [server.owner for server in registry.list()] == [one]
+    assert registry.load_conflict(
+        [validated_registration("docs", config, _A, two)]
+    ) == str(taken.value)
+
+    registry.register(validated_registration("docs", {"command": "new"}, _A, one))
+    assert registry.list()[0].config == {"command": "new"}
+    registry.unregister("docs", one)
+    assert registry.list() == []
+    # The token is not part of what a registration equals.
+    assert validated_registration("docs", config, _A, one) == (
+        validated_registration("docs", config, _A, two)
+    )
+
+
+def test_load_registers_all_of_an_extensions_servers_or_none() -> None:
+    registry = McpServerRegistry()
+    registry.register(_server("taken", _B))
+    changes: list[None] = []
+    registry.set_change_listener(lambda: changes.append(None))
+
+    with pytest.raises(McpServerRegistrationError, match="already registered"):
+        registry.load([_server("fine"), _server("taken")])
+    assert registry.load_conflict([_server("a-b"), _server("a_b")]) == (
+        'MCP server "a_b" conflicts with registered server "a-b"'
+    )
+    assert [server.name for server in registry.list()] == ["taken"]
+
+    assert registry.load_conflict([_server("fine"), _server("more")]) is None
+    registry.load([_server("fine"), _server("more")])
+
+    assert [server.name for server in registry.list()] == ["taken", "fine", "more"]
+    # Loading is not a change anybody follows.
+    assert changes == []
+    registry.close()
+    with pytest.raises(McpServerRegistrationError, match="loaded again"):
+        registry.load([_server("late")])
+
+
 def test_unregister_only_removes_the_own_registration() -> None:
     # EXT-08.
     registry = McpServerRegistry()

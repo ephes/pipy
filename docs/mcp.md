@@ -447,7 +447,9 @@ how many tools it offers. The whole error of a server that is not connected
 follows its line, indented. The states are `connected`, `connecting`,
 `failed`, `disconnected, reconnects on next call`, `disabled`, `starting`
 (enabled, and its previous connection is still closing) and `closed`. After
-the servers come the errors of the `mcp.json` files. Without any server pipy
+the servers come the errors of the `mcp.json` files, and one `overridden:`
+line per [server an extension registered](#servers-from-extensions) under a
+name that `mcp.json` has. Without any server pipy
 prints `No MCP servers configured. Add them to <config home>/mcp.json or
 .pipy/mcp.json.`
 
@@ -628,13 +630,42 @@ Different from Pi in the manager:
   cannot be read, or a token refresh holds the server's lock for 25 seconds)
   is shown in the server's menu as `Could not sign out of MCP server
   "<name>": <reason>`.
-- The list has no `overridden:` lines, because pipy has no servers
-  registered by extensions yet.
+
+### Servers from extensions
+
+An extension can add servers for the session with
+`api.register_mcp_server(name, config)`, where `config` has the shape of an
+`mcpServers` entry; see [MCP servers](extension-api.md#mcp-servers) in the
+extension API. A registered server connects like a configured one: with the
+session when the extension registered it while loading, at once when it
+registers it later. `api.unregister_mcp_server(name)` closes it.
+
+- Registered servers come after the configured ones in `/mcp` and in the
+  [`mcp_servers` section](#the-servers-in-the-system-prompt), and have
+  `extension` as their source in the manager. The server's screen names the
+  extension.
+- Enabling, disabling and changing the exposure of a registered server
+  apply to the session and are saved nowhere.
+- A server in `mcp.json` with the same name takes precedence, also when the
+  names differ only in `-` and `_`. The registered server does not connect,
+  and `/mcp` says so, in the manager above the list and in the printed
+  status after the servers:
+
+  ```text
+  my-docs: connected, 2 tools (direct)
+  overridden: "my_docs" registered by .pipy/extensions/docs.py is overridden by "my-docs" in /home/me/.pipy/mcp.json
+  ```
+
+- Nothing is saved. `/reload` loads the extensions again and the servers
+  are those they register then.
+- The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
+  see only the configured servers.
+- With MCP [turned off](#turning-mcp-off) registered servers do not connect.
 
 ### What is missing
 
-Not built yet, in the order the plan builds it: servers registered by
-extensions, and images in tool results and resources.
+Not built yet, in the order the plan builds it: images in tool results and
+resources.
 
 ## Tool search
 

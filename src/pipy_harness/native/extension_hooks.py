@@ -152,6 +152,7 @@ from pipy_harness.native.extensions.dispatch import (
 )
 from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
+from pipy_harness.native.mcp.registry import McpServerRegistry
 from pipy_harness.native.session_generation import (
     FrozenStagedDeliveryBatch,
     OrderedDeliveryGate,
@@ -316,6 +317,7 @@ def _activate_workspace_extensions(
             outbox: list[QueuedUserMessage] = []
             custom_outbox: list[QueuedCustomMessage] = []
             message_routing = GenerationMessageRouting(outbox, custom_outbox)
+            mcp_servers = McpServerRegistry()
             activated = activate_extensions(
                 descriptors,
                 reserved_command_names=reserved,
@@ -323,6 +325,7 @@ def _activate_workspace_extensions(
                 message_outbox=outbox,
                 custom_message_outbox=custom_outbox,
                 message_routing=message_routing,
+                mcp_servers=mcp_servers,
                 diagnostic=diagnostic,
             )
         else:
@@ -330,10 +333,11 @@ def _activate_workspace_extensions(
             outbox = activation_batch.message_outbox
             custom_outbox = activation_batch.custom_message_outbox
             message_routing = activation_batch.message_routing
+            mcp_servers = activation_batch.mcp_servers
             if activation_batch.pending:
                 raise ValueError("initial extension activation batch must be finalized")
         return _compose_extension_bundle(
-            activated, outbox, custom_outbox, message_routing
+            activated, outbox, custom_outbox, message_routing, mcp_servers
         )
     except BaseException:
         # This boundary owns every supplied or newly activated candidate host
@@ -350,8 +354,13 @@ def _compose_extension_bundle(
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
     message_routing: GenerationMessageRouting,
+    mcp_servers: McpServerRegistry | None = None,
 ) -> _ExtensionRuntime:
-    """Compose one candidate runtime without publishing its host ownership."""
+    """Compose one candidate runtime without publishing its host ownership.
+
+    ``mcp_servers`` is the registry the activation hosts register MCP
+    servers in; without it the runtime has an empty one.
+    """
 
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
@@ -426,6 +435,7 @@ def _compose_extension_bundle(
             if extension._activation_host is not None
         ),
         message_routing=message_routing,
+        mcp_servers=mcp_servers if mcp_servers is not None else McpServerRegistry(),
     )
 
 

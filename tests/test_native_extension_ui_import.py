@@ -27,6 +27,7 @@ import pipy_harness.native.extensions.custom_payloads as extension_custom_payloa
 import pipy_harness.native.extensions.dispatch as extension_dispatch
 import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.extensions.session_views as extension_session_views
+import pipy_harness.native.mcp.registry as mcp_registry
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
 import pipy_harness.native.tools.base as tools_base
@@ -136,6 +137,8 @@ _PUBLIC_EXTENSION_NAMES = (
     "ToolExposure",
     "ToolInfo",
     "ToolNamespace",
+    "McpServerRegistrationError",
+    "RegisteredMcpServer",
 )
 
 _OWNER_GROUPS = (
@@ -143,6 +146,7 @@ _OWNER_GROUPS = (
         tools_base,
         ("ToolAnnotations", "ToolExposure", "ToolInfo", "ToolNamespace"),
     ),
+    (mcp_registry, ("McpServerRegistrationError", "RegisteredMcpServer")),
     (
         extension_activation,
         ("activate_extensions", "safe_activation_metadata"),
@@ -419,10 +423,10 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
-    assert len(_PUBLIC_EXTENSION_NAMES) == 104
+    assert len(_PUBLIC_EXTENSION_NAMES) == 106
 
     owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
-    assert len(owned_names) == len(set(owned_names)) == 104
+    assert len(owned_names) == len(set(owned_names)) == 106
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
         for name in names:
@@ -443,7 +447,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
         if (alias.asname or alias.name) in expected_owners
     ]
 
-    assert len(direct_imports) == len(dict(direct_imports)) == 104
+    assert len(direct_imports) == len(dict(direct_imports)) == 106
     assert dict(direct_imports) == expected_owners
 
 

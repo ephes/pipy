@@ -530,7 +530,8 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
         "custom_messages": "runtime_flags",
     }
     omitted_runtime_fields = {
-        "activation_hosts": "R1 mutable activation ownership state"
+        "activation_hosts": "R1 mutable activation ownership state",
+        "mcp_servers": "mutable registry the activation hosts register in",
     }
     runtime_fields = {field.name for field in fields(_ExtensionRuntime)}
 
@@ -539,7 +540,8 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
         runtime_fields
     )
     assert omitted_runtime_fields == {
-        "activation_hosts": "R1 mutable activation ownership state"
+        "activation_hosts": "R1 mutable activation ownership state",
+        "mcp_servers": "mutable registry the activation hosts register in",
     }
 
 

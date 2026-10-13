@@ -1748,6 +1748,58 @@ Decided in S36 (servers registered by extensions; `registry.py`,
   the publication lock and never under the manager lock, and the registry
   calls its listener without its lock.
 
+Decided in S36 (the extension API; `extensions/activation.py`,
+`extensions/contracts.py`, `extension_hooks.py`, `repl/mcp_session.py`):
+
+- `api.register_mcp_server(name, config)`, `api.unregister_mcp_server(name)`
+  and `api.get_mcp_servers()` are methods of the activation host. The
+  facade exports `RegisteredMcpServer` and `McpServerRegistrationError`.
+  The owner of a registration is the extension's path label
+  (`ExtensionDescriptor.path_label`), which is also what `/mcp` shows; Pi
+  uses the extension's path.
+- One `McpServerRegistry` per activation batch: `activate_extension_batch`
+  makes it (or takes the pending batch's), every host of the batch has it,
+  and it is `ExtensionActivationBatch.mcp_servers` and
+  `_ExtensionRuntime.mcp_servers`. It is activation-owned mutable state
+  like the hosts, so it is not part of the detached projection.
+- While an extension loads (host state `open`) its registrations are staged
+  on the host, as Pi queues them (`applyRuntimeChange`), and checked against
+  the registry and what is staged. They enter the registry when the
+  activation is committed (`McpServerRegistry.load`, all or none, no
+  listener call), so an extension that fails registers nothing and a later
+  extension is refused the names of an earlier one. In the states
+  `committed` and `published` the methods change the registry directly;
+  `committed` is included because `/reload` fires the candidate's
+  `session_start` before it publishes the hosts. In `sealed` (a pending
+  extension before its project is trusted) and after disposal they raise
+  `ExtensionCapabilityError`.
+- The errors are plain exceptions that the extension may catch, as in Pi;
+  they do not record an activation failure. That differs from pipy's other
+  registrations, where an invalid or duplicate registration disables the
+  extension also when it catches the error.
+- Pending extensions are activated one by one against an empty registry, so
+  a shared name shows only when they are finalized. The later extension is
+  then disabled with the new reason `duplicate_mcp_server`, the outcome a
+  taken command name has on that path. Both commit paths ask
+  `McpServerRegistry.load_conflict` first, so the commit itself cannot be
+  refused.
+- `McpSession` takes a `load` function with one argument, the function that
+  returns the registrations for the manager, and `follow_extensions(source)`
+  tells it where the registry of the loaded extensions is found
+  (`generation_ref.current.runtime.mcp_servers`; one line in
+  `repl/wiring.py`). `start()` follows that registry: it closes the one it
+  followed before, when that is another one, and sets the change listener.
+  A reload therefore needs nothing new: `_replace` calls `start()` after the
+  new generation was published. The manager of a session with MCP turned
+  off gets no `registered` function.
+- The listener may run on any thread. It has the manager apply the change
+  on a thread (`registered_changed`) and sets a flag; the session thread
+  calls `sync_registered` again and then `ensure_active` where it shows the
+  notices and when a turn starts (`McpSession._apply_registrations`). Pi
+  calls `ensureDiscoveryActive` in the handler.
+- The listener is set after the `session_start` handlers ran, so what they
+  register is read by `start()` like a registration made while loading.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

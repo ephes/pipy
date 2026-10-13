@@ -520,7 +520,7 @@ class _Loads:
         self.opened: list[tuple[int, str]] = []
         self.notices: list[tuple[str, str]] = []
 
-    def __call__(self) -> McpServers:
+    def __call__(self, registered: Any = None) -> McpServers:
         index = len(self.loaded)
         servers = {
             name: _Server(tools=[_tool(tool) for tool in tools])
@@ -543,6 +543,7 @@ class _Loads:
             create_transport=create,
             update_config=lambda entry, patch: None,
             deactivate_tools=self.tools.deactivate_indirect_mcp_tools,
+            registered=registered,
         )
         loaded = McpServers(
             manager=manager,

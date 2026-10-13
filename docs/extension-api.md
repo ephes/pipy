@@ -500,6 +500,12 @@ class PipyExtensionAPI(Protocol):
 
     def register_tool_renderer(self, resolver: "ToolRendererResolver") -> None: ...
 
+    def register_mcp_server(self, name: str, config: Mapping[str, Any]) -> None: ...
+
+    def unregister_mcp_server(self, name: str) -> None: ...
+
+    def get_mcp_servers(self) -> list["RegisteredMcpServer"]: ...
+
     def register_provider(self, provider: "ExtensionProvider") -> None: ...
 
     def unregister_provider(self, name: str) -> None: ...
@@ -1112,6 +1118,97 @@ arguments, result text and details from which credentials were removed. As
 in Pi, the export page draws the built-in tools itself, so renderers that a
 resolver chose for a built-in tool are not used there. `pipy --export` and
 `/share` do not run extension code.
+
+<a id="mcp-servers"></a>
+### MCP servers
+
+`api.register_mcp_server(name, config)` adds an MCP server for the session
+(Pi `registerMcpServer`). `config` is a dict with the shape of an
+`mcpServers` entry of [`mcp.json`](mcp.md#configure-servers): `command`,
+`args`, `env` and `cwd` for a stdio server, `url`, `headers`, `oauth` and
+`auth` for an HTTP server, and `exposure`, `toolExposure`, `description`,
+`enabled` and `timeout`.
+
+```python
+from pipy_harness.extensions import McpServerRegistrationError
+
+
+def activate(api):
+    api.register_mcp_server(
+        "jira", {"url": "https://mcp.example.com/jira", "exposure": "codemode"}
+    )
+
+    def drop(ctx, args):
+        api.unregister_mcp_server("jira")
+
+    api.register_command("drop-jira", "Disconnect the jira server", drop)
+```
+
+- A server registered while the extension loads (in `activate`), or in a
+  `session_start` handler, connects when the session's servers start, with
+  those of `mcp.json` and after them in every list. A server registered
+  later, from a command, a hook or a tool handler that kept `api`, connects
+  at once, in the background.
+- Nothing is saved: register on every load, for example from the
+  extension's own settings. `/reload` loads the extensions again and
+  keeps only what they register then; an `api` of the extensions it
+  replaced raises `McpServerRegistrationError`.
+- Registering a name again replaces the extension's registration. With the
+  same configuration nothing happens; with another one the server's tools
+  go away, its connection is closed, and it connects again once that
+  connection has closed. The order of the keys of `toolExposure` is part of
+  the configuration, because the first matching pattern decides.
+- `api.unregister_mcp_server(name)` closes the connection of a server this
+  extension registered and makes its tools unreachable. A name it did not
+  register is left alone.
+- `api.get_mcp_servers()` returns copies of every registration, in the order
+  the names were first registered, as `RegisteredMcpServer(name, config,
+  extension_path)`. `extension_path` is the path label of the extension
+  (`.pipy/extensions/jira.py`), which is what `/mcp` and the messages show.
+  Two extensions can have one label (two `--extension` directories of the
+  same name); they are still two owners. While an extension loads, the list
+  does not have its own registrations yet.
+- A server in `mcp.json` with the same name, or a name that differs only in
+  `-` and `_`, takes precedence: the registered one does not connect, and
+  `/mcp` lists it as overridden (see [`/mcp`](mcp.md#the-mcp-command)).
+- A registered server is in `/mcp` with `extension` as its source. Enabling,
+  disabling and changing its exposure there last for the session and are
+  not saved; they are undone when the server is registered with another
+  configuration.
+- With MCP [turned off](mcp.md#turning-mcp-off) registered servers do not
+  connect.
+
+`register_mcp_server` raises `McpServerRegistrationError` (a `ValueError`):
+
+| Case | Message |
+| --- | --- |
+| A name with other characters than letters, digits, `_` and `-`, or an entry `mcp.json` would refuse | `Invalid MCP server registered by extension "<path>": <reason>` |
+| A name another extension registered | `MCP server "<name>" is already registered by extension "<path>"` |
+| A name that differs from a registered one only in `-` and `_` | `MCP server "<name>" conflicts with registered server "<other>"` |
+
+An extension that catches the error goes on. One that lets it leave
+`activate` is disabled with `activation_error`, like for any other
+exception, and nothing it registered is kept.
+
+Different from Pi:
+
+- Extensions that load before the project is trusted (user-level and
+  `--extension` ones, when a `project_trust` decision is pending) do not see
+  each other's registrations while they load, so two of them can register
+  one name without an error. When they are finalized the later one is
+  disabled with `duplicate_mcp_server`, as for a command name that is taken.
+  Between loading and that point, a `project_trust` handler cannot register
+  or list servers (`ExtensionCapabilityError`).
+- One extension that registers `my-server` and `my_server` while it loads is
+  refused the second name. Pi notices that clash only for a name that was
+  registered before the extension loaded.
+- `codemode` or `tool_search` is activated for a server registered during a
+  run when the next turn starts, and for one registered while the session is
+  idle before the next prompt; Pi activates it in the same step as the
+  registration. The model's next request has it in both.
+- A server that fails or needs a sign-in after it was registered later is
+  reported like the [startup report](mcp.md#startup-report), with only that
+  server in it, where the session shows its notices: before the next prompt.
 
 First-slice candidates:
 

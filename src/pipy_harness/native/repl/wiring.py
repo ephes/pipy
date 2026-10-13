@@ -129,7 +129,7 @@ from pipy_harness.native.mcp.credentials import (
 )
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
-from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.manager import McpManager, RegisteredServers
 from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.mcp.sign_in import open_browser
@@ -982,6 +982,7 @@ def _compose_extension_phase(
     assert isinstance(attached, StartupGenerationAttachment)
     startup_projection = attached.projection
     generation_ref = attached.generation_ref
+    mcp.follow_extensions(lambda: generation_ref.current.runtime.mcp_servers)
     startup_commands = startup_projection.commands
     try:
         execution_projections = SessionExecutionProjections(
@@ -1018,6 +1019,7 @@ def _mcp_servers(
     resource_options: RuntimeResourceOptions,
     tool_capabilities: NativeToolCapabilities,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
+    registered: RegisteredServers,
 ) -> McpServers:
     """The session's MCP servers as ``mcp.json`` and the settings say now,
     not started yet. Called at the start of the session and by every reload.
@@ -1047,6 +1049,7 @@ def _mcp_servers(
         log=McpServerLog(mcp_log_path(config_home)),
         credentials=McpOAuthCredentialStore(mcp_auth_path(config_home)),
         provider_token=_provider_token(provider_state),
+        registered=registered if enabled else None,
     )
     return McpServers(
         manager=manager,

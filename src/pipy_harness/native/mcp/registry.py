@@ -15,6 +15,12 @@ two extensions that register one name at the same time cannot both succeed.
 The lock is never held while the change listener runs or while anything
 else is called, and nothing here takes another lock.
 
+Ownership. Pi identifies the owner of a registration by the extension's
+path. pipy shows a path *label*, which two extensions can share (two
+``--extension`` directories of the same name), so a registration also
+carries an ``owner`` token that only its extension has; the label is for
+display. Without a token the label is the owner.
+
 Different from Pi: the owner check is the registry's own step (Pi's loader
 checks and then registers, on one thread). A registry that was closed, which
 the session does with the registry of the extensions a reload replaced,
@@ -25,8 +31,8 @@ from __future__ import annotations
 
 import copy
 import threading
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
 
 from pipy_harness.native.mcp.config import (
     McpServerConfig,
@@ -46,12 +52,18 @@ class RegisteredMcpServer:
     name: str
     # The validated ``mcpServers`` entry.
     config: McpServerConfig
-    # Path label of the extension that registered the server.
+    # Path label of the extension that registered the server, for display.
     extension_path: str
+    # What identifies that extension; ``None`` when the label does.
+    owner: object = field(default=None, compare=False, repr=False)
+
+
+def _owner(server: RegisteredMcpServer) -> object:
+    return server.extension_path if server.owner is None else server.owner
 
 
 def validated_registration(
-    name: object, config: object, extension_path: str
+    name: object, config: object, extension_path: str, owner: object = None
 ) -> RegisteredMcpServer:
     """The registration of ``name`` with a validated copy of ``config``.
 
@@ -69,7 +81,7 @@ def validated_registration(
             f'Invalid MCP server registered by extension "{extension_path}": {reason}'
         )
     assert isinstance(name, str)
-    return RegisteredMcpServer(name, reason, extension_path)
+    return RegisteredMcpServer(name, reason, extension_path, owner)
 
 
 def registration_conflict(
@@ -83,7 +95,7 @@ def registration_conflict(
     clash: RegisteredMcpServer | None = None
     for other in registered:
         if other.name == server.name:
-            if other.extension_path != server.extension_path:
+            if _owner(other) != _owner(server):
                 return (
                     f'MCP server "{server.name}" is already registered by '
                     f'extension "{other.extension_path}"'
@@ -100,7 +112,7 @@ def registration_conflict(
 
 def _copy(server: RegisteredMcpServer) -> RegisteredMcpServer:
     return RegisteredMcpServer(
-        server.name, copy.deepcopy(server.config), server.extension_path
+        server.name, copy.deepcopy(server.config), server.extension_path, server.owner
     )
 
 
@@ -132,16 +144,47 @@ class McpServerRegistry:
         if listener is not None:
             listener()
 
-    def unregister(self, name: str, extension_path: str) -> None:
-        """Remove the server ``extension_path`` registered as ``name``. A
-        server of another extension, and a name that is not registered, are
-        left alone. Raises ``McpServerRegistrationError`` when the registry
-        is closed."""
+    def load_conflict(self, servers: Sequence[RegisteredMcpServer]) -> str | None:
+        """Why ``load`` would refuse ``servers``; ``None`` when it would
+        take them."""
+
+        with self._lock:
+            return self._load_conflict(servers)
+
+    def load(self, servers: Sequence[RegisteredMcpServer]) -> None:
+        """Register what one extension registered while it loaded: all of
+        ``servers`` or, with ``McpServerRegistrationError``, none. The
+        listener is not called: nothing follows the registry of extensions
+        that are still loading."""
+
+        stored = [_copy(server) for server in servers]
+        with self._lock:
+            self._check_open()
+            conflict = self._load_conflict(stored)
+            if conflict is not None:
+                raise McpServerRegistrationError(conflict)
+            for server in stored:
+                self._servers[server.name] = server
+
+    def _load_conflict(self, servers: Sequence[RegisteredMcpServer]) -> str | None:
+        taken = dict(self._servers)
+        for server in servers:
+            conflict = registration_conflict(server, taken.values())
+            if conflict is not None:
+                return conflict
+            taken[server.name] = server
+        return None
+
+    def unregister(self, name: str, owner: object) -> None:
+        """Remove the server ``owner`` registered as ``name``: its token, or
+        its path label when it registered without one. A server of another
+        extension, and a name that is not registered, are left alone. Raises
+        ``McpServerRegistrationError`` when the registry is closed."""
 
         with self._lock:
             self._check_open()
             server = self._servers.get(name)
-            if server is None or server.extension_path != extension_path:
+            if server is None or _owner(server) != owner:
                 return
             del self._servers[name]
             listener = self._listener

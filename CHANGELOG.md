@@ -105,6 +105,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   result as plain text. `/export` uses the loaded extensions' renderers;
   `pipy --export` and `/share` draw only the MCP rows. See
   [export](docs/export-distribution.md#artifact-shape).
+- Extension API: `api.register_mcp_server(name, config)` adds an MCP server
+  for the session, with the shape of an `mcpServers` entry of `mcp.json`. A
+  server registered while the extension loads connects with the session,
+  one registered later at once; `api.unregister_mcp_server(name)` closes it
+  and `api.get_mcp_servers()` lists every registration. A server of
+  `mcp.json` with the same name wins, and `/mcp` lists the overridden
+  registration. Enabling, disabling and changing the exposure of a
+  registered server in `/mcp` last for the session. An invalid entry and a
+  name another extension has raise `McpServerRegistrationError`. See
+  [MCP servers](docs/extension-api.md#mcp-servers).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`

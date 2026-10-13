@@ -18,6 +18,19 @@ connecting after the manager was closed. ``before_turn`` then activates what
 the server's exposure needs (``McpDiscovery.ensure_active``), as the manager
 does while it is open.
 
+Servers registered by extensions. The extensions that are loaded register
+MCP servers in one registry (``native/mcp/registry.py``); a reload that is
+accepted brings other extensions and with them another registry.
+``follow_extensions`` says where the registry of the loaded extensions is
+found. ``start`` takes it, lets the manager read it and listens for its
+changes; a later ``start``, after a reload, closes the registry it followed
+before, so that an extension of the replaced generation is refused. A change
+is applied by the manager at once, on a thread of its own, whatever thread
+the extension called from. What has to happen on the session thread, which
+is activating ``codemode`` or ``tool_search`` for the servers as they are
+then, is done where the session shows the notices and when a turn starts.
+With MCP turned off no registered server connects.
+
 A reload has two parts. Before the session decides whether the reload is
 accepted, the configuration is read again and a manager is built for it that
 connects nothing. Once the reload was accepted, the running manager is
@@ -31,7 +44,7 @@ and drops the other one, which never opened anything.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -43,9 +56,10 @@ from pipy_harness.native.agent.tools import (
     ToolInterruptWaiter,
 )
 from pipy_harness.native.mcp.discovery import McpDiscovery
-from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.manager import McpManager, RegisteredServers
 from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.readiness import McpReadiness
+from pipy_harness.native.mcp.registry import McpServerRegistry, RegisteredMcpServer
 from pipy_harness.native.mcp.servers_section import MCP_SERVERS_SECTION
 from pipy_harness.native.repl.mcp_command import mcp_session_commands
 from pipy_harness.native.repl.mcp_waits import run_readiness_wait
@@ -97,20 +111,28 @@ class McpSession:
 
     def __init__(
         self,
-        load: Callable[[], McpServers],
+        load: Callable[[RegisteredServers], McpServers],
         *,
         tools: RestartableMcpTools,
         notify: Callable[[str, str], None],
     ) -> None:
         """``load`` reads the configuration as it is now and returns a
         manager that was not started. It is called here and by every
-        reload."""
+        reload, with the function that returns what the extensions have
+        registered, for the manager."""
 
         self._load = load
         self._tools = tools
         self._notify = notify
         self._lock = threading.Lock()
-        self._servers = load()
+        # Where the registry of the loaded extensions is found, and the one
+        # that is followed since the last start. Guarded by the lock.
+        self._extensions: Callable[[], McpServerRegistry] | None = None
+        self._registry: McpServerRegistry | None = None
+        # Set by a change of the registrations, on any thread, until the
+        # session thread has done its part.
+        self._registrations_changed = threading.Event()
+        self._servers = load(self._registered)
         # A view; it follows a reload that turns MCP on or off.
         self.commands: Mapping[str, str] = _SessionCommands(self)
 
@@ -121,8 +143,56 @@ class McpSession:
         with self._lock:
             return self._servers
 
+    def follow_extensions(self, registry: Callable[[], McpServerRegistry]) -> None:
+        """``registry`` returns the registry of the extensions that are
+        loaded now. It is asked by every ``start``."""
+
+        with self._lock:
+            self._extensions = registry
+
+    def _registered(self) -> Sequence[RegisteredMcpServer]:
+        """What the extensions have registered, for the manager."""
+
+        with self._lock:
+            registry = self._registry
+        return () if registry is None else registry.list()
+
+    def _follow_registry(self) -> None:
+        """Follow the registry of the extensions that are loaded now, and
+        close the one of the extensions they replaced."""
+
+        with self._lock:
+            source = self._extensions
+        registry = None if source is None else source()
+        with self._lock:
+            previous, self._registry = self._registry, registry
+        if previous is not None and previous is not registry:
+            previous.close()
+        if registry is not None:
+            registry.set_change_listener(self._on_registrations_changed)
+
+    def _on_registrations_changed(self) -> None:
+        """The registry's listener: any thread, so it only leaves a note
+        and has the manager apply the change on a thread of its own."""
+
+        self._registrations_changed.set()
+        self.servers.manager.registered_changed()
+
+    def _apply_registrations(self, servers: McpServers) -> None:
+        """The session thread's part of a change of the registrations: with
+        the servers as they are registered now, activate what their
+        exposures need."""
+
+        if not self._registrations_changed.is_set():
+            return
+        self._registrations_changed.clear()
+        servers.manager.sync_registered()
+        servers.discovery.ensure_active()
+
     def start(self) -> None:
-        """Start connecting the servers in the background.
+        """Start connecting the servers in the background, also those the
+        extensions registered while they loaded and in their
+        ``session_start`` handlers.
 
         ``codemode`` or ``tool_search`` is activated from the configuration,
         so it is active before the servers connect and the next prompt
@@ -130,6 +200,7 @@ class McpSession:
         """
 
         servers = self.servers
+        self._follow_registry()
         try:
             servers.manager.start()
             servers.discovery.ensure_active()
@@ -141,12 +212,19 @@ class McpSession:
     def close(self) -> None:
         """Close every connection; returns when no transport is open."""
 
+        with self._lock:
+            registry = self._registry
+        if registry is not None:
+            registry.set_change_listener(None)
         self.servers.manager.close()
 
     def deliver_notices(self) -> None:
-        """Show what the servers have to tell the user, on this thread."""
+        """Show what the servers have to tell the user, on this thread,
+        after this thread's part of a change of the registered servers."""
 
-        self.servers.manager.deliver_notices(self._notify)
+        servers = self.servers
+        self._apply_registrations(servers)
+        servers.manager.deliver_notices(self._notify)
 
     def before_turn(
         self, waiter: ToolInterruptWaiter | None
@@ -155,7 +233,7 @@ class McpSession:
         to need a sign-in, so that this turn has their tools.
 
         Runs on the session thread at the start of every turn. First it
-        activates ``codemode`` or ``tool_search`` when a change made in the
+        does its part of a change of the registered servers, and activates ``codemode`` or ``tool_search`` when a change made in the
         ``/mcp`` manager ended since the manager was closed. Then it returns
         at once when no server waits for a sign-in, and after a look at the
         credentials file when nobody signed in. ``waiter`` watches for an
@@ -166,6 +244,7 @@ class McpSession:
 
         servers = self.servers
         manager = servers.manager
+        self._apply_registrations(servers)
         if servers.actions.take_finished():
             servers.discovery.ensure_active()
         signed_in = manager.take_signed_in()
@@ -206,7 +285,7 @@ class McpSession:
         changes.
         """
 
-        candidate = self._load()
+        candidate = self._load(self._registered)
         accepted = False
 
         def accept() -> None:

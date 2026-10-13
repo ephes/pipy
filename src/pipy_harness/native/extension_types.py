@@ -69,6 +69,7 @@ REASON_DUPLICATE_MESSAGE_RENDERER: str = "duplicate_message_renderer"
 REASON_INVALID_ENTRY_RENDERER: str = "invalid_entry_renderer"
 REASON_DUPLICATE_ENTRY_RENDERER: str = "duplicate_entry_renderer"
 REASON_INVALID_TOOL_RENDERER: str = "invalid_tool_renderer"
+REASON_DUPLICATE_MCP_SERVER: str = "duplicate_mcp_server"
 
 # Built-in hotkey / editor keys an extension shortcut may never claim, so a
 # binding can never shadow core input editing or the app hotkeys. Compared
