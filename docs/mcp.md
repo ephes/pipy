@@ -1088,6 +1088,7 @@ standard library. It is not part of the SDK surface.
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
 | `oauth` | The parts of an OAuth sign-in, described under [the OAuth library](#the-oauth-library). Nothing in pipy calls them yet. |
+| `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, described under [the credentials file](#the-credentials-file). Nothing in pipy calls it yet. |
 
 Not built yet: images in tool results and resources, the `/mcp` manager,
 and the use of the OAuth library: credentials kept on disk, a token on the
@@ -1154,9 +1155,10 @@ the authorization response.
 
 The provider (`McpOAuthProvider`) binds its document to one server URL: a
 document stored for another URL counts as empty and is replaced by the first
-write. Its `state` value is 32 random bytes in hex. The only store in the
-library, `MemoryOAuthStateStore`, forgets everything with the process. The
-provider locks its own reads and writes; it does not lock a store shared
+write. Its `state` value is 32 random bytes in hex. The store in the
+library, `MemoryOAuthStateStore`, forgets everything with the process; the
+one that keeps a document is [the credentials file](#the-credentials-file).
+The provider locks its own reads and writes; it does not lock a store shared
 with another provider or another process.
 
 The callback server (`OAuthCallbackServer`) listens on `127.0.0.1`, on a
@@ -1178,6 +1180,38 @@ request that carries it.
   in to the MCP server. You may now close this page.`, or the failure's
   message and details.
 
+### The credentials file
+
+`pipy_harness.native.mcp.credentials` has the store that keeps OAuth state
+on disk, `McpOAuthCredentialStore`. Like the OAuth library it is not used
+yet: no session and no command creates one, so the file below does not
+exist on your machine.
+
+The file is `mcp-auth.json` in the directory of the user-level `mcp.json`,
+readable and writable only by you. It is one JSON object with one entry per
+server, the state document of that server's provider. The key of an entry
+is the namespace of the server's tools and its URL,
+`mcp__<name>|<url>`, so:
+
+- two servers with the same URL and different names have separate entries
+  and sign in separately;
+- a server that has the same name and URL in the user-level and a project
+  `mcp.json` has one entry;
+- names that differ only in `-` and `_` are the same server.
+
+`for_server(name, url)` gives the store of one server, which a provider is
+created with; `tokens(name, url)` reads a server's tokens and
+`remove(name, url)` deletes its entry and says whether there was one. Every
+read and write locks the file, and a write reads it again first, so entries
+written by another process are kept. A file that is not JSON is an error and
+is left as it is.
+
+`refresh_lock()` of a server's store is the lock a token refresh holds from
+reading the tokens to saving the new ones, so that two processes never use
+one refresh token twice. It is a file `mcp-auth-refresh-<hash>` next to the
+credentials file that exists only while the lock is held or waited for. A
+waiter tries every 100 ms and gives up after 25 seconds.
+
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
 
@@ -1196,6 +1230,10 @@ build on it:
   a refresh.
 - The OAuth provider compares server URLs without their fragment, and
   refuses a server URL with user info.
+- The refresh lock of the credentials file is a `flock`. The lock of a
+  process that died is free at once; Pi takes such a lock over after 20
+  seconds. Pi also reads credentials an older version stored under the URL
+  alone, which no pipy version wrote.
 - The callback server does not wait for open browser connections when it is
   closed: it gives a page that is being sent two seconds and then drops the
   connections. Registering a wait on a closed server fails at once. A

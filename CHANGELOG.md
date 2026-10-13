@@ -36,6 +36,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   from rejected credentials), a provider that keeps one server's OAuth state
   in a store its caller supplies, the loopback callback server and the
   sign-in pages. See [the OAuth library](docs/mcp.md#the-oauth-library).
+- The store for the OAuth credentials of MCP servers, also used by nothing
+  yet: `McpOAuthCredentialStore` keeps one entry per server name and URL in
+  `mcp-auth.json` next to the user-level `mcp.json`, private to the user,
+  and has the lock that keeps two processes from refreshing a server's
+  tokens at the same time. See
+  [the credentials file](docs/mcp.md#the-credentials-file).
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with

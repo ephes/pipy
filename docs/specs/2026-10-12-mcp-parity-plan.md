@@ -475,6 +475,7 @@ owner has decided.
 | DEV-12 | The official MCP conformance suite runs in CI through `npx`. | A manual `just` recipe runs the same suite against pipy's client with a committed baseline (S40); CI runs pipy's own mirrored cases (section 6). | The suite needs Node and network access; pipy's CI has neither as a requirement. |
 
 | DEV-13 | The token usage and cost of nested results, at every depth, is added to the calling tool's result usage and counts toward the session cost. | Not ported in this campaign. pipy tool results carry no usage field. | Nothing in scope produces tool usage: MCP tools and pipy's built-in and extension tools report none, and the only Pi producers are `models.classify()` and `models.generateImages()` (DEV-04). The field and its propagation belong to the slice that adds a usage-producing tool. |
+| DEV-14 | The refresh lock of a server's credentials is a lock directory (`proper-lockfile`): a lock its holder stopped renewing is taken over after 20 s (OAU-20). | The lock is a `flock` on a lock file. The kernel frees the lock of a holder that died at once, and no lock is ever taken from a process that is alive. The 25 s a waiter waits are kept. | pipy already locks `auth.json` with `flock`; it needs no renewing thread and cannot be lost while held, which a lock taken over by age can (Pi `onCompromised`). Added by S30. |
 
 Not listed as deviations because Pi does not implement them either: the legacy
 SSE transport, elicitation, sampling, prompts, resource subscriptions, MCP App
@@ -1266,6 +1267,28 @@ nothing in the product imports these modules before S30.
 - `oauth/page.py` is not in the module list this plan started with: it is
   the `renderPage` of OAU-17. S31 passes `render_sign_in_page` as the
   callback server's `render_page`; the default is plain text, as in Pi.
+
+Decided in S30 (`credentials.py`; the connection's auth provider and the
+`needs-auth` state follow in the slice's later commits):
+
+- `McpOAuthCredentialStore(path, lock_dir=None)` is the file
+  `mcp_auth_path(config_home)`. There is no storage backend to swap: tests
+  use a file in a temporary directory, and stores on one file stand in for
+  processes. `for_server(name, url)` is the `McpOAuthStateStore` of a
+  provider, with `refresh_lock()` as a context manager (Pi
+  `withRefreshLock`); `tokens` and `remove` are Pi's.
+- The key is `mcp_namespace(name) + "|" + parse_http_url(url).href`, so
+  without the fragment, as the provider compares server URLs.
+- Reads and writes take `auth_file_lock` of the file; the file is replaced
+  as a whole, mode 0600. A file that is not JSON raises and is never
+  replaced, as in Pi.
+- OAU-20, deviation (DEV-14): the refresh lock is a `flock` on
+  `mcp-auth-refresh-<hash>` in the lock directory, tried every 100 ms for
+  25 s (`McpRefreshLockTimeoutError`). The kernel frees the lock of a
+  holder that died, so there is no takeover after 20 s and no lock is taken
+  from a live process (Pi's `onCompromised` case cannot happen). The file
+  is removed by the holder before it lets go, and a waiter that locked a
+  file no longer at the path tries again.
 
 Open after the merge, owned by later slices:
 
