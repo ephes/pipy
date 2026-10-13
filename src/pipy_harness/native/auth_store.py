@@ -23,9 +23,12 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import selectors
+import signal
 import stat
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -41,21 +44,119 @@ OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
 # --------------------------------------------------------------------------- #
 
 
+_read_command_output = os.read
+_COMMAND_TIMEOUT = 10.0
+_COMMAND_OUTPUT_LIMIT = 64 * 1024
+_COMMAND_CLEANUP_GRACE = 0.2
+_COMMAND_CLEANUP_POLL = 0.01
+# Bound separately so cleanup keeps real time when the lookup clock is replaced.
+_cleanup_monotonic = time.monotonic
+_cleanup_sleep = time.sleep
+
+
+def _command_group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _wait_for_command_group(process: subprocess.Popen[bytes]) -> bool:
+    """Wait up to the cleanup grace for the reaped child's whole group to exit."""
+    deadline = _cleanup_monotonic() + _COMMAND_CLEANUP_GRACE
+    while True:
+        # Reap the direct child first: an unreaped leader keeps its group alive.
+        if process.poll() is not None and not _command_group_alive(process.pid):
+            return True
+        if _cleanup_monotonic() >= deadline:
+            return False
+        _cleanup_sleep(_COMMAND_CLEANUP_POLL)
+
+
+def _stop_command(process: subprocess.Popen[bytes]) -> None:
+    """Terminate the owned group, including children holding capture pipes.
+
+    Surviving descendants get the TERM grace even when the direct child has
+    already exited; KILL follows only if the group outlives it.
+    """
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except OSError:
+            pass
+        if _wait_for_command_group(process):
+            return
+    process.wait(timeout=_COMMAND_CLEANUP_GRACE)
+
+
+def _capture_command(process: subprocess.Popen[bytes], deadline: float) -> bytes | None:
+    assert process.stdout is not None and process.stderr is not None
+    output = bytearray()
+    total = 0
+    with selectors.DefaultSelector() as selector:
+        for stream in (process.stdout, process.stderr):
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            for key, _ in selector.select(remaining):
+                chunk = _read_command_output(
+                    key.fd, min(8192, _COMMAND_OUTPUT_LIMIT - total + 1)
+                )
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                total += len(chunk)
+                if total > _COMMAND_OUTPUT_LIMIT:
+                    return None
+                if key.fileobj is process.stdout:
+                    output.extend(chunk)
+    return bytes(output)
+
+
 def _default_run_command(command: str) -> str | None:
     try:
-        result = subprocess.run(  # noqa: S602 - explicit user-configured command
+        process = subprocess.Popen(  # noqa: S602 - explicit user-configured command
             command,
             shell=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            process_group=0,
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if result.returncode != 0:
+    completed = False
+    try:
+        deadline = time.monotonic() + _COMMAND_TIMEOUT
+        output = _capture_command(process, deadline)
+        if output is None:
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        returncode = process.wait(timeout=remaining)
+        completed = True
+        if returncode != 0:
+            return None
+        value = output.decode("utf-8", errors="strict").strip()
+        return value or None
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
-    value = (result.stdout or "").strip()
-    return value or None
+    finally:
+        if not completed:
+            try:
+                _stop_command(process)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
 
 
 def resolve_config_value(
