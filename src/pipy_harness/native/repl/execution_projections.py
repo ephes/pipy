@@ -51,6 +51,7 @@ from pipy_harness.native.tool_capabilities import (
 )
 from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.tools import ToolDefinition, ToolPort
+from pipy_harness.native.tools.base import NestedToolCalls
 from pipy_harness.native.tui import _LiveExtensionUiDriver
 
 
@@ -193,6 +194,29 @@ class SessionExecutionProjections:
             output_sink=output_sink,
             wait_for_interrupt=wait_for_interrupt,
             extension_generation_id=active.generation_id,
+        )
+
+    def runs_as_parent(self, tool_name: str) -> bool:
+        """Whether a call the model made to this tool may call other tools
+        while it runs: the tool is an extension's (Pi gives every tool of an
+        extension ``ctx.executeTool``)."""
+        return self._require_active().tools.is_extension_tool(tool_name)
+
+    def execute_parent(
+        self,
+        call: AgentToolCall,
+        /,
+        *,
+        wait_for_interrupt: ToolInterruptWaiter | None,
+        nested_tools: NestedToolCalls,
+    ) -> ToolExecutionOutcome:
+        """Run such a call on this provider turn's tools, like ``execute``."""
+        active = self._require_active()
+        return active.tools.execute(
+            call,
+            wait_for_interrupt=wait_for_interrupt,
+            extension_generation_id=active.generation_id,
+            nested_tools=nested_tools,
         )
 
     def error_result(

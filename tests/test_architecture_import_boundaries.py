@@ -451,6 +451,7 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.loop_policy.AgentToolPolicyState",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.messages.AgentToolCall",
         # The coordinator forwards only the UI-free optional composite ports.
         "pipy_harness.native.agent.nested_calls",
         "pipy_harness.native.agent.nested_calls.AgentCompositeToolRunner",
@@ -735,6 +736,10 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.tools.ToolExecutionOutcome",
         "pipy_harness.native.agent.tools.ToolExecutor",
         "pipy_harness.native.agent.tools.ToolInterruptWaiter",
+        # What a running tool calls other tools through is part of the
+        # context the facade builds for an invocation.
+        "pipy_harness.native.tools.base",
+        "pipy_harness.native.tools.base.NestedToolCalls",
         # Product composition owns lazy optional builtin registration and its
         # fail-closed availability gate; canonical agent tools remain unaware.
         "pipy_harness.native.tools.registry",

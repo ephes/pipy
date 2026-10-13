@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
     from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.themes import ChromePalette
     from pipy_harness.native.tools.base import (
+        NestedToolCalls,
         ReachesTools,
         ToolAnnotations,
         ToolExposure,
@@ -227,6 +228,8 @@ class ExtensionModelRuntimeControl:
     set_model_fn: ControlSetModelFn | None = None
     set_thinking_level_fn: ControlSetThinkingLevelFn | None = None
     get_all_tools_fn: ControlGetAllToolsFn | None = None
+    # Set for the context of a running tool that may call other tools.
+    nested_tools: "NestedToolCalls | None" = None
 
 
 # Coding-session host collaborators an activated extension may invoke through a

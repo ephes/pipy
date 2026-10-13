@@ -79,6 +79,7 @@ from pipy_harness.native.coding.session_controller import (
 )
 from pipy_harness.native.coding.state import CodingRunContext, CodingSessionState
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
+from pipy_harness.native.coding.tool_parent_runner import parent_runner_for
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extensions.activation import (
     EVENT_SESSION_SHUTDOWN,
@@ -812,6 +813,10 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         retain_next_input=scope.coding_input_queue.retain_agent_input,
         tool_waiter=tool_waiter,
         composite_runner=CodemodeCompositeRunner(),
+        parent_runner=parent_runner_for(
+            scope.execution_projections.runs_as_parent,
+            scope.execution_projections.execute_parent,
+        ),
         nested_eligibility=scope.execution_projections,
         tool_readiness=scope.mcp_waits.before_tool_call,
         before_turn=scope.before_turn,

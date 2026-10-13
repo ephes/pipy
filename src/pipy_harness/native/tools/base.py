@@ -511,6 +511,41 @@ def json_safe_value(value: object) -> Any:
         return None
 
 
+# What a tool gets for a call to another tool where none can run (Pi's text).
+NESTED_CALLS_UNAVAILABLE = "Nested tool calls are not available in this context"
+
+
+@dataclass(frozen=True, slots=True)
+class NestedToolResult:
+    """What a tool gets back for a call it made to another tool.
+
+    The result as the session's hooks left it. A failure of any kind, also a
+    tool that is not callable, a blocked call or invalid arguments, is a
+    result with ``is_error``.
+    """
+
+    content: str
+    is_error: bool = False
+    details: Mapping[str, Any] | None = None
+    structured_content: Any = None
+
+
+class NestedToolCalls(Protocol):
+    """How a running tool calls other tools (Pi ``ctx.executeTool``).
+
+    One object serves one invocation of one tool, from any thread, and stops
+    answering when that invocation ended.
+    """
+
+    def tools(self) -> tuple[ToolInfo, ...]:
+        """The tools ``execute`` can call, in registration order."""
+        ...
+
+    def execute(self, tool_name: str, arguments: object, /) -> NestedToolResult:
+        """Run the tool and return its result. Never raises for a tool failure."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class ToolContext:
     """Environment passed to one tool invocation.
@@ -530,12 +565,17 @@ class ToolContext:
     extension tool receives the generation selected for its complete invocation,
     so a retained context cannot mutate a successor generation after reload.
     Built-in and standalone tool calls leave it as `None`.
+
+    `nested_tools` is set for a tool that may call other tools while it runs:
+    an extension tool the model called. It is `None` for every other call,
+    also for a call another tool made.
     """
 
     workspace_root: Path
     output_sink: Callable[[str], None] | None = field(default=None)
     cancel_event: threading.Event | None = field(default=None)
     extension_generation_id: int | None = field(default=None)
+    nested_tools: NestedToolCalls | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):

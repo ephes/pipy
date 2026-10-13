@@ -407,7 +407,13 @@ class AgentLoop:
         nested_eligibility: NestedToolEligibility | None = None,
         tool_readiness: ToolReadinessWaiter | None = None,
         before_turn: TurnStartHook | None = None,
+        parent_runner: Callable[[AgentToolCall], AgentCompositeToolRunner | None]
+        | None = None,
     ) -> None:
+        """``composite_runner`` runs the built-in ``codemode``.
+        ``parent_runner`` is asked for every other admitted call the model
+        made: the runner it returns runs that call as a composite parent,
+        which may then call other tools; ``None`` runs it as a plain call."""
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
         _require_protocol(tool_capabilities, AgentToolCapabilities, "tool_capabilities")
@@ -426,6 +432,9 @@ class AgentLoop:
             raise TypeError("tool_readiness must be callable or None")
         if before_turn is not None and not callable(before_turn):
             raise TypeError("before_turn must be callable or None")
+        if parent_runner is not None and not callable(parent_runner):
+            raise TypeError("parent_runner must be callable or None")
+        self._parent_runner = parent_runner
         self._request_source = request_source
         self._provider_turn = provider_turn
         self._tools = tool_capabilities
@@ -925,18 +934,39 @@ class AgentLoop:
             call,
             turn_index,
             publish_budget_state,
-            composite_execute=lambda transition: (
-                self._execute_composite(state, snapshot, call, turn_index, transition)
-                if self._composite_runner is not None
-                and call.tool_name == "codemode"
-                and (
-                    not isinstance(self._nested_eligibility, CompositeToolEligibility)
-                    or self._nested_eligibility.composite_enabled()
-                )
-                else None
+            composite_execute=lambda transition: self._execute_as_parent(
+                state, snapshot, call, turn_index, transition
             ),
         )
         return self._record_tool_call(state, calls, call_index, settled, results)
+
+    def _execute_as_parent(
+        self,
+        state: _RunState,
+        snapshot: AgentProviderRequestSnapshot,
+        call: AgentToolCall,
+        turn_index: int,
+        transition: AgentToolPolicyTransition,
+    ) -> _SettledToolCall | None:
+        """Run the admitted call as a composite parent when a runner takes
+        it: the built-in ``codemode``, or what the product names."""
+        runner: AgentCompositeToolRunner | None = None
+        if (
+            self._composite_runner is not None
+            and call.tool_name == "codemode"
+            and (
+                not isinstance(self._nested_eligibility, CompositeToolEligibility)
+                or self._nested_eligibility.composite_enabled()
+            )
+        ):
+            runner = self._composite_runner
+        elif self._parent_runner is not None:
+            runner = self._parent_runner(call)
+        if runner is None:
+            return None
+        return self._execute_composite(
+            state, snapshot, call, turn_index, transition, runner
+        )
 
     def _settle_tool_call(
         self,
@@ -1097,8 +1127,9 @@ class AgentLoop:
         call: AgentToolCall,
         turn_index: int,
         transition: AgentToolPolicyTransition,
+        runner: AgentCompositeToolRunner,
     ) -> _SettledToolCall:
-        assert self._composite_runner is not None
+        records_always = getattr(runner, "records_always", True)
         # The callable snapshot: taken once from the live capability value,
         # after the parent's admission and ``tool_call`` hooks, and immutable
         # for the life of the parent. A value published later does not change
@@ -1190,7 +1221,7 @@ class AgentLoop:
             reserved = reserve_composite_parent(transition)
             _revalidate_tool_policy_state(reserved)
             state.tool_state = reserved
-            execution = self._run_composite(call, service)
+            execution = self._run_composite(call, service, runner)
             service.raise_pipeline_failure()
             service.close()
             if (
@@ -1204,14 +1235,18 @@ class AgentLoop:
             # Unlike interrupted direct recording, a parent must publish its
             # released reservation while retaining every child transition.
             publish(settlement.state)
-            execution = replace(
-                execution,
-                result=self._with_nested_record(execution.result, service),
-            )
+            recorded = records_always or service.has_record()
+            if recorded:
+                execution = replace(
+                    execution,
+                    result=self._with_nested_record(execution.result, service),
+                )
             result = _transform_tool_result(self._tool_policy, call, execution.result)
             _validate_tool_result_for_call(result, call)
-            # Hooks own content; canonical metadata is a fresh post-hook snapshot.
-            result = self._with_nested_record(result, service)
+            if recorded:
+                # Hooks own content; canonical metadata is a fresh post-hook
+                # snapshot.
+                result = self._with_nested_record(result, service)
             terminal_emit_attempted = True
             self._events.emit(
                 ToolCallCompleted(
@@ -1223,7 +1258,9 @@ class AgentLoop:
             return _SettledToolCall(result, settlement)
         except BaseException:
             unwinding = True
-            if not terminal_emit_attempted:
+            if not terminal_emit_attempted and (
+                records_always or self._has_record(service)
+            ):
                 self._emit_unfinished_composite(call, service, turn_index, started_at)
             raise
         finally:
@@ -1268,12 +1305,22 @@ class AgentLoop:
         except BaseException:  # noqa: BLE001 - only called while unwinding
             pass
 
-    def _run_composite(
-        self, call: AgentToolCall, service: NestedToolCallService
-    ) -> ToolExecutionOutcome:
-        assert self._composite_runner is not None
+    @staticmethod
+    def _has_record(service: NestedToolCallService) -> bool:
+        """While unwinding: a failure to read the record counts as none."""
         try:
-            execution = self._composite_runner.execute(call, service, self._tool_waiter)
+            return service.has_record()
+        except BaseException:  # noqa: BLE001 - only called while unwinding
+            return False
+
+    def _run_composite(
+        self,
+        call: AgentToolCall,
+        service: NestedToolCallService,
+        runner: AgentCompositeToolRunner,
+    ) -> ToolExecutionOutcome:
+        try:
+            execution = runner.execute(call, service, self._tool_waiter)
             if type(execution) is not ToolExecutionOutcome:
                 raise TypeError("composite runner must return ToolExecutionOutcome")
             ToolExecutionOutcome.__post_init__(execution)

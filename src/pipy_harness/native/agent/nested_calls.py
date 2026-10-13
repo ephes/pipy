@@ -106,7 +106,12 @@ class CompositeToolEligibility(Protocol):
 
 
 class AgentCompositeToolRunner(Protocol):
-    """Optional internal port; invoked only after parent admission and hooks."""
+    """Optional internal port; invoked only after parent admission and hooks.
+
+    ``records_always`` says whether the parent's result carries the record
+    of its nested calls also when it made none. A runner without the
+    attribute counts as ``True``.
+    """
 
     def execute(
         self,
@@ -207,7 +212,16 @@ class NestedToolCallService:
         /,
         *,
         waiter: ToolInterruptWaiter | None = None,
+        unknown_tool_error: str | None = None,
     ) -> NestedToolCallOutcome:
+        """Run one call under this parent.
+
+        A caller that lets its user name any tool, as ``ctx.execute_tool``
+        does, passes ``unknown_tool_error``: a name the parent may not call
+        is then refused with that text and kept in the record (Pi records
+        every call ``executeTool`` was asked for). Without it such a refusal
+        leaves no record.
+        """
         if threading.current_thread() is not self._thread:
             call = AgentToolCall(
                 f"{self._parent_id}/0", tool_name, ProductContent(arguments_json)
@@ -226,10 +240,8 @@ class NestedToolCallService:
             f"{self._parent_id}/{self._next}", tool_name, ProductContent(arguments_json)
         )
         if self._closed or self._busy or tool_name not in self._eligible:
-            return NestedToolCallOutcome(
-                call,
-                self._error_result(call, "nested call refused"),
-                NestedCallStatus.REFUSED,
+            return self._refuse(
+                call, None if self._closed or self._busy else unknown_tool_error
             )
         self._busy = True
         started = monotonic()
@@ -264,6 +276,18 @@ class NestedToolCallService:
             self.close()
         self._retain(outcome)
         return outcome
+
+    def _refuse(
+        self, call: AgentToolCall, recorded_error: str | None
+    ) -> NestedToolCallOutcome:
+        refused = NestedToolCallOutcome(
+            call,
+            self._error_result(call, recorded_error or "nested call refused"),
+            NestedCallStatus.REFUSED,
+        )
+        if recorded_error is not None:
+            self._retain(refused)
+        return refused
 
     def _retain(self, outcome: NestedToolCallOutcome) -> None:
         if len(self._records) >= 256:
@@ -332,3 +356,9 @@ class NestedToolCallService:
                 row["error"] = outcome.result.content.value
             calls.append(row)
         return {"calls": calls, "complete": self._complete}
+
+    def has_record(self) -> bool:
+        """Whether a call was kept or dropped: Pi leaves ``nestedCalls`` off
+        a result whose tool called nothing."""
+        self._require_thread()
+        return bool(self._records) or not self._complete

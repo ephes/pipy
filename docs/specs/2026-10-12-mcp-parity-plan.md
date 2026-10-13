@@ -514,8 +514,10 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `ui/components/mcp_manager_view.py` (outside `native/mcp/`, which may not import the UI) | The manager view | `ext/ui.ts` |
 
 Other new modules: `native/tool_search.py` (tokenizer, BM25, document
-builder, the `tool_search` tool) and `native/codemode/declarations.py`
-(schema to Python type text, tool samples).
+builder, the `tool_search` tool), `native/codemode/declarations.py`
+(schema to Python type text, tool samples) and
+`native/coding/tool_parent_runner.py` (the runner and the thread bridge of
+a tool that runs other tools, see "Decided in S37").
 
 Decided in S06 (search core, `native/tool_search.py`):
 
@@ -1841,6 +1843,75 @@ Decided in S36 (`mcp_servers_change` and the report; `registry.py`,
   taken, so a server that was unregistered before the session thread
   looked is reported as well. pipy's MCP support is not an extension that handles the
   event, so "MCP is turned off" stands for Pi's "no handler".
+
+Decided in S37 (design note: a tool that runs other tools;
+`coding/tool_parent_runner.py`, `agent/loop.py`, `agent/nested_calls.py`,
+`tools/base.py`, `extensions/command_context.py`):
+
+- Pi gives every tool `ctx.executeTool`, so pipy cannot know before a call
+  whether a tool orchestrates. Every call the model makes to an extension
+  tool therefore runs as a composite parent, through what `codemode` uses:
+  admission and `tool_call` hooks of the parent, the readiness wait, the
+  callable snapshot (4.3), the reserved parent slot in the tool budget, and
+  one `NestedToolCallService` on the session thread. A parent that calls
+  nothing settles exactly like a plain call (`PARENT` settlement without
+  children moves the same counters as `DIRECT`), and its result carries no
+  `nestedCalls`. Built-in and MCP tools stay plain calls.
+- The loop got one more port, `AgentLoop(parent_runner=)`: a function from
+  the admitted call to the `AgentCompositeToolRunner` that runs it, or
+  `None`. The built-in `codemode` keeps `composite_runner` and its name
+  guard and is asked first. `_execute_composite` and `_run_composite` take
+  the runner they are to use. A runner says with `records_always` whether
+  the parent's result has the record also without calls: `codemode` yes
+  (unchanged), `ToolParentRunner` no (Pi leaves `nestedCalls` off).
+- The session's function is `parent_runner_for(runs_as_parent,
+  execute_parent)` with two new methods of `SessionExecutionProjections`:
+  `runs_as_parent(name)` (the tool of this provider turn's value is an
+  extension's, `NativeToolCapabilitySnapshot.is_extension_tool`) and
+  `execute_parent(call, wait_for_interrupt=, nested_tools=)`, which runs the
+  parent on the turn's pinned value like `execute`. An extension's tool
+  named `codemode` is such a parent too.
+- Threads. The service belongs to the session thread; a handler runs on the
+  executor's worker thread whenever the session has a waiter.
+  `ToolParentRunner` does not run the handler itself: it calls the ordinary
+  executor, so validation, the cancel event, the join timeout and the
+  completion-before-cancellation rule are the executor's, and gives it
+  `NestedToolBridge.serve` as the waiter. The executor calls the waiter on
+  the session thread, which is where `serve` waits, with the session's own
+  waiter, for a wake event that a request or the end of the parent sets,
+  and runs one request at a time through `service.call`. A watcher thread
+  turns the executor's `done_event` into the wake event. Without a waiter
+  the handler runs on the session thread and `execute` reaches the service
+  directly; a call from another thread is then refused at once, because
+  nothing can serve it while the handler has the session thread (found in
+  review: it blocked a helper thread the handler joined). Running the
+  handler on a worker thread there as well was not done: the executor
+  turns Ctrl-C during its wait into a cancelled call, where such a session
+  ends today. The bridge's lock guards its queue, the wake event and
+  `closed`; nothing but the session thread touches the service.
+- The bridge is closed when `serve` returns (the parent ended, an
+  interruption, an exception of the pipeline) and again when the runner
+  returns. Closing answers every waiting and later request with `Nested
+  tool calls are not available in this context` (Pi's text for a context
+  without nested calls), so a handler the session stopped waiting for is
+  not left blocked. An interruption of a nested call is returned by `serve`
+  as the parent's interruption.
+- `ToolContext.nested_tools` (`NestedToolCalls`: `tools()`, `execute(name,
+  arguments) -> NestedToolResult`) carries the bridge to the tool port;
+  `ExtensionModelRuntimeControl.nested_tools` carries it into the context,
+  which has `tools`, `execute_tool` and `executeTool`. The public protocol
+  is `ExtensionToolContext` (inventory pin 108).
+- `NestedToolCallService.call(unknown_tool_error=)`: with it a name that is
+  not callable is refused with that text and kept in the record, as Pi
+  records every call `executeTool` was asked for. `codemode` does not pass
+  it and is unchanged. `has_record()` says whether a call was kept or
+  dropped.
+- Narrower than Pi, in `docs/extension-api.md` "Running other tools": one
+  level of nesting (a nested extension tool gets no `nested_tools`, because
+  the reserved parent slot and the service are for one parent); no
+  self-call; the callable tools are the snapshot of the parent's admission;
+  `ToolResult` instead of Pi's outcome object, no `signal` or `onUpdate`;
+  no usage is added up; no event for a name that is not callable.
 
 Open after the merge, owned by later slices:
 

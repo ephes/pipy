@@ -118,6 +118,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   change (`McpServersChangeEvent`). With MCP turned off and no such hook, a
   registered server is reported once as an error of its extension, because
   nothing connects it. See [MCP servers](docs/extension-api.md#mcp-servers).
+- Extension API: a tool can run other tools while it runs.
+  `ctx.execute_tool(name, arguments)` runs a callable tool (the active
+  `direct` tools and every `codemode` or `deferred` tool) through the same
+  argument validation, `tool_call` and `tool_result` hooks and tool budget
+  as a call the model made, and returns its `ToolResult`; a failure is a
+  result with `is_error`, never an exception. `ctx.tools` lists what it can
+  call. The calling tool's result keeps a bounded record of the calls as
+  `nestedCalls`. Only a tool the model called can do this, not one that was
+  itself called from a tool or a script. See
+  [running other tools](docs/extension-api.md#running-other-tools).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`

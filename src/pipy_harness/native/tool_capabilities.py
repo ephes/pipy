@@ -21,6 +21,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     tool_info,
 )
+from pipy_harness.native.tools.base import NestedToolCalls
 from pipy_harness.native.tools.loadout import (
     PrepareToolLoadout,
     ToolLoadout,
@@ -481,6 +482,7 @@ class NativeToolCapabilitySnapshot:
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         extension_generation_id: int | None = None,
+        nested_tools: NestedToolCalls | None = None,
     ) -> ToolExecutionOutcome:
         return self.state.executor.execute(
             call,
@@ -488,9 +490,15 @@ class NativeToolCapabilitySnapshot:
                 self.owner._context,
                 output_sink=output_sink,
                 extension_generation_id=extension_generation_id,
+                nested_tools=nested_tools,
             ),
             wait_for_interrupt=wait_for_interrupt,
         )
+
+    def is_extension_tool(self, name: str) -> bool:
+        """Whether the registered tool of this name is an extension's."""
+        port = self.state.extension_registry.get(name)
+        return port is not None and self.state.registry.get(name) is port
 
     def error_result(
         self,

@@ -25,6 +25,7 @@ from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUi,
     ExtensionUiDriver,
+    ToolResult,
     is_valid_custom_entry_type,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
@@ -35,6 +36,7 @@ from pipy_harness.native.extensions.session_views import (
     _ConversationView,
     _ReadOnlySessionManagerView,
 )
+from pipy_harness.native.tools.base import NESTED_CALLS_UNAVAILABLE
 
 if TYPE_CHECKING:
     from pipy_harness.native.tools.base import ToolInfo
@@ -152,8 +154,41 @@ class CommandContext(Protocol):
     ) -> object: ...
 
 
+@runtime_checkable
+class ExtensionToolContext(CommandContext, Protocol):
+    """Context passed to an extension tool's handler (Pi
+    ``ExtensionToolContext``): the extension context plus what runs other
+    tools.
+
+    ``tools`` lists the tools ``execute_tool`` can call: the active
+    ``direct`` tools and every registered ``codemode`` or ``deferred`` tool,
+    as they were when this tool was called. ``execute_tool(name, arguments)``
+    runs one of them through the same argument validation, ``tool_call`` and
+    ``tool_result`` hooks and tool budget as a call the model made, and
+    returns its result. It never raises for a tool failure: a tool that is
+    not callable, invalid arguments, a blocked call and a failed tool come
+    back as a result with ``is_error``.
+
+    Only a tool the model called can run other tools. In the context of a
+    tool that another tool called, and of commands and hooks, ``tools`` is
+    empty and ``execute_tool`` answers with an error result.
+    """
+
+    @property
+    def tools(self) -> "tuple[ToolInfo, ...]": ...
+
+    def execute_tool(
+        self, name: str, arguments: Mapping[str, object] | None = None
+    ) -> ToolResult: ...
+
+    def executeTool(  # noqa: N802 - Pi-shaped alias
+        self, name: str, arguments: Mapping[str, object] | None = None
+    ) -> ToolResult: ...
+
+
 class _CommandContext:
-    """Concrete `CommandContext` for one command invocation."""
+    """Concrete `CommandContext` for one command invocation, and the
+    `ExtensionToolContext` of one tool invocation."""
 
     def __init__(
         self,
@@ -207,6 +242,30 @@ class _CommandContext:
                 "the tool list is not available in this context"
             )
         return tuple(self._model_runtime.get_all_tools_fn())
+
+    @property
+    def tools(self) -> "tuple[ToolInfo, ...]":
+        nested = self._model_runtime.nested_tools
+        return () if nested is None else nested.tools()
+
+    def execute_tool(
+        self, name: str, arguments: Mapping[str, object] | None = None
+    ) -> ToolResult:
+        nested = self._model_runtime.nested_tools
+        if nested is None:
+            return ToolResult(content=NESTED_CALLS_UNAVAILABLE, is_error=True)
+        result = nested.execute(str(name), arguments)
+        return ToolResult(
+            content=result.content,
+            details=result.details,
+            structured_content=result.structured_content,
+            is_error=result.is_error,
+        )
+
+    def executeTool(  # noqa: N802 - Pi-shaped alias
+        self, name: str, arguments: Mapping[str, object] | None = None
+    ) -> ToolResult:
+        return self.execute_tool(name, arguments)
 
     def set_model(self, reference: str) -> bool:
         if self._model_runtime.set_model_fn is None:

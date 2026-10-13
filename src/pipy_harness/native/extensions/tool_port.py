@@ -97,6 +97,7 @@ class _ExtensionToolPort:
             model_runtime=ExtensionModelRuntimeControl(
                 set_active_tools_fn=set_active_tools,
                 get_all_tools_fn=self._get_all_tools_fn,
+                nested_tools=context.nested_tools,
             ),
             flags=self._flags,
             project_trusted=self._project_trusted,

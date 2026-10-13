@@ -110,6 +110,7 @@ from pipy_harness.native.extensions.collectors import (
 from pipy_harness.native.extensions.command_context import (
     CommandContext,
     ExtensionCapabilityError,
+    ExtensionToolContext,
 )
 from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
@@ -161,6 +162,7 @@ from pipy_harness.native.tools.base import (
 __all__ = [
     "PipyExtensionAPI",
     "CommandContext",
+    "ExtensionToolContext",
     "ConversationView",
     "AssistantMessageView",
     "SessionEntryView",
