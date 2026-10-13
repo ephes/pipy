@@ -43,6 +43,10 @@ parity-score:
 catalog-drift *args:
     uv run python scripts/catalog_drift.py {{args}}
 
+# Run the official MCP client conformance suite against pipy (manual; needs Node's npx and network).
+mcp-conformance *args:
+    uv run python scripts/mcp_conformance/run.py {{args}}
+
 # Run one bounded unattended parity-loop batch and curate a slice report on success.
 parity-run label="":
     label="{{label}}"; [ -n "$label" ] || label="$(date -u +%Y-%m-%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --run-label "$label" --write-report --curate-report

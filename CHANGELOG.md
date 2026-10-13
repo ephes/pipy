@@ -440,6 +440,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   own server. Escape or an abort ends a wait and cancels the call. An
   extension tool gets the same wait by declaring `reaches_tools`. See
   [MCP](docs/mcp.md#waiting-for-servers).
+- `just mcp-conformance` runs the official MCP client conformance suite
+  (`@modelcontextprotocol/conformance@0.2.0-alpha.11`, protocol versions
+  `2025-03-26`, `2025-06-18` and `2025-11-25`) against pipy's MCP client and
+  compares every check with a committed baseline. All scenarios pass except
+  the three that Pi's baseline lists as well (elicitation, `auth/basic-cimd`,
+  and the simulated user of `auth/scope-retry-limit`). The recipe is manual:
+  it needs Node's `npx` and the network. See
+  [MCP conformance](docs/mcp.md#conformance).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
 

@@ -1686,6 +1686,28 @@ Differences from Pi in tools:
 - A name with a suffix that is already another tool's name, or a tool a
   server lists twice, gets a different suffix. In Pi the name changes hands.
 
+## Conformance
+
+pipy's MCP client is checked against the official
+[MCP conformance suite](https://github.com/modelcontextprotocol/conformance),
+the client scenarios of version `0.2.0-alpha.11` for the protocol versions
+`2025-03-26`, `2025-06-18` and `2025-11-25`. The suite runs a small driver
+that connects with the same code a session uses for an HTTP server and signs
+in as `/mcp login` does, with a simulated browser. Every check passes
+except in three scenarios, which fail the same checks in Pi:
+
+- `elicitation-sep1034-client-defaults`: pipy does not support elicitation.
+- `auth/basic-cimd`: without `oauth.clientRegistration: "cimd"` pipy
+  registers a client and does not identify with a
+  [Client ID Metadata Document](#oauth-settings).
+- `auth/scope-retry-limit`: the suite's checks pass; the driver's simulated
+  user gives up after three sign-ins, by design, since pipy itself does not
+  limit how often you may sign in.
+
+In a checkout, `just mcp-conformance` runs the suite and compares the result
+with the committed baseline. It needs Node's `npx` and, the first time, the
+network, so it is a manual check and not part of `just check`. `scripts/mcp_conformance/README.md` has its options.
+
 ## What exists as a library
 
 The package `pipy_harness.native.mcp` is synchronous and uses only the

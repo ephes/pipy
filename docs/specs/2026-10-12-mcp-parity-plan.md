@@ -2314,6 +2314,38 @@ Decided in S39 (images, part 5: codemode `image()`; `codemode/prelude.py`,
   session in which a script shows an MCP tool's image block (the mirror of
   Pi's "attaches only the images the script passes to image()").
 
+Decided in S40 (closeout, part 1: the conformance recipe;
+`scripts/mcp_conformance/`):
+
+- `run.py` and `client.py` are ports of Pi's `test/mcp-conformance/run.ts`
+  and `client.ts`; `just mcp-conformance [options]` runs `run.py`. The
+  client under test uses `McpServerConnection` with the default transport
+  factory and `sign_in_mcp_server`, as the plan asked. pipy has no
+  in-memory credential backend, so the driver's `mcp-auth.json` is in a
+  temporary directory that is removed at the end; nothing under the config
+  home is read or written.
+- The extra check is named `pipy-client` (Pi `pi-client`), the report file
+  variable `PIPY_MCP_CONFORMANCE_REPORT`.
+- Result of the first full run (2026-10-13, suite `0.2.0-alpha.11`, 26
+  scenario runs in the three modes): pipy's `baseline.json` equals Pi's at
+  the plan's Pi commit, check for check, with `pipy-client` for `pi-client`.
+  The bar of section 6.4 (no failing check that passes in Pi's baseline) is
+  met; no product code was changed for it.
+- `tests/test_mcp_conformance_recipe.py` runs in `just check` without Node:
+  the comparison rules, the reading of `checks.json` and of the client's
+  report, the committed baseline (pinned suite, three modes, and exactly
+  the known failing checks, so a regenerated baseline with a new failure
+  does not pass), and the client under test against the repository's fake
+  OAuth MCP server (a sign-in through the simulated browser, and the three
+  sign-ins after which the simulated user gives up).
+- Different from Pi's runner: `--mode` is checked by the argument parser
+  (exit status 2 for an unknown version, Pi prints a message and exits 1);
+  a missing `npx`, and a temporary directory whose path has a space (the
+  suite splits `--command` on spaces), are reported before anything runs;
+  a `checks.json` that is not JSON or not a list fails the `runner` check
+  instead of ending the run with an exception.
+- Not in CI, as DEV-12 says.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
