@@ -337,3 +337,7 @@ class ReplLoopScope:
     compaction_event: (
         Callable[[str, str, CodingCompactionOutcome | None], None] | None
     ) = None
+    # A session of `--print` or `--mode json`, whose input stream says so
+    # (`is_prompt`): the line it reads is a prompt in Pi's sense
+    # (`AgentSession.prompt`), not a line somebody typed.
+    prompt_mode: bool = False

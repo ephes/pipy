@@ -310,6 +310,16 @@ class NativeRpcServer:
         self._bash_operations: dict[object, _BashOperation] = {}
         self._bash_threads: list[threading.Thread] = []
         self._worker: threading.Thread | None = None
+        # Prompts whose response the worker writes, by the identity of their
+        # content: Pi answers a prompt when it knows what became of it
+        # (`preflightResult`), which for a prompt that is next to run is known
+        # only when the session has dispatched it. `_prompt_lock` guards them
+        # and `_worker_ended`. The reader holds it across the admission, so
+        # that the worker cannot look for a prompt before it is listed; it is
+        # never taken while the control gate is held.
+        self._prompt_lock = threading.Lock()
+        self._owed_prompts: dict[int, tuple[ProductContent, str | None]] = {}
+        self._worker_ended: str | None = None
 
     # -- event tap (called from the worker thread) -----------------------
     def emit(self, event: dict[str, Any]) -> None:
@@ -324,6 +334,8 @@ class NativeRpcServer:
                 )
                 if text:
                     self._last_assistant_text = text
+        if event_type == "agent_start":
+            self._respond_prompt(self._bridge.attached_content(), "started")
         if event_type != "agent_end" or event.get("willRetry") is True:
             self._writer.write_line(event)
             return
@@ -334,10 +346,57 @@ class NativeRpcServer:
                 raise RuntimeError("terminal agent_end is already pending")
             self._pending_agent_end = event
 
+    def _take_owed_prompt(
+        self, content: ProductContent | None
+    ) -> tuple[ProductContent, str | None] | None:
+        if content is None:
+            return None
+        with self._prompt_lock:
+            return self._owed_prompts.pop(id(content), None)
+
+    def _respond_prompt(self, content: ProductContent | None, disposition: str) -> None:
+        """Answer the prompt with this content, if its answer is still owed.
+
+        Not for a publication under the control gate: it takes the prompt
+        lock, which the reader holds while it waits for that gate.
+        """
+
+        owed = self._take_owed_prompt(content)
+        if owed is not None:
+            self._respond(owed[1], "prompt", {"disposition": disposition})
+
+    def _worker_has_ended(self, reason: str) -> None:
+        """Answer the prompts the ended worker can no longer answer, and
+        refuse the ones that come later."""
+
+        with self._prompt_lock:
+            self._worker_ended = reason
+            owed = list(self._owed_prompts.values())
+            self._owed_prompts.clear()
+        for _content, cid in owed:
+            self._respond_error(cid, "prompt", reason)
+
+    def _settle_handled_prompt(self) -> None:
+        """A selected prompt ran an extension command: no run, no event."""
+
+        owed = self._take_owed_prompt(self._bridge.attached_content())
+
+        def publish(snapshot: _NativeControlSnapshot) -> None:
+            if owed is not None:
+                self._respond(owed[1], "prompt", {"disposition": "handled"})
+            if snapshot.reservation is not None:
+                self._emit_queue_update(snapshot)
+
+        snapshot = self._bridge.consume_attached_agent_end_and_publish(publish)
+        if snapshot.reservation is not None:
+            self._channel.wake()
+
     def _settle_logical_run(self) -> None:
         with self._lock:
             event = self._pending_agent_end
             self._pending_agent_end = None
+        # A run that ended before its `agent_start` still began.
+        self._respond_prompt(self._bridge.attached_content(), "started")
 
         def publish(snapshot: _NativeControlSnapshot) -> None:
             if event is not None:
@@ -382,6 +441,7 @@ class NativeRpcServer:
             self._retry = outcome.retry_port
             self._transition = outcome.transition_port
             self._bridge.bind_manual_compaction_handler(self._run_manual_compaction)
+            self._bridge.bind_handled_prompt_handler(self._settle_handled_prompt)
             ready = True
             self._read_loop()
         finally:
@@ -432,6 +492,7 @@ class NativeRpcServer:
             cwd=self._cwd,
             capture_policy=CapturePolicy(),
         )
+        ended = "the session has ended"
         try:
             prepared = self._adapter.prepare(request)
             self._adapter.run(
@@ -443,6 +504,11 @@ class NativeRpcServer:
                 self._pending_agent_end = None
             self._bridge.publish_failure_if_unpublished(exc)
             print(f"pipy: rpc worker ended: {type(exc).__name__}", file=self._error)
+            ended = f"the session has ended: {type(exc).__name__}"
+        finally:
+            # The session also ends without an exception, after a run that
+            # fails it. Nothing answers a prompt from then on.
+            self._worker_has_ended(ended)
 
     def _read_loop(self) -> None:
         buffer = JsonlLineBuffer()
@@ -678,11 +744,26 @@ class NativeRpcServer:
         if not isinstance(message, str) or not message:
             self._respond_error(cid, "prompt", "prompt requires a non-empty message")
             return
-        snapshot = self._bridge.admit_prompt(
-            ProductContent(message),
-            steer_active=command.get("streamingBehavior") == "steer",
-        )
-        self._respond(cid, "prompt")
+        content = ProductContent(message)
+        with self._prompt_lock:
+            ended = self._worker_ended
+            if ended is None:
+                snapshot = self._bridge.admit_prompt(
+                    content,
+                    steer_active=command.get("streamingBehavior") == "steer",
+                )
+                reservation = snapshot.reservation
+                # A prompt that is next to run is answered by the worker,
+                # with `started` or `handled`.
+                next_to_run = reservation is not None and reservation.content is content
+                if next_to_run:
+                    self._owed_prompts[id(content)] = (content, cid)
+        if ended is not None:
+            self._respond_error(cid, "prompt", ended)
+            return
+        if not next_to_run:
+            # Behind the run in flight.
+            self._respond(cid, "prompt", {"disposition": "queued"})
         if snapshot.pending_count and not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
@@ -694,7 +775,7 @@ class NativeRpcServer:
             self._respond_error(cid, "steer", "steer requires a non-empty message")
             return
         snapshot = self._bridge.admit_steering(ProductContent(message))
-        self._respond(cid, "steer")
+        self._respond(cid, "steer", {"disposition": "queued"})
         if not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
@@ -708,7 +789,7 @@ class NativeRpcServer:
             )
             return
         snapshot = self._bridge.admit_follow_up(ProductContent(message))
-        self._respond(cid, "follow_up")
+        self._respond(cid, "follow_up", {"disposition": "queued"})
         if not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:

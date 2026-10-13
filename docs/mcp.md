@@ -504,13 +504,16 @@ login cancels the sign-in.
 
 Different from Pi:
 
-- pipy runs `/mcp` only for a line typed into a session. A prompt given on
-  the command line (also with `--print` or `--mode json`) or sent by an RPC
-  client is never run as a slash command; it goes to the model. Pi runs the
-  command there too.
-- A prompt template or custom command named `mcp` takes the place of the
-  command, as does an extension command of that name. In Pi only an
-  extension command does. An extension command also
+- `/mcp` also runs as the prompt of `--print` and `--mode json` and as an
+  RPC client's `prompt`, where it prints the status to stderr and starts no
+  run (see [Commands in a prompt](automation-rpc.md#commands-in-a-prompt)).
+  Pi shows nothing in print and JSON mode, and sends the status to an RPC
+  client as an `extension_ui_request`.
+- For a line typed into a session, a prompt template or custom command
+  named `mcp` takes the place of the command, as does an extension command
+  of that name. In Pi only an extension command does, and that is also
+  pipy's order for a prompt of `--print`, `--mode json` and RPC mode, where
+  `/mcp` comes before the templates. An extension command also
   [replaces the built-in MCP support](#replace-the-built-in-mcp-support).
 - Pi's command cannot be interrupted; the Escape rules above are pipy's.
 - With MCP [turned off](#turning-mcp-off) there is no `/mcp` command.

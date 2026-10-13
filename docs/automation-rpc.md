@@ -215,7 +215,9 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"agent_settled"}
 ```
 
-The one-shot run settles into idle exactly when it returns, so a single
+A prompt that [ran an extension command](#commands-in-a-prompt) started no
+run: the header is then the only line. Otherwise the
+one-shot run settles into idle exactly when it returns, so a single
 payload-free `agent_settled` is emitted as the final line after `agent_end`,
 matching Pi's `_runAgentPrompt` `finally`
 (`agent-session.ts:534-541,1022-1034`) which `--mode json` forwards
@@ -318,8 +320,8 @@ in `packages/coding-agent/src/modes/rpc/rpc-mode.ts`.
   it must still let `steer`/`follow_up`/`abort`/`extension_ui_response` reach the
   running prompt promptly rather than blocking behind it.
 - `prompt` is **asynchronous**: the command returns its authoritative success
-  response only after prompt preflight succeeds, and session events stream while
-  the turn runs. All other commands resolve to a single response. `steer`,
+  response, with `data.disposition`, only when it is known what became of the
+  prompt, and session events stream while the turn runs. All other commands resolve to a single response. `steer`,
   `follow_up`, and `abort` are accepted while a prompt is in flight (mid-turn).
 - Client correlation reference: `packages/coding-agent/src/modes/rpc/rpc-client.ts`
   resolves a response when `data.type === "response" && data.id` matches a
@@ -334,9 +336,9 @@ Prompting / run control:
 
 | Command | Args | Response `data` | Notes |
 | --- | --- | --- | --- |
-| `prompt` | `message: string`, `images?: ImageContent[]`, `streamingBehavior?: "steer" \| "followUp"` | none (`success` only) | Async: success emitted after preflight; events follow. On preflight failure emits an error response. |
-| `steer` | `message: string`, `images?` | none | Mid-turn interrupt; queued/applied per steering mode. |
-| `follow_up` | `message: string`, `images?` | none | Queue a message after the current run. |
+| `prompt` | `message: string`, `images?: ImageContent[]`, `streamingBehavior?: "steer" \| "followUp"` | `{ disposition: "started" \| "queued" \| "handled" }` | Async: answered when it is known what became of the prompt; events follow a `started` one. See [Commands in a prompt](#commands-in-a-prompt). |
+| `steer` | `message: string`, `images?` | `{ disposition: "queued" }` | Mid-turn interrupt; queued/applied per steering mode. |
+| `follow_up` | `message: string`, `images?` | `{ disposition: "queued" }` | Queue a message after the current run. |
 | `abort` | (none) | none | Abort the current run. |
 | `new_session` | (none) | `{ cancelled: boolean }` | Starts a fresh native session through the native transition owner; a supplied legacy `parentSession` is refused until a later lineage contract. |
 
@@ -652,9 +654,10 @@ The ID is `null` only for an explicitly non-persistent native session; a
 persistent session requires the exact retained durable entry ID.
 
 `RpcSlashCommand` (`get_commands`): `name: string`, `description?: string`,
-`source: "extension" | "prompt" | "skill"`, `sourceInfo: object`. pipy lists
-its extension commands (`docs/extension-api.md`), prompt templates, and skills
-(`skill:<name>`).
+`source: "extension" | "prompt" | "skill"`, `sourceInfo: object`. Pi lists
+its extension commands, prompt templates, and skills (`skill:<name>`); pipy
+answers an empty list today, although a prompt
+[runs them](#commands-in-a-prompt).
 
 ### Mid-turn steering, follow-up, and abort
 
@@ -1006,6 +1009,67 @@ no-op stubs in `rpc-mode.ts`. Extension errors are surfaced as
   stdout (except on SIGTERM), and exits. It joins tracked direct-bash workers;
   explicit abort and timeout terminate their child process groups before the
   terminal response is written.
+
+## Commands in a prompt
+
+The prompt of `--print` and `--mode json` and the `message` of an RPC
+`prompt` are handled as Pi's `AgentSession.prompt` handles them. They are
+not lines typed into a session.
+
+1. A text that starts with `/` and names a command an extension registered
+   runs that command, with the text after the first space as its arguments.
+   [`/mcp`](mcp.md#the-mcp-command) is such a command while MCP is on. No run
+   starts and the model is not asked.
+2. Otherwise `/skill:<name> [args]` becomes the skill block and `/<name>
+   [args]` the expanded prompt template or custom command of that name.
+3. Every other text is the prompt as it stands. That includes the built-in
+   commands of the interactive session (`/model`, `/compact`, `/exit` and
+   the rest), an unknown `/name` and a line that starts with `!`: the model
+   receives them as text.
+
+The text is not trimmed: ` /mcp` with a leading space is a prompt.
+
+What a handled prompt (case 1) looks like:
+
+| Mode | Result |
+| --- | --- |
+| `--print` | Nothing on stdout, exit status 0. |
+| `--mode json` | The session header line and no event, also no `agent_settled`. |
+| `--mode rpc` | The `prompt` response has `data.disposition` `"handled"` and is written when the command has returned. No event follows, so a client must not wait for `agent_settled`. |
+
+The other dispositions of an RPC `prompt`: `"started"` is written just
+before the run's `agent_start`, `"queued"` at once for a prompt that went
+behind the run in flight.
+
+A command's notices (`ctx.ui.notify`, the status `/mcp` prints) go to stderr.
+A command that raises is reported there as `pipy: extension command /<name>
+failed (<error type>)`, and its prompt is handled all the same.
+
+Different from Pi:
+
+- In print and JSON mode Pi's commands have no UI and a notice is dropped,
+  so `pi -p /mcp` shows nothing. pipy writes notices to stderr in every
+  mode without a terminal UI.
+- In RPC mode Pi sends a notice as an `extension_ui_request` on stdout and
+  a failed command as an `extension_error` object. pipy writes both to
+  stderr.
+- `steer`, `follow_up` and a `prompt` sent while a run is in flight are
+  queued as they are. A queued text that names an extension command reaches
+  the model as text, and a queued skill or template name is not expanded.
+  Pi refuses `steer` and `follow_up` for an extension command (`Extension
+  command "/<name>" cannot be queued. ...`), runs such a `prompt` at once,
+  and expands skills and templates when it queues a message.
+- A prompt template named like a built-in command is not expanded, and a
+  skill or template turn skips the `input` hooks (Pi runs them first). A
+  skill that is unknown or cannot be read, and a template that expands to
+  nothing, say so on stderr; the text then goes to the model unchanged.
+- `get_commands` answers an empty list; Pi lists the extension commands,
+  prompt templates and skills.
+
+The interactive session is not affected: a line typed into the terminal UI
+or the plain REPL, also one piped to `pipy` without `--print`, runs the
+built-in commands as before. A [product session](sdk.md) sends the text of
+`submit()` to the model and runs no command.
 
 ## (c) `--print/-p` One-Shot Mapping
 

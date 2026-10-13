@@ -6,8 +6,10 @@ SLH-05, SLH-06 and the command's part of EXP-11. The command itself is
 tested in ``test_native_mcp_commands.py``, the terminal in
 ``test_native_mcp_command_pty.py``.
 
-Not here: a prompt given on the command line or sent by an RPC client. It
-goes to the model; no slash command runs for it, an extension's or this one.
+Not here: the prompt of ``--print`` and ``--mode json`` and an RPC client's
+prompt, which run the command too
+(``test_native_automation_prompt_dispatch.py``,
+``test_native_automation_rpc_prompt_dispatch.py``).
 """
 
 from __future__ import annotations

@@ -2211,6 +2211,7 @@ def _assemble_session_wiring(
         session_prompt_sections=extension.mcp.prompt_sections,
         run_prepared=extension.tool_capabilities.drop_pending_tools,
         compaction_event=_compaction_event,
+        prompt_mode=getattr(inputs.input_stream, "is_prompt", False) is True,
     )
     extension.mcp.announce_through(emitter)
     delegation = _LoopDelegation(

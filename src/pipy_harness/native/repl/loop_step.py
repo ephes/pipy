@@ -160,6 +160,9 @@ class _TurnInput:
     stripped: str
     command_text: str
     from_hotkey: bool = False
+    # A prompt of an automation mode: dispatched as Pi's `prompt` does, with
+    # no command of the typed line (`command_text` is empty).
+    prompt: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -593,13 +596,17 @@ def _phase_b_intake(
     selected = step.selected_provider_content
     user_input = selected.value if selected is not None else scope.ctl.line.rstrip("\n")
     stripped = user_input.strip()
+    prompt = step.external_prompt or (
+        scope.prompt_mode and step.kind is CodingLoopStepKind.FRESH_LINE
+    )
     return _TurnInput(
         turn=turn,
         selected_provider_content=selected,
         queued_input=step.queued_input,
         user_input=user_input,
         stripped=stripped,
-        command_text="" if selected is not None else stripped,
+        command_text="" if selected is not None or prompt else stripped,
+        prompt=prompt,
     )
 
 
@@ -720,13 +727,20 @@ def _phase_d_dispatch(
         # The plain REPL (no Pi counterpart) restyles the line readline
         # already echoed, command or not.
         scope.renderer.render_user_message(turn_input.user_input)
-    resolution = scope.loop_controller.dispatch_command(
-        command_text=turn_input.command_text,
-        stripped=turn_input.stripped,
-        user_input=turn_input.user_input,
-        selected_provider_content=turn_input.selected_provider_content,
-        effects=scope.command_effects,
-    )
+    if turn_input.prompt:
+        resolution = scope.loop_controller.dispatch_prompt(
+            user_input=turn_input.user_input,
+            selected_provider_content=turn_input.selected_provider_content,
+            effects=scope.command_effects,
+        )
+    else:
+        resolution = scope.loop_controller.dispatch_command(
+            command_text=turn_input.command_text,
+            stripped=turn_input.stripped,
+            user_input=turn_input.user_input,
+            selected_provider_content=turn_input.selected_provider_content,
+            effects=scope.command_effects,
+        )
     if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
         return LoopStepSignal.break_loop()
     if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:

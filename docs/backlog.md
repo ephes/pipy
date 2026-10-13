@@ -491,12 +491,15 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
 - **Strict tool schemas** (Pi 0.86.0): only once a primary provider needs
   capability-gated constraints.
 - **Per-model image input limits and resize** (Pi `f5c946480`).
-- **Missing RPC commands:** `clear_queue` (`a79b37334`), prompt disposition
-  (`e473b5cd8`), and `get_tree`/`get_entries` (`7ba1b6bfe`).
-- **Slash commands outside typed input:** a prompt given on the command
-  line (print and JSON mode too) or sent by an RPC client goes to the model
-  also when it starts with `/`. Pi's `prompt` runs extension commands, `/mcp` among
-  them, and expands prompt templates and skills there.
+- **Missing RPC commands:** `clear_queue` (`a79b37334`) and
+  `get_tree`/`get_entries` (`7ba1b6bfe`). `get_commands` answers an empty
+  list.
+- **Commands in queued input:** the prompt of `--print` and `--mode json`
+  and an RPC `prompt` run extension commands (`/mcp` among them) and expand
+  skills and prompt templates as Pi's `prompt` does. Still different:
+  `steer`, `follow_up` and a `prompt` sent during a run are queued as they
+  are, and a product session's `submit()` runs no command. See
+  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
 - **Extension events** that Pi's `core/extensions/types.ts` has and pipy's
   `extensions/activation.py` lacks.
 - **Pi's shared OAuth callback server** (`4df157433`). This is a refactor only:

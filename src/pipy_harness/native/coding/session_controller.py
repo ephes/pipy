@@ -170,6 +170,7 @@ class _NativeSessionControlBridge:
         "_claim",
         "_event",
         "_fatal",
+        "_handled_prompt",
         "_manual_handler",
         "_outcome",
         "_outcome_lock",
@@ -198,6 +199,7 @@ class _NativeSessionControlBridge:
             Callable[[_NativeRunClaim], _NativeControlSnapshot] | None
         ) = None
         self._wake_reader: Callable[[], str] | None = None
+        self._handled_prompt: Callable[[], None] | None = None
         self._fatal = False
         self._manual_handler: (
             Callable[
@@ -220,6 +222,40 @@ class _NativeSessionControlBridge:
             if self._manual_handler is not None:
                 raise RuntimeError("manual compaction handler is already bound")
             self._manual_handler = handler
+
+    def bind_handled_prompt_handler(self, handler: Callable[[], None]) -> None:
+        """Bind what settles a selected prompt that started no run.
+
+        The handler runs on the worker and has to consume the attached claim
+        (``consume_attached_agent_end_and_publish``).
+        """
+
+        if not callable(handler):
+            raise TypeError("handled prompt handler must be callable")
+        with self._outcome_lock:
+            if self._handled_prompt is not None:
+                raise RuntimeError("handled prompt handler is already bound")
+            self._handled_prompt = handler
+
+    def settle_handled_prompt(self) -> None:
+        """Settle the attached claim of a prompt that a command handled.
+
+        Without an attached claim the prompt did not come from the transport
+        and there is nothing to settle.
+        """
+
+        if self._claim is None:
+            return
+        handler = self._handled_prompt
+        if handler is None:
+            raise RuntimeError("native handled prompt handler is not bound")
+        handler()
+
+    def attached_content(self) -> ProductContent | None:
+        """The content of the claim the worker runs now, for the worker."""
+
+        claim = self._claim
+        return None if claim is None else claim.content
 
     def bind_wake_reader(self, reader: Callable[[], str]) -> None:
         """Bind the transport's wake/EOF reader before worker startup."""
@@ -693,6 +729,9 @@ class CodingLoopStep:
     selected_provider_content: ProductContent | None = None
     queued_input: AgentQueuedInput | None = None
     keyboard_interrupt: bool = False
+    # The content is a prompt a transport client sent (RPC ``prompt``), as
+    # opposed to a queued message, a seed or an extension's message.
+    external_prompt: bool = False
 
     def __post_init__(self) -> None:
         _require_exact_coding_loop_step_fields(self)
@@ -713,6 +752,8 @@ class CodingLoopStep:
         content: ProductContent,
         queued_input: AgentQueuedInput | None,
         settle_pending: bool,
+        *,
+        external_prompt: bool = False,
     ) -> CodingLoopStep:
         return cls(
             CodingLoopStepKind.PROVIDER_CONTENT,
@@ -720,6 +761,7 @@ class CodingLoopStep:
             settle_pending,
             selected_provider_content=content,
             queued_input=queued_input,
+            external_prompt=external_prompt,
         )
 
     @classmethod
@@ -1191,6 +1233,7 @@ class CodingSessionController:
             selection.content,
             selection.queued_input,
             settle_pending,
+            external_prompt=selection.source is CodingInputSource.EXTERNAL_PROMPT,
         )
 
     def dispatch_command(
@@ -1257,6 +1300,40 @@ class CodingSessionController:
             selected_provider_content=selected_provider_content,
         )
 
+    def dispatch_prompt(
+        self,
+        *,
+        user_input: str,
+        selected_provider_content: ProductContent | None,
+        effects: CodingCommandEffects,
+    ) -> CommandDispatchResolution:
+        """Resolve a prompt of an automation mode as Pi's ``AgentSession.prompt``.
+
+        A prompt given to ``--print`` or ``--mode json`` or sent by an RPC
+        client is not a typed line: no built-in command, shell shortcut or
+        hotkey applies to it. A text that starts with ``/`` and names an
+        extension command (``/mcp`` is one) runs that command and there is no
+        run; the transport's claim for the prompt is settled here. Otherwise
+        a skill command or a prompt template is expanded, and every other
+        text, an unknown ``/name`` included, is the prompt as it stands.
+        """
+
+        if not isinstance(effects, CodingCommandEffects):
+            raise TypeError("effects must implement CodingCommandEffects")
+        provider_text: str | None = None
+        if user_input.startswith("/"):
+            extension = _dispatch_extension_command(user_input, effects)
+            if extension is not None:
+                if self._control_bridge is not None:
+                    self._control_bridge.settle_handled_prompt()
+                return extension
+            provider_text = _expand_prompt_resource(user_input, effects)
+        return CommandDispatchResolution.proceed_to_run(
+            user_input=user_input,
+            resource_provider_text=provider_text,
+            selected_provider_content=selected_provider_content,
+        )
+
     def _step_from_wake(
         self,
         wake: CodingInputSelection,
@@ -1271,6 +1348,7 @@ class CodingSessionController:
             wake.content,
             wake.queued_input,
             settle_pending,
+            external_prompt=wake.source is CodingInputSource.EXTERNAL_PROMPT,
         )
 
 
@@ -1422,6 +1500,8 @@ def _require_exact_coding_loop_step_fields(step: CodingLoopStep) -> None:
         raise TypeError("settle_pending must be an exact bool")
     if type(step.keyboard_interrupt) is not bool:
         raise TypeError("keyboard_interrupt must be an exact bool")
+    if type(step.external_prompt) is not bool:
+        raise TypeError("external_prompt must be an exact bool")
 
 
 def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
@@ -1442,6 +1522,11 @@ def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
             )
         if step.queued_input is not None:
             raise ValueError("only provider-content steps carry queued_input")
+    if step.external_prompt and (
+        step.kind is not CodingLoopStepKind.PROVIDER_CONTENT
+        or step.queued_input is not None
+    ):
+        raise ValueError("only unqueued provider content is an external prompt")
     if step.kind in (CodingLoopStepKind.IDLE, CodingLoopStepKind.EOF):
         _require_empty_step(step)
         return
@@ -1530,6 +1615,29 @@ def _dispatch_resource_command(
     if resource.message:
         effects.emit_diagnostic(resource.message)
     return None, provider_text
+
+
+def _expand_prompt_resource(
+    text: str,
+    effects: CodingCommandEffects,
+) -> str | None:
+    """The provider text of a skill command or prompt template, else ``None``.
+
+    A resource that cannot run (an unknown skill, an empty expansion) says so
+    and leaves the text to go to the model unchanged, as Pi leaves it.
+    """
+
+    resource = effects.dispatch_resource(text)
+    if resource is None:
+        return None
+    if type(resource) is not ResourceDispatchResolution:
+        raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+    if resource.message:
+        effects.emit_diagnostic(resource.message)
+    if resource.kind is ResourceDispatchKind.REJECT:
+        return None
+    effects.record_resource_invocation()
+    return resource.provider_text or ""
 
 
 def _dispatch_extension_command(

@@ -568,6 +568,24 @@ def test_step_rejects_inconsistent_construction() -> None:
         CodingLoopStep(
             CodingLoopStepKind.FRESH_LINE, "x\n", True, keyboard_interrupt=True
         )
+    with pytest.raises(ValueError, match="only unqueued provider content"):
+        CodingLoopStep(CodingLoopStepKind.FRESH_LINE, "x\n", True, external_prompt=True)
+    with pytest.raises(ValueError, match="only unqueued provider content"):
+        content = ProductContent("x")
+        CodingLoopStep.provider_content(
+            "x\n",
+            content,
+            AgentQueuedInput(content, AgentQueuedInputKind.FOLLOW_UP),
+            True,
+            external_prompt=True,
+        )
+    with pytest.raises(TypeError, match="external_prompt must be an exact bool"):
+        CodingLoopStep(
+            CodingLoopStepKind.FRESH_LINE,
+            "x\n",
+            True,
+            external_prompt=1,  # type: ignore[arg-type]
+        )
 
 
 # --- command dispatch precedence ---------------------------------------------
@@ -910,6 +928,113 @@ def test_dispatch_command_rejects_wrong_extension_result_type() -> None:
             user_input="/x",
             selected_provider_content=None,
             effects=_BadExtension(),
+        )
+
+
+def _dispatch_prompt(
+    text: str,
+    effects: _FakeCommandEffects,
+    selected: ProductContent | None = None,
+) -> CommandDispatchResolution:
+    controller, _ = _controller(CodingInputQueue())
+    return controller.dispatch_prompt(
+        user_input=text, selected_provider_content=selected, effects=effects
+    )
+
+
+def test_prompt_runs_an_extension_command_before_any_resource() -> None:
+    # Pi `AgentSession.prompt`: extension commands first, and no run.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        extension=ExtensionDispatchResolution(name="note", ran=True),
+    )
+
+    resolution = _dispatch_prompt("/note x", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.extension_dispatches == ["/note x"]
+    assert effects.resource_dispatches == []
+    assert effects.interpretations == []
+
+
+def test_prompt_reports_a_failed_extension_command_and_starts_no_run() -> None:
+    effects = _FakeCommandEffects(
+        extension=ExtensionDispatchResolution(name="note", ran=False, error="boom")
+    )
+
+    resolution = _dispatch_prompt("/note", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.diagnostics == ["pipy: extension command /note failed (boom)"]
+
+
+def test_prompt_never_interprets_a_builtin_or_reports_an_unknown_name() -> None:
+    for text in ("/exit", "/model x", "/nosuch", "!ls"):
+        effects = _FakeCommandEffects()
+
+        resolution = _dispatch_prompt(text, effects)
+
+        assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+        assert resolution.user_input == text
+        assert resolution.resource_provider_text is None
+        assert effects.interpretations == []
+        assert effects.diagnostics == []
+
+
+def test_prompt_without_a_slash_asks_no_command_port() -> None:
+    effects = _FakeCommandEffects(
+        extension=ExtensionDispatchResolution(name="note", ran=True)
+    )
+    selected = ProductContent(" /note")
+
+    resolution = _dispatch_prompt(" /note", effects, selected)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.selected_provider_content is selected
+    assert effects.extension_dispatches == []
+    assert effects.resource_dispatches == []
+
+
+def test_prompt_expands_a_resource_and_counts_it() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.RUN, "pipy: ran prompt template 'review'.", "Review."
+        )
+    )
+
+    resolution = _dispatch_prompt("/review", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.resource_provider_text == "Review."
+    assert effects.resource_invocations == 1
+    assert effects.diagnostics == ["pipy: ran prompt template 'review'."]
+
+
+def test_prompt_with_a_rejected_resource_stays_the_prompt() -> None:
+    # Pi leaves `/skill:<unknown>` as it is; pipy also says why.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.REJECT, "pipy: no skill named 'x'."
+        )
+    )
+
+    resolution = _dispatch_prompt("/skill:x go", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/skill:x go"
+    assert resolution.resource_provider_text is None
+    assert effects.resource_invocations == 0
+    assert effects.diagnostics == ["pipy: no skill named 'x'."]
+
+
+def test_dispatch_prompt_rejects_non_effects_port() -> None:
+    controller, _ = _controller(CodingInputQueue())
+
+    with pytest.raises(TypeError, match="effects must implement CodingCommandEffects"):
+        controller.dispatch_prompt(
+            user_input="/x",
+            selected_provider_content=None,
+            effects=object(),  # type: ignore[arg-type]
         )
 
 
@@ -1813,6 +1938,47 @@ def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
     assert settled.reservation is None
     with pytest.raises(RuntimeError, match="no attached"):
         bridge.consume_agent_end(claim)
+
+
+def test_control_bridge_settles_a_handled_prompt_through_its_handler() -> None:
+    # A prompt that an extension command handled starts no run; the
+    # transport's handler consumes the claim (MCP parity plan X1).
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+        _DUMMY_COMPACTION_PORT,
+        _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
+    )
+    # Nothing attached: nothing to settle, and no handler is needed.
+    bridge.settle_handled_prompt()
+    assert bridge.attached_content() is None
+
+    content = ProductContent("/note")
+    admitted = bridge.admit_prompt(content)
+    assert admitted.reservation is not None
+    assert bridge.attach_selected_claim(admitted.reservation) is not None
+    assert bridge.attached_content() is content
+    with pytest.raises(RuntimeError, match="handled prompt handler is not bound"):
+        bridge.settle_handled_prompt()
+
+    settled: list[object] = []
+    bridge.bind_handled_prompt_handler(
+        lambda: settled.append(bridge.consume_attached_agent_end())
+    )
+    with pytest.raises(RuntimeError, match="already bound"):
+        bridge.bind_handled_prompt_handler(lambda: None)
+    with pytest.raises(TypeError, match="must be callable"):
+        _NativeSessionControlBridge().bind_handled_prompt_handler(None)  # type: ignore[arg-type]
+    bridge.settle_handled_prompt()
+
+    assert len(settled) == 1
+    assert bridge.attached_content() is None
+    assert control.snapshot().reservation is None
 
 
 def test_control_bridge_foreign_or_mismatched_claim_fails_closed() -> None:

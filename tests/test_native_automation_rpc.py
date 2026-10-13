@@ -860,6 +860,7 @@ def test_prompt_emits_correlated_success_then_event_sequence(client) -> None:
         "type": "response",
         "command": "prompt",
         "success": True,
+        "data": {"disposition": "started"},
     }
 
     types = [r["type"] for r in records[1:]]

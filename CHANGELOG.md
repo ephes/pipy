@@ -428,6 +428,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
+  as Pi's `prompt` handles them. A text that names an extension command runs
+  it and starts no run; `/mcp` is such a command and prints the server
+  status. `/skill:<name>` and prompt templates are expanded. Everything else
+  goes to the model as it stands. Before, print and JSON mode read the
+  prompt as a typed line, so the built-in commands (`/model`, `/exit`, ...)
+  and the `!` shortcut ran there and an unknown `/name` ended with a notice
+  and no answer, while an RPC prompt went to the model without any of this.
+  The RPC `prompt` response now carries `data.disposition` (`started`,
+  `queued` or `handled`), `steer` and `follow_up` answer `queued`, and JSON
+  mode writes no `agent_settled` for a prompt that started no run. See
+  [Commands in a prompt](docs/automation-rpc.md#commands-in-a-prompt).
 - The tools a codemode script can call are fixed when the script starts, from
   the tools registered and active at that moment, instead of from the request
   that declared `codemode`. A script therefore also reaches an extension tool

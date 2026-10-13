@@ -379,6 +379,13 @@ name.
 | SLH-04 | `/mcp login [server]` and `/mcp logout [server]` sign in and out; login needs a UI (`Signing in to MCP server "<n>" requires interactive mode.`). Without the TUI, login shows the URL as a notice and asks for the pasted redirect URL through the input prompt. | `ext/index.ts` `loginCommand`, handler | S31 |
 | SLH-05 | When the server name is omitted: one eligible server is used; else the one preferred server (needing sign-in for login and logout, failed or disconnected for reconnect); else a selection is shown. An unknown name gives `No MCP server named "<n>".`; none eligible gives the specific message. | `ext/index.ts` `pickServer`, `oauthPick` | S21 |
 | SLH-06 | More than two arguments or an unknown action prints `Usage: /mcp, /mcp login [server], /mcp logout [server], /mcp reconnect [server]`. | `ext/index.ts` `MCP_USAGE` | S21 |
+| SLH-07 | A prompt of print, JSON or RPC mode (`session.prompt`) whose text starts with `/` and whose name, the text between the slash and the first space, is a command an extension registered (`/mcp` is one) runs that command with the rest as its arguments. No run starts and no session event is emitted. A handler that throws is reported as an extension error (`Extension error (command:<name>): <message>` on stderr in print and JSON mode, an `extension_error` object in RPC mode) and the prompt still counts as handled. The text is not trimmed first. | `core/agent-session.ts` `prompt`, `_tryExecuteExtensionCommand`; `modes/print-mode.ts`; `modes/rpc/rpc-mode.ts` | X1 |
+| SLH-08 | Nothing else is a command there. The built-in commands of the interactive mode (`/model`, `/compact`, `/quit` and the rest), an unknown `/name` and a `!` line are handled only by the interactive editor; as a prompt their text goes to the model unchanged. | `core/agent-session.ts` `prompt`; `modes/interactive/interactive-mode.ts` | X1 |
+| SLH-09 | After the extension commands the `input` handlers run on the text, then `/skill:<name> [args]` becomes the skill block and `/<template> [args]` the expanded prompt template. An unknown skill or template name leaves the text unchanged. | `core/agent-session.ts` `prompt`, `_expandSkillCommand`; `core/prompt-templates.ts` `expandPromptTemplate` | X1 |
+| SLH-10 | What a handled prompt looks like from outside. Print mode prints nothing and exits 0. JSON mode writes the session header and no event, also no `agent_settled`. The RPC `prompt` response carries `data.disposition`: `handled` (sent when the handler returned), `started` or `queued`; `steer` and `follow_up` answer `queued` or `handled`. | `modes/print-mode.ts`; `modes/rpc/rpc-mode.ts` `prompt`; `modes/rpc/rpc-types.ts` | X1 |
+| SLH-11 | The UI a command has depends on the mode. Print and JSON mode have none: `ctx.hasUI` is false and `ctx.ui.notify` does nothing, so `/mcp` and its subcommands run there and show nothing. In RPC mode `ctx.hasUI` is true and `notify`, `select` and `input` are `extension_ui_request` objects on stdout (`method`, `id`, and `message` with `notifyType`, or `title` with `options` or `placeholder`); the client answers `select` and `input` with an `extension_ui_response` of the same `id`. `/mcp` there sends its status as a `notify` of type `info`. | `core/extensions/runner.ts` `noOpUIContext`, `hasUI`; `modes/rpc/rpc-mode.ts` `createExtensionUIContext` | X1 |
+| SLH-12 | `/mcp login` in RPC mode sends the authorization URL as a `notify`, opens the browser, and asks for the pasted redirect URL with an `input` request (`Waiting for sign-in to "<n>". If the browser cannot reach this machine, paste the URL it was redirected to.`, placeholder `http://127.0.0.1:.../callback?code=...`) that ends unanswered when the browser arrives first. | `ext/index.ts` `loginCommand`; `modes/rpc/rpc-mode.ts` `createDialogPromise` | X1 |
+| SLH-13 | Queued input. `steer` and `follow_up` whose text names an extension command fail with `Extension command "/<name>" cannot be queued. Use prompt() or execute the command when not streaming.`; they expand skills and templates when the message is queued. A `prompt` sent during a run runs an extension command at once; any other text is queued by its `streamingBehavior`, expanded. A message an extension sends (`sendUserMessage`) is never dispatched or expanded. | `core/agent-session.ts` `_queueUserInput`, `_throwIfExtensionCommand`, `prompt`, `sendUserMessage` | X1 |
 
 ### 2.16 Interactive `/mcp` manager (MGR)
 
@@ -1082,14 +1089,14 @@ Decided in S21 (`commands.py`, `repl/mcp_command.py`, `/mcp`):
 - In the terminal `/mcp` without arguments prints the status as everywhere
   else until S34 builds the manager view, which is also the first caller of
   `set_enabled` and `set_exposure`.
-- Not done: "RPC mode prints the status". pipy hands a prompt given on the
-  command line (print and JSON mode too) or sent by an RPC client to the
-  model without command dispatch (`loop_step._phase_b_intake`:
-  `command_text` is empty for selected provider content), for extension
-  commands as well. Pi's `prompt` runs extension
-  commands. That is a gap of the automation modes, recorded in
-  `docs/backlog.md`, not of this slice; when it is closed `/mcp` runs there
-  through the same port.
+- Not done in S21: "RPC mode prints the status". An RPC client's prompt
+  went to the model without command dispatch
+  (`loop_step._phase_b_intake`: `command_text` is empty for selected
+  provider content), for extension commands as well, while Pi's `prompt`
+  runs extension commands. X1 closed that gap of the automation modes; see
+  "Decided in X1". (S21 also recorded that the prompt of `--print` and
+  `--mode json` ran no command. That was not so: it went through the whole
+  dispatch of a typed line, built-in commands included.)
 - The status has no `overridden:` lines yet (S36) and no resource counts in
   the state of the completion items (S23).
 
@@ -2045,6 +2052,75 @@ Decided in S38 (SDK; `session_builtins.py`, `mcp/options.py`,
   same process over the in-memory transport pair so that it runs offline;
   `tests/test_sdk_codemode_mcp_example.py` runs it.
 
+Decided in X1 (prompts of the automation modes;
+`coding/session_controller.py`, `repl/loop_step.py`, `automation/rpc.py`,
+`automation/run_modes.py`):
+
+- What pipy did before. The prompt of `--print` and `--mode json` was read
+  as a typed line: `/mcp` and extension commands ran, but so did the
+  built-in commands and the `!` shortcut, and an unknown `/name` got the
+  "not handled" notice and no run. An RPC `prompt` went to the model
+  without any dispatch. Pi does neither (SLH-07 to SLH-09).
+- `CodingSessionController.dispatch_prompt(user_input=,
+  selected_provider_content=, effects=)` is Pi's `AgentSession.prompt` up
+  to the start of the run: extension command (through the existing port,
+  so `/mcp` after the extensions' commands), then the resource port for a
+  skill or template, then the text as it stands. It never asks the
+  built-in commands. The loop step calls it instead of `dispatch_command`
+  for a prompt. A prompt is a step with `CodingLoopStep.external_prompt`
+  (the queue source `EXTERNAL_PROMPT`, an RPC `prompt` that is next to
+  run), or a fresh line of a session with `ReplLoopScope.prompt_mode`,
+  which is true when the input stream says `is_prompt` (the one-prompt
+  stream of print and JSON mode). The automation observer does not decide:
+  tests attach one to sessions that read typed lines. Such a turn has
+  an empty `command_text`, which is what skips the hotkeys and the `!`
+  shortcut. Seeds, messages an extension sends and queued steering or
+  follow-up messages are not prompts in this sense, as in Pi.
+- RPC settlement. A selected RPC prompt holds the worker's claim, which
+  only the end of a run consumed. `dispatch_prompt` calls
+  `_NativeSessionControlBridge.settle_handled_prompt()` after a command
+  ran; the server's handler (`bind_handled_prompt_handler`) consumes the
+  claim and publishes under the control gate, as the end of a run does. No
+  `agent_settled` follows, because no run armed it.
+- `data.disposition`. The reader thread answers `queued` at once for a
+  prompt that went behind the run in flight. The response of a prompt that
+  is next to run is owed to the worker (`_owed_prompts`, by the
+  identity of the content): `handled` when its command returned, `started`
+  just before `agent_start` (or at settlement for a run that ended before
+  one). Which of the two a prompt is, is decided from the admission's own
+  snapshot, and the reader holds `_prompt_lock` from the admission until
+  the prompt is listed, so the worker neither misses a listed prompt nor
+  answers a queued one. Lock order: `_prompt_lock`, then the control gate;
+  the worker takes the prompt lock only outside the gate (a handled
+  prompt's entry is taken before its publication under the gate). The
+  worker's end, with or without an exception, answers what it still owes
+  with an error (`the session has ended`), and the reader refuses a prompt
+  from then on; before, such a prompt was accepted and never ran.
+  `steer` and `follow_up` answer `queued`. This also closes the backlog's
+  "prompt disposition" entry.
+- JSON mode writes `agent_settled` only when an `agent_start` was written.
+- Different from Pi, in `docs/automation-rpc.md`:
+  - A notice of a command (`ctx.ui.notify`, the `/mcp` status) goes to
+    stderr in print and JSON mode, where pipy has always written an
+    extension's notices; Pi drops it there (SLH-11).
+  - A failed command is `pipy: extension command /<name> failed (<error>)`
+    on stderr in all three modes; RPC has no `extension_error` object.
+  - Not built (SLH-13): `steer`, `follow_up` and a `prompt` sent during a
+    run are queued without a look at the text. One that names an extension
+    command reaches the model as text (Pi refuses the first two and runs
+    the third at once), and a queued skill or template name is not
+    expanded. The reader thread would need the session's commands and
+    resources, which belong to the session thread.
+  - pipy's resource rules stay: a template named like a built-in command
+    is not expanded, custom commands (`.pipy/commands`) expand like
+    templates, a resource turn skips the `input` hooks (Pi runs them
+    first, on the unexpanded text), and a skill that is unknown or cannot
+    be read says so on stderr before the text goes to the model.
+- Not changed: the terminal UI, the plain REPL and piped standard input
+  without `--print` (all typed lines), the product API (`submit()` still
+  sends its text to the model, see "Decided in S38"), and `get_commands`,
+  which still answers an empty list.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -2745,6 +2821,7 @@ Slices outside these two lists are serial.
 | S37 | Extension API: nested execution, loadout hook, replaceable built-ins | EXT-11 to EXT-14 | L | S36, S08 | no |
 | S38 | SDK options and example | SDK-01 to SDK-04 | M | S36 | no |
 | S39 | Images: tool-result images, MCP images and image resources, codemode `image()` | TLS-11, RES-09 (image parts), CMD-28 to CMD-30 | L, several commits | S23 | no |
+| X1 | Prompts of print, JSON and RPC mode run extension commands and `/mcp`; RPC UI requests for `/mcp` | SLH-02 (remainder), SLH-07 to SLH-13 | M | S38 | no |
 | S40 | Conformance recipe, user docs pass, changelog, parity audit against section 2 | DOC-01 to DOC-05 | M | all | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
@@ -2951,8 +3028,15 @@ cases except login, with stdio servers. Docs:
 completion, `set_enabled`, `set_exposure`, `save_config`. Tests: status text
 for each state; reconnect after the fake server was killed; disable closes the
 process; exposure change moves a tool between declared and callable; a failed
-save changes nothing; RPC mode prints the status (not done: RPC runs no slash
-command, see "Decided in S21").
+save changes nothing; RPC mode prints the status (done in X1, see "Decided in
+X1").
+
+**X1 Prompts of the automation modes.** Added after S38 for the remainder of
+SLH-02: Pi's `prompt` dispatch in print, JSON and RPC mode (SLH-07 to SLH-10)
+and the RPC UI requests `/mcp` needs (SLH-11, SLH-12). Tests: `/mcp`, an
+extension command, a failing one, the built-in names, an unknown name, a
+template and a skill in each mode; the RPC dispositions; a prompt after a
+handled one.
 
 **S22 Reload and resume.** Build 4.10. Tests: mirrors of the "MCP tools
 after resume and reload" cases (the two reload cases in a session, the

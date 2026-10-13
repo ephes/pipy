@@ -237,6 +237,7 @@ def _run_rpc_checks(base: Path) -> list[Check]:
         "type": "response",
         "command": "prompt",
         "success": True,
+        "data": {"disposition": "started"},
     }
     types = [r.get("type") for r in records[1:]]
     required = [
