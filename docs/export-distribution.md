@@ -249,6 +249,16 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   are dropped and the text is escaped. `/export` asks the loaded extensions;
   `pipy --export <file>` and `/share` run no extension code, so there only
   the calls to MCP tools are drawn, titled from their pipy names.
+- Images in tool results (MCP parity plan S39): the exported entries keep a
+  result's `blocks`, so the image data is in the file. A drawn row shows an
+  image as the terminal row does, `[Image: [image/png] 640x480]` (Pi draws
+  its export rows with `showImages: false`). After the result, drawn or not,
+  the page adds an entry "Tool result images" with each image as an `<img>`;
+  a block whose `mimeType` is not an `image/` type or whose data is not
+  base64 is left out. Pi's page shows a result's images for its `read` tool
+  only. The base64 data of an image block is exempt from the credential
+  redaction, which would only break the image; data that is not plain base64
+  is redacted like any text.
 
 Templates, CSS, and JS live as packaged data files under the pipy package (for
 example `src/pipy_harness/native/export_html/`) and are read at runtime via

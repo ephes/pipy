@@ -2235,6 +2235,28 @@ Decided in S39 (images, part 2: provider adapters;
   message, `[tool error]` prefix) and `requiresAssistantAfterToolResult`;
   attachments of the user's turn are still sent whatever the row says.
 
+Decided in S39 (images, part 3: rows and export;
+`tool_result_display.py`, `ui/state.py`, `ui/components/session_history.py`,
+`export_tool_rows.py`, `export_distribution.py`):
+
+- pipy's frames carry no inline images (the frame pipeline keeps SGR only,
+  see "Decided in S34"), so a row shows what Pi shows in a terminal without
+  an image protocol: after the result's text one line per image,
+  `[Image: [<mime>] <w>x<h>]` (Pi `getTextOutput`, pi-tui `imageFallback`
+  and `getImageDimensions`, ported for PNG, JPEG, GIF and WebP).
+  `tool_result_display_text(result)` builds that text; the three places
+  that hand a result's text to a row use it: the live result (`ui/state.py`,
+  which also feeds the captured renderer), the redraw of a stored result
+  (`session_history.py`) and the export rows. An extension's `render_result`
+  therefore sees the lines in its content.
+- Export: the entries keep `blocks`; a drawn row has the image line (Pi
+  draws export rows with `showImages: false`); the page adds a "Tool result
+  images" entry with `<img>` elements after every result that has images,
+  where Pi's page shows images for `read` only. The base64 data of an image
+  block is not passed through the text redaction.
+- Not built: inline images in the terminal (Pi's `Image` component with the
+  Kitty and iTerm2 protocols, `terminal.showImages`, `imageWidthCells`).
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

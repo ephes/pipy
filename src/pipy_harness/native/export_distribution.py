@@ -99,13 +99,33 @@ def _redact_export_mapping(
     value: Mapping[_MappingKeyT, object],
 ) -> dict[str, Any]:
     redacted: dict[str, Any] = {}
+    image_block = _is_image_block(value)
     for key, item in value.items():
         key_text = str(key)
-        if _key_is_sensitive(key_text):
+        if image_block and key_text == "data":
+            # Base64 image data is not text: a pattern that matched inside it
+            # would only break the image.
+            redacted[key_text] = item
+        elif _key_is_sensitive(key_text):
             redacted[key_text] = "[REDACTED]"
         else:
             redacted[key_text] = redact_export_value(item)
     return redacted
+
+
+_BASE64_DATA_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+
+
+def _is_image_block(value: Mapping[Any, object]) -> bool:
+    """A stored tool result image: ``{"type":"image","data","mimeType"}``."""
+
+    data = value.get("data")
+    return (
+        value.get("type") == "image"
+        and isinstance(value.get("mimeType"), str)
+        and isinstance(data, str)
+        and _BASE64_DATA_RE.fullmatch(data) is not None
+    )
 
 
 def _key_is_sensitive(key: str) -> bool:
@@ -686,6 +706,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
 .tool-rendered .expandable { cursor: pointer; }
 .tool-rendered .expandable .output-full, .tool-rendered .expandable.expanded .output-preview { display: none; }
 .tool-rendered .expandable.expanded .output-full { display: block; }
+.tool-image { display: block; max-width: 100%; margin-top: 8px; border-radius: 6px; }
 </style>
 </head>
 <body>
@@ -727,6 +748,27 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     node.innerHTML = html;
     return node;
   }
+  // The images of a tool result, after its text or its drawn row.
+  function appendImages(blocks) {
+    const images = (Array.isArray(blocks) ? blocks : []).filter(block =>
+      block && block.type === "image" && typeof block.data === "string" &&
+      /^image\\/[A-Za-z0-9.+-]+$/.test(block.mimeType || "") && /^[A-Za-z0-9+\\/=\\s]+$/.test(block.data));
+    if (!images.length) return;
+    const wrap = document.createElement("article");
+    wrap.className = "entry";
+    const label = document.createElement("div");
+    label.className = "role";
+    label.textContent = "Tool result images";
+    wrap.append(label);
+    for (const block of images) {
+      const image = document.createElement("img");
+      image.className = "tool-image";
+      image.alt = block.mimeType;
+      image.src = `data:${block.mimeType};base64,${block.data}`;
+      wrap.append(image);
+    }
+    entries.append(wrap);
+  }
   function appendRenderedTool(rows) {
     const wrap = document.createElement("article");
     wrap.className = "entry";
@@ -764,6 +806,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
         // A result drawn ahead is shown in its call's box.
         const rows = rendered(msg.provider_correlation_id);
         if (!rows || !("resultHtmlExpanded" in rows)) append("Tool result", msg.output_text || "", "tool");
+        appendImages(msg.blocks);
       }
       else append("Message", JSON.stringify(msg, null, 2));
     } else if (entry.type === "session_info") append("Session", entry.name || "");

@@ -27,6 +27,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- Images in tool results. A tool result can hold images next to its text:
+  the session file stores them, JSON and RPC `toolResult` messages carry
+  them, and every provider adapter sends them to the model as Pi does (see
+  [providers](docs/providers.md#thinking-images-and-current-limits)); a
+  model whose catalog row lists no image input gets the text `(tool image
+  omitted: model does not support images)` instead. A tool row shows an
+  image as `[Image: [image/png] 640x480]` after the result's text, live,
+  after a resume and in an HTML export, and the export page shows the
+  images themselves after the result.
+
 - More of the OAuth library for MCP servers.
   `pipy_harness.native.mcp.oauth` now holds the authorization code flow (stored or dynamically registered
   client or a Client ID Metadata Document, PKCE, the `resource` parameter,

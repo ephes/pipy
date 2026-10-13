@@ -635,6 +635,13 @@ run again on every redraw with the retained arguments, per-call `state`,
 result and `details`, and get the box's content width (two columns less than
 the terminal).
 
+An image in a tool result is shown as one line after the result's text,
+`[Image: [image/png] 640x480]` (pi-tui `imageFallback`), live, after a resume
+and in the captured renderer. The size is read from the header of a PNG,
+JPEG, GIF or WebP image and left out when it cannot be read. This is what Pi
+shows in a terminal without an image protocol; pipy does not draw images
+inline (Kitty or iTerm2 protocol) in any terminal.
+
 Deviations: no syntax highlighting (Pi uses highlight.js; lines Pi would
 highlight keep the terminal's default colour) and no OSC 8 file links. The
 default `pi` theme uses Pi's `dark` colours. The captured (non-TTY)

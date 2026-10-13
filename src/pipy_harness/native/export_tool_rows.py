@@ -28,6 +28,7 @@ from pipy_harness.native.tool_renderer_lookup import (
     ToolRendererLookup,
 )
 from pipy_harness.native.tool_renderers import build_tool_render_theme
+from pipy_harness.native.tool_result_display import tool_result_display_text
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
     RowLine,
@@ -122,7 +123,7 @@ def render_export_tools(
                 continue
             details = message.details
             state.result = ToolRowResult(
-                redact(message.content.value),
+                redact(tool_result_display_text(message)),
                 None if details is None else redact(details),
                 message.is_error,
             )

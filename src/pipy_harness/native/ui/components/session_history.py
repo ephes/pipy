@@ -38,6 +38,7 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
     SessionEntry,
 )
+from pipy_harness.native.tool_result_display import tool_result_display_text
 from pipy_harness.native.tool_rows import SummaryBox
 from pipy_harness.native.ui.components.custom_entry_renderer import (
     CustomEntryRenderer,
@@ -259,7 +260,7 @@ def _render_assistant(
             )
         elif result is not None:
             renderer.render_tool_result(
-                output_text=result.content.value,
+                output_text=tool_result_display_text(result),
                 is_error=result.is_error,
                 details=result.details,
             )
