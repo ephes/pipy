@@ -34,6 +34,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 - Enforce image attachment byte budgets during descriptor reads, including file growth.
 
+- Kill and reap clipboard image helpers that hang after stdout closes; reject
+  unfinished execution and clean up the owned POSIX process group.
+
 ### Added
 
 - Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with
