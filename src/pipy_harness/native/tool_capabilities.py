@@ -26,6 +26,7 @@ from pipy_harness.native.tools.loadout import (
     PrepareToolLoadout,
     ToolLoadout,
     ToolLoadoutChanges,
+    checked_loadout_changes,
 )
 from pipy_harness.native.tools.name_patterns import (
     MCP_TOOL_NAME_PREFIX,
@@ -208,6 +209,7 @@ class ToolCapabilityState:
     # How the builtin ``codemode`` presents the tools while it is declared
     # (Pi ``prepareLoadout``): part of the value, so one value always gives
     # the same declarations. ``None`` leaves every description as registered.
+    # An extension tool's presenter is its definition's ``prepare_loadout``.
     codemode_loadout: PrepareToolLoadout | None = None
     # The tools of the connected MCP servers, by pipy tool name.
     mcp_registry: Mapping[str, ToolPort] = field(default_factory=dict)
@@ -404,10 +406,11 @@ class NativeToolCapabilitySnapshot:
     ) -> tuple[ToolDefinition, ...]:
         """The declared tools, as the model is to see them.
 
-        While the builtin ``codemode`` is declared its loadout replaces
-        descriptions. Declarations it hides stay in this tuple, because the
-        transcript records them as declared; a request leaves out
-        :meth:`hidden_declarations`.
+        The loadout of each declared tool that presents other tools (the
+        builtin ``codemode``, an extension tool with ``prepare_loadout``)
+        replaces descriptions. Declarations they hide stay in this tuple,
+        because the transcript records them as declared; a request leaves
+        out :meth:`hidden_declarations`.
         """
 
         declared = _definitions_for(self.state, allowed_names)
@@ -446,14 +449,45 @@ class NativeToolCapabilitySnapshot:
     def _loadout_changes(
         self, declared: tuple[ToolDefinition, ...]
     ) -> ToolLoadoutChanges | None:
-        prepare = self.state.codemode_loadout
-        if (
-            prepare is None
-            or not _is_builtin_codemode(self.state)
-            or not any(definition.name == "codemode" for definition in declared)
-        ):
+        """The changes of every declared tool that presents the loadout,
+        merged in the order the tools are declared (Pi ``_applyToolLoadout``):
+        a later tool's description of a name replaces an earlier one's, and
+        the hidden declarations add up. A tool whose function fails, or
+        returns something that is no ``ToolLoadoutChanges``, changes nothing
+        and is reported once."""
+
+        state = self.state
+        builtin_codemode = state.codemode_loadout
+        if builtin_codemode is not None and not _is_builtin_codemode(state):
+            builtin_codemode = None
+        presenters: list[tuple[str, Callable[[ToolLoadout], object]]] = []
+        for definition in declared:
+            if definition.name == "codemode" and builtin_codemode is not None:
+                presenters.append((definition.name, builtin_codemode))
+            elif definition.prepare_loadout is not None:
+                presenters.append((definition.name, definition.prepare_loadout))
+        if not presenters:
             return None
-        return prepare(ToolLoadout(declared, self.callable_tools()))
+        kept = _kept_names(state)
+        loadout = ToolLoadout(
+            declared,
+            self.callable_tools(),
+            tuple(
+                port.definition for name, port in state.registry.items() if name in kept
+            ),
+        )
+        descriptions: dict[str, str] = {}
+        hidden: set[str] = set()
+        for name, prepare in presenters:
+            try:
+                changes = checked_loadout_changes(prepare(loadout))
+            except Exception as error:  # noqa: BLE001 - an extension's function; the other tools' changes still apply
+                self.owner.report_loadout_error(name, error)
+                continue
+            if changes is not None:
+                descriptions.update(changes.descriptions)
+                hidden.update(changes.hidden_declarations)
+        return ToolLoadoutChanges(descriptions, frozenset(hidden))
 
     def callable_names(self) -> frozenset[str]:
         """Names a composite tool's nested calls may reach in this value."""
@@ -556,6 +590,8 @@ class NativeToolCapabilities:
         self._codemode_available: bool | None = None
         # Detached preparations share a probe without waiting under the session lock.
         self._codemode_probe_lock = threading.Lock()
+        # The loadout failures that were reported; guarded by _state_lock.
+        self._reported_loadout_errors: set[str] = set()
         self._state = ToolCapabilityState.build(
             builtin_registry,
             extension_registry,
@@ -617,6 +653,24 @@ class NativeToolCapabilities:
             for name, port in state.registry.items()
             if name in kept
         )
+
+    def report_loadout_error(self, tool_name: str, error: BaseException) -> None:
+        """Tell the user once that a tool's ``prepare_loadout`` failed.
+
+        The function is asked whenever the declarations are read, so the same
+        failure comes again with every request; it is shown the first time.
+        Only the type of the error is shown: its text is the extension's and
+        may hold paths or secrets, and reading it runs the extension's code.
+        """
+
+        kind = "".join(c if c.isprintable() else " " for c in type(error).__name__)
+        message = f'pipy: prepare_loadout of tool "{tool_name}" failed: {kind[:80]}'
+        with self._state_lock:
+            if message in self._reported_loadout_errors:
+                return
+            self._reported_loadout_errors.add(message)
+        if self._diagnostic is not None:
+            self._diagnostic(message)
 
     def set_active_tools(self, names: Sequence[str]) -> bool:
         """Atomically replace the provider-visible tool-name selection.

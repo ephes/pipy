@@ -242,6 +242,9 @@ class ToolDefinition:
     - `default_active`: whether registering the tool activates it. A `direct`
       or `model-only` tool with `False` is registered inactive, until a tool
       selection names it.
+    - `prepare_loadout`: for a tool that presents other tools, a function
+      from a `ToolLoadout` to the `ToolLoadoutChanges` it wants while it is
+      declared (`native/tools/loadout.py`).
     """
 
     name: str
@@ -253,6 +256,7 @@ class ToolDefinition:
     output_schema: Mapping[str, Any] | None = field(default=None, kw_only=True)
     reaches_tools: ReachesTools | None = field(default=None, kw_only=True)
     default_active: bool = field(default=True, kw_only=True)
+    prepare_loadout: Callable[[Any], Any] | None = field(default=None, kw_only=True)
     schema_mode: ToolSchemaMode = field(default="strict", kw_only=True)
 
     NAME_MAX_LENGTH: ClassVar[int] = 64
@@ -309,6 +313,8 @@ class ToolDefinition:
             raise ValueError("ToolDefinition.reaches_tools must be callable or None")
         if type(self.default_active) is not bool:
             raise ValueError("ToolDefinition.default_active must be a bool")
+        if self.prepare_loadout is not None and not callable(self.prepare_loadout):
+            raise ValueError("ToolDefinition.prepare_loadout must be callable or None")
 
 
 @dataclass(frozen=True, slots=True)

@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
         ToolInfo,
         ToolNamespace,
     )
+    from pipy_harness.native.tools.loadout import ToolLoadout, ToolLoadoutChanges
 
 # Activation reason codes (safe, enumerable labels).
 REASON_IMPORT_ERROR: str = "import_error"
@@ -859,6 +860,12 @@ class ExtensionTool:
       successful results.
     - `reaches_tools(input)`: for a tool that reaches other tools, `"all"` or
       the words of the input that may name them.
+    - `default_active`: whether registering a `direct` or `model-only` tool
+      activates it; `False` leaves it inactive until a tool selection names
+      it.
+    - `prepare_loadout(loadout)`: for a tool that presents other tools, the
+      `ToolLoadoutChanges` it wants in what the model sees while it is
+      declared, or `None`.
     """
 
     name: str
@@ -872,6 +879,10 @@ class ExtensionTool:
     annotations: "ToolAnnotations | None" = field(default=None, kw_only=True)
     output_schema: Mapping[str, object] | None = field(default=None, kw_only=True)
     reaches_tools: "ReachesTools | None" = field(default=None, kw_only=True)
+    default_active: bool = field(default=True, kw_only=True)
+    prepare_loadout: "Callable[[ToolLoadout], ToolLoadoutChanges | None] | None" = (
+        field(default=None, kw_only=True)
+    )
 
 
 @dataclass(frozen=True, slots=True)

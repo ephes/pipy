@@ -128,6 +128,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `nestedCalls`. Only a tool the model called can do this, not one that was
   itself called from a tool or a script. See
   [running other tools](docs/extension-api.md#running-other-tools).
+- Extension API: `ExtensionTool(prepare_loadout=...)` lets a tool that
+  orchestrates other tools change what the model sees while it is declared:
+  the function gets the declared, callable and registered tools
+  (`ToolLoadout`) and returns replacement descriptions and the declarations
+  that requests leave out (`ToolLoadoutChanges`). `default_active=False`
+  registers a tool without activating it. See
+  [presenting the loadout](docs/extension-api.md#presenting-the-loadout).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`

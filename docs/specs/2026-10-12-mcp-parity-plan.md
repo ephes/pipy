@@ -1913,6 +1913,36 @@ Decided in S37 (design note: a tool that runs other tools;
   `ToolResult` instead of Pi's outcome object, no `signal` or `onUpdate`;
   no usage is added up; no event for a name that is not callable.
 
+Decided in S37 (the loadout hook; `tools/loadout.py`, `tools/base.py`,
+`tool_capabilities.py`, `extension_types.py`):
+
+- `ToolDefinition` gained `prepare_loadout`, and `ExtensionTool` gained
+  `prepare_loadout` and `default_active` (the field S09 left for this
+  slice). Both are checked at registration (`invalid_tool`) and copied to
+  the port's definition.
+- `NativeToolCapabilitySnapshot._loadout_changes` is now the merge of every
+  declared presenter, in declared order (Pi `_applyToolLoadout`): the
+  built-in `codemode` with the value's `codemode_loadout` as before, and
+  every declared tool whose definition has `prepare_loadout`. S08's rule
+  stays: an extension's own `codemode` does not get the built-in presenter.
+  Still nothing is cached, so a function runs for each read of the
+  declarations (request, hidden set, system prompt).
+- `ToolLoadout` gained `registered_tools` (the tools the filters keep).
+  `checked_loadout_changes` turns what a function returned into changes or
+  raises; a failure is reported once per tool and error type through the
+  capabilities' diagnostic function (`report_loadout_error`), and the other
+  presenters' changes still apply. The report has the type of the error
+  only, as `_safe_diagnostic` has (review: the text is the extension's and
+  reading it runs its code). The set of reported failures lasts for the
+  session.
+- Public names: `ToolLoadout`, `ToolLoadoutChanges` (inventory pin 110).
+- Narrower than Pi, in `docs/extension-api.md` "Presenting the loadout": no
+  `getExposure`, `getNamespace` or `getPromptGuidelines` on the loadout (the
+  first two are fields of the definitions; extension tools have no prompt
+  guidelines); the function is called per read instead of per change of the
+  active tools; a failure is a warning that names the tool, not an error of
+  the extension's path.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

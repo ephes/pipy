@@ -158,11 +158,14 @@ from pipy_harness.native.tools.base import (
     ToolInfo,
     ToolNamespace,
 )
+from pipy_harness.native.tools.loadout import ToolLoadout, ToolLoadoutChanges
 
 __all__ = [
     "PipyExtensionAPI",
     "CommandContext",
     "ExtensionToolContext",
+    "ToolLoadout",
+    "ToolLoadoutChanges",
     "ConversationView",
     "AssistantMessageView",
     "SessionEntryView",

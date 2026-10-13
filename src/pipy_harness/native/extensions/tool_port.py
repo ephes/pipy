@@ -76,6 +76,8 @@ class _ExtensionToolPort:
             annotations=tool.annotations,
             output_schema=tool.output_schema,
             reaches_tools=tool.reaches_tools,
+            default_active=tool.default_active,
+            prepare_loadout=tool.prepare_loadout,
         )
 
     @property

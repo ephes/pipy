@@ -907,7 +907,9 @@ declared tool that scripts can call gets a last line in its description,
 active `direct` tools are left out of requests and listed in the `codemode`
 description. See [what the model is told](codemode.md#what-the-model-is-told).
 A `before_provider_request` hook sees the tools a request declares, so with
-`only` it does not see the tools that were left out.
+`only` it does not see the tools that were left out. An extension tool does
+the same with `prepare_loadout`; see
+[presenting the loadout](#presenting-the-loadout).
 
 `schema_mode="strict"` holds the input schema to the JSON-schema subset above
 and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy
@@ -996,6 +998,13 @@ def activate(api):
   session thread and must not block. If it raises, or returns something
   else, the call waits for every server (Pi fails the call). See
   [waiting for servers](mcp.md#waiting-for-servers).
+
+- `default_active=False` registers a `direct` or `model-only` tool without
+  activating it (Pi `defaultActive`). It is declared once something names
+  it: `--tools`, the `defaultTools` setting or `ctx.set_active_tools(...)`.
+  The other exposures are never activated by being registered.
+- `prepare_loadout(loadout)` is for a tool that presents other tools; see
+  [presenting the loadout](#presenting-the-loadout).
 
 **Results.** A handler that returns data declares an `output_schema` and
 returns the data as `ToolResult(structured_content=...)` next to `content`. It
@@ -1132,6 +1141,74 @@ Different from Pi:
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record
   lists it.
+
+### Presenting the loadout
+
+A tool that orchestrates other tools can adjust what the model sees while
+it is declared, with `prepare_loadout`. `ToolLoadout` and
+`ToolLoadoutChanges` are importable from `pipy_harness.extensions`.
+
+```python
+def present(loadout):
+    names = ", ".join(tool.name for tool in loadout.callable_tools)
+    return ToolLoadoutChanges(
+        descriptions={"run_tools": f"Runs tools: {names}"},
+        hidden_declarations=["echo"],
+    )
+
+api.register_tool(ExtensionTool(
+    name="run_tools", description="Runs tools.", input_schema={"type": "object"},
+    handler=run_tools, exposure="model-only", prepare_loadout=present,
+))
+```
+
+- The function receives a `ToolLoadout` with three tuples of tool
+  definitions in registration order: `declared_tools` (the tools declared
+  to the model, with their original descriptions), `callable_tools` (what
+  `ctx.execute_tool` and scripts can call) and `registered_tools` (every
+  registered tool, without those `--tools`, `--exclude-tools` or
+  `--no-tools` removed). A definition has `name`, `description`,
+  `input_schema`, `exposure`, `namespace`, `annotations` and
+  `output_schema`.
+- It returns `ToolLoadoutChanges`, or `None` to change nothing.
+  `descriptions` maps the names of declared tools, also the tool's own, to
+  the description the model is to see. `hidden_declarations` names declared
+  tools whose declarations requests leave out: they stay active and
+  callable, the transcript still records them as declared, and the system
+  prompt leaves them out of its tool list and rules. A tool that hides
+  declarations should present those tools itself, as `codemode` lists them
+  in its description with mode `only`.
+- It runs only while its tool is declared, whenever pipy reads the
+  declarations: for every request and for the system prompt, so several
+  times per turn. It has to be fast and to return the same changes for the
+  same loadout. It may run on any thread that reads the declarations.
+- When several declared tools have the function (the built-in `codemode`
+  counts as one), their changes are merged in the order the tools are
+  declared: a later tool's description of a name replaces an earlier one's,
+  and the hidden declarations add up.
+- A function that raises, or returns something that is not
+  `ToolLoadoutChanges` with texts by name and a collection of names,
+  changes nothing. pipy shows one warning for it, `pipy: prepare_loadout of
+  tool "<name>" failed: <error type>`, and goes on with the other tools' changes.
+- The changes never alter what is registered, active or callable, or what
+  `ctx.get_all_tools()` reports.
+
+Together with `exposure`, `reaches_tools` and `ctx.execute_tool` this is
+everything the built-in `codemode` uses of the tool system, so an extension
+can build a tool that behaves like it under another name.
+
+Different from Pi:
+
+- Pi calls the function when the active tools change and keeps the result.
+  pipy calls it when it reads the declarations and keeps nothing, so the
+  function must be pure.
+- Pi's loadout has `getExposure(name)`, `getNamespace(name)` and
+  `getPromptGuidelines(name)`. In pipy the exposure and the namespace are
+  fields of the definitions; extension tools have no prompt guidelines, and
+  those of the built-in tools are not given.
+- Pi reports a failing function as an error of its extension each time. pipy
+  warns once per session, tool and error type, naming the tool and the type
+  but not the error's text.
 
 ### Tool rendering
 

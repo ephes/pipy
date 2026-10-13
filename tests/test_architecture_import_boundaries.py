@@ -762,6 +762,7 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.loadout.PrepareToolLoadout",
         "pipy_harness.native.tools.loadout.ToolLoadout",
         "pipy_harness.native.tools.loadout.ToolLoadoutChanges",
+        "pipy_harness.native.tools.loadout.checked_loadout_changes",
         # Tool name patterns of `--tools`/`--exclude-tools` and the names that
         # count as MCP tools: a standard-library leaf of the tool contracts.
         "pipy_harness.native.tools.name_patterns",
