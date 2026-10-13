@@ -2226,6 +2226,7 @@ def _assemble_session_wiring(
         apply_compaction=provider_mutation.compact_context,
         show_compaction=runtime.show_compaction,
         declared_context_window=provider_mutation.declared_context_window,
+        request_history=provider_mutation.request_history,
         cycle_thinking_level=provider_mutation.cycle_thinking_level,
         append_agent_message=append_agent_message,
         drain_extension_outboxes=partial(

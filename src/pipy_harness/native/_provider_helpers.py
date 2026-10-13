@@ -164,12 +164,16 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
             message["content"] = ""
         return message
     if isinstance(envelope, AgentToolResultMessage):
+        from pipy_harness.native.providers.replay_content import tool_result_parts
+
         return {
             "role": "tool",
             "tool_call_id": portable_tool_correlation_id(
                 envelope.provider_correlation_id
             ),
-            "content": envelope.content.value,
+            # Pi: the text, or a placeholder for a result that is images
+            # only; ``chat_transcript`` sends the images in a user message.
+            "content": tool_result_parts(envelope)[0],
         }
     raise ValueError(f"unsupported message envelope: {type(envelope).__name__}")
 

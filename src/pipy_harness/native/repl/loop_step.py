@@ -467,13 +467,18 @@ class _RequestPreparationEffects:
         # request does not, and a mid-conversation adapter drops them from the
         # system messages it sends. They stay callable from scripts.
         hidden = scope.execution_projections.hidden_declarations()
+        # Pi ``transformMessages``: a model without image input gets a
+        # placeholder for each tool result image.
+        messages = scope.request_history(
+            context.binding, active_input.request_messages(context.messages)
+        )
         return ProviderRequest(
             system_prompt=system_prompt + context.summary_suffix,
             user_prompt=accepted_turn.provider_user_input,
             provider_name=context.binding.provider_name,
             model_id=context.binding.model_id,
             cwd=scope.cwd,
-            messages=active_input.request_messages(context.messages),
+            messages=messages,
             available_tools=tuple(
                 tool for tool in available_tools if tool.name not in hidden
             ),

@@ -2206,6 +2206,35 @@ Decided in S39 (images, part 1: content model, session file, replay;
 - A compaction summary request quotes a result's text only (Pi
   `serializeConversation`); the bounded nested-call record keeps no image.
 
+Decided in S39 (images, part 2: provider adapters;
+`providers/*_wire.py`, `_provider_helpers.py`, `providers/replay_content.py`,
+`agent/messages.py`, `repl/loop_step.py`):
+
+- The four wire families send a tool result's images as Pi's adapters do
+  (table in `docs/providers.md`): Anthropic and Bedrock the ordered blocks,
+  Responses a list of `input_text` and `input_image`, Gemini inside the
+  function response or, before Gemini 3, in a following user turn, Chat
+  Completions in one user message after a run of `tool` messages. A later
+  system message between two results does not split that run.
+- A text-only result is sent exactly as before, including an empty text;
+  Pi's `(no tool output)` for an empty result is not adopted here.
+- Pi `downgradeUnsupportedImages` is `without_tool_result_images`, applied
+  where the session builds a request, not in each adapter: adapters do not
+  know the catalog. `ProviderMutationEffects.request_history(binding,
+  messages)` is the one projection (`ReplLoopScope.request_history`), used
+  for the turn's request (`_request_values`) and for the retained history an
+  automatic compaction measures (`_select_automatic_cut`), so both count
+  what is sent. `model_takes_images` reads the `input` of the model's own
+  catalog row: a model without a row (also one that borrows its provider's
+  base row in `resolve_spec`), and a session whose provider was passed in,
+  is sent the images. The stored history is never changed.
+- The `fake` catalog row takes images, like Pi's faux provider.
+- `copilot_dynamic_headers` sets `Copilot-Vision-Request` when a tool result
+  in the request holds an image, for all three Copilot adapters.
+- Not built: the Mistral adapter's own shape (images inside the `tool`
+  message, `[tool error]` prefix) and `requiresAssistantAfterToolResult`;
+  attachments of the user's turn are still sent whatever the row says.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

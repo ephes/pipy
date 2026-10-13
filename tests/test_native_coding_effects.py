@@ -1849,3 +1849,48 @@ def test_compaction_gate_model_replacement_stops_only_an_active_run(
     assert session._coding_state.usage.input_tokens == 0
     witness = session._coding_state.begin_agent_run()
     session._coding_state.end_agent_run(witness)
+
+
+def test_a_model_takes_images_unless_its_catalog_row_says_text_only(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.coding.state import CodingProviderBinding
+
+    effects, state, *_ = _provider_mutation_fixture(tmp_path)
+    provider = state.current_provider()
+
+    def takes(provider_name: str, model_id: str) -> bool:
+        return effects.model_takes_images(
+            CodingProviderBinding(provider, provider_name, model_id)
+        )
+
+    assert takes("openai", "gpt-5.5") is True
+    # Pi ``model.input``: this row lists text only.
+    assert takes("mistral", "mistral-large-latest") is False
+    # Pi's faux provider takes images, so pipy's fake one does.
+    assert takes("fake", "fake-native-bootstrap") is True
+    # No row describes these: nothing says they cannot, and the row a known
+    # provider lends an unknown model says nothing about that model.
+    assert takes("unknown-provider", "unknown-model") is True
+    assert takes("mistral", "a-model-without-a-row") is True
+
+    from pipy_harness.native.agent import AgentToolResultMessage, ProductContent
+    from pipy_harness.native.agent.content import ImageContent
+
+    result = AgentToolResultMessage(
+        tool_request_id="pipy-tool-1",
+        tool_name="shot",
+        content=ProductContent(""),
+        provider_correlation_id="call-1",
+        blocks=(ImageContent("aW1hZ2U=", "image/png"),),
+    )
+    history = (result,)
+    vision = CodingProviderBinding(provider, "openai", "gpt-5.5")
+    text_only = CodingProviderBinding(provider, "mistral", "mistral-large-latest")
+    assert effects.request_history(vision, history) is history
+    (downgraded,) = effects.request_history(text_only, history)
+    assert isinstance(downgraded, AgentToolResultMessage)
+    assert downgraded.blocks == ()
+    assert downgraded.content.value == (
+        "(tool image omitted: model does not support images)"
+    )

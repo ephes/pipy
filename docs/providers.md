@@ -214,7 +214,7 @@ survives restarts.
 Every Copilot request carries Copilot's editor headers plus `X-Initiator`
 (`agent` after a tool or assistant turn, else `user`), `Openai-Intent:
 conversation-edits`, and `Copilot-Vision-Request: true` when the request sends
-an image. Claude models authenticate with a Bearer token.
+an image, a tool result's image included. Claude models authenticate with a Bearer token.
 
 Pipy does not offer Pi's xAI OAuth login (SuperGrok or X Premium); use
 `XAI_API_KEY`.
@@ -453,6 +453,29 @@ level, pipy falls back safely rather than inventing unsupported parameters.
 
 Images are accepted only for rows marked `images yes`; attach files using the
 current image/file-reference workflows described in [Using pipy](usage.md).
+
+A tool result can hold images (an MCP tool's screenshot, for example). They
+are sent to the model as Pi sends them:
+
+| Adapter family | Where the images go |
+| --- | --- |
+| Anthropic Messages, Bedrock | Inside the `tool_result`, text and image blocks in the tool's order. A result that is images only starts with the text `(see attached image)`. |
+| OpenAI Responses, Azure, Codex | The `function_call_output` is a list: the result's text as one `input_text`, then one `input_image` per image. |
+| Gemini, Vertex | Inside the function response (`parts`) for Gemini 3 and later and for models that are not Gemini. For Gemini before 3, in a user turn `Tool result image:` after the function response. |
+| Chat Completions (OpenAI-compatible, OpenRouter, Mistral, Cloudflare, ds4) | The `tool` message keeps the text (`(see attached image)` for images only). The images of a run of tool results follow it in one user message `Attached image(s) from tool result:`. |
+
+A model whose row says `images no` gets the text `(tool image omitted: model
+does not support images)` in place of each run of images. The session keeps
+the images, so a later switch to a model that takes them sends them. A model
+that no catalog row describes is sent the images, also when its provider is
+a known one.
+
+Different from Pi: Pi's Mistral adapter puts the images into the `tool`
+message itself and marks an error result's text with `[tool error]`; pipy's
+Mistral adapter is a Chat Completions adapter and sends them as that family
+does. Pi's Chat Completions adapter adds an assistant message before the image
+message for models that need one (`requiresAssistantAfterToolResult`); pipy
+has no such switch.
 
 ## Session cost
 

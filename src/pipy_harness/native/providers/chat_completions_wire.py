@@ -15,7 +15,7 @@ decided anywhere else.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,10 +27,15 @@ from pipy_harness.native._provider_helpers import (
     safe_response_label,
     serialize_tool_for_chat_completions,
 )
-from pipy_harness.native.agent.messages import AgentSystemMessage
+from pipy_harness.native.agent.content import ImageContent, tool_result_images
+from pipy_harness.native.agent.messages import (
+    AgentSystemMessage,
+    AgentToolResultMessage,
+)
 from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.http import ProviderHTTPError
 from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.providers.replay_content import image_data_url
 from pipy_harness.native.providers.transcript import (
     declaration_definition,
     request_tools,
@@ -76,6 +81,51 @@ class ChatTranscript:
     tools: tuple[ToolDefinition, ...]
 
 
+def _tool_result_run_images(
+    items: Sequence[object], index: int
+) -> tuple[ImageContent, ...]:
+    """The images of the run of tool results that ends at ``index``.
+
+    Pi ``convertMessages``: a ``tool`` message is text, so the images of
+    consecutive tool results follow the last of them in one user message.
+    A later system message between two results does not end the run: no
+    user message may stand between an assistant's results.
+    """
+
+    if not isinstance(items[index], AgentToolResultMessage):
+        return ()
+    following = next(
+        (
+            item
+            for item in items[index + 1 :]
+            if not isinstance(item, AgentSystemMessage)
+        ),
+        None,
+    )
+    if isinstance(following, AgentToolResultMessage):
+        return ()
+    images: list[ImageContent] = []
+    for item in reversed(items[: index + 1]):
+        if isinstance(item, AgentToolResultMessage):
+            images[:0] = tool_result_images(item.blocks)
+        elif not isinstance(item, AgentSystemMessage):
+            break
+    return tuple(images)
+
+
+def _tool_images_message(images: Sequence[ImageContent]) -> dict[str, Any]:
+    return {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Attached image(s) from tool result:"},
+            *(
+                {"type": "image_url", "image_url": {"url": image_data_url(image)}}
+                for image in images
+            ),
+        ],
+    }
+
+
 def chat_transcript(
     request: ProviderRequest, options: ChatTranscriptOptions | None = None
 ) -> ChatTranscript:
@@ -108,9 +158,12 @@ def chat_transcript(
     if not request.messages:
         messages.append({"role": "user", "content": request.user_prompt})
         return ChatTranscript(messages, tools)
-    for item in resolved.items:
+    for index, item in enumerate(resolved.items):
         if not isinstance(item, AgentSystemMessage):
             messages.append(envelope_to_chat_message(item))
+            images = _tool_result_run_images(resolved.items, index)
+            if images:
+                messages.append(_tool_images_message(images))
             continue
         if anchors and item.tools_added:
             messages.append(

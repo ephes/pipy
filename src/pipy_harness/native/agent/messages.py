@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from math import isfinite
 from typing import Any, ClassVar
@@ -453,6 +453,51 @@ def provider_replay_messages(
     if len(kept) == len(messages) and isinstance(messages, tuple):
         return messages  # nothing to drop: keep the caller's exact tuple
     return kept
+
+
+NON_VISION_TOOL_IMAGE_PLACEHOLDER = (
+    "(tool image omitted: model does not support images)"
+)
+"""Pi ``transform-messages.ts``: what a model without image input is sent."""
+
+
+def without_tool_result_images(
+    messages: Sequence[AgentMessage],
+) -> tuple[AgentMessage, ...]:
+    """History for a model that takes no images (Pi ``downgradeUnsupportedImages``).
+
+    In every tool result each run of images becomes one placeholder text
+    block, so the result is text only. The stored history is not changed:
+    a model that takes images gets them again.
+    """
+
+    downgraded = tuple(
+        _without_images(message)
+        if isinstance(message, AgentToolResultMessage) and message.blocks
+        else message
+        for message in messages
+    )
+    if isinstance(messages, tuple) and all(
+        new is old for new, old in zip(downgraded, messages, strict=True)
+    ):
+        return messages  # nothing to drop: keep the caller's exact tuple
+    return downgraded
+
+
+def _without_images(message: AgentToolResultMessage) -> AgentToolResultMessage:
+    texts: list[str] = []
+    previous_was_placeholder = False
+    for block in message.blocks:
+        if isinstance(block, TextContent):
+            texts.append(block.text)
+            previous_was_placeholder = block.text == NON_VISION_TOOL_IMAGE_PLACEHOLDER
+            continue
+        if not previous_was_placeholder:
+            texts.append(NON_VISION_TOOL_IMAGE_PLACEHOLDER)
+        previous_was_placeholder = True
+    # A placeholder may take the text past the cap a result's text has.
+    text = "\n".join(texts)[: message.CONTENT_MAX_LENGTH]
+    return replace(message, content=ProductContent(text), blocks=())
 
 
 _AGENT_MESSAGE_TYPES = (

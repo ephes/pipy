@@ -31,6 +31,7 @@ from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentFailure,
+    AgentMessage,
     AgentSystemMessage,
     AgentTranscriptMessage,
     AgentUserMessage,
@@ -312,6 +313,11 @@ class ReplLoopScope:
     # Pi `compaction_end`: redraw the chat, or show the outcome's notice.
     show_compaction: Callable[[CodingCompactionOutcome, AgentUserMessage | None], None]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
+    # Pi ``transformMessages``: the history as a request to the bound model
+    # holds it (no tool result images for a model that takes none).
+    request_history: Callable[
+        [CodingProviderBinding, tuple[AgentMessage, ...]], tuple[AgentMessage, ...]
+    ]
     cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"]
     append_agent_message: Callable[[AgentTranscriptMessage], None]
     drain_extension_outboxes: Callable[[], None]
