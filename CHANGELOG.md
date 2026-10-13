@@ -8,6 +8,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Reject malformed scalar metadata in workflow archive exports before it can
+  leak nested payloads or be stringified into labels; keep errors field-only.
+
 - Serialize automatic capture starts per platform session and clean up owned
   files when mapping publication fails.
 

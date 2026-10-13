@@ -330,3 +330,87 @@ def test_export_does_not_modify_archive(tmp_path):
     assert after_md.st_mtime_ns == before_md.st_mtime_ns
     assert record_path.read_bytes() == before_jsonl_bytes
     assert markdown_path.read_bytes() == before_md_bytes
+
+
+@pytest.mark.parametrize(
+    ("event_index", "field"),
+    [
+        (index, field)
+        for index in (0, 1)
+        for field in (
+            "type",
+            "timestamp",
+            "summary",
+            "agent",
+            "machine",
+            "project",
+            "slug",
+            "partial",
+            "sequence",
+        )
+    ]
+    + [(0, "goal")],
+)
+@pytest.mark.parametrize("value", [{"payload": "FORGED_PAYLOAD"}, ["FORGED_PAYLOAD"]])
+def test_export_rejects_container_metadata(tmp_path, capsys, event_index, field, value):
+    record_path = _make_record(tmp_path, extra_events=[{"type": "decision.recorded"}])
+    events = [json.loads(line) for line in record_path.read_text().splitlines()]
+    events[event_index][field] = value
+    record_path.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    with pytest.raises(ValueError, match="invalid export metadata field") as exc:
+        export_session(record_path.stem, session_root=tmp_path)
+    assert "FORGED_PAYLOAD" not in str(exc.value)
+    assert len(str(exc.value)) < 100
+    assert main(["--root", str(tmp_path), "export", record_path.stem]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "FORGED_PAYLOAD" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("summary", None),
+        ("agent", 42),
+        ("goal", False),
+        ("partial", "false"),
+        ("partial", 0),
+        ("sequence", True),
+        ("sequence", 1.5),
+    ],
+)
+def test_export_rejects_wrong_scalar_types(tmp_path, field, value):
+    record_path = _make_record(tmp_path)
+    event = json.loads(record_path.read_text())
+    event[field] = value
+    record_path.write_text(json.dumps(event) + "\n")
+    with pytest.raises(ValueError, match="invalid export metadata field"):
+        export_session(record_path.stem, session_root=tmp_path)
+
+
+def test_export_preserves_scalar_metadata(tmp_path):
+    record_path = _make_record(tmp_path)
+    event = json.loads(record_path.read_text())
+    event.update(
+        summary="Authored string summary", sequence=0, partial=False, goal=None
+    )
+    record_path.write_text(json.dumps(event) + "\n")
+    payload = export_session(record_path.stem, session_root=tmp_path)
+    assert payload["events"] == [
+        {key: value for key, value in event.items() if key != "goal"}
+    ]
+    metadata = payload["metadata"]
+    assert isinstance(metadata, dict)
+    assert metadata["goal"] is None
+
+
+@pytest.mark.parametrize("value", [{"payload": "FORGED_PAYLOAD"}, ["FORGED_PAYLOAD"]])
+def test_export_drops_nonheader_goal(tmp_path, value):
+    record_path = _make_record(tmp_path, extra_events=[{"type": "decision.recorded"}])
+    events = [json.loads(line) for line in record_path.read_text().splitlines()]
+    events[1]["goal"] = value
+    record_path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    payload = export_session(record_path.stem, session_root=tmp_path)
+    assert "FORGED_PAYLOAD" not in json.dumps(payload)

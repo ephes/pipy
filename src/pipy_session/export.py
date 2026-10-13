@@ -125,6 +125,10 @@ def export_session(
         ) from exc
 
     first_event, events = _read_record_events(record_path)
+    goal = first_event.get("goal")
+    if goal is not None and type(goal) is not str:
+        raise ValueError("invalid export metadata field: goal")
+    safe_events = [_safe_event(event) for event in events]
     if first_event.get("type") != "session.started":
         raise ValueError(f"first event is not session.started: {record_path}")
 
@@ -154,7 +158,6 @@ def export_session(
         markdown_summary = markdown_path.read_text(encoding="utf-8")
         markdown_path_label = str(markdown_path.relative_to(root_path))
 
-    safe_events = [_safe_event(event) for event in events]
     metadata = _metadata_block(first_event, safe_events)
 
     export: dict[str, object] = {
@@ -204,6 +207,16 @@ def _safe_event(event: Mapping[str, Any]) -> dict[str, object]:
     ``payload`` shapes used inside pipy (which may carry tool intent metadata
     or normalized counters) never leak into the default export.
     """
+
+    # Validate before header labels or counters can stringify foreign values.
+    # Exact types keep booleans out of integer sequence metadata.
+    for key in SAFE_EVENT_KEYS:
+        if key not in event:
+            continue
+        value = event[key]
+        expected = bool if key == "partial" else int if key == "sequence" else str
+        if type(value) is not expected:
+            raise ValueError(f"invalid export metadata field: {key}")
 
     safe: dict[str, object] = {}
     for key in SAFE_EVENT_KEYS:
