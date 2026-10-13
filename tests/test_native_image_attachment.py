@@ -306,3 +306,45 @@ def test_real_image_growth_after_path_validation(monkeypatch, tmp_path):
     )
     assert result.attachments() == ()
     assert result.references[0].reason == "oversized_image"
+
+
+def test_image_short_reads_are_reassembled_within_budget(monkeypatch, tmp_path):
+    import io
+    import os
+
+    path = tmp_path / "image.png"
+    payload = _PNG + b"y" * 20
+    _write(path, payload)
+    reads = []
+    source = io.BytesIO(payload)
+
+    class ShortReader:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            source.close()
+
+        def read(self, size=-1):
+            reads.append(size)
+            return source.read(min(size, 7))
+
+    original_fdopen = os.fdopen
+
+    def fdopen(fd, *args, **kwargs):
+        original_fdopen(fd, *args, **kwargs).close()
+        return ShortReader()
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    limit = len(payload)
+    result = resolve_image_attachments(
+        "@image:image.png",
+        workspace_root=tmp_path,
+        max_attachment_bytes=limit,
+        max_total_bytes=limit,
+    )
+    assert result.loaded_count == 1
+    assert result.attachments()[0].byte_count == limit
+    assert reads[0] == limit + 1
+    assert len(reads) > 2
+    assert max(reads) <= limit + 1

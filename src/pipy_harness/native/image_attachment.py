@@ -305,7 +305,17 @@ def _resolve_one(
             descriptor = -1  # stream now owns the descriptor
             with stream:
                 budget = min(max_attachment_bytes, max_total_bytes - loaded_bytes)
-                data = stream.read(budget + 1)
+                # A raw read may return short; loop so a partial read is never
+                # mistaken for the whole image.
+                chunks: list[bytes] = []
+                remaining = budget + 1
+                while remaining > 0:
+                    chunk = stream.read(remaining)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                data = b"".join(chunks)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
