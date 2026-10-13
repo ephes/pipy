@@ -13,6 +13,8 @@ answered 404. Every response closes its connection.
 
 ``FakeAuthorizationServer`` is such a server with the endpoints of a sign-in:
 metadata, dynamic registration, authorize and token.
+``FakeOAuthMcpServer`` is such an authorization server with an MCP server at
+``/mcp`` that accepts the access tokens it issued.
 ``authorization_response`` asks its authorize endpoint as a browser would and
 returns the parameters of the redirect. ``FakeBrowser`` follows the redirect
 too, to the page a loopback callback server answers with.
@@ -116,7 +118,7 @@ class _Handler(BaseHTTPRequestHandler):
         if reply.stall:
             fake.stopped.wait()
 
-    do_GET = do_POST = _handle
+    do_GET = do_POST = do_DELETE = _handle
 
 
 class _Server(ThreadingHTTPServer):
@@ -386,6 +388,96 @@ class FakeAuthorizationServer(FakeOAuthServer):
             if self.expires_in is not None:
                 answer["expires_in"] = self.expires_in
             return json_reply(answer)
+
+
+class FakeOAuthMcpServer(FakeAuthorizationServer):
+    """An MCP server at ``/mcp`` that this authorization server protects.
+
+    A POST without an access token the server issued and has not expired is
+    answered 401 with a challenge that names the protected-resource metadata
+    at ``/.well-known/oauth-protected-resource/mcp``. The MCP server has one
+    tool, ``whoami``, whose result is ``token <access token>``, and assigns
+    the session ``session-1``, so closing a connection sends a DELETE. A GET
+    is answered 405.
+
+    ``log`` lists what happened, in order: ``401 <token or none>``,
+    ``token code``, ``token refresh``, ``call <token>``. ``deletes`` lists
+    the access tokens of the DELETE requests.
+
+    A test may set ``insufficient_scope`` to a scope: a tool call is then
+    answered 403 with a challenge that asks for it.
+    """
+
+    def __init__(self, **options: Any) -> None:
+        super().__init__(**options)
+        self.url = f"{self.origin}/mcp"
+        self.log: list[str] = []
+        self.deletes: list[str | None] = []
+        self.insufficient_scope: str | None = None
+        self._valid_tokens: set[str] = set()
+        metadata_path = "/.well-known/oauth-protected-resource/mcp"
+        self.challenge = f'Bearer resource_metadata="{self.origin}{metadata_path}"'
+        self.json(
+            metadata_path,
+            {"resource": self.url, "authorization_servers": [self.origin]},
+        )
+        self.route("/mcp", self._mcp)
+
+    def expire_access_tokens(self) -> None:
+        """Stop accepting every access token issued so far."""
+
+        with self.lock:
+            self._valid_tokens.clear()
+
+    def _token(self, request: OAuthRequest) -> Reply:
+        reply = super()._token(request)
+        if reply.status == 200 and reply.body:
+            with self.lock:
+                self._valid_tokens.add(json.loads(reply.body)["access_token"])
+                grant = form(request).get("grant_type")
+                kind = "code" if grant == "authorization_code" else "refresh"
+                self.log.append(f"token {kind}")
+        return reply
+
+    def _mcp(self, request: OAuthRequest) -> Reply:
+        authorization = request.headers.get("authorization")
+        token = None if authorization is None else authorization.removeprefix("Bearer ")
+        if request.method == "DELETE":
+            with self.lock:
+                self.deletes.append(token)
+            return Reply(200)
+        if request.method != "POST":
+            return Reply(405)
+        with self.lock:
+            if token not in self._valid_tokens:
+                self.log.append(f"401 {token or 'none'}")
+                return Reply(401, {"WWW-Authenticate": self.challenge})
+        message = json.loads(request.body)
+        if "id" not in message:
+            return Reply(202)
+        method = message["method"]
+        result: dict[str, Any] = {}
+        if method == "initialize":
+            result = {
+                "protocolVersion": message["params"]["protocolVersion"],
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "issues", "version": "1.0.0"},
+            }
+        elif method == "tools/list":
+            schema = {"type": "object", "properties": {}}
+            result = {"tools": [{"name": "whoami", "inputSchema": schema}]}
+        elif method == "tools/call":
+            scope = self.insufficient_scope
+            if scope is not None:
+                challenge = f'Bearer error="insufficient_scope", scope="{scope}"'
+                return Reply(403, {"WWW-Authenticate": challenge})
+            with self.lock:
+                self.log.append(f"call {token}")
+            result = {"content": [{"type": "text", "text": f"token {token}"}]}
+        reply = json_reply({"jsonrpc": "2.0", "id": message["id"], "result": result})
+        return Reply(
+            reply.status, {**reply.headers, "Mcp-Session-Id": "session-1"}, reply.body
+        )
 
 
 def authorization_response(authorization_url: str) -> dict[str, str]:

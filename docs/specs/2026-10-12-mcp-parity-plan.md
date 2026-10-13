@@ -1268,8 +1268,9 @@ nothing in the product imports these modules before S30.
   the `renderPage` of OAU-17. S31 passes `render_sign_in_page` as the
   callback server's `render_page`; the default is plain text, as in Pi.
 
-Decided in S30 (`credentials.py`; the connection's auth provider and the
-`needs-auth` state follow in the slice's later commits):
+Decided in S30 (`credentials.py` and the 401 handoff in `http.py`; the
+connection's use of them and the `needs-auth` state follow in the slice's
+last commit):
 
 - `McpOAuthCredentialStore(path, lock_dir=None)` is the file
   `mcp_auth_path(config_home)`. There is no storage backend to swap: tests
@@ -1289,17 +1290,38 @@ Decided in S30 (`credentials.py`; the connection's auth provider and the
   from a live process (Pi's `onCompromised` case cannot happen). The file
   is removed by the holder before it lets go, and a waiter that locked a
   file no longer at the path tries again.
+- HTP-06: `McpAuthProvider` keeps `token()` as its only required member;
+  `on_unauthorized(context)` is looked up on the object, as Pi's is
+  optional. `UnauthorizedContext` has `status`, `www_authenticate`,
+  `server_url` and `token` (`None` for a request without one). Pi's context
+  has the response and the transport's `fetch`; pipy's transport has no
+  fetch a provider could use, so a provider brings its own. The handoff is
+  in `_authorized_fetch`, used by POST and GET. A request whose cancel token
+  was cancelled while the provider worked is not sent again.
+- `McpServerAuthProvider(server_url, store, settings, on_challenge, fetch)`
+  is Pi's `createMcpAuthProvider` with `token`, `on_unauthorized` and
+  `settled`. A refresh runs on the thread of the request that started it
+  (an I/O thread of the transport); the others wait on its event and get
+  its exception. The default fetch is
+  `create_oauth_fetch(timeout_ms=OAUTH_REQUEST_TIMEOUT_MS)` (OAU-22).
+- `McpOAuthSettings` is Pi's, with snake case fields.
+  `create_oauth_provider` (Pi `createProvider`) sets the default
+  `client_name` `pipy` (OAU-08) and passes no document chooser yet: S32 adds
+  `clientRegistration: "cimd"` there, which a refresh needs too, because a
+  document client is not stored. `fixed_redirect_url` is the
+  `fixedRedirectUrl` of Pi's `callbackSettings`; S31 needs the rest of that
+  function for the callback server.
+- Fixture: `FakeOAuthMcpServer` in `mcp_fake_oauth.py` is Pi's
+  `startOAuthMcpServer` without CIMD and without `stall` (a route can be
+  set to `Reply(hang=True)`): the MCP endpoint `/mcp` accepts the tokens
+  its authorization server issued, answers 401 with a challenge, has
+  `expire_access_tokens()`, `insufficient_scope`, `log` and `deletes`. The
+  tests sign in with the library's flow and `authorization_response`.
 
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
-  The HTTP fake has no 403 with a challenge (S30). The OAuth
-  fake has `FakeAuthorizationServer` (metadata, registration, authorize and
-  token endpoints with rotating refresh tokens and `iss`) and `FakeBrowser`;
-  it has no protected MCP endpoint that answers 401 with a challenge and
-  nothing for CIMD (S30 to S32).
-- `McpAuthProvider` has `token()` only. S30 adds the 401 handoff, which has
-  to cover the GET stream too.
+  The OAuth fake has nothing for CIMD (S32).
 
 Changed modules, by seam:
 

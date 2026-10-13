@@ -1075,7 +1075,7 @@ standard library. It is not part of the SDK surface.
 | `protocol`, `transport` | JSON-RPC message checks, error types, the protocol versions pipy accepts (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), conversion of MCP content blocks to text and images, and an in-memory transport pair for tests. |
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
 | `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group. POSIX only. |
-| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. |
+| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). |
 | `config` | Validation, loading and editing of `mcp.json`, as described above. |
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
@@ -1088,7 +1088,7 @@ standard library. It is not part of the SDK surface.
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
 | `oauth` | The parts of an OAuth sign-in, described under [the OAuth library](#the-oauth-library). Nothing in pipy calls them yet. |
-| `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, described under [the credentials file](#the-credentials-file). Nothing in pipy calls it yet. |
+| `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, and `McpServerAuthProvider`: the auth provider that sends a server's stored token and refreshes it. Both are described under [the credentials file](#the-credentials-file). Nothing in pipy calls them yet. |
 
 Not built yet: images in tool results and resources, the `/mcp` manager,
 and the use of the OAuth library: credentials kept on disk, a token on the
@@ -1183,9 +1183,11 @@ request that carries it.
 ### The credentials file
 
 `pipy_harness.native.mcp.credentials` has the store that keeps OAuth state
-on disk, `McpOAuthCredentialStore`. Like the OAuth library it is not used
-yet: no session and no command creates one, so the file below does not
-exist on your machine.
+on disk, `McpOAuthCredentialStore`, and the auth provider that uses it for
+the requests to a server, `McpServerAuthProvider`. Like the OAuth library
+they are not used yet: no session and no command creates them, so the file
+below does not exist on your machine and no request carries a token from
+it.
 
 The file is `mcp-auth.json` in the directory of the user-level `mcp.json`,
 readable and writable only by you. It is one JSON object with one entry per
@@ -1212,6 +1214,28 @@ one refresh token twice. It is a file `mcp-auth-refresh-<hash>` next to the
 credentials file that exists only while the lock is held or waited for. A
 waiter tries every 100 ms and gives up after 25 seconds.
 
+The auth provider (`McpServerAuthProvider`) is what the HTTP transport of
+an OAuth server is given. It never opens a browser:
+
+- Every request carries the stored access token; without one it carries
+  none.
+- An access token within 30 seconds of its expiry is refreshed before the
+  request when a refresh token is stored. When that refresh fails, the old
+  token is sent and the server decides.
+- The transport hands the provider the first answer to a request with
+  status 401, or with status 403 and a challenge that reports
+  `insufficient_scope`, and then sends the request once more. For a 401 the
+  provider refreshes the tokens. It raises `MCP OAuth authorization requires
+  user interaction`, which fails the request, when the challenge asks for
+  more scope (a refresh keeps the granted scope), when no refresh token is
+  stored, and when the refresh ends in a new authorization.
+- Requests of one process share one refresh. Processes are kept apart by
+  the refresh lock, and a process that finds other tokens stored than the
+  ones that were rejected uses those without refreshing.
+- Each request to the authorization server is limited to 15 seconds. A
+  refresh is not cancelled, since its answer may carry a new refresh token
+  that must be saved; `settled()` returns when no refresh is running.
+
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
 
@@ -1230,6 +1254,9 @@ build on it:
   a refresh.
 - The OAuth provider compares server URLs without their fragment, and
   refuses a server URL with user info.
+- An auth provider sends the requests of a refresh itself; Pi sends them
+  with the fetch of the transport whose request was rejected. A request
+  that was given up while the provider worked is not sent again.
 - The refresh lock of the credentials file is a `flock`. The lock of a
   process that died is free at once; Pi takes such a lock over after 20
   seconds. Pi also reads credentials an older version stored under the URL

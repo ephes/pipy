@@ -33,6 +33,16 @@ network read happens on a thread that waits for a result.
   after one second, doubling up to thirty; after five failures in a row the
   thread reports an error and ends. The waits end at once on ``close()``.
 
+Authorization. With an auth provider every POST and GET carries the
+provider's token. A provider that has ``on_unauthorized`` is handed the first
+answer with status 401, and the first with status 403 whose
+``WWW-Authenticate`` challenge reports ``insufficient_scope``, together with
+the token the request carried. When it returns, the request is sent once
+more with the token the provider has then, and that answer counts, whatever
+it is. What the provider raises fails the request instead. The provider runs
+on the request's I/O thread and may take as long as it needs: a request that
+was given up meanwhile is not sent again.
+
 Only a network failure and the statuses 408, 429 and 5xx are worth another
 attempt to open a stream. Authentication, session and protocol errors end the
 server-to-client stream (reported to the error listeners) and fail the request
@@ -59,6 +69,7 @@ from __future__ import annotations
 import http.client
 import json
 import math
+import re
 import socket
 import ssl
 import threading
@@ -99,6 +110,10 @@ DEFAULT_RECONNECT_MAX_RETRIES: Final = 5
 # No backoff delay doubles more often than this, whatever `max_retries` is.
 _MAX_BACKOFF_DOUBLINGS: Final = 32
 _READ_BYTES: Final = 64 * 1024
+# A bearer challenge that asks for more scope (step-up authorization).
+_INSUFFICIENT_SCOPE: Final = re.compile(
+    r'(?:^|[\s,])error="?insufficient_scope"?', re.IGNORECASE
+)
 _REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
 _URL_PATH_SAFE: Final = "/%:@!$&'()*+,;=-._~"
 
@@ -127,8 +142,30 @@ class McpSessionExpiredError(McpHttpError):
         super().__init__(404, "MCP session expired", body)
 
 
+@dataclass(frozen=True, slots=True)
+class UnauthorizedContext:
+    """An answer that asks for authorization, as an auth provider is given it.
+
+    ``status`` is 401, or 403 for a challenge that reports
+    ``insufficient_scope``. ``www_authenticate`` is the answer's challenge
+    header, ``None`` without one. ``token`` is the access token the rejected
+    request carried, ``None`` when it carried none; a provider that holds
+    another token by now knows that another request renewed it already.
+    """
+
+    status: int
+    www_authenticate: str | None
+    server_url: str
+    token: str | None = None
+
+
 class McpAuthProvider(Protocol):
-    """Supplies the bearer token of an HTTP transport."""
+    """Supplies the bearer token of an HTTP transport.
+
+    A provider may also have ``on_unauthorized(context: UnauthorizedContext)
+    -> None``, which the transport calls with a rejected request; see the
+    module text. It is looked up on the object.
+    """
 
     def token(self) -> str | None:
         """The token for the next request, or ``None`` to send none.
@@ -137,6 +174,17 @@ class McpAuthProvider(Protocol):
         calls it on an I/O thread and never from ``close()``.
         """
         ...
+
+
+def _needs_authorization(response: _HttpResponse) -> bool:
+    """Status 401, or 403 with a bearer challenge for more scope."""
+
+    if response.status == 401:
+        return True
+    if response.status != 403:
+        return False
+    challenge = response.header("www-authenticate") or ""
+    return _INSUFFICIENT_SCOPE.search(challenge) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -797,9 +845,8 @@ class StreamableHttpTransport(TransportEvents):
         extra = {"Accept": "text/event-stream"}
         if last_event_id is not None:
             extra["Last-Event-ID"] = last_event_id
-        headers = self._authorized_headers(extra)
-        response = self._fetch(
-            "GET", headers, None, token, self.options.send_timeout_ms
+        response = self._authorized_fetch(
+            "GET", extra, None, token, self.options.send_timeout_ms
         )
         try:
             if response.status == 405:
@@ -847,13 +894,13 @@ class StreamableHttpTransport(TransportEvents):
     ) -> _HttpResponse:
         """POST one message; return the response once its status was accepted."""
 
-        headers = self._authorized_headers(
-            {
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            }
+        extra = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        response = self._authorized_fetch(
+            "POST", extra, body, token, connect_timeout_ms
         )
-        response = self._fetch("POST", headers, body, token, connect_timeout_ms)
         try:
             self._check_response(response)
             self._capture_session(response)
@@ -862,14 +909,63 @@ class StreamableHttpTransport(TransportEvents):
             raise
         return response
 
-    def _authorized_headers(self, extra: Mapping[str, str]) -> dict[str, str]:
-        """The headers of a POST or a GET, with the auth provider's token."""
+    def _authorized_fetch(
+        self,
+        method: str,
+        extra: Mapping[str, str],
+        body: bytes | None,
+        token: CancelToken,
+        connect_timeout_ms: float,
+    ) -> _HttpResponse:
+        """Send a POST or a GET with the auth provider's token.
+
+        An answer that asks for authorization is handed to the provider
+        once, and the request is sent once more with the token the provider
+        has then (Pi ``authorizedFetch``).
+        """
 
         provider = self.options.auth_provider
+        on_unauthorized: Callable[[UnauthorizedContext], None] | None = getattr(
+            provider, "on_unauthorized", None
+        )
         bearer = provider.token() if provider is not None else None
+        response = self._send_with_token(
+            method, extra, body, token, connect_timeout_ms, bearer
+        )
+        if on_unauthorized is None or not _needs_authorization(response):
+            return response
+        try:
+            on_unauthorized(
+                UnauthorizedContext(
+                    status=response.status,
+                    www_authenticate=response.header("www-authenticate"),
+                    server_url=self._target.url,
+                    token=bearer or None,
+                )
+            )
+        finally:
+            response.close()
+        if token.cancelled:
+            # Given up while the provider worked: nobody waits for an answer.
+            raise McpConnectionClosedError()
+        assert provider is not None
+        return self._send_with_token(
+            method, extra, body, token, connect_timeout_ms, provider.token()
+        )
+
+    def _send_with_token(
+        self,
+        method: str,
+        extra: Mapping[str, str],
+        body: bytes | None,
+        token: CancelToken,
+        connect_timeout_ms: float,
+        bearer: str | None,
+    ) -> _HttpResponse:
         with self._lock:
             self._last_token = bearer
-        return self._build_headers(extra, bearer)
+        headers = self._build_headers(extra, bearer)
+        return self._fetch(method, headers, body, token, connect_timeout_ms)
 
     def _capture_session(self, response: _HttpResponse) -> None:
         session_id = response.header("mcp-session-id")

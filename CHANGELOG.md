@@ -42,6 +42,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   and has the lock that keeps two processes from refreshing a server's
   tokens at the same time. See
   [the credentials file](docs/mcp.md#the-credentials-file).
+- The auth provider for the connections of an OAuth MCP server, also used by
+  nothing yet: `McpServerAuthProvider` sends the stored access token,
+  refreshes one that is about to expire or that the server rejected with a
+  401, and reports that a sign-in is needed when it cannot. The HTTP
+  transport hands a rejected request (401, or 403 asking for more scope) to
+  its auth provider once and sends it again.
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with

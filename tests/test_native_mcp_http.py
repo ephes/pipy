@@ -1,8 +1,7 @@
 """Tests for the streamable HTTP transport, against the scripted fake server.
 
 Tests that mirror a case of Pi's ``packages/mcp/test/streamable-http.test.ts``
-name it in a ``Pi:`` comment. The case about the auth provider's 401 handling
-belongs to a later slice.
+name it in a ``Pi:`` comment.
 
 Transports made by the fixture do not open the server-to-client GET stream
 unless a test asks for it with ``open_get_stream=True``, so that tests which
@@ -36,6 +35,7 @@ from pipy_harness.native.mcp.http import (
     StreamableHttpReconnectOptions,
     StreamableHttpTransport,
     StreamableHttpTransportOptions,
+    UnauthorizedContext,
 )
 from pipy_harness.native.mcp.protocol import (
     INTERNAL_ERROR,
@@ -1251,6 +1251,283 @@ def test_the_get_stream_carries_the_auth_providers_token(fake: _Fixture) -> None
     # It is the latest request, so its token is the one that ends the session.
     (delete,) = [request for request in server.requests if request.method == "DELETE"]
     assert delete.headers["authorization"] == "Bearer token-3"
+
+
+# -- answers that ask for authorization -------------------------------------
+
+
+class _Renewing:
+    """An auth provider that is handed rejected requests.
+
+    ``renew`` maps a rejected token to the next one. ``seen`` lists the
+    contexts it was given.
+    """
+
+    def __init__(self, token: str | None, renew: dict[str | None, str]) -> None:
+        self.current = token
+        self.renew = renew
+        self.seen: list[UnauthorizedContext] = []
+        self.threads: list[str] = []
+
+    def token(self) -> str | None:
+        return self.current
+
+    def on_unauthorized(self, context: UnauthorizedContext) -> None:
+        self.seen.append(context)
+        self.threads.append(threading.current_thread().name)
+        self.current = self.renew[context.token]
+
+
+def _rejection(status: int, challenge: str | None = "Bearer") -> list[dict[str, Any]]:
+    headers = {} if challenge is None else {"WWW-Authenticate": challenge}
+    return [{"status": status, "headers": headers, "body": "rejected"}]
+
+
+def _authorizations(server: FakeMcpHttpServer, method: str) -> list[str | None]:
+    return [request.headers.get("authorization") for request in server.messages(method)]
+
+
+_MORE_SCOPE = 'Bearer error="insufficient_scope", scope="admin"'
+
+
+def test_hands_401_and_insufficient_scope_403_to_the_auth_provider(
+    fake: _Fixture,
+) -> None:
+    # Pi: "hands 401 and insufficient-scope 403 responses to the auth
+    # provider with the rejected token"
+    server = fake.server(
+        postSequence={
+            "initialize": [_rejection(401)],
+            "tools/call": [_rejection(403, _MORE_SCOPE)],
+        }
+    )
+    provider = _Renewing("old", {"old": "new", "new": "admin"})
+
+    client = fake.connect(server, auth_provider=provider)
+
+    assert client.call_tool("echo") == _HELLO
+    assert provider.seen == [
+        UnauthorizedContext(401, "Bearer", server.url, "old"),
+        UnauthorizedContext(403, _MORE_SCOPE, server.url, "new"),
+    ]
+    assert _authorizations(server, "initialize") == ["Bearer old", "Bearer new"]
+    assert _authorizations(server, "tools/call") == ["Bearer new", "Bearer admin"]
+    # The provider may use the network, so it runs on the request's thread.
+    assert provider.threads == ["mcp-http-request", "mcp-http-request"]
+    client.close()
+    # The session ends with the token of the request that was sent last.
+    (delete,) = [request for request in server.requests if request.method == "DELETE"]
+    assert delete.headers["authorization"] == "Bearer admin"
+
+
+def test_a_request_is_handed_to_the_auth_provider_only_once(fake: _Fixture) -> None:
+    challenge = 'Bearer resource_metadata="https://example.com/meta"'
+    server = fake.server(
+        postSequence={"tools/call": [_rejection(401), _rejection(401, challenge)]}
+    )
+    provider = _Renewing("old", {"old": "new"})
+    client = fake.connect(server, auth_provider=provider)
+
+    with pytest.raises(McpAuthRequiredError) as failure:
+        client.call_tool("echo")
+
+    # The second answer counts, with its own challenge.
+    assert failure.value.www_authenticate == challenge
+    assert [context.token for context in provider.seen] == ["old"]
+    assert _authorizations(server, "tools/call") == ["Bearer old", "Bearer new"]
+    # The next request starts over.
+    provider.renew["new"] = "newer"
+    server.scenario["postSequence"]["tools/list"] = [_rejection(401)]
+    assert client.list_tools() == [_ECHO]
+    assert [context.token for context in provider.seen] == ["old", "new"]
+
+
+def test_a_request_without_a_token_is_handed_over_without_one(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(postSequence={"initialize": [_rejection(401, None)]})
+    provider = _Renewing(None, {None: "first"})
+
+    fake.connect(server, auth_provider=provider)
+
+    assert provider.seen == [UnauthorizedContext(401, None, server.url, None)]
+    assert _authorizations(server, "initialize") == [None, "Bearer first"]
+
+
+@pytest.mark.parametrize(
+    "challenge",
+    [
+        "Bearer error=insufficient_scope",
+        'Bearer realm="mcp", ERROR="Insufficient_Scope"',
+        'Bearer scope="admin",error="insufficient_scope"',
+        'error="insufficient_scope"',
+    ],
+)
+def test_a_403_that_asks_for_more_scope_is_handed_over(
+    fake: _Fixture, challenge: str
+) -> None:
+    server = fake.server(postSequence={"tools/call": [_rejection(403, challenge)]})
+    provider = _Renewing("old", {"old": "admin"})
+    client = fake.connect(server, auth_provider=provider)
+
+    assert client.call_tool("echo") == _HELLO
+    assert provider.seen == [UnauthorizedContext(403, challenge, server.url, "old")]
+
+
+@pytest.mark.parametrize(
+    "challenge",
+    [
+        None,
+        "Bearer",
+        'Bearer error="invalid_token"',
+        'Bearer error_description="insufficient_scope"',
+        'Bearer xerror="insufficient_scope"',
+    ],
+)
+def test_another_403_is_an_error_and_is_not_handed_over(
+    fake: _Fixture, challenge: str | None
+) -> None:
+    server = fake.server(postSequence={"tools/call": [_rejection(403, challenge)]})
+    provider = _Renewing("old", {"old": "admin"})
+    client = fake.connect(server, auth_provider=provider)
+
+    with pytest.raises(McpHttpError, match="status 403: rejected"):
+        client.call_tool("echo")
+
+    assert provider.seen == []
+    assert _authorizations(server, "tools/call") == ["Bearer old"]
+
+
+def test_a_403_for_more_scope_is_an_error_when_the_provider_takes_no_rejections(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(postSequence={"tools/call": [_rejection(403, _MORE_SCOPE)]})
+    client = fake.connect(server, auth_provider=_Tokens())
+
+    with pytest.raises(McpHttpError, match="status 403"):
+        client.call_tool("echo")
+
+    assert len(server.messages("tools/call")) == 1
+
+
+def test_what_the_auth_provider_raises_fails_the_request(fake: _Fixture) -> None:
+    class Refusing(_Renewing):
+        def on_unauthorized(self, context: UnauthorizedContext) -> None:
+            super().on_unauthorized(context)
+            raise RuntimeError("sign in again")
+
+    server = fake.server(postSequence={"tools/call": [_rejection(401)]})
+    provider = Refusing("old", {"old": "new"})
+    client = fake.connect(server, auth_provider=provider)
+
+    with pytest.raises(RuntimeError, match="sign in again"):
+        client.call_tool("echo")
+
+    assert _authorizations(server, "tools/call") == ["Bearer old"]
+    # Only that request failed.
+    assert client.list_tools() == [_ECHO]
+
+
+def test_a_rejected_notification_is_handed_over_too(fake: _Fixture) -> None:
+    server = fake.server(
+        postSequence={"notifications/roots/list_changed": [_rejection(401)]}
+    )
+    provider = _Renewing("old", {"old": "new"})
+    client = fake.connect(server, auth_provider=provider)
+
+    client.notify("notifications/roots/list_changed")
+
+    assert _authorizations(server, "notifications/roots/list_changed") == [
+        "Bearer old",
+        "Bearer new",
+    ]
+    assert provider.threads == ["mcp-http-send"]
+
+
+class _Slow(_Renewing):
+    """A provider whose ``on_unauthorized`` waits for ``release``."""
+
+    def __init__(self, token: str | None, renew: dict[str | None, str]) -> None:
+        super().__init__(token, renew)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def on_unauthorized(self, context: UnauthorizedContext) -> None:
+        self.entered.set()
+        self.release.wait(_WAIT_SECONDS)
+        super().on_unauthorized(context)
+
+
+def test_a_request_is_not_sent_again_when_the_transport_closed_meanwhile(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(postSequence={"tools/call": [_rejection(401)]})
+    provider = _Slow("old", {"old": "new"})
+    client = fake.connect(server, auth_provider=provider)
+    thread, _, raised = _in_thread(lambda: client.call_tool("echo"))
+    assert provider.entered.wait(_WAIT_SECONDS)
+
+    client.close()
+    thread.join(_WAIT_SECONDS)
+    provider.release.set()
+    _wait_until(lambda: not _io_threads())
+
+    assert [type(error) for error in raised] == [McpConnectionClosedError]
+    # The provider finished its work all the same.
+    assert provider.current == "new"
+    assert _authorizations(server, "tools/call") == ["Bearer old"]
+
+
+def test_a_request_is_not_sent_again_when_it_timed_out_meanwhile(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(postSequence={"tools/call": [_rejection(401)]})
+    provider = _Slow("old", {"old": "new"})
+    client = fake.connect(server, auth_provider=provider)
+
+    with pytest.raises(McpTimeoutError):
+        client.call_tool("echo", None, McpRequestOptions(timeout_ms=50))
+    assert provider.entered.is_set()
+    provider.release.set()
+    _wait_until(lambda: not _io_threads())
+
+    assert provider.current == "new"
+    assert _authorizations(server, "tools/call") == ["Bearer old"]
+    assert client.list_tools() == [_ECHO]
+
+
+def test_the_get_stream_is_handed_to_the_auth_provider_too(fake: _Fixture) -> None:
+    server = fake.server(getSequence=[_rejection(401)], get=_OPEN_STREAM)
+    provider = _Renewing("old", {"old": "new"})
+
+    client, errors = _connect_with_stream(fake, server, auth_provider=provider)
+    _wait_until(lambda: len(_gets(server)) == 2)
+
+    assert [get.headers["authorization"] for get in _gets(server)] == [
+        "Bearer old",
+        "Bearer new",
+    ]
+    assert provider.seen == [UnauthorizedContext(401, "Bearer", server.url, "old")]
+    assert provider.threads == ["mcp-http-get"]
+    assert errors == []
+    client.close()
+
+
+def test_a_get_stream_the_auth_provider_cannot_authorize_ends(fake: _Fixture) -> None:
+    class Refusing(_Renewing):
+        def on_unauthorized(self, context: UnauthorizedContext) -> None:
+            raise RuntimeError("sign in again")
+
+    server = fake.server(get=_rejection(401))
+    client, errors = _connect_with_stream(
+        fake, server, auth_provider=Refusing("old", {})
+    )
+
+    _wait_until(_get_thread_ended)
+
+    assert [str(error) for error in errors] == ["sign in again"]
+    assert len(_gets(server)) == 1
+    assert client.list_tools() == [_ECHO]
 
 
 def test_the_get_stream_gives_up_after_five_failures_in_a_row(fake: _Fixture) -> None:

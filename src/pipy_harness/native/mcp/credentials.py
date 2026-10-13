@@ -1,4 +1,5 @@
-"""The stored OAuth credentials of MCP servers (Pi ``ext/oauth.ts``).
+"""The stored OAuth credentials of MCP servers, and the auth provider that
+uses them for a server's connections (Pi ``ext/oauth.ts``).
 
 ``McpOAuthCredentialStore`` keeps the OAuth state of every server in one
 file, ``<config home>/mcp-auth.json``, readable and writable only by the
@@ -24,6 +25,32 @@ the tokens to saving the new ones. It is a file
 with ``flock`` and removed when the lock is released. A waiter tries every
 100 ms and gives up with ``McpRefreshLockTimeoutError`` after 25 s.
 
+The auth provider. ``McpServerAuthProvider`` is what the HTTP transport of
+an OAuth server is given. A connection never opens a browser:
+
+- ``token`` gives the stored access token. One that expires within 30
+  seconds is refreshed first when a refresh token is stored; when that
+  fails the old token is sent and the server decides.
+- ``on_unauthorized`` is called with a request the server rejected. It
+  hands the challenge to ``on_challenge`` and refreshes the tokens. When
+  the challenge reports ``insufficient_scope``, when no refresh token is
+  stored and when the refresh ends in a new authorization, it raises
+  ``McpOAuthAuthorizationRequiredError``: the user has to sign in.
+- Requests in one process share one refresh: a request that arrives while
+  one is running waits for it and gets its outcome. The refresh holds the
+  server's refresh lock from reading the tokens to saving the new ones.
+  When the stored access token is not the one that expired or was rejected
+  (another process refreshed it, or the user signed in), nothing is
+  refreshed and the stored token is used.
+- A refresh is never cancelled: an answer the server gave may have rotated
+  the refresh token, so it must be saved. Each request to the
+  authorization server is limited to 15 seconds, so a server that does not
+  answer cannot hold the refresh lock or a shutdown for long. ``settled``
+  returns when no refresh is running.
+
+A refresh runs on the thread of the request that started it, which is an
+I/O thread of the transport.
+
 Where this differs from Pi:
 
 - Pi's lock is a directory another process takes over when its holder has
@@ -37,6 +64,10 @@ Where this differs from Pi:
   pipy version wrote that key.
 - The file is replaced as a whole (written next to it and renamed), where Pi
   writes into it.
+- The requests of a refresh are sent by the provider's own fetch. Pi sends
+  them with the fetch of the transport that was rejected.
+- ``oauth.clientRegistration: "cimd"`` is not acted on yet: the provider of
+  a refresh offers no Client ID Metadata Document.
 """
 
 from __future__ import annotations
@@ -45,17 +76,29 @@ import fcntl
 import hashlib
 import json
 import os
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final, NoReturn, TypeVar
 
 from pipy_harness.native.auth_store import auth_file_lock
 from pipy_harness.native.mcp.config import mcp_namespace, parse_http_url
-from pipy_harness.native.mcp.oauth.provider import McpOAuthState
-from pipy_harness.native.mcp.oauth.types import OAuthTokens
-from pipy_harness.native.mcp.protocol import is_object
+from pipy_harness.native.mcp.http import UnauthorizedContext
+from pipy_harness.native.mcp.oauth.discovery import parse_www_authenticate
+from pipy_harness.native.mcp.oauth.errors import McpOAuthAuthorizationRequiredError
+from pipy_harness.native.mcp.oauth.fetch import OAuthFetch, create_oauth_fetch
+from pipy_harness.native.mcp.oauth.flow import OAuthFlowOptions, authorize_mcp
+from pipy_harness.native.mcp.oauth.provider import (
+    McpOAuthProvider,
+    McpOAuthProviderOptions,
+    McpOAuthState,
+    McpOAuthStateStore,
+)
+from pipy_harness.native.mcp.oauth.types import OAuthChallenge, OAuthTokens
+from pipy_harness.native.mcp.protocol import is_number, is_object
 
 _T = TypeVar("_T")
 
@@ -64,6 +107,17 @@ MCP_AUTH_FILE_NAME: Final = "mcp-auth.json"
 REFRESH_LOCK_WAIT_MS: Final = 25_000
 REFRESH_LOCK_RETRY_MS: Final = 100
 _FILE_MODE: Final = 0o600
+APP_NAME: Final = "pipy"
+CALLBACK_HOST: Final = "127.0.0.1"
+CALLBACK_PATH: Final = "/callback"
+# The redirect URI of a refresh when none is stored. A refresh never
+# redirects the user.
+FALLBACK_REDIRECT_URL: Final = f"http://{CALLBACK_HOST}{CALLBACK_PATH}"
+# An access token this close to its expiry is refreshed before it is sent.
+REFRESH_SKEW_MS: Final = 30_000
+# The limit of each request to the authorization server.
+OAUTH_REQUEST_TIMEOUT_MS: Final = 15_000
+_DEFAULT_PORTS: Final = {"http": 80, "https": 443}
 
 _States = dict[str, Any]
 
@@ -271,3 +325,243 @@ class McpOAuthCredentialStore:
             os.fchmod(handle.fileno(), _FILE_MODE)
             handle.write(text)
         os.replace(temporary, self.path)
+
+
+# -- the auth provider of a server's connections ------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class McpOAuthSettings:
+    """The ``oauth`` settings of a server entry, ready to use.
+
+    ``client_secret`` is the resolved value. ``scope`` holds the scopes to
+    request, separated by spaces. ``client_name`` is the ``client_name`` of a
+    dynamic client registration, ``pipy`` when it is ``None``.
+    """
+
+    client_id: str | None = None
+    client_secret: str | None = None
+    callback_port: int | None = None
+    callback_url: str | None = None
+    scope: str | None = None
+    client_name: str | None = None
+    client_registration: str | None = None
+    auth_server_metadata_url: str | None = None
+
+
+def fixed_redirect_url(settings: McpOAuthSettings) -> str | None:
+    """The redirect URI, when the settings fix its port; else ``None``.
+
+    A configured URI that names a port is used as written, since servers
+    compare redirect URIs as strings. A configured port is put into the
+    configured URI, or into ``http://127.0.0.1/callback``.
+    """
+
+    default = f"http://{CALLBACK_HOST}{CALLBACK_PATH}"
+    url = parse_http_url(
+        default if settings.callback_url is None else settings.callback_url
+    )
+    if url is None:
+        return None
+    if url.port is not None:
+        return settings.callback_url
+    port = settings.callback_port
+    if port is None:
+        return None
+    # A URL does not name the default port of its scheme.
+    return replace(url, port=None if port == _DEFAULT_PORTS[url.scheme] else port).href
+
+
+def _registered_redirect_urls(state: McpOAuthState | None) -> list[str]:
+    client = None if state is None else state.get("clientInformation")
+    uris = client.get("redirect_uris") if is_object(client) else None
+    if not isinstance(uris, list):
+        return []
+    return [uri for uri in uris if isinstance(uri, str)]
+
+
+def _tokens(state: McpOAuthState | None) -> dict[str, Any]:
+    tokens = None if state is None else state.get("tokens")
+    return tokens if is_object(tokens) else {}
+
+
+def _access_token(state: McpOAuthState | None) -> str | None:
+    token = _tokens(state).get("access_token")
+    return token if isinstance(token, str) else None
+
+
+def _expires_soon(state: McpOAuthState | None) -> bool:
+    """Whether the access token expires within ``REFRESH_SKEW_MS``."""
+
+    expires_at = None if state is None else state.get("tokensExpireAt")
+    if not is_number(expires_at):
+        return False
+    return expires_at - REFRESH_SKEW_MS <= time.time() * 1000
+
+
+def create_oauth_provider(
+    server_url: str,
+    store: McpOAuthStateStore,
+    settings: McpOAuthSettings,
+    redirect_url: str,
+    on_redirect: Callable[[str], None],
+) -> McpOAuthProvider:
+    """The provider the OAuth flow of a configured server is run with."""
+
+    return McpOAuthProvider(
+        McpOAuthProviderOptions(
+            server_url=server_url,
+            redirect_url=redirect_url,
+            client_metadata={"client_name": settings.client_name or APP_NAME},
+            client_id=settings.client_id,
+            client_secret=settings.client_secret,
+            store=store,
+            on_redirect=on_redirect,
+        )
+    )
+
+
+class _Refresh:
+    """One refresh, which every request that arrives meanwhile waits for."""
+
+    __slots__ = ("done", "error")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.error: Exception | None = None
+
+
+class McpServerAuthProvider:
+    """The auth provider of one server's connections (Pi
+    ``createMcpAuthProvider``); see the module text.
+
+    ``settings`` is called only when a refresh is needed, so a client secret
+    that cannot be resolved fails the refresh and not the connection.
+    ``on_challenge`` is given the challenge of every rejected request, for
+    the sign-in that may follow. ``fetch`` sends the requests to the
+    authorization server; the default limits each to
+    ``OAUTH_REQUEST_TIMEOUT_MS``.
+    """
+
+    def __init__(
+        self,
+        *,
+        server_url: str,
+        store: McpOAuthServerStore,
+        settings: Callable[[], McpOAuthSettings],
+        on_challenge: Callable[[OAuthChallenge], None],
+        fetch: OAuthFetch | None = None,
+    ) -> None:
+        self._server_url = server_url
+        self._store = store
+        self._settings = settings
+        self._on_challenge = on_challenge
+        self._fetch: OAuthFetch = (
+            create_oauth_fetch(timeout_ms=OAUTH_REQUEST_TIMEOUT_MS)
+            if fetch is None
+            else fetch
+        )
+        # Guards `_refreshing`. Never held during a refresh.
+        self._lock = threading.Lock()
+        self._refreshing: _Refresh | None = None
+
+    def token(self) -> str | None:
+        """The stored access token, refreshed first when it is about to
+        expire. ``None`` when nothing is stored."""
+
+        self.settled()
+        state = self._store.load()
+        token = _access_token(state)
+        if not _expires_soon(state) or not _tokens(state).get("refresh_token"):
+            return token
+        try:
+            self._refresh(token, None)
+        except Exception:  # noqa: BLE001 - as Pi: the request goes out with the old token and the server decides
+            pass
+        return _access_token(self._store.load())
+
+    def on_unauthorized(self, context: UnauthorizedContext) -> None:
+        """Refresh the tokens after the server rejected ``context.token``.
+
+        Raises ``McpOAuthAuthorizationRequiredError`` when the user has to
+        sign in.
+        """
+
+        challenge = parse_www_authenticate(context.www_authenticate)
+        self._on_challenge(challenge)
+        # A refresh keeps the granted scope, so more scope needs a sign-in.
+        if challenge.error == "insufficient_scope":
+            raise McpOAuthAuthorizationRequiredError()
+        self._refresh(context.token, challenge)
+
+    def settled(self) -> None:
+        """Return when no refresh is running, so that a shutdown does not
+        drop rotated tokens before they are saved."""
+
+        with self._lock:
+            running = self._refreshing
+        if running is not None:
+            running.done.wait()
+
+    def _refresh(
+        self, stale_token: str | None, challenge: OAuthChallenge | None
+    ) -> None:
+        """Replace ``stale_token``, the access token that expired or was
+        rejected. A caller that arrives while a refresh is running waits for
+        that one and gets its outcome."""
+
+        with self._lock:
+            running = self._refreshing
+            started = running is None
+            if running is None:
+                running = self._refreshing = _Refresh()
+        if not started:
+            running.done.wait()
+            if running.error is not None:
+                raise running.error
+            return
+        try:
+            with self._store.refresh_lock():
+                self._refresh_locked(stale_token, challenge)
+        except Exception as error:
+            running.error = error
+            raise
+        finally:
+            with self._lock:
+                self._refreshing = None
+            running.done.set()
+
+    def _refresh_locked(
+        self, stale_token: str | None, challenge: OAuthChallenge | None
+    ) -> None:
+        state = self._store.load()
+        if _access_token(state) != stale_token:
+            # Another process refreshed the tokens, or the user signed in.
+            return
+        if not _tokens(state).get("refresh_token"):
+            raise McpOAuthAuthorizationRequiredError()
+        settings = self._settings()
+        redirect_url = (
+            fixed_redirect_url(settings)
+            or next(iter(_registered_redirect_urls(state)), None)
+            or FALLBACK_REDIRECT_URL
+        )
+        provider = create_oauth_provider(
+            self._server_url, self._store, settings, redirect_url, lambda url: None
+        )
+        # Not cancellable: a refresh the server answered may have rotated
+        # the refresh token, so its answer must be saved.
+        result = authorize_mcp(
+            provider,
+            OAuthFlowOptions(
+                server_url=self._server_url,
+                resource_metadata_url=(
+                    None if challenge is None else challenge.resource_metadata_url
+                ),
+                authorization_server_metadata_url=settings.auth_server_metadata_url,
+                scope=None if challenge is None else challenge.scope,
+                fetch=self._fetch,
+            ),
+        )
+        if result == "REDIRECT":
+            raise McpOAuthAuthorizationRequiredError()
