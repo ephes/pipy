@@ -2316,6 +2316,7 @@ def _assemble_session_wiring(
         run_prepared=extension.tool_capabilities.drop_pending_tools,
         compaction_event=_compaction_event,
     )
+    extension.mcp.announce_through(emitter)
     delegation = _LoopDelegation(
         loop_controller=loop_controller,
         step_once=partial(repl_loop_step.step_once, scope=scope),

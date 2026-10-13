@@ -86,6 +86,7 @@ from pipy_harness.native.extension_types import (
     InputEvent,
     InputTransform,
     LifecycleEvent,
+    McpServersChangeEvent,
     ProjectTrustContext,
     ProjectTrustDispatchResult,
     ProjectTrustEvent,
@@ -114,6 +115,7 @@ from pipy_harness.native.extensions.activation import (
     EVENT_BEFORE_PROVIDER_HEADERS,
     EVENT_BEFORE_PROVIDER_REQUEST,
     EVENT_INPUT,
+    EVENT_MCP_SERVERS_CHANGE,
     EVENT_PROJECT_TRUST,
     EVENT_SESSION_BEFORE_COMPACT,
     EVENT_SESSION_BEFORE_FORK,
@@ -152,7 +154,7 @@ from pipy_harness.native.extensions.dispatch import (
 )
 from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
-from pipy_harness.native.mcp.registry import McpServerRegistry
+from pipy_harness.native.mcp.registry import McpServerRegistry, RegisteredMcpServer
 from pipy_harness.native.session_generation import (
     FrozenStagedDeliveryBatch,
     OrderedDeliveryGate,
@@ -635,7 +637,7 @@ def dispatch_tool_result_hooks(
 
 def dispatch_lifecycle_hooks(
     hooks: Sequence[HookHandler],
-    event: LifecycleEvent,
+    event: LifecycleEvent | McpServersChangeEvent,
     *,
     cwd: str,
     has_ui: bool,
@@ -730,7 +732,31 @@ class _ExtensionLifecycleAgentEventAdapter:
             flags=flags,
         )
 
-    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
+    def mcp_servers_change_handled(self) -> bool:
+        """Whether a loaded extension handles ``mcp_servers_change``, which
+        means it connects the MCP servers extensions register."""
+
+        projection = self._generation_snapshot().generation.projection
+        return projection is not None and bool(
+            projection.hooks.lifecycle.get(EVENT_MCP_SERVERS_CHANGE)
+        )
+
+    def fire_mcp_servers_change(self, servers: Sequence[RegisteredMcpServer]) -> None:
+        """Tell the loaded extensions that the registered MCP servers
+        changed; ``servers`` is every registration after the change."""
+
+        self.fire_lifecycle(
+            EVENT_MCP_SERVERS_CHANGE,
+            event=McpServersChangeEvent(servers=tuple(servers)),
+        )
+
+    def fire_lifecycle(
+        self,
+        name: str,
+        *,
+        reason: str | None = None,
+        event: LifecycleEvent | McpServersChangeEvent | None = None,
+    ) -> None:
         snapshot = self._generation_snapshot()
         projection = snapshot.generation.projection
         if projection is None:
@@ -742,7 +768,7 @@ class _ExtensionLifecycleAgentEventAdapter:
             ui_driver = bind(chrome.sink)
         self._dispatch_lifecycle(
             projection.hooks.lifecycle.get(name),
-            LifecycleEvent(name=name, reason=reason),
+            LifecycleEvent(name=name, reason=reason) if event is None else event,
             ui_driver=ui_driver,
             flags=projection.runtime_flags.values,
         )
@@ -750,7 +776,7 @@ class _ExtensionLifecycleAgentEventAdapter:
     def _dispatch_lifecycle(
         self,
         hooks: Sequence[HookHandler] | None,
-        event: LifecycleEvent,
+        event: LifecycleEvent | McpServersChangeEvent,
         *,
         ui_driver: ExtensionUiDriver | None,
         flags: Mapping[str, object],

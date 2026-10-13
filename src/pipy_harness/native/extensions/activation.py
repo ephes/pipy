@@ -127,6 +127,7 @@ EVENT_SESSION_BEFORE_SWITCH: str = "session_before_switch"
 EVENT_SESSION_BEFORE_FORK: str = "session_before_fork"
 EVENT_SESSION_BEFORE_COMPACT: str = "session_before_compact"
 EVENT_SESSION_BEFORE_TREE: str = "session_before_tree"
+EVENT_MCP_SERVERS_CHANGE: str = "mcp_servers_change"
 
 LIFECYCLE_EVENTS: tuple[str, ...] = (
     EVENT_SESSION_START,
@@ -136,6 +137,7 @@ LIFECYCLE_EVENTS: tuple[str, ...] = (
     EVENT_AGENT_SETTLED,
     EVENT_TURN_START,
     EVENT_TURN_END,
+    EVENT_MCP_SERVERS_CHANGE,
 )
 
 

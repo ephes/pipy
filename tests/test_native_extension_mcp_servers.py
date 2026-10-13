@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -847,3 +849,262 @@ def test_a_reload_closes_the_registry_of_the_extensions_it_replaced(
     # After the session closed nothing follows the registry.
     new.register(RegisteredMcpServer("ignored", off, _B))
     assert session.servers.manager.servers() == ()
+
+
+# -- EXT-10: the mcp_servers_change event and unconnected servers --------------
+
+# Writes what every `mcp_servers_change` event carries.
+_LISTENER_BODY = """import json
+from pathlib import Path
+
+
+def activate(api):
+    seen = []
+
+    @api.on('mcp_servers_change')
+    def changed(event, ctx):
+        seen.append({'type': type(event).__name__, 'name': event.name,
+                     'servers': [[s.name, s.extension_path, s.config.get('enabled')]
+                                 for s in event.servers]})
+        # A copy: changing it changes nothing.
+        for server in event.servers:
+            server.config['enabled'] = True
+        Path(__file__).with_name('events.json').write_text(json.dumps(seen))
+"""
+
+_OFF = {"command": sys.executable, "enabled": False}
+
+
+def _events_seen(directory: Path) -> list[list[str]]:
+    path = directory / "events.json"
+    if not path.exists():
+        return []
+    return [
+        [server[0] for server in event["servers"]]
+        for event in json.loads(path.read_text())
+    ]
+
+
+def test_extensions_are_told_about_every_change_of_the_registrations(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # EXT-10.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    workspace = tmp_path / "work"
+    directory = _plugin(
+        workspace,
+        servers={"loaded": _OFF},
+        at_start={"early": _OFF},
+        later={"late": _OFF},
+    )
+    _extension(workspace, "listener", _LISTENER_BODY)
+    seen_before_first_request: list[list[list[str]]] = []
+    provider = _Provider(
+        [
+            lambda: seen_before_first_request.append(_events_seen(directory)),
+            _result(tool_calls=(_call("c1", "add_server", name="late"),)),
+            _result(tool_calls=(_call("c2", "remove_server", name="late"),)),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # What loading registered is no event; what `session_start` registered
+    # is one, fired before the first prompt.
+    assert seen_before_first_request == [[["loaded", "early"]]]
+    events = json.loads((directory / "events.json").read_text())
+    assert events == [
+        {
+            "type": "McpServersChangeEvent",
+            "name": "mcp_servers_change",
+            "servers": [[name, _PLUGIN, False] for name in names],
+        }
+        for names in (
+            ["loaded", "early"],
+            ["loaded", "early", "late"],
+            ["loaded", "early"],
+        )
+    ]
+    # MCP is on, so nothing is reported as unconnected.
+    assert "no loaded extension connects" not in errors
+
+
+def _unconnected(name: str) -> str:
+    return (
+        f'Extension "{_PLUGIN}" error: MCP server "{name}" is registered, but no '
+        "loaded extension connects MCP servers; another extension may have "
+        "replaced the built-in MCP support"
+    )
+
+
+def test_registered_servers_are_reported_when_nothing_connects_them(
+    tmp_path: Path,
+) -> None:
+    # EXT-10, Pi "reports registered servers when no extension connects them".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "orphan")
+    _plugin(workspace, servers={"orphan": entry}, later={"late": entry})
+    provider = _Provider(
+        [
+            _result(tool_calls=(_call("c1", "add_server", name="late"),)),
+            _result(tool_calls=(_call("c2", "remove_server", name="late"),)),
+            _result(tool_calls=(_call("c3", "add_server", name="late"),)),
+            _result(final_text="one"),
+            _result(final_text="two"),
+        ]
+    )
+
+    status, errors = _run(
+        workspace,
+        provider,
+        "go\nagain\n",
+        settings=_settings(workspace),
+        resource_options=RuntimeResourceOptions(no_mcp=True),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # Each registration once, also when it is registered again.
+    assert errors.count(_unconnected("orphan")) == 1, errors
+    assert errors.count(_unconnected("late")) == 1, errors
+    assert errors.index(_unconnected("orphan")) < errors.index(_unconnected("late"))
+    assert not record.exists()
+
+
+def test_an_extension_that_handles_the_event_is_taken_to_connect_the_servers(
+    tmp_path: Path,
+) -> None:
+    # EXT-10: with a handler nothing is reported, also with MCP turned off.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    directory = _plugin(workspace, servers={"orphan": _OFF}, later={"late": _OFF})
+    _extension(workspace, "listener", _LISTENER_BODY)
+    provider = _Provider(
+        [
+            _result(tool_calls=(_call("c1", "add_server", name="late"),)),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace),
+        resource_options=RuntimeResourceOptions(no_mcp=True),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert _events_seen(directory) == [["orphan", "late"]]
+    assert "no loaded extension connects" not in errors
+
+
+class _Events:
+    """Stands for the session's lifecycle adapter."""
+
+    def __init__(self, handled: bool = False) -> None:
+        self.handled = handled
+        self.fired: list[list[str]] = []
+        self.on_fire: Any = None
+
+    def mcp_servers_change_handled(self) -> bool:
+        return self.handled
+
+    def fire_mcp_servers_change(self, servers: Any) -> None:
+        self.fired.append([server.name for server in servers])
+        if self.on_fire is not None:
+            self.on_fire()
+
+
+def test_the_session_fires_the_events_and_reports_on_its_own_thread(
+    tmp_path: Path,
+) -> None:
+    """The registry's listener runs on the registering thread; hooks and
+    notices belong to the session thread, which takes them where it shows
+    its notices and when a turn starts."""
+
+    loads = _Loads(tmp_path)
+
+    def load_off(registered: Any) -> Any:
+        return replace(loads(registered), enabled=False)
+
+    old, new = McpServerRegistry(), McpServerRegistry()
+    current = [old]
+    events = _Events()
+    session = McpSession(load_off, tools=loads.tools, notify=loads.notify)
+    session.follow_extensions(lambda: current[0])
+    session.announce_through(events)
+    off = {"command": sys.executable, "enabled": False}
+
+    def reports() -> list[str]:
+        return [text for level, text in loads.notices if level == "error"]
+
+    try:
+        old.load([RegisteredMcpServer("loaded", off, _PLUGIN)])
+        old.register(RegisteredMcpServer("early", off, _PLUGIN))
+        session.start()
+        # At the start: what is registered is reported, nothing is fired.
+        assert reports() == [_unconnected("loaded"), _unconnected("early")]
+        assert events.fired == []
+
+        registering = threading.Thread(
+            target=old.register, args=(RegisteredMcpServer("late", off, _PLUGIN),)
+        )
+        registering.start()
+        registering.join()
+        assert events.fired == [] and len(reports()) == 2
+
+        # A hook that registers a server causes an event for the next time.
+        def register_from_a_hook() -> None:
+            if len(events.fired) == 2:
+                old.register(RegisteredMcpServer("hooked", off, _PLUGIN))
+
+        events.on_fire = register_from_a_hook
+        session.deliver_notices()
+        assert events.fired == [["loaded", "early"], ["loaded", "early", "late"]]
+        assert reports()[2:] == [_unconnected("late"), _unconnected("hooked")]
+        events.on_fire = None
+        assert session.before_turn(None) is None
+        assert events.fired[2:] == [["loaded", "early", "late", "hooked"]]
+        session.deliver_notices()
+        assert len(events.fired) == 3 and len(reports()) == 4
+
+        # A registration that was taken back before the session thread
+        # looked is an event and is reported all the same.
+        old.register(RegisteredMcpServer("brief", off, _PLUGIN))
+        old.unregister("brief", _PLUGIN)
+        session.deliver_notices()
+        assert events.fired[3:] == [
+            ["loaded", "early", "late", "hooked", "brief"],
+            ["loaded", "early", "late", "hooked"],
+        ]
+        assert reports()[4:] == [_unconnected("brief")]
+
+        # With a handler nothing is reported.
+        events.handled = True
+        old.register(RegisteredMcpServer("handled", off, _PLUGIN))
+        session.deliver_notices()
+        assert len(events.fired) == 6 and len(reports()) == 5
+
+        # The extensions a reload loads are reported anew.
+        events.handled = False
+        # An event of the replaced extensions that still waits is dropped.
+        old.register(RegisteredMcpServer("stale", off, _PLUGIN))
+        with session.reloading() as accept:
+            current[0] = new
+            new.load([RegisteredMcpServer("loaded", off, _PLUGIN)])
+            accept()
+        session.deliver_notices()
+        assert reports()[5:] == [_unconnected("loaded")]
+        assert len(events.fired) == 6
+        # Nothing of the replaced registry reaches the session any more.
+        assert old.take_changes() == ()
+        with pytest.raises(McpServerRegistrationError):
+            old.register(RegisteredMcpServer("gone", off, _PLUGIN))
+        session.deliver_notices()
+        assert len(events.fired) == 6
+    finally:
+        session.close()
+        for loaded in loads.loaded:
+            loaded.manager.close()

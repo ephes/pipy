@@ -661,6 +661,10 @@ registers it later. `api.unregister_mcp_server(name)` closes it.
 - The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
   see only the configured servers.
 - With MCP [turned off](#turning-mcp-off) registered servers do not connect.
+  Unless an extension handles the `mcp_servers_change` event, and so
+  connects them itself, each one is reported once: `Extension "<path>"
+  error: MCP server "<name>" is registered, but no loaded extension connects
+  MCP servers; ...`.
 
 ### What is missing
 

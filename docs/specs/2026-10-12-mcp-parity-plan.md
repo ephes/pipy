@@ -1800,6 +1800,48 @@ Decided in S36 (the extension API; `extensions/activation.py`,
 - The listener is set after the `session_start` handlers ran, so what they
   register is read by `start()` like a registration made while loading.
 
+Decided in S36 (`mcp_servers_change` and the report; `registry.py`,
+`extension_types.py`, `extension_hooks.py`, `repl/mcp_session.py`):
+
+- `McpServersChangeEvent(servers)` with `name == "mcp_servers_change"`. The
+  event name is one of `LIFECYCLE_EVENTS`, so its hooks travel in the
+  lifecycle map of the runtime and the projection and no record gained a
+  field. The lifecycle adapter got `fire_mcp_servers_change(servers)` and
+  `mcp_servers_change_handled()`; `McpSession.announce_through` takes it
+  (one line in `repl/wiring.py`).
+- Hooks run on the session thread, and changes come from any thread. The
+  registry itself keeps the registrations after each change, taken under
+  its lock in the step that makes the change
+  (`McpServerRegistry.take_changes`), so the events are in the order of
+  the changes and belong to one registry. What is kept under the lock are
+  the stored registrations themselves, which are only ever replaced; they
+  are copied when they are taken, outside the lock, because copying a
+  configuration can run code of its extension (a dict subclass). A queue filled by the listener
+  was tried first and reviewed out: two listeners could enqueue in the
+  wrong order, and one of a replaced registry could enqueue after the
+  reload. `McpSession._apply_registrations` takes the changes of the
+  registry it follows where the session shows the notices and when a turn
+  starts, calls `sync_registered` and `ensure_active` when there are any,
+  and fires one event per change. It takes once per call, so a hook that
+  registers a server cannot keep it busy. Pi emits inside the registering
+  call. The listener is left with one job: having the manager apply the
+  change at once.
+- The registry records a change whether or not anybody listens. That is
+  how a change made in a `session_start` handler, before `start()` follows
+  the registry, becomes an event, at startup and after a reload alike (in
+  Pi the listener is set before `session_start`). `load` is not a change
+  (Pi: servers registered while loading are read with `getMcpServers()`),
+  and `close()` forgets what nobody took.
+- The report (Pi `reportUnhandledMcpServers`) is
+  `McpSession._report_unhandled`: when MCP is turned off and no extension
+  has a hook for the event, each registration is shown once per followed
+  registry as `Extension "<path>" error: <Pi's text>` through the session's
+  notify function, in `start()` (after `session_start`, as in Pi) and after
+  every change. It goes through the registrations of every change that was
+  taken, so a server that was unregistered before the session thread
+  looked is reported as well. pipy's MCP support is not an extension that handles the
+  event, so "MCP is turned off" stands for Pi's "no handler".
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

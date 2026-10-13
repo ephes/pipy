@@ -139,6 +139,7 @@ _PUBLIC_EXTENSION_NAMES = (
     "ToolNamespace",
     "McpServerRegistrationError",
     "RegisteredMcpServer",
+    "McpServersChangeEvent",
 )
 
 _OWNER_GROUPS = (
@@ -217,6 +218,7 @@ _OWNER_GROUPS = (
             "InputEvent",
             "InputTransform",
             "LifecycleEvent",
+            "McpServersChangeEvent",
             "MessageRenderComponent",
             "MessageRenderContext",
             "ProviderContext",
@@ -423,10 +425,10 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
-    assert len(_PUBLIC_EXTENSION_NAMES) == 106
+    assert len(_PUBLIC_EXTENSION_NAMES) == 107
 
     owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
-    assert len(owned_names) == len(set(owned_names)) == 106
+    assert len(owned_names) == len(set(owned_names)) == 107
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
         for name in names:
@@ -447,7 +449,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
         if (alias.asname or alias.name) in expected_owners
     ]
 
-    assert len(direct_imports) == len(dict(direct_imports)) == 106
+    assert len(direct_imports) == len(dict(direct_imports)) == 107
     assert dict(direct_imports) == expected_owners
 
 

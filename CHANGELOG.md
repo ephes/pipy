@@ -113,8 +113,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `mcp.json` with the same name wins, and `/mcp` lists the overridden
   registration. Enabling, disabling and changing the exposure of a
   registered server in `/mcp` last for the session. An invalid entry and a
-  name another extension has raise `McpServerRegistrationError`. See
-  [MCP servers](docs/extension-api.md#mcp-servers).
+  name another extension has raise `McpServerRegistrationError`. Hooks for
+  the new `mcp_servers_change` event receive the registrations after every
+  change (`McpServersChangeEvent`). With MCP turned off and no such hook, a
+  registered server is reported once as an error of its extension, because
+  nothing connects it. See [MCP servers](docs/extension-api.md#mcp-servers).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`

@@ -13,7 +13,10 @@ Threads. Every method may be called from any thread. The check whether a
 name is free and the registration are one step under the registry's lock, so
 two extensions that register one name at the same time cannot both succeed.
 The lock is never held while the change listener runs or while anything
-else is called, and nothing here takes another lock.
+else is called, and nothing here takes another lock. That includes copying
+a configuration, which can run code of the extension that supplied it: the
+registry stores its own copy, never changes a stored registration, and
+copies again, outside the lock, for whoever reads.
 
 Ownership. Pi identifies the owner of a registration by the extension's
 path. pipy shows a path *label*, which two extensions can share (two
@@ -125,6 +128,8 @@ class McpServerRegistry:
         # keeps its place.
         self._servers: dict[str, RegisteredMcpServer] = {}
         self._listener: Callable[[], None] | None = None
+        # The registrations after each change that nobody took yet.
+        self._changes: list[tuple[RegisteredMcpServer, ...]] = []
         self._closed = False
 
     def register(self, server: RegisteredMcpServer) -> None:
@@ -140,7 +145,7 @@ class McpServerRegistry:
             if conflict is not None:
                 raise McpServerRegistrationError(conflict)
             self._servers[stored.name] = stored
-            listener = self._listener
+            listener = self._changed()
         if listener is not None:
             listener()
 
@@ -187,7 +192,7 @@ class McpServerRegistry:
             if server is None or _owner(server) != owner:
                 return
             del self._servers[name]
-            listener = self._listener
+            listener = self._changed()
         if listener is not None:
             listener()
 
@@ -213,13 +218,37 @@ class McpServerRegistry:
         with self._lock:
             self._listener = listener
 
+    def take_changes(self) -> tuple[tuple[RegisteredMcpServer, ...], ...]:
+        """The registrations after each change since the last call, oldest
+        first, as copies: one entry per ``register`` and per ``unregister``
+        that removed a server, whether or not anybody listened. Each was
+        taken in the step that made the change, so the entries are in the
+        order of the changes whatever threads made them. What ``load``
+        registered is not a change."""
+
+        with self._lock:
+            changes, self._changes = self._changes, []
+        # Copied here, not under the lock: copying a configuration can run
+        # an extension's code, which may call the registry.
+        return tuple(tuple(_copy(server) for server in change) for change in changes)
+
+    def _changed(self) -> Callable[[], None] | None:
+        """Note the change that was just made and return the listener to
+        call for it. The lock is held. The note has the stored
+        registrations themselves, which are never changed, only replaced."""
+
+        self._changes.append(tuple(self._servers.values()))
+        return self._listener
+
     def close(self) -> None:
-        """Refuse every change from now on and call the listener no more.
-        The registrations can still be read."""
+        """Refuse every change from now on, call the listener no more and
+        forget the changes nobody took. The registrations can still be
+        read."""
 
         with self._lock:
             self._closed = True
             self._listener = None
+            self._changes = []
 
     def _check_open(self) -> None:
         if self._closed:

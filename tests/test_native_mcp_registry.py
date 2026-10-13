@@ -6,6 +6,7 @@ checks of ``registerMcpServer``.
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 import pytest
 
@@ -168,7 +169,7 @@ def test_an_owner_token_tells_two_extensions_with_one_label_apart() -> None:
 
 def test_load_registers_all_of_an_extensions_servers_or_none() -> None:
     registry = McpServerRegistry()
-    registry.register(_server("taken", _B))
+    registry.load([_server("taken", _B)])
     changes: list[None] = []
     registry.set_change_listener(lambda: changes.append(None))
 
@@ -228,9 +229,104 @@ def test_the_listener_runs_after_the_change_and_outside_the_lock() -> None:
     assert seen == [1, 2]
 
 
+def _names(changes: Any) -> list[list[str]]:
+    return [[server.name for server in change] for change in changes]
+
+
+def test_the_registry_keeps_what_each_change_left_until_it_is_taken() -> None:
+    # EXT-10: the registrations after every change, with or without a
+    # listener, as copies.
+    registry = McpServerRegistry()
+    registry.load([_server("loaded")])
+    # What was loaded is not a change.
+    assert registry.take_changes() == ()
+
+    registry.register(_server("early"))
+    registry.unregister("loaded", _A)
+    registry.unregister("unknown", _A)
+    with pytest.raises(McpServerRegistrationError):
+        registry.register(_server("early", _B))
+    registry.set_change_listener(lambda: None)
+    registry.register(_server("early", url="http://y.invalid"))
+
+    changes = registry.take_changes()
+    assert _names(changes) == [["loaded", "early"], ["early"], ["early"]]
+    assert changes[2][0].config == {"url": "http://y.invalid"}
+    changes[2][0].config["url"] = "http://changed.invalid"
+    assert registry.list()[0].config == {"url": "http://y.invalid"}
+    assert registry.take_changes() == ()
+
+    registry.register(_server("late"))
+    registry.close()
+    # A closed registry has no changes for anybody.
+    assert registry.take_changes() == ()
+
+
+def test_copying_a_config_never_happens_under_the_registry_lock() -> None:
+    """A configuration may be a dict subclass whose copy runs the
+    extension's code, which may call the registry."""
+
+    registry = McpServerRegistry()
+    calls: list[int] = []
+
+    class Config(dict[str, Any]):
+        def __deepcopy__(self, memo: Any) -> Config:
+            # Blocks for ever when the caller holds the registry's lock.
+            calls.append(1)
+            registry.get("absent")
+            return Config(self)
+
+    def exercise() -> None:
+        server = validated_registration("docs", Config(url="http://x.invalid"), _A)
+        registry.register(server)
+        registry.load([validated_registration("more", Config(command="run"), _A)])
+        registry.register(server)
+        registry.list()
+        registry.get("docs")
+        registry.take_changes()
+        registry.load_conflict([server])
+        registry.unregister("docs", _A)
+        registry.take_changes()
+
+    thread = threading.Thread(target=exercise, daemon=True)
+    thread.start()
+    thread.join(10)
+
+    assert not thread.is_alive()
+    assert calls and [server.name for server in registry.list()] == ["more"]
+
+
+def test_changes_made_on_several_threads_are_kept_in_their_order() -> None:
+    """Each entry is taken in the step that made the change: with servers
+    that are only added, every entry is the one before plus one server."""
+
+    registry = McpServerRegistry()
+    start = threading.Barrier(8)
+
+    def register(index: int) -> None:
+        start.wait()
+        for step in range(25):
+            registry.register(_server(f"s{index}-{step}"))
+
+    threads = [threading.Thread(target=register, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    changes = _names(registry.take_changes())
+    assert len(changes) == 200
+    assert [len(change) for change in changes] == list(range(1, 201))
+    assert all(
+        later[: len(earlier)] == earlier
+        for earlier, later in zip(changes, changes[1:], strict=False)
+    )
+    assert changes[-1] == [server.name for server in registry.list()]
+
+
 def test_a_refused_registration_is_not_announced() -> None:
     registry = McpServerRegistry()
-    registry.register(_server("docs"))
+    registry.load([_server("docs")])
     changes: list[None] = []
     registry.set_change_listener(lambda: changes.append(None))
 
@@ -242,7 +338,7 @@ def test_a_refused_registration_is_not_announced() -> None:
 
 def test_a_closed_registry_refuses_changes_and_can_be_read() -> None:
     registry = McpServerRegistry()
-    registry.register(_server("docs"))
+    registry.load([_server("docs")])
     changes: list[None] = []
     registry.set_change_listener(lambda: changes.append(None))
 

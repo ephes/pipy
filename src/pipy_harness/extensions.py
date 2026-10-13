@@ -57,6 +57,7 @@ from pipy_harness.native.extension_types import (
     InputEvent,
     InputTransform,
     LifecycleEvent,
+    McpServersChangeEvent,
     MessageRenderComponent,
     MessageRenderContext,
     ProviderContext,
@@ -264,4 +265,5 @@ __all__ = [
     "ToolNamespace",
     "McpServerRegistrationError",
     "RegisteredMcpServer",
+    "McpServersChangeEvent",
 ]

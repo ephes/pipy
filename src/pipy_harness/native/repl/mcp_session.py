@@ -31,6 +31,22 @@ is activating ``codemode`` or ``tool_search`` for the servers as they are
 then, is done where the session shows the notices and when a turn starts.
 With MCP turned off no registered server connects.
 
+The ``mcp_servers_change`` event. Every change of the registrations is an
+event for the extensions' hooks, with the registrations after that change
+(Pi emits it from the registry's listener). Hooks run on the session
+thread, so the registry keeps what each change left, in the order of the
+changes, and the session thread takes it from the registry it follows and
+fires the events where it does its part of a change. That includes the
+changes ``session_start`` handlers made before ``start`` followed the
+registry, and it leaves out whatever a replaced registry still had.
+``announce_through`` says what fires the event.
+
+Nothing connects a registered server when MCP is turned off and no
+extension handles that event. Each such registration is then reported once
+as an error of its extension (Pi ``reportUnhandledMcpServers``): after
+``session_start`` and after every change, also a registration that was
+taken back before the session thread got to it.
+
 A reload has two parts. Before the session decides whether the reload is
 accepted, the configuration is read again and a manager is built for it that
 connects nothing. Once the reload was accepted, the running manager is
@@ -86,6 +102,27 @@ class RestartableMcpTools(Protocol):
     def restart_mcp_tools(self) -> None: ...
 
 
+class McpServersChangeEvents(Protocol):
+    """What tells the loaded extensions about a change of the registered
+    servers (``_ExtensionLifecycleAgentEventAdapter``)."""
+
+    def mcp_servers_change_handled(self) -> bool: ...
+
+    def fire_mcp_servers_change(
+        self, servers: Sequence[RegisteredMcpServer]
+    ) -> None: ...
+
+
+def unhandled_mcp_server_error(server: RegisteredMcpServer) -> str:
+    """The error of an extension whose registered server nothing connects."""
+
+    return (
+        f'Extension "{server.extension_path}" error: MCP server "{server.name}" is '
+        "registered, but no loaded extension connects MCP servers; another "
+        "extension may have replaced the built-in MCP support"
+    )
+
+
 class _SessionCommands(Mapping[str, str]):
     """The slash commands MCP adds to the session, as they are when read."""
 
@@ -129,9 +166,10 @@ class McpSession:
         # that is followed since the last start. Guarded by the lock.
         self._extensions: Callable[[], McpServerRegistry] | None = None
         self._registry: McpServerRegistry | None = None
-        # Set by a change of the registrations, on any thread, until the
-        # session thread has done its part.
-        self._registrations_changed = threading.Event()
+        self._events: McpServersChangeEvents | None = None
+        # The servers of the followed registry that were reported because
+        # nothing connects them. Used by the session thread.
+        self._reported_unhandled: set[str] = set()
         self._servers = load(self._registered)
         # A view; it follows a reload that turns MCP on or off.
         self.commands: Mapping[str, str] = _SessionCommands(self)
@@ -150,6 +188,12 @@ class McpSession:
         with self._lock:
             self._extensions = registry
 
+    def announce_through(self, events: McpServersChangeEvents) -> None:
+        """``events`` fires ``mcp_servers_change`` for the loaded extensions
+        and says whether one of them handles it."""
+
+        self._events = events
+
     def _registered(self) -> Sequence[RegisteredMcpServer]:
         """What the extensions have registered, for the manager."""
 
@@ -166,28 +210,63 @@ class McpSession:
         registry = None if source is None else source()
         with self._lock:
             previous, self._registry = self._registry, registry
-        if previous is not None and previous is not registry:
-            previous.close()
+        if previous is not registry:
+            self._reported_unhandled = set()
+            if previous is not None:
+                # With it go the changes nobody took: events of the
+                # replaced extensions are not for the new ones.
+                previous.close()
         if registry is not None:
             registry.set_change_listener(self._on_registrations_changed)
 
     def _on_registrations_changed(self) -> None:
-        """The registry's listener: any thread, so it only leaves a note
-        and has the manager apply the change on a thread of its own."""
+        """The registry's listener: any thread, so it only has the manager
+        apply the change on a thread of its own. The session thread finds
+        the change in the registry."""
 
-        self._registrations_changed.set()
         self.servers.manager.registered_changed()
 
     def _apply_registrations(self, servers: McpServers) -> None:
-        """The session thread's part of a change of the registrations: with
-        the servers as they are registered now, activate what their
-        exposures need."""
+        """The session thread's part of the changes of the registrations
+        since it last looked: with the servers as they are registered now,
+        activate what their exposures need; fire one ``mcp_servers_change``
+        event per change; report the servers nothing connects."""
 
-        if not self._registrations_changed.is_set():
+        with self._lock:
+            registry = self._registry
+        # Only what changed until now: a hook that registers a server
+        # causes another event, which is fired the next time.
+        changes = () if registry is None else registry.take_changes()
+        if not changes:
             return
-        self._registrations_changed.clear()
         servers.manager.sync_registered()
         servers.discovery.ensure_active()
+        events = self._events
+        if events is not None:
+            for change in changes:
+                events.fire_mcp_servers_change(change)
+        self._report_unhandled(servers, changes)
+
+    def _report_unhandled(
+        self,
+        servers: McpServers,
+        changes: Sequence[Sequence[RegisteredMcpServer]] = (),
+    ) -> None:
+        """Report, once each, the registered servers that nothing connects:
+        MCP is turned off and no extension handles ``mcp_servers_change``.
+        ``changes`` has the registrations after each change that was just
+        taken, so that one that was taken back meanwhile is reported too."""
+
+        events = self._events
+        if servers.enabled or (
+            events is not None and events.mcp_servers_change_handled()
+        ):
+            return
+        for registered in (*changes, self._registered()):
+            for server in registered:
+                if server.name not in self._reported_unhandled:
+                    self._reported_unhandled.add(server.name)
+                    self._notify("error", unhandled_mcp_server_error(server))
 
     def start(self) -> None:
         """Start connecting the servers in the background, also those the
@@ -201,6 +280,7 @@ class McpSession:
 
         servers = self.servers
         self._follow_registry()
+        self._report_unhandled(servers)
         try:
             servers.manager.start()
             servers.discovery.ensure_active()

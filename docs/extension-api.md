@@ -609,6 +609,7 @@ target vocabulary includes:
 | `session_compact` | Observe completed compaction metadata. | None |
 | `session_before_tree` | Observe or block tree/session-history navigation before it starts. | None or `SessionDecision` |
 | `session_tree` | Observe completed tree/session-history navigation metadata. | None |
+| `mcp_servers_change` | Observe a change of the [MCP servers extensions registered](#mcp-servers). Handling it marks the extension as the one that connects them. **Shipped.** | None |
 
 Ordinary retries call agent/turn lifecycle hooks for each attempt, while input,
 before_agent_start and before_provider_request hooks run once for the captured
@@ -1178,6 +1179,37 @@ def activate(api):
 - With MCP [turned off](mcp.md#turning-mcp-off) registered servers do not
   connect.
 
+After a server was registered or unregistered, hooks for
+`mcp_servers_change` receive a `McpServersChangeEvent` whose `servers` is
+every registration after the change, as copies:
+
+```python
+@api.on("mcp_servers_change")
+def changed(event, ctx):
+    for server in event.servers:
+        ctx.ui.notify(f"{server.name} from {server.extension_path}")
+```
+
+- What extensions register while they load is not an event; read it with
+  `api.get_mcp_servers()` in a `session_start` handler. A change made in
+  a `session_start` handler is an event like a later one.
+- The hooks run on the session thread, where the session shows its
+  notices (before a prompt starts and when it becomes idle) and when a turn
+  starts, one event per change and in the order of the changes, whatever
+  threads made them. A hook that raises is skipped. A hook that registers
+  or unregisters a server causes another event, which is fired at the next
+  of those points.
+- pipy connects registered servers itself, so the event is for an extension
+  that connects them in pipy's place. With MCP
+  [turned off](mcp.md#turning-mcp-off) and no hook for the event, nothing
+  connects a registered server; pipy then reports each registration once
+  per load of the extensions, also one that was unregistered again right
+  away:
+
+  ```text
+  Extension ".pipy/extensions/jira.py" error: MCP server "jira" is registered, but no loaded extension connects MCP servers; another extension may have replaced the built-in MCP support
+  ```
+
 `register_mcp_server` raises `McpServerRegistrationError` (a `ValueError`):
 
 | Case | Message |
@@ -1206,6 +1238,15 @@ Different from Pi:
   run when the next turn starts, and for one registered while the session is
   idle before the next prompt; Pi activates it in the same step as the
   registration. The model's next request has it in both.
+- Pi fires `mcp_servers_change` inside the call that registers; pipy fires
+  it on the session thread at the points named above, so a server
+  registered from another thread while the session waits for input is
+  announced when the next prompt is sent. The server itself connects at
+  once in both.
+- In Pi the built-in MCP support is itself a handler of the event, and the
+  report means that another extension replaced it. pipy's MCP support is
+  not an extension; the report appears when it is turned off. The text is
+  Pi's.
 - A server that fails or needs a sign-in after it was registered later is
   reported like the [startup report](mcp.md#startup-report), with only that
   server in it, where the session shows its notices: before the next prompt.

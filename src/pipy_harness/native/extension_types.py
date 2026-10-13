@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
     # here only to resolve those annotations: a type-checking-only edge with no
     # runtime import, so ``extension_types`` remains a runtime leaf with no
     # import cycle.
+    from pipy_harness.native.mcp.registry import RegisteredMcpServer
     from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.themes import ChromePalette
     from pipy_harness.native.tools.base import (
@@ -682,6 +683,19 @@ class LifecycleEvent:
 
     name: str
     reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class McpServersChangeEvent:
+    """Passed to `@api.on("mcp_servers_change")` hooks after an extension
+    registered or unregistered an MCP server (Pi ``McpServersChangeEvent``).
+
+    `servers` is every registered server after the change. An extension
+    that handles the event is taken to connect registered servers itself.
+    """
+
+    servers: tuple[RegisteredMcpServer, ...]
+    name: str = "mcp_servers_change"
 
 
 @dataclass(frozen=True, slots=True)
