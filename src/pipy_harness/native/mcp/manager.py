@@ -190,11 +190,14 @@ class McpNotice:
 
 @dataclass(frozen=True, slots=True)
 class McpServerStatus:
-    """One configured server at one moment. A disabled server has no connection."""
+    """One configured server at one moment. A disabled server has no
+    connection. ``message`` is what the last action of the ``/mcp`` manager
+    on this server had to say, usually why it failed."""
 
     entry: McpServerEntry
     enabled: bool
     connection: ConnectionView | None
+    message: str | None = None
 
 
 def _is_enabled(entry: McpServerEntry) -> bool:
@@ -274,7 +277,15 @@ class _Server:
     only by a thread that holds the publication lock.
     """
 
-    __slots__ = ("closing", "connection", "entry", "ports", "ready", "source")
+    __slots__ = (
+        "closing",
+        "connection",
+        "entry",
+        "message",
+        "ports",
+        "ready",
+        "source",
+    )
 
     def __init__(self, entry: McpServerEntry) -> None:
         self.entry = entry
@@ -292,6 +303,9 @@ class _Server:
         # instructions they were built from.
         self.ports: dict[str, McpToolPort] = {}
         self.source: tuple[tuple[JsonObject, ...], str | None] | None = None
+        # What the last action of the manager view had to say (Pi
+        # ``server.message``).
+        self.message: str | None = None
 
 
 class _SignIn:
@@ -480,15 +494,30 @@ class McpManager:
         """Every configured server, in configuration order."""
 
         with self._lock:
-            servers = [(server.entry, server.connection) for server in self._servers]
+            servers = [
+                (server.entry, server.connection, server.message)
+                for server in self._servers
+            ]
         return tuple(
             McpServerStatus(
                 entry=entry,
                 enabled=_is_enabled(entry),
                 connection=None if connection is None else connection.view(),
+                message=message,
             )
-            for entry, connection in servers
+            for entry, connection, message in servers
         )
+
+    def set_message(self, name: str, message: str | None) -> None:
+        """Keep what an action of the ``/mcp`` manager on the server had to
+        say, or forget it with ``None`` (Pi ``server.message``). It is part
+        of the server's status until the next action replaces it; an unknown
+        name is ignored."""
+
+        with self._lock:
+            server = self._find(name)
+            if server is not None:
+                server.message = message
 
     def wait_until_settled(self, timeout: float | None = None) -> bool:
         """Wait until every server that was started connected or failed and
