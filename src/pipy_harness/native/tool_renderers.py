@@ -7,7 +7,7 @@ import math
 import os
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
-from typing import Any, ClassVar, TextIO, TypedDict
+from typing import Any, ClassVar, TextIO, TypedDict, cast
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -42,12 +42,15 @@ from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.tool_headers import pi_tool_call_header
 from pipy_harness.native.tool_renderer_lookup import (
+    BuiltinToolRows,
     McpToolRows,
     ToolRendererLookup,
     as_tool_renderer_lookup,
 )
 from pipy_harness.native.tool_rows import (
+    BUILTIN_RENDERED_TOOLS,
     NestedToolLine,
+    RowRenderers,
     bounded_nested_text,
     collapsed_tool_args,
     nested_line_text,
@@ -291,9 +294,10 @@ class _ToolLoopRenderer:
         self._reasoning_emitted_any = False
         self._tool_renderers = as_tool_renderer_lookup(tool_renderers)
         self._pending_render: _PendingCapturedToolRender | None = None
-        self._pending_tool: "ExtensionTool | None" = None
+        self._pending_tool: RowRenderers | None = None
         self._last_tool_name = ""
         self._last_arguments: dict[str, object] = {}
+        self._own_rows = True
 
     def refresh_tool_renderers(
         self, tool_renderers: "Mapping[str, ExtensionTool] | ToolRendererLookup"
@@ -756,9 +760,18 @@ class _ToolLoopRenderer:
         self._last_arguments = _parse_tool_input(call.arguments_json.value)
         self._pending_render = None
         self._pending_tool = None
-        resolved = self._tool_renderers.resolve(call.tool_name)
+        resolved = self._tool_renderers.resolve(
+            call.tool_name, builtin=call.tool_name in BUILTIN_RENDERED_TOOLS
+        )
         mcp_label = resolved.label if isinstance(resolved, McpToolRows) else None
-        tool = None if isinstance(resolved, McpToolRows) else resolved
+        # Whether the call keeps pipy's own header and edit/write preview. A
+        # resolver that chose other renderers, or none, took them away.
+        self._own_rows = isinstance(resolved, BuiltinToolRows)
+        tool: RowRenderers | None = None
+        if resolved is not None and not isinstance(
+            resolved, McpToolRows | BuiltinToolRows
+        ):
+            tool = cast(RowRenderers, resolved)
         if tool is not None:
             args = _parse_tool_input(call.arguments_json.value)
             state: dict[str, object] = {}
@@ -792,7 +805,10 @@ class _ToolLoopRenderer:
         # --- existing default body ---
         self._error_stream.write(self._tool_panel_blank_line())
         rendered = self._format_pi_call_header_rich(
-            call.tool_name, call.arguments_json.value, mcp_label=mcp_label
+            call.tool_name,
+            call.arguments_json.value,
+            mcp_label=mcp_label,
+            own_rows=self._own_rows,
         )
         self._error_stream.write(self._tool_panel_rich_line(rendered))
         self._error_stream.write(self._tool_panel_blank_line())
@@ -873,7 +889,7 @@ class _ToolLoopRenderer:
         result's ``details.diff`` and the call's ``content`` argument.
         """
 
-        if is_error:
+        if is_error or not self._own_rows:
             return
         text = ""
         if self._last_tool_name == "edit" and details is not None:
@@ -897,7 +913,7 @@ class _ToolLoopRenderer:
     def _extension_result_lines(
         self,
         pending: _PendingCapturedToolRender | None,
-        tool: ExtensionTool | None,
+        tool: RowRenderers | None,
         output_text: str,
         is_error: bool,
         details: Mapping[str, Any] | None,
@@ -1077,7 +1093,12 @@ class _ToolLoopRenderer:
         return f":{start_line}"
 
     def _format_pi_call_header_rich(
-        self, tool_name: str, arguments_json: str, *, mcp_label: str | None = None
+        self,
+        tool_name: str,
+        arguments_json: str,
+        *,
+        mcp_label: str | None = None,
+        own_rows: bool = True,
     ) -> list[tuple[str, str]]:
         """Return a list of (text, style) segments for a tool-call header.
 
@@ -1099,7 +1120,7 @@ class _ToolLoopRenderer:
         bold = self._ANSI_BOLD
         plain = ""
         yellow = self._ANSI_YELLOW
-        if tool_name == "read":
+        if own_rows and tool_name == "read":
             path = str(data.get("path", ""))
             verb = "read resource" if path.startswith("/") else "read"
             range_label = self._read_range_label(data)
@@ -1109,7 +1130,7 @@ class _ToolLoopRenderer:
                 (path, plain),
                 (range_label, yellow),
             ]
-        header = pi_tool_call_header(tool_name, data)
+        header = pi_tool_call_header(tool_name, data) if own_rows else None
         if header is not None:
             title, rest = header
             return [(title, bold), (" ", plain), (rest, plain)]

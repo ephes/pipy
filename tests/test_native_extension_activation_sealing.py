@@ -557,6 +557,7 @@ def test_one_frozen_snapshot_contains_every_staged_family_not_live_state() -> No
     api.register_flag(ExtensionFlag("flag", "boolean", default=True))
     api.register_message_renderer("message", handler)
     api.register_entry_renderer("entry", handler)
+    api.register_tool_renderer(handler)
     api.on("direct", handler)
     decorator = cast(Callable[[Callable[..., object]], object], api.on("decorated"))
     decorator(handler)
@@ -573,6 +574,7 @@ def test_one_frozen_snapshot_contains_every_staged_family_not_live_state() -> No
     assert [item.flag.name for item in snapshot.flags] == ["flag"]
     assert [item.custom_type for item in snapshot.message_renderers] == ["message"]
     assert [item.custom_type for item in snapshot.entry_renderers] == ["entry"]
+    assert snapshot.tool_renderers == (handler,)
     assert set(snapshot.hooks) == {"direct", "decorated"}
     assert [item.content for item in snapshot.user_messages] == ["user"]
     assert [item.custom_type for item in snapshot.custom_messages] == ["custom"]
@@ -1528,6 +1530,7 @@ def test_provider_catalog_finalization_retains_factory_default_flag_reads(
     assert host._staged_flags == {}
     assert host._staged_message_renderers == {}
     assert host._staged_entry_renderers == {}
+    assert host._staged_tool_renderers == []
     assert host._hooks == {}
     assert host._staged_messages == []
     assert host._staged_custom_messages == []

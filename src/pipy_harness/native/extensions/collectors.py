@@ -10,6 +10,7 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    ToolRendererResolver,
 )
 from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
@@ -96,6 +97,19 @@ def extension_message_renderers(
         for renderer in extension.message_renderers:
             renderers.setdefault(renderer.custom_type, renderer)
     return renderers
+
+
+def extension_tool_renderers(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[ToolRendererResolver, ...]:
+    """Collect tool renderer resolvers from activated extensions, in order."""
+
+    resolvers: list[ToolRendererResolver] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        resolvers.extend(extension.tool_renderers)
+    return tuple(resolvers)
 
 
 def extension_entry_renderers(

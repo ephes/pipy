@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -43,10 +43,11 @@ from pipy_harness.native.coding.summary_retry import (
     SummaryRetryStatus,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
-from pipy_harness.native.extension_types import ExtensionTool
+from pipy_harness.native.extension_types import ExtensionTool, ToolRenderers
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.skills import parse_skill_block
 from pipy_harness.native.tool_renderer_lookup import (
+    BuiltinToolRows,
     McpToolRows,
     ToolRendererLookup,
     as_tool_renderer_lookup,
@@ -54,6 +55,7 @@ from pipy_harness.native.tool_renderer_lookup import (
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
+    RowRenderers,
     SkillInvocationBox,
     ToolRowResult,
     ToolRowState,
@@ -120,8 +122,13 @@ class TuiToolLoopRenderer:
         self._replaying = replaying
         self._preview_thread: threading.Thread | None = None
 
-    def detached(self, transcript: TranscriptComponent) -> "TuiToolLoopRenderer":
-        """A renderer with this one's tool renderers that writes to ``transcript``.
+    def detached(
+        self,
+        transcript: TranscriptComponent,
+        tool_renderers: ToolRendererLookup | None = None,
+    ) -> "TuiToolLoopRenderer":
+        """A renderer that writes to ``transcript``, with ``tool_renderers``
+        or else this one's.
 
         Restored history is replayed through the same verbs as live turns, into
         a scratch transcript, without touching this renderer's in-flight state.
@@ -131,7 +138,7 @@ class TuiToolLoopRenderer:
             transcript=transcript,
             chrome=self._chrome,
             render_inputs=self._render_inputs,
-            tool_renderers=self._tool_renderers,
+            tool_renderers=tool_renderers or self._tool_renderers,
             cwd=self._cwd,
             interrupt_key_text=self._interrupt_key_text,
             clock=self._clock,
@@ -141,6 +148,12 @@ class TuiToolLoopRenderer:
     @property
     def streamed_any(self) -> bool:
         return self._streamed_any
+
+    @property
+    def tool_renderers(self) -> ToolRendererLookup:
+        """What draws the tool calls of the provider turn that last started."""
+
+        return self._tool_renderers
 
     def refresh_tool_renderers(
         self, tool_renderers: Mapping[str, ExtensionTool] | ToolRendererLookup
@@ -385,8 +398,9 @@ class TuiToolLoopRenderer:
         """Start the call's row (Pi ``ToolExecutionComponent``), pending.
 
         Built-in tools draw with Pi's renderers; an extension tool with its
-        ``render_call``/``render_result`` (pinned here, so a ``/reload``
-        during the call cannot swap the renderer); an MCP server tool with
+        ``render_call``/``render_result``, or with what a tool renderer
+        resolver chose (pinned here, so a ``/reload`` during the call cannot
+        swap the renderer); an MCP server tool with
         Pi's MCP renderers, also when no such tool is registered, as in a
         resumed session; otherwise with Pi's generic fallbacks. A live ``edit`` starts its diff preview, as Pi
         does once the arguments are complete: on a worker thread (Pi's
@@ -400,13 +414,20 @@ class TuiToolLoopRenderer:
         args = parse_arguments(call.arguments_json.value)
         name = call.tool_name
         builtin = name in BUILTIN_RENDERED_TOOLS
-        extension: ExtensionTool | None = None
+        extension: RowRenderers | None = None
         mcp_label: str | None = None
-        resolved = None if builtin else self._tool_renderers.resolve(name)
+        resolved = self._tool_renderers.resolve(name, builtin=builtin)
         if isinstance(resolved, McpToolRows):
             mcp_label = resolved.label
-        else:
-            extension = resolved
+        elif not isinstance(resolved, BuiltinToolRows):
+            # A resolver may draw a built-in tool's calls too (as in Pi).
+            # When it chose none for one, renderers without callables make
+            # the row generic: a built-in name alone would get pipy's rows.
+            if resolved is not None:
+                extension = cast(RowRenderers, resolved)
+            elif builtin:
+                extension = ToolRenderers()
+            builtin = False
         state = ToolRowState(
             tool_name=name,
             correlation_id=call.provider_correlation_id,

@@ -135,6 +135,7 @@ from pipy_harness.native.extensions.collectors import (
     extension_flags,
     extension_message_renderers,
     extension_providers,
+    extension_tool_renderers,
     extension_tools,
     extension_unregistered_providers,
 )
@@ -416,6 +417,7 @@ def _compose_extension_bundle(
         unregistered_providers=extension_unregistered_providers(activated),
         message_renderers=extension_message_renderers(activated),
         entry_renderers=extension_entry_renderers(activated),
+        tool_renderers=extension_tool_renderers(activated),
         custom_messages=custom_messages,
         activation_hosts=tuple(
             extension._activation_host

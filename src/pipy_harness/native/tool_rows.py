@@ -27,11 +27,11 @@ from __future__ import annotations
 import json
 import posixpath
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pipy_harness.native.agent.nested_record import argument_json, parse_nested_record
 from pipy_harness.native.ansi_wrap import (
@@ -64,7 +64,19 @@ from pipy_harness.native.tools.word_diff import JS_WHITESPACE, diff_words
 
 if TYPE_CHECKING:
     from pipy_harness.native.chrome import ChromeStyle
-    from pipy_harness.native.extension_types import ExtensionTool
+    from pipy_harness.native.extension_types import ToolRenderContext
+
+
+class RowRenderers(Protocol):
+    """An extension's renderers of one tool's rows: an ``ExtensionTool``, or
+    what a tool renderer resolver returned (``ToolRenderers``)."""
+
+    @property
+    def render_call(self) -> Callable[[ToolRenderContext], object] | None: ...
+
+    @property
+    def render_result(self) -> Callable[[ToolRenderContext], object] | None: ...
+
 
 RowBackground = Literal["pending", "success", "error", "custom", "none"]
 
@@ -190,7 +202,7 @@ class ToolRowState:
     tool_name: str
     args: dict[str, Any]
     cwd: Path
-    extension: ExtensionTool | None = None
+    extension: RowRenderers | None = None
     # `<server>/<tool>` when the call is drawn as an MCP tool's (Pi
     # `createMcpToolRenderers`); never together with `extension`.
     mcp_label: str | None = None
@@ -1540,6 +1552,7 @@ __all__ = [
     "BUILTIN_RENDERED_TOOLS",
     "EditPreview",
     "RowLine",
+    "RowRenderers",
     "RowRenderInputs",
     "RowTheme",
     "SummaryBox",

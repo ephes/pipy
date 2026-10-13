@@ -112,11 +112,20 @@ class _Terminal:
         )
         self.entry_renderers: dict[str, RegisteredEntryRenderer] = {}
         self.message_renderers: dict[str, RegisteredMessageRenderer] = {}
-        projection = SimpleNamespace(
-            renderers=SimpleNamespace(
-                messages=self.message_renderers, entries=self.entry_renderers
-            )
-        )
+        self.tool_renderers: dict[str, Any] = {}
+        self.tool_resolvers: list[Any] = []
+        outer = self
+
+        class _Renderers:
+            messages = self.message_renderers
+            entries = self.entry_renderers
+            tools = self.tool_renderers
+
+            @property
+            def tool_resolvers(self) -> tuple[Any, ...]:
+                return tuple(outer.tool_resolvers)
+
+        projection = SimpleNamespace(renderers=_Renderers())
         self.custom = CustomEntryRenderer(
             ctl=SimpleNamespace(
                 session_tree=self.tree,

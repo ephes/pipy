@@ -1518,10 +1518,13 @@ Differences from Pi in tools:
 - Progress is added to the call's live output line by line; Pi replaces the
   call's preliminary result. The call's row shows the last line, so a
   progress message of several lines shows only its last one.
-- The row of a call is drawn by pipy itself, not by renderers that an
-  extension could wrap, and a call to `mcp__<server>__<tool>` gets it also
-  with MCP turned off. In Pi the MCP extension's renderers do it, so with
-  `--no-mcp` such a call in a resumed session has the generic row.
+- The row of a call is drawn by pipy itself, and a call to
+  `mcp__<server>__<tool>` gets it also with MCP turned off. In Pi the MCP
+  extension's renderers do it, so with `--no-mcp` such a call in a resumed
+  session has the generic row. An extension can replace the row with
+  `api.register_tool_renderer` (see
+  [tool rendering](extension-api.md#tool-rendering)), but cannot call and
+  wrap pipy's row as it can wrap Pi's renderers.
 - A resource link without a `uri` or `name` is shown as
   `[unsupported MCP content resource_link]`.
 - The message of a failed call is cut to 20 KB like a result; nothing is

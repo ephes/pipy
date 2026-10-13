@@ -68,6 +68,7 @@ REASON_INVALID_MESSAGE_RENDERER: str = "invalid_message_renderer"
 REASON_DUPLICATE_MESSAGE_RENDERER: str = "duplicate_message_renderer"
 REASON_INVALID_ENTRY_RENDERER: str = "invalid_entry_renderer"
 REASON_DUPLICATE_ENTRY_RENDERER: str = "duplicate_entry_renderer"
+REASON_INVALID_TOOL_RENDERER: str = "invalid_tool_renderer"
 
 # Built-in hotkey / editor keys an extension shortcut may never claim, so a
 # binding can never shadow core input editing or the app hotkeys. Compared
@@ -308,6 +309,26 @@ class ToolRenderContext:
     width: int
     theme: object  # ToolRenderTheme | None (None only in unit tests)
     state: MutableMapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolRenderers:
+    """How the calls to one tool are drawn (Pi ``ToolRenderers``).
+
+    What a resolver registered with ``api.register_tool_renderer`` returns.
+    Each callable receives a `ToolRenderContext` and returns a
+    `ToolRenderComponent`, like `ExtensionTool.render_call` and
+    `render_result`; a part left ``None`` is drawn as pipy's generic row.
+    """
+
+    render_call: Callable[[ToolRenderContext], object] | None = None
+    render_result: Callable[[ToolRenderContext], object] | None = None
+
+
+# `resolver(tool_name, next)`: the renderers of the calls to `tool_name`, or
+# None. `next()` is what the resolvers registered after this one, then the
+# tool itself, would use.
+ToolRendererResolver = Callable[[str, Callable[[], object | None]], object | None]
 
 
 WidgetPlacement = Literal["above_editor", "below_editor"]

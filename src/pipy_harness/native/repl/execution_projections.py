@@ -26,6 +26,7 @@ from pipy_harness.native.extension_types import (
     ExtensionTool,
     ExtensionUiDriver,
     RegisteredTool,
+    ToolRendererResolver,
 )
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
@@ -58,6 +59,7 @@ class ExecutionProjectionSnapshot:
     generation_id: int
     tools: NativeToolCapabilitySnapshot
     renderers: Mapping[str, ExtensionTool]
+    tool_renderer_resolvers: tuple[ToolRendererResolver, ...]
     tool_call_hooks: tuple[HookHandler, ...]
     flags: Mapping[str, object]
     ui_driver: ExtensionUiDriver | None
@@ -129,6 +131,7 @@ class SessionExecutionProjections:
                     projection.tools.capability_state
                 ),
                 renderers=projection.renderers.tools,
+                tool_renderer_resolvers=projection.renderers.tool_resolvers,
                 tool_call_hooks=projection.hooks.tool_call,
                 flags=projection.runtime_flags.values,
                 ui_driver=ui_driver,
@@ -210,11 +213,14 @@ class SessionExecutionProjections:
         self, advertised_names: Sequence[str]
     ) -> ToolRendererLookup:
         """What draws this provider turn's tool calls: the renderers of its
-        advertised extension tools and the titles of its MCP server tools."""
+        advertised extension tools, the titles of its MCP server tools and
+        the resolvers its extension generation registered."""
 
+        active = self._require_active()
         return ToolRendererLookup(
             tools=self.tool_renderers(advertised_names),
-            mcp_labels=self._require_active().tools.mcp_tool_labels(),
+            mcp_labels=active.tools.mcp_tool_labels(),
+            resolvers=active.tool_renderer_resolvers,
         )
 
     def tool_call_policy_inputs(

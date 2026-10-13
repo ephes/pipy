@@ -98,6 +98,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   server connected, and when it never does. Before, these calls had the
   generic row: the pipy name as title and the first 10 lines of the result.
   See [how a call is shown](docs/mcp.md#how-a-call-is-shown).
+- Extension API: `api.register_tool_renderer(resolver)` chooses how the
+  calls to any tool are drawn, also of a tool that is not registered and of
+  a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`
+  (new, with `render_call` and `render_result`) or `None`; `next()` is what
+  the later resolvers and the tool itself would use. A transcript that is
+  drawn again (resume, `/tree`, `/fork`) now asks the loaded extensions:
+  stored calls to an extension tool get its renderers before the session's
+  first request, where they had the generic row until then. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
 - `/mcp login [server]` signs in to an OAuth MCP server from a session in
   the terminal: it shows the authorization URL, opens the browser, waits for
   it and connects the server; Escape cancels. `/mcp logout [server]` deletes

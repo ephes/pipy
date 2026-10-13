@@ -1,13 +1,17 @@
 """Which renderers draw the calls to a tool.
 
-Pi ``ExtensionRunner.resolveToolRenderers`` with the resolver its MCP
-extension registers (``extensions/mcp/index.ts``): a registered tool's own
-renderers come first; a call to ``mcp__<server>__<tool>`` that has none is
-drawn as an MCP tool's call anyway, so a resumed session shows such calls the
-same way before their server connected, and when it never does.
+Pi ``ExtensionRunner.resolveToolRenderers``: the resolvers that extensions
+registered with ``register_tool_renderer`` are asked in load order, each able
+to defer to the next, and after the last one comes what the tool itself has.
+In Pi the MCP extension is the last resolver (built-in extensions load after
+the others): a call to ``mcp__<server>__<tool>`` that nothing else draws is
+drawn as an MCP tool's call, so a resumed session shows such calls the same
+way before their server connected, and when it never does. Here that rule is
+part of what the tool itself has.
 
-pipy draws MCP rows itself (``tool_rows``), so what a lookup answers for an
-MCP tool is the row's title, not a pair of extension renderers.
+pipy draws the rows of its built-in tools and of MCP tools itself
+(``tool_rows``), so what a lookup answers for them is a marker, not a pair
+of extension renderers.
 """
 
 from __future__ import annotations
@@ -19,7 +23,22 @@ from typing import TYPE_CHECKING
 from pipy_harness.native.tools.name_patterns import mcp_tool_label_from_name
 
 if TYPE_CHECKING:
-    from pipy_harness.native.extension_types import ExtensionTool
+    from pipy_harness.native.extension_types import (
+        ExtensionTool,
+        ToolRendererResolver,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltinToolRows:
+    """pipy's own rows for the calls to a built-in tool.
+
+    A resolver gets this from ``next()``. It has the two attributes of
+    ``ToolRenderers``, both None: pipy's own rows cannot be called.
+    """
+
+    render_call: None = field(default=None, init=False)
+    render_result: None = field(default=None, init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +47,8 @@ class McpToolRows:
 
     # `<server>/<tool>` (Pi `label`), safe to print: see `_printable`.
     label: str
+    render_call: None = field(default=None, init=False)
+    render_result: None = field(default=None, init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,20 +56,70 @@ class ToolRendererLookup:
     """The renderers of one extension generation and one set of MCP tools.
 
     ``tools`` are the extension tools that have a renderer, by name;
-    ``mcp_labels`` the titles of the registered MCP server tools, by name.
+    ``mcp_labels`` the titles of the registered MCP server tools, by name;
+    ``resolvers`` what extensions registered, in load order.
     """
 
     tools: Mapping[str, ExtensionTool] = field(default_factory=dict)
     mcp_labels: Mapping[str, str] = field(default_factory=dict)
+    resolvers: tuple[ToolRendererResolver, ...] = ()
 
-    def resolve(self, name: str) -> ExtensionTool | McpToolRows | None:
-        """What draws a call to ``name``; None for pipy's generic row."""
+    def resolve(self, name: str, *, builtin: bool = False) -> object | None:
+        """What draws a call to ``name``; None for pipy's generic row.
 
+        ``builtin`` says that ``name`` is a tool pipy has rows of its own
+        for. The answer is a ``BuiltinToolRows``, a ``McpToolRows``, or an
+        object with ``render_call`` and ``render_result`` (an extension
+        tool, or what a resolver returned). None is the generic row for a
+        built-in tool too: a resolver chose it by returning None without
+        ``next()``, as in Pi.
+        """
+
+        return self._resolve(name, 0, builtin)
+
+    def _resolve(self, name: str, index: int, builtin: bool) -> object | None:
+        if index >= len(self.resolvers):
+            return self._own(name, builtin)
+        rest: list[object | None] = []
+
+        def next_renderers() -> object | None:
+            if not rest:
+                rest.append(self._resolve(name, index + 1, builtin))
+            return rest[0]
+
+        try:
+            chosen = self.resolvers[index](name, next_renderers)
+            # Reading the attributes of what an extension returned can raise.
+            valid = chosen is None or is_tool_renderers(chosen)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a bad resolver is left out
+            return next_renderers()
+        # Not renderers: the resolver is left out, like one that raised.
+        return chosen if valid else next_renderers()
+
+    def _own(self, name: str, builtin: bool) -> object | None:
+        """What the tool itself has (Pi: the registered tool's renderers)."""
+
+        if builtin:
+            return BuiltinToolRows()
         tool = self.tools.get(name)
         if tool is not None:
             return tool
         label = self.mcp_labels.get(name) or mcp_tool_label_from_name(name)
         return None if label is None else McpToolRows(_printable(label))
+
+
+def is_tool_renderers(value: object) -> bool:
+    """Whether ``value`` has the shape of ``ToolRenderers``: both attributes,
+    each a callable or None."""
+
+    missing = object()
+    for attribute in ("render_call", "render_result"):
+        renderer = getattr(value, attribute, missing)
+        if renderer is missing or not (renderer is None or callable(renderer)):
+            return False
+    return True
 
 
 def _printable(label: str) -> str:
@@ -72,4 +143,10 @@ def as_tool_renderer_lookup(
     return ToolRendererLookup(tools=dict(renderers or {}))
 
 
-__all__ = ["McpToolRows", "ToolRendererLookup", "as_tool_renderer_lookup"]
+__all__ = [
+    "BuiltinToolRows",
+    "McpToolRows",
+    "ToolRendererLookup",
+    "as_tool_renderer_lookup",
+    "is_tool_renderers",
+]

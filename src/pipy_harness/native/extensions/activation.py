@@ -37,6 +37,7 @@ from pipy_harness.native.extension_types import (
     REASON_INVALID_PROVIDER,
     REASON_INVALID_SHORTCUT,
     REASON_INVALID_TOOL,
+    REASON_INVALID_TOOL_RENDERER,
     REASON_NO_ACTIVATE,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_SHORTCUT,
@@ -50,6 +51,7 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    ToolRendererResolver,
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
@@ -140,6 +142,7 @@ class _FrozenActivation:
     flags: tuple[RegisteredFlag, ...]
     message_renderers: tuple[RegisteredMessageRenderer, ...]
     entry_renderers: tuple[RegisteredEntryRenderer, ...]
+    tool_renderers: tuple[ToolRendererResolver, ...]
     hooks: Mapping[str, tuple[HookHandler, ...]]
     user_messages: tuple[QueuedUserMessage, ...]
     custom_messages: tuple[QueuedCustomMessage, ...]
@@ -367,6 +370,7 @@ class _ActivationApi:
         self._flag_values: dict[str, object] = {}
         self._staged_message_renderers: dict[str, RegisteredMessageRenderer] = {}
         self._staged_entry_renderers: dict[str, RegisteredEntryRenderer] = {}
+        self._staged_tool_renderers: list[ToolRendererResolver] = []
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
@@ -899,6 +903,23 @@ class _ActivationApi:
             extension=self._extension_name,
         )
 
+    def register_tool_renderer(self, resolver: ToolRendererResolver) -> None:
+        """Choose how tool calls are drawn (Pi ``registerToolRenderer``).
+
+        ``resolver(tool_name, next)`` is asked for every call row, also of a
+        tool that is not registered. Resolvers run in extension load order,
+        and in the order one extension registered them.
+        """
+
+        self._check_registration_open()
+        if not callable(resolver):
+            self._raise_registration_failure(
+                _ActivationError(REASON_INVALID_TOOL_RENDERER)
+            )
+        with self._guard:
+            self._require_open_registration()
+            self._staged_tool_renderers.append(resolver)
+
     def register_command(
         self,
         name: str,
@@ -1033,6 +1054,7 @@ class _ActivationApi:
                 flags=tuple(self._staged_flags.values()),
                 message_renderers=tuple(self._staged_message_renderers.values()),
                 entry_renderers=tuple(self._staged_entry_renderers.values()),
+                tool_renderers=tuple(self._staged_tool_renderers),
                 hooks=MappingProxyType(
                     {event: tuple(handlers) for event, handlers in self._hooks.items()}
                 ),
@@ -1073,6 +1095,7 @@ class _ActivationApi:
             self._flag_values = {}
         self._staged_message_renderers = {}
         self._staged_entry_renderers = {}
+        self._staged_tool_renderers = []
         self._staged_messages = []
         self._staged_custom_messages = []
         self._frozen_activation = None
@@ -1647,6 +1670,7 @@ def _activate_one(
             flags=staged.flags,
             message_renderers=staged.message_renderers,
             entry_renderers=staged.entry_renderers,
+            tool_renderers=staged.tool_renderers,
             custom_messages=staged.custom_messages,
             _activation_key=_descriptor_activation_key(descriptor),
             _pending_activation=(

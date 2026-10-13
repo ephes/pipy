@@ -144,7 +144,14 @@ class SessionHistoryRenderer:
         # Thinking rows follow the live fold and label (Pi hideThinkingBlock).
         scratch.thinking_hidden = self.transcript.thinking_hidden
         scratch.hidden_thinking_label = self.transcript.hidden_thinking_label
-        renderer = self.tool_renderer.detached(scratch)
+        # The published extension generation draws the stored calls, also
+        # of tools no provider turn has declared yet.
+        renderer = self.tool_renderer.detached(
+            scratch,
+            self.custom_renderer.replay_tool_renderers(
+                self.tool_renderer.tool_renderers
+            ),
+        )
         custom = replace(
             self.custom_renderer,
             terminal=CustomEntryTerminalTarget(

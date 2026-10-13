@@ -1633,8 +1633,10 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   Pi's colour keys (`toolTitle`, `muted`, `toolOutput`); the theme handed
   to extension renderers has six colours and none of these.
 - `tool_renderer_lookup.ToolRendererLookup.resolve(name)` is Pi's
-  `resolveToolRenderers` for what pipy has: the extension tool of that name
-  that has a renderer, else `McpToolRows(label)`. The label of a registered
+  `resolveToolRenderers`: the resolvers of `register_tool_renderer` in load
+  order, then what the tool itself has: `BuiltinToolRows()` for a built-in
+  tool, the extension tool of that name that has a renderer, else
+  `McpToolRows(label)`. The label of a registered
   server tool is `McpToolPort.label`, read from the capability value the
   provider turn pinned (`NativeToolCapabilitySnapshot.mcp_tool_labels`);
   for any other name it is `mcp_tool_label_from_name`, Pi's
@@ -1646,6 +1648,25 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   space for every character that is not printable). A server chooses its
   tools' names, and the line renderer writes the title to the terminal as
   it is. Pi prints the label unchanged.
+- EXT-15. `register_tool_renderer` is staged like a hook (a list per
+  activation, frozen at the seal) and travels as
+  `ActivatedExtension.tool_renderers`, `_ExtensionRuntime.tool_renderers`
+  and `ExtensionRendererProjection.tool_resolvers` to the lookup of a
+  provider turn. Pi loads its built-in extensions after the others, so its
+  MCP resolver is the last one and a user resolver's `next()` has the MCP
+  renderers; here the name rule is part of what the tool itself has, with
+  the same effect. `next()` is computed once per resolver. A resolver that
+  raises or returns something that is not renderers is left out (Pi lets
+  the exception through). `next()` gives a marker for pipy's own rows and
+  `None` for an extension tool without renderers, where Pi gives real
+  renderers and the tool's definition; `renderShell` is not ported.
+  Recorded in `docs/extension-api.md` "Tool rendering".
+- A transcript that is drawn again takes its lookup from the published
+  generation (`CustomEntryRenderer.replay_tool_renderers`: every extension
+  tool with a renderer, and the resolvers), with the MCP titles of the
+  provider turn that last started. Before S35 it used the live renderer's
+  map, which is empty until the first provider turn and holds only that
+  turn's declared tools afterwards.
 - The name rule is always on. Pi has it only while its MCP extension is
   loaded; with `--no-mcp` a resumed `mcp__` call has Pi's generic row.
   Recorded in `docs/mcp.md`.

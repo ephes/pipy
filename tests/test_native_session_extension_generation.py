@@ -526,6 +526,7 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
         "unregistered_providers": "providers",
         "message_renderers": "renderers",
         "entry_renderers": "renderers",
+        "tool_renderers": "renderers",
         "custom_messages": "runtime_flags",
     }
     omitted_runtime_fields = {

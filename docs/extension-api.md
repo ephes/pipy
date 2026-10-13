@@ -498,6 +498,8 @@ class PipyExtensionAPI(Protocol):
         renderer: Callable[..., object],
     ) -> None: ...
 
+    def register_tool_renderer(self, resolver: "ToolRendererResolver") -> None: ...
+
     def register_provider(self, provider: "ExtensionProvider") -> None: ...
 
     def unregister_provider(self, name: str) -> None: ...
@@ -1043,6 +1045,65 @@ with `exposure="hidden"` to withdraw it: the tool stays registered and
 answered with `unknown tool`. Registration is open only while `activate(api)`
 runs, so a tool is withdrawn for a session by the extension's next activation
 (a `/reload`); the transcript then tells the model that the tool was removed.
+
+### Tool rendering
+
+An `ExtensionTool`'s `render_call` and `render_result` draw the rows of its
+calls (slice 17 below). `api.register_tool_renderer(resolver)` chooses the
+renderers of the calls to any tool, also of a tool that is not registered:
+one that an extension of an earlier session had, or one the model made up.
+
+```python
+from pipy_harness.extensions import ToolRenderers, lines_component
+
+
+def activate(api):
+    mine = ToolRenderers(
+        render_call=lambda ctx: lines_component([f"jira {dict(ctx.args)}"]),
+        render_result=lambda ctx: lines_component([ctx.content or ""]),
+    )
+
+    def resolve(tool_name, next):
+        return next() or (mine if tool_name.startswith("jira_") else None)
+
+    api.register_tool_renderer(resolve)
+```
+
+- `resolver(tool_name, next)` returns a `ToolRenderers`, an `ExtensionTool`,
+  any object with the attributes `render_call` and `render_result` (each a
+  callable or `None`), or `None`.
+- `next()` returns what the resolvers registered after this one, then the
+  tool itself, would use. Resolvers are asked in extension load order, and in
+  the order one extension registered them. `next() or mine` therefore only
+  fills in; returning `mine` without calling `next()` replaces the rows of
+  that tool, a built-in tool's included, and returning `None` without it
+  gives the tool pipy's generic row.
+- What the tool itself has: for an extension tool that has a renderer, the
+  `ExtensionTool`; for a built-in tool and for a call to
+  `mcp__<server>__<tool>` (whether such a tool is registered or not), an
+  object that stands for pipy's own rows. That object has `render_call` and
+  `render_result` set to `None`: return it to keep pipy's rows, but there is
+  nothing in it to call. For every other name it is `None`.
+- A renderer of the returned object that is `None` leaves that part to
+  pipy's generic row (`name key=value …`, the first 10 result lines), also
+  when the tool is a built-in or MCP tool: nothing of pipy's own row for
+  that tool is kept, including the diff preview of `edit`.
+- A resolver is asked when a call's row starts and when a session's
+  transcript is drawn again, which is before any request in a resumed
+  session. The row keeps what was chosen for it.
+- A resolver that raises or returns something else is left out, as if it
+  had returned `next()`. Passing something that is not callable to
+  `register_tool_renderer` disables the extension with
+  `invalid_tool_renderer`.
+
+Different from Pi:
+
+- In Pi `next()` returns a registered tool's definition also when it has no
+  renderers, and the built-in tools' and the MCP extension's real renderers,
+  which a resolver can call and wrap. pipy returns `None` for an extension
+  tool without renderers and a marker for its own rows.
+- Pi's `renderShell` is not part of `ToolRenderers`.
+- The HTML export does not use tool renderers yet.
 
 First-slice candidates:
 
@@ -1876,8 +1937,9 @@ and the live `scripts/tmux_answer_verify.sh`.
     path is **fail-soft**: a renderer (or its `render()`) that raises, returns a
     non-component, or returns an uncoercible value falls back to Pi's generic
     rows (`name key=value …` and the first 10 result lines). Deferred: live
-    invalidation/partial updates, `renderShell:"self"` self-framing, and
-    overriding built-in tool renderers.
+    invalidation/partial updates and `renderShell:"self"` self-framing.
+    A built-in tool's rows can be replaced with `api.register_tool_renderer`
+    (see "Tool rendering").
     The extension tool-renderer map now refreshes on `/reload`: renderers added,
     removed, or changed by the reloaded extension generation are applied to the
     existing session renderer without restarting, and stale renderers disappear

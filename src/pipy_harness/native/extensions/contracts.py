@@ -16,6 +16,7 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    ToolRendererResolver,
 )
 from pipy_harness.native.extensions import message_routing as _message_routing
 
@@ -81,6 +82,8 @@ class PipyExtensionAPI(Protocol):
         custom_type: str,
         renderer: Callable[..., object],
     ) -> None: ...
+
+    def register_tool_renderer(self, resolver: ToolRendererResolver) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +190,7 @@ class ActivatedExtension:
     flags: tuple[RegisteredFlag, ...] = ()
     message_renderers: tuple[RegisteredMessageRenderer, ...] = ()
     entry_renderers: tuple[RegisteredEntryRenderer, ...] = ()
+    tool_renderers: tuple[ToolRendererResolver, ...] = ()
     custom_messages: tuple[QueuedCustomMessage, ...] = ()
     _activation_key: str | None = field(default=None, repr=False, compare=False)
     _pending_activation: _PendingActivationHost | None = field(
@@ -255,6 +259,8 @@ class _ExtensionRuntime:
     custom_messages: tuple[QueuedCustomMessage, ...]
     activation_hosts: tuple[_ActivationHost, ...]
     message_routing: _message_routing.GenerationMessageRouting
+    # Tool renderer resolvers, in extension load order.
+    tool_renderers: tuple[ToolRendererResolver, ...] = ()
 
     def __post_init__(self) -> None:
         if (

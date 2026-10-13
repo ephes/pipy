@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol, TextIO
 
 from pipy_harness.native.agent import ProductContent
@@ -64,6 +64,7 @@ from pipy_harness.native.session_tree import (
     CustomMessageEntry,
     NativeSessionTree,
 )
+from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.screen import ScreenRenderInputs
 
@@ -195,6 +196,24 @@ class CustomEntryRenderer:
         return CustomRendererProjectionSnapshot(
             projection.renderers.messages,
             projection.renderers.entries,
+        )
+
+    def replay_tool_renderers(self, live: ToolRendererLookup) -> ToolRendererLookup:
+        """What draws stored tool calls when the transcript is drawn again.
+
+        The published generation's tools that have a renderer and its tool
+        renderer resolvers; the MCP titles are ``live``'s, those of the
+        provider turn that last started. Without a published generation it
+        is ``live``.
+        """
+
+        snapshot = self._snapshot()
+        if snapshot is None or (projection := snapshot.generation.projection) is None:
+            return live
+        return replace(
+            live,
+            tools=projection.renderers.tools,
+            resolvers=projection.renderers.tool_resolvers,
         )
 
     def render_extension_custom_message(

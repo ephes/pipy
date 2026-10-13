@@ -48,6 +48,7 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    ToolRendererResolver,
 )
 from pipy_harness.native.extensions.activation import (
     _ExtensionCandidate,
@@ -216,6 +217,8 @@ class ExtensionToolProjection:
 @dataclass(frozen=True, slots=True)
 class ExtensionRendererProjection:
     tools: Mapping[str, ExtensionTool]
+    # Resolvers of `api.register_tool_renderer`, in extension load order.
+    tool_resolvers: tuple[ToolRendererResolver, ...]
     messages: Mapping[str, RegisteredMessageRenderer]
     entries: Mapping[str, RegisteredEntryRenderer]
 
@@ -457,6 +460,7 @@ def build_extension_projection(
                 or registered.tool.render_result is not None
             }
         ),
+        tool_resolvers=_freeze_tuple(runtime.tool_renderers),
         messages=_freeze_mapping(runtime.message_renderers),
         entries=_freeze_mapping(runtime.entry_renderers),
     )
