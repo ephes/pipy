@@ -33,6 +33,7 @@ from pipy_harness.native.mcp.connection import (
     create_default_transport,
     expand_home,
 )
+from pipy_harness.native.mcp.credentials import McpOAuthCredentialStore
 from pipy_harness.native.mcp.http import McpAuthProvider
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import (
@@ -164,8 +165,11 @@ class _Harness:
         log: McpServerLog | None = None,
         on_change: Callable[[McpServerConnection], None] | None = None,
         cwd: Path | str | None = None,
+        credentials: McpOAuthCredentialStore | None = None,
     ) -> None:
         self.opened: list[McpTransport] = []
+        # The auth provider each transport was created with.
+        self.auth_providers: list[McpAuthProvider | None] = []
         self.tool_reports: list[tuple[str, ...]] = []
         self.states: list[str] = []
         self._transports = transports
@@ -180,11 +184,13 @@ class _Harness:
             log=log,
             on_tools=self._tools_changed,
             on_change=self._changed,
+            credentials=credentials,
         )
 
     def _create(
         self, entry: McpServerEntry, cwd: str, auth: McpAuthProvider | None
     ) -> McpTransport:
+        self.auth_providers.append(auth)
         transport = self._transports[len(self.opened)]()
         self.opened.append(transport)
         return transport

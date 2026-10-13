@@ -1268,9 +1268,9 @@ nothing in the product imports these modules before S30.
   the `renderPage` of OAU-17. S31 passes `render_sign_in_page` as the
   callback server's `render_page`; the default is plain text, as in Pi.
 
-Decided in S30 (`credentials.py` and the 401 handoff in `http.py`; the
-connection's use of them and the `needs-auth` state follow in the slice's
-last commit):
+Decided in S30 (`credentials.py`, the 401 handoff in `http.py`, and their
+use in `connection.py`, `manager.py`, `shell_cli.py` and `repl/wiring.py`),
+in three commits:
 
 - `McpOAuthCredentialStore(path, lock_dir=None)` is the file
   `mcp_auth_path(config_home)`. There is no storage backend to swap: tests
@@ -1280,9 +1280,12 @@ last commit):
   `withRefreshLock`); `tokens` and `remove` are Pi's.
 - The key is `mcp_namespace(name) + "|" + parse_http_url(url).href`, so
   without the fragment, as the provider compares server URLs.
-- Reads and writes take `auth_file_lock` of the file; the file is replaced
-  as a whole, mode 0600. A file that is not JSON raises and is never
-  replaced, as in Pi.
+- A write takes `auth_file_lock` of the file, reads it again and replaces
+  it as a whole, mode 0600. A read takes no lock (it sees the file before
+  or after a replace) and creates nothing, so `pipy mcp list` and a session
+  leave no file and no changed directory mode behind for a server nobody
+  signed in to; Pi locks for a read and creates the file. A file that is
+  not JSON raises and is never replaced, as in Pi.
 - OAU-20, deviation (DEV-14): the refresh lock is a `flock` on
   `mcp-auth-refresh-<hash>` in the lock directory, tried every 100 ms for
   25 s (`McpRefreshLockTimeoutError`). The kernel frees the lock of a
@@ -1316,7 +1319,49 @@ last commit):
   set to `Reply(hang=True)`): the MCP endpoint `/mcp` accepts the tokens
   its authorization server issued, answers 401 with a challenge, has
   `expire_access_tokens()`, `insufficient_scope`, `log` and `deletes`. The
-  tests sign in with the library's flow and `authorization_response`.
+  tests sign in with the library's flow and `authorization_response`
+  (`_sign_in` in `tests/test_native_mcp_auth_provider.py`), which S31 can
+  replace by the real sign-in.
+- `McpServerConnection(credentials=None)` and `McpManager(credentials=None)`:
+  the store is optional, and without one no server gets an auth provider, so
+  a 401 is a failed connect as before. `repl/wiring.py` and `shell_cli.py`
+  pass `McpOAuthCredentialStore(mcp_auth_path(config_home))`; S38 makes it an
+  SDK option. A server URL the store refuses (user info) gets no provider
+  either; its connect fails with the transport's error.
+- CON-13 is `uses_oauth(entry)`; `oauth_url` is a property of the connection
+  and a field of `ConnectionView`, so S31 can make `_uses_oauth` in
+  `commands.py` true (it stays false: `/mcp login` has nothing to run yet).
+  `challenge` is a property of the connection, set by the provider.
+  `oauth_settings()` resolves `oauth.clientSecret` with
+  `resolve_config_value` at each call.
+- CON-14: `_needs_sign_in` is Pi's `needsSignIn`. In `_connect_failed` and
+  in `_with_client` it is checked before everything else; the connection
+  then detaches the client and enters `needs-auth` in one step under its
+  lock, closes the client (`_drop_for_sign_in`) and raises
+  `McpServerConnectionError` with `sign_in_required_message(entry)`, the
+  cause chained. The state is left alone when the connection is shut down
+  or has something newer than the client that was rejected, another
+  connected client or a connect that started after the one that published
+  it (`_enter_needs_auth`, `_Link.attempt`): a late 401
+  of a request on a replaced client must not hide a working connection.
+  Pi marks without that check. `sign_out` follows the same rule. The text for
+  `auth.provider` (`Run /login <provider>`) is S33's, with the provider
+  token: until then an `auth` server has no auth provider and a 401 is a
+  failed connect.
+- `sign_out()` is Pi's `signOut`, built for S31's logout: nothing calls it
+  yet.
+- OAU-23: `close()` first calls the provider's `close()`, after which
+  the provider starts no refresh (a request thread that was about to gets
+  `McpConnectionClosedError`, or sends the old token), and calls its
+  `settled()` after every transport has closed, except when called from
+  inside a callback of the connection. Pi has only `settled`; with threads
+  a request could start a refresh after `settled()` had returned.
+- User-visible change before S31: an HTTP server without a configured key
+  that answers 401 is `needs sign-in` in the startup report, `/mcp` and
+  `pipy mcp list`, and its texts name `/mcp` and `pipy mcp login`, which
+  cannot sign in yet. `docs/mcp.md` says so under "Sign-in with OAuth"; S31
+  has to rewrite that section, "What is missing" and the `/mcp login`
+  paragraph.
 
 Open after the merge, owned by later slices:
 

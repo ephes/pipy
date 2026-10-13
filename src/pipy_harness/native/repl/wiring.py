@@ -121,6 +121,10 @@ from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_toke
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.mcp.commands import McpCommand, run_step_inline
 from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
+from pipy_harness.native.mcp.credentials import (
+    McpOAuthCredentialStore,
+    mcp_auth_path,
+)
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
@@ -1028,6 +1032,7 @@ def _mcp_servers(
         publish_tools=tool_capabilities.publish_mcp_tools,
         deactivate_tools=tool_capabilities.deactivate_indirect_mcp_tools,
         log=McpServerLog(mcp_log_path(config_home)),
+        credentials=McpOAuthCredentialStore(mcp_auth_path(config_home)),
     )
     return McpServers(
         manager=manager,

@@ -39,8 +39,24 @@ the connection down but waits for nothing, because the thread it runs on may
 be the one a transport needs back before it can finish closing. A callback
 must not call ``get_client`` for the attempt it is announcing.
 
-Not built yet: OAuth with the ``needs-auth`` state. An HTTP server gets the
-configured headers only.
+OAuth. An HTTP server signs in with OAuth unless its entry has an
+``Authorization`` header or ``auth`` (``uses_oauth``). A connection that is
+given a credential store sends such a server its stored access token and
+refreshes it (``McpServerAuthProvider`` in ``credentials.py``); it never
+opens a browser. When the server asks for a sign-in that the stored
+credentials cannot answer, the state becomes ``needs-auth``, the client is
+closed, and the connect or the request fails with ``MCP server "<name>"
+requires sign-in. Run /mcp to sign in.`` The next call tries to connect
+again. That is the case when a refresh is not possible or is refused, when
+the server asks for more scope, and when the server answers 401 again after
+a refresh. ``challenge`` keeps the last challenge the server sent, for the
+sign-in. ``close()`` lets no token refresh start any more and waits for one
+that is running, so its new tokens are saved before the process may end.
+Without a credential store
+nothing of this happens: a 401 is a failed connect.
+
+Not built yet: the sign-in itself, and the ``auth`` setting, whose server is
+connected without a token.
 """
 
 from __future__ import annotations
@@ -65,14 +81,22 @@ from pipy_harness.native.mcp.config_values import (
     resolve_config_headers,
     resolve_config_value,
 )
+from pipy_harness.native.mcp.credentials import (
+    McpOAuthCredentialStore,
+    McpOAuthSettings,
+    McpServerAuthProvider,
+)
 from pipy_harness.native.mcp.http import (
     McpAuthProvider,
+    McpAuthRequiredError,
     McpHttpError,
     McpSessionExpiredError,
     StreamableHttpTransport,
     StreamableHttpTransportOptions,
 )
 from pipy_harness.native.mcp.log import McpServerLog
+from pipy_harness.native.mcp.oauth.errors import McpOAuthAuthorizationRequiredError
+from pipy_harness.native.mcp.oauth.types import OAuthChallenge
 from pipy_harness.native.mcp.protocol import (
     METHOD_NOT_FOUND,
     JsonObject,
@@ -105,8 +129,8 @@ CONNECT_RETRY_DELAYS_MS: Final = (250, 1_000)
 _CANCEL_POLL_SECONDS: Final = 0.05
 
 # ``disconnected``: the connection dropped (for example the stdio server
-# exited); the next call reconnects. ``needs-auth`` is entered once sign-in
-# exists.
+# exited); the next call reconnects. ``needs-auth``: the server wants a
+# sign-in; the next call tries again with the credentials stored by then.
 ServerState = Literal[
     "connecting", "connected", "disconnected", "needs-auth", "failed", "closed"
 ]
@@ -130,7 +154,8 @@ class ConnectionView:
     what is known of its resources: ``has_resources`` says whether the server
     declared the capability at its last connect, and ``resources`` and
     ``resource_templates`` are what it listed then or at its last change,
-    without MCP App resources.
+    without MCP App resources. ``oauth_url`` is the server's URL when it
+    signs in with OAuth, else ``None``.
     """
 
     name: str
@@ -141,6 +166,26 @@ class ConnectionView:
     has_resources: bool = False
     resources: tuple[JsonObject, ...] = ()
     resource_templates: tuple[JsonObject, ...] = ()
+    oauth_url: str | None = None
+
+
+def uses_oauth(entry: McpServerEntry) -> bool:
+    """Whether the server signs in with OAuth: an HTTP server does, unless
+    its entry has an ``Authorization`` header (in any letter case) or
+    ``auth`` (Pi ``usesOAuth``)."""
+
+    config = entry.config
+    if "url" not in config or config.get("auth"):
+        return False
+    return not any(
+        header.lower() == "authorization" for header in config.get("headers") or {}
+    )
+
+
+def sign_in_required_message(entry: McpServerEntry) -> str:
+    """What a call to a server that needs a sign-in fails with."""
+
+    return f'MCP server "{entry.name}" requires sign-in. Run /mcp to sign in.'
 
 
 def expand_home(value: str) -> str:
@@ -311,6 +356,7 @@ class _Link:
     """One client and what belongs to it. Fields are guarded by the connection lock."""
 
     __slots__ = (
+        "attempt",
         "calls",
         "client",
         "expired",
@@ -336,6 +382,8 @@ class _Link:
         # expired client is closed when the count is back at zero.
         self.calls = 0
         self.expired = False
+        # The connect that published the link; ``None`` until then.
+        self.attempt: _Attempt | None = None
 
 
 class _Attempt:
@@ -364,11 +412,14 @@ class McpServerConnection:
         on_change: Callable[[McpServerConnection], None] | None = None,
         create_transport: McpTransportFactory = create_default_transport,
         log: McpServerLog | None = None,
+        credentials: McpOAuthCredentialStore | None = None,
     ) -> None:
         """``on_tools`` is called when the tool list or the resources were
         read, ``on_change`` when the state, the error, the tools or the
         resources changed. ``log`` receives the
-        server's log messages. ``cwd`` is the session directory."""
+        server's log messages. ``cwd`` is the session directory.
+        ``credentials`` holds the OAuth credentials of servers; without it
+        no server is sent a token."""
 
         self.entry = entry
         self._cwd = os.path.abspath(cwd)
@@ -398,6 +449,9 @@ class McpServerConnection:
         self._closed = False
         # Set by ``close()``; ends the wait before a retry.
         self._shutdown = threading.Event()
+        # The last OAuth challenge of the server.
+        self._challenge: OAuthChallenge | None = None
+        self._auth_provider = self._new_auth_provider(credentials)
 
     @property
     def name(self) -> str:
@@ -411,7 +465,70 @@ class McpServerConnection:
         seconds: float = DEFAULT_TIMEOUT_SECONDS if timeout is None else timeout
         return seconds * 1000
 
+    @property
+    def oauth_url(self) -> str | None:
+        """The server's URL when it signs in with OAuth, else ``None``."""
+
+        config = self.entry.config
+        return config["url"] if "url" in config and uses_oauth(self.entry) else None
+
+    @property
+    def challenge(self) -> OAuthChallenge | None:
+        """The last OAuth challenge of the server; a sign-in uses its
+        resource metadata URL and its scope."""
+
+        with self._lock:
+            return self._challenge
+
+    def oauth_settings(self) -> McpOAuthSettings:
+        """The entry's ``oauth`` settings. The client secret is resolved
+        here, at every call; one that cannot be resolved raises
+        ``McpConfigValueError`` naming the server."""
+
+        config = self.entry.config
+        oauth = config.get("oauth") if "url" in config else None
+        if not oauth:
+            return McpOAuthSettings()
+        secret = oauth.get("clientSecret")
+        return McpOAuthSettings(
+            client_id=oauth.get("clientId"),
+            client_secret=None
+            if secret is None
+            else resolve_config_value(
+                secret, f'MCP server "{self.entry.name}" oauth.clientSecret'
+            ),
+            callback_port=oauth.get("callbackPort"),
+            callback_url=oauth.get("callbackUrl"),
+            scope=oauth.get("scope"),
+            client_name=oauth.get("clientName"),
+            client_registration=oauth.get("clientRegistration"),
+            auth_server_metadata_url=oauth.get("authServerMetadataUrl"),
+        )
+
+    def _new_auth_provider(
+        self, credentials: McpOAuthCredentialStore | None
+    ) -> McpServerAuthProvider | None:
+        url = self.oauth_url
+        if url is None or credentials is None:
+            return None
+        try:
+            store = credentials.for_server(self.entry.name, url)
+        except ValueError:
+            # No URL a transport connects to: the connect fails and says so.
+            return None
+        return McpServerAuthProvider(
+            server_url=url,
+            store=store,
+            settings=self.oauth_settings,
+            on_challenge=self._set_challenge,
+        )
+
+    def _set_challenge(self, challenge: OAuthChallenge) -> None:
+        with self._lock:
+            self._challenge = challenge
+
     def view(self) -> ConnectionView:
+        oauth_url = self.oauth_url
         with self._lock:
             return ConnectionView(
                 name=self.entry.name,
@@ -422,6 +539,7 @@ class McpServerConnection:
                 has_resources=self._has_resources,
                 resources=self._resources,
                 resource_templates=self._resource_templates,
+                oauth_url=oauth_url,
             )
 
     @property
@@ -591,6 +709,10 @@ class McpServerConnection:
         answers with a transient status. A tool call is not repeated for a
         status, since it may have run. The wait ends with ``McpAbortError``
         when the caller's cancel event is set.
+
+        A request that ends with the need to sign in closes the client,
+        leaves the server in ``needs-auth`` and raises
+        ``McpServerConnectionError`` with the message that says how.
         """
 
         cancel_event = None if options is None else options.cancel_event
@@ -600,8 +722,11 @@ class McpServerConnection:
             expired = False
             try:
                 return run(link.client)
-            except McpHttpError as error:
-                if not first:
+            except (McpHttpError, McpOAuthAuthorizationRequiredError) as error:
+                if self._needs_sign_in(error):
+                    sign_in: BaseException = error
+                    break
+                if not first or not isinstance(error, McpHttpError):
                     raise
                 if isinstance(error, McpSessionExpiredError):
                     # The server no longer knows the session (it restarted),
@@ -614,6 +739,56 @@ class McpServerConnection:
             first = False
             if not expired:
                 self._wait_to_retry(CONNECT_RETRY_DELAYS_MS[0], cancel_event)
+        self._drop_for_sign_in(link)
+        raise McpServerConnectionError(
+            sign_in_required_message(self.entry)
+        ) from sign_in
+
+    def _needs_sign_in(self, error: BaseException) -> bool:
+        """Whether ``error`` says that the user has to sign in: the auth
+        provider said so, or an OAuth server still answers 401 after the
+        provider had its turn (Pi ``needsSignIn``)."""
+
+        return isinstance(error, McpOAuthAuthorizationRequiredError) or (
+            self._auth_provider is not None and isinstance(error, McpAuthRequiredError)
+        )
+
+    def _enter_needs_auth(self, link: _Link | None) -> bool:
+        """Set the state ``needs-auth`` for ``link``, the client that asked
+        for the sign-in and was detached, or ``None`` when there was none.
+
+        Nothing changes when the connection is shut down or has something
+        newer than ``link``: another connected client, or a connect that
+        started later. The connect that published ``link`` is not newer; it
+        is still in progress while it announces the client. The caller
+        holds the lock and announces the change.
+        """
+
+        attempt = self._opening
+        newer = attempt is not None and (link is None or attempt is not link.attempt)
+        if self._closed or newer or self._link is not None:
+            return False
+        self._state = "needs-auth"
+        self._error = None
+        return True
+
+    def _drop_for_sign_in(self, link: _Link) -> None:
+        """A request on ``link`` ended with the need to sign in: detach and
+        close its client (Pi ``dropClient``) and enter ``needs-auth``.
+
+        The two happen under one lock. A request on a client that was
+        replaced meanwhile (its session expired, or the server was
+        reconnected) therefore leaves the state of the new one alone. The
+        close is not reported as ``disconnected``.
+        """
+
+        with self._lock:
+            if self._link is link:
+                self._link = None
+            changed = self._enter_needs_auth(link)
+        _close_quietly(link.client)
+        if changed:
+            self._changed()
 
     def _begin_call(self, cancel_event: threading.Event | None) -> _Link:
         """The connected link, counted as carrying one more request."""
@@ -673,20 +848,41 @@ class McpServerConnection:
         inside a callback of this connection does not wait for the transport.
         """
 
+        self._drop_connected()
+        self.get_client()
+
+    def sign_out(self) -> None:
+        """Disconnect after the stored credentials were removed (Pi
+        ``signOut``): the server then needs a sign-in.
+
+        Waits like ``reconnect`` and connects nothing. When another caller
+        started to connect meanwhile, the state is left to that attempt,
+        which finds no credentials.
+        """
+
+        self._drop_connected(needs_auth=True)
+
+    def _drop_connected(self, *, needs_auth: bool = False) -> None:
+        """Wait for a connect in progress, then close the connected client
+        and wait until its transport has closed. With ``needs_auth`` the
+        state becomes ``needs-auth`` in the step that detaches the client."""
+
         with self._lock:
             attempt = self._opening
         if attempt is not None and attempt.thread is not threading.current_thread():
             attempt.done.wait()
         with self._lock:
-            # A closed connection has no link; ``get_client`` below refuses.
+            # A closed connection has no link.
             link = self._link
             self._link = None
             waits = link is not None and link in self._open_links
+            changed = needs_auth and self._enter_needs_auth(link)
         if link is not None:
             _close_quietly(link.client)
             if waits and not getattr(self._callback_depth, "value", 0):
                 link.transport_closed.wait()
-        self.get_client()
+        if changed:
+            self._changed()
 
     def close(self) -> None:
         """Shut the connection down for good.
@@ -698,7 +894,16 @@ class McpServerConnection:
         ``MCP server "<name>" is shut down``. Every caller waits, also when
         another thread closed first; only a call made from inside a callback
         of this connection returns without waiting.
+
+        No token refresh starts once ``close()`` was called, also not by a
+        request that was about to. One that is running is waited for last:
+        the authorization server may have rotated the refresh token, and
+        ending the process before the new tokens are saved would lose the
+        sign-in.
         """
+
+        if self._auth_provider is not None:
+            self._auth_provider.close()
 
         with self._lock:
             first = not self._closed
@@ -740,6 +945,8 @@ class McpServerConnection:
             still_open = list(self._open_links)
         for open_link in still_open:
             open_link.transport_closed.wait()
+        if self._auth_provider is not None:
+            self._auth_provider.settled()
 
     # -- connecting -------------------------------------------------------
 
@@ -789,7 +996,9 @@ class McpServerConnection:
             # below.
             self._pending_link = link
         try:
-            transport = self._create_transport(self.entry, self._cwd, None)
+            transport = self._create_transport(
+                self.entry, self._cwd, self._auth_provider
+            )
             # Registered before the client starts the transport, so the close
             # of a transport that started is always heard.
             transport.on_close(lambda: self._transport_closed(link))
@@ -886,6 +1095,7 @@ class McpServerConnection:
                 raise McpServerConnectionError("connection closed during setup")
             self._pending_link = None
             self._link = link
+            link.attempt = self._opening
             self._tools = tuple(tools)
             self._has_resources = has_resources
             self._resources = resources
@@ -899,6 +1109,16 @@ class McpServerConnection:
     def _connect_failed(self, error: Exception) -> str:
         """Record a failed connect; return the text its callers are given."""
 
+        if self._needs_sign_in(error):
+            with self._lock:
+                # The failed attempt is still the one in progress here.
+                needs_auth = not self._closed
+                if needs_auth:
+                    self._state = "needs-auth"
+                    self._error = None
+            if needs_auth:
+                self._changed()
+                return sign_in_required_message(self.entry)
         detail = _error_message(error)
         with self._lock:
             self._state = "closed" if self._closed else "failed"

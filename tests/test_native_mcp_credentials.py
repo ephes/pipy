@@ -144,8 +144,11 @@ def test_the_file_is_private_and_readable_json(
 def test_reading_writes_nothing(store: McpOAuthCredentialStore) -> None:
     assert store.for_server("work", _SERVER_URL).load() is None
     assert store.tokens("work", _SERVER_URL) is None
-    assert store.remove("work", _SERVER_URL) is False
 
+    # Not even the directory of the file, or its lock file.
+    assert not store.path.parent.exists()
+
+    assert store.remove("work", _SERVER_URL) is False
     assert not store.path.exists()
 
 

@@ -27,27 +27,37 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
-- More of the OAuth library for MCP servers, still used by nothing: pipy
-  has no sign-in yet, stores no token and sends none, and an HTTP server
-  that answers 401 remains a failed server. `pipy_harness.native.mcp.oauth`
-  now holds the authorization code flow (stored or dynamically registered
+- More of the OAuth library for MCP servers; pipy has no sign-in yet.
+  `pipy_harness.native.mcp.oauth` now holds the authorization code flow (stored or dynamically registered
   client or a Client ID Metadata Document, PKCE, the `resource` parameter,
   the issuer check of RFC 9207, token exchange and refresh with recovery
   from rejected credentials), a provider that keeps one server's OAuth state
   in a store its caller supplies, the loopback callback server and the
   sign-in pages. See [the OAuth library](docs/mcp.md#the-oauth-library).
-- The store for the OAuth credentials of MCP servers, also used by nothing
-  yet: `McpOAuthCredentialStore` keeps one entry per server name and URL in
+- The store for the OAuth credentials of MCP servers:
+  `McpOAuthCredentialStore` keeps one entry per server name and URL in
   `mcp-auth.json` next to the user-level `mcp.json`, private to the user,
   and has the lock that keeps two processes from refreshing a server's
   tokens at the same time. See
   [the credentials file](docs/mcp.md#the-credentials-file).
-- The auth provider for the connections of an OAuth MCP server, also used by
-  nothing yet: `McpServerAuthProvider` sends the stored access token,
+- The auth provider for the connections of an OAuth MCP server:
+  `McpServerAuthProvider` sends the stored access token,
   refreshes one that is about to expire or that the server rejected with a
   401, and reports that a sign-in is needed when it cannot. The HTTP
   transport hands a rejected request (401, or 403 asking for more scope) to
   its auth provider once and sends it again.
+- Stored OAuth credentials on the connections of HTTP MCP servers, in a
+  session and in `pipy mcp list`. A server without an `Authorization` header
+  or `auth` is sent the access token stored for it in `mcp-auth.json`, which
+  is refreshed shortly before it expires and when the server rejects it.
+  A server that wants a sign-in pipy cannot answer from what is stored is in
+  the new state `needs-auth`: calls fail with `MCP server "<name>" requires
+  sign-in. Run /mcp to sign in.`, and the startup report, `/mcp` and `pipy
+  mcp list` show `needs sign-in`. The sign-in itself (`/mcp login`, `pipy
+  mcp login`) is not built yet, so nothing in pipy stores credentials and
+  such a server cannot be used; it showed as `failed` with `MCP server
+  requires authentication` before. See
+  [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with

@@ -61,7 +61,11 @@ They are built again whenever that exposure changes, in the same publication
 as the server's tools; with no such server left they stay registered as
 ``hidden`` tools, as in Pi.
 
-Not built yet: servers registered by extensions.
+OAuth. Every connection is given the manager's credential store, so a
+server that signs in with OAuth is sent its stored token. One that needs a
+sign-in is in the state ``needs-auth``; the startup report names it.
+
+Not built yet: servers registered by extensions, and the sign-in.
 """
 
 from __future__ import annotations
@@ -93,6 +97,7 @@ from pipy_harness.native.mcp.connection import (
     McpTransportFactory,
     create_default_transport,
 )
+from pipy_harness.native.mcp.credentials import McpOAuthCredentialStore
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import JsonObject
 from pipy_harness.native.mcp.resources import create_mcp_resource_tools
@@ -270,9 +275,12 @@ class McpManager:
         create_transport: McpTransportFactory = create_default_transport,
         update_config: UpdateMcpConfig = update_config_file,
         deactivate_tools: DeactivateTools | None = None,
+        credentials: McpOAuthCredentialStore | None = None,
     ) -> None:
         """``publish_tools`` receives the tools of all servers after every
         change. ``config`` is read once; ``cwd`` is the session directory.
+        ``credentials`` holds the OAuth credentials of the servers; without
+        it no server is sent a token.
         ``update_config`` saves a change made in the session and
         ``deactivate_tools`` takes a server's tools that are no longer
         ``direct`` out of the session's selection."""
@@ -294,6 +302,7 @@ class McpManager:
         self._publish_tools = publish_tools
         self._log = log
         self._create_transport = create_transport
+        self._credentials = credentials
         self._publication = threading.Lock()
         self._lock = threading.Lock()
         self._servers = [_Server(entry) for entry in config.servers]
@@ -778,6 +787,7 @@ class McpManager:
             on_change=changed,
             create_transport=self._create_transport,
             log=self._log,
+            credentials=self._credentials,
         )
 
     def _connect(

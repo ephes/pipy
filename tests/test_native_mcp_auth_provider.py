@@ -37,7 +37,9 @@ from pipy_harness.native.mcp.http import (
 )
 from pipy_harness.native.mcp.oauth.errors import McpOAuthAuthorizationRequiredError
 from pipy_harness.native.mcp.oauth.flow import OAuthFlowOptions, authorize_mcp
+from pipy_harness.native.mcp.oauth.provider import McpOAuthState
 from pipy_harness.native.mcp.oauth.types import OAuthChallenge
+from pipy_harness.native.mcp.protocol import McpConnectionClosedError
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 
@@ -146,24 +148,30 @@ class _Process:
         self.change(tokensExpireAt=int((time.time() + seconds) * 1000))
 
 
+def _sign_in(server: FakeOAuthMcpServer, store: McpOAuthServerStore) -> str:
+    """Sign in as a user would in a browser; return the access token."""
+
+    urls: list[str] = []
+    provider = create_oauth_provider(
+        server.url, store, McpOAuthSettings(), _REDIRECT, urls.append
+    )
+    assert authorize_mcp(provider, OAuthFlowOptions(server.url)) == "REDIRECT"
+    code = authorization_response(urls[0])["code"]
+    again = OAuthFlowOptions(server.url, authorization_code=code)
+    assert authorize_mcp(provider, again) == "AUTHORIZED"
+    state = store.load()
+    assert state is not None
+    token: str = state["tokens"]["access_token"]
+    return token
+
+
 class _SignedIn:
     """A server the user signed in to, and the processes that use it."""
 
     def __init__(self, server: FakeOAuthMcpServer, path: Path) -> None:
         self.server = server
         self.path = path
-        first = self.process()
-        urls: list[str] = []
-        provider = create_oauth_provider(
-            server.url, first.store, McpOAuthSettings(), _REDIRECT, urls.append
-        )
-        assert authorize_mcp(provider, OAuthFlowOptions(server.url)) == "REDIRECT"
-        code = authorization_response(urls[0])["code"]
-        again = OAuthFlowOptions(server.url, authorization_code=code)
-        assert authorize_mcp(provider, again) == "AUTHORIZED"
-        token = first.access_token()
-        assert token is not None
-        self.first_token = token
+        self.first_token = _sign_in(server, self.process().store)
 
     def process(self, **options: Any) -> _Process:
         return _Process(self.server, self.path, **options)
@@ -548,6 +556,81 @@ def test_each_request_to_the_authorization_server_has_a_time_limit(
     # The refresh token is kept for the next attempt.
     state = process.store.load()
     assert state is not None and state["tokens"]["refresh_token"]
+
+
+# -- a provider that was closed -----------------------------------------------
+
+
+def test_a_closed_provider_starts_no_refresh(signed_in: _SignedIn) -> None:
+    process = signed_in.process()
+    process.expire_in(10)
+    before = _token_requests(signed_in.server)
+
+    process.provider.close()
+
+    # A request that is still sent carries the stored token.
+    assert process.provider.token() == signed_in.first_token
+    with pytest.raises(McpConnectionClosedError):
+        process.reject(signed_in.first_token)
+    assert _token_requests(signed_in.server) == before
+    process.provider.settled()
+    assert signed_in.lock_files() == []
+
+
+def test_a_request_that_was_about_to_refresh_does_not_after_close(
+    signed_in: _SignedIn,
+) -> None:
+    looking = threading.Event()
+    go_on = threading.Event()
+    process = signed_in.process()
+    process.expire_in(10)
+    load = process.store.load
+
+    def slow_load() -> McpOAuthState | None:
+        # The request thread is stopped where it looks the token up, after
+        # it found no refresh running.
+        looking.set()
+        go_on.wait(_WAIT_SECONDS)
+        return load()
+
+    process.store.load = slow_load  # type: ignore[method-assign]
+    before = _token_requests(signed_in.server)
+    asking, tokens, raised = _in_thread(process.provider.token)
+    assert looking.wait(_WAIT_SECONDS)
+
+    # What a connection does when it shuts down.
+    process.provider.close()
+    process.provider.settled()
+    go_on.set()
+    asking.join(_WAIT_SECONDS)
+
+    assert (tokens, raised) == ([signed_in.first_token], [])
+    assert _token_requests(signed_in.server) == before
+    process.provider.settled()
+
+
+def test_a_refresh_that_runs_when_the_provider_is_closed_is_finished(
+    signed_in: _SignedIn,
+) -> None:
+    gate = _gate_token_endpoint(signed_in.server)
+    process = signed_in.process()
+    before = _token_requests(signed_in.server)
+    refresh, _, raised = _in_thread(lambda: process.reject(signed_in.first_token))
+    _wait_until(lambda: _token_requests(signed_in.server) == before + 1)
+
+    process.provider.close()
+    # A request that arrives now still shares the running refresh.
+    joining, _, joined = _in_thread(lambda: process.reject(signed_in.first_token))
+    settled, _, _ = _in_thread(process.provider.settled)
+    settled.join(0.1)
+    assert settled.is_alive()
+    gate.set()
+    for thread in (settled, refresh, joining):
+        thread.join(_WAIT_SECONDS)
+
+    assert (raised, joined) == ([], [])
+    assert process.access_token() not in (None, signed_in.first_token)
+    assert _token_requests(signed_in.server) == before + 1
 
 
 # -- the settings of a refresh ------------------------------------------------

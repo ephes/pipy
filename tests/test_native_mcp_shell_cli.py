@@ -12,9 +12,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_native_mcp_auth_provider import _sign_in
 
 import pipy_harness.cli as cli
 from pipy_harness.native.mcp import connection as connection_module
+from pipy_harness.native.mcp.credentials import (
+    McpOAuthCredentialStore,
+    mcp_auth_path,
+)
 from pipy_harness.native.mcp.shell_cli import (
     HELP,
     HELP_HINT,
@@ -26,6 +31,7 @@ from pipy_harness.native.project_trust import ProjectTrustStore
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 
 from mcp_fake_http_server import FakeMcpHttpServer  # noqa: E402
+from mcp_fake_oauth import FakeOAuthMcpServer  # noqa: E402
 
 _FAKE_SERVER = Path(__file__).parent / "fixtures" / "mcp_fake_server.py"
 _MISSING = "pipy-test-missing-mcp-server"
@@ -378,12 +384,35 @@ def test_list_connects_to_http_servers(
         }
 
 
-def test_list_reports_an_http_server_that_wants_a_sign_in_as_failed(
-    home: _Home,
-) -> None:
-    # Until sign-in exists, a server that answers 401 is a failed server.
+def test_list_reports_an_oauth_server_that_wants_a_sign_in(home: _Home) -> None:
     with FakeMcpHttpServer({"requireBearer": "secret"}) as server:
         home.write({"docs": {"url": server.url}})
+
+        assert home.run("list") == 1
+
+        assert home.output == [
+            "docs: needs sign-in (codemode, global)",
+            f"  {server.url}",
+            "  sign in with: pipy mcp login docs",
+        ]
+        assert len(server.messages("initialize")) == 1
+
+        assert home.run("list", "--json") == 1
+        (report,) = json.loads(home.text)["servers"]
+        assert report["state"] == "needs-auth"
+        assert "error" not in report
+    # Looking for a token stored nothing.
+    assert sorted(path.name for path in home.path.iterdir()) == ["mcp.json"]
+
+
+def test_list_reports_a_server_with_a_key_that_answers_401_as_failed(
+    home: _Home,
+) -> None:
+    # A server with an Authorization header does not sign in with OAuth.
+    with FakeMcpHttpServer({"requireBearer": "secret"}) as server:
+        home.write(
+            {"docs": {"url": server.url, "headers": {"Authorization": "Bearer no"}}}
+        )
 
         assert home.run("list") == 1
 
@@ -392,7 +421,29 @@ def test_list_reports_an_http_server_that_wants_a_sign_in_as_failed(
             f"  {server.url}",
             "  MCP server requires authentication",
         ]
-        assert len(server.messages("initialize")) == 1
+
+
+def test_list_connects_to_an_oauth_server_with_the_stored_token(home: _Home) -> None:
+    with FakeOAuthMcpServer() as server:
+        home.write({"issues": {"url": server.url}})
+        store = McpOAuthCredentialStore(mcp_auth_path(home.path))
+        token = _sign_in(server, store.for_server("issues", server.url))
+
+        assert home.run("list") == 0
+        assert home.output == [
+            "issues: connected, 1 tool (codemode, global)",
+            f"  {server.url}",
+            "  tools: whoami",
+        ]
+        assert server.deletes == [token]
+
+        # A token the server no longer accepts is refreshed.
+        server.expire_access_tokens()
+        assert home.run("list") == 0
+        assert server.log.count("token refresh") == 1
+        refreshed = store.tokens("issues", server.url)
+        assert refreshed is not None
+        assert server.deletes == [token, refreshed["access_token"]]
 
 
 def test_list_indents_every_line_of_an_error_and_keeps_stderr(

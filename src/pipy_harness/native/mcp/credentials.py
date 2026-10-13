@@ -12,10 +12,13 @@ separate accounts, and a server with the same name and URL in two
 ``mcp.json`` files has one.
 
 ``for_server`` gives the store of one server, which is what an
-``McpOAuthProvider`` is created with. Every read and every write of it takes
-the file's lock (``auth_file_lock``: a lock in the process and ``flock`` on
-``mcp-auth.json.lock``), and a write reads the file again under that lock,
-so the entries of other servers and of other processes are kept.
+``McpOAuthProvider`` is created with. A write takes the file's lock
+(``auth_file_lock``: a lock in the process and ``flock`` on
+``mcp-auth.json.lock``), reads the file again under that lock and replaces
+it as a whole, so the entries of other servers and of other processes are
+kept. A read takes no lock, since it finds the file as it was before or
+after a write, and creates nothing: asking for the token of a server the
+user never signed in to leaves no file and no directory behind.
 
 The refresh lock. Many authorization servers rotate refresh tokens, so two
 refreshes with the same refresh token lose the grant. ``refresh_lock`` of a
@@ -47,6 +50,12 @@ an OAuth server is given. A connection never opens a browser:
   authorization server is limited to 15 seconds, so a server that does not
   answer cannot hold the refresh lock or a shutdown for long. ``settled``
   returns when no refresh is running.
+- ``close`` ends the provider's refreshing: one that is running goes on, and
+  no other is started, whatever a request thread was about to do. ``close``
+  and then ``settled`` is how a connection shuts down, so that no refresh is
+  cut off by the end of the process. A closed provider still gives the
+  stored token; a rejected request then fails with
+  ``McpConnectionClosedError``.
 
 A refresh runs on the thread of the request that started it, which is an
 I/O thread of the transport.
@@ -63,7 +72,8 @@ Where this differs from Pi:
 - Credentials an older Pi stored under the URL alone are not looked for; no
   pipy version wrote that key.
 - The file is replaced as a whole (written next to it and renamed), where Pi
-  writes into it.
+  writes into it, locks it for a read too and creates it empty at the first
+  read.
 - The requests of a refresh are sent by the provider's own fetch. Pi sends
   them with the fetch of the transport that was rejected.
 - ``oauth.clientRegistration: "cimd"`` is not acted on yet: the provider of
@@ -98,7 +108,11 @@ from pipy_harness.native.mcp.oauth.provider import (
     McpOAuthStateStore,
 )
 from pipy_harness.native.mcp.oauth.types import OAuthChallenge, OAuthTokens
-from pipy_harness.native.mcp.protocol import is_number, is_object
+from pipy_harness.native.mcp.protocol import (
+    McpConnectionClosedError,
+    is_number,
+    is_object,
+)
 
 _T = TypeVar("_T")
 
@@ -292,8 +306,8 @@ class McpOAuthCredentialStore:
         return self._write(change)
 
     def _read(self, read: Callable[[_States], _T]) -> _T:
-        with auth_file_lock(self.path):
-            return read(self._load())
+        # Without the lock: a write replaces the file as a whole.
+        return read(self._load())
 
     def _write(self, change: Callable[[_States], object]) -> bool:
         """Change the states under the file's lock. A ``change`` that
@@ -461,9 +475,10 @@ class McpServerAuthProvider:
             if fetch is None
             else fetch
         )
-        # Guards `_refreshing`. Never held during a refresh.
+        # Guards `_refreshing` and `_closed`. Never held during a refresh.
         self._lock = threading.Lock()
         self._refreshing: _Refresh | None = None
+        self._closed = False
 
     def token(self) -> str | None:
         """The stored access token, refreshed first when it is about to
@@ -494,9 +509,17 @@ class McpServerAuthProvider:
             raise McpOAuthAuthorizationRequiredError()
         self._refresh(context.token, challenge)
 
+    def close(self) -> None:
+        """Start no refresh from now on. One that is running goes on;
+        ``settled`` waits for it."""
+
+        with self._lock:
+            self._closed = True
+
     def settled(self) -> None:
         """Return when no refresh is running, so that a shutdown does not
-        drop rotated tokens before they are saved."""
+        drop rotated tokens before they are saved. After ``close`` none
+        starts later either."""
 
         with self._lock:
             running = self._refreshing
@@ -508,12 +531,15 @@ class McpServerAuthProvider:
     ) -> None:
         """Replace ``stale_token``, the access token that expired or was
         rejected. A caller that arrives while a refresh is running waits for
-        that one and gets its outcome."""
+        that one and gets its outcome. Raises ``McpConnectionClosedError``
+        instead of starting a refresh once the provider is closed."""
 
         with self._lock:
             running = self._refreshing
             started = running is None
             if running is None:
+                if self._closed:
+                    raise McpConnectionClosedError()
                 running = self._refreshing = _Refresh()
         if not started:
             running.done.wait()

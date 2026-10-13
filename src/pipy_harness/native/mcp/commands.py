@@ -2,8 +2,8 @@
 
 ``/mcp`` prints one line per configured server. ``/mcp reconnect [server]``
 connects a server again. ``/mcp login`` and ``/mcp logout`` choose a server
-as Pi does; no server uses OAuth yet, so they end with the message that says
-so, and the sign-in itself is not built.
+as Pi does; the sign-in is not built, so no server is eligible and they end
+with the message for that.
 
 Nothing here touches a user interface. The command reports through
 ``notify(level, message)``, asks through ``select(title, options)`` and is run
@@ -92,8 +92,9 @@ def _exposure(entry: McpServerEntry) -> str:
 
 
 def _uses_oauth(status: McpServerStatus) -> bool:
-    """Whether the server signs in with OAuth. None does before HTTP servers
-    connect and their connections carry an OAuth URL."""
+    """Whether ``login`` and ``logout`` can act on the server. On none
+    until the sign-in is built; then on those whose connection view has an
+    ``oauth_url``."""
 
     return False
 

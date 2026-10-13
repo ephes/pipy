@@ -7,8 +7,8 @@ The work follows the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
 this page grows with them. [Quick setup](#quick-setup) shows what works today
 and [what is missing](#what-is-missing) lists what does not yet: among other
-things OAuth, so an HTTP server works only when it needs no sign-in or takes
-a key from a configured header.
+things the OAuth sign-in, so an HTTP server works only when it needs no
+sign-in or takes a key from a configured header.
 
 ## Quick setup
 
@@ -452,9 +452,10 @@ terminal, and does nothing where it cannot ask. A disabled server cannot be
 reconnected (`No enabled MCP server to reconnect.`), and an unknown name
 gives `No MCP server named "<name>".`
 
-`/mcp login [server]` and `/mcp logout [server]` exist as names only: no
-server uses OAuth yet, so both answer `No enabled MCP server uses OAuth. Only
-HTTP servers without an Authorization header do.` Anything else prints
+`/mcp login [server]` and `/mcp logout [server]` exist as names only: the
+sign-in is not built, and both answer `No enabled MCP server uses OAuth. Only
+HTTP servers without an Authorization header do.`, also for a server that
+[needs a sign-in](#sign-in-with-oauth). Anything else prints
 `Usage: /mcp, /mcp login [server], /mcp logout [server], /mcp reconnect
 [server]`.
 
@@ -486,11 +487,11 @@ Different from Pi:
 ### What is missing
 
 Not built yet, in the order the plan builds it: enabling and disabling a
-server and changing its exposure in a session (the `/mcp` manager), OAuth
-and the `auth` setting, servers registered by extensions, and images in tool
-results and resources. Until OAuth is built, an HTTP server that answers
-with status 401 is a failed server with the error `MCP server requires
-authentication`.
+server and changing its exposure in a session (the `/mcp` manager), the
+OAuth sign-in (`/mcp login`, `pipy mcp login` and their `logout`) and the
+`auth` setting, servers registered by extensions, and images in tool results
+and resources. Until the sign-in is built, an HTTP server that wants one
+[needs a sign-in](#sign-in-with-oauth) that pipy cannot do.
 
 ## Tool search
 
@@ -725,7 +726,7 @@ Check it with: pipy mcp list
 For a project server in a project that is not trusted it adds that the file
 is ignored until you start pipy there and trust the project. For an HTTP
 server without an `Authorization` header the last line also names `pipy mcp
-login <server>`; that command, like the rest of OAuth, does not exist yet.
+login <server>`; that command does not exist yet.
 
 `remove` fails when the file does not have the entry and says where the
 server is defined instead: `It is defined in <path>; use --local.` or `...;
@@ -804,8 +805,6 @@ in the project to trust it.`
 
 - `pipy mcp login` and `pipy mcp logout` do not exist yet and say so; the
   usage text does not list them.
-- An HTTP server that wants a sign-in is listed as `failed` with the error
-  `MCP server requires authentication`, not as `needs sign-in`.
 - `--oauth-callback-port` takes a decimal number. Pi also reads JavaScript's
   other spellings of a number, such as `0x50`.
 - The usage text and the hint are plain text; Pi prints parts of them bold
@@ -840,14 +839,18 @@ streamable HTTP, see [HTTP servers](#http-servers).
 - A relative `cwd` is relative to the session directory, and the session
   directory is the default.
 
-The same rules will apply to `oauth.clientSecret` once OAuth is built.
+`oauth.clientSecret` follows the same rules. It is resolved when a token is
+refreshed, not when the server connects, so a secret that cannot be resolved
+fails only the request that needed the refresh, with `Failed to resolve MCP
+server "<name>" oauth.clientSecret from ...`.
 
 ### HTTP servers
 
 A server with a `url` is reached over
 [streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
-Every request carries the configured `headers`. Nothing else authenticates
-pipy yet, see [what is missing](#what-is-missing).
+Every request carries the configured `headers`. A server without an
+`Authorization` header is also sent the OAuth token stored for it, see
+[sign-in with OAuth](#sign-in-with-oauth).
 
 - A connect that fails because the server cannot be reached, or because it
   answers with status 408, 429 or 5xx other than 501, is made again after
@@ -882,10 +885,45 @@ Different from Pi:
 - pipy sends configured headers and tokens only to the server's own origin,
   so a redirect to another host is a failed request.
 
+### Sign-in with OAuth
+
+An HTTP server signs in with OAuth unless its entry has an `Authorization`
+header (in any letter case) or `auth`. pipy cannot sign in yet: there is no
+`login` command and it opens no browser. What exists is the use of
+credentials that are already stored, which today only code can put there
+(see [the credentials file](#the-credentials-file)):
+
+- Requests to such a server carry the access token stored for it in
+  `mcp-auth.json` in the config home, and none when nothing is stored. The
+  configured headers are sent as usual.
+- A token within 30 seconds of its expiry is refreshed before a request, and
+  a token the server rejects with status 401 is refreshed and the request
+  made once more. Several sessions and `pipy mcp list` runs that use one
+  server at the same time refresh its token once.
+- When that is not possible, the server is in the state `needs-auth`: when
+  nothing is stored, when no refresh token is stored or the authorization
+  server refuses it or does not answer within 15 seconds, when the server
+  asks for more scope than was granted (status 403 with
+  `insufficient_scope`), and when it answers 401 again after a refresh.
+  The connect or the call fails with `MCP server "<name>" requires sign-in.
+  Run /mcp to sign in.`, the [startup report](#startup-report) and `/mcp`
+  list the server as `needs sign-in`, and `pipy mcp list` adds `sign in
+  with: pipy mcp login <name>`. None of the commands these texts name can
+  sign in yet. The next call to the server connects again and finds the
+  credentials stored by then.
+- A server with an `Authorization` header or `auth` that answers 401 is a
+  failed server with the error `MCP server requires authentication`, as is
+  any server asked by code that was given no credential store. A server
+  with `auth` is connected without a token for now.
+
+So an HTTP server that answers 401 without a configured key now shows as
+`needs sign-in` where it showed as `failed`.
+
 ### States
 
-A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
-(`needs-auth` comes with sign-in).
+A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
+`failed` or `closed`. `needs-auth` is described under
+[sign-in with OAuth](#sign-in-with-oauth).
 
 - The first call connects. Calls that arrive while a connect is in progress
   wait for that one attempt. A stdio connect is not retried; an
@@ -914,6 +952,8 @@ A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
   shows in the next request.
 - Closing a server stops a connect in progress and returns when the server
   process is gone, or the HTTP session ended. Calls then fail with `MCP server "<name>" is shut down`.
+  From the moment a server is closed no token refresh starts for it, and
+  closing waits for one that is running, so that its new tokens are saved.
 
 pipy tells the server its name (`pipy`) and version, and announces one root:
 the session directory as a `file://` URI, named by its last path component.
@@ -1087,22 +1127,22 @@ standard library. It is not part of the SDK surface.
 | `shell_cli` | `run_mcp_command`: [the `pipy mcp` commands](#the-pipy-mcp-commands). |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
-| `oauth` | The parts of an OAuth sign-in, described under [the OAuth library](#the-oauth-library). Nothing in pipy calls them yet. |
-| `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, and `McpServerAuthProvider`: the auth provider that sends a server's stored token and refreshes it. Both are described under [the credentials file](#the-credentials-file). Nothing in pipy calls them yet. |
+| `oauth` | The parts of an OAuth sign-in, described under [the OAuth library](#the-oauth-library). A connection uses the flow to refresh tokens; nothing in pipy signs in with it yet. |
+| `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, and `McpServerAuthProvider`: the auth provider that sends a server's stored token and refreshes it. Both are described under [the credentials file](#the-credentials-file). Sessions and `pipy mcp list` create them for the config home. |
 
 Not built yet: images in tool results and resources, the `/mcp` manager,
-and the use of the OAuth library: credentials kept on disk, a token on the
-requests to a server, the `needs-auth` state and sign-in.
+and the sign-in.
 
 ### The OAuth library
 
 `pipy_harness.native.mcp.oauth` holds the parts of a sign-in to an HTTP MCP
-server. No session and no command uses them yet: there is no `login`
-command, pipy opens no browser, stores no token and sends none to a server,
-and the `oauth` and `auth` settings of a server entry are checked when the
-file is read and otherwise unused. An HTTP server that answers 401 is still
-a [failed server](#http-servers). This section describes what the modules do
-for those who read or build on the code.
+server. A connection uses the flow to refresh a stored token
+([sign-in with OAuth](#sign-in-with-oauth)). Nothing signs in with it yet:
+there is no `login` command, pipy opens no browser, and of the `oauth`
+settings of a server entry only `clientId`, `clientSecret`, the callback
+settings and `authServerMetadataUrl` are read, for a refresh; `auth` is
+checked when the file is read and otherwise unused. This section describes
+what the modules do for those who read or build on the code.
 
 | Module | What it does |
 | --- | --- |
@@ -1184,10 +1224,12 @@ request that carries it.
 
 `pipy_harness.native.mcp.credentials` has the store that keeps OAuth state
 on disk, `McpOAuthCredentialStore`, and the auth provider that uses it for
-the requests to a server, `McpServerAuthProvider`. Like the OAuth library
-they are not used yet: no session and no command creates them, so the file
-below does not exist on your machine and no request carries a token from
-it.
+the requests to a server, `McpServerAuthProvider`. A session and `pipy mcp
+list` create both for the config home and give them to the connections of
+servers that [sign in with OAuth](#sign-in-with-oauth). Nothing in pipy
+writes a first entry yet, since that is the sign-in, so the file below does
+not exist on your machine unless code of yours ran the flow with a server's
+store.
 
 The file is `mcp-auth.json` in the directory of the user-level `mcp.json`,
 readable and writable only by you. It is one JSON object with one entry per
@@ -1203,10 +1245,11 @@ is the namespace of the server's tools and its URL,
 
 `for_server(name, url)` gives the store of one server, which a provider is
 created with; `tokens(name, url)` reads a server's tokens and
-`remove(name, url)` deletes its entry and says whether there was one. Every
-read and write locks the file, and a write reads it again first, so entries
-written by another process are kept. A file that is not JSON is an error and
-is left as it is.
+`remove(name, url)` deletes its entry and says whether there was one. A
+write locks the file, reads it again and replaces it as a whole, so entries
+written by another process are kept. A read takes no lock and creates
+nothing: looking for the token of a server nobody signed in to leaves no
+file behind. A file that is not JSON is an error and is left as it is.
 
 `refresh_lock()` of a server's store is the lock a token refresh holds from
 reading the tokens to saving the new ones, so that two processes never use
@@ -1234,7 +1277,9 @@ an OAuth server is given. It never opens a browser:
   ones that were rejected uses those without refreshing.
 - Each request to the authorization server is limited to 15 seconds. A
   refresh is not cancelled, since its answer may carry a new refresh token
-  that must be saved; `settled()` returns when no refresh is running.
+  that must be saved; `settled()` returns when no refresh is running. After
+  `close()` the provider starts no refresh any more, so a connection that
+  shuts down calls `close()` and then `settled()`.
 
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:

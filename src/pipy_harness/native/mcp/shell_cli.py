@@ -6,7 +6,10 @@ so only the servers of the two ``mcp.json`` files are seen, and the switches
 that turn MCP off for a session (``--no-mcp``, ``-builtin:mcp``) do not apply.
 
 ``add`` and ``remove`` only write a file. ``list`` connects to every enabled
-server, at the same time, and closes each connection again.
+server, at the same time, and closes each connection again. A server that
+signs in with OAuth is sent the token stored in ``mcp-auth.json`` of the
+config home, refreshed when needed; one that wants a sign-in is listed as
+``needs sign-in``.
 
 The project file is read only when a trust decision for the project is
 already saved; the commands never ask.
@@ -14,8 +17,6 @@ already saved; the commands never ask.
 Where this differs from Pi:
 
 - ``login`` and ``logout`` are not built yet and say so.
-- An HTTP server that wants a sign-in is reported by ``list`` as failed, not
-  as ``needs sign-in``.
 - ``--oauth-callback-port`` is read as a decimal number; JavaScript's other
   number spellings (``0x50``) are not ports here.
 - The usage text is plain, without bold or dim characters.
@@ -52,6 +53,10 @@ from pipy_harness.native.mcp.connection import (
     McpServerConnectionError,
     McpTransportFactory,
     create_default_transport,
+)
+from pipy_harness.native.mcp.credentials import (
+    McpOAuthCredentialStore,
+    mcp_auth_path,
 )
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.protocol import McpAbortError
@@ -148,7 +153,8 @@ _SURROGATE: Final = re.compile("[\ud800-\udfff]")
 class McpCommandOptions:
     """Where a ``pipy mcp`` command runs and where it reports.
 
-    ``config_home`` holds the user-level ``mcp.json`` and ``mcp.log``.
+    ``config_home`` holds the user-level ``mcp.json``, ``mcp.log`` and
+    ``mcp-auth.json``.
     ``client_version`` is the version sent to servers. ``log`` gets the
     command's output and ``error`` its error lines; they default to stdout and
     stderr. ``trust_store`` defaults to the store in ``config_home``.
@@ -569,6 +575,7 @@ def _probe_servers(
     """The report of every server; the enabled ones are connected at once."""
 
     log = McpServerLog(mcp_log_path(options.config_home))
+    credentials = McpOAuthCredentialStore(mcp_auth_path(options.config_home))
     reports = [_new_report(entry) for entry in loaded.servers]
     connections: list[McpServerConnection] = []
     probes: list[threading.Thread] = []
@@ -583,6 +590,7 @@ def _probe_servers(
                 on_tools=lambda _connection: None,
                 create_transport=options.create_transport,
                 log=log,
+                credentials=credentials,
             )
             connections.append(connection)
             probe = threading.Thread(
