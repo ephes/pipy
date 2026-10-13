@@ -48,20 +48,47 @@ _read_command_output = os.read
 _COMMAND_TIMEOUT = 10.0
 _COMMAND_OUTPUT_LIMIT = 64 * 1024
 _COMMAND_CLEANUP_GRACE = 0.2
+_COMMAND_CLEANUP_POLL = 0.01
+# Bound separately so cleanup keeps real time when the lookup clock is replaced.
+_cleanup_monotonic = time.monotonic
+_cleanup_sleep = time.sleep
+
+
+def _command_group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _wait_for_command_group(process: subprocess.Popen[bytes]) -> bool:
+    """Wait up to the cleanup grace for the reaped child's whole group to exit."""
+    deadline = _cleanup_monotonic() + _COMMAND_CLEANUP_GRACE
+    while True:
+        # Reap the direct child first: an unreaped leader keeps its group alive.
+        if process.poll() is not None and not _command_group_alive(process.pid):
+            return True
+        if _cleanup_monotonic() >= deadline:
+            return False
+        _cleanup_sleep(_COMMAND_CLEANUP_POLL)
 
 
 def _stop_command(process: subprocess.Popen[bytes]) -> None:
-    """Terminate the owned group, including children holding capture pipes."""
+    """Terminate the owned group, including children holding capture pipes.
+
+    Surviving descendants get the TERM grace even when the direct child has
+    already exited; KILL follows only if the group outlives it.
+    """
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
         except OSError:
             pass
-        if sig == signal.SIGTERM:
-            try:
-                process.wait(timeout=_COMMAND_CLEANUP_GRACE)
-            except subprocess.TimeoutExpired:
-                pass
+        if _wait_for_command_group(process):
+            return
     process.wait(timeout=_COMMAND_CLEANUP_GRACE)
 
 

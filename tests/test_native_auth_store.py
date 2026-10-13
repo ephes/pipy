@@ -441,7 +441,11 @@ def test_command_timeout_owns_descendant_group(monkeypatch):
         auth_store.os, "killpg", lambda pid, sig: signals.append((pid, sig))
     )
     assert resolve_config_value("!synthetic-child", env={}) is None
-    assert signals == [(12345, signal.SIGTERM), (12345, signal.SIGKILL)]
+    # Signal 0 entries are liveness probes of the surviving group.
+    assert [entry for entry in signals if entry[1] != 0] == [
+        (12345, signal.SIGTERM),
+        (12345, signal.SIGKILL),
+    ]
     selector.select.assert_called_once_with(10.0)
     process.wait.assert_called_with(timeout=auth_store._COMMAND_CLEANUP_GRACE)
     process.stdout.close.assert_called_once()
@@ -550,5 +554,90 @@ def test_command_cleanup_reaps_even_if_group_signal_fails(monkeypatch):
         raise PermissionError("synthetic")
 
     monkeypatch.setattr(auth_store.os, "killpg", denied)
+    monkeypatch.setattr(auth_store, "_COMMAND_CLEANUP_GRACE", 0.02)
     auth_store._stop_command(process)
-    assert process.wait.call_count == 2
+    assert process.poll.call_count >= 2
+    process.wait.assert_called_once_with(timeout=0.02)
+
+
+def test_command_cleanup_skips_kill_once_group_is_gone(monkeypatch):
+    import signal
+    from unittest.mock import MagicMock
+
+    from pipy_harness.native import auth_store
+
+    process = MagicMock()
+    process.pid = 12345
+    signals = []
+
+    def killpg(pid, sig):
+        signals.append((pid, sig))
+        if sig == 0:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(auth_store.os, "killpg", killpg)
+    auth_store._stop_command(process)
+    assert signals == [(12345, signal.SIGTERM), (12345, 0)]
+    process.wait.assert_not_called()
+
+
+def test_command_timeout_grants_grace_to_descendant_of_exited_leader(
+    monkeypatch, tmp_path
+):
+    import os
+    import shlex
+    import sys
+    import time
+    from types import SimpleNamespace
+
+    import pytest
+
+    from pipy_harness.native import auth_store
+
+    if not hasattr(os, "fork"):
+        pytest.skip("POSIX process groups required")
+    marker = tmp_path / "cleaned"
+    script = """
+import os, signal, sys, time
+def stop(sig, frame):
+    time.sleep(0.05)
+    with open(os.environ["SYNTHETIC_MARKER"], "w") as f:
+        f.write(str(os.getpid()))
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+leader = int(sys.argv[1])
+while os.getppid() == leader:
+    time.sleep(0.005)
+os.write(1, b"ready")
+while True:
+    signal.pause()
+"""
+    monkeypatch.setenv("SYNTHETIC_MARKER", str(marker))
+    original_read = auth_store._read_command_output
+    started = time.monotonic()
+    ready = False
+
+    def read(fd, size):
+        nonlocal ready
+        data = original_read(fd, size)
+        # The descendant only writes once the shell leader has exited.
+        if data:
+            ready = True
+        return data
+
+    monkeypatch.setattr(auth_store, "_read_command_output", read)
+    monkeypatch.setattr(
+        auth_store,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: float("inf") if ready else time.monotonic() - started
+        ),
+    )
+    monkeypatch.setattr(auth_store, "_COMMAND_CLEANUP_GRACE", 5.0)
+    command = shlex.join([sys.executable, "-c", script]) + ' "$$" &'
+    assert resolve_config_value("!" + command, env={}) is None
+    assert ready
+    # The descendant finished its TERM handler instead of being killed at once.
+    descendant = int(marker.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(descendant, 0)

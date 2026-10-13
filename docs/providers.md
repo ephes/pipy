@@ -489,7 +489,8 @@ Configured auth `!command` helpers require strict UTF-8 stdout. Invalid encoding
 nonzero exits, timeouts and output above 64 KiB (stdout plus stderr) quietly
 resolve as unavailable, without logging output. Helpers run in an owned POSIX
 process group with a ten-second deadline; cleanup sends TERM, waits up to
-0.2 seconds, then sends KILL and waits up to 0.2 seconds for the direct child.
+0.2 seconds for the whole group (even when the direct child already exited),
+then sends KILL only if members remain and waits up to 0.2 seconds more.
 Descendants must stay in that group; deliberately detached helpers are unsupported.
 
 Successful completed helpers retain background work with redirected stdio.
