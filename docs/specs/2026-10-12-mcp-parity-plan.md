@@ -2274,6 +2274,46 @@ Decided in S39 (images, part 4: MCP image blocks and image resources;
   the request in all four adapter families and a resumed session's request.
 - Codemode `image()` (CMD-28 to CMD-30) is the next commit of the slice.
 
+Decided in S39 (images, part 5: codemode `image()`; `codemode/prelude.py`,
+`codemode/host.py`, `codemode/outcome.py`, `codemode/result.py`,
+`coding/codemode_runner.py`, `tools/codemode.py`):
+
+- Guest: `image(value)` is Pi's prelude `image` in Python
+  (`prelude.checked_image`): a `data:` URL string, a dict with `image_url`,
+  or an image block dict; the same checks and error texts (CMD-28). The
+  type is detected from the base64 prefix (`image_type`), as in Pi. A new
+  guest message `{"type":"image","data","mimeType"}` carries it.
+- Host: the message is checked again with the prelude's own functions
+  (`is_base64`, `image_type`); one that fails is a protocol violation,
+  since the prelude never sends it. `ScriptOutcome.output` holds
+  `str | ScriptImage` in order (`texts` is the text view).
+- Limits, different from what this plan's S39 entry said ("counted against
+  the existing emission cap"): images count against `output_messages`, but
+  their bytes against a cap of their own, `ScriptLimits.image_bytes` =
+  16 MiB (Pi's 16,777,216 characters), not the 1 MiB of text. With one cap
+  of 1 MiB a script could not show a screenshot that a tool reply (up to
+  16 MiB) had just handed it. An image line may be longer than
+  `line_bytes`, up to the image cap; the host tells it by the line's first
+  bytes while it buffers and refuses it at parse time when it is not an
+  image. The guest raises `ValueError` at the same total
+  (`prelude.MAX_IMAGE_CHARS`; a test pins that the two match).
+- Result (CMD-29, CMD-30): `format_result` keeps images between the text
+  items (`ResultText.header`, `.items`); the budget is for the text items
+  joined by newlines, and a truncated text is followed by all images.
+  `result_content` (runner) saves each image once to an owner-only temp
+  file `pipy-codemode-*.<ext>` and puts `[Image saved to <path> (<mime>,
+  <size>)]` before each occurrence, or `[Image (<mime>, <size>) could not
+  be saved: <reason>]`. The text of a result without images is byte for
+  byte what it was.
+- pipy has no `==> text N/M <==` separators and no console block (DEV-04),
+  so the text around images is joined as pipy joins output items.
+- A result's text is at most 64 KiB (`AgentToolResultMessage`): a script
+  that shows some hundreds of images makes more label text than that and
+  gets a sandbox-failure result instead of its output. Not handled further.
+- Tests: `test_native_codemode_images.py`, including the real guest and a
+  session in which a script shows an MCP tool's image block (the mirror of
+  Pi's "attaches only the images the script passes to image()").
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -3278,7 +3318,8 @@ defaults connect nothing.
 content model, session file and replay; (2) provider adapters; (3) rows and
 export; (4) MCP image blocks, image resources and codemode `image()` (a new guest
 output message kind carrying base64 data and MIME type, counted against the
-existing emission cap). This also closes the backlog follow-on READ-IMG for
+existing emission cap; as built the images have a byte cap of their own, see
+"Decided in S39 (images, part 5 ...)"). This also closes the backlog follow-on READ-IMG for
 the shared part (decided in scope, Q2).
 Tests: a direct MCP call returning an image block reaches each provider
 adapter family's request as an image and survives resume; an image resource

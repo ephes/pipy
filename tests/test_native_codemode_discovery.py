@@ -327,7 +327,7 @@ def test_host_answers_discovery_without_a_call_record(
     )
 
     assert outcome.ok, outcome
-    assert json.loads(outcome.output[0]) == [
+    assert json.loads(outcome.texts[0]) == [
         {
             "type": "result",
             "id": 1,
@@ -415,7 +415,7 @@ def test_discovery_failures_become_errors_in_the_script_or_the_sandbox(
     # Without a callback the helpers raise in the script.
     outcome = _run_fake(monkeypatch, scenario)
     assert outcome.ok, outcome
-    assert json.loads(outcome.output[0]) == {
+    assert json.loads(outcome.texts[0]) == {
         "type": "result",
         "id": 1,
         "ok": False,
@@ -451,9 +451,9 @@ def test_discovery_failures_become_errors_in_the_script_or_the_sandbox(
             limits=ScriptLimits(wall_seconds=5.0, reply_bytes=65536),
         )
         assert outcome.ok, outcome
-        reply = json.loads(outcome.output[0])
+        reply = json.loads(outcome.texts[0])
         assert reply["ok"] is False and expected in reply["error"]
-        assert len(outcome.output[0]) < 1000
+        assert len(outcome.texts[0]) < 1000
 
     # A callback that raises, or returns something else, fails the sandbox.
     def broken(name: str, args: dict[str, Any]) -> DiscoveryResult:
@@ -489,7 +489,7 @@ def test_run_request_keeps_the_first_tool_of_a_name_and_the_given_order(
         tool_names=("mcp__docs-search", "class", "mcp__docs-search"),
     )
     assert outcome.ok, outcome
-    assert json.loads(outcome.output[0]) == [
+    assert json.loads(outcome.texts[0]) == [
         {
             "name": "mcp__docs-search",
             "id": "mcp__docs_search",
@@ -498,7 +498,7 @@ def test_run_request_keeps_the_first_tool_of_a_name_and_the_given_order(
         {"name": "class", "id": "class_", "description": "about class"},
     ]
     # The host's own unknown-tool reply speaks in identifiers too.
-    assert outcome.output[1].startswith(
+    assert outcome.texts[1].startswith(
         "tools.mcp_docs_search does not exist. Did you mean tools.mcp__docs_search?"
     )
 

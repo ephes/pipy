@@ -59,6 +59,7 @@ _DESCRIPTION_INTRO = (
 _DESCRIPTION_GLOBALS = (
     "Globals:\n"
     "- `text(value)` emits output: strings as-is, anything else as JSON. `print()` output is included as well.\n"
+    '- `image(value)` adds an image to the output: a base64 `data:` URL, a dict with `image_url`, or an image block `{"type": "image", "data", "mimeType"}` as MCP tools return it. PNG, JPEG, GIF and WebP are accepted; remote URLs are not. The image is also saved to a temp file and the result names its path.\n'
     "- `ALL_TOOLS`, `search_tools(query, limit=8, namespace=None)`, `describe_tool(name)`, `describe_namespace(name)`: find unlisted tools, such as MCP tools."
 )
 

@@ -16,6 +16,12 @@ summary appear only on failure; with no calls the summary is "No tool calls
 were made." Output and error are truncated together to a token budget
 (chars/4), keeping the head and the tail. Spilling the full text to a file is
 the composite caller's job (T8a): :class:`ResultText` hands it the untruncated text.
+
+Images a script showed with ``image()`` stay where they are in the output,
+between the text around them (Pi ``formatOutput``). They are never cut: when
+the text is over the budget it becomes one truncated item and the images
+follow it (Pi ``truncateOutput``). Saving each image to a file and naming
+its path is the composite caller's job as well.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from dataclasses import dataclass
 from pipy_harness.native.codemode.outcome import (
     ErrorKind,
     ScriptError,
+    ScriptImage,
     ScriptOutcome,
     ToolCallRecord,
 )
@@ -43,15 +50,23 @@ _ERROR_PREFIX = {
 
 @dataclass(frozen=True, slots=True)
 class ResultText:
-    """``text`` is what the model sees; ``is_error`` marks a failed run.
+    """``text`` is what the model sees as text; ``is_error`` marks a failed run.
 
     ``full_output`` is the untruncated output and error block when
     ``text`` was truncated, else ``None``.
+
+    ``header`` and ``items`` are the same result in parts: the three header
+    lines, then the output in order, each item a text or an image, adjacent
+    texts joined. Without an image there is one text item and ``text`` is
+    the header followed by it. With images, ``text`` is the header and the
+    text items, each on its own line.
     """
 
     text: str
     is_error: bool
     full_output: str | None = None
+    header: str = ""
+    items: tuple[str | ScriptImage, ...] = ()
 
 
 def format_result(
@@ -59,16 +74,45 @@ def format_result(
 ) -> ResultText:
     status = "Script completed" if outcome.ok else "Script failed"
     header = f"{status}\nWall time {outcome.wall_seconds:.1f} seconds\nOutput:\n"
-    items = list(outcome.output)
+    output: list[str | ScriptImage] = list(outcome.output)
     if outcome.error is not None:
-        items.append(f"Script error:\n{error_text(outcome.error, outcome.calls)}")
-    body = join_output(items)
-    shown = truncate_output(body, max_output_tokens)
+        output.append(f"Script error:\n{error_text(outcome.error, outcome.calls)}")
+    items = join_adjacent_text(output)
+    images = [item for item in items if isinstance(item, ScriptImage)]
+    texts = [item for item in items if isinstance(item, str)]
+    # Pi ``truncateOutput``: the budget is for the text items joined by newlines.
+    body = "\n".join(texts)
+    shown = truncate_output(body, max_output_tokens) if texts else ""
+    truncated = shown != body
+    if truncated or not images:
+        items = [shown, *images]
     return ResultText(
-        text=header + shown,
+        text=header + (shown if truncated else body),
         is_error=not outcome.ok,
-        full_output=body if shown != body else None,
+        full_output=body if truncated else None,
+        header=header,
+        items=tuple(items),
     )
+
+
+def join_adjacent_text(
+    items: Iterable[str | ScriptImage],
+) -> list[str | ScriptImage]:
+    """Join each run of text items into one item (:func:`join_output`)."""
+
+    joined: list[str | ScriptImage] = []
+    run: list[str] = []
+    for item in items:
+        if isinstance(item, str):
+            run.append(item)
+            continue
+        if run:
+            joined.append(join_output(run))
+            run = []
+        joined.append(item)
+    if run:
+        joined.append(join_output(run))
+    return joined
 
 
 def join_output(items: Iterable[str]) -> str:

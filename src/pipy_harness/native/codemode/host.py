@@ -49,6 +49,7 @@ from pipy_harness.native.codemode.outcome import (
     DiscoveryResult,
     ErrorKind,
     ScriptError,
+    ScriptImage,
     ScriptLimits,
     ScriptOutcome,
     ScriptTool,
@@ -57,6 +58,8 @@ from pipy_harness.native.codemode.outcome import (
 from pipy_harness.native.codemode.prelude import (
     DISCOVERY_NAMES,
     EXIT_PROTOCOL,
+    image_type,
+    is_base64,
     tool_table,
     unknown_tool_message,
 )
@@ -92,6 +95,10 @@ READ_CHUNK = 64 * 1024
 # A lone UTF-16 surrogate (JSON ``"\\ud800"``) parses into a Python ``str`` that
 # cannot be encoded as UTF-8; every guest string is scrubbed to U+FFFD.
 _SURROGATE = re.compile("[\ud800-\udfff]")
+
+# How the prelude's image line starts, and the room for the rest of its frame.
+_IMAGE_LINE = b'{"type":"image",'
+_IMAGE_FRAME = 1024
 
 ABORTED_MESSAGE = "Execution aborted"
 OUTPUT_GUIDANCE = (
@@ -424,7 +431,7 @@ class _Discovery:
 @dataclass(frozen=True, slots=True)
 class _Finished:
     error: ScriptError | None
-    output: tuple[str, ...] = ()
+    output: tuple[str | ScriptImage, ...] = ()
     diagnostics: str = ""
 
 
@@ -727,8 +734,9 @@ class _Channel:
         self._line = bytearray()
         self._status_buf = bytearray()
         self._stderr_tail = bytearray()
-        self._output: list[str] = []
+        self._output: list[str | ScriptImage] = []
         self._output_bytes = 0
+        self._image_bytes = 0
         # The call awaiting its reply; it stays outstanding until the reply
         # has been written in full, so an unread reply blocks further calls
         # and the reply buffer holds at most one reply.
@@ -954,8 +962,16 @@ class _Channel:
             self._handoff = None
 
     def _append_line(self, piece: memoryview) -> None:
-        if len(self._line) + len(piece) > self._limits.line_bytes:
-            raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
+        size = len(self._line) + len(piece)
+        if size > self._limits.line_bytes:
+            # Only an image line may be longer: as long as the image cap
+            # allows. Whether it is an image is decided when it is parsed.
+            head = bytes(self._line[: len(_IMAGE_LINE)])
+            head += bytes(piece[: len(_IMAGE_LINE) - len(head)])
+            if head != _IMAGE_LINE or size > self._limits.image_bytes + _IMAGE_FRAME:
+                raise _violation(
+                    f"a guest line exceeded {self._limits.line_bytes} bytes"
+                )
         self._line += piece
 
     def _handle_line(self, line: bytes) -> None:
@@ -969,8 +985,15 @@ class _Channel:
             # The guest blocks on its reply, so nothing may arrive meanwhile.
             raise _violation("the guest sent a message while a tool call was pending")
         kind = message.get("type")
+        if len(line) > self._limits.line_bytes and kind != "image":
+            # The longer allowance is an image's alone: a line that only
+            # started like one (a second ``type`` key wins in JSON) gets
+            # the limit every other message has.
+            raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
         if kind == "text":
             self._on_text(message)
+        elif kind == "image":
+            self._on_image(message)
         elif kind == "call":
             self._on_call(message)
         elif kind == "discover":
@@ -991,6 +1014,25 @@ class _Channel:
             raise self._output_capped(f"{self._limits.output_messages} messages")
         self._output.append(value)
         self._output_bytes += size
+
+    def _on_image(self, message: dict[str, Any]) -> None:
+        data = message.get("data")
+        mime_type = message.get("mimeType")
+        # The prelude checks an image before it sends it; a line that fails
+        # the same check did not come from the prelude.
+        if (
+            not isinstance(data, str)
+            or not isinstance(mime_type, str)
+            or not is_base64(data)
+            or image_type(data) != mime_type
+        ):
+            raise _violation("the guest sent an image message that is not an image")
+        if self._image_bytes + len(data) > self._limits.image_bytes:
+            raise self._output_capped(f"{self._limits.image_bytes} bytes of images")
+        if len(self._output) >= self._limits.output_messages:
+            raise self._output_capped(f"{self._limits.output_messages} messages")
+        self._output.append(ScriptImage(data, mime_type))
+        self._image_bytes += len(data)
 
     @staticmethod
     def _output_capped(limit: str) -> _Stop:

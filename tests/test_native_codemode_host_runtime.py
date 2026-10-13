@@ -231,7 +231,7 @@ def test_a_print_flood_hits_the_output_cap(
     assert outcome.error is not None
     assert outcome.error.kind is ErrorKind.SCRIPT
     assert "output exceeded 200000 bytes" in outcome.error.message
-    assert outcome.output and outcome.output[0].startswith("flood")
+    assert outcome.output and outcome.texts[0].startswith("flood")
 
 
 def test_a_guest_blocked_in_a_read_ends_at_the_wall_limit(
@@ -271,7 +271,7 @@ def test_a_memory_blowup_is_recoverable_inside_the_script(
     )
     outcome = _run(paths, code, memory_bytes=64 * 1024 * 1024)
     assert outcome.ok, (outcome.error, outcome.diagnostics)
-    assert outcome.output[0].startswith("recovered after ")
+    assert outcome.texts[0].startswith("recovered after ")
 
 
 def test_an_uncaught_memory_blowup_still_reports_the_outcome(

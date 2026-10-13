@@ -147,7 +147,7 @@ def test_a_script_runs_calls_tools_and_completes(
             {"name": "read", "id": "read", "description": ""},
         ]
     )
-    assert json.loads(outcome.output[1]) == [
+    assert json.loads(outcome.texts[1]) == [
         {"type": "result", "id": 1, "ok": True, "text": "file body"},
         {"type": "result", "id": 2, "ok": False, "error": "denied"},
     ]
@@ -197,7 +197,7 @@ def test_a_reply_carries_text_a_structured_value_or_an_error(
     )
 
     assert outcome.ok, outcome
-    replies = json.loads(outcome.output[0])
+    replies = json.loads(outcome.texts[0])
     assert [reply["id"] for reply in replies] == list(range(1, len(names) + 1))
     by_name = dict(zip(names, replies, strict=True))
     assert by_name["stats"] == {
@@ -296,7 +296,7 @@ def test_a_reply_larger_than_the_reply_limit_becomes_a_tool_error(
     )
 
     assert outcome.ok, outcome
-    fits, large, text, error = json.loads(outcome.output[0])
+    fits, large, text, error = json.loads(outcome.texts[0])
     assert fits == {"type": "result", "id": 1, "ok": True, "value": 60_000}
     for reply, name in ((large, "large"), (text, "text"), (error, "error")):
         assert reply["ok"] is False
@@ -342,7 +342,7 @@ def test_an_unknown_tool_name_never_reaches_the_callback(
     )
     outcome = _run(monkeypatch, scenario)
     assert outcome.ok, outcome
-    reply = json.loads(outcome.output[0])
+    reply = json.loads(outcome.texts[0])
     assert reply["ok"] is False
     assert "Did you mean tools.read?" in reply["error"]
     assert outcome.calls == ()
@@ -647,7 +647,7 @@ def test_a_print_flood_hits_the_output_cap(
     assert outcome.error.kind is ErrorKind.SCRIPT
     assert fragment in outcome.error.message
     assert "write large data through a tool" in outcome.error.message
-    assert sum(len(item) for item in outcome.output) <= limits.output_bytes
+    assert sum(len(item) for item in outcome.texts) <= limits.output_bytes
     assert len(outcome.output) <= limits.output_messages
 
 

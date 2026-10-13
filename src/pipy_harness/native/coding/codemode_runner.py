@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import tempfile
 import threading
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    ProductContent,
+    TextContent,
+    ToolResultBlock,
+    tool_result_text,
+)
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
     NestedToolCallService,
@@ -25,6 +33,7 @@ from pipy_harness.native.codemode.outcome import (
     CallResult,
     ErrorKind,
     ScriptError,
+    ScriptImage,
     ScriptLimits,
     ScriptOutcome,
 )
@@ -32,6 +41,7 @@ from pipy_harness.native.codemode.result import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     ResultText,
     format_result,
+    join_output,
 )
 from pipy_harness.native.codemode.runtime import CodemodePaths
 from pipy_harness.native.coding.codemode_description import (
@@ -43,6 +53,7 @@ from pipy_harness.native.tools.base import (
     validate_arguments,
 )
 from pipy_harness.native.tools.codemode import codemode_definition
+from pipy_harness.native.tools.truncate import format_size
 
 
 def _spill_result(formatted: ResultText) -> tuple[str, dict[str, object]]:
@@ -80,6 +91,99 @@ def _spill_result(formatted: ResultText) -> tuple[str, dict[str, object]]:
                 pass
         notice = "Full output could not be saved; displayed output is truncated."
     return formatted.text + "\n\n" + notice, details
+
+
+def _spilled_items(formatted: ResultText, text: str) -> tuple[str | ScriptImage, ...]:
+    """The result's items once ``text`` names where its full text is.
+
+    A truncated result is its one text item, then its images; the notice of
+    the spill belongs to the text, before the images.
+    """
+
+    if formatted.full_output is None:
+        return formatted.items
+    images = [item for item in formatted.items if isinstance(item, ScriptImage)]
+    return (text.removeprefix(formatted.header), *images)
+
+
+# Pi ``IMAGE_EXTENSIONS``: every type the sandbox's ``image()`` detects.
+IMAGE_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+ImageSaver = Callable[[bytes, str], str]
+"""``(image bytes, file extension) -> path`` of the new file; may raise."""
+
+
+def save_image_file(data: bytes, extension: str) -> str:
+    """Write an image to a new temp file only the user can read."""
+
+    path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="pipy-codemode-", suffix=extension, delete=False
+        ) as handle:
+            path = handle.name
+            if handle.write(data) != len(data):
+                raise OSError("incomplete image write")
+    except OSError:
+        if path is not None:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    return path
+
+
+def _image_label(image: ScriptImage, save: ImageSaver) -> str:
+    """Pi ``saveImages``: where the image went, or why it went nowhere."""
+
+    data = base64.b64decode(image.data)
+    kind = f"{image.mime_type}, {format_size(len(data))}"
+    # A failed write (disk full, unwritable temp dir) must not discard the
+    # result of a script whose tool calls already ran: it is the label.
+    try:
+        path = save(data, IMAGE_EXTENSIONS[image.mime_type])
+    except Exception as error:  # noqa: BLE001 - whatever a save raises is the label
+        reason = str(error) or type(error).__name__
+        return f"[Image ({kind}) could not be saved: {reason}]"
+    return f"[Image saved to {path} ({kind})]"
+
+
+def result_content(
+    header: str,
+    items: Sequence[str | ScriptImage],
+    save: ImageSaver = save_image_file,
+) -> tuple[str, tuple[ToolResultBlock, ...]]:
+    """The text and the ordered blocks of a codemode result.
+
+    Pi ``saveImages``: each image is saved to a temp file and a text line
+    with its path precedes it, because the model has no other way to reach
+    its bytes. An image shown more than once is saved once. Adjacent texts
+    are one block, each part on its own line; the header leads the first.
+    """
+
+    labels: dict[str, str] = {}
+    blocks: list[ToolResultBlock] = []
+    run: list[str] = [header]
+
+    for item in items:
+        if isinstance(item, str):
+            run.append(item)
+            continue
+        if item.data not in labels:
+            labels[item.data] = _image_label(item, save)
+        run.append(labels[item.data])
+        blocks.append(TextContent(join_output(run)))
+        blocks.append(ImageContent(item.data, item.mime_type))
+        run = []
+    if run:
+        blocks.append(TextContent(join_output(run)))
+    return tool_result_text(blocks), tuple(blocks)
 
 
 class _RunControl:
@@ -178,6 +282,7 @@ class CodemodeCompositeRunner:
             malformed: bool = False,
             details: dict[str, object] | None = None,
             interruption: ToolExecutionInterruption = ToolExecutionInterruption.SETTLED,
+            blocks: tuple[ToolResultBlock, ...] = (),
         ) -> ToolExecutionOutcome:
             return ToolExecutionOutcome(
                 AgentToolResultMessage(
@@ -190,6 +295,7 @@ class CodemodeCompositeRunner:
                         **(details or {}),
                         "nestedCalls": service.durable_record(),
                     },
+                    blocks=blocks,
                 ),
                 malformed_arguments=malformed,
                 interruption=interruption,
@@ -245,8 +351,12 @@ class CodemodeCompositeRunner:
             )
             formatted = format_result(outcome)
             text, details = _spill_result(formatted)
+            text, blocks = result_content(
+                formatted.header, _spilled_items(formatted, text)
+            )
             return result(
                 text,
+                blocks=blocks,
                 details=details,
                 error=formatted.is_error,
                 interruption=control.interruption,

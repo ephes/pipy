@@ -141,6 +141,51 @@ emitting it.
 included in order. Filter before emitting: bulk raw results can exhaust output
 budgets and require another model turn.
 
+### Images
+
+`image(value)` adds an image to the result, where the model sees it as an
+image. `value` is one of:
+
+- an image block as MCP tools return it,
+  `{"type": "image", "data": <base64>, "mimeType": ...}`;
+- a base64 `data:` URL, `data:image/png;base64,...`;
+- a dict with `image_url`, whose value is such a URL.
+
+```python
+shot = tools.mcp__browser__screenshot({})
+for block in shot["content"]:
+    if block["type"] == "image":
+        image(block)
+```
+
+PNG, JPEG, GIF and WebP are accepted. The type is read from the first bytes
+of the data; the declared one is ignored. Line breaks of wrapped base64 are
+dropped. Everything else raises `TypeError` in the script, and nothing is
+added to the result: a remote URL (`remote image URLs are not supported in
+tool outputs. Pass a base64 data URI instead`), a string that is not a
+base64 `data:` URL, data that is not complete base64, data of another type
+(SVG, for example), and a value of another shape.
+
+Images appear in the result in the order of the script's output, between the
+text around them. Each image is also saved to a temp file that only you can
+read (`pipy-codemode-<random>.png`, `.jpg`, `.gif` or `.webp`), and a line
+`[Image saved to <path> (<type>, <size>)]` stands before it, so a later turn
+can copy or move the file. An image shown twice is saved once. When saving
+fails, the line is `[Image (<type>, <size>) could not be saved: <reason>]`
+and the image is still attached. Images are not cut by the output budget:
+when the text is over it, the text becomes one shortened block and the
+images follow it.
+
+A tool's own images do not reach the model through a script: a tool without
+an output schema returns its text, and an MCP tool returns its result with
+the image blocks in `content`. Only what the script passes to `image()` is
+attached.
+
+Different from Pi: Pi's scripts are JavaScript, where a string is a URL and
+an object a block; here a `dict` is the object. One script's images may hold
+16 MiB of base64 data together, apart from the 1 MiB of text; in Pi text and
+images share one limit of 16,777,216 characters.
+
 The tool description includes a runnable small-file read/filter example.
 Use returned strings directly: `tools.read()` is not a result object, and text
 files do not need JSON decoding. Keep intermediate reads in Python and emit the
@@ -194,6 +239,7 @@ With no match it lists the tools when there are at most 20.
 | --- | --- |
 | `tools.<identifier>(args)`, `tools["<name>"](args)` | Call a tool with one `dict` or with keyword arguments. |
 | `text(value)` | Emit a string unchanged, another value as JSON. |
+| `image(value)` | Add an image to the output; see [images](#images). |
 | `ToolError` | Raised by a tool call that failed. |
 | `ALL_TOOLS` | A list with one `{"name": ..., "description": ...}` for every callable tool, in registration order. `name` is the identifier (a key that calls the tool: `tools[entry["name"]]`); `description` is the tool's description, its prompt guidelines as `- ` lines when it has some, and its declaration. |
 | `search_tools(query, limit=8, namespace=None)` | Rank the callable tools by relevance to `query` and return up to `limit` entries shaped like those of `ALL_TOOLS`, best first. `namespace` restricts the search to the tools of one namespace. |
@@ -342,9 +388,10 @@ Scripts are not automatically retried after effects.
 | Wall deadline | 120 seconds, including startup and time inside tools |
 | Guest memory | 256 MiB; exhaustion raises catchable `MemoryError` |
 | Source | 256 KiB UTF-8, checked before spawning |
-| Protocol line | 1 MiB per line the script sends (a tool call with its arguments, an output message); violation fails the sandbox |
+| Protocol line | 1 MiB per line the script sends (a tool call with its arguments, a text message); violation fails the sandbox. An image message may be as long as the image limit allows |
 | Tool reply | 16 MiB as JSON per call; a larger result raises `ToolError` |
-| Emitted output | 1 MiB or 100,000 messages; excess fails the script |
+| Emitted output | 1 MiB of text or 100,000 messages (text and images); excess fails the script |
+| Emitted images | 16 MiB of base64 data in all; `image()` raises `ValueError` beyond it |
 | Result display | 10,000 estimated tokens (characters / 4), head and tail |
 | Worker diagnostics | 64 KiB stderr retained |
 | CPU backstop | wall deadline + 5 seconds |
@@ -400,6 +447,6 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-MCP tools, parallel calls, images, `models.*`,
+Parallel calls, image results from `read`, `models.*`,
 `store()`/`load()`, options lines and structured bash results are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

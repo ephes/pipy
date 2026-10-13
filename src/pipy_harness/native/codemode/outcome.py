@@ -48,6 +48,10 @@ class ScriptLimits:
     structured result can reach the script. A larger reply becomes a
     ``ToolError`` in the script.
 
+    ``output_bytes`` bounds the text a script emits and ``image_bytes`` the
+    base64 data of the images it shows with ``image()``; ``output_messages``
+    counts both. An image line may be as long as ``image_bytes`` allows.
+
     ``wall_seconds`` covers the whole run, nested tool time included. The
     guest's epoch backstop is set ``cpu_margin_seconds`` above it, because the
     epoch counts wall time, time blocked on a tool reply included, so the
@@ -61,6 +65,7 @@ class ScriptLimits:
     reply_bytes: int = 16 * MIB
     output_bytes: int = 1 * MIB
     output_messages: int = 100_000
+    image_bytes: int = 16 * MIB
     stderr_bytes: int = 64 * KIB
     cpu_margin_seconds: float = 5.0
 
@@ -136,6 +141,18 @@ class DiscoveryResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ScriptImage:
+    """One image a script showed with ``image()``: base64 data of a PNG,
+    JPEG, GIF or WebP image and its type, both checked by the host."""
+
+    data: str
+    mime_type: str
+
+    def __repr__(self) -> str:
+        return f"ScriptImage({self.mime_type}, {len(self.data)} characters)"
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCallRecord:
     name: str
     status: CallStatus
@@ -154,14 +171,14 @@ class ScriptError:
 class ScriptOutcome:
     """The result of one run; the runner never raises, it returns this.
 
-    ``output`` holds the script's ``text``/``print`` messages in order (at
-    most the output caps). ``calls`` lists every tool call the callback ran,
+    ``output`` holds the script's ``text``/``print`` messages and its
+    ``image()`` images in order (at most the output caps). ``calls`` lists every tool call the callback ran,
     in order. ``diagnostics`` is the worker's capped stderr and exit report,
     for humans only; it is never parsed and never shown to the model.
     """
 
     error: ScriptError | None
-    output: tuple[str, ...] = ()
+    output: tuple[str | ScriptImage, ...] = ()
     calls: tuple[ToolCallRecord, ...] = ()
     wall_seconds: float = 0.0
     diagnostics: str = ""
@@ -169,3 +186,9 @@ class ScriptOutcome:
     @property
     def ok(self) -> bool:
         return self.error is None
+
+    @property
+    def texts(self) -> tuple[str, ...]:
+        """The text messages of ``output``, without its images."""
+
+        return tuple(item for item in self.output if isinstance(item, str))

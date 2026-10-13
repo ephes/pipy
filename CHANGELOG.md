@@ -38,7 +38,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   images themselves after the result. An image an MCP tool returns and an
   image resource read with `read_mcp_resource` now reach the model as
   images, where they were the text `[image <mime> omitted]`; see
-  [images in results](docs/mcp.md#images-in-results).
+  [images in results](docs/mcp.md#images-in-results). A codemode script
+  shows an image with `image(value)` (an MCP image block, a base64 `data:`
+  URL or a dict with `image_url`); the result attaches it after a line with
+  the path of the temp file it was saved to. See
+  [codemode images](docs/codemode.md#images).
 
 - More of the OAuth library for MCP servers.
   `pipy_harness.native.mcp.oauth` now holds the authorization code flow (stored or dynamically registered

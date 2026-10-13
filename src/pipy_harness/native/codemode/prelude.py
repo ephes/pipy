@@ -27,6 +27,9 @@ stdin and stdout carry it:
 - guest -> host: ``{"type": "text", "value": str}``, one per ``text()`` call,
   ``print()`` call or direct write to ``sys.stdout``/``sys.stderr``, in order
   and never buffered
+- guest -> host: ``{"type": "image", "data": str, "mimeType": str}``, one per
+  ``image()`` call, in order with the text messages: base64 data of a PNG,
+  JPEG, GIF or WebP image and the type its first bytes show
 - guest -> host, last: ``{"type": "done", "ok": true}`` or ``{"type": "done",
   "ok": false, "error": {"type": str, "message": str, "traceback": str}}``
 
@@ -59,6 +62,17 @@ MAX_LISTED_TOOLS = 20
 MAX_CLOSE_MATCHES = 5
 DISCOVERY_NAMES = ("search_tools", "describe_tool", "describe_namespace")
 DEFAULT_SEARCH_LIMIT = 8
+
+# Pi's output cap for one script: characters of base64 image data. The host
+# enforces its own (``ScriptLimits.image_bytes``); a test pins that they match.
+MAX_IMAGE_CHARS = 16 * 1024 * 1024
+IMAGE_HELPER_EXPECTS = (
+    "image expects a non-empty image URL string, an object with image_url, or "
+    'an image block {"type": "image", "data", "mimeType"}'
+)
+_BASE64_ALPHABET = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+)
 
 _builtin_print = builtins.print
 
@@ -296,6 +310,133 @@ def text_value(value: object) -> str:
         return repr(value)
 
 
+def image_type(data: str) -> str | None:
+    """The type the first bytes of base64 ``data`` show, of the formats
+    providers accept inline: PNG, JPEG (not JPEG-LS), GIF and WebP.
+
+    Pi's ``IMAGE_SIGNATURES``: a signature starts at byte 0, so its base64 is
+    a prefix of the data.
+    """
+
+    if data.startswith("iVBORw0KGg"):
+        return "image/png"
+    if data.startswith("/9j/") and data[4:5] != "9":
+        return "image/jpeg"
+    if data.startswith(("R0lGODdh", "R0lGODlh")):
+        return "image/gif"
+    if data.startswith("UklG") and data[12:16] == "RUJQ":
+        return "image/webp"
+    return None
+
+
+def is_base64(data: str) -> bool:
+    """Whether ``data`` is complete, padded standard base64."""
+
+    body = data.rstrip("=")
+    return (
+        bool(body)
+        and len(data) % 4 == 0
+        and len(data) - len(body) <= 2
+        and _BASE64_ALPHABET.issuperset(body)
+    )
+
+
+def image_data_url(value: object) -> str:
+    """The URL of an ``image()`` argument (Pi ``imageUrl``)."""
+
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, dict):
+        raise TypeError(IMAGE_HELPER_EXPECTS)
+    if "image_url" in value:
+        if not isinstance(value["image_url"], str):
+            raise TypeError(IMAGE_HELPER_EXPECTS)
+        return value["image_url"]
+    kind = value.get("type")
+    if not isinstance(kind, str):
+        raise TypeError(IMAGE_HELPER_EXPECTS)
+    if kind != "image":
+        raise TypeError(f'image only accepts image blocks, got "{kind}"')
+    data = value.get("data")
+    if not isinstance(data, str) or not data:
+        raise TypeError("image expected image block data")
+    if data[:5].lower() == "data:":
+        return data
+    return "data:;base64," + data
+
+
+def checked_image(value: object) -> tuple[str, str]:
+    """The base64 data and detected type of an ``image()`` argument.
+
+    Pi's ``image``: a base64 ``data:`` URL, an ``{"image_url"}`` object or an
+    image block. Providers reject a whole request for one bad image, and a
+    stored image is sent again on every later turn, so the data is checked
+    here: line breaks of wrapped base64 are dropped, and the declared type
+    is ignored in favour of the detected one. Anything else raises
+    ``TypeError`` in the script.
+    """
+
+    url = image_data_url(value)
+    if url == "":
+        raise TypeError(IMAGE_HELPER_EXPECTS)
+    colon = url.find(":")
+    scheme = "" if colon == -1 else url[:colon].lower()
+    if scheme in ("http", "https"):
+        raise TypeError(
+            "remote image URLs are not supported in tool outputs. "
+            "Pass a base64 data URI instead"
+        )
+    comma = url.find(",")
+    header = [] if comma == -1 else url[colon + 1 : comma].split(";")
+    if (
+        scheme != "data"
+        or comma == -1
+        or all(part.lower() != "base64" for part in header[1:])
+    ):
+        raise TypeError("invalid image output. Pass a base64 data URI instead")
+    data = "".join(url[comma + 1 :].split())
+    if not is_base64(data):
+        raise TypeError(
+            "invalid image output. The image data is not valid base64 "
+            "(truncated or corrupted?)"
+        )
+    mime_type = image_type(data)
+    if mime_type is None:
+        raise TypeError(
+            "invalid image output. The image data is not a PNG, JPEG, GIF, "
+            "or WebP image"
+        )
+    return data, mime_type
+
+
+def image_helper(
+    emit: Callable[[str, str], None], limit: int = MAX_IMAGE_CHARS
+) -> Callable[[object], None]:
+    """The script's ``image``: checks its argument, then emits the image.
+
+    All images of one script together may hold ``limit`` characters of
+    base64 data; the image that would pass it raises ``ValueError``.
+    """
+
+    shown = 0
+
+    def image(value: object, /) -> None:
+        """Add an image to the output: a base64 ``data:`` URL, a dict with
+        ``image_url``, or an image block as MCP tools return it."""
+
+        nonlocal shown
+        data, mime_type = checked_image(value)
+        if shown + len(data) > limit:
+            raise ValueError(
+                f"the script's images exceeded {limit} characters of base64 "
+                "data; show fewer or smaller images"
+            )
+        shown += len(data)
+        emit(data, mime_type)
+
+    return image
+
+
 class TextStream(io.TextIOBase):
     """A ``sys.stdout`` whose every write becomes one ``text`` message."""
 
@@ -450,6 +591,10 @@ class Wire:
     def text(self, value: str) -> None:
         self.send({"type": "text", "value": value})
 
+    def image(self, data: str, mime_type: str) -> None:
+        # ``type`` first: the host tells an image line by how it starts.
+        self.send({"type": "image", "data": data, "mimeType": mime_type})
+
     def _exchange(self, message: dict[str, Any], label: str) -> dict[str, Any]:
         """Send one request with the next id and return its ``result`` line."""
 
@@ -553,6 +698,7 @@ def main() -> None:
         "tools": Tools(keys, [entry["name"] for entry in all_tools], wire.call),
         "ALL_TOOLS": all_tools,
         "text": text,
+        "image": image_helper(wire.image),
         "ToolError": ToolError,
         **discovery_helpers(wire.discover),
     }
