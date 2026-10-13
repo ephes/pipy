@@ -56,3 +56,19 @@ def is_mcp_tool_name(name: str) -> bool:
     """
 
     return name.startswith(MCP_TOOL_NAME_PREFIX) or name in MCP_RESOURCE_TOOL_NAMES
+
+
+_MCP_SERVER_TOOL_NAME = re.compile("mcp__(.+?)__(.+)")
+
+
+def mcp_tool_label_from_name(name: str) -> str | None:
+    """``<server>/<tool>`` as far as the name of a server tool tells it.
+
+    Pi's tool renderer resolver (``extensions/mcp/index.ts``) titles a call
+    to a tool that is not registered this way: the server part ends at the
+    first ``__``. A registered tool has the exact names; see
+    ``McpToolPort.label``.
+    """
+
+    match = _MCP_SERVER_TOOL_NAME.fullmatch(name)
+    return None if match is None else f"{match[1]}/{match[2]}"

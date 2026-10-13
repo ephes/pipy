@@ -806,6 +806,13 @@ def _port(caller: Any, **overrides: Any) -> McpToolPort:
     return McpToolPort(**options)
 
 
+def test_a_port_has_the_title_of_its_calls() -> None:
+    # Pi `createMcpToolDefinition`: label `<server>/<tool>`, the tool's name
+    # as its server lists it.
+    assert _port(object()).label == "docs/get.item"
+    assert _port(object(), server="my-docs").label == "my-docs/get.item"
+
+
 def _invoke(
     port: McpToolPort,
     arguments: dict[str, Any],

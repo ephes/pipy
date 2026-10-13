@@ -13,6 +13,7 @@ import io
 import json
 import re
 import threading
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -296,6 +297,63 @@ def test_restored_turn_rows_equal_the_rows_a_live_turn_commits(
     ]
     assert _box(live[3][1]) == [("success", "read a.txt")]
     assert _box(live[4][1]) == [("error", "$ false"), ("error", "boom")]
+
+
+def test_restored_mcp_calls_get_mcp_rows_without_their_server(
+    tmp_path: Path,
+) -> None:
+    """RND-03, Pi regression 10285: a resumed session draws the calls to MCP
+    tools before their server connected, and when it never does."""
+
+    search = _call("c1", "mcp__my_docs__search", {"query": "pi"})
+    failing = _call("c2", "mcp__my_docs__fetch", {"id": 7})
+    unanswered = _call("c3", "mcp__my_docs__wipe", {})
+    output = "\n".join(f"hit {n}" for n in range(8))
+    details = {"server": "my-docs", "tool": "search", "fullOutputPath": "/tmp/o.txt"}
+
+    def drive(renderer: TuiToolLoopRenderer) -> None:
+        renderer.render_user_message("search")
+        renderer.complete_assistant_message(has_tool_calls=True)
+        renderer.render_tool_call(search)
+        renderer.render_tool_result(output_text=output, is_error=False, details=details)
+        renderer.render_tool_call(failing)
+        renderer.render_tool_result(output_text="no such page", is_error=True)
+
+    live = _live_rows(tmp_path / "live", drive)
+
+    terminal = _Terminal(tmp_path / "restored")
+    terminal.tree.append_message(_user("search"))
+    terminal.tree.append_message(_assistant("", search, failing, unanswered))
+    terminal.tree.append_message(
+        replace(_result("c1", "mcp__my_docs__search", output), details=details)
+    )
+    terminal.tree.append_message(
+        _result("c2", "mcp__my_docs__fetch", "no such page", is_error=True)
+    )
+    terminal.history.render_active_branch()
+
+    restored = terminal.rows()
+    assert restored[:3] == live
+    boxes = [_box(lines) for kind, lines in restored if kind == "tool_box"]
+    assert boxes == [
+        [
+            ("success", 'my_docs/search query="pi"'),
+            *[("success", f"hit {n}") for n in range(5)],
+            ("success", "... (3 more lines, ctrl+o to expand)"),
+            ("success", "Full output: /tmp/o.txt"),
+        ],
+        [("error", "my_docs/fetch id=7"), ("error", "no such page")],
+        [("pending", "my_docs/wipe")],
+    ]
+
+    # Ctrl+O draws the stored rows again, expanded.
+    terminal.transcript.set_tools_expanded(True)
+    expanded = [_box(lines) for kind, lines in terminal.rows() if kind == "tool_box"]
+    assert expanded[0] == [
+        ("success", "my_docs/search"),
+        ("success", "  query: pi"),
+        *[("success", f"hit {n}") for n in range(8)],
+    ]
 
 
 def test_a_call_without_a_result_renders_only_its_call_row(tmp_path: Path) -> None:

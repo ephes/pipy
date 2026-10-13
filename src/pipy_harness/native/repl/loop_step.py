@@ -337,7 +337,9 @@ class _RequestPreparationEffects:
                 "estimated request exceeds the context window; reduce input/tool context, compact, or correct the context limit/reserve",
             )
         scope.renderer.refresh_tool_renderers(
-            scope.execution_projections.tool_renderers(snapshot.advertised_tool_names)
+            scope.execution_projections.tool_renderer_lookup(
+                snapshot.advertised_tool_names
+            )
         )
         scope.coding_state.validate_run_context(context)
         return AgentLoopRequestPreparation(context.messages, snapshot)

@@ -79,6 +79,7 @@ _WRITE_PREVIEW_LINES = 10
 _GREP_PREVIEW_LINES = 15
 _FIND_LS_PREVIEW_LINES = 20
 _BASH_PREVIEW_LINES = 5
+_MCP_PREVIEW_LINES = 5
 _COLLAPSED_ARGS_CHARS = 100
 _COMPACT_RESOURCE_FILE_NAMES = frozenset(
     {"AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"}
@@ -190,6 +191,9 @@ class ToolRowState:
     args: dict[str, Any]
     cwd: Path
     extension: ExtensionTool | None = None
+    # `<server>/<tool>` when the call is drawn as an MCP tool's (Pi
+    # `createMcpToolRenderers`); never together with `extension`.
+    mcp_label: str | None = None
     renderer_state: dict[str, object] = field(default_factory=dict)
     preview: EditPreview | None = None
     settled_error: bool = False
@@ -403,10 +407,20 @@ def format_tool_call_with_args(
             parts = _replace_tabs(text).replace("\r", "").split("\n")
             lines.append(f"  {key}: " + "\n    ".join(parts))
         return f"{header}\n{theme.fg('muted', chr(10).join(lines))}"
+    return f"{header} {theme.fg('muted', _collapsed_pairs(entries))}"
+
+
+def _collapsed_pairs(entries: list[tuple[Any, Any]]) -> str:
     pairs = " ".join(f"{key}={_json_compact(value)}" for key, value in entries)
     if len(pairs) > _COLLAPSED_ARGS_CHARS:
         pairs = pairs[: _COLLAPSED_ARGS_CHARS - 3] + "..."
-    return f"{header} {theme.fg('muted', pairs)}"
+    return pairs
+
+
+def collapsed_tool_args(args: Mapping[str, Any]) -> str:
+    """The arguments of a collapsed generic call header, unstyled."""
+
+    return _collapsed_pairs(list(args.items()))
 
 
 # ---------------------------------------------------------------------------
@@ -1027,6 +1041,56 @@ def _bash_preview_rows(
     return rows
 
 
+def _mcp_result_rows(
+    result: ToolRowResult,
+    theme: RowTheme,
+    key: str,
+    bg: RowBackground,
+    *,
+    expanded: bool,
+    partial: bool,
+    width: int,
+) -> list[RowLine]:
+    """Pi ``createMcpToolRenderers`` ``renderResult``.
+
+    Collapsed, the first 5 visual lines at the box's width: an MCP result is
+    often one long JSON line. A running call's progress is appended to its
+    partial output, one line per notification, where Pi replaces the partial
+    result; the row shows the last line.
+    """
+
+    output = _js_trim(_text_output(result.content))
+    if partial:
+        output = output.rsplit("\n", 1)[-1]
+    if not output:
+        return []
+    color = "error" if result.is_error else "toolOutput"
+    styled = "\n".join(
+        theme.fg(color, line) for line in _replace_tabs(output).split("\n")
+    )
+    if expanded:
+        return [RowLine("", bg), *_text_rows(styled, bg)]
+    content_width = max(1, width - 2)
+    visual = _visual_lines(styled, content_width)
+    hidden = max(0, len(visual) - _MCP_PREVIEW_LINES)
+    rows = [RowLine("", bg)]
+    rows.extend(RowLine(line, bg, False) for line in visual[:_MCP_PREVIEW_LINES])
+    if hidden:
+        hint = (
+            theme.fg("muted", f"... ({hidden} more lines,")
+            + " "
+            + _key_hint(theme, key, "to expand")
+            + theme.fg("muted", ")")
+        )
+        rows.append(RowLine(_truncate_to_width(hint, content_width), bg, False))
+    # The preview hides the truncation notice at the end of the text.
+    details = result.details
+    full_path = details.get("fullOutputPath") if details is not None else None
+    if isinstance(full_path, str) and full_path:
+        rows.extend(_text_rows(theme.fg("muted", f"Full output: {full_path}"), bg))
+    return rows
+
+
 def _bash_warnings(
     truncation: Mapping[str, Any] | None, full_path: str | None
 ) -> list[str]:
@@ -1331,8 +1395,9 @@ def _call_rows(
     if state.extension is None and name in BUILTIN_RENDERED_TOOLS:
         text = _builtin_call(state, inputs)
     else:
+        title = name if state.extension is not None else state.mcp_label or name
         text = format_tool_call_with_args(
-            theme, name, state.args, expanded=inputs.expanded
+            theme, title, state.args, expanded=inputs.expanded
         )
     return _text_rows(text, bg)
 
@@ -1356,6 +1421,39 @@ def _builtin_call(state: ToolRowState, inputs: RowRenderInputs) -> str:
     return _bash_call(theme, args)
 
 
+def _other_result_rows(
+    state: ToolRowState,
+    inputs: RowRenderInputs,
+    result: ToolRowResult,
+    bg: RowBackground,
+    *,
+    partial: bool,
+) -> list[RowLine] | None:
+    """The result of a tool without a built-in renderer; None for a built-in."""
+
+    theme = inputs.theme
+    key = inputs.expand_key
+    expanded = inputs.expanded
+    if state.extension is not None:
+        lines = _render_extension(state, inputs, result=result)
+        if lines is not None:
+            return [RowLine(line, bg, False) for line in lines]
+        return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
+    if state.mcp_label is not None:
+        return _mcp_result_rows(
+            result,
+            theme,
+            key,
+            bg,
+            expanded=expanded,
+            partial=partial,
+            width=inputs.width,
+        )
+    if state.tool_name not in BUILTIN_RENDERED_TOOLS:
+        return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
+    return None
+
+
 def _result_rows(
     state: ToolRowState,
     inputs: RowRenderInputs,
@@ -1368,13 +1466,9 @@ def _result_rows(
     key = inputs.expand_key
     expanded = inputs.expanded
     name = state.tool_name
-    if state.extension is not None:
-        lines = _render_extension(state, inputs, result=result)
-        if lines is not None:
-            return [RowLine(line, bg, False) for line in lines]
-        return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
-    if name not in BUILTIN_RENDERED_TOOLS:
-        return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
+    other = _other_result_rows(state, inputs, result, bg, partial=partial)
+    if other is not None:
+        return other
     if name == "bash":
         return _bash_result_rows(
             state,
@@ -1452,6 +1546,7 @@ __all__ = [
     "ToolRowResult",
     "ToolRowState",
     "apply_edit_result",
+    "collapsed_tool_args",
     "compute_edit_preview",
     "encode_rows",
     "format_tool_call_with_args",

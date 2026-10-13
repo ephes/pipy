@@ -89,6 +89,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `/mcp login` printed the URL as a notice and could not take a pasted URL
   before. Outside the terminal UI `/mcp` prints the status as before. See
   [the `/mcp` manager](docs/mcp.md#the-mcp-manager).
+- Calls to MCP server tools have their own rows in the terminal: the title
+  is `<server>/<tool>` in place of the pipy name, a collapsed result shows
+  its first 5 lines counted after wrapping (a result is often one long line
+  of JSON) with `... (<n> more lines, ctrl+o to expand)` and, for a
+  shortened result, `Full output: <path>`; a running call shows its last
+  progress line. A resumed session draws such calls the same way before the
+  server connected, and when it never does. Before, these calls had the
+  generic row: the pipy name as title and the first 10 lines of the result.
+  See [how a call is shown](docs/mcp.md#how-a-call-is-shown).
 - `/mcp login [server]` signs in to an OAuth MCP server from a session in
   the terminal: it shows the authorization URL, opens the browser, waits for
   it and connects the server; Escape cancels. `/mcp logout [server]` deletes

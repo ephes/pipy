@@ -714,6 +714,12 @@ class McpToolPort:
 
         return self._tool
 
+    @property
+    def label(self) -> str:
+        """The title of the tool's calls in the transcript (Pi ``label``)."""
+
+        return f"{self._server}/{self._tool}"
+
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         try:
             converted = self._call(dict(request.arguments), context)

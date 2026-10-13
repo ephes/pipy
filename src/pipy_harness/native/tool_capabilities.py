@@ -420,6 +420,21 @@ class NativeToolCapabilitySnapshot:
             for definition in declared
         )
 
+    def mcp_tool_labels(self) -> dict[str, str]:
+        """The transcript title of each registered MCP server tool, by name.
+
+        A port says it with ``label`` (``McpToolPort``: ``<server>/<tool>``);
+        the resource tools have none.
+        """
+
+        labels: dict[str, str] = {}
+        accepted = _accepted_mcp_tools(self.state.registry, self.state.mcp_registry)
+        for name, port in accepted.items():
+            label = getattr(port, "label", None)
+            if isinstance(label, str):
+                labels[name] = label
+        return labels
+
     def hidden_declarations(self) -> frozenset[str]:
         """Declared tools whose declarations requests leave out (Pi
         ``_hiddenDeclarations``). They stay active and callable from scripts."""

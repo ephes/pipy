@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -433,3 +434,40 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         event.call.provider_correlation_id == f"parent0/{i}"
         for i, event in enumerate(completed, 1)
     )
+
+
+def test_nested_mcp_calls_are_rows_of_the_codemode_row(tmp_path: Path) -> None:
+    """RND-04: like built-in nested calls, under the tool's pipy name (Pi
+    ``CodemodeNestedCall.name`` is the tool's name)."""
+
+    live = _Live(tmp_path)
+    live.width = 100
+    adapter = RenderingAgentEventAdapter(live.renderer)
+    parent = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    search = AgentToolCall(
+        "parent/1", "mcp__docs__search", ProductContent('{"query":"pi"}')
+    )
+    read = AgentToolCall("parent/2", "read", ProductContent('{"path":"a"}'))
+    adapter.emit(ToolCallStarted(0, parent))
+    adapter.emit(NestedToolCallStarted(0, "parent", search))
+    assert '… mcp__docs__search {"query":"pi"}' in _plain(
+        live.transcript.pending_tool_lines
+    )
+    adapter.emit(_end(search, error=True))
+    adapter.emit(NestedToolCallStarted(0, "parent", read))
+    adapter.emit(_end(read))
+    live.renderer.render_tool_result(output_text="done", is_error=False)
+    assert live.rows() == [
+        [
+            "codemode",
+            '✗ mcp__docs__search {"query":"pi"} 125ms',
+            '✓ read {"path":"a"} 125ms',
+            "done",
+        ]
+    ]
+
+    stream = io.StringIO()
+    plain = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+    plain.render_tool_call(parent)
+    plain.render_nested_tool_call(_end(search))
+    assert '  ✓ mcp__docs__search {"query":"pi"} 125ms' in stream.getvalue()

@@ -48,6 +48,7 @@ from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilitySnapshot,
     ToolCapabilityState,
 )
+from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.tools import ToolDefinition, ToolPort
 from pipy_harness.native.tui import _LiveExtensionUiDriver
 
@@ -204,6 +205,17 @@ class SessionExecutionProjections:
     ) -> Mapping[str, ExtensionTool]:
         renderers = self._require_active().renderers
         return {name: renderers[name] for name in advertised_names if name in renderers}
+
+    def tool_renderer_lookup(
+        self, advertised_names: Sequence[str]
+    ) -> ToolRendererLookup:
+        """What draws this provider turn's tool calls: the renderers of its
+        advertised extension tools and the titles of its MCP server tools."""
+
+        return ToolRendererLookup(
+            tools=self.tool_renderers(advertised_names),
+            mcp_labels=self._require_active().tools.mcp_tool_labels(),
+        )
 
     def tool_call_policy_inputs(
         self,

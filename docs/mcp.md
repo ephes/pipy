@@ -1465,6 +1465,39 @@ cannot be written the last line is `[Could not save the full output:
 <reason>]`. The result's details are `{server, tool}`, plus `fullOutputPath`
 when the file was written.
 
+### How a call is shown
+
+In the terminal a call to a server tool is a row titled `<server>/<tool>`,
+with the names as the server and its configuration give them
+(`my-server/get.item/v2`, not the pipy name). A character of a name that
+is not printable, such as a control character, is shown as a space.
+
+- Collapsed, the arguments follow the title as `key=value` pairs with JSON
+  values, cut to 100 characters. Expanded with Ctrl+O, each argument is a
+  `key: value` line below the title; a string is shown as it is, anything
+  else as indented JSON.
+- A collapsed result shows its first 5 lines, counted after wrapping to the
+  width of the row, because a result is often one long line of JSON. Below
+  them is `... (<n> more lines, ctrl+o to expand)`, and
+  `Full output: <path>` when the text was shortened and saved to a file.
+  Expanded, the row shows the whole text. A result without text adds
+  nothing to the row.
+- An error is shown in the error colour.
+- While a call runs, the row shows the last progress line.
+
+A call whose tool is not registered is shown the same way: in a resumed
+session before the server connected, when it never connects, and for a tool
+the server no longer has. Its title then comes from the pipy name, split at
+the first `__` after `mcp__`: `mcp__my_server__get_item_v2` is shown as
+`my_server/get_item_v2`. The resource tools have rows like any other tool
+without a renderer of its own.
+
+A script's calls to server tools are lines inside the `codemode` row, like
+its calls to built-in tools, under the tool's pipy name.
+
+Without the terminal UI, the call's line is the same title with the
+collapsed arguments; the result is printed like any other tool's.
+
 ### What a script sees
 
 A script gets the whole result as the server sent it, without `_meta`:
@@ -1483,7 +1516,12 @@ Differences from Pi in tools:
 - Arguments are checked against the server's schema but not converted
   (`"3"` stays a string).
 - Progress is added to the call's live output line by line; Pi replaces the
-  call's preliminary result.
+  call's preliminary result. The call's row shows the last line, so a
+  progress message of several lines shows only its last one.
+- The row of a call is drawn by pipy itself, not by renderers that an
+  extension could wrap, and a call to `mcp__<server>__<tool>` gets it also
+  with MCP turned off. In Pi the MCP extension's renderers do it, so with
+  `--no-mcp` such a call in a resumed session has the generic row.
 - A resource link without a `uri` or `name` is shown as
   `[unsupported MCP content resource_link]`.
 - The message of a failed call is cut to 20 KB like a result; nothing is

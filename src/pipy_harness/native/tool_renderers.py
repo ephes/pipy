@@ -41,9 +41,15 @@ from pipy_harness.native.extension_ui import coerce_tool_render_lines
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.tool_headers import pi_tool_call_header
+from pipy_harness.native.tool_renderer_lookup import (
+    McpToolRows,
+    ToolRendererLookup,
+    as_tool_renderer_lookup,
+)
 from pipy_harness.native.tool_rows import (
     NestedToolLine,
     bounded_nested_text,
+    collapsed_tool_args,
     nested_line_text,
 )
 
@@ -254,7 +260,7 @@ class _ToolLoopRenderer:
         *,
         output_stream: TextIO,
         error_stream: TextIO,
-        tool_renderers: "Mapping[str, ExtensionTool] | None" = None,
+        tool_renderers: "Mapping[str, ExtensionTool] | ToolRendererLookup | None" = None,
     ) -> None:
         self._output_stream = output_stream
         self._error_stream = error_stream
@@ -283,16 +289,16 @@ class _ToolLoopRenderer:
         self._working_thread: threading.Thread | None = None
         self._reasoning_active = False
         self._reasoning_emitted_any = False
-        self._tool_renderers = dict(tool_renderers or {})
+        self._tool_renderers = as_tool_renderer_lookup(tool_renderers)
         self._pending_render: _PendingCapturedToolRender | None = None
         self._pending_tool: "ExtensionTool | None" = None
         self._last_tool_name = ""
         self._last_arguments: dict[str, object] = {}
 
     def refresh_tool_renderers(
-        self, tool_renderers: "Mapping[str, ExtensionTool]"
+        self, tool_renderers: "Mapping[str, ExtensionTool] | ToolRendererLookup"
     ) -> None:
-        self._tool_renderers = dict(tool_renderers)
+        self._tool_renderers = as_tool_renderer_lookup(tool_renderers)
 
     @staticmethod
     def _compute_enabled(stream: TextIO) -> bool:
@@ -750,7 +756,9 @@ class _ToolLoopRenderer:
         self._last_arguments = _parse_tool_input(call.arguments_json.value)
         self._pending_render = None
         self._pending_tool = None
-        tool = self._tool_renderers.get(call.tool_name)
+        resolved = self._tool_renderers.resolve(call.tool_name)
+        mcp_label = resolved.label if isinstance(resolved, McpToolRows) else None
+        tool = None if isinstance(resolved, McpToolRows) else resolved
         if tool is not None:
             args = _parse_tool_input(call.arguments_json.value)
             state: dict[str, object] = {}
@@ -784,7 +792,7 @@ class _ToolLoopRenderer:
         # --- existing default body ---
         self._error_stream.write(self._tool_panel_blank_line())
         rendered = self._format_pi_call_header_rich(
-            call.tool_name, call.arguments_json.value
+            call.tool_name, call.arguments_json.value, mcp_label=mcp_label
         )
         self._error_stream.write(self._tool_panel_rich_line(rendered))
         self._error_stream.write(self._tool_panel_blank_line())
@@ -1069,7 +1077,7 @@ class _ToolLoopRenderer:
         return f":{start_line}"
 
     def _format_pi_call_header_rich(
-        self, tool_name: str, arguments_json: str
+        self, tool_name: str, arguments_json: str, *, mcp_label: str | None = None
     ) -> list[tuple[str, str]]:
         """Return a list of (text, style) segments for a tool-call header.
 
@@ -1105,6 +1113,13 @@ class _ToolLoopRenderer:
         if header is not None:
             title, rest = header
             return [(title, bold), (" ", plain), (rest, plain)]
+        if mcp_label is not None:
+            # Pi `createMcpToolRenderers`: `<server>/<tool>` and the arguments.
+            pairs = collapsed_tool_args(data)
+            return [
+                (mcp_label, bold),
+                *([(" ", plain), (pairs, plain)] if pairs else []),
+            ]
         preview = self._argument_preview(arguments_json)
         return [(f"{tool_name}({preview})", bold)]
 

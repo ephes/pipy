@@ -457,6 +457,12 @@ text({'hits': found['structuredContent']['hits'],
     assert rejected.is_error
     assert rejected.content.value == "unknown tool: mcp__docs__search"
     assert _tool_calls(record) == [("search", {"query": "pipy"}), ("fail", {})]
+    # RND-04: the nested MCP calls are rows of the codemode row.
+    nested = [line.strip() for line in errors.splitlines()]
+    assert any(
+        line.startswith('✓ mcp__docs__search {"query": "pipy"}') for line in nested
+    ), errors
+    assert any(line.startswith("✗ mcp__docs__fail {}") for line in nested), errors
     assert "stdin-closed" in _events(record)
 
 
@@ -703,6 +709,37 @@ def test_the_first_prompt_waits_for_a_server_with_direct_tools(
         "pipy guide\npipy faq"
     )
     assert STILL_CONNECTING_NOTICE not in errors
+
+
+def test_a_registered_mcp_tools_call_is_titled_with_its_server_and_tool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # RND-01: the exact names, where the tool's pipy name has `my_docs`.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers", "my-docs")
+    _write_mcp_json(config / "mcp.json", {"my-docs": {**entry, "exposure": "direct"}})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "mcp__my_docs__search", '{"query": "q"}'),
+                    # No tool has this name; the name tells the title.
+                    ProviderToolCall("c2", "mcp__my_docs__gone", "{}"),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    lines = [line.strip() for line in errors.splitlines()]
+    assert 'my-docs/search query="q"' in lines
+    assert "my_docs/gone" in lines
 
 
 def test_the_first_prompt_waits_for_a_single_direct_tool(

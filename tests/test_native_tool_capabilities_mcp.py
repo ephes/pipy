@@ -432,6 +432,34 @@ def test_a_pinned_snapshot_is_unchanged_by_later_mcp_tools(tmp_path: Path) -> No
     assert _callable(tools) == {"read", "bash"}
 
 
+class _Labeled(_Tool):
+    """A server tool's port: it has the title of its calls."""
+
+    def __init__(self, name: str, label: str) -> None:
+        super().__init__(name)
+        self.label = label
+
+
+def test_a_snapshot_has_the_titles_of_its_mcp_server_tools(tmp_path: Path) -> None:
+    # RND-01: a registered tool's calls are titled with its exact names.
+    tools = _session(tmp_path)
+    tools.publish_mcp_tools(
+        {
+            "mcp__my_docs__search": _Labeled("mcp__my_docs__search", "my-docs/search"),
+            # The resource tools have no title of their own.
+            "list_mcp_resources": _Tool("list_mcp_resources"),
+            # A built-in tool has the name: the MCP tool is left out.
+            "read": _Labeled("read", "docs/read"),
+        }
+    )
+    pinned = tools.callable_snapshot()
+
+    tools.publish_mcp_tools({})
+
+    assert pinned.mcp_tool_labels() == {"mcp__my_docs__search": "my-docs/search"}
+    assert tools.callable_snapshot().mcp_tool_labels() == {}
+
+
 def test_published_mcp_registry_is_a_read_only_copy(tmp_path: Path) -> None:
     tools = _session(tmp_path)
     mcp = _mcp(search="direct")

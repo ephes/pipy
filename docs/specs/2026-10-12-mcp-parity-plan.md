@@ -1619,6 +1619,46 @@ Decided in S34 (the `/mcp` manager; `manager_menus.py`, `manager_flow.py`,
   `/mcp` appears after the manager was closed (see "Decided in S19"). The
   poll hook of the key loop could show them while the session is idle.
 
+Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
+`tool_renderers.py`, `ui/components/tool_loop_renderer.py`,
+`repl/execution_projections.py`):
+
+- MCP rows are drawn by `tool_rows` like the built-in tools' rows, not
+  through `ExtensionTool.render_call`/`render_result`: a row's state has
+  `mcp_label` (`<server>/<tool>`), the call is Pi's
+  `formatToolCallWithArgs` with that title and the result is
+  `_mcp_result_rows`, a port of `createMcpToolRenderers` `renderResult`
+  (the first 5 visual lines at the box's content width, the hint, then
+  `Full output: <path>` from `details.fullOutputPath`). The row theme has
+  Pi's colour keys (`toolTitle`, `muted`, `toolOutput`); the theme handed
+  to extension renderers has six colours and none of these.
+- `tool_renderer_lookup.ToolRendererLookup.resolve(name)` is Pi's
+  `resolveToolRenderers` for what pipy has: the extension tool of that name
+  that has a renderer, else `McpToolRows(label)`. The label of a registered
+  server tool is `McpToolPort.label`, read from the capability value the
+  provider turn pinned (`NativeToolCapabilitySnapshot.mcp_tool_labels`);
+  for any other name it is `mcp_tool_label_from_name`, Pi's
+  `/^mcp__(.+?)__(.+)$/`. Both renderers take a lookup or, as before, a
+  mapping of extension tools; a renderer that was never refreshed (a
+  session before its first provider turn, which is when a resumed session
+  is drawn) has the name rule, which is RND-03.
+- A title is made printable where the lookup answers (`_printable`: a
+  space for every character that is not printable). A server chooses its
+  tools' names, and the line renderer writes the title to the terminal as
+  it is. Pi prints the label unchanged.
+- The name rule is always on. Pi has it only while its MCP extension is
+  loaded; with `--no-mcp` a resumed `mcp__` call has Pi's generic row.
+  Recorded in `docs/mcp.md`.
+- Progress: pipy's tool output sink is append-only text (see "Decided in
+  S16"), Pi replaces the partial result. The running row therefore shows
+  the last line of the partial output.
+- RND-04 needed no code: nested calls are rows of the `codemode` row under
+  the tool's pipy name since CM1, and Pi's `CodemodeNestedCall.name` is the
+  tool's name too. Tests pin it for an MCP tool, live, in the line renderer
+  and in a session with the fake server.
+- The line renderer (no terminal UI) titles the call the same way; its
+  result output is unchanged.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -1636,6 +1676,7 @@ Changed modules, by seam:
 | Settings and CLI | `settings.py`, `cli.py`, `resource_enablement.py` | `codemode.mode`, `codemode.inlineBudget`, `-builtin:mcp`, `--no-mcp`, patterns, the `mcp` subcommand. |
 | Session lifecycle | `repl/wiring.py`, `repl/reload.py`, `coding/session_controller.py`, `automation/rpc.py` | Create, start, reload and shut down the manager; first-prompt wait; turn-start hook. |
 | OAuth plumbing | `auth_store.py` | `resolve_config_value` and `auth_file_lock` are reused, not changed. |
+| Rendering | `tool_rows.py`, `tool_renderer_lookup.py`, `tool_renderers.py`, `ui/components/tool_loop_renderer.py` | MCP rows and the lookup that says which rows a call gets (see "Decided in S35"). |
 
 ### 4.2 Tool model
 
