@@ -1151,12 +1151,6 @@ def test_env_values_are_resolved_and_an_unresolved_one_names_server_and_key(
     connection.close()
 
 
-def test_an_http_server_cannot_be_connected_yet(tmp_path: Path) -> None:
-    entry = _entry({"url": "https://example.com/mcp"}, name="docs")
-    with pytest.raises(McpServerConnectionError, match='MCP server "docs" is an HTTP'):
-        create_default_transport(entry, str(tmp_path), None)
-
-
 # -- against a server process -------------------------------------------------
 
 

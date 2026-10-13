@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 import pipy_harness.cli as cli
+from pipy_harness.native.mcp import connection as connection_module
 from pipy_harness.native.mcp.shell_cli import (
     HELP,
     HELP_HINT,
@@ -21,6 +22,10 @@ from pipy_harness.native.mcp.shell_cli import (
     run_mcp_command,
 )
 from pipy_harness.native.project_trust import ProjectTrustStore
+
+sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
+
+from mcp_fake_http_server import FakeMcpHttpServer  # noqa: E402
 
 _FAKE_SERVER = Path(__file__).parent / "fixtures" / "mcp_fake_server.py"
 _MISSING = "pipy-test-missing-mcp-server"
@@ -314,16 +319,80 @@ def test_list_without_servers_says_where_to_add_them(home: _Home) -> None:
     assert home.output[0].startswith(f"config error: {home.global_config}: ")
 
 
-def test_list_reports_an_http_server_as_failed(home: _Home) -> None:
-    home.write({"docs": {"url": "https://example.com/mcp", "exposure": "direct"}})
+def test_list_connects_to_http_servers(
+    home: _Home, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CMDL-08, CMDL-09: HTTP entries.
+    monkeypatch.setattr(connection_module, "CONNECT_RETRY_DELAYS_MS", (1, 2))
+    scenario = {
+        "tools": [{"name": "echo", "inputSchema": {"type": "object"}}],
+        "sessionId": "s1",
+    }
+    with FakeMcpHttpServer(scenario) as server, FakeMcpHttpServer() as down:
+        gone = down.url
+        down.close()
+        home.write(
+            {
+                "docs": {
+                    "url": server.url,
+                    "headers": {"Authorization": "Bearer t"},
+                    "exposure": "direct",
+                },
+                "gone": {"url": gone, "headers": {"Authorization": "Bearer t"}},
+            }
+        )
 
-    assert home.run("list") == 1
-    assert home.output == [
-        "docs: failed (direct, global)",
-        "  https://example.com/mcp",
-        '  MCP server "docs" is an HTTP server; pipy connects only to stdio '
-        "servers yet",
-    ]
+        assert home.run("list") == 1
+
+        assert home.output[:4] == [
+            "docs: connected, 1 tool (direct, global)",
+            f"  {server.url}",
+            "  tools: echo",
+            "gone: failed (codemode, global)",
+        ]
+        assert home.output[4] == f"  {gone}"
+        assert len(home.output) == 6 and home.output[5].startswith("  ")
+        # Every request carried the configured header; the session was ended.
+        assert {
+            request.headers.get("authorization") for request in server.requests
+        } == {"Bearer t"}
+        assert server.requests[-1].method == "DELETE"
+        home.write({"docs": {"url": server.url, "headers": {"X-Key": "k"}}})
+
+        assert home.run("list", "--json") == 0
+
+        assert json.loads(home.text) == {
+            "servers": [
+                {
+                    "name": "docs",
+                    "scope": "global",
+                    "source": str(home.global_config),
+                    "enabled": True,
+                    "exposure": "codemode",
+                    "transport": server.url,
+                    "state": "connected",
+                    "tools": ["echo"],
+                }
+            ],
+            "errors": [],
+        }
+
+
+def test_list_reports_an_http_server_that_wants_a_sign_in_as_failed(
+    home: _Home,
+) -> None:
+    # Until sign-in exists, a server that answers 401 is a failed server.
+    with FakeMcpHttpServer({"requireBearer": "secret"}) as server:
+        home.write({"docs": {"url": server.url}})
+
+        assert home.run("list") == 1
+
+        assert home.output == [
+            "docs: failed (codemode, global)",
+            f"  {server.url}",
+            "  MCP server requires authentication",
+        ]
+        assert len(server.messages("initialize")) == 1
 
 
 def test_list_indents_every_line_of_an_error_and_keeps_stderr(

@@ -5,6 +5,17 @@ returns the connected client or connects; every caller that arrives while a
 connect is in progress waits for that one attempt. A connection that dropped
 is reported as ``disconnected`` and the next call connects again.
 
+HTTP servers. A connect to a server configured with ``url`` that fails with a
+network error or with status 408, 429 or 5xx other than 501 is made again
+after 250 ms and once more after a second; ``close()`` ends the wait. A
+request the server answers with "session expired" is made once more on a new
+connection, a tool call too, because the server did not run it. The client of
+the old session is not closed at once: its other calls in flight get the same
+answer and start again the same way, and the client is closed when the last
+of them has ended. A resource read or listing is also made once more, after
+250 ms, when the server answers with one of the statuses above; a tool call
+is not, since it may have run.
+
 Threads. An attempt runs on a daemon thread of its own (``mcp-connect``), so
 the callers that wait for it can give up when their cancel event is set. A
 ``notifications/tools/list_changed`` or ``notifications/resources/list_changed``
@@ -28,15 +39,16 @@ the connection down but waits for nothing, because the thread it runs on may
 be the one a transport needs back before it can finish closing. A callback
 must not call ``get_client`` for the attempt it is announcing.
 
-Not built yet: HTTP servers, the retries of a failed HTTP connect, a new
-session after the old one expired, the one retry of a resource request after
-a transient HTTP error, and OAuth with the ``needs-auth`` state.
+Not built yet: OAuth with the ``needs-auth`` state. An HTTP server gets the
+configured headers only.
 """
 
 from __future__ import annotations
 
+import http.client
 import os
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,8 +61,17 @@ from pipy_harness.native.mcp.client import (
     McpRequestOptions,
 )
 from pipy_harness.native.mcp.config import McpServerEntry
-from pipy_harness.native.mcp.config_values import resolve_config_value
-from pipy_harness.native.mcp.http import McpAuthProvider
+from pipy_harness.native.mcp.config_values import (
+    resolve_config_headers,
+    resolve_config_value,
+)
+from pipy_harness.native.mcp.http import (
+    McpAuthProvider,
+    McpHttpError,
+    McpSessionExpiredError,
+    StreamableHttpTransport,
+    StreamableHttpTransportOptions,
+)
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import (
     METHOD_NOT_FOUND,
@@ -76,6 +97,10 @@ _T = TypeVar("_T")
 DEFAULT_TIMEOUT_SECONDS: Final = 60
 STDERR_TAIL_CHARS: Final = 2_000
 CLIENT_NAME: Final = "pipy"
+# The waits between the attempts to connect to an HTTP server that failed
+# with a transient error. The first is also the wait before a resource
+# request is made again.
+CONNECT_RETRY_DELAYS_MS: Final = (250, 1_000)
 # How often a caller waiting for a connect looks at its cancel event.
 _CANCEL_POLL_SECONDS: Final = 0.05
 
@@ -135,17 +160,24 @@ def expand_home(value: str) -> str:
 def create_default_transport(
     entry: McpServerEntry, cwd: str, auth_provider: McpAuthProvider | None = None
 ) -> McpTransport:
-    """The transport for ``entry``. Only stdio servers can be connected yet.
+    """The transport for ``entry``: streamable HTTP for a ``url`` entry,
+    else a server process.
 
-    ``env`` values are resolved here, so a value that cannot be resolved
-    fails the connect with a message naming the server and the key.
+    ``headers`` and ``env`` values are resolved here, so a value that cannot
+    be resolved fails the connect with a message naming the server and the
+    header or the key.
     """
 
     config = entry.config
     if "url" in config:
-        raise McpServerConnectionError(
-            f'MCP server "{entry.name}" is an HTTP server; '
-            "pipy connects only to stdio servers yet"
+        return StreamableHttpTransport(
+            StreamableHttpTransportOptions(
+                url=config["url"],
+                headers=resolve_config_headers(
+                    config.get("headers"), f'MCP server "{entry.name}"'
+                ),
+                auth_provider=auth_provider,
+            )
         )
     env = {
         key: resolve_config_value(value, f'MCP server "{entry.name}" env "{key}"')
@@ -167,6 +199,17 @@ def create_default_transport(
 
 def _error_message(error: BaseException) -> str:
     return str(error) or type(error).__name__
+
+
+def _is_transient_error(error: BaseException) -> bool:
+    """A network failure, or a server that is overloaded or restarting:
+    worth another attempt."""
+
+    if isinstance(error, McpHttpError):
+        return error.status in (408, 429) or (
+            error.status >= 500 and error.status != 501
+        )
+    return isinstance(error, (OSError, http.client.HTTPException))
 
 
 def _is_truthy(value: object) -> bool:
@@ -268,7 +311,9 @@ class _Link:
     """One client and what belongs to it. Fields are guarded by the connection lock."""
 
     __slots__ = (
+        "calls",
         "client",
+        "expired",
         "refresh_wanted",
         "refreshing",
         "resources_wanted",
@@ -286,6 +331,11 @@ class _Link:
         self.refresh_wanted = False
         self.resources_wanted = False
         self.refreshing = False
+        # How many requests of the connection's callers are in flight on the
+        # client, and whether the server said that its session expired. An
+        # expired client is closed when the count is back at zero.
+        self.calls = 0
+        self.expired = False
 
 
 class _Attempt:
@@ -346,6 +396,8 @@ class McpServerConnection:
         # Stderr of the last stdio server that failed to connect.
         self._failed_stderr: str | None = None
         self._closed = False
+        # Set by ``close()``; ends the wait before a retry.
+        self._shutdown = threading.Event()
 
     @property
     def name(self) -> str:
@@ -461,22 +513,29 @@ class McpServerConnection:
     ) -> JsonObject:
         """Call a tool of the server, connecting first when needed."""
 
-        client = self.get_client(None if options is None else options.cancel_event)
-        return client.call_tool(name, arguments, options)
+        return self._with_client(
+            options, lambda client: client.call_tool(name, arguments, options)
+        )
 
     def read_resource(
         self, uri: str, options: McpRequestOptions | None = None
     ) -> JsonObject:
         """Read a resource of the server, connecting first when needed."""
 
-        return self._client_for(options).read_resource(uri, options)
+        return self._with_client(
+            options, lambda client: client.read_resource(uri, options), read_only=True
+        )
 
     def resources_page(
         self, cursor: str | None = None, options: McpRequestOptions | None = None
     ) -> JsonObject:
         """One page of the server's resources, starting at ``cursor``."""
 
-        return self._client_for(options).list_resources_page(cursor, options)
+        return self._with_client(
+            options,
+            lambda client: client.list_resources_page(cursor, options),
+            read_only=True,
+        )
 
     def resource_templates_page(
         self, cursor: str | None = None, options: McpRequestOptions | None = None
@@ -484,10 +543,13 @@ class McpServerConnection:
         """One page of the server's resource templates; none when the server
         does not implement the method."""
 
-        client = self._client_for(options)
         empty: JsonObject = {"resourceTemplates": []}
-        return _without_templates(
-            lambda: client.list_resource_templates_page(cursor, options), empty
+        return self._with_client(
+            options,
+            lambda client: _without_templates(
+                lambda: client.list_resource_templates_page(cursor, options), empty
+            ),
+            read_only=True,
         )
 
     def all_resources(
@@ -495,7 +557,9 @@ class McpServerConnection:
     ) -> list[JsonObject]:
         """Every resource of the server, through all pages."""
 
-        return self._client_for(options).list_resources(options)
+        return self._with_client(
+            options, lambda client: client.list_resources(options), read_only=True
+        )
 
     def all_resource_templates(
         self, options: McpRequestOptions | None = None
@@ -503,14 +567,101 @@ class McpServerConnection:
         """Every resource template of the server; none when the server does
         not implement the method."""
 
-        client = self._client_for(options)
         empty: list[JsonObject] = []
-        return _without_templates(
-            lambda: client.list_resource_templates(options), empty
+        return self._with_client(
+            options,
+            lambda client: _without_templates(
+                lambda: client.list_resource_templates(options), empty
+            ),
+            read_only=True,
         )
 
-    def _client_for(self, options: McpRequestOptions | None) -> McpClient:
-        return self.get_client(None if options is None else options.cancel_event)
+    def _with_client(
+        self,
+        options: McpRequestOptions | None,
+        run: Callable[[McpClient], _T],
+        *,
+        read_only: bool = False,
+    ) -> _T:
+        """Run a request, connecting first when needed (Pi ``withClient``).
+
+        The request is made a second time in two cases, and never a third
+        time: on a new connection when the server answers that the session
+        expired, and, for a ``read_only`` request, after 250 ms when it
+        answers with a transient status. A tool call is not repeated for a
+        status, since it may have run. The wait ends with ``McpAbortError``
+        when the caller's cancel event is set.
+        """
+
+        cancel_event = None if options is None else options.cancel_event
+        first = True
+        while True:
+            link = self._begin_call(cancel_event)
+            expired = False
+            try:
+                return run(link.client)
+            except McpHttpError as error:
+                if not first:
+                    raise
+                if isinstance(error, McpSessionExpiredError):
+                    # The server no longer knows the session (it restarted),
+                    # so it did not run the request.
+                    expired = True
+                elif not (read_only and _is_transient_error(error)):
+                    raise
+            finally:
+                self._end_call(link, expired=expired)
+            first = False
+            if not expired:
+                self._wait_to_retry(CONNECT_RETRY_DELAYS_MS[0], cancel_event)
+
+    def _begin_call(self, cancel_event: threading.Event | None) -> _Link:
+        """The connected link, counted as carrying one more request."""
+
+        while True:
+            client = self.get_client(cancel_event)
+            with self._lock:
+                link = self._link
+                if link is not None and link.client is client:
+                    link.calls += 1
+                    return link
+            # It dropped or was replaced since ``get_client`` returned.
+
+    def _end_call(self, link: _Link, *, expired: bool) -> None:
+        """One request on ``link`` ended; ``expired`` when the server
+        answered it with "session expired".
+
+        An expired link is detached, so the next request connects again. Its
+        client stays open for the requests still in flight on it, which get
+        the same answer, and is closed when the last of them has ended.
+        """
+
+        with self._lock:
+            link.calls -= 1
+            if expired:
+                link.expired = True
+                if self._link is link:
+                    self._link = None
+            close = link.expired and link.calls == 0
+        if close:
+            _close_quietly(link.client)
+
+    def _wait_to_retry(
+        self, delay_ms: float, cancel_event: threading.Event | None = None
+    ) -> None:
+        """Wait ``delay_ms``, or until the connection is closed. Raises
+        ``McpAbortError`` when ``cancel_event`` is set first."""
+
+        deadline = time.monotonic() + delay_ms / 1000
+        while not self._shutdown.is_set():
+            if cancel_event is not None and cancel_event.is_set():
+                raise McpAbortError()
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return
+            self._shutdown.wait(
+                left if cancel_event is None else min(left, _CANCEL_POLL_SECONDS)
+            )
 
     def reconnect(self) -> None:
         """Drop the connected client and connect again (Pi ``reconnect``).
@@ -540,9 +691,10 @@ class McpServerConnection:
     def close(self) -> None:
         """Shut the connection down for good.
 
-        Stops a connect in progress and returns only when no transport of
-        this server is open, including one that was still connecting and one
-        that somebody else is closing. Afterwards every call fails with
+        Stops a connect in progress, also one that is waiting to try again,
+        and returns only when no transport of this server is open, including
+        one that was still connecting, one whose session expired and one that
+        somebody else is closing. Afterwards every call fails with
         ``MCP server "<name>" is shut down``. Every caller waits, also when
         another thread closed first; only a call made from inside a callback
         of this connection returns without waiting.
@@ -556,6 +708,14 @@ class McpServerConnection:
             self._link = None
             pending = self._pending_link
             attempt = self._opening
+            # Links whose session expired while requests were in flight on
+            # them: nothing else closes those before their requests end.
+            detached = [
+                open_link
+                for open_link in self._open_links
+                if open_link is not link and open_link is not pending
+            ]
+            self._shutdown.set()
         if first:
             self._changed()
         if link is not None:
@@ -564,6 +724,8 @@ class McpServerConnection:
             # Fails its pending initialize or list requests and closes its
             # transport; the attempt then ends.
             _close_quietly(pending.client)
+        for open_link in detached:
+            _close_quietly(open_link.client)
         if getattr(self._callback_depth, "value", 0):
             return
         # Every caller waits for the facts, not for the first caller. A
@@ -583,7 +745,7 @@ class McpServerConnection:
 
     def _run_attempt(self, attempt: _Attempt) -> None:
         try:
-            attempt.client = self._connect_once()
+            attempt.client = self._open()
         except Exception as error:  # noqa: BLE001 - any failure is this attempt's result
             attempt.cause = error
             attempt.failure = self._connect_failed(error)
@@ -597,6 +759,23 @@ class McpServerConnection:
                 if self._opening is attempt:
                     self._opening = None
             attempt.done.set()
+
+    def _open(self) -> McpClient:
+        """Connect; an HTTP server that fails with a transient error is tried
+        again after each of ``CONNECT_RETRY_DELAYS_MS``. A stdio server is
+        tried once. Raises the error of the last attempt."""
+
+        delays = CONNECT_RETRY_DELAYS_MS if "url" in self.entry.config else ()
+        for delay_ms in delays:
+            try:
+                return self._connect_once()
+            except Exception as error:
+                if self._shutdown.is_set() or not _is_transient_error(error):
+                    raise
+                self._wait_to_retry(delay_ms)
+                if self._shutdown.is_set():
+                    raise
+        return self._connect_once()
 
     def _connect_once(self) -> McpClient:
         link = _Link(self._new_client())

@@ -17,6 +17,10 @@ Scenario keys besides those of ``mcp_fake_server.py`` (``record``,
 ``startup``, ``onStdinClose`` and ``onSigterm`` are not used):
 
 - ``sessionId``: sent as ``Mcp-Session-Id`` with the answer to ``initialize``.
+- ``sessions``: when true, every ``initialize`` starts a session of its own
+  (``session-1``, ``session-2``, ...) and any other request that does not name
+  a session the server knows is answered 404. A DELETE ends its session and
+  ``expire_sessions()`` ends them all, as a restarted server would.
 - ``httpMode``: ``"json"`` (default) or ``"sse"``, the form of an answer.
 - ``requireBearer``: a token; a POST without it is answered 401 with
   ``WWW-Authenticate: Bearer``.
@@ -27,6 +31,9 @@ Scenario keys besides those of ``mcp_fake_server.py`` (``record``,
 - ``get``, ``delete``: steps answering a GET or a DELETE.
 - ``getSequence``: a list of step lists; the first answers the first GET, the
   second the second, and so on. GETs after the last are answered by ``get``.
+- ``postSequence``: ``{<method>: [step lists]}``; the first list answers the
+  first POST of that JSON-RPC method, the second the second, and so on. Later
+  ones are answered as without the key.
 
 Steps besides those of ``mcp_fake_server.py`` (``stdout``, ``stderr``,
 ``spawn`` and ``exit`` are refused):
@@ -235,12 +242,16 @@ class _Handler(BaseHTTPRequestHandler):
         message = json.loads(raw)
         self._record(message)
         scenario = fake.scenario
-        is_initialize = message.get("method") == "initialize"
-        channel = _HttpChannel(
-            self,
-            scenario.get("httpMode", "json"),
-            scenario.get("sessionId") if is_initialize else None,
-        )
+        method = message.get("method")
+        is_initialize = method == "initialize"
+        known_session = is_initialize or self._names_a_session()
+        session_id = scenario.get("sessionId") if is_initialize else None
+        sequence = scenario.get("postSequence", {}).get(method, [])
+        index = fake.next_post_index(method) if isinstance(method, str) else 0
+        sequenced = sequence[index] if index < len(sequence) else None
+        if is_initialize and scenario.get("sessions") and sequenced is None:
+            session_id = fake.new_session()
+        channel = _HttpChannel(self, scenario.get("httpMode", "json"), session_id)
         engine = _HttpScenarioEngine(fake, channel, fake.recorder)
         bearer = scenario.get("requireBearer")
 
@@ -250,6 +261,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self.headers.get("Authorization") != f"Bearer {bearer}"
             ):
                 channel.respond(401, {"WWW-Authenticate": "Bearer"}, b"login required")
+            elif not known_session:
+                channel.respond(404, {}, b"unknown session")
+            elif sequenced is not None:
+                engine.run(sequenced, message)
             elif steps is not None:
                 engine.run(steps, message)
             else:
@@ -267,14 +282,40 @@ class _Handler(BaseHTTPRequestHandler):
             self._answer_steps(fake.scenario.get("get", []), 405)
 
     def do_DELETE(self) -> None:  # noqa: N802 - the name BaseHTTPRequestHandler calls
-        self._answer_steps(self.server.fake.scenario.get("delete", []), 200)
+        fake = self.server.fake
+        known_session = self._names_a_session()
+        fake.end_session(self.headers.get("Mcp-Session-Id"))
+        self._answer_steps(fake.scenario.get("delete", []), 200, known_session)
 
-    def _answer_steps(self, steps: list[dict[str, Any]], default_status: int) -> None:
+    def _names_a_session(self) -> bool:
+        """Whether the request may be answered: always, unless the scenario
+        has ``sessions`` and the request names none the server knows."""
+
+        fake = self.server.fake
+        if not fake.scenario.get("sessions"):
+            return True
+        return fake.has_session(self.headers.get("Mcp-Session-Id"))
+
+    def _answer_steps(
+        self,
+        steps: list[dict[str, Any]],
+        default_status: int,
+        known_session: bool | None = None,
+    ) -> None:
         fake = self.server.fake
         self._record(None)
+        if known_session is None:
+            known_session = self._names_a_session()
         channel = _HttpChannel(self, "sse", None)
         engine = _HttpScenarioEngine(fake, channel, fake.recorder)
-        self._answer(channel, lambda: engine.run(steps), default_status)
+
+        def answer() -> None:
+            if known_session:
+                engine.run(steps)
+            else:
+                channel.respond(404, {}, b"unknown session")
+
+        self._answer(channel, answer, default_status)
 
     def _answer(self, channel: _HttpChannel, answer: Any, default_status: int) -> None:
         self.close_connection = True
@@ -318,6 +359,9 @@ class FakeMcpHttpServer:
         self._events: list[str] = []
         self._gates: dict[str, threading.Event] = {}
         self._gets = 0
+        self._posts: dict[str, int] = {}
+        self._sessions: set[str] = set()
+        self._sessions_started = 0
         self.recorder = _EventRecorder(self._events, self.lock)
         self._server = _Server(("127.0.0.1", 0), _Handler)
         self._server.fake = self
@@ -367,6 +411,36 @@ class FakeMcpHttpServer:
             index = self._gets
             self._gets += 1
         return index
+
+    def next_post_index(self, method: str) -> int:
+        """The number of POSTs with this JSON-RPC method received before
+        this one."""
+
+        with self.lock:
+            index = self._posts.get(method, 0)
+            self._posts[method] = index + 1
+        return index
+
+    def new_session(self) -> str:
+        with self.lock:
+            self._sessions_started += 1
+            session_id = f"session-{self._sessions_started}"
+            self._sessions.add(session_id)
+        return session_id
+
+    def has_session(self, session_id: str | None) -> bool:
+        with self.lock:
+            return session_id in self._sessions
+
+    def end_session(self, session_id: str | None) -> None:
+        with self.lock:
+            self._sessions.discard(session_id or "")
+
+    def expire_sessions(self) -> None:
+        """Forget every session, as a server that restarted has."""
+
+        with self.lock:
+            self._sessions.clear()
 
     def gate(self, name: str) -> threading.Event:
         with self.lock:

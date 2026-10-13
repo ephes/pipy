@@ -1,13 +1,14 @@
 # MCP
 
-pipy connects to the stdio MCP servers of your `mcp.json` when a session
-starts and makes their tools and resources available to the model and to
-codemode scripts.
+pipy connects to the MCP servers of your `mcp.json` when a session starts,
+stdio servers and servers reached over streamable HTTP, and makes their tools
+and resources available to the model and to codemode scripts.
 The work follows the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
 this page grows with them. [Quick setup](#quick-setup) shows what works today
 and [what is missing](#what-is-missing) lists what does not yet: among other
-things HTTP servers and OAuth.
+things OAuth, so an HTTP server works only when it needs no sign-in or takes
+a key from a configured header.
 
 ## Quick setup
 
@@ -24,6 +25,13 @@ server starts:
 
 ```bash
 pipy mcp add -l tools --env API_KEY='${TOOLS_KEY}' -- uvx tools-mcp
+```
+
+A server reached over HTTP is added with `--url`. A key it wants goes into a
+header, here read from the environment variable `DOCS_TOKEN` at each connect:
+
+```bash
+pipy mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
 ```
 
 See [the `pipy mcp` commands](#the-pipy-mcp-commands). Or write the servers
@@ -336,8 +344,9 @@ Different from Pi:
   because a pipy tool result carries text only. A script gets the `blob`.
 - A number in a listed item is printed as Python prints it (`2048.0` stays
   `2048.0`).
-- Pi retries a resource request once after a transient HTTP error. pipy does
-  not connect to HTTP servers yet.
+- An HTTP server's resource request that failed with a transient status is
+  [made once more](#http-servers) after 250 ms, as in Pi, but a call that is
+  cancelled meanwhile ends at once.
 
 ### Reloading
 
@@ -477,9 +486,11 @@ Different from Pi:
 ### What is missing
 
 Not built yet, in the order the plan builds it: enabling and disabling a
-server and changing its exposure in a session (the `/mcp` manager), HTTP
-servers, OAuth, servers registered by extensions, and images in tool results
-and resources.
+server and changing its exposure in a session (the `/mcp` manager), OAuth
+and the `auth` setting, servers registered by extensions, and images in tool
+results and resources. Until OAuth is built, an HTTP server that answers
+with status 401 is a failed server with the error `MCP server requires
+authentication`.
 
 ## Tool search
 
@@ -793,8 +804,8 @@ in the project to trust it.`
 
 - `pipy mcp login` and `pipy mcp logout` do not exist yet and say so; the
   usage text does not list them.
-- A server with a `url` is listed as `failed`, because pipy cannot connect to
-  HTTP servers yet.
+- An HTTP server that wants a sign-in is listed as `failed` with the error
+  `MCP server requires authentication`, not as `needs sign-in`.
 - `--oauth-callback-port` takes a decimal number. Pi also reads JavaScript's
   other spellings of a number, such as `0x50`.
 - The usage text and the hint are plain text; Pi prints parts of them bold
@@ -805,29 +816,71 @@ in the project to trust it.`
 
 ## Server connections
 
-What pipy does with a configured server. Only stdio servers can be connected
-so far; an entry with a `url` fails to connect with a message that says so.
+What pipy does with a configured server. An entry with a `command` is a
+server process (stdio); an entry with a `url` is a server reached over
+streamable HTTP, see [HTTP servers](#http-servers).
 
 ### Values resolved at connect time
 
 - `timeout` is the time a request to the server may take, 60 seconds when not
   set. A progress notification for a request starts its time again.
-- Each `env` value may refer to environment variables with `${NAME}` or
+- Each `env` value of a stdio server and each `headers` value of an HTTP
+  server may refer to environment variables with `${NAME}` or
   `$NAME`; `$$` is a literal `$` and `$!` a literal `!`. A value that starts
   with `!` is a shell command, and its trimmed standard output is the value.
   The command runs on every connect, with a limit of 10 seconds. A variable
   that is unset or empty, or a command that fails or prints nothing, fails
-  the connect with a message naming the server and the key, for example
-  `Failed to resolve MCP server "docs" env "API_KEY" from environment
-  variable: DOCS_TOKEN`. The server process gets pipy's environment plus the
-  resolved `env`.
+  the connect with a message naming the server and the key or the header,
+  for example `Failed to resolve MCP server "docs" env "API_KEY" from
+  environment variable: DOCS_TOKEN` or `Failed to resolve MCP server "docs"
+  header "Authorization" from environment variable: DOCS_TOKEN`. The server
+  process gets pipy's environment plus the resolved `env`.
 - A leading `~` or `~/` in `command`, in each of `args` and in `cwd` is the
   home directory. `--root=~/x` is passed as written.
 - A relative `cwd` is relative to the session directory, and the session
   directory is the default.
 
-The same rules will apply to `headers` and `oauth.clientSecret` of HTTP
-servers once those can be connected.
+The same rules will apply to `oauth.clientSecret` once OAuth is built.
+
+### HTTP servers
+
+A server with a `url` is reached over
+[streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
+Every request carries the configured `headers`. Nothing else authenticates
+pipy yet, see [what is missing](#what-is-missing).
+
+- A connect that fails because the server cannot be reached, or because it
+  answers with status 408, 429 or 5xx other than 501, is made again after
+  250 ms and, if that fails too, once more after one second. The server
+  stays `connecting` meanwhile and is `failed` with the last error after the
+  third attempt. Any other failure is final at once.
+- A resource read or listing the server answers with one of these statuses is
+  made once more after 250 ms. A tool call is not repeated for that reason,
+  because the server may have run it; the call fails with the status, for
+  example `MCP HTTP request failed with status 502`.
+- When the server no longer knows pipy's session, typically because it
+  restarted, it answers a request with status 404. The server did not run
+  that request, so pipy connects again, which starts a new session and lists
+  the tools again, and makes the request once more. This holds for tool
+  calls too. Requests that were in flight on the old session get the same
+  answer and move to the new session the same way. A request that finds the
+  new session expired as well fails with `MCP session expired`.
+- No request is made more than twice.
+- Closing a server, or ending the session, ends the wait before another
+  attempt and, when the server gave the session an id, tells it that the
+  session is over (a `DELETE`, given one second).
+
+Different from Pi:
+
+- What counts as "cannot be reached" is any network failure Python reports
+  (refused or reset connections, name lookup, TLS, a response that is not
+  HTTP). Pi retries what `fetch` reports as a `TypeError`.
+- Once the last request on a session the server forgot has ended, pipy
+  closes that session's connection. Pi leaves it open.
+- The wait before a resource request is made again ends when the call is
+  cancelled or the server is closed. Pi waits the 250 ms out.
+- pipy sends configured headers and tokens only to the server's own origin,
+  so a redirect to another host is a failed request.
 
 ### States
 
@@ -835,7 +888,8 @@ A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
 (`needs-auth` comes with sign-in).
 
 - The first call connects. Calls that arrive while a connect is in progress
-  wait for that one attempt. A stdio connect is not retried.
+  wait for that one attempt. A stdio connect is not retried; an
+  [HTTP connect](#http-servers) is, after some failures.
 - The tools are listed only when the server declares the `tools` capability.
   When the server sends `notifications/tools/list_changed` they are listed
   again; if that fails, the error is `Failed to refresh tools: <reason>` and
@@ -855,9 +909,11 @@ A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
   again.
 - When the server exits or the connection drops, the server is
   `disconnected` with the error `Connection closed` and the end of its
-  stderr. The next call starts it again.
+  stderr. The next call starts it again. An HTTP server has no connection
+  that stays open, so it is never `disconnected`: a server that went away
+  shows in the next request.
 - Closing a server stops a connect in progress and returns when the server
-  process is gone. Calls then fail with `MCP server "<name>" is shut down`.
+  process is gone, or the HTTP session ended. Calls then fail with `MCP server "<name>" is shut down`.
 
 pipy tells the server its name (`pipy`) and version, and announces one root:
 the session directory as a `file://` URI, named by its last path component.
@@ -1022,7 +1078,7 @@ standard library. It is not part of the SDK surface.
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. |
 | `config` | Validation, loading and editing of `mcp.json`, as described above. |
 | `config_values` | `${NAME}` and `!command` in config values. |
-| `connection` | `McpServerConnection`: one configured stdio server with its state, tools, resources and instructions, as described under [server connections](#server-connections), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
+| `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
 | `resources` | `create_mcp_resource_tools`: the three [resource tools](#use-resources) over the servers a function returns at call time; `is_mcp_app_resource`. |
@@ -1033,8 +1089,7 @@ standard library. It is not part of the SDK surface.
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
-Not built yet: connections to HTTP servers with their retries and session
-renewal, images in tool results and resources, the `/mcp` manager,
+Not built yet: images in tool results and resources, the `/mcp` manager,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
 sign-in).

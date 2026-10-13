@@ -14,8 +14,8 @@ already saved; the commands never ask.
 Where this differs from Pi:
 
 - ``login`` and ``logout`` are not built yet and say so.
-- A server with a ``url`` cannot be connected yet, so ``list`` reports it as
-  failed with the connection's error.
+- An HTTP server that wants a sign-in is reported by ``list`` as failed, not
+  as ``needs sign-in``.
 - ``--oauth-callback-port`` is read as a decimal number; JavaScript's other
   number spellings (``0x50``) are not ports here.
 - The usage text is plain, without bold or dim characters.

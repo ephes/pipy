@@ -656,7 +656,7 @@ Decided in S15 (`connection.py`, `config_values.py`, `log.py`):
   nothing, because a transport may need that thread back before it can
   finish closing; the manager must not rely on such a call having ended the
   server process.
-- The default transport factory raises for a `url` entry until S26. The
+- The default transport factory raised for a `url` entry until S26. The
   factory signature already carries the auth provider (always `None` until
   S30). `resolve_config_headers` exists for S26; `oauth.clientSecret` is
   resolved by S30's `oauth_settings` with `resolve_config_value`.
@@ -1190,11 +1190,49 @@ Decided in S23 (`resources.py`, resources in `connection.py` and
   error (Pi `withClient(..., readOnly)`), which S26 adds with the retry
   loop; image resources as images (S39).
 
+Decided in S26 (HTTP servers in `connection.py`):
+
+- `create_default_transport` returns a `StreamableHttpTransport` for a `url`
+  entry, with the headers resolved by `resolve_config_headers` and the auth
+  provider it is given (still `None` until S30). `send_timeout_ms` keeps its
+  default; the config's `timeout` is the client's request timeout only.
+- CON-10: `_open` runs `_connect_once` up to three times for a `url` entry,
+  waiting `CONNECT_RETRY_DELAYS_MS` (250 ms, 1 s) in between; the retries
+  are part of the one attempt every caller waits for, and the state stays
+  `connecting`. Transient is `McpHttpError` with status 408, 429 or 5xx
+  other than 501, or a network failure, which in pipy is `OSError` or
+  `http.client.HTTPException` (Pi: `TypeError` from `fetch`). `close()` sets
+  an event that ends the wait; the attempt then fails with the error of the
+  try before the wait (the retry-wait half of CON-09).
+- CON-11 and CON-12: `_with_client` (Pi `withClient`) runs `call_tool` and
+  the five resource requests. A request is made at most twice: again on a
+  new connection after `McpSessionExpiredError`, and, for the resource
+  requests, again after 250 ms after an `McpHttpError` with a transient
+  status. The wait also ends with `McpAbortError` when the caller's cancel
+  event is set (Pi waits it out).
+- A link whose session expired is detached at once, so the next request
+  connects again, and its client is closed when no request of the
+  connection's callers is in flight on it any more (`_Link.calls`,
+  `_Link.expired`). Pi never closes that client. `close()` also closes the
+  clients of detached links that still carry requests, because it waits for
+  every started transport to report its close.
+- The question S25 left: a session-expired error from the server-to-client
+  GET stream changes nothing in the connection, as in Pi, where the
+  connection has no error listener. The stream ends, and the next request
+  gets the 404 and starts a new session.
+- An HTTP transport reports no close of its own, so an HTTP server is never
+  `disconnected`. The close contract of S15 holds: `close()` emits the
+  close once, after the DELETE of the session (given one second).
+- Until S30 a 401 is a failed connect with the error `MCP server requires
+  authentication`, and an entry with `auth` is connected without a token.
+- Fixture: the HTTP fake gained `postSequence` (step lists for the first
+  POSTs of a method) and `sessions` (a session per `initialize`, 404 for a
+  request that names no known session, `expire_sessions()`).
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
-  The HTTP fake has no POST status sequences, no session expiry or
-  session-id enforcement and no 403 with a challenge (S26, S30). The OAuth
+  The HTTP fake has no 403 with a challenge (S30). The OAuth
   fake serves scripted routes only: registration, authorize and token
   endpoints and `FakeBrowser` come with S28, S29 and S31.
 - `McpAuthProvider` has `token()` only. S30 adds the 401 handoff, which has

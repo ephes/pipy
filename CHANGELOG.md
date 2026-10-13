@@ -27,6 +27,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- HTTP MCP servers. A server configured with a `url` is connected over
+  streamable HTTP with its `headers`, whose values may use `${NAME}` and
+  `!command`, in a session and by `pipy mcp list`. A connect that fails with
+  a network error or with status 408, 429 or 5xx other than 501 is made again
+  after 250 ms and after one second; a resource read or listing is made once
+  more after such a status, a tool call is not. When the server forgot the
+  session (status 404), pipy starts a new one and makes the request once
+  more, tool calls included. OAuth is not built yet, so a server that
+  answers 401 is a failed server. See
+  [HTTP servers](docs/mcp.md#http-servers).
 - MCP resources. When a connected server offers resources, the tools
   `list_mcp_resources`, `list_mcp_resource_templates` and `read_mcp_resource`
   exist, with the shapes Codex and OpenCode use. They reach every enabled
