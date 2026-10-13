@@ -29,6 +29,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Treat invalid UTF-8 auth-command output as unavailable without exposing it.
 - Bound auth-command capture and terminate the owned process group on timeout.
 
+- Enforce image attachment byte budgets during descriptor reads, including file growth.
+
 ### Added
 
 - Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with
