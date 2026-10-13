@@ -548,7 +548,9 @@ In a real TTY the tool-loop product TUI offers Pi-style interactive editing
   restores queued messages to the editor; queued messages render in a pending
   region and drain steering-first.
 - `Ctrl+V` pastes an image from the OS clipboard (written to an owner-only temp
-  file and attached on submit); dropping a file onto the terminal inserts an
+  file and attached on submit). Clipboard reads are bounded; helpers that hang
+  after closing stdout fail as no image and are killed and reaped, along with
+  their owned POSIX process group. Dropping a file onto the terminal inserts an
   `@image:`/`@path` reference.
 - `/scoped-models` opens a multi-select overlay defining the Ctrl+P cycle set;
   `/hotkeys` lists every binding. Terminal-native mouse text selection keeps

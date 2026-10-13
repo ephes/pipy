@@ -12,6 +12,7 @@ import base64
 import os
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -121,22 +122,42 @@ def _accumulate_capture(
         state.total += len(chunk)
 
 
+def _kill_capture_process(proc: subprocess.Popen[bytes]) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except OSError:
+        pass
+
+
 def _cleanup_capture_process(
     proc: subprocess.Popen[bytes],
     stdout: IO[bytes],
     state: _CaptureReadState,
     limit: int,
+    *,
+    deadline: float,
 ) -> None:
     if state.total >= limit or state.timed_out:
-        proc.kill()
+        _kill_capture_process(proc)
     try:
         stdout.close()
     except OSError:
         pass
     try:
-        proc.wait(timeout=5.0)
+        proc.wait(timeout=max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
-        proc.kill()
+        state.timed_out = True
+        _kill_capture_process(proc)
+        try:
+            proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            pass  # Unfinished execution remains a failed capture.
+    finally:
+        if os.name == "posix":
+            _kill_capture_process(proc)
 
 
 def _classify_capture_result(
@@ -148,9 +169,9 @@ def _classify_capture_result(
     # truncated payload. An oversized read returns the (capped) bytes so the
     # size check rejects it; a non-zero exit with no overflow means the tool
     # failed (no image).
-    if state.timed_out:
+    if state.timed_out or returncode is None:
         return None
-    if state.total < limit and returncode not in (0, None):
+    if state.total < limit and returncode != 0:
         return None
     return b"".join(state.chunks)
 
@@ -170,6 +191,7 @@ def _default_run_capture(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            start_new_session=(os.name == "posix"),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -182,10 +204,10 @@ def _default_run_capture(
     try:
         _accumulate_capture(fd, state, limit=limit, deadline=deadline)
     except OSError:
-        proc.kill()
+        state.timed_out = True
         return None
     finally:
-        _cleanup_capture_process(proc, stdout, state, limit)
+        _cleanup_capture_process(proc, stdout, state, limit, deadline=deadline)
     return _classify_capture_result(proc.returncode, state, limit)
 
 
