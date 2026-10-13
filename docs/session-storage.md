@@ -414,6 +414,17 @@ There is no separate transcript sidecar. The removed `--archive-transcript` flag
 
 To write a portable copy of a session, use `/export` in-session or the top-level `pipy --export`. These operate on the native session tree, not on the metadata-first `pipy-session` archive.
 
+`pipy-session export` validates present event fields before producing output:
+`type`, `timestamp`, `summary`, `agent`, `machine`, `project`, and `slug` must
+be strings; `partial` must be a boolean and `sequence` an integer (not a
+boolean). The header `goal` must be a string or null; later events' goals
+are excluded. Missing fields retain their existing
+defaults. Wrong scalar types and containers reject the whole record with a
+bounded field-only error; the CLI exits 2 without emitting JSON or the rejected
+value. Explicitly authored string summaries and goals are preserved verbatim.
+Unknown event fields and payloads remain excluded. Markdown summaries and safe
+resume lineage retain their existing policies.
+
 The `pipy-session` metadata archive remains metadata-first and never stores raw loop turns; its `export` command emits a metadata-only JSON object (export schema v2 — the former opt-in `transcript_events` / `transcript_path_label` fields were removed along with the sidecar).
 
 Human catalog list/search/inspect/verify output escapes terminal controls,
