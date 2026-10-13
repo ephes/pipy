@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Generic, Literal, Protocol, TextIO, TypeVar
+from typing import Final, Generic, Literal, Protocol, TextIO, TypeVar
 
 from pipy_harness.native.chrome import ChromeStyle, chrome_style_for
 from pipy_harness.native.frame_renderer import (
@@ -51,6 +51,9 @@ from pipy_harness.native.ui.components.tree_selector import tree_selector_region
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 T = TypeVar("T")
+# What ``Screen.read_key_polling_resize`` returns in place of a key when the
+# ``poll`` it was given ended the waiting. No decoded key has this name.
+KEY_WAIT_ENDED: Final = "\x00wait-ended"
 ContributorName = Literal[
     "popup",
     "pending",
@@ -201,6 +204,10 @@ class DriveOwner(Generic[T]):
     is_finished: Callable[[], bool] = lambda: False
     dispose: Callable[[], T] | None = None
     consume_paste: Callable[[], object] | None = None
+    # Called on the key loop's thread while the modal waits for a key, about
+    # ten times a second, for a modal that follows what other threads do.
+    # ``True`` ends the waiting, so that ``is_finished`` is asked again.
+    poll: Callable[[], bool] | None = None
 
 
 class Screen:
@@ -597,9 +604,16 @@ class Screen:
             )
         return key
 
-    def read_key_polling_resize(self, fd: int) -> str | None:
+    def read_key_polling_resize(
+        self, fd: int, poll: Callable[[], bool] | None = None
+    ) -> str | None:
+        """The next key. With ``poll``, which is called before every look at
+        the input, ``KEY_WAIT_ENDED`` as soon as it returns ``True``."""
+
         while True:
             self._poll_idle_sources()
+            if poll is not None and poll():
+                return KEY_WAIT_ENDED
             if self._driver.has_pending_input():
                 return self.read_driver_key(self._driver.read_key(fd))
             readable, _, _ = select.select([fd], [], [], _RESIZE_POLL_SECONDS)
@@ -652,7 +666,13 @@ class Screen:
 
     def _drive_keys(self, owner: DriveOwner[T], fd: int) -> DriveResult[T] | None:
         while not owner.is_finished():
-            key = self.read_key_polling_resize(fd)
+            key = (
+                self.read_key_polling_resize(fd)
+                if owner.poll is None
+                else self.read_key_polling_resize(fd, owner.poll)
+            )
+            if key == KEY_WAIT_ENDED:
+                continue
             if key == "paste" and owner.consume_paste is not None:
                 owner.consume_paste()
                 continue

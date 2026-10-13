@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 from pipy_harness.native.extension_types import (
     CustomComponentFactory,
@@ -29,6 +29,11 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionSelectComponent,
 )
 from pipy_harness.native.ui.components.input_editor import InputEditor
+from pipy_harness.native.ui.components.mcp_manager_view import (
+    CopyText,
+    McpManagerView,
+    mcp_manager_keys,
+)
 from pipy_harness.native.ui.components.model_selector import ModelSelectorComponent
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
@@ -49,11 +54,32 @@ from pipy_harness.native.ui.key_specs import resolved_key_specs
 from pipy_harness.native.ui.screen import DriveOwner, DriveResult, Screen
 
 _CloseT = TypeVar("_CloseT")
+
+
+class McpManagerSession(Protocol):
+    """What runs in the ``/mcp`` manager view while it is open (the flow of
+    ``native/mcp/manager_flow.py``)."""
+
+    def poll(self) -> None:
+        """Take in what happened on other threads and show it in the view.
+        Called on the session thread about ten times a second."""
+
+    def stop(self) -> None:
+        """The view was closed; cancel what only it was waiting for."""
+
+
 _ResultT = TypeVar("_ResultT")
 
 
 def _open_result(opened: bool, cancelled: _ResultT) -> DriveResult[_ResultT] | None:
     return None if opened else DriveResult(cancelled)
+
+
+def _repainted(view: McpManagerView, repaint: Callable[[], None]) -> None:
+    """Paint the frame again when the view shows something else."""
+
+    if view.take_dirty():
+        repaint()
 
 
 def _open_void(callback: Callable[..., None], *args: object, **kwargs: object) -> None:
@@ -157,6 +183,74 @@ class TerminalModalDriver:
             consume_paste=consume_paste,
         )
         return self._screen.drive(owner)
+
+    def run_mcp_manager(
+        self,
+        start: Callable[[McpManagerView], McpManagerSession],
+        *,
+        copy: CopyText,
+    ) -> None:
+        """Show the ``/mcp`` manager view until it closes itself.
+
+        ``start`` shows the first screen and returns what is polled while
+        the view is open. The view stands in place of the editor, like Pi's
+        selectors. Its callbacks run on this thread without the paint lock:
+        they may block and may take the locks of the MCP manager, which are
+        held by threads that publish tools.
+        """
+
+        view = McpManagerView(mcp_manager_keys(self._keybindings_manager()), copy=copy)
+        session = start(view)
+        paint_lock = self._screen.paint_lock
+        repaint = self._screen.paint
+
+        def open_view() -> DriveResult[None] | None:
+            if view.closed:
+                return DriveResult(None)
+            view.take_dirty()
+            with paint_lock:
+                self._overlays.begin_search_selector(view)
+            repaint()
+            return None
+
+        def handle_key(key: str | None) -> DriveResult[None] | None:
+            if key is None:
+                # End of input closes the view, like the cancel key would.
+                view.close()
+            else:
+                view.handle_key(key)
+            if view.closed:
+                return DriveResult(None)
+            _repainted(view, repaint)
+            return None
+
+        def poll() -> bool:
+            session.poll()
+            _repainted(view, repaint)
+            return view.closed
+
+        def consume_paste() -> None:
+            view.paste(self._input_editor.consume_paste())
+            _repainted(view, repaint)
+
+        def dispose() -> None:
+            try:
+                session.stop()
+            finally:
+                with paint_lock:
+                    if self._overlays.search_selector is view:
+                        self._overlays.end_search_selector()
+                repaint()
+
+        owner: DriveOwner[None] = DriveOwner(
+            open=open_view,
+            handle_key=handle_key,
+            is_finished=lambda: view.closed,
+            dispose=dispose,
+            consume_paste=consume_paste,
+            poll=poll,
+        )
+        self._screen.drive(owner)
 
     def run_scoped_models_selector(
         self,

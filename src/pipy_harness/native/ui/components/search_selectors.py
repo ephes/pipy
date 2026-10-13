@@ -22,6 +22,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.ansi_wrap import wrap_text_with_ansi
 from pipy_harness.native.chrome import ChromeStyle
@@ -500,6 +501,16 @@ def _text(text: str, width: int) -> list[str]:
 SearchSelector = ModelSearchSelector | ThinkingSearchSelector
 
 
+@runtime_checkable
+class EditorAreaComponent(Protocol):
+    """What the ``search_selector`` overlay can show in place of the editor:
+    the two selectors here, and the ``/mcp`` manager view. One that also has
+    ``render_within(width, height, style)`` is asked to fit the rows that
+    are free."""
+
+    def render(self, width: int, style: ChromeStyle) -> list[str]: ...
+
+
 def search_selector_region_lines(
     overlays: OverlayState,
     *,
@@ -516,9 +527,17 @@ def search_selector_region_lines(
     """
 
     component = overlays.search_selector
-    if not isinstance(component, ModelSearchSelector | ThinkingSearchSelector):
+    if not isinstance(component, EditorAreaComponent):
         return []
-    body = component.render(width, style)[: max(1, height - 2)]
+    rows = max(1, height - 2)
+    # A component that can lay itself out for the rows there are does so;
+    # the others lose their last rows.
+    fitted = getattr(component, "render_within", None)
+    body = (
+        fitted(width, rows, style)
+        if callable(fitted)
+        else component.render(width, style)
+    )[:rows]
     return [
         *(FrameLine(clip_custom_text(line, width), "normal") for line in body),
         FrameLine(clip_text(footer_lines[0], width), "footer"),
