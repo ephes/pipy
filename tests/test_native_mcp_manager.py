@@ -1081,6 +1081,25 @@ def _in_thread(function: Any) -> tuple[threading.Thread, list[Any]]:
     return thread, results
 
 
+def test_the_state_of_a_connected_server_counts_its_resources() -> None:
+    # Pi `describeState`.
+    def state(*resources: str) -> str:
+        view = ConnectionView(
+            name="docs",
+            state="connected",
+            error=None,
+            tools=(_tool("search"),),
+            instructions=None,
+            has_resources=True,
+            resources=tuple({"uri": uri, "name": uri} for uri in resources),
+        )
+        return describe_state(McpServerStatus(_entry("docs"), True, view))
+
+    assert state() == "connected · 1 tool"
+    assert state("docs://a") == "connected · 1 tool · 1 resource"
+    assert state("docs://a", "docs://b") == "connected · 1 tool · 2 resources"
+
+
 def _status_of(session: _Session, name: str) -> McpServerStatus:
     return next(
         status for status in session.manager.servers() if status.entry.name == name

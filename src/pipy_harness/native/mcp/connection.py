@@ -7,10 +7,13 @@ is reported as ``disconnected`` and the next call connects again.
 
 Threads. An attempt runs on a daemon thread of its own (``mcp-connect``), so
 the callers that wait for it can give up when their cancel event is set. A
-``notifications/tools/list_changed`` is handled on a second daemon thread
-(``mcp-refresh``) that lives only while a refresh is wanted, because a
-notification listener runs on the client's reading thread and must not send a
-request. One lock guards the connection's state; it is never held while the
+``notifications/tools/list_changed`` or ``notifications/resources/list_changed``
+is handled on a second daemon thread (``mcp-refresh``) that lives only while
+a refresh is wanted, because a notification listener runs on the client's
+reading thread and must not send a request. That thread lists one kind after
+the other, so a slow resource listing delays a tool refresh. While a server
+connects, its resources are listed on a thread ``mcp-resources`` next to the
+tool listing. One lock guards the connection's state; it is never held while the
 connection calls a client, a transport or a callback. The connection takes a
 client's lock while it holds its own, never the other way round.
 
@@ -26,8 +29,8 @@ be the one a transport needs back before it can finish closing. A callback
 must not call ``get_client`` for the attempt it is announcing.
 
 Not built yet: HTTP servers, the retries of a failed HTTP connect, a new
-session after the old one expired, OAuth and the ``needs-auth`` state, and
-resources.
+session after the old one expired, the one retry of a resource request after
+a transient HTTP error, and OAuth with the ``needs-auth`` state.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final, Literal, TypeVar
 
 from pipy_harness.native.fuzzy import js_trim
 from pipy_harness.native.mcp.client import (
@@ -50,11 +53,14 @@ from pipy_harness.native.mcp.config_values import resolve_config_value
 from pipy_harness.native.mcp.http import McpAuthProvider
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import (
+    METHOD_NOT_FOUND,
     JsonObject,
     JsonRpcMessage,
     McpAbortError,
+    McpError,
     is_number,
 )
+from pipy_harness.native.mcp.resources import is_mcp_app_resource, settle_all
 from pipy_harness.native.mcp.stdio import StdioTransport, StdioTransportOptions
 from pipy_harness.native.mcp.transport import (
     CloseListener,
@@ -64,6 +70,8 @@ from pipy_harness.native.mcp.transport import (
     MessageListener,
     RequestFailureListener,
 )
+
+_T = TypeVar("_T")
 
 DEFAULT_TIMEOUT_SECONDS: Final = 60
 STDERR_TAIL_CHARS: Final = 2_000
@@ -93,7 +101,11 @@ class ConnectionView:
     """What a connection looked like at one moment.
 
     ``tools`` holds the definitions as the server sent them; treat them as
-    read-only. They are kept while the server is disconnected.
+    read-only. They are kept while the server is disconnected, and so is
+    what is known of its resources: ``has_resources`` says whether the server
+    declared the capability at its last connect, and ``resources`` and
+    ``resource_templates`` are what it listed then or at its last change,
+    without MCP App resources.
     """
 
     name: str
@@ -101,6 +113,9 @@ class ConnectionView:
     error: str | None
     tools: tuple[JsonObject, ...]
     instructions: str | None
+    has_resources: bool = False
+    resources: tuple[JsonObject, ...] = ()
+    resource_templates: tuple[JsonObject, ...] = ()
 
 
 def expand_home(value: str) -> str:
@@ -166,6 +181,42 @@ def _stderr_tail(transport: StdioTransport) -> str:
     return js_trim(transport.stderr)[-STDERR_TAIL_CHARS:]
 
 
+def _without_templates(list_templates: Callable[[], _T], empty: _T) -> _T:
+    """A server that does not implement ``resources/templates/list`` has no
+    templates."""
+
+    try:
+        return list_templates()
+    except McpError as error:
+        if error.code == METHOD_NOT_FOUND:
+            return empty
+        raise
+
+
+def _fetch_resources(
+    client: McpClient,
+) -> tuple[tuple[JsonObject, ...], tuple[JsonObject, ...]]:
+    """The resources and templates of a server, for the counts in ``/mcp``
+    and ``pipy mcp list``. Both lists are asked for at the same time. A list
+    that fails is empty: the resource tools list and read on demand."""
+
+    empty: list[JsonObject] = []
+    resources, templates = settle_all(
+        [
+            client.list_resources,
+            lambda: _without_templates(client.list_resource_templates, empty),
+        ]
+    )
+    return (
+        _without_apps([] if isinstance(resources, Exception) else resources),
+        _without_apps([] if isinstance(templates, Exception) else templates),
+    )
+
+
+def _without_apps(items: list[JsonObject]) -> tuple[JsonObject, ...]:
+    return tuple(item for item in items if not is_mcp_app_resource(item))
+
+
 def _close_quietly(target: McpClient | McpTransport) -> None:
     try:
         target.close()
@@ -220,6 +271,7 @@ class _Link:
         "client",
         "refresh_wanted",
         "refreshing",
+        "resources_wanted",
         "stdio",
         "transport_closed",
     )
@@ -229,7 +281,10 @@ class _Link:
         self.stdio: StdioTransport | None = None
         # Set by the transport when it has finished closing.
         self.transport_closed = threading.Event()
+        # Which lists the server said have changed, and whether a thread is
+        # listing them again.
         self.refresh_wanted = False
+        self.resources_wanted = False
         self.refreshing = False
 
 
@@ -260,8 +315,9 @@ class McpServerConnection:
         create_transport: McpTransportFactory = create_default_transport,
         log: McpServerLog | None = None,
     ) -> None:
-        """``on_tools`` is called when the tool list was read, ``on_change``
-        when the state, the error or the tools changed. ``log`` receives the
+        """``on_tools`` is called when the tool list or the resources were
+        read, ``on_change`` when the state, the error, the tools or the
+        resources changed. ``log`` receives the
         server's log messages. ``cwd`` is the session directory."""
 
         self.entry = entry
@@ -276,6 +332,9 @@ class McpServerConnection:
         self._error: str | None = None
         self._tools: tuple[JsonObject, ...] = ()
         self._instructions: str | None = None
+        self._has_resources = False
+        self._resources: tuple[JsonObject, ...] = ()
+        self._resource_templates: tuple[JsonObject, ...] = ()
         self._link: _Link | None = None  # the connected client
         self._pending_link: _Link | None = None  # the client of the running attempt
         # Every link whose transport started and has not reported its close,
@@ -308,6 +367,9 @@ class McpServerConnection:
                 error=self._error,
                 tools=self._tools,
                 instructions=self._instructions,
+                has_resources=self._has_resources,
+                resources=self._resources,
+                resource_templates=self._resource_templates,
             )
 
     @property
@@ -324,6 +386,14 @@ class McpServerConnection:
     def tools(self) -> tuple[JsonObject, ...]:
         with self._lock:
             return self._tools
+
+    @property
+    def has_resources(self) -> bool:
+        """Whether the server declared the ``resources`` capability at its
+        last connect. Kept while it is disconnected."""
+
+        with self._lock:
+            return self._has_resources
 
     @property
     def instructions(self) -> str | None:
@@ -394,6 +464,54 @@ class McpServerConnection:
         client = self.get_client(None if options is None else options.cancel_event)
         return client.call_tool(name, arguments, options)
 
+    def read_resource(
+        self, uri: str, options: McpRequestOptions | None = None
+    ) -> JsonObject:
+        """Read a resource of the server, connecting first when needed."""
+
+        return self._client_for(options).read_resource(uri, options)
+
+    def resources_page(
+        self, cursor: str | None = None, options: McpRequestOptions | None = None
+    ) -> JsonObject:
+        """One page of the server's resources, starting at ``cursor``."""
+
+        return self._client_for(options).list_resources_page(cursor, options)
+
+    def resource_templates_page(
+        self, cursor: str | None = None, options: McpRequestOptions | None = None
+    ) -> JsonObject:
+        """One page of the server's resource templates; none when the server
+        does not implement the method."""
+
+        client = self._client_for(options)
+        empty: JsonObject = {"resourceTemplates": []}
+        return _without_templates(
+            lambda: client.list_resource_templates_page(cursor, options), empty
+        )
+
+    def all_resources(
+        self, options: McpRequestOptions | None = None
+    ) -> list[JsonObject]:
+        """Every resource of the server, through all pages."""
+
+        return self._client_for(options).list_resources(options)
+
+    def all_resource_templates(
+        self, options: McpRequestOptions | None = None
+    ) -> list[JsonObject]:
+        """Every resource template of the server; none when the server does
+        not implement the method."""
+
+        client = self._client_for(options)
+        empty: list[JsonObject] = []
+        return _without_templates(
+            lambda: client.list_resource_templates(options), empty
+        )
+
+    def _client_for(self, options: McpRequestOptions | None) -> McpClient:
+        return self.get_client(None if options is None else options.cancel_event)
+
     def reconnect(self) -> None:
         """Drop the connected client and connect again (Pi ``reconnect``).
 
@@ -443,7 +561,7 @@ class McpServerConnection:
         if link is not None:
             _close_quietly(link.client)
         if pending is not None:
-            # Fails its pending initialize or tools/list and closes its
+            # Fails its pending initialize or list requests and closes its
             # transport; the attempt then ends.
             _close_quietly(pending.client)
         if getattr(self._callback_depth, "value", 0):
@@ -537,10 +655,11 @@ class McpServerConnection:
         return client
 
     def _set_up(self, link: _Link, transport: McpTransport) -> bool:
-        """Connect ``link``'s client, list the tools and publish the link.
+        """Connect ``link``'s client, list the tools and the resources and
+        publish the link.
 
-        Returns whether the tools changed while they were being listed, in
-        which case the caller starts a refresh.
+        Returns whether the tools or the resources changed while they were
+        being listed, in which case the caller starts a refresh.
         """
 
         client = link.client
@@ -551,13 +670,33 @@ class McpServerConnection:
             "notifications/tools/list_changed",
             lambda params: self._schedule_refresh(link),
         )
+        client.on_notification(
+            "notifications/resources/list_changed",
+            lambda params: self._schedule_refresh(link, resources=True),
+        )
         if isinstance(transport, StdioTransport):
             link.stdio = transport
         client.on_close(lambda: self._handle_client_close(link))
+        capabilities = client.server_capabilities or {}
+        # Pi tests for a key that is not undefined, so ``null`` counts.
+        has_resources = "resources" in capabilities
+        listed: list[tuple[tuple[JsonObject, ...], tuple[JsonObject, ...]]] = []
+        fetcher: threading.Thread | None = None
+        if has_resources:
+            # Next to the tool listing, as in Pi. When that fails the client
+            # is closed, which ends this thread's requests.
+            fetcher = threading.Thread(
+                target=lambda: listed.append(_fetch_resources(client)),
+                name="mcp-resources",
+                daemon=True,
+            )
+            fetcher.start()
         # A server without the tools capability (prompts or resources only)
         # does not answer tools/list.
-        capabilities = client.server_capabilities or {}
         tools = client.list_tools() if _is_truthy(capabilities.get("tools")) else []
+        if fetcher is not None:
+            fetcher.join()
+        resources, templates = listed[0] if listed else ((), ())
         instructions = js_trim(client.instructions or "") or None
         with self._lock:
             if self._closed:
@@ -569,10 +708,13 @@ class McpServerConnection:
             self._pending_link = None
             self._link = link
             self._tools = tuple(tools)
+            self._has_resources = has_resources
+            self._resources = resources
+            self._resource_templates = templates
             self._instructions = instructions
             self._state = "connected"
             self._error = None
-            link.refreshing = link.refresh_wanted
+            link.refreshing = link.refresh_wanted or link.resources_wanted
             return link.refreshing
 
     def _connect_failed(self, error: Exception) -> str:
@@ -616,15 +758,19 @@ class McpServerConnection:
             if link in self._open_links:
                 self._open_links.remove(link)
 
-    # -- tool list changes ------------------------------------------------
+    # -- list changes -----------------------------------------------------
 
-    def _schedule_refresh(self, link: _Link) -> None:
-        """Have ``link``'s tools listed again. Runs on a client's reading thread."""
+    def _schedule_refresh(self, link: _Link, *, resources: bool = False) -> None:
+        """Have ``link``'s tools, or its resources, listed again. Runs on a
+        client's reading thread."""
 
         with self._lock:
             if self._closed or link not in (self._link, self._pending_link):
                 return
-            link.refresh_wanted = True
+            if resources:
+                link.resources_wanted = True
+            else:
+                link.refresh_wanted = True
             if link is not self._link or link.refreshing:
                 # A link that is still connecting is refreshed once it is
                 # published; a running refresher lists again.
@@ -635,7 +781,7 @@ class McpServerConnection:
     def _start_refresher(self, link: _Link) -> None:
         try:
             threading.Thread(
-                target=self._refresh_tools,
+                target=self._refresh,
                 args=(link,),
                 name="mcp-refresh",
                 daemon=True,
@@ -645,13 +791,24 @@ class McpServerConnection:
                 link.refreshing = False
             self._refresh_failed(link, error)
 
-    def _refresh_tools(self, link: _Link) -> None:
+    def _refresh(self, link: _Link) -> None:
+        """List again what the server said has changed, one list per round,
+        until nothing is wanted."""
+
         while True:
             with self._lock:
-                if self._link is not link or self._closed or not link.refresh_wanted:
+                wanted = link.refresh_wanted or link.resources_wanted
+                if self._link is not link or self._closed or not wanted:
                     link.refreshing = False
                     return
-                link.refresh_wanted = False
+                tools_wanted = link.refresh_wanted
+                if tools_wanted:
+                    link.refresh_wanted = False
+                else:
+                    link.resources_wanted = False
+            if not tools_wanted:
+                self._refresh_resources(link)
+                continue
             try:
                 tools = link.client.list_tools()
             except Exception as error:  # noqa: BLE001 - recorded as the connection's error
@@ -662,6 +819,15 @@ class McpServerConnection:
                     continue
                 self._tools = tuple(tools)
             self._changed(tools=True)
+
+    def _refresh_resources(self, link: _Link) -> None:
+        resources, templates = _fetch_resources(link.client)
+        with self._lock:
+            if self._link is not link or self._closed:
+                return
+            self._resources = resources
+            self._resource_templates = templates
+        self._changed(tools=True)
 
     def _refresh_failed(self, link: _Link, error: Exception) -> None:
         with self._lock:

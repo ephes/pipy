@@ -163,7 +163,8 @@ def _error_message(error: BaseException) -> str:
 
 def describe_state(status: McpServerStatus, *, with_error: bool = True) -> str:
     """Short state of a server for lists and the startup report (Pi
-    ``describeState``). ``with_error`` appends the first line of a failure."""
+    ``describeState``). ``with_error`` appends the first line of a failure.
+    A connected server's resources are counted without MCP App resources."""
 
     if not status.enabled:
         return "disabled"
@@ -179,7 +180,13 @@ def describe_state(status: McpServerStatus, *, with_error: bool = True) -> str:
         return f"failed: {error.split(chr(10), 1)[0]}"
     if view.state == "connected":
         count = len(view.tools)
-        return f"connected · {count} tool{'' if count == 1 else 's'}"
+        resources = len(view.resources)
+        resource_count = (
+            f" · {resources} resource{'' if resources == 1 else 's'}"
+            if resources
+            else ""
+        )
+        return f"connected · {count} tool{'' if count == 1 else 's'}{resource_count}"
     if view.state == "connecting":
         return "connecting…"
     return view.state

@@ -27,6 +27,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- `pipy mcp list` shows how many resources and URI templates a server
+  offers (`resources: <n>, URI templates: <m>`, and `resources` and
+  `resourceTemplates` with `--json`), for servers that declare the
+  `resources` capability; resources for MCP Apps are not counted. A
+  connection lists them when it connects and again when the server announces
+  a change. The resource tools that read them do not exist yet. See
+  [MCP](docs/mcp.md#list).
 - `/reload` reads `mcp.json` and the `builtin:mcp` setting again: it closes
   the MCP servers and starts the ones configured now, so a server that was
   removed is gone, a new one connects and a changed one runs with its new
@@ -55,9 +62,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   stdio or HTTP entry into the user-level `mcp.json`, or with `-l` into the
   project's, after checking it; `list` connects to every enabled server and
   prints state, tools and errors as text or with `--json`, exiting 1 when
-  something is wrong. Two gaps for now: `list` reports a server with a `url`
-  as failed, because HTTP servers cannot be connected yet, and it shows no
-  resource counts. `pipy mcp login` and `logout` do not exist yet. See
+  something is wrong. One gap for now: `list` reports a server with a `url`
+  as failed, because HTTP servers cannot be connected yet. `pipy mcp login` and `logout` do not exist yet. See
   [MCP](docs/mcp.md#the-pipy-mcp-commands).
 - The system prompt lists the MCP servers whose tools are not declared to the
   model, in a section named `mcp_servers`: each enabled server with

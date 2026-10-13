@@ -1140,6 +1140,32 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   `agent-session-mcp.test.ts` runs through the SDK without that option).
   The transcript restore pipy has is `/tree`, which got the pending names.
 
+Decided in S23 (resources of a connection, `connection.py`; the counts):
+
+- The connection keeps `has_resources`, `resources` and `resource_templates`
+  (in `ConnectionView` too). They are read at connect on a thread
+  `mcp-resources` next to the tool listing, each list failing to an empty
+  one; `has_resources` is the presence of the `resources` key in the
+  server's capabilities, as in Pi (`!== undefined`). They are kept while the
+  server is disconnected and when a later connect fails.
+  `notifications/resources/list_changed` uses the refresh thread of the tool
+  list; it lists one kind per round, so a slow resource listing delays a
+  tool refresh (Pi runs them independently).
+- The connection has the requests the resource tools make:
+  `read_resource`, `resources_page`, `resource_templates_page`,
+  `all_resources`, `all_resource_templates`. Each connects first when
+  needed. The two for templates answer with none when the server has no
+  `resources/templates/list` (Pi `withoutTemplates`). The lists are the
+  server's; leaving out MCP App entries is the caller's.
+- `resources.py` has `is_mcp_app_resource` and `settle_all` (calls run at
+  the same time on daemon threads `mcp-request`, each result or exception
+  returned in order, Pi `Promise.allSettled`).
+- `describe_state` counts the resources of a connected server. `/mcp`'s
+  status lines have no count, as in Pi's `formatStatus`.
+- Not built here: the one retry of a resource request after a transient HTTP
+  error (Pi `withClient(..., readOnly)`), which S26 adds with the retry
+  loop.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -2041,9 +2067,9 @@ their instructions without a configured description".
 **S20a Shell commands.** Build `shell_cli.py` and the `mcp` subparser. `add`
 and `remove` handle both transports (they only write config). `list` connects
 stdio entries; until S26 an HTTP entry is reported in state `failed` with the
-error of the default transport factory (see "Decided in S20a"), and until S23
-the report has no resource counts. Both gaps are named in the slice's changelog line and closed
-by the rows' later slices. Tests: mirrors of the eight `mcp-command.test.ts`
+error of the default transport factory (see "Decided in S20a"); S23 added the
+resource counts. The gap is named in the slice's changelog line and closed
+by the row's later slice. Tests: mirrors of the eight `mcp-command.test.ts`
 cases except login, with stdio servers. Docs:
 `docs/mcp.md`, `docs/usage.md` "MCP commands".
 

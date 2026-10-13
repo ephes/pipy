@@ -220,6 +220,57 @@ def test_list_marks_tools_whose_exposure_differs_and_names_the_override(
     assert list(report)[-1] == "toolExposure"
 
 
+def test_list_counts_resources_and_templates_of_a_server_that_offers_them(
+    home: _Home, tmp_path: Path
+) -> None:
+    # CMDL-08 and CMDL-09: counted without MCP App entries; a server without
+    # the capability has no line and no fields.
+    resources = _fixture(
+        tmp_path,
+        "resources",
+        capabilities={"tools": {}, "resources": {}},
+        resources=[
+            {"uri": "docs://intro", "name": "intro"},
+            {"uri": "docs://faq", "name": "faq"},
+            {"uri": "ui://docs/viewer", "name": "viewer"},
+        ],
+        resourceTemplates=[{"uriTemplate": "docs://pages/{slug}", "name": "page"}],
+    )
+    empty = _fixture(tmp_path, "empty", capabilities={"tools": {}, "resources": {}})
+    home.write(
+        {"docs": resources, "empty": empty, "plain": _fixture(tmp_path, "plain")}
+    )
+
+    assert home.run("list") == 0
+
+    lines = home.output
+    start = lines.index("docs: connected, 1 tool (codemode, global)")
+    assert lines[start + 2 : start + 4] == [
+        "  tools: echo",
+        "  resources: 2, URI templates: 1",
+    ]
+    start = lines.index("empty: connected, 1 tool (codemode, global)")
+    assert lines[start + 3] == "  resources: 0, URI templates: 0"
+    assert lines.count("  tools: echo") == 3
+    assert len([line for line in lines if line.startswith("  resources:")]) == 2
+
+    assert home.run("list", "--json") == 0
+
+    servers = {server["name"]: server for server in json.loads(home.text)["servers"]}
+    assert (servers["docs"]["resources"], servers["docs"]["resourceTemplates"]) == (
+        2,
+        1,
+    )
+    # After the tools, before an error.
+    assert list(servers["docs"])[-3:] == ["tools", "resources", "resourceTemplates"]
+    assert (servers["empty"]["resources"], servers["empty"]["resourceTemplates"]) == (
+        0,
+        0,
+    )
+    assert "resources" not in servers["plain"]
+    assert "resourceTemplates" not in servers["plain"]
+
+
 def test_list_reads_the_project_file_only_in_a_trusted_project(
     home: _Home, tmp_path: Path
 ) -> None:

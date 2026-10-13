@@ -645,12 +645,14 @@ omit --local.`
 `pipy mcp list` connects to every enabled server, all at the same time, reads
 its tools and closes the connection again. For each server it prints the
 state, the exposure and the scope, then the command or URL, and after that
-what applies: the project file that overrides it, its tools, and the error.
+what applies: the project file that overrides it, its tools, the number of
+its resources and URI templates, and the error.
 
 ```text
 filesystem: connected, 2 tools (direct, global)
   npx -y @modelcontextprotocol/server-filesystem .
   tools: read_file, write_file [hidden]
+  resources: 12, URI templates: 1
 broken: failed (codemode, global)
   no-such-server
   [Errno 2] No such file or directory: 'no-such-server'
@@ -660,7 +662,10 @@ config error: /home/me/.pipy/mcp.json: server "bad" needs either "command" (stdi
 ```
 
 A tool is followed by its exposure in brackets when `toolExposure` gives it
-another one than the server's. The exit status is 1 when an entry of a file
+another one than the server's. The `resources:` line appears for a server
+that declares the `resources` capability and counts what it lists, without
+resources for MCP Apps (a `ui://` URI, or a MIME type with
+`profile=mcp-app`). The exit status is 1 when an entry of a file
 is invalid or an enabled server is not connected, else 0, so a script or an
 agent can use the command to check an `mcp.json` it wrote. A server that
 does not answer is given up after its `timeout` (60 seconds by default).
@@ -684,15 +689,18 @@ does not answer is given up after its `timeout` (60 seconds by default).
       ],
       "toolExposure": {
         "write_file": "hidden"
-      }
+      },
+      "resources": 12,
+      "resourceTemplates": 1
     }
   ],
   "errors": []
 }
 ```
 
-`override` (the project file that overrides the server), `toolExposure` and
-`error` are present only when they apply; `note` is the line about an ignored
+`override` (the project file that overrides the server), `toolExposure`,
+`resources` with `resourceTemplates` (a server with the `resources`
+capability) and `error` are present only when they apply; `note` is the line about an ignored
 project file.
 
 The project file is read only when a decision to trust the project is
@@ -707,8 +715,6 @@ in the project to trust it.`
   usage text does not list them.
 - A server with a `url` is listed as `failed`, because pipy cannot connect to
   HTTP servers yet.
-- The list has no `resources:` line and no `resources` and
-  `resourceTemplates` fields yet.
 - `--oauth-callback-port` takes a decimal number. Pi also reads JavaScript's
   other spellings of a number, such as `0x50`.
 - The usage text and the hint are plain text; Pi prints parts of them bold
@@ -754,6 +760,13 @@ A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
   When the server sends `notifications/tools/list_changed` they are listed
   again; if that fails, the error is `Failed to refresh tools: <reason>` and
   the earlier tools stay.
+- The resources and URI templates are listed, next to the tools, only when
+  the server declares the `resources` capability, and again when it sends
+  `notifications/resources/list_changed`. They are only counted: by
+  `pipy mcp list`, and in the state of a connected server that the
+  `/mcp reconnect` completion shows (`connected · 2 tools · 3 resources`). A
+  listing that fails counts as empty and is no error of the server. What is
+  known of a server's resources is kept while it is disconnected.
 - The server's `instructions` are kept with surrounding whitespace removed.
 - A connect that fails leaves the server `failed` with the reason, followed
   by the last 2000 characters of the server's stderr, and the call fails with
@@ -926,7 +939,7 @@ standard library. It is not part of the SDK surface.
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. |
 | `config` | Validation, loading and editing of `mcp.json`, as described above. |
 | `config_values` | `${NAME}` and `!command` in config values. |
-| `connection` | `McpServerConnection`: one configured stdio server with its state, tools and instructions, as described under [server connections](#server-connections). |
+| `connection` | `McpServerConnection`: one configured stdio server with its state, tools, resources and instructions, as described under [server connections](#server-connections), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
 | `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `reconnect`, `set_enabled` and `set_exposure` change a server while the session runs and save the last two to `mcp.json`. `describe_state` gives a server's short state. |

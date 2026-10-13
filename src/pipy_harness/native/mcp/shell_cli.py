@@ -16,7 +16,6 @@ Where this differs from Pi:
 - ``login`` and ``logout`` are not built yet and say so.
 - A server with a ``url`` cannot be connected yet, so ``list`` reports it as
   failed with the connection's error.
-- ``list`` has no resource counts yet.
 - ``--oauth-callback-port`` is read as a decimal number; JavaScript's other
   number spellings (``0x50``) are not ports here.
 - The usage text is plain, without bold or dim characters.
@@ -555,6 +554,9 @@ def _probe(connection: McpServerConnection, report: dict[str, Any]) -> None:
         }
         if overrides:
             report["toolExposure"] = overrides
+        if view.has_resources:
+            report["resources"] = len(view.resources)
+            report["resourceTemplates"] = len(view.resource_templates)
         if view.state != "connected" and view.error:
             report["error"] = view.error
     finally:
@@ -624,6 +626,11 @@ def _report_lines(report: Mapping[str, Any]) -> list[str]:
             for tool in tools
         ]
         lines.append(f"  tools: {', '.join(listed)}")
+    if "resources" in report:
+        lines.append(
+            f"  resources: {report['resources']}, "
+            f"URI templates: {report.get('resourceTemplates', 0)}"
+        )
     if report.get("error"):
         lines.append("  " + "\n  ".join(report["error"].split("\n")))
     return lines
