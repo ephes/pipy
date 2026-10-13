@@ -86,7 +86,19 @@ lock: whichever update runs last has seen the latest state.
 such server whose stored tokens are different now, and ``reconnect_servers``
 connects them again.
 
-Not built yet: servers registered by extensions.
+Servers registered by extensions. ``registered`` returns what the
+extensions of the session have registered at that moment (``registry.py``).
+``start`` reads it, so the servers registered while the extensions loaded
+connect with those of ``mcp.json``, after them in the list. After a change
+of the registrations ``sync_registered`` reads it again: a server that is no
+longer registered, or is registered with another configuration, loses its
+tools at once and its connection is closed in the background; a server that
+is new connects in the background, one that takes the place of another of
+the same name once that one has closed. A server of ``mcp.json`` wins over a
+registered server of the same namespace, which is then only named by
+``overridden``. A change of ``enabled`` or ``exposure`` of a registered
+server is not saved anywhere. ``registered`` is called under the
+publication lock and never under the manager lock.
 """
 
 from __future__ import annotations
@@ -96,7 +108,7 @@ import queue
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import partial
@@ -111,6 +123,7 @@ from pipy_harness.native.mcp.config import (
     McpServerEntry,
     configured_exposures,
     get_mcp_tool_exposure,
+    mcp_namespace,
     update_mcp_server_config,
 )
 from pipy_harness.native.mcp.connection import (
@@ -123,6 +136,7 @@ from pipy_harness.native.mcp.connection import (
 from pipy_harness.native.mcp.credentials import McpOAuthCredentialStore
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import JsonObject
+from pipy_harness.native.mcp.registry import RegisteredMcpServer
 from pipy_harness.native.mcp.resources import create_mcp_resource_tools
 from pipy_harness.native.mcp.servers_section import (
     McpServerListing,
@@ -162,6 +176,9 @@ UpdateMcpConfig = Callable[[McpServerEntry, Mapping[str, object]], None]
 # Takes tools out of the session's active selection unless they are
 # ``direct`` (``NativeToolCapabilities.deactivate_indirect_mcp_tools``).
 DeactivateTools = Callable[[Collection[str]], None]
+# What the extensions have registered now, in registration order
+# (``McpServerRegistry.list``).
+RegisteredServers = Callable[[], Sequence[RegisteredMcpServer]]
 
 
 def update_config_file(entry: McpServerEntry, patch: Mapping[str, object]) -> None:
@@ -284,11 +301,18 @@ class _Server:
         "message",
         "ports",
         "ready",
+        "registered_config",
         "source",
     )
 
-    def __init__(self, entry: McpServerEntry) -> None:
+    def __init__(
+        self, entry: McpServerEntry, registered_config: str | None = None
+    ) -> None:
         self.entry = entry
+        # For a server an extension registered: the configuration as it was
+        # registered, as text, to tell a registration with another one.
+        # ``None`` for a server of ``mcp.json``.
+        self.registered_config = registered_config
         # ``None`` while the server is disabled, and while an enabled server
         # waits for its previous connection to finish closing.
         self.connection: McpServerConnection | None = None
@@ -306,6 +330,18 @@ class _Server:
         # What the last action of the manager view had to say (Pi
         # ``server.message``).
         self.message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _RegisteredChange:
+    """What ``sync_registered`` still has to do outside the locks."""
+
+    # The connections of the servers that were removed, each with the event
+    # that is set once it has closed.
+    closing: tuple[tuple[_Server, McpServerConnection, threading.Event], ...] = ()
+    # The servers that were added and connect: what each waits for before it
+    # opens anything, and the ``ready`` event of its attempt.
+    attempts: tuple[tuple[_Server, threading.Event | None, threading.Event], ...] = ()
 
 
 class _SignIn:
@@ -334,6 +370,7 @@ class McpManager:
         deactivate_tools: DeactivateTools | None = None,
         credentials: McpOAuthCredentialStore | None = None,
         provider_token: ProviderToken | None = None,
+        registered: RegisteredServers | None = None,
     ) -> None:
         """``publish_tools`` receives the tools of all servers after every
         change. ``config`` is read once; ``cwd`` is the session directory.
@@ -343,7 +380,9 @@ class McpManager:
         is called on the threads that send requests.
         ``update_config`` saves a change made in the session and
         ``deactivate_tools`` takes a server's tools that are no longer
-        ``direct`` out of the session's selection."""
+        ``direct`` out of the session's selection. ``registered`` returns
+        the servers the extensions have registered now; without it the
+        session has only the servers of ``config``."""
 
         self.config_errors: tuple[str, ...] = tuple(config.errors)
         # ``autoEnableCodemode``; true unless a file says false.
@@ -367,6 +406,17 @@ class McpManager:
         self._publication = threading.Lock()
         self._lock = threading.Lock()
         self._servers = [_Server(entry) for entry in config.servers]
+        # The servers of ``mcp.json`` as they were loaded: a registered
+        # server of the same namespace is overridden by its entry.
+        self._configured: tuple[McpServerEntry, ...] = tuple(config.servers)
+        self._registered = registered
+        # One line per registered server that ``mcp.json`` overrides. Guarded
+        # by the manager lock, changed under the publication lock.
+        self._overridden: tuple[str, ...] = ()
+        # By name, what a registered server that was removed is still
+        # closing: a server registered under the name again, by this or a
+        # later change, opens nothing before. Guarded by the manager lock.
+        self._closing_registered: dict[str, threading.Event] = {}
         self._retired: list[McpServerConnection] = []
         self._worker: threading.Thread | None = None
         self._started = False
@@ -401,8 +451,10 @@ class McpManager:
     # -- lifecycle --------------------------------------------------------
 
     def start(self) -> None:
-        """Start connecting every enabled server; does not wait for any."""
+        """Start connecting every enabled server, also those the extensions
+        have registered by now; does not wait for any."""
 
+        self.sync_registered()
         connecting: list[tuple[_Server, McpServerConnection, threading.Event]] = []
         with self._lock:
             if self._started or self._closed:
@@ -491,7 +543,8 @@ class McpManager:
     # -- reading ----------------------------------------------------------
 
     def servers(self) -> tuple[McpServerStatus, ...]:
-        """Every configured server, in configuration order."""
+        """Every server: those of ``mcp.json`` in configuration order, then
+        those extensions registered, in the order they were added."""
 
         with self._lock:
             servers = [
@@ -507,6 +560,13 @@ class McpManager:
             )
             for entry, connection, message in servers
         )
+
+    def overridden(self) -> tuple[str, ...]:
+        """One line per registered server that a server of ``mcp.json``
+        overrides, for ``/mcp`` (Pi ``overridden``)."""
+
+        with self._lock:
+            return self._overridden
 
     def set_message(self, name: str, message: str | None) -> None:
         """Keep what an action of the ``/mcp`` manager on the server had to
@@ -542,7 +602,10 @@ class McpManager:
         ``waitForServers``). Returns ``True`` when every chosen server
         connected or failed and its tools were published, ``False`` when
         ``timeout`` seconds passed or ``cancel_event`` was set first. With
-        ``timeout=0`` it only looks. ``close`` ends every wait.
+        ``timeout=0`` it only looks. ``close`` ends every wait. The wait
+        looks at the servers again every 50 ms, so it ends when the last
+        server it counted is disabled or removed, whatever that server's
+        attempt is still doing.
         """
 
         with self._lock:
@@ -564,9 +627,16 @@ class McpManager:
                 ]
             if not pending:
                 return True
-            for ready in pending:
-                if not _wait_for_event(ready, deadline, cancel_event):
+            if cancel_event is not None and cancel_event.is_set():
+                return False
+            wait = _WAIT_POLL_SECONDS
+            if deadline is not None:
+                wait = min(wait, deadline - time.monotonic())
+                if wait <= 0:
                     return False
+            # Not until it is set: the server may be disabled or removed, or
+            # get another attempt, while this one is still waited for.
+            pending[0].wait(wait)
 
     def wait_for_startup(
         self,
@@ -998,6 +1068,178 @@ class McpManager:
                 self._deactivate_tools(names)
         return None
 
+    # -- servers registered by extensions ---------------------------------
+
+    def registered_changed(self) -> None:
+        """The registrations changed: bring the servers in line with them
+        on a thread of its own (``mcp-registered``). Returns at once and may
+        be called from any thread, also one that holds this manager's
+        publications."""
+
+        threading.Thread(
+            target=self.sync_registered, name="mcp-registered", daemon=True
+        ).start()
+
+    def sync_registered(self) -> None:
+        """Bring the servers in line with what the extensions have
+        registered now (Pi's ``mcp_servers_change`` handler).
+
+        Returns when the list of servers and the published tools are up to
+        date. Closing the connections of removed servers and connecting the
+        added ones goes on in the background; ``wait_for_servers`` covers
+        the new attempts. When the added servers have connected or failed,
+        one notice names those that need the user. Before ``start`` only
+        the list changes. Calls may arrive in any order: each reads the
+        registrations itself.
+        """
+
+        with self._publication:
+            change = self._apply_registered()
+        for closing in change.closing:
+            threading.Thread(
+                target=self._finish_closing, args=closing, name="mcp-close", daemon=True
+            ).start()
+        if change.attempts:
+            threading.Thread(
+                target=self._connect_registered,
+                args=(change.attempts,),
+                name="mcp-start",
+                daemon=True,
+            ).start()
+
+    def _read_registered(
+        self,
+    ) -> tuple[list[tuple[McpServerEntry, str]], tuple[str, ...]]:
+        """The registered servers as entries, each with its configuration
+        as text, and the lines of those ``mcp.json`` overrides (Pi
+        ``registeredServers``). Neither manager lock is needed; the caller
+        holds the publication lock."""
+
+        if self._registered is None:
+            return [], ()
+        entries: list[tuple[McpServerEntry, str]] = []
+        overridden: list[str] = []
+        for server in self._registered():
+            namespace = mcp_namespace(server.name)
+            configured = next(
+                (
+                    entry
+                    for entry in self._configured
+                    if mcp_namespace(entry.name) == namespace
+                ),
+                None,
+            )
+            if configured is not None:
+                overridden.append(
+                    f'"{server.name}" registered by {server.extension_path} is '
+                    f'overridden by "{configured.name}" in {configured.source}'
+                )
+                continue
+            entries.append(
+                (
+                    McpServerEntry(
+                        server.name, server.config, server.extension_path, "extension"
+                    ),
+                    # Key order counts, as in Pi: the first matching pattern
+                    # of ``toolExposure`` decides.
+                    json.dumps(server.config, default=repr),
+                )
+            )
+        return entries, tuple(overridden)
+
+    def _apply_registered(self) -> _RegisteredChange:
+        """Drop the registered servers that are gone or have another
+        configuration, add those that are new, and publish. The publication
+        lock is held."""
+
+        if self._registered is None:
+            return _RegisteredChange()
+        entries, overridden = self._read_registered()
+        wanted = dict((entry.name, text) for entry, text in entries)
+        with self._lock:
+            if self._closed:
+                return _RegisteredChange()
+            self._overridden = overridden
+            closing, registered = self._remove_registered(wanted)
+            attempts = self._add_registered(entries)
+        self._publish_changes(registered)
+        return _RegisteredChange(tuple(closing), tuple(attempts))
+
+    def _remove_registered(
+        self, wanted: Mapping[str, str]
+    ) -> tuple[list[tuple[_Server, McpServerConnection, threading.Event]], bool]:
+        """Take the registered servers that are not in ``wanted`` with their
+        configuration out of the list, with their connections and tools.
+        The manager lock is held. Returns the connections to close and
+        whether a tool was registered. A wait that counted such a server
+        goes on without it (``wait_for_servers``)."""
+
+        closing: list[tuple[_Server, McpServerConnection, threading.Event]] = []
+        registered = False
+        removed = [
+            server
+            for server in self._servers
+            if server.registered_config is not None
+            and wanted.get(server.entry.name) != server.registered_config
+        ]
+        for server in removed:
+            self._servers.remove(server)
+            connection = server.connection
+            server.connection = None
+            if connection is not None:
+                server.closing = threading.Event()
+                # ``close`` waits for it too.
+                self._retired.append(connection)
+                closing.append((server, connection, server.closing))
+            if server.closing is not None:
+                self._closing_registered[server.entry.name] = server.closing
+            registered = registered or bool(server.ports)
+            server.ports = {}
+            server.source = None
+        return closing, registered
+
+    def _add_registered(
+        self, entries: Sequence[tuple[McpServerEntry, str]]
+    ) -> list[tuple[_Server, threading.Event | None, threading.Event]]:
+        """Append the registered servers the list does not have and give
+        those that connect an attempt. The manager lock is held."""
+
+        for name, event in list(self._closing_registered.items()):
+            if event.is_set():
+                del self._closing_registered[name]
+        attempts: list[tuple[_Server, threading.Event | None, threading.Event]] = []
+        present = {server.entry.name for server in self._servers}
+        for entry, text in entries:
+            if entry.name in present:
+                continue
+            server = _Server(entry, text)
+            server.closing = self._closing_registered.get(entry.name)
+            self._servers.append(server)
+            if self._started and _is_enabled(entry):
+                attempts.append((server, server.closing, self._new_attempt(server)))
+        return attempts
+
+    def _connect_registered(
+        self,
+        attempts: tuple[tuple[_Server, threading.Event | None, threading.Event], ...],
+    ) -> None:
+        """Connect the servers one change added, all at the same time, and
+        report those that need the user (Pi ``reportProblems`` with
+        ``only``)."""
+
+        others = [
+            threading.Thread(
+                target=self._run_attempt, args=attempt, name="mcp-start", daemon=True
+            )
+            for attempt in attempts[1:]
+        ]
+        for other in others:
+            other.start()
+        self._run_attempt(*attempts[0])
+        for other in others:
+            other.join()
+        self._report_problems([server for server, _, _ in attempts])
+
     def _find(self, name: str) -> _Server | None:
         """The server called ``name``. The manager lock is held."""
 
@@ -1130,14 +1372,21 @@ class McpManager:
         finally:
             self._startup_done.set()
 
-    def _report_problems(self) -> None:
-        """One notice for everything that needs the user after startup."""
+    def _report_problems(self, only: Sequence[_Server] | None = None) -> None:
+        """One notice for everything that needs the user after startup, or
+        for the servers in ``only``, which connected later."""
 
         with self._lock:
             if self._closed:
                 return
-            servers = [(server.entry, server.connection) for server in self._servers]
-        lines = [f"config: {error}" for error in self.config_errors]
+            servers = [
+                (server.entry, server.connection)
+                for server in self._servers
+                if only is None or server in only
+            ]
+        lines = (
+            [f"config: {error}" for error in self.config_errors] if only is None else []
+        )
         for entry, connection in servers:
             if connection is None:
                 continue

@@ -7,9 +7,6 @@ as they are at that moment and touch no user interface; the manager view
 (``native/ui/components/mcp_manager_view.py``) draws a menu and the flow
 (``manager_flow.py``) decides what a choice does. A view that is open builds
 its menu again while servers connect and shows it when it differs.
-
-Different from Pi: the list of servers has no ``overridden:`` lines, because
-pipy has no servers registered by extensions yet.
 """
 
 from __future__ import annotations
@@ -131,10 +128,12 @@ def servers_menu(
     servers: Sequence[McpServerStatus],
     config_errors: Sequence[str],
     config_home: Path | str,
+    overridden: Sequence[str] = (),
 ) -> McpMenu:
     """Every configured server with ``<state> · <exposure> · <source>``,
     those that need the user first and then by name (Pi ``serversMenu``).
-    The errors of the configuration files are shown above the list."""
+    The errors of the configuration files and the registered servers that
+    ``mcp.json`` overrides are shown above the list (Pi ``notices``)."""
 
     ordered = sorted(
         servers,
@@ -142,7 +141,13 @@ def servers_menu(
     )
     return McpMenu(
         title="MCP servers",
-        error="\n".join(f"config: {error}" for error in config_errors) or None,
+        error="\n".join(
+            [
+                *(f"config: {error}" for error in config_errors),
+                *(f"overridden: {line}" for line in overridden),
+            ]
+        )
+        or None,
         items=tuple(
             McpMenuItem(
                 value=status.entry.name,

@@ -1696,6 +1696,58 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
 - The line renderer (no terminal UI) titles the call the same way; its
   result output is unchanged.
 
+Decided in S36 (servers registered by extensions; `registry.py`,
+`manager.py`, `commands.py`, `manager_menus.py`):
+
+- `registry.py` has `McpServerRegistry` (Pi `McpServerRegistry`),
+  `RegisteredMcpServer(name, config, extension_path)`,
+  `validated_registration(name, config, extension_path)` and
+  `registration_conflict(server, registered)`. One registry holds the
+  registrations of one extension generation. Different from Pi, where the
+  loader checks the owner and then registers on one thread:
+  `McpServerRegistry.register` does both under the registry's lock and
+  raises `McpServerRegistrationError`, because pipy's extensions may call
+  from any thread. `close()` makes a registry refuse every change; it is for
+  the registry of the extensions a reload replaced.
+- The manager takes `registered`, a function that returns the registrations
+  as they are now. It is the registry's `list`, so the manager does not know
+  the extension API. `start()` reads it, and `sync_registered()` is Pi's
+  `mcp_servers_change` handler: under the publication lock it drops the
+  registered servers that are gone or have another configuration (their
+  tools are unpublished in the same step), adds the new ones after the
+  servers it has, and starts their attempts. Closing and connecting happen
+  on threads (`mcp-close`, `mcp-start`); a server that takes the place of
+  one of the same name waits until that one's connection has closed, as an
+  enable waits for a disable (S21); the manager remembers by name what is
+  still closing, so this also holds when the name is registered again by a
+  later change. `wait_for_servers` no longer blocks on one `ready` event
+  until it is set: it looks at its servers again every 50 ms, so a wait
+  ends when the last server it counted was removed or disabled, also while
+  an earlier attempt of that server still waits for a connection to close
+  (this changes the S18 wait for disabled servers too).
+  `registered_changed()` runs
+  `sync_registered` on a thread (`mcp-registered`), for a caller that must
+  not block or may hold this manager's publications.
+- A registered server is told from a server of `mcp.json` by its
+  `registered_config`, the configuration as registered, as JSON text with
+  the keys in their order (Pi `registeredConfig`): the order of
+  `toolExposure` patterns decides which one matches, so another order is
+  another configuration and reconnects.
+- A change of `enabled` or `exposure` of a registered server lasts while
+  the server stays registered with the same configuration; registering
+  another configuration makes a new server from it, as in Pi.
+- When the servers one change added have connected or failed, one notice
+  names those that need the user, without the configuration errors (Pi
+  `reportProblems` with `only`). Like every notice a text is shown once in a
+  session.
+- `McpManager.overridden()` has Pi's lines for the registered servers a
+  server of `mcp.json` overrides, compared by namespace against the servers
+  as they were loaded. `format_status` and `servers_menu` take them and show
+  them after the configuration errors (SLH-02, MGR-02).
+- Lock order: the registry's lock is a leaf. `registered` is called under
+  the publication lock and never under the manager lock, and the registry
+  calls its listener without its lock.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

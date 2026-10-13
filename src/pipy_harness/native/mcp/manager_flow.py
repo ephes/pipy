@@ -253,7 +253,10 @@ class McpManagerFlow:
         manager = self._manager
         self._ui.menu(
             lambda: servers_menu(
-                manager.servers(), manager.config_errors, self._config_home
+                manager.servers(),
+                manager.config_errors,
+                self._config_home,
+                manager.overridden(),
             ),
             self._server_chosen,
             live=True,

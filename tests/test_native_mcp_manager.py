@@ -85,6 +85,7 @@ class _Session:
         state_lock: Any = None,
         errors: list[str] | None = None,
         project_config: str | None = None,
+        registered: Any = None,
     ) -> None:
         self.servers = servers
         # What a session change saved, and the error the next save raises.
@@ -114,6 +115,7 @@ class _Session:
             create_transport=self._create,
             update_config=self._save,
             deactivate_tools=self.tools.deactivate_indirect_mcp_tools,
+            registered=registered,
         )
 
     def _save(self, entry: McpServerEntry, patch: Any) -> None:

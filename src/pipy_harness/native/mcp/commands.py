@@ -160,16 +160,19 @@ def format_status(
     servers: Sequence[McpServerStatus],
     config_errors: Sequence[str],
     config_home: Path | str,
+    overridden: Sequence[str] = (),
 ) -> str:
-    """The text ``/mcp`` prints (Pi ``formatStatus``)."""
+    """The text ``/mcp`` prints (Pi ``formatStatus``). ``overridden`` has
+    one line per registered server that ``mcp.json`` overrides."""
 
-    if not servers and not config_errors:
+    if not servers and not config_errors and not overridden:
         return (
             "No MCP servers configured. Add them to "
             f"{global_mcp_config_path(config_home)} or .pipy/mcp.json."
         )
     lines = [_status_line(status) for status in servers]
     lines.extend(f"config error: {error}" for error in config_errors)
+    lines.extend(f"overridden: {line}" for line in overridden)
     return "\n".join(lines)
 
 
@@ -373,6 +376,7 @@ class McpCommand:
                     self._manager.servers(),
                     self._manager.config_errors,
                     self._config_home,
+                    self._manager.overridden(),
                 ),
             )
             return
