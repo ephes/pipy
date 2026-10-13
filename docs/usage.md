@@ -240,6 +240,8 @@ pipy mcp add <server> [options] -- <command> [args...]
 pipy mcp add <server> [options] --url <url>
 pipy mcp remove <server> [-l]
 pipy mcp list [--json]
+pipy mcp login <server> [--timeout <seconds>]
+pipy mcp logout <server>
 ```
 
 `add` and `remove` change `mcp.json` in the config home, or `.pipy/mcp.json`

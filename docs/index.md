@@ -33,10 +33,10 @@ is stored. For terminal-specific preparation, see
   [Python SDK](sdk.md) cover automation and embedding.
 - [Session Storage](session-storage.md) documents the separate metadata-only
   workflow catalog.
-- [Python codemode sandbox](codemode.md) covers installing the optional
-  codemode runtime and the sandbox core (groundwork; not yet a model tool).
-- [MCP](mcp.md) covers the MCP servers configured in `mcp.json` and the
-  optional `tool_search` tool.
+- [Python codemode](codemode.md) covers installing the optional codemode
+  runtime and writing scripts that call other tools.
+- [MCP](mcp.md) covers MCP servers: `mcp.json`, the `pipy mcp` commands,
+  `/mcp`, OAuth sign-in, tool exposure, `tool_search` and resources.
 
 ## Behavioral contracts
 

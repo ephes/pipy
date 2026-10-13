@@ -208,8 +208,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   after 250 ms and after one second; a resource read or listing is made once
   more after such a status, a tool call is not. When the server forgot the
   session (status 404), pipy starts a new one and makes the request once
-  more, tool calls included. OAuth is not built yet, so a server that
-  answers 401 is a failed server. See
+  more, tool calls included. See
   [HTTP servers](docs/mcp.md#http-servers).
 - MCP resources. When a connected server offers resources, the tools
   `list_mcp_resources`, `list_mcp_resource_templates` and `read_mcp_resource`
@@ -256,8 +255,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   stdio or HTTP entry into the user-level `mcp.json`, or with `-l` into the
   project's, after checking it; `list` connects to every enabled server and
   prints state, tools and errors as text or with `--json`, exiting 1 when
-  something is wrong. One gap for now: `list` reports a server with a `url`
-  as failed, because HTTP servers cannot be connected yet. `pipy mcp login` and `logout` do not exist yet. See
+  something is wrong. See
   [MCP](docs/mcp.md#the-pipy-mcp-commands).
 - The system prompt lists the MCP servers whose tools are not declared to the
   model, in a section named `mcp_servers`: each enabled server with
@@ -288,7 +286,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   carry structured content for scripts. A definition can hold a schema pipy
   did not write (an MCP server's); it reaches the provider unchanged and its
   arguments are checked by a built-in validator for the common JSON Schema
-  keywords. Existing tools are unchanged, and nothing uses the new fields yet.
+  keywords. Existing tools are unchanged.
 - Extension tools can declare that metadata: `ExtensionTool` takes `exposure`,
   `namespace`, `annotations`, `output_schema` and `reaches_tools`, and a
   `ToolResult` can carry `structured_content` and `is_error` (the model sees
@@ -339,8 +337,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   (`mcp__<server>__<tool>` and the resource tools) registered for codemode
   scripts and `tool_search` without declaring them; once an entry starts with
   `mcp__` the list filters them like other tools. `--exclude-tools 'mcp__*'`
-  and `--no-tools` remove them. pipy does not connect to MCP servers yet, so
-  the MCP rules apply to extension tools with such names for now. See
+  and `--no-tools` remove them. See
   [tool options](docs/usage.md#tool-options).
 - Codemode scripts can find the tools they may call. `ALL_TOOLS` lists every
   callable tool as `{"name", "description"}` with the tool's declaration,
@@ -382,17 +379,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `describe_tool` and `ALL_TOOLS` carry a tool's prompt guidelines too. Both
   settings are read at session start and on `/reload`.
 
-- MCP client library, not used by a session yet: `pipy_harness.native.mcp`
+- MCP client library: `pipy_harness.native.mcp`
   holds the protocol client (handshake, requests with timeouts, progress and
   cancellation, paginated lists, tool calls and resource reads), the stdio
   and streamable HTTP transports, validation, loading and editing of
   `mcp.json` (user-level and trusted-project files, project overrides,
-  exposure rules), and OAuth discovery. pipy still does not read an
-  `mcp.json`, start a server or connect to one. See
-  [MCP](docs/mcp.md#configure-servers) for the file format and for what is
-  built.
-- MCP server connection, also library code that no session uses yet: one
-  connection per configured stdio server with the states `connecting`,
+  exposure rules), and OAuth discovery. See
+  [MCP](docs/mcp.md#configure-servers) for the file format and
+  [the library](docs/mcp.md#what-exists-as-a-library) for the modules.
+- MCP server connections: one connection per configured stdio server with
+  the states `connecting`,
   `connected`, `disconnected`, `failed` and `closed`, a shared connect for
   concurrent callers, a reconnect on the next call after the server dropped,
   the tool list read again on `notifications/tools/list_changed`, and the
@@ -402,8 +398,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   Server log messages go to `mcp.log` in the config home, renamed to
   `mcp.log.1` above 5 MB. See
   [server connections](docs/mcp.md#server-connections).
-- MCP tool adaptation, also library code that no session uses yet: a
-  server's tool becomes a pipy tool named `mcp__<server>__<tool>` (other
+- MCP server tools: a server's tool becomes a pipy tool named `mcp__<server>__<tool>` (other
   characters as `_`, a hash suffix for names over 64 characters and for
   tools whose names would collide) in the namespace `mcp__<server>`, with the
   server's schema, description and annotation hints. Scripts get the whole
@@ -411,8 +406,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   that type. The model gets the text: resource links and binary resources as
   one-line notes (binary data is saved to a temp file), and text over 20 KB
   as its first and last 10 KB with the full text in a file readable by its
-  owner only. Progress notifications become live output. Images in results
-  are shown as `[image <mime> omitted]` for now. See
+  owner only. Progress notifications become live output. See
   [server tools](docs/mcp.md#server-tools).
 - MCP servers in a session. pipy reads `mcp.json` from the config home and,
   for a trusted project, `.pipy/mcp.json`, and starts connecting every
@@ -420,15 +414,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   connected server's tools are registered as `mcp__<server>__<tool>` with the
   exposure the config gives them: `direct` tools are declared to the model,
   `codemode` (the default) and `deferred` tools are called from codemode
-  scripts or loaded by `tool_search`, which you still have to enable
-  yourself. Calls pass the `tool_call` and `tool_result` hooks, and
+  scripts or loaded by `tool_search`. Calls pass the `tool_call` and `tool_result` hooks, and
   `ctx.get_all_tools()` reports the tools with their exposure, namespace and
   annotation hints. A changed tool list adds and removes tools while the
   session runs, `--tools` and `--exclude-tools` apply to them, `/reload`
   keeps them, and the session's end closes every server. `.pipy/mcp.json`
-  now counts as a project resource that needs a trust decision. Not yet:
-  HTTP servers, OAuth, a report of servers that failed, `/mcp`, the
-  `pipy mcp` commands and resources.
+  now counts as a project resource that needs a trust decision.
   See [MCP](docs/mcp.md#quick-setup).
 - Waiting for MCP servers that are still connecting. The first prompt of a
   session waits up to 10 seconds for servers with `direct` tools, so its
@@ -544,6 +535,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   compaction; previously nothing was shown while the summary ran.
 
 ### Documentation
+
+- The [MCP page](docs/mcp.md) is in the order a user needs it: quick setup,
+  configuration, migrating from another client, `/mcp` and the other ways
+  to look after servers in a session, the `pipy mcp` commands, OAuth, tool
+  exposure, tool search, resources, permissions, extensions and the SDK,
+  then the reference sections. New in it: a table for taking a
+  configuration over from Claude, Cursor, VS Code, Codex, OpenCode and Pi,
+  a list for diagnosing a server that does not connect, an introduction to
+  signing in with OAuth, a `toolExposure` example, and a list of what pipy
+  does not support. The MCP commands in the [CLI reference](docs/usage.md)
+  now list `login` and `logout`.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

@@ -1,15 +1,31 @@
 # MCP
 
-pipy connects to the MCP servers of your `mcp.json` when a session starts,
-stdio servers and servers reached over streamable HTTP, and makes their tools
-and resources available to the model and to codemode scripts.
-The work follows the
-[MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
-this page grows with them. [Quick setup](#quick-setup) shows what works
-today. An HTTP
-server that wants an OAuth sign-in is signed in to with
-[`/mcp login`](#the-mcp-command) in a session or
-[`pipy mcp login`](#log-in-and-out) in a shell.
+pipy connects to [Model Context Protocol](https://modelcontextprotocol.io)
+servers over stdio or streamable HTTP and makes their tools and resources
+available to the model and to codemode scripts. The servers are listed in
+`mcp.json`, in the format other MCP clients use.
+
+[Quick setup](#quick-setup) gets a server running. After it, this page
+covers:
+
+- [the configuration](#configure-servers) and
+  [taking it over from another client](#migrate-configuration-from-another-client);
+- [`/mcp` and what else looks after the servers of a session](#manage-servers-in-a-session),
+  including [what to do when a server does not connect](#diagnose-connection-problems);
+- the [`pipy mcp` commands](#the-pipy-mcp-commands) for the shell;
+- [signing in with OAuth](#authenticate-with-oauth);
+- how the model reaches a server's tools:
+  [exposure](#control-tool-exposure), [tool search](#tool-search),
+  [resources](#use-resources) and [permissions](#permissions);
+- [extensions and the Python SDK](#extensions-and-sdk).
+
+The rest is reference: what pipy does with a
+[connection](#server-connections) and with a server's
+[tools](#server-tools), [conformance](#conformance) with the MCP
+specification, [what pipy does not support](#what-pipy-does-not-support),
+and the [library](#what-exists-as-a-library). Where pipy behaves differently
+from Pi, the section says so under "Different from Pi" or "Differences from
+Pi".
 
 ## Quick setup
 
@@ -64,367 +80,164 @@ is gone, also for a server that was still starting.
 
 How the tools are reached depends on the server's `exposure` and the
 per-tool `toolExposure`, see [control tool exposure](#control-tool-exposure).
+Inside a session, [`/mcp`](#the-mcp-command) shows the servers; in the
+terminal it also signs in, reconnects, changes the exposure and enables or
+disables a server.
 
-### Control tool exposure
+## Configure servers
 
-| Exposure | Behaviour |
+User-level servers are in `mcp.json` in the config home (`PIPY_CONFIG_HOME`,
+then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy`, then `~/.config/pipy`), project
+servers in `.pipy/mcp.json`. The project file is loaded only for a
+[trusted project](settings-config.md#project-trust-complete-runtime-track-shipped).
+A missing file is not an error. A project entry replaces a user-level entry
+with the same name.
+
+A project entry without `command`, `url` and `type` overrides only `enabled`,
+`exposure` and `toolExposure` of the user-level server with the same name and
+keeps the rest, including `env`, `headers`, `oauth` and `auth`. For example,
+this turns off a user-level server in one project:
+
+```json
+{
+  "mcpServers": {
+    "internal-tools": { "enabled": false }
+  }
+}
+```
+
+The format matches other MCP clients:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "docs": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" },
+      "description": "Search and read the product documentation"
+    }
+  }
+}
+```
+
+Stdio servers use `command`, `args` (an array of strings), `env` (names to
+strings) and `cwd`. HTTP servers use `url`, `headers` (names to strings) and
+`oauth`. The legacy SSE transport is not supported.
+
+Both server types accept:
+
+- `timeout`: a positive number of seconds.
+- `enabled: false`: keep the entry without connecting to it. A disabled
+  server stays in the loaded list.
+- `exposure` and `toolExposure`: how the server's tools reach the model, see
+  the rules below.
+- `description`: what the server offers, in a sentence.
+
+The top-level key `autoEnableCodemode` (a boolean, default true) says whether
+the codemode tool is activated for a server with `codemode` exposure, see
+[control tool exposure](#control-tool-exposure). A project value overrides
+the user-level one.
+
+The loader checks types and keeps the values as written. What the fields do
+when a server is connected is described under
+[server connections](#server-connections).
+
+### Configuration rules
+
+- Server names may contain only letters, digits, `_` and `-`. The namespace
+  of a server's tools is `mcp__<server>` with `-` written as `_`, so two names
+  that differ only in `-` and `_` conflict and the later one is rejected:
+  `server "<a>" conflicts with "<b>"`.
+- `type` is optional. A `command` selects stdio and a `url` selects streamable
+  HTTP. When present, `type` must be `stdio` (with `command`), or `http` or
+  `streamable-http` (with `url`).
+- `sse` is rejected. Servers that document an SSE endpoint often also provide
+  streamable HTTP, commonly at `/mcp` instead of `/sse`.
+- `command` is one executable and `args` contains its arguments. It is not a
+  shell command string.
+- `url` must be an `http` or `https` URL.
+- `exposure` is `codemode` (the default), `deferred`, `direct` or `hidden`.
+  `codemode-deferred` is accepted as another name for `codemode`.
+- `toolExposure` maps tool names to exposures. An exact name wins; otherwise
+  the first key containing `*` that matches, in the order written; otherwise
+  the server's `exposure`. `*` matches any characters and every other
+  character is literal.
+- A project entry cannot set `auth`, and a project override can set only
+  `enabled`, `exposure` and `toolExposure`. An override needs a user-level
+  server of that name.
+- `oauth` is checked as far as it can be without a server: `clientId`,
+  `clientSecret` and `scope` are strings, `clientName` is a non-empty string,
+  `callbackPort` is 1 to 65535, `callbackUrl` is an `http` URL on `localhost`,
+  `127.0.0.1` or `[::1]` without query or fragment whose port, when it has
+  one, equals `callbackPort`, `authServerMetadataUrl` is `https` or `http` on
+  a loopback host, and `clientRegistration` is `dcr` or `cimd`. `cimd` cannot
+  be combined with `clientId` or `clientName` and requires
+  `clientMetadataBaseUrl`, an `https` URL without query or fragment; a
+  `callbackUrl` set with it must be on `localhost` or `127.0.0.1` with path
+  `/callback`. What the settings do is described under
+  [OAuth settings](#oauth-settings).
+- `auth` needs a non-empty `provider` and a server URL that is `https`, or
+  `http` on a loopback host. What it does is described under
+  [a provider's token](#a-providers-token).
+- An invalid entry is reported as `<path>: <reason>` and skipped. The other
+  entries, and the other file, still load. A file that is not JSON, or whose
+  top level or `mcpServers` is not an object, is reported as a whole.
+
+The library can also change a file: set one server's `enabled` or `exposure`,
+add a server, or remove one. An edit keeps all other content and the file's
+indentation. [`pipy mcp add` and `pipy mcp remove`](#the-pipy-mcp-commands)
+use the last two, and [the `/mcp` manager](#the-mcp-manager) sets `enabled`
+and `exposure`.
+
+Differences from Pi in the configuration:
+
+- pipy checks URLs with a small strict parser and does not repair them. A URL
+  without `//`, with a backslash, or with a shortened IPv4 address such as
+  `127.1` is a configuration error here, where Pi's URL parser accepts it.
+- `oauth.clientMetadataBaseUrl` exists only in pipy. Pi serves its Client ID
+  Metadata Documents from its own site; pipy has no such document, so `cimd`
+  needs the address where you host one, see
+  [OAuth settings](#oauth-settings).
+- A file that is not valid UTF-8 is an error, and JSON error messages are
+  Python's.
+- A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
+
+## Migrate configuration from another client
+
+Move the converted entry under `mcpServers` in `mcp.json`, then run
+`pipy mcp list` to check it.
+
+| Client | Conversion |
 | --- | --- |
-| `codemode` (default) | Not declared to the model. [Codemode](codemode.md) scripts call the tools (`tools.mcp__filesystem__read_file(path="a")`) and find them with `search_tools()`. |
-| `deferred` | Not declared until [`tool_search`](#tool-search) loads a match; the model then calls the tool directly. |
-| `direct` | Declared to the model like a built-in tool, and callable from scripts. The first prompt waits for the server, so its first request declares the tools; a server that connects later adds them to the next model request. |
-| `hidden` | Registered, and cannot be called. |
+| Claude Desktop, Claude Code or Cursor | Copy the existing `mcpServers` entry. |
+| VS Code | Move an entry from the top-level `servers` object and replace `${input:...}` prompts with `${NAME}` environment variables. |
+| Codex | Convert the `[mcp_servers.<name>]` TOML fields such as `command`, `args`, `env` and `url` to JSON. |
+| OpenCode | Convert `"type": "local"` to a stdio entry: split its `command` array into `command` and `args`, rename `environment` to `env`, and replace `{env:NAME}` with `${NAME}`. Convert `"type": "remote"` to an entry with `url`. |
+| Pi | Copy `~/.pi/agent/mcp.json` to `mcp.json` in pipy's config home, and a project's `.pi/mcp.json` to `.pipy/mcp.json`. The format is the same. |
 
-`toolExposure` sets the exposure of single tools, see
-[configuration rules](#configuration-rules). In the terminal,
-[the `/mcp` manager](#the-mcp-manager) changes a server's exposure and
-enables or disables a server while the session runs, and saves the change
-to `mcp.json`.
+Coming from Pi, two things do not carry over. pipy keeps its own
+credentials, so sign in to each OAuth server again. And an entry with
+`"clientRegistration": "cimd"` also needs `clientMetadataBaseUrl`, see
+[OAuth settings](#oauth-settings).
 
-pipy turns on the tool that reaches the undeclared tools. When an enabled
-server has a tool with `codemode` exposure it activates `codemode`, and when
-one has a tool with `deferred` exposure it activates `tool_search`. It decides
-this from the configuration when the session starts, before any server
-connects, so the first model request already declares the tool. Set
-`"autoEnableCodemode": false` at the top level of `mcp.json` to keep
-`codemode` off.
+An entry for the legacy SSE transport (`"type": "sse"`) is rejected in every
+case. Such a server often offers streamable HTTP as well, commonly at `/mcp`
+instead of `/sse`.
 
-Either tool reaches both exposures: scripts can call `deferred` tools, and
-`tool_search` can load `codemode` tools. So with `autoEnableCodemode` false
-you can still reach the tools by enabling `tool_search` yourself
-(`"defaultTools": ["+tool_search"]`).
+## Manage servers in a session
 
-When such tools exist and neither tool is active, pipy warns once in a
-session:
-
-```text
-MCP tools are only reachable from the codemode or tool_search tool, but neither is active; they cannot be called.
-```
-
-With ` (autoEnableCodemode is false)` after `active` when that setting is the
-cause. Other causes: `--tools`, `--exclude-tools` or `--no-tools` removed
-both tools, or codemode's runtime is not installed. Codemode needs an
-[installed runtime](codemode.md#installing); without it pipy also prints
-`pipy: codemode unavailable: <reason>`, and the tools of a server with the
-default exposure cannot be called until you install the runtime or choose
-another exposure.
-
-`--tools` and `--exclude-tools` apply to MCP tools as described under
-[MCP tools](usage.md#mcp-tools).
-
-The model is not given the tools of `codemode` and `deferred` servers, so it
-is told which servers there are, see
-[the servers in the system prompt](#the-servers-in-the-system-prompt).
-
-Different from Pi:
-
-- Pi always has `codemode` registered. pipy registers its built-in `codemode`
-  when something asks for it, because registering it tests the runtime with a
-  short self-test. A server with `codemode` exposure asks for it when the
-  session starts, so such a session starts a little later than one without.
-- With `autoEnableCodemode` false pipy does not test the runtime. The warning
-  then names that setting whenever the tool filters would keep `codemode`,
-  also when the runtime is not installed.
-
-### The servers in the system prompt
-
-Every enabled server that has `codemode` or `deferred` tools is listed in the
-`mcp_servers` section of the system prompt, sorted by name:
-
-```text
-<mcp_servers>
-MCP servers whose tools are not declared to you. Call the tools of `codemode` servers from codemode scripts. Load the tools of `tool_search` servers with `tool_search`.
-- mcp__docs (codemode): Search the product docs
-- mcp__tracker (tool_search): Issues and pull requests of the tracker.
-</mcp_servers>
-```
-
-- The first line explains only the ways the listed servers use.
-- A server is listed as `codemode` when its `exposure`, or any `toolExposure`
-  value, is `codemode`, and as `tool_search` otherwise. This is read from the
-  configuration, so a server is listed before it has connected. A server
-  that has only `direct` tools is not listed, because the model is given
-  its tools themselves. A server that has only `hidden` tools is not listed
-  either: its tools cannot be called. Without a listed server there is no
-  section.
-- The text after the colon is the first line of the server's `description`
-  in `mcp.json`. Without one it is the first line of the instructions the
-  server sent when it connected, so it is missing until then. It is cut to
-  250 characters, ending in `…`.
-- The section is at most 4096 characters long. With many servers the
-  summaries are cut to the same shorter length. When even the names do not
-  fit, the last servers are left out and the section ends with
-  `- … <N> more servers; find their tools with search_tools()`.
-
-pipy writes the section when a prompt starts, after the
-[first prompt's wait](#waiting-for-servers) for servers with `direct` tools.
-When it differs from the section the conversation already has, for example
-because a server connected and its summary is now known, the new section is
-appended to the conversation as a change of the system prompt. The earlier
-messages and the tool declarations stay as they are, so a provider's prompt
-cache keeps them. The rest of a server's instructions is never put into the
-prompt; a script reads them with `describe_namespace("mcp__docs")`.
-
-An extension can read, change or remove the section before a run, see
-[prompt sections](extension-api.md#prompt-sections).
-
-Different from Pi: the closing line names `search_tools()`, the name of the
-function in pipy's Python scripts (`searchTools()` in Pi). A summary is never
-cut in the middle of a character; Pi can cut one outside the Basic
-Multilingual Plane in half.
-
-### Turning MCP off
-
-- `pipy --no-mcp` turns MCP off for one run: no `mcp.json` is read, no server
-  connects and there are no MCP tools.
-- `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
-  until you remove the entry. A `+builtin:mcp` or `-builtin:mcp` entry in the
-  settings of a trusted project decides over the user-level entry.
-  `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
-  write the entry (with `--scope project` into the project's settings), and
-  `pipy config list` shows the state under `built-in`.
-- `--no-extensions` turns MCP off as well. `--extension builtin:mcp` turns it
-  on for the run, also against the settings entry and `--no-extensions`:
-  `pipy -ne -e builtin:mcp` runs without extensions and with MCP.
-  `--no-mcp` wins over it.
-
-`/reload` reads the settings entry again, so MCP can be turned off and on
-in a running session; the flags hold for the whole run.
-
-With MCP off, pipy does not turn on `codemode` or `tool_search` and reports
-nothing about `mcp.json`. `mcp` is the only built-in entry; Pi also has
-`builtin:codemode`, `builtin:tool-search` and `builtin:llama.cpp`, which in
-pipy are selected as tools (`--tools`, `defaultTools`) or do not exist. An
-unknown `builtin:` name after `--extension` is an error at startup.
-
-### Waiting for servers
-
-Servers connect while you type, so their tools are usually there when they
-are needed. Where they might not be, pipy waits:
-
-- **The first prompt** of a session, and the first one after a `/reload`,
-  waits for the servers that have `direct`
-  tools (the server's `exposure`, or any `toolExposure` value, is `direct`)
-  and are still connecting, so that the first model request declares those
-  tools. It waits at most 10 seconds. After that the prompt is sent and pipy
-  shows `MCP servers are still connecting; their tools become available once
-  connected.`; the tools follow with the request after the server connected.
-  Later prompts do not wait. Servers without `direct` tools never hold a
-  prompt.
-- **A codemode script** waits for the servers it names before it starts.
-  pipy reads the script's source: `tools.mcp__docs__search(...)` and a name
-  built as `"mcp__docs__" + kind` both wait for the server `docs` (a `-` in
-  a server's name is a `_` in the script). A script that uses
-  `search_tools`, `describe_namespace`, `describe_tool` or `ALL_TOOLS` waits
-  for every enabled server, since it may call whatever it finds. A script
-  that names no server waits for none.
-- **`tool_search`** waits for every enabled server, so it searches all their
-  tools.
-- **The [resource tools](#use-resources)** wait for every enabled server, so
-  a listing covers all of them.
-- **A call to an MCP tool** waits for its own server while a new connection
-  attempt for it is under way, for example after `/mcp reconnect`.
-
-A wait for a tool call has no time limit of its own. It ends when the server
-connected or its connection failed (the call then runs and reports what it
-finds), and when you cancel the turn: Escape in the terminal, or an abort in
-the JSON and RPC modes, ends the wait and cancels the call like a running
-tool. Escape during the first prompt's wait only ends the wait: the prompt
-is sent without waiting further.
-
-An extension tool that reaches other tools gets the same wait by declaring
-`reaches_tools`, see the
-[extension API](extension-api.md#extension-tool-metadata).
-
-Different from Pi:
-
-- In Pi the first prompt's wait cannot be interrupted; it always runs to its
-  10 seconds or to the server's answer.
-- An embedding program sets the 10 seconds with
-  `McpOptions(startup_wait_seconds=...)` (Pi `startupWaitMs`, in
-  milliseconds), see [MCP in an embedded session](#mcp-in-an-embedded-session).
-  There is no setting for it.
-- A `reaches_tools` function that raises fails the call in Pi. In pipy the
-  call waits for every server and then runs, as if the function had returned
-  `"all"`; the same holds for a return value that is neither `"all"` nor a
-  list of words.
-
-### Permissions
-
-A call to an MCP tool, from the model or from a script, runs through the same
-tool pipeline as a call to a built-in tool. An extension's `tool_call`
-handler can block it and a `tool_result` handler can change its result.
-`ctx.get_all_tools()` reports each MCP tool with its exposure, its namespace
-and the hints its server declares (`read_only_hint`, `destructive_hint`,
-`idempotent_hint`, `open_world_hint`), so a permission extension can decide
-by them. The hints are what the server says about itself; pipy does not
-check them. A stdio server runs with your permissions, like `bash`.
-
-### When tools change
-
-A server can announce a new tool list while it runs. New tools are
-registered, and a tool the server no longer offers is removed: the model is
-not given it any more and a call to it is an unknown tool. A tool that comes
-back is available again with its configured exposure. A call that was
-already on its way fails with one of these messages:
-
-| Message | When |
-| --- | --- |
-| `MCP tool "<server>/<tool>" is no longer available.` | The server withdrew the tool, or its exposure is `hidden`. |
-| `MCP server "<server>" is disabled.` | The server is disabled, or the session has ended. |
-| `MCP server "<server>" is still starting.` | The server has no connection yet. |
-
-When a server process exits, its tools stay registered and the next call
-starts it again.
-
-### Use resources
-
-When a connected server offers
-[resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources),
-pipy adds the three resource tools that Codex and OpenCode use:
-
-- `list_mcp_resources` lists resources as JSON: `{server?, resources:
-  [{server, uri, name, ...}], nextCursor?}`. With `server` it lists one page
-  of that server, and `cursor` (the `nextCursor` of the answer before)
-  continues with the next page. Without `server` it lists every page of
-  every server, the servers in name order; a server that could not be listed
-  is named under `errors` (`[{server, error}]`) and the others are still
-  listed. `cursor` without `server` fails with `cursor can only be used when
-  a server is specified`.
-- `list_mcp_resource_templates` lists URI templates the same way, under
-  `resourceTemplates`. A server that does not implement the method has none.
-- `read_mcp_resource` reads a resource by `server` and `uri`. Text reaches
-  the model as text. Binary content of a text type is decoded; other binary
-  content is saved to a file in the temp directory and the model gets the
-  path, as for [tool results](#what-the-model-sees). When a read returns
-  several contents (a directory, for example) each is preceded by a line
-  `<uri>:`. A read without content gives `Resource <uri> is empty.`
-
-The model receives a listing as one line of JSON. Listings and read text are
-cut in the middle above 20 KB like [tool results](#what-the-model-sees),
-with the full text in a file. A codemode script gets the object instead and
-never a shortened one: the listing as above, and `{server, uri, contents}`
-from a read, where `contents` are the server's entries (`uri`, `mimeType`,
-and `text` or `blob`) without `_meta`.
-
-```python
-listed = tools.list_mcp_resources(server="docs")
-page = tools.read_mcp_resource(server="docs", uri=listed["resources"][0]["uri"])
-text(page["contents"][0]["text"])
-```
-
-Each listed item is what the server sent, without `_meta` and `icons`, plus a
-`server` field. Resources for MCP Apps (a `ui://` URI, or a MIME type with
-`profile=mcp-app`) are left out, because pipy does not render them.
-
-The tools reach every enabled server that declared the `resources`
-capability and whose `exposure` is not `hidden`. A name that is none of
-these fails with `MCP server "<name>" has no resources. Servers with
-resources: <names>`. A server counts from its first connect on, also while
-it is disconnected: a listing or a read starts it again. The tools appear
-when the first such server has connected. Their exposure is the widest among
-those servers: `direct` if one of them is `direct`, else `codemode`, else
-`deferred`; a `toolExposure` entry does not count. When they stop being
-`direct` they are no longer declared to the model. When no such server is
-left (disabled, or set to `hidden`) the tools stay registered but can no
-longer be called. They are marked read-only (`read_only_hint`), and a
-`tool_call` or `tool_result` handler sees their calls like any other.
-
-For [`--tools` and `--exclude-tools`](usage.md#mcp-tools) the three tools
-count as MCP tools, but their names do not start with `mcp__`: a pattern
-`mcp__*` does not match them, so name them to declare or to exclude them.
-
-A resource link in a tool result names the tool that reads it, when the
-link's server is one the resource tools reach: `[Resource <uri> "<title>".
-Read it with read_mcp_resource (server "<server>")]`.
-
-pipy lists a server's resources and templates when it connects and again
-when the server sends `notifications/resources/list_changed`, only to count
-them: `pipy mcp list` shows `resources: <n>, URI templates: <m>`, and the
-state of a connected server in the `/mcp reconnect` completion reads
-`connected · 2 tools · 3 resources`. A server whose listing fails still
-connects, with a count of 0.
-
-An image resource (a `blob` with an `image/` type) reaches the model as an
-image; see [images](#images-in-results). A script gets the `blob`.
-
-Different from Pi:
-
-- A number in a listed item is printed as Python prints it (`2048.0` stays
-  `2048.0`).
-- An HTTP server's resource request that failed with a transient status is
-  [made once more](#http-servers) after 250 ms, as in Pi, but a call that is
-  cancelled meanwhile ends at once.
-
-### Reloading
-
-Run `/reload` after you added, removed or changed a server outside the
-session. It closes every connection, reads the `mcp.json` files and the
-[`builtin:mcp` setting](#turning-mcp-off) again and starts the servers they
-name now, as at the start of a session:
-
-- A server that is no longer configured is closed and its tools are gone. A
-  new server connects. Every other server is started again too, with its
-  entry as it is now; a stdio server gets a new process.
-- `/reload` returns when the old connections are closed. The servers connect
-  in the background, the [startup report](#startup-report) is made again, and
-  the next prompt [waits](#waiting-for-servers) for the servers with `direct`
-  tools like a first prompt.
-- A tool that `tool_search` loaded, or that was declared for another
-  reason, is declared again when its server has connected before the next
-  prompt starts. A tool of a server that connects later is not: it is
-  registered like a new tool, so a `direct` tool is declared anyway and a
-  `codemode` or `deferred` tool has to be loaded again. The same holds after
-  `/tree` to an entry that declares a tool of a server that is still
-  connecting.
-- When `/reload` keeps the previous extensions because the new ones were
-  refused (`pipy: keeping the previous extensions.`), it also keeps the
-  servers as they are and does not use the `mcp.json` it read.
-
-Different from Pi:
-
-- Pi closes the servers and reads `mcp.json` again for every new session in
-  one process (`/new`, `/resume`, `/fork`) as well. pipy keeps the servers
-  there; only `/reload` and a restart read the files again. The first-prompt
-  wait and the startup report are not repeated for such a session.
-- Pi's reload is not undone when an extension fails to load, so its servers
-  restart in every case.
-- While `/reload` decides whether the new extensions are accepted, a change
-  of a running server's tools waits; it is registered afterwards, or dropped
-  when the servers are replaced.
-
-### Startup report
-
-When every server that started with the session has connected or failed,
-pipy reports what needs you, once, as one warning:
-
-```text
-MCP servers need attention:
-  config: /home/me/.pipy/mcp.json: server "old": legacy SSE transport is not supported; use the streamable HTTP URL
-  search: failed: [Errno 2] No such file or directory: 'no-such-command'
-Run /mcp to fix.
-```
-
-There is one `config:` line per error in an `mcp.json` and one line per
-server that failed (with the first line of its error) or needs a sign-in
-(`<name>: needs sign-in`). Nothing is shown when there is nothing to report.
-[`/mcp`](#the-mcp-command) shows every server with its whole error. After
-correcting `mcp.json`, run `/reload`.
-
-The report and the other warnings on this page are shown before the next
-prompt runs, not at the moment they arise: in the terminal you see them when
-you send your next message, in a one-shot run on stderr at the end. Pi shows
-them at once.
-
-Two more cases are reported, each once:
-
-- `MCP tool "<server>/<tool>" is not available: <reason>` for a tool pipy
-  cannot declare, which is one whose input schema is not an object. The
-  server's other tools are registered. Pi registers such a tool as it is.
-- `MCP tool "<name>" is not available: another tool has that name` when a
-  built-in or extension tool already has the name an MCP tool would get. The
-  MCP tool never replaces the other tool.
-
-Log messages a server sends are in `mcp.log`, see [server log](#server-log).
+In a session, [`/mcp`](#the-mcp-command) shows the servers. In the terminal
+it opens [a manager](#the-mcp-manager) that also changes them: it signs in
+and out, reconnects, enables or disables a server and changes its exposure.
+`/mcp login`, `/mcp logout` and `/mcp reconnect` do those three directly,
+also where there is no terminal UI. After startup pipy
+[reports once](#startup-report) what needs you, [`/reload`](#reloading)
+reads the `mcp.json` files again, and MCP can be
+[turned off](#turning-mcp-off) for a run or for good.
 
 ### The `/mcp` command
 
@@ -649,297 +462,140 @@ Different from Pi in the manager:
   is shown in the server's menu as `Could not sign out of MCP server
   "<name>": <reason>`.
 
-### Servers from extensions
+### Startup report
 
-An extension can add servers for the session with
-`api.register_mcp_server(name, config)`, where `config` has the shape of an
-`mcpServers` entry; see [MCP servers](extension-api.md#mcp-servers) in the
-extension API. A registered server connects like a configured one: with the
-session when the extension registered it while loading, at once when it
-registers it later. `api.unregister_mcp_server(name)` closes it.
-
-- Registered servers come after the configured ones in `/mcp` and in the
-  [`mcp_servers` section](#the-servers-in-the-system-prompt), and have
-  `extension` as their source in the manager. The server's screen names the
-  extension.
-- Enabling, disabling and changing the exposure of a registered server
-  apply to the session and are saved nowhere.
-- A server in `mcp.json` with the same name takes precedence, also when the
-  names differ only in `-` and `_`. The registered server does not connect,
-  and `/mcp` says so, in the manager above the list and in the printed
-  status after the servers:
-
-  ```text
-  my-docs: connected, 2 tools (direct)
-  overridden: "my_docs" registered by .pipy/extensions/docs.py is overridden by "my-docs" in /home/me/.pipy/mcp.json
-  ```
-
-- Nothing is saved. `/reload` loads the extensions again and the servers
-  are those they register then.
-- The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
-  see only the configured servers.
-- With MCP [turned off](#turning-mcp-off) registered servers do not connect.
-  Unless an extension handles the `mcp_servers_change` event, and so
-  connects them itself, each one is reported once: `Extension "<path>"
-  error: MCP server "<name>" is registered, but no loaded extension connects
-  MCP servers; ...`.
-
-### Replace the built-in MCP support
-
-An extension that registers the `/mcp` command replaces the built-in MCP
-support for sessions, as an MCP extension written for Pi does. pipy then
-loads the session as with MCP [turned off](#turning-mcp-off): it does not
-read `mcp.json`, connects no server, turns on neither `codemode` nor
-`tool_search` for servers, and `/mcp` belongs to the extension. It says so
-when the session starts and after a `/reload`:
+When every server that started with the session has connected or failed,
+pipy reports what needs you, once, as one warning:
 
 ```text
-Extension my_mcp registers command `/mcp`, so built-in extension `mcp` was not loaded. To use `mcp`, run `pipy config list` and make sure it is enabled under built-in, then disable or remove the existing extension. We recommend only having one or the other loaded at a time.
+MCP servers need attention:
+  config: /home/me/.pipy/mcp.json: server "old": legacy SSE transport is not supported; use the streamable HTTP URL
+  search: failed: [Errno 2] No such file or directory: 'no-such-command'
+Run /mcp to fix.
 ```
 
-Remove the extension, or turn it off, to get the built-in behaviour back;
-`/reload` decides again, so this works in a running session. With MCP
-turned off anyway (`--no-mcp`, `-builtin:mcp`) there is nothing to replace
-and no notice.
+There is one `config:` line per error in an `mcp.json` and one line per
+server that failed (with the first line of its error) or needs a sign-in
+(`<name>: needs sign-in`). Nothing is shown when there is nothing to report.
+[`/mcp`](#the-mcp-command) shows every server with its whole error. After
+correcting `mcp.json`, run `/reload`.
 
-Servers that extensions register with `api.register_mcp_server` are then
-for the replacing extension: it receives them with the
-`mcp_servers_change` event and `api.get_mcp_servers()`. If no extension
-handles that event, each registration is reported once as described under
-[servers from extensions](#servers-from-extensions).
+The report and the other warnings on this page are shown before the next
+prompt runs, not at the moment they arise: in the terminal you see them when
+you send your next message, in a one-shot run on stderr at the end. Pi shows
+them at once.
 
-An extension that registers a tool named `codemode` or `tool_search`
-replaces the built-in tool of that name in the same way; see
-[replacing built-in tools](extension-api.md#replacing-built-in-tools). pipy
-activates the replacement for MCP servers, and waits for the servers its
-calls need, only when the tool declares `reaches_tools`.
+Two more cases are reported, each once:
 
-The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
-always use the built-in implementation.
+- `MCP tool "<server>/<tool>" is not available: <reason>` for a tool pipy
+  cannot declare, which is one whose input schema is not an object. The
+  server's other tools are registered. Pi registers such a tool as it is.
+- `MCP tool "<name>" is not available: another tool has that name` when a
+  built-in or extension tool already has the name an MCP tool would get. The
+  MCP tool never replaces the other tool.
+
+Log messages a server sends are in `mcp.log`, see [server log](#server-log).
+
+### Reloading
+
+Run `/reload` after you added, removed or changed a server outside the
+session. It closes every connection, reads the `mcp.json` files and the
+[`builtin:mcp` setting](#turning-mcp-off) again and starts the servers they
+name now, as at the start of a session:
+
+- A server that is no longer configured is closed and its tools are gone. A
+  new server connects. Every other server is started again too, with its
+  entry as it is now; a stdio server gets a new process.
+- `/reload` returns when the old connections are closed. The servers connect
+  in the background, the [startup report](#startup-report) is made again, and
+  the next prompt [waits](#waiting-for-servers) for the servers with `direct`
+  tools like a first prompt.
+- A tool that `tool_search` loaded, or that was declared for another
+  reason, is declared again when its server has connected before the next
+  prompt starts. A tool of a server that connects later is not: it is
+  registered like a new tool, so a `direct` tool is declared anyway and a
+  `codemode` or `deferred` tool has to be loaded again. The same holds after
+  `/tree` to an entry that declares a tool of a server that is still
+  connecting.
+- When `/reload` keeps the previous extensions because the new ones were
+  refused (`pipy: keeping the previous extensions.`), it also keeps the
+  servers as they are and does not use the `mcp.json` it read.
 
 Different from Pi:
 
-- Only an extension's `/mcp` command replaces MCP. A prompt template or
-  custom command named `mcp` takes the place of the command (see
-  [the `/mcp` command](#the-mcp-command)) while the servers keep running.
-- The notice names the extension by its name, where Pi shows its path, and
-  points to `pipy config list`.
-- pipy shows no notice when an extension replaces `codemode` or
-  `tool_search`. In Pi both are built-in extensions that are loaded unless
-  they are replaced; in pipy the built-in `codemode` is registered only when
-  something asks for it.
-- A `/reload` reads `mcp.json` once before it knows the extensions it will
-  load. When the reload brings an extension with `/mcp`, what was read is
-  dropped: nothing connects and nothing is reported.
+- Pi closes the servers and reads `mcp.json` again for every new session in
+  one process (`/new`, `/resume`, `/fork`) as well. pipy keeps the servers
+  there; only `/reload` and a restart read the files again. The first-prompt
+  wait and the startup report are not repeated for such a session.
+- Pi's reload is not undone when an extension fails to load, so its servers
+  restart in every case.
+- While `/reload` decides whether the new extensions are accepted, a change
+  of a running server's tools waits; it is registered afterwards, or dropped
+  when the servers are replaced.
 
-### MCP in an embedded session
+### Turning MCP off
 
-A session made with the [Python SDK](sdk.md) has no MCP, no `codemode` and
-no `tool_search` unless the program that creates it asks:
+- `pipy --no-mcp` turns MCP off for one run: no `mcp.json` is read, no server
+  connects and there are no MCP tools.
+- `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
+  until you remove the entry. A `+builtin:mcp` or `-builtin:mcp` entry in the
+  settings of a trusted project decides over the user-level entry.
+  `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
+  write the entry (with `--scope project` into the project's settings), and
+  `pipy config list` shows the state under `built-in`.
+- `--no-extensions` turns MCP off as well. `--extension builtin:mcp` turns it
+  on for the run, also against the settings entry and `--no-extensions`:
+  `pipy -ne -e builtin:mcp` runs without extensions and with MCP.
+  `--no-mcp` wins over it.
 
-```python
-from pipy_harness.sdk import CodemodeOptions, McpOptions, create_product_session
+`/reload` reads the settings entry again, so MCP can be turned off and on
+in a running session; the flags hold for the whole run.
 
-session = create_product_session(
-    workspace=workspace,
-    provider=provider,
-    codemode=CodemodeOptions(),
-    tool_search=True,
-    mcp=McpOptions(),
-)
-```
+With MCP off, pipy does not turn on `codemode` or `tool_search` and reports
+nothing about `mcp.json`. `mcp` is the only built-in entry; Pi also has
+`builtin:codemode`, `builtin:tool-search` and `builtin:llama.cpp`, which in
+pipy are selected as tools (`--tools`, `defaultTools`) or do not exist. An
+unknown `builtin:` name after `--extension` is an error at startup.
 
-`McpOptions()` is MCP as this page describes it: `mcp.json` from the config
-home and the trusted project, the same transports, `mcp-auth.json` and
-`mcp.log`. Its fields replace the configuration loader, the transport
-factory, the credential store, the log path, the function that opens a
-sign-in URL, the function that saves a change to a server, and the time the
-first prompt waits. `-builtin:mcp` in the settings does not turn MCP off for
-such a session; `RuntimeResourceOptions(no_mcp=True)` does.
-[Codemode, tool search and MCP](sdk.md#codemode-tool-search-and-mcp) in the
-SDK page has the fields, what activates the two tools, the differences from
-Pi and a runnable example.
+### Diagnose connection problems
 
-## Tool search
-
-`tool_search` is a built-in tool that finds tools the model has not been
-given and loads them. It is off by default; enable it with
-`"defaultTools": ["+tool_search"]` or `--tools +tool_search`. An extension
-can activate it with `ctx.set_active_tools(...)`.
-
-A tool with exposure `codemode` or `deferred` is registered without being
-declared to the model. Extension tools can have these exposures today, see
-[tool metadata](extension-api.md#extension-tool-metadata); MCP tools will have them by
-default. `tool_search` takes a `query` and an optional `limit` (default 8),
-ranks the registered `codemode` and `deferred` tools that are not declared
-yet, and activates the best matches. The next model request declares them,
-and the model calls them like any other tool. It uses the same ranking as
-[`search_tools()`](codemode.md#globals) in codemode scripts: the query
-is matched against a tool's name, its description, the descriptions and
-property names of its input schema, and its namespace.
-
-The result names what was loaded, one line per tool with the first line of
-its description:
-
-```text
-Loaded 2 tools. They are available from your next call:
-- docs_search: Search the docs.
-- docs_fetch: Fetch one page of the docs.
-```
-
-When nothing matches, or every matching tool is already declared, the result
-is `No matching tools found.` An empty query fails with `query must not be
-empty`, and a limit that is not a positive integer fails with `limit must be
-a positive integer`.
-
-Loaded tools are recorded in the session like other tool changes, so they
-stay declared on that branch: `/tree` to an entry before the load drops the
-tool, and `/tree` to a later entry declares it again. After a `/reload` a
-loaded MCP tool is declared again once its server has connected, see
-[Reloading](#reloading). A session that is resumed in a new pipy process
-starts from the configured tools, as in Pi's CLI.
-
-`tool_search` never loads `direct`, `model-only` or `hidden` tools, and it
-does not load a tool that `--tools` or `--exclude-tools` filters out. With
-`--tools read,tool_search` it can still load the MCP tools the list does not
-name, because a list of plain names keeps them registered (see
-[MCP tools](usage.md#mcp-tools)). Scripts
-cannot call it; they use `search_tools()` and call the tool they found. Its
-description is fixed text that names no tool, so it does not change when
-tools register.
-
-Differences from Pi:
-
-- When the listing would be longer than one tool result (64 KiB), the lines
-  that do not fit are replaced by `(and <n> more)`. Every matched tool is
-  loaded all the same.
-- `limit` is declared as a JSON number, as in Pi. A value of another type
-  (`"3"`) is refused by argument validation; Pi converts it first.
-- `tool_search` is registered with pipy's own built-in tools. A session made
-  with the [Python SDK](sdk.md#codemode-tool-search-and-mcp) has it only when
-  it is created with `tool_search=True`.
-
-## Configure servers
-
-User-level servers are in `mcp.json` in the config home (`PIPY_CONFIG_HOME`,
-then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy`, then `~/.config/pipy`), project
-servers in `.pipy/mcp.json`. The project file is loaded only for a
-[trusted project](settings-config.md#project-trust-complete-runtime-track-shipped).
-A missing file is not an error. A project entry replaces a user-level entry
-with the same name.
-
-A project entry without `command`, `url` and `type` overrides only `enabled`,
-`exposure` and `toolExposure` of the user-level server with the same name and
-keeps the rest, including `env`, `headers`, `oauth` and `auth`. For example,
-this turns off a user-level server in one project:
-
-```json
-{
-  "mcpServers": {
-    "internal-tools": { "enabled": false }
-  }
-}
-```
-
-The format matches other MCP clients:
-
-```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    },
-    "docs": {
-      "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" },
-      "description": "Search and read the product documentation"
-    }
-  }
-}
-```
-
-Stdio servers use `command`, `args` (an array of strings), `env` (names to
-strings) and `cwd`. HTTP servers use `url`, `headers` (names to strings) and
-`oauth`. The legacy SSE transport is not supported.
-
-Both server types accept:
-
-- `timeout`: a positive number of seconds.
-- `enabled: false`: keep the entry without connecting to it. A disabled
-  server stays in the loaded list.
-- `exposure` and `toolExposure`: how the server's tools reach the model, see
-  the rules below.
-- `description`: what the server offers, in a sentence.
-
-The top-level key `autoEnableCodemode` (a boolean, default true) says whether
-the codemode tool is activated for a server with `codemode` exposure, see
-[control tool exposure](#control-tool-exposure). A project value overrides
-the user-level one.
-
-The loader checks types and keeps the values as written. What the fields do
-when a server is connected is described under
-[server connections](#server-connections).
-
-### Configuration rules
-
-- Server names may contain only letters, digits, `_` and `-`. The namespace
-  of a server's tools is `mcp__<server>` with `-` written as `_`, so two names
-  that differ only in `-` and `_` conflict and the later one is rejected:
-  `server "<a>" conflicts with "<b>"`.
-- `type` is optional. A `command` selects stdio and a `url` selects streamable
-  HTTP. When present, `type` must be `stdio` (with `command`), or `http` or
-  `streamable-http` (with `url`).
-- `sse` is rejected. Servers that document an SSE endpoint often also provide
-  streamable HTTP, commonly at `/mcp` instead of `/sse`.
-- `command` is one executable and `args` contains its arguments. It is not a
-  shell command string.
-- `url` must be an `http` or `https` URL.
-- `exposure` is `codemode` (the default), `deferred`, `direct` or `hidden`.
-  `codemode-deferred` is accepted as another name for `codemode`.
-- `toolExposure` maps tool names to exposures. An exact name wins; otherwise
-  the first key containing `*` that matches, in the order written; otherwise
-  the server's `exposure`. `*` matches any characters and every other
-  character is literal.
-- A project entry cannot set `auth`, and a project override can set only
-  `enabled`, `exposure` and `toolExposure`. An override needs a user-level
-  server of that name.
-- `oauth` is checked as far as it can be without a server: `clientId`,
-  `clientSecret` and `scope` are strings, `clientName` is a non-empty string,
-  `callbackPort` is 1 to 65535, `callbackUrl` is an `http` URL on `localhost`,
-  `127.0.0.1` or `[::1]` without query or fragment whose port, when it has
-  one, equals `callbackPort`, `authServerMetadataUrl` is `https` or `http` on
-  a loopback host, and `clientRegistration` is `dcr` or `cimd`. `cimd` cannot
-  be combined with `clientId` or `clientName` and requires
-  `clientMetadataBaseUrl`, an `https` URL without query or fragment; a
-  `callbackUrl` set with it must be on `localhost` or `127.0.0.1` with path
-  `/callback`. What the settings do is described under
-  [OAuth settings](#oauth-settings).
-- `auth` needs a non-empty `provider` and a server URL that is `https`, or
-  `http` on a loopback host. What it does is described under
-  [a provider's token](#a-providers-token).
-- An invalid entry is reported as `<path>: <reason>` and skipped. The other
-  entries, and the other file, still load. A file that is not JSON, or whose
-  top level or `mcpServers` is not an object, is reported as a whole.
-
-The library can also change a file: set one server's `enabled` or `exposure`,
-add a server, or remove one. An edit keeps all other content and the file's
-indentation. [`pipy mcp add` and `pipy mcp remove`](#the-pipy-mcp-commands)
-use the last two, and [the `/mcp` manager](#the-mcp-manager) sets `enabled`
-and `exposure`.
-
-Differences from Pi in the configuration:
-
-- pipy checks URLs with a small strict parser and does not repair them. A URL
-  without `//`, with a backslash, or with a shortened IPv4 address such as
-  `127.1` is a configuration error here, where Pi's URL parser accepts it.
-- `oauth.clientMetadataBaseUrl` exists only in pipy. Pi serves its Client ID
-  Metadata Documents from its own site; pipy has no such document, so `cimd`
-  needs the address where you host one, see
-  [OAuth settings](#oauth-settings).
-- A file that is not valid UTF-8 is an error, and JSON error messages are
-  Python's.
-- A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
+- **See what is wrong.** [`pipy mcp list`](#list) connects to every enabled
+  server and prints its state, its tools and its whole error; it exits with
+  status 1 when an entry of `mcp.json` is invalid or an enabled server is
+  not connected. In a session, [`/mcp`](#the-mcp-manager) shows the same
+  error for a server, with the end of the stderr of a stdio server that
+  failed. The [startup report](#startup-report) names every such server
+  once.
+- **An entry is not there.** An invalid entry is skipped and reported as
+  `config error:`, see the [configuration rules](#configuration-rules). A
+  project's `.pipy/mcp.json` is read only in a trusted project. After a
+  change to a file, run [`/reload`](#reloading).
+- **A stdio server fails to start.** `command` is one executable, not a
+  shell line, and a value of `env` that cannot be resolved fails the
+  connect with a message that names the key, see
+  [values resolved at connect time](#values-resolved-at-connect-time).
+- **An HTTP server fails.** pipy tries a connect three times after a
+  network failure or a status 408, 429 or 5xx (not 501), see
+  [HTTP servers](#http-servers). A server with an `Authorization` header
+  that answers 401 has failed; check the header's value.
+- **A server needs a sign-in.** Sign in with `/mcp login <server>` or
+  `pipy mcp login <server>`, see
+  [authenticate with OAuth](#authenticate-with-oauth). For a server whose
+  discovery does not lead to its authorization server, or that does not
+  let pipy register a client, see `authServerMetadataUrl`, `clientId` and
+  `clientName` in the [OAuth settings](#oauth-settings).
+- **A server was connected and is not any more.** It is `disconnected` and
+  the next call connects it again, see [states](#states);
+  `/mcp reconnect <server>` does so at once.
+- **A request takes too long.** `timeout` is the time one request may
+  take, 60 seconds by default.
+- **The server connects and the model does not use its tools.** With the
+  default exposure the tools are called from codemode scripts, which needs
+  the [codemode runtime](codemode.md#installing); see
+  [control tool exposure](#control-tool-exposure) for the warning pipy
+  shows and for the other exposures.
+- **What the server said.** The log messages a server sends are in
+  `mcp.log`, see [server log](#server-log).
 
 ## The `pipy mcp` commands
 
@@ -1140,78 +796,44 @@ server again, see [sign-in with OAuth](#sign-in-with-oauth).
   before it writes, with the store's error and status 1.
 - Error texts of the operating system and of the JSON parser are Python's.
 
-## Server connections
+## Authenticate with OAuth
 
-What pipy does with a configured server. An entry with a `command` is a
-server process (stdio); an entry with a `url` is a server reached over
-streamable HTTP, see [HTTP servers](#http-servers).
+A remote server that uses OAuth needs no credentials in `mcp.json`:
 
-### Values resolved at connect time
+```json
+{
+  "mcpServers": {
+    "issues": { "url": "https://issues.example.com/mcp" }
+  }
+}
+```
 
-- `timeout` is the time a request to the server may take, 60 seconds when not
-  set. A progress notification for a request starts its time again.
-- Each `env` value of a stdio server and each `headers` value of an HTTP
-  server may refer to environment variables with `${NAME}` or
-  `$NAME`; `$$` is a literal `$` and `$!` a literal `!`. A value that starts
-  with `!` is a shell command, and its trimmed standard output is the value.
-  The command runs on every connect, with a limit of 10 seconds. A variable
-  that is unset or empty, or a command that fails or prints nothing, fails
-  the connect with a message naming the server and the key or the header,
-  for example `Failed to resolve MCP server "docs" env "API_KEY" from
-  environment variable: DOCS_TOKEN` or `Failed to resolve MCP server "docs"
-  header "Authorization" from environment variable: DOCS_TOKEN`. The server
-  process gets pipy's environment plus the resolved `env`.
-- A leading `~` or `~/` in `command`, in each of `args` and in `cwd` is the
-  home directory. `--root=~/x` is passed as written.
-- A relative `cwd` is relative to the session directory, and the session
-  directory is the default.
+When the server rejects a connection without a token, pipy lists it as
+`needs sign-in`. Choose `Sign in` in [the `/mcp` manager](#the-mcp-manager),
+run `/mcp login issues`, or run `pipy mcp login issues` in a shell. pipy
+opens the authorization page in your browser and waits until you approved.
+When the browser runs on another machine, over SSH for example, paste the
+address the browser was redirected to. A running session uses the new
+credentials from its next turn on.
 
-`oauth.clientSecret` follows the same rules. It is resolved when a token is
-refreshed, not when the server connects, so a secret that cannot be resolved
-fails only the request that needed the refresh, with `Failed to resolve MCP
-server "<name>" oauth.clientSecret from ...`.
+pipy registers itself with the authorization server, stores the tokens in
+`mcp-auth.json` in the config home and refreshes an access token when it
+expires or the server rejects it. When a server later asks for more scope,
+pipy asks you to sign in again. Signing out deletes the stored credentials.
 
-### HTTP servers
+Credentials belong to a server's name and URL. Two servers with one URL and
+different names, one per account for example, sign in separately; a server
+with the same name and URL in the user-level and a project `mcp.json` has
+one sign-in.
 
-A server with a `url` is reached over
-[streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
-Every request carries the configured `headers`. A server without an
-`Authorization` header is also sent the OAuth token stored for it, see
-[sign-in with OAuth](#sign-in-with-oauth), or with `auth` the token of a
-provider, see [a provider's token](#a-providers-token).
-
-- A connect that fails because the server cannot be reached, or because it
-  answers with status 408, 429 or 5xx other than 501, is made again after
-  250 ms and, if that fails too, once more after one second. The server
-  stays `connecting` meanwhile and is `failed` with the last error after the
-  third attempt. Any other failure is final at once.
-- A resource read or listing the server answers with one of these statuses is
-  made once more after 250 ms. A tool call is not repeated for that reason,
-  because the server may have run it; the call fails with the status, for
-  example `MCP HTTP request failed with status 502`.
-- When the server no longer knows pipy's session, typically because it
-  restarted, it answers a request with status 404. The server did not run
-  that request, so pipy connects again, which starts a new session and lists
-  the tools again, and makes the request once more. This holds for tool
-  calls too. Requests that were in flight on the old session get the same
-  answer and move to the new session the same way. A request that finds the
-  new session expired as well fails with `MCP session expired`.
-- No request is made more than twice.
-- Closing a server, or ending the session, ends the wait before another
-  attempt and, when the server gave the session an id, tells it that the
-  session is over (a `DELETE`, given one second).
-
-Different from Pi:
-
-- What counts as "cannot be reached" is any network failure Python reports
-  (refused or reset connections, name lookup, TLS, a response that is not
-  HTTP). Pi retries what `fetch` reports as a `TypeError`.
-- Once the last request on a session the server forgot has ended, pipy
-  closes that session's connection. Pi leaves it open.
-- The wait before a resource request is made again ends when the call is
-  cancelled or the server is closed. Pi waits the 250 ms out.
-- pipy sends configured headers and tokens only to the server's own origin,
-  so a redirect to another host is a failed request.
+OAuth applies to an HTTP server without an `Authorization` header and
+without `auth`. The sections below describe what a connection does with
+the stored credentials and what a sign-in does, the
+[`oauth` settings](#oauth-settings) for servers that need more than the
+defaults (a client you registered yourself, a fixed redirect address, a
+scope, another client name, a Client ID Metadata Document, the address of
+the authorization server's metadata), and [`auth`](#a-providers-token) for
+a server that takes the token of a model provider.
 
 ### Sign-in with OAuth
 
@@ -1428,6 +1050,557 @@ Differences from Pi:
   sends such a server no token, reports `needs sign-in` when the server
   wants one, and then prints `sign in with: pipy mcp login <name>`, which
   does not apply to this server. Log in to the provider in a session.
+
+## Control tool exposure
+
+| Exposure | Behaviour |
+| --- | --- |
+| `codemode` (default) | Not declared to the model. [Codemode](codemode.md) scripts call the tools (`tools.mcp__filesystem__read_file(path="a")`) and find them with `search_tools()`. |
+| `deferred` | Not declared until [`tool_search`](#tool-search) loads a match; the model then calls the tool directly. |
+| `direct` | Declared to the model like a built-in tool, and callable from scripts. The first prompt waits for the server, so its first request declares the tools; a server that connects later adds them to the next model request. |
+| `hidden` | Registered, and cannot be called. |
+
+`toolExposure` sets the exposure of single tools. Its keys are tool names
+as the server has them, or patterns in which `*` matches any characters;
+an exact name wins over a pattern, and of several patterns the first that
+matches (see [configuration rules](#configuration-rules)). Here the
+server's tools are loaded by `tool_search`, except one that is declared to
+the model, some that are left to scripts and some that cannot be called:
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "exposure": "deferred",
+      "toolExposure": {
+        "search_code": "direct",
+        "get_*": "codemode",
+        "delete_*": "hidden"
+      }
+    }
+  }
+}
+```
+
+A tool that no key matches has the server's exposure, here `deferred`. To
+offer only chosen tools of a server, give the server `"exposure": "hidden"`
+and name those tools in `toolExposure`.
+
+[`pipy mcp list`](#list) marks the tools whose exposure differs from their
+server's, and so does `Tools` in [the `/mcp` manager](#the-mcp-manager).
+In the terminal, the manager also changes a server's exposure and enables
+or disables a server while the session runs, and saves the change to
+`mcp.json`.
+
+pipy turns on the tool that reaches the undeclared tools. When an enabled
+server has a tool with `codemode` exposure it activates `codemode`, and when
+one has a tool with `deferred` exposure it activates `tool_search`. It decides
+this from the configuration when the session starts, before any server
+connects, so the first model request already declares the tool. Set
+`"autoEnableCodemode": false` at the top level of `mcp.json` to keep
+`codemode` off.
+
+Either tool reaches both exposures: scripts can call `deferred` tools, and
+`tool_search` can load `codemode` tools. So with `autoEnableCodemode` false
+you can still reach the tools by enabling `tool_search` yourself
+(`"defaultTools": ["+tool_search"]`). To have `codemode` without any MCP
+server, add `"defaultTools": ["+codemode"]` to the
+[settings](settings.md).
+
+When such tools exist and neither tool is active, pipy warns once in a
+session:
+
+```text
+MCP tools are only reachable from the codemode or tool_search tool, but neither is active; they cannot be called.
+```
+
+With ` (autoEnableCodemode is false)` after `active` when that setting is the
+cause. Other causes: `--tools`, `--exclude-tools` or `--no-tools` removed
+both tools, or codemode's runtime is not installed. Codemode needs an
+[installed runtime](codemode.md#installing); without it pipy also prints
+`pipy: codemode unavailable: <reason>`, and the tools of a server with the
+default exposure cannot be called until you install the runtime or choose
+another exposure.
+
+`--tools` and `--exclude-tools` apply to MCP tools as described under
+[MCP tools](usage.md#mcp-tools).
+
+The model is not given the tools of `codemode` and `deferred` servers, so it
+is told which servers there are, see
+[the servers in the system prompt](#the-servers-in-the-system-prompt).
+
+Different from Pi:
+
+- Pi always has `codemode` registered. pipy registers its built-in `codemode`
+  when something asks for it, because registering it tests the runtime with a
+  short self-test. A server with `codemode` exposure asks for it when the
+  session starts, so such a session starts a little later than one without.
+- With `autoEnableCodemode` false pipy does not test the runtime. The warning
+  then names that setting whenever the tool filters would keep `codemode`,
+  also when the runtime is not installed.
+
+### The servers in the system prompt
+
+Every enabled server that has `codemode` or `deferred` tools is listed in the
+`mcp_servers` section of the system prompt, sorted by name:
+
+```text
+<mcp_servers>
+MCP servers whose tools are not declared to you. Call the tools of `codemode` servers from codemode scripts. Load the tools of `tool_search` servers with `tool_search`.
+- mcp__docs (codemode): Search the product docs
+- mcp__tracker (tool_search): Issues and pull requests of the tracker.
+</mcp_servers>
+```
+
+- The first line explains only the ways the listed servers use.
+- A server is listed as `codemode` when its `exposure`, or any `toolExposure`
+  value, is `codemode`, and as `tool_search` otherwise. This is read from the
+  configuration, so a server is listed before it has connected. A server
+  that has only `direct` tools is not listed, because the model is given
+  its tools themselves. A server that has only `hidden` tools is not listed
+  either: its tools cannot be called. Without a listed server there is no
+  section.
+- The text after the colon is the first line of the server's `description`
+  in `mcp.json`. Without one it is the first line of the instructions the
+  server sent when it connected, so it is missing until then. It is cut to
+  250 characters, ending in `…`.
+- The section is at most 4096 characters long. With many servers the
+  summaries are cut to the same shorter length. When even the names do not
+  fit, the last servers are left out and the section ends with
+  `- … <N> more servers; find their tools with search_tools()`.
+
+pipy writes the section when a prompt starts, after the
+[first prompt's wait](#waiting-for-servers) for servers with `direct` tools.
+When it differs from the section the conversation already has, for example
+because a server connected and its summary is now known, the new section is
+appended to the conversation as a change of the system prompt. The earlier
+messages and the tool declarations stay as they are, so a provider's prompt
+cache keeps them. The rest of a server's instructions is never put into the
+prompt; a script reads them with `describe_namespace("mcp__docs")`.
+
+An extension can read, change or remove the section before a run, see
+[prompt sections](extension-api.md#prompt-sections).
+
+Different from Pi: the closing line names `search_tools()`, the name of the
+function in pipy's Python scripts (`searchTools()` in Pi). A summary is never
+cut in the middle of a character; Pi can cut one outside the Basic
+Multilingual Plane in half.
+
+### Waiting for servers
+
+Servers connect while you type, so their tools are usually there when they
+are needed. Where they might not be, pipy waits:
+
+- **The first prompt** of a session, and the first one after a `/reload`,
+  waits for the servers that have `direct`
+  tools (the server's `exposure`, or any `toolExposure` value, is `direct`)
+  and are still connecting, so that the first model request declares those
+  tools. It waits at most 10 seconds. After that the prompt is sent and pipy
+  shows `MCP servers are still connecting; their tools become available once
+  connected.`; the tools follow with the request after the server connected.
+  Later prompts do not wait. Servers without `direct` tools never hold a
+  prompt.
+- **A codemode script** waits for the servers it names before it starts.
+  pipy reads the script's source: `tools.mcp__docs__search(...)` and a name
+  built as `"mcp__docs__" + kind` both wait for the server `docs` (a `-` in
+  a server's name is a `_` in the script). A script that uses
+  `search_tools`, `describe_namespace`, `describe_tool` or `ALL_TOOLS` waits
+  for every enabled server, since it may call whatever it finds. A script
+  that names no server waits for none.
+- **`tool_search`** waits for every enabled server, so it searches all their
+  tools.
+- **The [resource tools](#use-resources)** wait for every enabled server, so
+  a listing covers all of them.
+- **A call to an MCP tool** waits for its own server while a new connection
+  attempt for it is under way, for example after `/mcp reconnect`.
+
+A wait for a tool call has no time limit of its own. It ends when the server
+connected or its connection failed (the call then runs and reports what it
+finds), and when you cancel the turn: Escape in the terminal, or an abort in
+the JSON and RPC modes, ends the wait and cancels the call like a running
+tool. Escape during the first prompt's wait only ends the wait: the prompt
+is sent without waiting further.
+
+An extension tool that reaches other tools gets the same wait by declaring
+`reaches_tools`, see the
+[extension API](extension-api.md#extension-tool-metadata).
+
+Different from Pi:
+
+- In Pi the first prompt's wait cannot be interrupted; it always runs to its
+  10 seconds or to the server's answer.
+- An embedding program sets the 10 seconds with
+  `McpOptions(startup_wait_seconds=...)` (Pi `startupWaitMs`, in
+  milliseconds), see [MCP in an embedded session](#mcp-in-an-embedded-session).
+  There is no setting for it.
+- A `reaches_tools` function that raises fails the call in Pi. In pipy the
+  call waits for every server and then runs, as if the function had returned
+  `"all"`; the same holds for a return value that is neither `"all"` nor a
+  list of words.
+
+### When tools change
+
+A server can announce a new tool list while it runs. New tools are
+registered, and a tool the server no longer offers is removed: the model is
+not given it any more and a call to it is an unknown tool. A tool that comes
+back is available again with its configured exposure. A call that was
+already on its way fails with one of these messages:
+
+| Message | When |
+| --- | --- |
+| `MCP tool "<server>/<tool>" is no longer available.` | The server withdrew the tool, or its exposure is `hidden`. |
+| `MCP server "<server>" is disabled.` | The server is disabled, or the session has ended. |
+| `MCP server "<server>" is still starting.` | The server has no connection yet. |
+
+When a server process exits, its tools stay registered and the next call
+starts it again.
+
+## Tool search
+
+`tool_search` is a built-in tool that finds tools the model has not been
+given and loads them. It is off by default; enable it with
+`"defaultTools": ["+tool_search"]` or `--tools +tool_search`. An extension
+can activate it with `ctx.set_active_tools(...)`.
+
+A tool with exposure `codemode` or `deferred` is registered without being
+declared to the model. MCP tools have `codemode` exposure by default, and
+an extension tool can declare either, see
+[tool metadata](extension-api.md#extension-tool-metadata). `tool_search` takes a `query` and an optional `limit` (default 8),
+ranks the registered `codemode` and `deferred` tools that are not declared
+yet, and activates the best matches. The next model request declares them,
+and the model calls them like any other tool. It uses the same ranking as
+[`search_tools()`](codemode.md#globals) in codemode scripts: the query
+is matched against a tool's name, its description, the descriptions and
+property names of its input schema, and its namespace.
+
+The result names what was loaded, one line per tool with the first line of
+its description:
+
+```text
+Loaded 2 tools. They are available from your next call:
+- docs_search: Search the docs.
+- docs_fetch: Fetch one page of the docs.
+```
+
+When nothing matches, or every matching tool is already declared, the result
+is `No matching tools found.` An empty query fails with `query must not be
+empty`, and a limit that is not a positive integer fails with `limit must be
+a positive integer`.
+
+Loaded tools are recorded in the session like other tool changes, so they
+stay declared on that branch: `/tree` to an entry before the load drops the
+tool, and `/tree` to a later entry declares it again. After a `/reload` a
+loaded MCP tool is declared again once its server has connected, see
+[Reloading](#reloading). A session that is resumed in a new pipy process
+starts from the configured tools, as in Pi's CLI.
+
+`tool_search` never loads `direct`, `model-only` or `hidden` tools, and it
+does not load a tool that `--tools` or `--exclude-tools` filters out. With
+`--tools read,tool_search` it can still load the MCP tools the list does not
+name, because a list of plain names keeps them registered (see
+[MCP tools](usage.md#mcp-tools)). Scripts
+cannot call it; they use `search_tools()` and call the tool they found. Its
+description is fixed text that names no tool, so it does not change when
+tools register.
+
+Differences from Pi:
+
+- When the listing would be longer than one tool result (64 KiB), the lines
+  that do not fit are replaced by `(and <n> more)`. Every matched tool is
+  loaded all the same.
+- `limit` is declared as a JSON number, as in Pi. A value of another type
+  (`"3"`) is refused by argument validation; Pi converts it first.
+- `tool_search` is registered with pipy's own built-in tools. A session made
+  with the [Python SDK](sdk.md#codemode-tool-search-and-mcp) has it only when
+  it is created with `tool_search=True`.
+
+## Use resources
+
+When a connected server offers
+[resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources),
+pipy adds the three resource tools that Codex and OpenCode use:
+
+- `list_mcp_resources` lists resources as JSON: `{server?, resources:
+  [{server, uri, name, ...}], nextCursor?}`. With `server` it lists one page
+  of that server, and `cursor` (the `nextCursor` of the answer before)
+  continues with the next page. Without `server` it lists every page of
+  every server, the servers in name order; a server that could not be listed
+  is named under `errors` (`[{server, error}]`) and the others are still
+  listed. `cursor` without `server` fails with `cursor can only be used when
+  a server is specified`.
+- `list_mcp_resource_templates` lists URI templates the same way, under
+  `resourceTemplates`. A server that does not implement the method has none.
+- `read_mcp_resource` reads a resource by `server` and `uri`. Text reaches
+  the model as text. Binary content of a text type is decoded; other binary
+  content is saved to a file in the temp directory and the model gets the
+  path, as for [tool results](#what-the-model-sees). When a read returns
+  several contents (a directory, for example) each is preceded by a line
+  `<uri>:`. A read without content gives `Resource <uri> is empty.`
+
+The model receives a listing as one line of JSON. Listings and read text are
+cut in the middle above 20 KB like [tool results](#what-the-model-sees),
+with the full text in a file. A codemode script gets the object instead and
+never a shortened one: the listing as above, and `{server, uri, contents}`
+from a read, where `contents` are the server's entries (`uri`, `mimeType`,
+and `text` or `blob`) without `_meta`.
+
+```python
+listed = tools.list_mcp_resources(server="docs")
+page = tools.read_mcp_resource(server="docs", uri=listed["resources"][0]["uri"])
+text(page["contents"][0]["text"])
+```
+
+Each listed item is what the server sent, without `_meta` and `icons`, plus a
+`server` field. Resources for MCP Apps (a `ui://` URI, or a MIME type with
+`profile=mcp-app`) are left out, because pipy does not render them.
+
+The tools reach every enabled server that declared the `resources`
+capability and whose `exposure` is not `hidden`. A name that is none of
+these fails with `MCP server "<name>" has no resources. Servers with
+resources: <names>`. A server counts from its first connect on, also while
+it is disconnected: a listing or a read starts it again. The tools appear
+when the first such server has connected. Their exposure is the widest among
+those servers: `direct` if one of them is `direct`, else `codemode`, else
+`deferred`; a `toolExposure` entry does not count. When they stop being
+`direct` they are no longer declared to the model. When no such server is
+left (disabled, or set to `hidden`) the tools stay registered but can no
+longer be called. They are marked read-only (`read_only_hint`), and a
+`tool_call` or `tool_result` handler sees their calls like any other.
+
+For [`--tools` and `--exclude-tools`](usage.md#mcp-tools) the three tools
+count as MCP tools, but their names do not start with `mcp__`: a pattern
+`mcp__*` does not match them, so name them to declare or to exclude them.
+
+A resource link in a tool result names the tool that reads it, when the
+link's server is one the resource tools reach: `[Resource <uri> "<title>".
+Read it with read_mcp_resource (server "<server>")]`.
+
+pipy lists a server's resources and templates when it connects and again
+when the server sends `notifications/resources/list_changed`, only to count
+them: `pipy mcp list` shows `resources: <n>, URI templates: <m>`, and the
+state of a connected server in the `/mcp reconnect` completion reads
+`connected · 2 tools · 3 resources`. A server whose listing fails still
+connects, with a count of 0.
+
+An image resource (a `blob` with an `image/` type) reaches the model as an
+image; see [images](#images-in-results). A script gets the `blob`.
+
+Different from Pi:
+
+- A number in a listed item is printed as Python prints it (`2048.0` stays
+  `2048.0`).
+- An HTTP server's resource request that failed with a transient status is
+  [made once more](#http-servers) after 250 ms, as in Pi, but a call that is
+  cancelled meanwhile ends at once.
+
+## Permissions
+
+A call to an MCP tool, from the model or from a script, runs through the same
+tool pipeline as a call to a built-in tool. An extension's `tool_call`
+handler can block it and a `tool_result` handler can change its result.
+`ctx.get_all_tools()` reports each MCP tool with its exposure, its namespace
+and the hints its server declares (`read_only_hint`, `destructive_hint`,
+`idempotent_hint`, `open_world_hint`), so a permission extension can decide
+by them. The hints are what the server says about itself; pipy does not
+check them. A stdio server runs with your permissions, like `bash`.
+
+A handler is given the tool's name and the arguments of a call. For a call
+that a codemode script made, the [JSON](json.md) and [RPC](rpc.md) events
+carry the id of the `codemode` call as `parentToolCallId`; the handler is
+not told the parent.
+
+## Extensions and SDK
+
+An extension can add servers to a session, replace the built-in MCP support
+or the tools that reach MCP tools, and a program that embeds pipy chooses
+whether its sessions have MCP at all.
+
+### Servers from extensions
+
+An extension can add servers for the session with
+`api.register_mcp_server(name, config)`, where `config` has the shape of an
+`mcpServers` entry; see [MCP servers](extension-api.md#mcp-servers) in the
+extension API. A registered server connects like a configured one: with the
+session when the extension registered it while loading, at once when it
+registers it later. `api.unregister_mcp_server(name)` closes it.
+
+- Registered servers come after the configured ones in `/mcp` and in the
+  [`mcp_servers` section](#the-servers-in-the-system-prompt), and have
+  `extension` as their source in the manager. The server's screen names the
+  extension.
+- Enabling, disabling and changing the exposure of a registered server
+  apply to the session and are saved nowhere.
+- A server in `mcp.json` with the same name takes precedence, also when the
+  names differ only in `-` and `_`. The registered server does not connect,
+  and `/mcp` says so, in the manager above the list and in the printed
+  status after the servers:
+
+  ```text
+  my-docs: connected, 2 tools (direct)
+  overridden: "my_docs" registered by .pipy/extensions/docs.py is overridden by "my-docs" in /home/me/.pipy/mcp.json
+  ```
+
+- Nothing is saved. `/reload` loads the extensions again and the servers
+  are those they register then.
+- The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
+  see only the configured servers.
+- With MCP [turned off](#turning-mcp-off) registered servers do not connect.
+  Unless an extension handles the `mcp_servers_change` event, and so
+  connects them itself, each one is reported once: `Extension "<path>"
+  error: MCP server "<name>" is registered, but no loaded extension connects
+  MCP servers; ...`.
+
+### Replace the built-in MCP support
+
+An extension that registers the `/mcp` command replaces the built-in MCP
+support for sessions, as an MCP extension written for Pi does. pipy then
+loads the session as with MCP [turned off](#turning-mcp-off): it does not
+read `mcp.json`, connects no server, turns on neither `codemode` nor
+`tool_search` for servers, and `/mcp` belongs to the extension. It says so
+when the session starts and after a `/reload`:
+
+```text
+Extension my_mcp registers command `/mcp`, so built-in extension `mcp` was not loaded. To use `mcp`, run `pipy config list` and make sure it is enabled under built-in, then disable or remove the existing extension. We recommend only having one or the other loaded at a time.
+```
+
+Remove the extension, or turn it off, to get the built-in behaviour back;
+`/reload` decides again, so this works in a running session. With MCP
+turned off anyway (`--no-mcp`, `-builtin:mcp`) there is nothing to replace
+and no notice.
+
+Servers that extensions register with `api.register_mcp_server` are then
+for the replacing extension: it receives them with the
+`mcp_servers_change` event and `api.get_mcp_servers()`. If no extension
+handles that event, each registration is reported once as described under
+[servers from extensions](#servers-from-extensions).
+
+An extension that registers a tool named `codemode` or `tool_search`
+replaces the built-in tool of that name in the same way; see
+[replacing built-in tools](extension-api.md#replacing-built-in-tools). pipy
+activates the replacement for MCP servers, and waits for the servers its
+calls need, only when the tool declares `reaches_tools`.
+
+The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
+always use the built-in implementation.
+
+Different from Pi:
+
+- Only an extension's `/mcp` command replaces MCP. A prompt template or
+  custom command named `mcp` takes the place of the command (see
+  [the `/mcp` command](#the-mcp-command)) while the servers keep running.
+- The notice names the extension by its name, where Pi shows its path, and
+  points to `pipy config list`.
+- pipy shows no notice when an extension replaces `codemode` or
+  `tool_search`. In Pi both are built-in extensions that are loaded unless
+  they are replaced; in pipy the built-in `codemode` is registered only when
+  something asks for it.
+- A `/reload` reads `mcp.json` once before it knows the extensions it will
+  load. When the reload brings an extension with `/mcp`, what was read is
+  dropped: nothing connects and nothing is reported.
+
+### MCP in an embedded session
+
+A session made with the [Python SDK](sdk.md) has no MCP, no `codemode` and
+no `tool_search` unless the program that creates it asks:
+
+```python
+from pipy_harness.sdk import CodemodeOptions, McpOptions, create_product_session
+
+session = create_product_session(
+    workspace=workspace,
+    provider=provider,
+    codemode=CodemodeOptions(),
+    tool_search=True,
+    mcp=McpOptions(),
+)
+```
+
+`McpOptions()` is MCP as this page describes it: `mcp.json` from the config
+home and the trusted project, the same transports, `mcp-auth.json` and
+`mcp.log`. Its fields replace the configuration loader, the transport
+factory, the credential store, the log path, the function that opens a
+sign-in URL, the function that saves a change to a server, and the time the
+first prompt waits. `-builtin:mcp` in the settings does not turn MCP off for
+such a session; `RuntimeResourceOptions(no_mcp=True)` does.
+[Codemode, tool search and MCP](sdk.md#codemode-tool-search-and-mcp) in the
+SDK page has the fields, what activates the two tools, the differences from
+Pi and a runnable example.
+
+## Server connections
+
+What pipy does with a configured server. An entry with a `command` is a
+server process (stdio); an entry with a `url` is a server reached over
+streamable HTTP, see [HTTP servers](#http-servers). Signing in to an HTTP
+server is described under
+[authenticate with OAuth](#authenticate-with-oauth).
+
+### Values resolved at connect time
+
+- `timeout` is the time a request to the server may take, 60 seconds when not
+  set. A progress notification for a request starts its time again.
+- Each `env` value of a stdio server and each `headers` value of an HTTP
+  server may refer to environment variables with `${NAME}` or
+  `$NAME`; `$$` is a literal `$` and `$!` a literal `!`. A value that starts
+  with `!` is a shell command, and its trimmed standard output is the value.
+  The command runs on every connect, with a limit of 10 seconds. A variable
+  that is unset or empty, or a command that fails or prints nothing, fails
+  the connect with a message naming the server and the key or the header,
+  for example `Failed to resolve MCP server "docs" env "API_KEY" from
+  environment variable: DOCS_TOKEN` or `Failed to resolve MCP server "docs"
+  header "Authorization" from environment variable: DOCS_TOKEN`. The server
+  process gets pipy's environment plus the resolved `env`.
+- A leading `~` or `~/` in `command`, in each of `args` and in `cwd` is the
+  home directory. `--root=~/x` is passed as written.
+- A relative `cwd` is relative to the session directory, and the session
+  directory is the default.
+
+`oauth.clientSecret` follows the same rules. It is resolved when a token is
+refreshed, not when the server connects, so a secret that cannot be resolved
+fails only the request that needed the refresh, with `Failed to resolve MCP
+server "<name>" oauth.clientSecret from ...`.
+
+### HTTP servers
+
+A server with a `url` is reached over
+[streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
+Every request carries the configured `headers`. A server without an
+`Authorization` header is also sent the OAuth token stored for it, see
+[sign-in with OAuth](#sign-in-with-oauth), or with `auth` the token of a
+provider, see [a provider's token](#a-providers-token).
+
+- A connect that fails because the server cannot be reached, or because it
+  answers with status 408, 429 or 5xx other than 501, is made again after
+  250 ms and, if that fails too, once more after one second. The server
+  stays `connecting` meanwhile and is `failed` with the last error after the
+  third attempt. Any other failure is final at once.
+- A resource read or listing the server answers with one of these statuses is
+  made once more after 250 ms. A tool call is not repeated for that reason,
+  because the server may have run it; the call fails with the status, for
+  example `MCP HTTP request failed with status 502`.
+- When the server no longer knows pipy's session, typically because it
+  restarted, it answers a request with status 404. The server did not run
+  that request, so pipy connects again, which starts a new session and lists
+  the tools again, and makes the request once more. This holds for tool
+  calls too. Requests that were in flight on the old session get the same
+  answer and move to the new session the same way. A request that finds the
+  new session expired as well fails with `MCP session expired`.
+- No request is made more than twice.
+- Closing a server, or ending the session, ends the wait before another
+  attempt and, when the server gave the session an id, tells it that the
+  session is over (a `DELETE`, given one second).
+
+Different from Pi:
+
+- What counts as "cannot be reached" is any network failure Python reports
+  (refused or reset connections, name lookup, TLS, a response that is not
+  HTTP). Pi retries what `fetch` reports as a `TypeError`.
+- Once the last request on a session the server forgot has ended, pipy
+  closes that session's connection. Pi leaves it open.
+- The wait before a resource request is made again ends when the call is
+  cancelled or the server is closed. Pi waits the 250 ms out.
+- pipy sends configured headers and tokens only to the server's own origin,
+  so a redirect to another host is a failed request.
 
 ### States
 
@@ -1708,6 +1881,37 @@ In a checkout, `just mcp-conformance` runs the suite and compares the result
 with the committed baseline. It needs Node's `npx` and, the first time, the
 network, so it is a manual check and not part of `just check`. `scripts/mcp_conformance/README.md` has its options.
 
+## What pipy does not support
+
+Parts of MCP that pipy does not implement. Pi does not implement the first
+six either.
+
+- The legacy SSE transport. An entry of that type is a configuration error.
+- Elicitation and sampling: pipy announces neither capability, and answers
+  such a request from a server with "method not found".
+- Prompts. pipy does not list or get a server's prompts.
+- Resource subscriptions. pipy reads a resource when a tool asks for it and
+  follows changes of the list, not of a resource's content.
+- MCP Apps. Resources for them are left out of listings, see
+  [use resources](#use-resources).
+- The stateless protocol version `2026-07-28`. pipy speaks `2025-11-25`,
+  `2025-06-18`, `2025-03-26` and `2024-11-05`.
+- Windows. Starting and stopping server processes is written for POSIX
+  systems and is tested on macOS and Linux only.
+- A built-in Client ID Metadata Document. `clientRegistration: "cimd"`
+  works with documents you host, see [OAuth settings](#oauth-settings).
+- Images drawn in the terminal. An image in a result reaches the model; the
+  transcript shows a line that names it, see
+  [images in results](#images-in-results).
+- Tool calls of one script at the same time. A codemode script's calls run
+  one after another, see [codemode](codemode.md).
+- A clickable link for the authorization URL in the sign-in screen, see
+  [signing in from the manager](#signing-in-from-the-manager).
+- `/mcp` and other extension commands in a message that an RPC client
+  queues with `steer` or `follow_up`, or sends as a `prompt` while a run is
+  under way: the text goes to the model. See
+  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
+
 ## What exists as a library
 
 The package `pipy_harness.native.mcp` is synchronous and uses only the
@@ -1721,7 +1925,7 @@ below.
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
 | `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group. POSIX only. |
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). |
-| `config` | Validation, loading and editing of `mcp.json`, as described above. |
+| `config` | Validation, loading and editing of `mcp.json`, as described under [configure servers](#configure-servers). |
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), its `provider_token` function for a server with [`auth`](#a-providers-token), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
 | `log` | The `mcp.log` writer. |

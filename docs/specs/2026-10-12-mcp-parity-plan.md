@@ -2346,6 +2346,47 @@ Decided in S40 (closeout, part 1: the conformance recipe;
   instead of ending the run with an exception.
 - Not in CI, as DEV-12 says.
 
+Decided in S40 (closeout, part 2: the user docs pass; `docs/mcp.md`,
+`docs/usage.md`, `docs/index.md`, `CHANGELOG.md`):
+
+- `docs/mcp.md` grew slice by slice, with most sections as subsections of
+  "Quick setup". It is now in the order of DOC-01 and of Pi's page: quick
+  setup, configuration, migration, the servers in a session (`/mcp`, the
+  manager, the startup report, reloading, turning MCP off, diagnosing), the
+  `pipy mcp` commands, OAuth, exposure, tool search, resources,
+  permissions, extensions and SDK, then the reference sections
+  (connections, tools, conformance, what is not supported, the library).
+  Sections were moved whole. Heading texts did not change, so every anchor
+  other documents link to is the same; only heading levels did ("Control
+  tool exposure", "Use resources" and "Permissions" are second-level now),
+  and the three OAuth sections moved from "Server connections" under a new
+  "Authenticate with OAuth".
+- New text, all of it describing behaviour that earlier slices built and
+  tested: the introduction, "Migrate configuration from another client"
+  (Pi's table, plus a row for Pi itself), "Manage servers in a session",
+  "Diagnose connection problems", the introduction of "Authenticate with
+  OAuth", a `toolExposure` example, `defaultTools: ["+codemode"]` without
+  servers, the parent of a script's call under "Permissions", "Extensions
+  and SDK", and "What pipy does not support".
+- "What pipy does not support" lists, with the six things Pi does not
+  implement either (legacy SSE, elicitation and sampling, prompts, resource
+  subscriptions, MCP Apps, the stateless protocol), what only pipy lacks:
+  Windows, a built-in Client ID Metadata Document, images drawn in the
+  terminal, parallel calls of one script, the clickable sign-in link, and
+  commands in queued RPC input.
+- Pi's page says that calls made from codemode scripts carry the codemode
+  call id as `parentToolCallId`. In pipy that id is in the JSON and RPC
+  events; a `tool_call` handler is given the tool name and the arguments
+  only. The page says so.
+- `docs/usage.md` "MCP commands" listed four of the six commands in its
+  synopsis; `login` and `logout` are added (DOC-02).
+- `CHANGELOG.md`: entries written while the feature was built in parts said
+  what was "not yet" there ("no session uses yet", "OAuth is not built
+  yet", "`pipy mcp login` and `logout` do not exist yet", "which you still
+  have to enable yourself", images "omitted for now"). Those clauses are
+  removed, since later entries of the same release add the parts; nothing
+  else in the entries changed.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
