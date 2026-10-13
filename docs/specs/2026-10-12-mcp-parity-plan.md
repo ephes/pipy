@@ -1140,8 +1140,23 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   `agent-session-mcp.test.ts` runs through the SDK without that option).
   The transcript restore pipy has is `/tree`, which got the pending names.
 
-Decided in S23 (resources of a connection, `connection.py`; the counts):
+Decided in S23 (`resources.py`, resources in `connection.py` and
+`manager.py`):
 
+- `resources.py` is a port of `ext/resources.ts`:
+  `create_mcp_resource_tools(exposure=, servers=, save_output=)` returns the
+  three `McpResourceToolPort`s. `servers` is asked at every call and returns
+  objects with `name`, `timeout_ms`, `resources_page`,
+  `resource_templates_page`, `all_resources`, `all_resource_templates` and
+  `read_resource` (`McpResourceServer`; `McpServerConnection` fits). The
+  module also has `is_mcp_app_resource` and `settle_all` (calls run at the
+  same time on daemon threads `mcp-request`, each result or exception
+  returned in order, Pi `Promise.allSettled`), which `connection.py` uses
+  too.
+- Whatever a resource tool raises is an error result without structured
+  content, so a script call raises `ToolError` with the message (Pi throws).
+  A listing is one compact JSON text (`json.dumps` with `,` and `:`), under
+  the 20 KB rule.
 - The connection keeps `has_resources`, `resources` and `resource_templates`
   (in `ConnectionView` too). They are read at connect on a thread
   `mcp-resources` next to the tool listing, each list failing to an empty
@@ -1157,14 +1172,23 @@ Decided in S23 (resources of a connection, `connection.py`; the counts):
   needed. The two for templates answer with none when the server has no
   `resources/templates/list` (Pi `withoutTemplates`). The lists are the
   server's; leaving out MCP App entries is the caller's.
-- `resources.py` has `is_mcp_app_resource` and `settle_all` (calls run at
-  the same time on daemon threads `mcp-request`, each result or exception
-  returned in order, Pi `Promise.allSettled`).
+- The manager owns the resource ports (`_resource_ports`, built with
+  `_resource_exposure`) and publishes them in the same registry as the
+  servers' tools. `_publish_changes` is the one place that brings them up to
+  date and publishes; it runs after a server's registration, after a
+  disable and after an exposure change (Pi `syncResourceTools`). With no
+  server left the ports are published with exposure `hidden` and stay
+  registered, as in Pi; S17's rule that a withdrawn tool is absent from the
+  registry holds for server tools only. When the exposure stops being
+  `direct` the three names leave the active selection through
+  `deactivate_tools`.
+- `McpToolPort.readable_resources` is `McpManager._reads_resources(server)`,
+  asked at each call (TLS-12).
 - `describe_state` counts the resources of a connected server. `/mcp`'s
   status lines have no count, as in Pi's `formatStatus`.
 - Not built here: the one retry of a resource request after a transient HTTP
   error (Pi `withClient(..., readOnly)`), which S26 adds with the retry
-  loop.
+  loop; image resources as images (S39).
 
 Open after the merge, owned by later slices:
 

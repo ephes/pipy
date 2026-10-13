@@ -53,6 +53,14 @@ starts another for the configuration it read again. While the reload decides
 whether it is accepted it holds this manager's publications
 (``publications_held``), so the session's tools do not change under it.
 
+Resources. Once a server that declared the ``resources`` capability is
+connected, the three resource tools are published with the session's MCP
+tools (``resources.py``). They reach every enabled server with resources whose
+exposure is not ``hidden`` and have the widest exposure among those servers.
+They are built again whenever that exposure changes, in the same publication
+as the server's tools; with no such server left they stay registered as
+``hidden`` tools, as in Pi.
+
 Not built yet: servers registered by extensions.
 """
 
@@ -70,6 +78,7 @@ from pathlib import Path
 from typing import Final, cast
 
 from pipy_harness.native.mcp.config import (
+    DEFAULT_MCP_EXPOSURE,
     LoadedMcpConfig,
     McpExposure,
     McpServerConfig,
@@ -86,6 +95,7 @@ from pipy_harness.native.mcp.connection import (
 )
 from pipy_harness.native.mcp.log import McpServerLog
 from pipy_harness.native.mcp.protocol import JsonObject
+from pipy_harness.native.mcp.resources import create_mcp_resource_tools
 from pipy_harness.native.mcp.servers_section import (
     McpServerListing,
     render_servers_section,
@@ -151,6 +161,11 @@ class McpServerStatus:
 
 def _is_enabled(entry: McpServerEntry) -> bool:
     return entry.config.get("enabled") is not False
+
+
+def _exposure_of(entry: McpServerEntry) -> str:
+    exposure = entry.config.get("exposure")
+    return DEFAULT_MCP_EXPOSURE if exposure is None else str(exposure)
 
 
 def _no_server(name: str) -> str:
@@ -287,6 +302,11 @@ class McpManager:
         self._started = False
         self._closed = False
         self._names = McpToolNames()
+        # The three resource tools and the MCP exposure they were built
+        # with; ``None`` until a server has resources. Guarded by the manager
+        # lock and changed only by a thread that holds the publication lock.
+        self._resource_exposure: str | None = None
+        self._resource_ports: dict[str, ToolPort] = {}
         # A server whose connection changed, and the ``ready`` event of the
         # connection attempt that ended with this change, if one did.
         self._events: queue.SimpleQueue[
@@ -596,9 +616,7 @@ class McpManager:
             registered = bool(server.ports)
             server.ports = {}
             server.source = None
-            merged = self._merged_ports()
-        if registered:
-            self._publish(merged)
+        self._publish_changes(registered)
         return connection, closing
 
     def _finish_closing(
@@ -860,6 +878,7 @@ class McpManager:
         if connection is None:
             return
         view = connection.view()
+        changed = False
         if (
             force
             or source is None
@@ -870,18 +889,94 @@ class McpManager:
             with self._lock:
                 server.ports = ports
                 server.source = (view.tools, view.instructions)
-                merged = self._merged_ports()
-            if ports or registered:
-                self._publish(merged)
+            changed = bool(ports) or registered
+        self._publish_changes(changed)
+
+    def _publish_changes(self, server_tools_changed: bool) -> None:
+        """Bring the resource tools up to date and publish, when they or a
+        server's tools changed. The publication lock is held."""
+
+        was_direct = self._sync_resource_tools()
+        if not server_tools_changed and was_direct is None:
+            return
+        with self._lock:
+            merged = self._merged_ports()
+            names = tuple(self._resource_ports)
+        self._publish(merged)
+        if was_direct and self._deactivate_tools is not None:
+            # No longer declared to the model: out of the active selection.
+            self._deactivate_tools(names)
+
+    def _sync_resource_tools(self) -> bool | None:
+        """Build the resource tools with the widest exposure of the servers
+        they reach: ``direct`` when one of them is direct, and so on; hidden
+        when no server has resources (Pi ``syncResourceTools``).
+
+        The publication lock is held. Returns ``None`` when nothing changed,
+        else whether the tools were ``direct`` before.
+        """
+
+        exposures = {_exposure_of(entry) for entry, _ in self._servers_with_resources()}
+        exposure = next(
+            (
+                candidate
+                for candidate in ("direct", "codemode", "deferred")
+                if candidate in exposures
+            ),
+            "hidden",
+        )
+        with self._lock:
+            previous = self._resource_exposure
+            if exposure == previous or (previous is None and exposure == "hidden"):
+                return None
+            self._resource_exposure = exposure
+            self._resource_ports = {
+                port.definition.name: port
+                for port in create_mcp_resource_tools(
+                    exposure=exposure, servers=self._resource_servers
+                )
+            }
+        return previous == "direct"
+
+    def _servers_with_resources(
+        self,
+    ) -> list[tuple[McpServerEntry, McpServerConnection]]:
+        """The enabled servers with resources whose exposure is not
+        ``hidden``, which the resource tools reach. A server counts from its
+        first connect on, also while it is disconnected."""
+
+        with self._lock:
+            servers = [(server.entry, server.connection) for server in self._servers]
+        return [
+            (entry, connection)
+            for entry, connection in servers
+            if connection is not None
+            and _is_enabled(entry)
+            and _exposure_of(entry) != "hidden"
+            and connection.has_resources
+        ]
+
+    def _resource_servers(self) -> list[McpServerConnection]:
+        return [connection for _, connection in self._servers_with_resources()]
+
+    def _reads_resources(self, server_name: str) -> bool:
+        """Whether ``read_mcp_resource`` reaches the server's resources now."""
+
+        return any(
+            entry.name == server_name for entry, _ in self._servers_with_resources()
+        )
 
     def _merged_ports(self) -> dict[str, ToolPort]:
-        """The tools of all servers. The manager lock is held."""
+        """The tools of all servers and the resource tools. The manager lock
+        is held."""
 
-        return {
+        merged: dict[str, ToolPort] = {
             name: port
             for server in self._servers
             for name, port in server.ports.items()
         }
+        merged.update(self._resource_ports)
+        return merged
 
     def _publish(self, merged: Mapping[str, ToolPort]) -> None:
         """Publish the session's MCP tools. The publication lock is held."""
@@ -917,6 +1012,7 @@ class McpManager:
                     namespace=namespace,
                     timeout_ms=connection.timeout_ms,
                     get_caller=partial(self._caller, entry.name, tool_name),
+                    readable_resources=partial(self._reads_resources, entry.name),
                 )
             except (TypeError, ValueError) as error:
                 # Pi registers such a tool as it is; pipy cannot declare it.

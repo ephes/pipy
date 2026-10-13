@@ -1,12 +1,13 @@
 # MCP
 
 pipy connects to the stdio MCP servers of your `mcp.json` when a session
-starts and makes their tools available to the model and to codemode scripts.
+starts and makes their tools and resources available to the model and to
+codemode scripts.
 The work follows the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
 this page grows with them. [Quick setup](#quick-setup) shows what works today
 and [what is missing](#what-is-missing) lists what does not yet: among other
-things HTTP servers, OAuth, `/mcp` and resources.
+things HTTP servers and OAuth.
 
 ## Quick setup
 
@@ -206,6 +207,8 @@ are needed. Where they might not be, pipy waits:
   that names no server waits for none.
 - **`tool_search`** waits for every enabled server, so it searches all their
   tools.
+- **The [resource tools](#use-resources)** wait for every enabled server, so
+  a listing covers all of them.
 - **A call to an MCP tool** waits for its own server while a new connection
   attempt for it is under way, for example after `/mcp reconnect`.
 
@@ -258,6 +261,83 @@ already on its way fails with one of these messages:
 
 When a server process exits, its tools stay registered and the next call
 starts it again.
+
+### Use resources
+
+When a connected server offers
+[resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources),
+pipy adds the three resource tools that Codex and OpenCode use:
+
+- `list_mcp_resources` lists resources as JSON: `{server?, resources:
+  [{server, uri, name, ...}], nextCursor?}`. With `server` it lists one page
+  of that server, and `cursor` (the `nextCursor` of the answer before)
+  continues with the next page. Without `server` it lists every page of
+  every server, the servers in name order; a server that could not be listed
+  is named under `errors` (`[{server, error}]`) and the others are still
+  listed. `cursor` without `server` fails with `cursor can only be used when
+  a server is specified`.
+- `list_mcp_resource_templates` lists URI templates the same way, under
+  `resourceTemplates`. A server that does not implement the method has none.
+- `read_mcp_resource` reads a resource by `server` and `uri`. Text reaches
+  the model as text. Binary content of a text type is decoded; other binary
+  content is saved to a file in the temp directory and the model gets the
+  path, as for [tool results](#what-the-model-sees). When a read returns
+  several contents (a directory, for example) each is preceded by a line
+  `<uri>:`. A read without content gives `Resource <uri> is empty.`
+
+The model receives a listing as one line of JSON. Listings and read text are
+cut in the middle above 20 KB like [tool results](#what-the-model-sees),
+with the full text in a file. A codemode script gets the object instead and
+never a shortened one: the listing as above, and `{server, uri, contents}`
+from a read, where `contents` are the server's entries (`uri`, `mimeType`,
+and `text` or `blob`) without `_meta`.
+
+```python
+listed = tools.list_mcp_resources(server="docs")
+page = tools.read_mcp_resource(server="docs", uri=listed["resources"][0]["uri"])
+text(page["contents"][0]["text"])
+```
+
+Each listed item is what the server sent, without `_meta` and `icons`, plus a
+`server` field. Resources for MCP Apps (a `ui://` URI, or a MIME type with
+`profile=mcp-app`) are left out, because pipy does not render them.
+
+The tools reach every enabled server that declared the `resources`
+capability and whose `exposure` is not `hidden`. A name that is none of
+these fails with `MCP server "<name>" has no resources. Servers with
+resources: <names>`. A server counts from its first connect on, also while
+it is disconnected: a listing or a read starts it again. The tools appear
+when the first such server has connected. Their exposure is the widest among
+those servers: `direct` if one of them is `direct`, else `codemode`, else
+`deferred`; a `toolExposure` entry does not count. When they stop being
+`direct` they are no longer declared to the model. When no such server is
+left (disabled, or set to `hidden`) the tools stay registered but can no
+longer be called. They are marked read-only (`read_only_hint`), and a
+`tool_call` or `tool_result` handler sees their calls like any other.
+
+For [`--tools` and `--exclude-tools`](usage.md#mcp-tools) the three tools
+count as MCP tools, but their names do not start with `mcp__`: a pattern
+`mcp__*` does not match them, so name them to declare or to exclude them.
+
+A resource link in a tool result names the tool that reads it, when the
+link's server is one the resource tools reach: `[Resource <uri> "<title>".
+Read it with read_mcp_resource (server "<server>")]`.
+
+pipy lists a server's resources and templates when it connects and again
+when the server sends `notifications/resources/list_changed`, only to count
+them: `pipy mcp list` shows `resources: <n>, URI templates: <m>`, and the
+state of a connected server in the `/mcp reconnect` completion reads
+`connected · 2 tools · 3 resources`. A server whose listing fails still
+connects, with a count of 0.
+
+Different from Pi:
+
+- An image resource is shown to the model as `[image <mime> omitted]`,
+  because a pipy tool result carries text only. A script gets the `blob`.
+- A number in a listed item is printed as Python prints it (`2048.0` stays
+  `2048.0`).
+- Pi retries a resource request once after a transient HTTP error. pipy does
+  not connect to HTTP servers yet.
 
 ### Reloading
 
@@ -397,9 +477,9 @@ Different from Pi:
 ### What is missing
 
 Not built yet, in the order the plan builds it: enabling and disabling a
-server and changing its exposure in a session (the `/mcp` manager),
-resources, HTTP servers, OAuth, servers registered by extensions, and images
-in tool results.
+server and changing its exposure in a session (the `/mcp` manager), HTTP
+servers, OAuth, servers registered by extensions, and images in tool results
+and resources.
 
 ## Tool search
 
@@ -766,7 +846,8 @@ A server is `connecting`, `connected`, `disconnected`, `failed` or `closed`
   `pipy mcp list`, and in the state of a connected server that the
   `/mcp reconnect` completion shows (`connected · 2 tools · 3 resources`). A
   listing that fails counts as empty and is no error of the server. What is
-  known of a server's resources is kept while it is disconnected.
+  known of a server's resources is kept while it is disconnected. The
+  [resource tools](#use-resources) ask the server again at every call.
 - The server's `instructions` are kept with surrounding whitespace removed.
 - A connect that fails leaves the server `failed` with the reason, followed
   by the last 2000 characters of the server's stderr, and the call fails with
@@ -860,8 +941,10 @@ as `_`), which also answers to the server's name. It carries the configured
 - Text blocks are shown as text. A result without content blocks shows its
   structured content as JSON.
 - A resource link is shown as
-  `[Resource <uri> "<title or name>" (<mime>, <size>): <description>]`; the
-  parenthesis and the description appear only when the server gives them.
+  `[Resource <uri> "<title or name>" (<mime>, <size>): <description>. Read
+  it with read_mcp_resource (server "<server>")]`; the parenthesis and the
+  description appear only when the server gives them, and the last sentence
+  only when the [resource tools](#use-resources) reach the server.
 - An embedded resource with text is shown as that text. One with binary data
   of a text type (`text/*`, `application/json`, `+json`, `+xml`) is decoded
   as UTF-8. Other binary data is saved to a file in the temp directory, named
@@ -942,7 +1025,8 @@ standard library. It is not part of the SDK surface.
 | `connection` | `McpServerConnection`: one configured stdio server with its state, tools, resources and instructions, as described under [server connections](#server-connections), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
-| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `reconnect`, `set_enabled` and `set_exposure` change a server while the session runs and save the last two to `mcp.json`. `describe_state` gives a server's short state. |
+| `resources` | `create_mcp_resource_tools`: the three [resource tools](#use-resources) over the servers a function returns at call time; `is_mcp_app_resource`. |
+| `manager` | `McpManager`: the servers of one session. It starts the connections, registers their tools and the resource tools as the session's MCP tools after every change, resolves a tool's server when a call runs, waits for chosen servers (`wait_for_servers`), writes the startup report, and closes everything at the end. `reconnect`, `set_enabled` and `set_exposure` change a server while the session runs and save the last two to `mcp.json`. `describe_state` gives a server's short state. |
 | `commands` | `McpCommand`: [the `/mcp` command](#the-mcp-command), with `format_status` and `complete_mcp_arguments`. |
 | `shell_cli` | `run_mcp_command`: [the `pipy mcp` commands](#the-pipy-mcp-commands). |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
@@ -950,7 +1034,7 @@ standard library. It is not part of the SDK surface.
 | `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 
 Not built yet: connections to HTTP servers with their retries and session
-renewal, images in tool results, resources, the `/mcp` manager,
+renewal, images in tool results and resources, the `/mcp` manager,
 and everything of OAuth after discovery (client registration, the
 authorization and token requests, the callback server, stored credentials,
 sign-in).

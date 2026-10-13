@@ -27,13 +27,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- MCP resources. When a connected server offers resources, the tools
+  `list_mcp_resources`, `list_mcp_resource_templates` and `read_mcp_resource`
+  exist, with the shapes Codex and OpenCode use. They reach every enabled
+  server with resources whose exposure is not `hidden` and take the widest
+  exposure among those servers, so they are declared to the model for a
+  `direct` server and callable from codemode scripts otherwise. Listings are
+  JSON without MCP App resources and icons; read text is shown as text and
+  other binary content is saved to a temp file; scripts get the objects. A
+  resource link in a tool result now names `read_mcp_resource` and the
+  server. An image resource is a text placeholder for the model until tool
+  results carry images. See [Use resources](docs/mcp.md#use-resources).
 - `pipy mcp list` shows how many resources and URI templates a server
   offers (`resources: <n>, URI templates: <m>`, and `resources` and
   `resourceTemplates` with `--json`), for servers that declare the
   `resources` capability; resources for MCP Apps are not counted. A
   connection lists them when it connects and again when the server announces
-  a change. The resource tools that read them do not exist yet. See
-  [MCP](docs/mcp.md#list).
+  a change. See [MCP](docs/mcp.md#list).
 - `/reload` reads `mcp.json` and the `builtin:mcp` setting again: it closes
   the MCP servers and starts the ones configured now, so a server that was
   removed is gone, a new one connects and a changed one runs with its new
