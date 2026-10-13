@@ -7,6 +7,8 @@ and the startup display shows only the entries newer than `lastChangelogVersion`
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pipy_harness.native.changelog import (
     changelog_startup,
     new_entries_since,
@@ -151,3 +153,60 @@ def test_shipped_changelog_newest_release_matches_package_version() -> None:
     entries = read_changelog_entries()
     assert entries, "CHANGELOG.md has no released sections"
     assert entries[0].version == pipy_version()
+
+
+def test_invalid_utf8_changelog_is_unavailable(tmp_path: Path) -> None:
+    path = tmp_path / "CHANGELOG.md"
+    path.write_bytes(b"## [0.3.0]\n\n\xff")
+    entries = read_changelog_entries(path)
+    assert entries == []
+    assert path.read_bytes() == b"## [0.3.0]\n\n\xff"
+    assert "No changelog entries" in render_changelog(entries)
+    assert changelog_startup(
+        entries,
+        last_version="0.2.0",
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=True,
+    ) == ([], "0.3.0")
+
+
+def test_explicit_utf8_changelog_preserves_unicode(tmp_path: Path) -> None:
+    path = tmp_path / "CHANGELOG.md"
+    text = SAMPLE + "\n- Grüße 👋\n"
+    path.write_text(text, encoding="utf-8")
+    assert read_changelog_entries(path) == parse_changelog(text)
+
+
+def test_missing_changelog_is_unavailable(tmp_path: Path) -> None:
+    assert read_changelog_entries(tmp_path / "missing.md") == []
+
+
+def test_invalid_changelog_does_not_block_startup_or_command(tmp_path, monkeypatch):
+    import io
+
+    from pipy_harness.native import FakeNativeProvider, changelog
+    from pipy_harness.native.coding.session import CodingSession
+    from pipy_harness.native.settings import SettingsManager
+
+    path = tmp_path / "CHANGELOG.md"
+    path.write_bytes(b"\xff")
+    monkeypatch.setattr(changelog, "default_changelog_path", lambda: path)
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.parent.mkdir()
+    settings_path.write_text('{"lastChangelogVersion":"0.0.0"}', encoding="utf-8")
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+    error_stream = io.StringIO()
+    CodingSession(provider=provider, settings_manager=manager).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/changelog\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    assert "No changelog entries" in error_stream.getvalue()
+    assert provider._call_counter[0] == 0
+    assert manager.get_last_changelog_version() == pipy_version()
+    assert path.read_bytes() == b"\xff"
