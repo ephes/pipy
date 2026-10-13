@@ -367,6 +367,7 @@ class SessionCollaborators:
             diag=self.diag,
             current_session_dir=self.current_session_dir,
             import_transition=import_transition,
+            tool_renderers=(self.execution_projections.published_tool_renderer_lookup),
         )
 
     def reload_command_effects(

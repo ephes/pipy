@@ -25,7 +25,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.http import urlopen_read_cancellable
@@ -34,6 +34,9 @@ from pipy_harness.native.session_tree import (
     _entry_to_json,
     _load_file_entries,
 )
+
+if TYPE_CHECKING:
+    from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 
 _SENSITIVE_KEY_RE = r"api[_-]?key|apikey|secret|token|password|credential"
 _JSON_SECRET_FIELD_RE = re.compile(
@@ -169,7 +172,16 @@ def session_export_payload(
     *,
     system_prompt: str = "",
     tools: list[dict[str, Any]] | None = None,
+    tool_renderers: ToolRendererLookup | None = None,
 ) -> dict[str, Any]:
+    """The data an exported page shows.
+
+    ``renderedTools`` (Pi's name) has the rows of the tool calls that
+    renderers draw, by call id; it is left out when there are none.
+    ``tool_renderers`` chooses the renderers. Without it only calls to MCP
+    server tools are drawn, and no extension code runs.
+    """
+
     payload = {
         "header": tree.get_header().to_json_dict(),
         "entries": [_entry_to_json(entry) for entry in tree.get_entries()],
@@ -177,7 +189,27 @@ def session_export_payload(
         "systemPrompt": system_prompt,
         "tools": tools or [],
     }
-    return _redact_export_mapping(payload)
+    redacted = _redact_export_mapping(payload)
+    rendered = _rendered_tools(tree, tool_renderers)
+    if rendered:
+        redacted["renderedTools"] = rendered
+    return redacted
+
+
+def _rendered_tools(
+    tree: NativeSessionTree, tool_renderers: ToolRendererLookup | None
+) -> dict[str, dict[str, str]]:
+    # Imported here: the rows need the chrome and tool-row modules, which
+    # nothing else in this module does.
+    from pipy_harness.native.export_tool_rows import render_export_tools
+    from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
+
+    return render_export_tools(
+        tree.get_entries(),
+        tool_renderers if tool_renderers is not None else ToolRendererLookup(),
+        cwd=Path(tree.get_header().cwd),
+        redact=redact_export_value,
+    )
 
 
 def encoded_session_payload(payload: Mapping[str, Any]) -> str:
@@ -196,6 +228,7 @@ def export_native_session_to_html(
     *,
     system_prompt: str = "",
     tools: list[dict[str, Any]] | None = None,
+    tool_renderers: ToolRendererLookup | None = None,
 ) -> Path:
     if tree.path is None:
         raise NativeExportError("Cannot export in-memory session to HTML.")
@@ -204,7 +237,12 @@ def export_native_session_to_html(
     output = Path(output_path).expanduser()
     output.parent.mkdir(parents=True, exist_ok=True)
     html = generate_session_html(
-        session_export_payload(tree, system_prompt=system_prompt, tools=tools)
+        session_export_payload(
+            tree,
+            system_prompt=system_prompt,
+            tools=tools,
+            tool_renderers=tool_renderers,
+        )
     )
     output.write_text(html, encoding="utf-8")
     return output
@@ -643,6 +681,11 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 .role { font-weight: 700; color: var(--accent); margin-bottom: 6px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .tool { color: var(--muted); }
+.tool-rendered { background: #1f2023; color: #d7dae0; border-radius: 6px; padding: 10px 12px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-rendered .tool-output { margin-top: 1.45em; }
+.tool-rendered .expandable { cursor: pointer; }
+.tool-rendered .expandable .output-full, .tool-rendered .expandable.expanded .output-preview { display: none; }
+.tool-rendered .expandable.expanded .output-full { display: block; }
 </style>
 </head>
 <body>
@@ -671,12 +714,57 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     wrap.append(label, pre);
     entries.append(wrap);
   }
+  // Rows drawn ahead by the tool's renderers, by call id. The HTML in them
+  // was escaped when it was made.
+  const renderedTools = data.renderedTools || {};
+  function rendered(id) {
+    const rows = Object.prototype.hasOwnProperty.call(renderedTools, id) ? renderedTools[id] : null;
+    return rows && typeof rows === "object" ? rows : null;
+  }
+  function part(cls, html) {
+    const node = document.createElement("div");
+    node.className = cls;
+    node.innerHTML = html;
+    return node;
+  }
+  function appendRenderedTool(rows) {
+    const wrap = document.createElement("article");
+    wrap.className = "entry";
+    const label = document.createElement("div");
+    label.className = "role";
+    label.textContent = "Tool call";
+    const box = part("tool-rendered", rows.callHtml || "");
+    if (rows.resultHtmlCollapsed && rows.resultHtmlExpanded) {
+      const output = document.createElement("div");
+      output.className = "tool-output expandable";
+      output.append(part("output-preview", rows.resultHtmlCollapsed), part("output-full", rows.resultHtmlExpanded));
+      output.addEventListener("click", function () {
+        if (!window.getSelection().toString()) output.classList.toggle("expanded");
+      });
+      box.append(output);
+    } else if (rows.resultHtmlExpanded) box.append(part("tool-output", rows.resultHtmlExpanded));
+    wrap.append(label, box);
+    entries.append(wrap);
+  }
   for (const entry of data.entries || []) {
     if (entry.type === "message") {
       const msg = entry.message || {};
       if (msg.role === "user") append("User", msg.content || "");
-      else if (msg.role === "assistant") append("Assistant", msg.content || JSON.stringify(msg.tool_calls || [], null, 2));
-      else if (msg.role === "tool") append("Tool result", msg.output_text || "", "tool");
+      else if (msg.role === "assistant") {
+        const calls = msg.tool_calls || [];
+        const plain = calls.filter(call => !rendered(call.provider_correlation_id));
+        if (msg.content) append("Assistant", msg.content);
+        else if (plain.length || !calls.length) append("Assistant", JSON.stringify(plain, null, 2));
+        for (const call of calls) {
+          const rows = rendered(call.provider_correlation_id);
+          if (rows) appendRenderedTool(rows);
+        }
+      }
+      else if (msg.role === "tool") {
+        // A result drawn ahead is shown in its call's box.
+        const rows = rendered(msg.provider_correlation_id);
+        if (!rows || !("resultHtmlExpanded" in rows)) append("Tool result", msg.output_text || "", "tool");
+      }
       else append("Message", JSON.stringify(msg, null, 2));
     } else if (entry.type === "session_info") append("Session", entry.name || "");
     else if (entry.type === "compaction") append("Compaction", entry.summary || "");

@@ -223,6 +223,21 @@ class SessionExecutionProjections:
             resolvers=active.tool_renderer_resolvers,
         )
 
+    def published_tool_renderer_lookup(self) -> ToolRendererLookup:
+        """What draws stored tool calls outside a provider turn, as an export
+        does: every tool of the published generation that has a renderer, its
+        resolvers, and the titles of the MCP server tools registered now."""
+
+        with self._generation_ref.lock:
+            projection = self._generation_ref.snapshot().generation.projection
+        if projection is None:
+            raise RuntimeError("published extension generation has no projection")
+        return ToolRendererLookup(
+            tools=projection.renderers.tools,
+            mcp_labels=self._tools.callable_snapshot().mcp_tool_labels(),
+            resolvers=projection.renderers.tool_resolvers,
+        )
+
     def tool_call_policy_inputs(
         self,
     ) -> tuple[

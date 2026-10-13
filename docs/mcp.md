@@ -1498,6 +1498,12 @@ its calls to built-in tools, under the tool's pipy name.
 Without the terminal UI, the call's line is the same title with the
 collapsed arguments; the result is printed like any other tool's.
 
+An HTML export (`/export`, `pipy --export`, `/share`) shows a call to a
+server tool as the same row: the title with the collapsed arguments, and the
+result with its first 5 lines, which a click expands. `pipy --export` and
+`/share` have no session's tools, so there the title comes from the pipy
+name. See [export](export-distribution.md#artifact-shape).
+
 ### What a script sees
 
 A script gets the whole result as the server sent it, without `_meta`:

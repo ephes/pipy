@@ -1103,7 +1103,15 @@ Different from Pi:
   which a resolver can call and wrap. pipy returns `None` for an extension
   tool without renderers and a marker for its own rows.
 - Pi's `renderShell` is not part of `ToolRenderers`.
-- The HTML export does not use tool renderers yet.
+
+`/export` to HTML draws the calls with the same renderers and stores the
+rows in the file (see `docs/export-distribution.md` "Artifact shape"): an
+extension tool's `render_call` and `render_result`, and what a resolver
+chose, are called with `expanded` false and true, a `width` of 98 and
+arguments, result text and details from which credentials were removed. As
+in Pi, the export page draws the built-in tools itself, so renderers that a
+resolver chose for a built-in tool are not used there. `pipy --export` and
+`/share` do not run extension code.
 
 First-slice candidates:
 

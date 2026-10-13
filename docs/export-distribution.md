@@ -231,6 +231,24 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   terminal/bash output so colorized output is preserved. A `renderedTools`-style
   custom-tool pre-render hook is a later extension-API concern, not a first-slice
   blocker.
+- `renderedTools` as built (MCP parity plan S35,
+  `native/export_tool_rows.py`): the calls to MCP server tools, to extension
+  tools that have a renderer, and to tools for which a resolver of
+  `api.register_tool_renderer` chose renderers are drawn when the file is
+  written, at a width of 100 columns, and stored by call id as `callHtml`
+  (the collapsed call), `resultHtmlExpanded` (when the call has a result)
+  and `resultHtmlCollapsed` (when it differs from the expanded one). The
+  page shows such a call as a dark box titled "Tool call"; a click on a
+  result that has both forms switches between them, and the separate "Tool
+  result" entry of that call is left out. The stored call and result stay in
+  `entries`. Calls to the built-in tools and to tools without renderers are
+  shown as before. The arguments, the result text and the details pass the
+  credential redaction before anything is drawn. The terminal text becomes
+  HTML with the foreground colours of the active theme, bold, italic and
+  underline as inline styles; backgrounds and every other escape sequence
+  are dropped and the text is escaped. `/export` asks the loaded extensions;
+  `pipy --export <file>` and `/share` run no extension code, so there only
+  the calls to MCP tools are drawn, titled from their pipy names.
 
 Templates, CSS, and JS live as packaged data files under the pipy package (for
 example `src/pipy_harness/native/export_html/`) and are read at runtime via

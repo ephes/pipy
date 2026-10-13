@@ -793,6 +793,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "diag",
             "current_session_dir",
             "import_transition",
+            "tool_renderers",
         },
         "ReloadCommandEffects": {
             "implicit_trust",

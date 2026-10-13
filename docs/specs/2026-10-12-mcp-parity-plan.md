@@ -1621,7 +1621,7 @@ Decided in S34 (the `/mcp` manager; `manager_menus.py`, `manager_flow.py`,
 
 Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
 `tool_renderers.py`, `ui/components/tool_loop_renderer.py`,
-`repl/execution_projections.py`):
+`repl/execution_projections.py`, `export_tool_rows.py`):
 
 - MCP rows are drawn by `tool_rows` like the built-in tools' rows, not
   through `ExtensionTool.render_call`/`render_result`: a row's state has
@@ -1667,6 +1667,22 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   provider turn that last started. Before S35 it used the live renderer's
   map, which is empty until the first provider turn and holds only that
   turn's declared tools afterwards.
+- The export (RND-03). pipy's export page is not Pi's: it lists the
+  entries and shows a tool call as its JSON. S35 adds Pi's `renderedTools`
+  to the embedded data and the page shows them; the rest of the page is as
+  it was. `export_tool_rows.render_export_tools` draws, at Pi's width of
+  100, the calls that the lookup answers with MCP rows or with an
+  extension's renderers (`tool_rows.render_tool_row_parts`), and
+  `ansi_lines_to_html` is Pi's `ansiLinesToHtml` for what pipy's rows emit
+  (foreground, bold, italic, underline; the rest is dropped). Built-in
+  tools are never drawn ahead, as Pi's `TEMPLATE_RENDERED_TOOLS`. Different
+  from Pi: the part of a row without a renderer is drawn as the generic
+  one, where Pi leaves that part to its page; inputs are redacted before
+  they are drawn (pipy's export withholds credentials, Pi's does not); the
+  rows sit in a dark box whatever the page's colour scheme. `/export`
+  passes `SessionExecutionProjections.published_tool_renderer_lookup()`;
+  `pipy --export` and `/share` (which runs on a worker thread) use an empty
+  lookup, so no extension code runs and titles come from the name rule.
 - The name rule is always on. Pi has it only while its MCP extension is
   loaded; with `--no-mcp` a resumed `mcp__` call has Pi's generic row.
   Recorded in `docs/mcp.md`.
@@ -1697,7 +1713,7 @@ Changed modules, by seam:
 | Settings and CLI | `settings.py`, `cli.py`, `resource_enablement.py` | `codemode.mode`, `codemode.inlineBudget`, `-builtin:mcp`, `--no-mcp`, patterns, the `mcp` subcommand. |
 | Session lifecycle | `repl/wiring.py`, `repl/reload.py`, `coding/session_controller.py`, `automation/rpc.py` | Create, start, reload and shut down the manager; first-prompt wait; turn-start hook. |
 | OAuth plumbing | `auth_store.py` | `resolve_config_value` and `auth_file_lock` are reused, not changed. |
-| Rendering | `tool_rows.py`, `tool_renderer_lookup.py`, `tool_renderers.py`, `ui/components/tool_loop_renderer.py` | MCP rows and the lookup that says which rows a call gets (see "Decided in S35"). |
+| Rendering | `tool_rows.py`, `tool_renderer_lookup.py`, `tool_renderers.py`, `ui/components/tool_loop_renderer.py`, `export_tool_rows.py`, `export_distribution.py` | MCP rows, the lookup that says which rows a call gets, and the rows of an HTML export (see "Decided in S35"). |
 
 ### 4.2 Tool model
 

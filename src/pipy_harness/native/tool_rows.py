@@ -1277,6 +1277,26 @@ def render_tool_row(
     return tuple(rows)
 
 
+def render_tool_row_parts(
+    state: ToolRowState, inputs: RowRenderInputs
+) -> tuple[list[RowLine], list[RowLine]]:
+    """The call and the result of a row, without its box.
+
+    For a row that an extension's renderers or the MCP renderer draw: what
+    the HTML export shows of a call (Pi ``createToolHtmlRenderer``). The
+    result part is empty while the call has no result.
+    """
+
+    result = state.result
+    bg: RowBackground = "pending"
+    if result is not None:
+        bg = "error" if result.is_error else "success"
+    call = _call_rows(state, inputs, bg)
+    if result is None:
+        return call, []
+    return call, _other_result_rows(state, inputs, result, bg, partial=False) or []
+
+
 @dataclass(frozen=True, slots=True)
 class SummaryBox:
     """A ``[compaction]``/``[branch]`` row's texts (Pi's summary components).
@@ -1569,5 +1589,6 @@ __all__ = [
     "render_diff",
     "render_summary_box",
     "render_tool_row",
+    "render_tool_row_parts",
     "row_theme",
 ]

@@ -98,6 +98,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   server connected, and when it never does. Before, these calls had the
   generic row: the pipy name as title and the first 10 lines of the result.
   See [how a call is shown](docs/mcp.md#how-a-call-is-shown).
+- HTML exports show the calls to MCP server tools, and to tools that an
+  extension's renderers draw, as the rows of the transcript: the call, and
+  the result collapsed with a click to expand it. Before, such a call was
+  shown as its raw arguments, or not at all next to assistant text, and its
+  result as plain text. `/export` uses the loaded extensions' renderers;
+  `pipy --export` and `/share` draw only the MCP rows. See
+  [export](docs/export-distribution.md#artifact-shape).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`

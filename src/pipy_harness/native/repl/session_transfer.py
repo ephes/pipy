@@ -45,6 +45,7 @@ from pipy_harness.native.repl.session_transition import ProductSessionTransition
 from pipy_harness.native.repl.turn_leaves import CANCEL_JOIN_TIMEOUT_SECONDS
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.tui import TURN_ABORTED, TerminalUi
 
 
@@ -55,8 +56,13 @@ def export_session(
     cwd: Path,
     system_prompt: str,
     diagnostic: Callable[[str], None],
+    tool_renderers: Callable[[], ToolRendererLookup] | None = None,
 ) -> None:
-    """Export the active product session through the typed command effect."""
+    """Export the active product session through the typed command effect.
+
+    ``tool_renderers`` gives what draws the tool calls of an HTML export; it
+    is asked only for one.
+    """
 
     if type(argument) is not ProductContent:
         raise TypeError("SESSION_EXPORT requires an exact ProductContent argument")
@@ -80,6 +86,7 @@ def export_session(
                 session_tree,
                 output_path,
                 system_prompt=system_prompt,
+                tool_renderers=None if tool_renderers is None else tool_renderers(),
             )
             diagnostic(f"pipy: exported native session HTML to {exported}.")
     except NativeExportError as exc:
@@ -252,6 +259,9 @@ class TransferCommandEffects:
         [str, Callable[[], NativeSessionTree | None]],
         ProductSessionTransitionResult | None,
     ]
+    # What draws the tool calls of an HTML export (the loaded extensions'
+    # renderers); without it only the calls to MCP tools are drawn.
+    tool_renderers: Callable[[], ToolRendererLookup] | None = None
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Execute one outcome from the closed transfer-command family."""
@@ -264,6 +274,7 @@ class TransferCommandEffects:
                 cwd=self.cwd,
                 system_prompt=self.system_prompt,
                 diagnostic=self.diag,
+                tool_renderers=self.tool_renderers,
             )
         elif action is CodingCommandAction.SESSION_IMPORT:
             self._execute_import(command_outcome)
