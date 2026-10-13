@@ -1087,12 +1087,96 @@ standard library. It is not part of the SDK surface.
 | `shell_cli` | `run_mcp_command`: [the `pipy mcp` commands](#the-pipy-mcp-commands). |
 | `readiness` | `McpReadiness`: which servers the first prompt and a tool call wait for, as described under [waiting for servers](#waiting-for-servers). |
 | `discovery` | `McpDiscovery`: activates `codemode` and `tool_search` for the configured exposures and warns when neither is active, as described under [control tool exposure](#control-tool-exposure). |
-| `oauth` | OAuth document types and errors, a bounded HTTP fetch, parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
+| `oauth` | The parts of an OAuth sign-in, described under [the OAuth library](#the-oauth-library). Nothing in pipy calls them yet. |
 
 Not built yet: images in tool results and resources, the `/mcp` manager,
-and everything of OAuth after discovery (client registration, the
-authorization and token requests, the callback server, stored credentials,
-sign-in).
+and the use of the OAuth library: credentials kept on disk, a token on the
+requests to a server, the `needs-auth` state and sign-in.
+
+### The OAuth library
+
+`pipy_harness.native.mcp.oauth` holds the parts of a sign-in to an HTTP MCP
+server. No session and no command uses them yet: there is no `login`
+command, pipy opens no browser, stores no token and sends none to a server,
+and the `oauth` and `auth` settings of a server entry are checked when the
+file is read and otherwise unused. An HTTP server that answers 401 is still
+a [failed server](#http-servers). This section describes what the modules do
+for those who read or build on the code.
+
+| Module | What it does |
+| --- | --- |
+| `types`, `errors` | The OAuth documents (server metadata, client information, tokens) with their checks, and the error types. |
+| `fetch` | The HTTP client of the library, with a 1 MiB limit on a response body. The fetch the other modules use by default has no time limit; `create_oauth_fetch(timeout_ms=...)` makes one that has. |
+| `discovery` | Parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
+| `flow` | `authorize_mcp`: one pass of the authorization code flow for a provider. Also the single steps: `register_client`, `start_authorization`, `exchange_authorization_code`, `refresh_authorization`. |
+| `provider` | `McpOAuthProvider`: the provider the flow is run with. It keeps one server's client registration, tokens, PKCE verifier, `state` value and discovery result as one document in a store its caller supplies. |
+| `callback` | `OAuthCallbackServer`: the local HTTP server the browser is redirected to at the end of a sign-in. |
+| `page` | The HTML pages that server shows. |
+
+The flow (`authorize_mcp`) returns `AUTHORIZED` when the provider holds
+usable tokens and `REDIRECT` when it handed the provider an authorization
+URL for the user to open; the caller then calls it again with the code of
+the authorization response.
+
+- It uses the provider's stored discovery result or runs discovery and
+  stores the result. When the caller passes the URL of the authorization
+  server's metadata, that document is used and nothing is stored.
+- The client is the stored one, else a Client ID Metadata Document the
+  provider offers, else one from dynamic client registration. A server
+  without a registration endpoint fails with `Authorization server does not
+  support dynamic client registration`.
+- The requested scope is the one the caller passes, else the
+  `scopes_supported` of the protected-resource metadata, else the scope of
+  the provider's client metadata, else none.
+- The authorization URL carries `response_type=code`, `client_id`, a PKCE
+  S256 challenge, `redirect_uri`, `state`, `scope`, `resource`, and
+  `prompt=consent` when the scope includes `offline_access`. A server whose
+  metadata rules out the code response type or S256 is refused.
+- A token request goes only to an `https` endpoint or to one on a loopback
+  host; otherwise the flow fails with `Refusing to send OAuth credentials to
+  non-HTTPS endpoint <url>`. The client authenticates with the method it was
+  registered with when the server supports it, else with the first of basic,
+  post and none that fits the client and the server.
+- A code is exchanged only when the `iss` of the authorization response
+  matches the server's issuer, if the response has one or the server's
+  metadata says it sends one (RFC 9207).
+- With a stored refresh token and no code, the tokens are refreshed. A
+  refresh the server answers with `server_error`, or that fails without an
+  OAuth error from the server (a network failure, a time limit, an answer
+  that is no token document), leads to a new authorization. A cancelled
+  flow, an insecure token endpoint and other OAuth errors are raised.
+- When the server answers a token request with `invalid_grant`, the provider
+  is told to forget its tokens, and with `invalid_client` or
+  `unauthorized_client` everything it stored; the flow then runs once more.
+- A token answer without `scope` is stored with the requested scope. A
+  refresh answer without `scope` or without a refresh token keeps the old
+  one.
+
+The provider (`McpOAuthProvider`) binds its document to one server URL: a
+document stored for another URL counts as empty and is replaced by the first
+write. Its `state` value is 32 random bytes in hex. The only store in the
+library, `MemoryOAuthStateStore`, forgets everything with the process. The
+provider locks its own reads and writes; it does not lock a store shared
+with another provider or another process.
+
+The callback server (`OAuthCallbackServer`) listens on `127.0.0.1`, on a
+free port or a given one, at the path `/callback`, and can be given more
+paths. A caller registers the `state` value of a sign-in and waits for the
+request that carries it.
+
+- A request to another path is answered 404, and one without a registered
+  `state` 400 `Invalid or expired OAuth state`.
+- A request with an `error` parameter fails the wait with the error's
+  description, or its code when there is none. One without a code is
+  answered 400 and fails the wait, and a
+  response on a path other than the one the wait named fails it with `The
+  authorization response arrived on another redirect URI`.
+- A wait ends with `OAuth callback timed out` after five minutes, or the
+  limit the server was made with.
+- The page is plain text unless the caller passes a function that renders
+  it. `page.render_sign_in_page` gives the HTML pages of a sign-in: `Signed
+  in to the MCP server. You may now close this page.`, or the failure's
+  message and details.
 
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
@@ -1102,7 +1186,21 @@ build on it:
   proxy support and does not decompress responses.
 - The OAuth fetch follows redirects only for requests without a body, drops
   `Authorization`, `Proxy-Authorization` and `Cookie` on a redirect to
-  another origin, and limits a response body to 1 MiB.
+  another origin, and limits a response body to 1 MiB. So a registration or
+  token request that the server redirects fails with the redirect's status.
+- The OAuth flow reads URLs with the strict parser of the
+  [configuration](#configuration-rules). A token endpoint that parser does
+  not accept is refused like an insecure one. A registration answer that is
+  not JSON, or has no usable `client_id`, is an error.
+- A request of the OAuth flow that was cancelled ends the flow, also during
+  a refresh.
+- The OAuth provider compares server URLs without their fragment, and
+  refuses a server URL with user info.
+- The callback server does not wait for open browser connections when it is
+  closed: it gives a page that is being sent two seconds and then drops the
+  connections. Registering a wait on a closed server fails at once. A
+  page-rendering function that raises gets the plain-text page sent instead.
+- The sign-in pages have Pi's layout without its logo.
 - A cancelled or timed-out HTTP request closes its connection.
 - A line from a stdio server that is longer than the message limit (16 MiB) is
   skipped to its end and reported once.

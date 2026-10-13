@@ -493,7 +493,7 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `client.py` | `McpClient`: handshake, request/notify, pending map, timeouts, progress, cancellation, server requests, pagination, typed list/call/read helpers | `mcp/client.ts` |
 | `stdio.py` | `StdioTransport` | `mcp/transports/stdio.ts` |
 | `sse.py`, `http.py` | SSE parser; `StreamableHttpTransport`, HTTP error types | `mcp/transports/streamable-http.ts` |
-| `oauth/` (`types.py`, `errors.py`, `fetch.py`, `discovery.py`, `flow.py`, `provider.py`, `callback.py`) | The OAuth client library; `fetch.py` is the HTTP fetch Pi gets from JavaScript | `mcp/oauth/*` |
+| `oauth/` (`types.py`, `errors.py`, `fetch.py`, `discovery.py`, `flow.py`, `provider.py`, `callback.py`, `page.py`) | The OAuth client library; `fetch.py` is the HTTP fetch Pi gets from JavaScript, `page.py` the sign-in pages of Pi's `oauth-page.ts` | `mcp/oauth/*` |
 | `config.py` | Entry validation, exposure resolution, load, edit, the strict URL parser (the name matcher is in `native/tools/name_patterns.py`) | `core/mcp-servers.ts`, `ext/config.ts` |
 | `config_values.py` | `${NAME}` and `!command` resolution of config values | `core/resolve-config-value.ts` |
 | `log.py` | Server log file | `ext/log.ts` |
@@ -1229,12 +1229,52 @@ Decided in S26 (HTTP servers in `connection.py`):
   POSTs of a method) and `sessions` (a session per `initialize`, 404 for a
   request that names no known session, `expire_sessions()`).
 
+Decided in S28 and S29 (the rest of the client track, merged in INT2;
+`oauth/flow.py`, `provider.py`, `callback.py`, `page.py`). Library only:
+nothing in the product imports these modules before S30.
+
+- `authorize_mcp(provider, OAuthFlowOptions(server_url, authorization_code,
+  iss, scope, resource_metadata_url, authorization_server_metadata_url,
+  fetch, cancel_event, skip_issuer_validation, skip_refresh))` returns
+  `"AUTHORIZED"` or `"REDIRECT"`. The flow takes one `scope`; merging the
+  configured scope with a challenge's (OAU-07) and `stepUpScope` (OAU-21)
+  are S31's. Pi's `adaptOAuthProvider` is not ported; S30 builds the
+  connection's provider directly.
+- `OAuthClientProvider` is a Protocol of the required members; the optional
+  ones (`state`, `save_client_information`, `client_metadata_document`,
+  `add_client_authentication`, `invalidate_credentials`, `discovery_state`,
+  `save_discovery_state`) are looked up on the object. `OAuthDiscoveryState`
+  and the state document `McpOAuthState` are dicts with Pi's keys.
+- Endpoints are read with `config.parse_http_url`; one it rejects is refused
+  as insecure. The default fetch does not follow the redirect of a POST. A
+  cancelled request always ends the flow. As in Pi, a refresh that fails
+  with a time limit, a network error, an answer that is no token document or
+  a failing `save_tokens` falls through to a new authorization, which S30
+  has to know when it sets the 15 s limit.
+- `McpOAuthProvider` keeps its `state` value until it is forgotten, so the
+  "new for every sign-in" half of OAU-15 is S31's (delete `oauthState`
+  before a sign-in starts). The default `client_name` of OAU-08 is set where
+  the provider is created (S30, S32). The provider locks only itself; the
+  lock between processes is S30's (OAU-20). The only store so far is
+  `MemoryOAuthStateStore`.
+- `OAuthCallbackServer(OAuthCallbackServerOptions(...))` binds in its
+  constructor and raises the bind's `OSError`, which S31's fall back to a
+  free port catches. `wait_for_callback(state, path=None)` does not block;
+  `PendingOAuthCallback.result(cancel_event)` does, and `done` is an event
+  for the race with a pasted URL. `close()` gives pages in flight two
+  seconds and then drops connections.
+- `oauth/page.py` is not in the module list this plan started with: it is
+  the `renderPage` of OAU-17. S31 passes `render_sign_in_page` as the
+  callback server's `render_page`; the default is plain text, as in Pi.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
   The HTTP fake has no 403 with a challenge (S30). The OAuth
-  fake serves scripted routes only: registration, authorize and token
-  endpoints and `FakeBrowser` come with S28, S29 and S31.
+  fake has `FakeAuthorizationServer` (metadata, registration, authorize and
+  token endpoints with rotating refresh tokens and `iss`) and `FakeBrowser`;
+  it has no protected MCP endpoint that answers 401 with a challenge and
+  nothing for CIMD (S30 to S32).
 - `McpAuthProvider` has `token()` only. S30 adds the 401 handoff, which has
   to cover the GET stream too.
 

@@ -27,6 +27,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- More of the OAuth library for MCP servers, still used by nothing: pipy
+  has no sign-in yet, stores no token and sends none, and an HTTP server
+  that answers 401 remains a failed server. `pipy_harness.native.mcp.oauth`
+  now holds the authorization code flow (stored or dynamically registered
+  client or a Client ID Metadata Document, PKCE, the `resource` parameter,
+  the issuer check of RFC 9207, token exchange and refresh with recovery
+  from rejected credentials), a provider that keeps one server's OAuth state
+  in a store its caller supplies, the loopback callback server and the
+  sign-in pages. See [the OAuth library](docs/mcp.md#the-oauth-library).
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with
