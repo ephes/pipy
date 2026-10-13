@@ -123,6 +123,7 @@ def _command(
     tmp_path: Path,
     run_step: Callable[..., bool] = run_step_inline,
     open_url: Callable[[str], object] | None = None,
+    ask_input: Callable[[str, str, threading.Event], str | None] | None = None,
 ) -> McpCommand:
     manager: McpManager = session.manager
     return McpCommand(
@@ -133,6 +134,7 @@ def _command(
         ensure_discovery=ui.ensure_discovery,
         run_step=run_step,
         open_url=open_url,
+        ask_input=ask_input,
     )
 
 
@@ -698,6 +700,81 @@ def test_login_without_a_name_takes_the_server_that_needs_a_sign_in(
 
     assert ui.notices[-1] == ("info", 'Signed in to MCP server "issues" (1 tools).')
     assert ui.selections == []
+
+
+def test_login_asks_for_the_pasted_redirect_url_after_showing_the_url(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # SLH-12, OAU-26: a session that can ask (an RPC client) is asked once
+    # the URL was shown, and the pasted redirect URL finishes the sign-in
+    # without a browser reaching the loopback port.
+    oauth.start()
+    ui = _Ui()
+    opened: list[str] = []
+    asked: list[tuple[str, str, int]] = []
+
+    def ask_input(title: str, placeholder: str, cancel: threading.Event) -> str | None:
+        # The notice with the URL is out and the browser was asked for.
+        asked.append((title, placeholder, len(ui.notices)))
+        assert not cancel.is_set()
+        return FakeBrowser().get(opened[0]).headers["location"]
+
+    command = _command(oauth, ui, tmp_path, open_url=opened.append, ask_input=ask_input)
+
+    command.run("login issues")
+
+    assert asked == [
+        (
+            'Waiting for sign-in to "issues". If the browser cannot reach this '
+            "machine, paste the URL it was redirected to.",
+            "http://127.0.0.1:.../callback?code=...",
+            1,
+        )
+    ]
+    assert ui.notices[-1] == ("info", 'Signed in to MCP server "issues" (1 tools).')
+    assert oauth.state() == "connected"
+
+
+def test_login_ends_the_question_when_the_browser_arrives(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    # SLH-12: the question's event is set, and an answer that comes after
+    # it is not used.
+    oauth.start()
+    ui = _Ui()
+    cancelled: list[bool] = []
+
+    def ask_input(title: str, placeholder: str, cancel: threading.Event) -> str | None:
+        cancelled.append(cancel.wait(10.0))
+        return "http://127.0.0.1:1/late"
+
+    _command(oauth, ui, tmp_path, open_url=_browser, ask_input=ask_input).run(
+        "login issues"
+    )
+
+    assert ui.notices[-1] == ("info", 'Signed in to MCP server "issues" (1 tools).')
+    assert cancelled in ([], [True])
+
+
+def test_login_is_cancelled_when_the_question_is_answered_with_nothing(
+    tmp_path: Path,
+    oauth: Servers,  # noqa: F811
+) -> None:
+    oauth.start()
+    ui = _Ui()
+
+    _command(
+        oauth,
+        ui,
+        tmp_path,
+        open_url=lambda url: None,
+        ask_input=lambda title, placeholder, cancel: None,
+    ).run("login issues")
+
+    assert ui.notices[-1] == ("info", "Sign-in cancelled.")
+    assert oauth.state() == "needs-auth"
 
 
 def test_login_requires_a_user_interface(

@@ -459,8 +459,9 @@ prints `No MCP servers configured. Add them to <config home>/mcp.json or
 which also starts a stdio server's process again. It answers `Reconnected to
 MCP server "<name>" (<state>).` or with the error of the failed connect.
 Without a name pipy takes the only enabled server; with several, the only one
-that is failed or disconnected; otherwise it asks you to choose one in the
-terminal, and does nothing where it cannot ask. A disabled server cannot be
+that is failed or disconnected; otherwise it asks you to choose one, in the
+terminal or through an RPC client's `select` request, and does nothing
+where it cannot ask. A disabled server cannot be
 reconnected (`No enabled MCP server to reconnect.`), and an unknown name
 gives `No MCP server named "<name>".`
 
@@ -474,9 +475,18 @@ tools).`; the server's tools are available from the next prompt on. When a
 stored refresh token is enough, no browser is opened. Escape cancels the
 sign-in at any moment (`Sign-in cancelled.`), as does the end of the
 session. A failure is reported as `Sign-in failed: <error>`, and a connect
-that fails after the sign-in as `Signed in, but <error>`. Login needs the
-terminal UI; in a session without one it answers `Signing in to MCP server
-"<name>" requires interactive mode.`
+that fails after the sign-in as `Signed in, but <error>`.
+
+Login needs somebody who can open the URL. For an
+[RPC client](automation-rpc.md#extension-ui-requestresponse-channel) pipy
+sends the URL as a notice (`Sign in to MCP server "<name>" in your
+browser:` and the URL on the next line), opens the browser, and then asks
+with an `input` request for the redirect URL (`Waiting for sign-in to
+"<name>". If the browser cannot reach this machine, paste the URL it was
+redirected to.`). The request ends unanswered when the browser comes back
+first; an answer of `cancelled` or the end of the client's input cancels
+the sign-in. In print and JSON mode nobody can be asked, and login answers
+`Signing in to MCP server "<name>" requires interactive mode.`
 
 `/mcp logout [server]` deletes the server's stored credentials and closes
 its connection: `Signed out of MCP server "<name>".`, or `No stored
@@ -505,10 +515,11 @@ login cancels the sign-in.
 Different from Pi:
 
 - `/mcp` also runs as the prompt of `--print` and `--mode json` and as an
-  RPC client's `prompt`, where it prints the status to stderr and starts no
-  run (see [Commands in a prompt](automation-rpc.md#commands-in-a-prompt)).
-  Pi shows nothing in print and JSON mode, and sends the status to an RPC
-  client as an `extension_ui_request`.
+  RPC client's `prompt`, and starts no run there (see
+  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt)). An RPC
+  client gets the status and every other message of the command as `notify`
+  requests, as in Pi. In print and JSON mode pipy prints them to stderr; Pi
+  shows nothing there, also not that a login needs interactive mode.
 - For a line typed into a session, a prompt template or custom command
   named `mcp` takes the place of the command, as does an extension command
   of that name. In Pi only an extension command does, and that is also

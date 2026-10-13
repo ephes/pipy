@@ -122,6 +122,16 @@ def _is_response(record: dict[str, Any]) -> bool:
     return record.get("type") == "response"
 
 
+def _without_id(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in record.items() if key != "id"}
+
+
+def _is_request(method: str) -> Callable[[dict[str, Any]], bool]:
+    return lambda record: (
+        record.get("type") == "extension_ui_request" and record.get("method") == method
+    )
+
+
 def test_mcp_is_handled_and_starts_no_run(tmp_path: Path, connect) -> None:
     # SLH-02, SLH-07, SLH-10: the response comes when the command has run,
     # it says `handled`, and no session event follows.
@@ -134,16 +144,23 @@ def test_mcp_is_handled_and_starts_no_run(tmp_path: Path, connect) -> None:
     client.send(id="p", type="prompt", message="/mcp")
     records = client.until(_is_response)
 
-    assert records == [
+    # SLH-11: the status is a `notify` request, sent before the response.
+    assert [_without_id(record) for record in records] == [
         {
-            "id": "p",
+            "type": "extension_ui_request",
+            "method": "notify",
+            "message": "docs: connected, 2 tools (direct)",
+            "notifyType": "info",
+        },
+        {
             "type": "response",
             "command": "prompt",
             "success": True,
             "data": {"disposition": "handled"},
-        }
+        },
     ]
-    assert "docs: connected, 2 tools (direct)\n" in client.errors.getvalue()
+    assert records[0]["id"] != records[1]["id"] == "p"
+    assert client.errors.getvalue() == ""
     assert client.close() == []
     assert provider.requests == []
 
@@ -157,7 +174,12 @@ def test_a_prompt_after_a_handled_command_runs(tmp_path: Path, connect) -> None:
     client = connect(provider)
 
     client.send(id="c", type="prompt", message="/note first")
-    assert client.response("c")["data"] == {"disposition": "handled"}
+    handled = client.until(_is_response)
+    assert handled[-1]["data"] == {"disposition": "handled"}
+    # An extension's notice is a `notify` request too.
+    assert [(record["method"], record["message"]) for record in handled[:-1]] == [
+        ("notify", "noted first")
+    ]
     assert (directory / "note.txt").read_text() == repr("first")
     client.send(id="s", type="get_state")
     assert client.response("s")["data"]["isStreaming"] is False
@@ -168,7 +190,6 @@ def test_a_prompt_after_a_handled_command_runs(tmp_path: Path, connect) -> None:
     assert records[0]["data"] == {"disposition": "started"}
     assert records[1] == {"type": "agent_start"}
     assert [request.user_prompt for request in provider.requests] == ["go on"]
-    assert "noted first" in client.errors.getvalue()
 
 
 def test_a_failing_command_is_handled_too(tmp_path: Path, connect) -> None:

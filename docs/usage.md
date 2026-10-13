@@ -272,6 +272,12 @@ stdin to it:
 cat README.md | pipy -p
 ```
 
+The prompt of `--print`, `--mode json` and RPC mode is not a typed line. A
+prompt that names an extension command (`pipy -p /mcp`) runs it without
+asking the model, skills and prompt templates are expanded, and everything
+else, the built-in slash commands included, goes to the model. See
+[Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
+
 ### Model options
 
 | Option | Description |

@@ -21,6 +21,8 @@ session extension
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -34,3 +36,35 @@ class AutomationEventSink(Protocol):
     """
 
     def emit(self, event: dict[str, Any]) -> None: ...
+
+
+@runtime_checkable
+class AutomationUi(Protocol):
+    """The UI a session has through its automation transport.
+
+    RPC mode has one (``rpc_ui.RpcUi``): the requests go to the client as
+    ``extension_ui_request`` lines. Print and JSON mode have none.
+    """
+
+    def notify(self, message: str, kind: str = "info") -> None: ...
+
+    def select(
+        self,
+        title: str,
+        options: Sequence[str],
+        cancel_event: threading.Event | None = None,
+    ) -> str | None: ...
+
+    def input(
+        self,
+        title: str,
+        placeholder: str | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> str | None: ...
+
+
+def automation_ui(observer: object) -> AutomationUi | None:
+    """The UI of the transport behind ``observer``: its ``ui``, if it has one."""
+
+    ui = getattr(observer, "ui", None)
+    return ui if isinstance(ui, AutomationUi) else None

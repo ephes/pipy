@@ -19,22 +19,23 @@ waiting for the startup connections, and ``/mcp login`` signs in with the
 view's sign-in screen, which also takes a pasted redirect URL.
 
 Login without the manager view (a session that has a user interface but no
-terminal UI; no such session exists yet). The sign-in runs on a thread of
+terminal UI: an RPC client). The sign-in runs on a thread of
 its own (``mcp-sign-in``), because it blocks until the browser came back,
-while everything the user sees happens on the session thread: the command
+while the notices and the browser happen on the session thread: the command
 waits, through ``run_step``, for the authorization URL, shows it as a notice
 and opens the browser, and waits again for the end of the sign-in. Ending
-either wait cancels the sign-in. Without ``open_url`` the session has no
-user interface to sign in with, and login says so.
+either wait cancels the sign-in. With ``ask_input`` the sign-in's own
+prompt thread then asks for the pasted redirect URL, as Pi does through
+its input dialog; without it only the browser can finish the sign-in.
+Without ``open_url`` the session has no user interface to sign in with,
+and login says so.
 
 Different from Pi: the usage text for an unknown action is printed without
 waiting for the startup connections first. Pi's command cannot be
 interrupted. Here a wait can be: ``/mcp`` then prints the servers as they
 are, a subcommand is not run when the wait for the startup connections was
 ended, a reconnect or a sign-out the user stops waiting for goes on in the
-background, and a sign-in is cancelled. Login without the manager view
-never asks for a pasted redirect URL; Pi asks through its input dialog
-there.
+background, and a sign-in is cancelled.
 """
 
 from __future__ import annotations
@@ -92,6 +93,23 @@ RunStep = Callable[[Callable[[threading.Event], object]], bool]
 # view, once; that shows the first screen and returns the flow, which the
 # view polls while it is open and stops when it closed.
 ShowManager = Callable[[Callable[[McpUi], McpManagerFlow]], None]
+# Asks for a line of text: ``(title, placeholder, cancel_event)``. It returns
+# what was entered, or ``None`` when the user cancelled or the event was set.
+AskInput = Callable[[str, str, threading.Event], str | None]
+# The same for one sign-in, with the title and placeholder already given.
+AskRedirectUrl = Callable[[threading.Event], str | None]
+
+REDIRECT_URL_PLACEHOLDER = "http://127.0.0.1:.../callback?code=..."
+
+
+def redirect_url_title(name: str) -> str:
+    """The title of the input that asks for a sign-in's pasted redirect URL
+    (Pi ``loginCommand``)."""
+
+    return (
+        f'Waiting for sign-in to "{name}". If the browser cannot reach this '
+        "machine, paste the URL it was redirected to."
+    )
 
 
 def _open_nothing(url: str) -> None:
@@ -239,19 +257,30 @@ def complete_mcp_arguments(
 
 class _AuthorizationUrl:
     """The prompt of a sign-in the session runs (``McpSignInPrompt``): it
-    keeps the authorization URL for the session thread, which shows it."""
+    keeps the authorization URL for the session thread, which shows it, and
+    asks for the pasted redirect URL where the session can ask."""
 
-    def __init__(self) -> None:
+    def __init__(self, ask_redirect_url: AskRedirectUrl | None) -> None:
         self.shown = threading.Event()
+        # Set by the session thread when the user has been shown the URL.
+        self.announced = threading.Event()
         self.url = ""
+        self._ask_redirect_url = ask_redirect_url
 
     def show_authorization_url(self, url: str) -> None:
         self.url = url
         self.shown.set()
 
     def prompt_for_redirect_url(self, cancel_event: threading.Event) -> str | None:
-        wait_for_cancel(cancel_event)
-        return None
+        ask = self._ask_redirect_url
+        if ask is None:
+            wait_for_cancel(cancel_event)
+            return None
+        # The question follows the URL it is about, as in Pi.
+        while not self.announced.wait(_POLL_SECONDS):
+            if cancel_event.is_set():
+                return None
+        return ask(cancel_event)
 
 
 class _RunningSignIn:
@@ -262,9 +291,15 @@ class _RunningSignIn:
     one cancels the sign-in, whose result is then ``Sign-in cancelled.``
     """
 
-    def __init__(self, manager: McpManager, name: str, run_step: RunStep) -> None:
+    def __init__(
+        self,
+        manager: McpManager,
+        name: str,
+        run_step: RunStep,
+        ask_redirect_url: AskRedirectUrl | None = None,
+    ) -> None:
         self._run_step = run_step
-        self._prompt = _AuthorizationUrl()
+        self._prompt = _AuthorizationUrl(ask_redirect_url)
         self._cancel = threading.Event()
         self._done = threading.Event()
         self._failures: list[str | None] = []
@@ -289,6 +324,12 @@ class _RunningSignIn:
         if self._stopped or self._done.is_set() or not shown.is_set():
             return None
         return self._prompt.url
+
+    def url_announced(self) -> None:
+        """The user has been shown the URL: the pasted redirect URL may be
+        asked for now."""
+
+        self._prompt.announced.set()
 
     def result(self) -> str | None:
         """Wait for the end of the sign-in: ``None`` when the server is
@@ -336,12 +377,16 @@ class McpCommand:
         open_url: Callable[[str], object] | None = None,
         show_manager: ShowManager | None = None,
         actions: McpBackgroundActions | None = None,
+        ask_input: AskInput | None = None,
     ) -> None:
         """``ensure_discovery`` is ``McpDiscovery.ensure_active``, called
         after a reconnect and a sign-in. ``select`` returns ``None`` when
         nothing was chosen or nothing can be asked. ``open_url`` opens the
         authorization URL of a sign-in in the user's browser; ``None`` says
         that the session has no user interface, and nobody can sign in.
+        ``ask_input`` asks the user of a session without the manager view
+        for the pasted redirect URL of a sign-in (an RPC client); without
+        it such a sign-in waits for the browser only.
         ``show_manager`` shows the manager view of a terminal UI; ``None``
         says that the session has none. ``actions`` runs the changes the
         manager does not wait for; a session passes the one of its servers,
@@ -356,6 +401,7 @@ class McpCommand:
         self._open_url = open_url
         self._show_manager = show_manager
         self._actions = McpBackgroundActions(manager) if actions is None else actions
+        self._ask_input = ask_input
 
     def complete(self, prefix: str) -> tuple[McpArgumentCompletion, ...] | None:
         return complete_mcp_arguments(self._manager.servers(), prefix)
@@ -520,13 +566,16 @@ class McpCommand:
         if self._show_manager is not None:
             failure = self._sign_in_with_view(self._show_manager, name)
         else:
-            sign_in = _RunningSignIn(self._manager, name, self._run_step)
+            sign_in = _RunningSignIn(
+                self._manager, name, self._run_step, self._redirect_url_asker(name)
+            )
             url = sign_in.authorization_url()
             if url is not None:
                 self._notify(
                     "info", f'Sign in to MCP server "{name}" in your browser:\n{url}'
                 )
                 open_url(url)
+                sign_in.url_announced()
             failure = sign_in.result()
         if failure is not None:
             self._notify("info" if failure == SIGN_IN_CANCELLED else "error", failure)
@@ -535,6 +584,14 @@ class McpCommand:
         self._notify(
             "info",
             f'Signed in to MCP server "{name}" ({self._tool_count(name)} tools).',
+        )
+
+    def _redirect_url_asker(self, name: str) -> AskRedirectUrl | None:
+        ask_input = self._ask_input
+        if ask_input is None:
+            return None
+        return lambda cancel_event: ask_input(
+            redirect_url_title(name), REDIRECT_URL_PLACEHOLDER, cancel_event
         )
 
     def _logout(self, name: str) -> None:

@@ -27,6 +27,12 @@ uv run pipy repl --mode json "Summarize this repository"
   lifecycle, message start/update/end, tool calls and results, queue updates,
   compaction/retry events, and related session events.
 
+A prompt that names an extension command, such as `/mcp`, runs the command
+and starts no run: the header is then the only line, and what the command
+reports is on stderr. Other texts that start with `/`, the built-in commands
+of the interactive session included, go to the model. See
+[Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
+
 The detailed event vocabulary and conformance contract live in
 [Automation & RPC](automation-rpc.md). This page is the user-facing quick
 reference.

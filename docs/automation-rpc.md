@@ -972,33 +972,38 @@ summary retries do not activate the ordinary retry lease. See the
 
 ### Extension UI request/response channel
 
-When a Python extension (`docs/extension-api.md`) needs user interaction in
-headless mode, pipy emits an `extension_ui_request` on stdout and waits for a
-matching `extension_ui_response` on stdin, correlated by `id`. Pipy mirrors
-Pi's `ExtensionUIContext` request methods (`rpc-types.ts`
-`RpcExtensionUIRequest`):
+Pi sends the user interaction of an extension to an RPC client: an
+`extension_ui_request` on stdout, answered where an answer is expected by an
+`extension_ui_response` on stdin with the same `id` (`rpc-types.ts`
+`RpcExtensionUIRequest`). pipy sends three of Pi's methods:
 
-| `method` | Request fields | Expected response | Notes |
+| `method` | Request fields | Expected response | Sent for |
 | --- | --- | --- | --- |
-| `select` | `title`, `options: string[]`, `timeout?` | `{ value }` or `{ cancelled: true }` | Returns chosen option or cancel. |
-| `confirm` | `title`, `message`, `timeout?` | `{ confirmed: boolean }` or `{ cancelled: true }` | |
-| `input` | `title`, `placeholder?`, `timeout?` | `{ value }` or `{ cancelled: true }` | |
-| `editor` | `title`, `prefill?` | `{ value }` or `{ cancelled: true }` | |
-| `notify` | `message`, `notifyType?: "info"\|"warning"\|"error"` | (none) | Fire-and-forget. |
-| `setStatus` | `statusKey`, `statusText` | (none) | Fire-and-forget. |
-| `setWidget` | `widgetKey`, `widgetLines: string[]\|undefined`, `widgetPlacement?: "aboveEditor"\|"belowEditor"` | (none) | String-array widgets only. |
-| `setTitle` | `title` | (none) | Fire-and-forget. |
-| `set_editor_text` | `text` | (none) | Fire-and-forget. |
+| `notify` | `message`, `notifyType: "info"\|"warning"\|"error"` | (none) | Every notice of an extension command or hook (`ctx.ui.notify`), and the notices of [MCP](mcp.md): the status and messages of `/mcp`, the startup report, changes of extension-registered servers. pipy's own diagnostics (lines that start with `pipy:`, a tool warning such as an unavailable `codemode`) stay on stderr. |
+| `select` | `title`, `options: string[]` | `{ value }` or `{ cancelled: true }` | `/mcp login`, `logout` and `reconnect` without a server name, when several servers qualify (`title` is `MCP server`). |
+| `input` | `title`, `placeholder?` | `{ value }` or `{ cancelled: true }` | `/mcp login`: the pasted redirect URL of a sign-in. |
+
+Every request also has `type: "extension_ui_request"` and an `id` (a UUID).
+A notice is sent when it is produced, so a command's notices come before
+the `prompt` response that says `handled`.
 
 Input control line (stdin, not a command):
-`{ "type": "extension_ui_response", "id": "<request id>", ... }` with one of
-`{ value: string }`, `{ confirmed: boolean }`, or `{ cancelled: true }`. A
-pending request with a `timeout` resolves to its safe default if no response
-arrives. UI capabilities that require a real TUI (working indicator, custom
-header/footer/components, theme switching, autocomplete, tool expansion) are
-**not supported** in RPC mode and degrade deterministically — matching Pi's
-no-op stubs in `rpc-mode.ts`. Extension errors are surfaced as
-`{ "type": "extension_error", "extensionPath", "event", "error" }` on stdout.
+`{ "type": "extension_ui_response", "id": "<request id>", ... }` with
+`{ value: string }` or `{ cancelled: true }`. A response whose `id` no
+request waits for is ignored. A `select` or `input` waits until it is
+answered; the session does nothing else meanwhile, and a `prompt` sent then
+is queued. The end of the input (stdin EOF) ends every waiting request as
+cancelled. An `input` also ends unanswered when its answer is no longer
+wanted, which for a sign-in is when the browser came back.
+
+Not built, different from Pi:
+
+- An extension's own `ctx.ui.select`, `confirm`, `input` and `editor` are
+  not sent to the client: `ctx.has_ui` is false in RPC mode and they return
+  their defaults, as in print mode. In Pi `ctx.hasUI` is true there.
+- `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle` and
+  `set_editor_text` requests, and the `timeout` option of a dialog.
+- The `extension_error` object: an extension error is a line on stderr.
 
 ### Lifecycle and shutdown
 
@@ -1041,18 +1046,19 @@ The other dispositions of an RPC `prompt`: `"started"` is written just
 before the run's `agent_start`, `"queued"` at once for a prompt that went
 behind the run in flight.
 
-A command's notices (`ctx.ui.notify`, the status `/mcp` prints) go to stderr.
-A command that raises is reported there as `pipy: extension command /<name>
-failed (<error type>)`, and its prompt is handled all the same.
+A command's notices (`ctx.ui.notify`, the status `/mcp` prints) go to stderr
+in print and JSON mode. In RPC mode they are
+[`notify` requests](#extension-ui-requestresponse-channel) to the client,
+written before the response. A command that raises is reported on stderr as
+`pipy: extension command /<name> failed (<error type>)` in all three modes,
+and its prompt is handled all the same.
 
 Different from Pi:
 
 - In print and JSON mode Pi's commands have no UI and a notice is dropped,
-  so `pi -p /mcp` shows nothing. pipy writes notices to stderr in every
-  mode without a terminal UI.
-- In RPC mode Pi sends a notice as an `extension_ui_request` on stdout and
-  a failed command as an `extension_error` object. pipy writes both to
-  stderr.
+  so `pi -p /mcp` shows nothing. pipy writes notices to stderr there.
+- In RPC mode Pi reports a failed command as an `extension_error` object.
+  pipy writes it to stderr.
 - `steer`, `follow_up` and a `prompt` sent while a run is in flight are
   queued as they are. A queued text that names an extension command reaches
   the model as text, and a queued skill or template name is not expanded.
@@ -1269,7 +1275,8 @@ These hold throughout the track, not as later deferrals:
 9. **RPC extension-UI channel.** `extension_ui_request` emission and
    `extension_ui_response` handling with timeout defaults; degrade
    TUI-only capabilities deterministically. (Depends on `docs/extension-api.md`
-   UI surface.)
+   UI surface.) Built in part: `notify`, and `select` and `input` for
+   `/mcp`; see the channel's section for what is missing.
 10. **Lifecycle + shutdown hardening.** stdin EOF, SIGTERM/SIGHUP, extension
     shutdown, detached-child cleanup, stdout flush ordering.
 11. **Retire `--native-output json` (done).** The flag was removed and is now
@@ -1346,9 +1353,9 @@ calls.
 - Session ops rebind: after `switch_session`/`fork`/`clone`/`new_session`,
   events come from the new active session; an extension cancel yields
   `{cancelled:true}` and no rebind.
-- Extension-UI channel: `extension_ui_request` is emitted, a matching
-  `extension_ui_response` resolves it, and a `timeout` falls back to the safe
-  default.
+- Extension-UI channel: `extension_ui_request` is emitted and a matching
+  `extension_ui_response` resolves it (`tests/test_native_automation_rpc_ui.py`).
+  The `timeout` fallback is not built.
 - Secret hygiene: no provider keys/tokens reach any stdout object.
 - Retirement: `--native-output json` is rejected with guidance (the flag was
   removed); `--mode json` is the supported full-event path.

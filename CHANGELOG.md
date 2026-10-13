@@ -440,6 +440,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `queued` or `handled`), `steer` and `follow_up` answer `queued`, and JSON
   mode writes no `agent_settled` for a prompt that started no run. See
   [Commands in a prompt](docs/automation-rpc.md#commands-in-a-prompt).
+- RPC mode sends notices to the client as `extension_ui_request` objects
+  with `method: "notify"` instead of writing them to stderr: an extension's
+  `ctx.ui.notify`, the status and messages of `/mcp` and the MCP startup
+  report. `/mcp` asks an RPC client to choose a server with a
+  `select` request, and `/mcp login` now works there: it sends the
+  authorization URL, opens the browser and asks for the pasted redirect URL
+  with an `input` request. `extension_ui_response` lines are no longer
+  ignored. See
+  [the channel](docs/automation-rpc.md#extension-ui-requestresponse-channel).
 - The tools a codemode script can call are fixed when the script starts, from
   the tools registered and active at that moment, instead of from the request
   that declared `codemode`. A script therefore also reaches an extension tool

@@ -62,6 +62,8 @@ from pipy_harness.native.agent_runtime import (
 from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 from pipy_harness.native.automation.events import (
     AutomationEventSink,
+    AutomationUi,
+    automation_ui,
 )
 from pipy_harness.native.changelog import (
     changelog_startup,
@@ -869,7 +871,7 @@ def _compose_extension_phase(
         # paint would leave an editor frame above the header.
         terminal_ui.components.screen.defer_paints()
 
-    def _extension_notify(_kind: str, message: str) -> None:
+    def _local_notify(_kind: str, message: str) -> None:
         safe_message = "\n".join(
             sanitize_label_text(line) for line in str(message).splitlines()
         )
@@ -878,6 +880,16 @@ def _compose_extension_phase(
             error_stream,
             safe_message,
         )
+
+    transport_ui = automation_ui(inputs.automation_observer)
+
+    def _extension_notify(kind: str, message: str) -> None:
+        # What Pi sends through `ctx.ui.notify`: in RPC mode a request to
+        # the client.
+        if transport_ui is not None:
+            transport_ui.notify(str(message), kind)
+        else:
+            _local_notify(kind, message)
 
     extension_ui_driver = (
         _LiveExtensionUiDriver(
@@ -900,7 +912,8 @@ def _compose_extension_phase(
         cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
         state_lock=session_state_lock,
         default_tools=settings.get_default_tools,
-        diagnostic=partial(_extension_notify, "warning"),
+        # pipy's own tool warnings stay local diagnostics in every mode.
+        diagnostic=partial(_local_notify, "warning"),
         codemode_loadout=partial(codemode_loadout, settings, builtins),
         optional_builtins=None if builtins is None else builtins.tool_names,
     )
@@ -1038,12 +1051,15 @@ def _mcp_command(
     abort_event: threading.Event | _AbortCallbackSignal | None,
     argument_completer: ArgumentCompleter,
     clipboard_copy: Callable[..., ClipboardResult],
+    transport_ui: AutomationUi | None,
 ) -> McpSessionCommand:
     """The session's ``/mcp`` command, which exists while MCP is on.
 
     It is built for the servers as they are when it is used, so it follows
     a ``/reload``. In a terminal its argument completions join those of the
-    other commands and ``/mcp`` opens the manager view.
+    other commands and ``/mcp`` opens the manager view. With the UI of an
+    RPC client it asks that client to choose a server and for the pasted
+    redirect URL of a sign-in.
     """
 
     waiter = _interrupt_waiter(extension, abort_event)
@@ -1060,14 +1076,19 @@ def _mcp_command(
             servers.manager,
             config_home=settings.global_path.parent,
             notify=extension.extension_notify,
-            select=driver.select if driver is not None else _select_nothing,
+            select=_mcp_select(driver, transport_ui),
             ensure_discovery=servers.discovery.ensure_active,
             run_step=run_step_inline if waiter is None else interruptible_steps(waiter),
-            # Signing in needs somebody at a terminal.
+            # Signing in needs somebody at a terminal or at an RPC client.
             open_url=servers.open_url
-            or (open_browser if terminal_ui is not None else None),
+            or (
+                open_browser
+                if terminal_ui is not None or transport_ui is not None
+                else None
+            ),
             show_manager=view,
             actions=servers.actions,
+            ask_input=None if transport_ui is None else transport_ui.input,
         )
 
     command = McpSessionCommand(current)
@@ -1076,6 +1097,18 @@ def _mcp_command(
             command.completer(argument_completer)
         )
     return command
+
+
+def _mcp_select(
+    driver: _LiveExtensionUiDriver | None, transport_ui: AutomationUi | None
+) -> Callable[[str, Sequence[str]], str | None]:
+    """Who chooses a server for ``/mcp``: the terminal, an RPC client, nobody."""
+
+    if driver is not None:
+        return driver.select
+    if transport_ui is not None:
+        return transport_ui.select
+    return _select_nothing
 
 
 def _select_nothing(title: str, options: Sequence[str]) -> str | None:
@@ -1839,6 +1872,7 @@ def _compose_collaborators(
             _runtime_abort_event(inputs, runtime.loop_controller),
             slash_argument_completer(inputs.provider_state, settings),
             inputs.clipboard_copy,
+            automation_ui(inputs.automation_observer),
         ),
         session_commands=extension.mcp.commands,
         mcp=extension.mcp,

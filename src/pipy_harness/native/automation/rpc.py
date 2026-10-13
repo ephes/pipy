@@ -40,6 +40,7 @@ from pipy_harness.native.automation.jsonl import (
     JsonlWriter,
     loads_strict,
 )
+from pipy_harness.native.automation.rpc_ui import RpcUi
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.coding.session_controller import (
     _NATIVE_CONTROL_EOF,
@@ -292,6 +293,8 @@ class NativeRpcServer:
         self._stdin = stdin
         self._writer = JsonlWriter(stdout_buffer)
         self._error = error_stream
+        # The session finds it through `automation_ui(observer)`.
+        self.ui = RpcUi(self._writer)
 
         self._channel = _WakeChannel()
         self._bridge = _NativeSessionControlBridge()
@@ -445,6 +448,9 @@ class NativeRpcServer:
             ready = True
             self._read_loop()
         finally:
+            # Nobody answers a UI request any more; the command that waits
+            # for one goes on as if it had been cancelled.
+            self.ui.close()
             # Drain the active turn and any queued steer/follow-up BEFORE
             # signalling channel EOF. The channel is FIFO, so signalling EOF
             # while work is still queued/in-flight would let the worker read the
@@ -540,7 +546,7 @@ class NativeRpcServer:
             return
         ctype = command.get("type")
         if ctype == "extension_ui_response":
-            # No pending extension UI request in this build; ignore safely.
+            self.ui.respond(command)
             return
         cid = command.get("id")
         # A non-string (and possibly unhashable, e.g. a list) ``type`` must not

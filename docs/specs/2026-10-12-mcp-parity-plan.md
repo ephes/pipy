@@ -1450,7 +1450,8 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
   `wait_for_cancel`. S34 replaces that prompt with the sign-in screen;
   `prompt_for_redirect_url` is where the pasted URL arrives. Until then a
   user whose browser cannot reach the machine uses `pipy mcp login` in a
-  terminal, and the session picks the sign-in up.
+  terminal, and the session picks the sign-in up. (The RPC side was built
+  in X1, see "Decided in X1 (RPC UI requests)".)
 - `/mcp logout` runs `sign_out` through `run_step`; a credentials file that
   cannot be read is reported as `Could not sign out of MCP server "<n>":
   <reason>` (Pi's command would fail).
@@ -2102,7 +2103,8 @@ Decided in X1 (prompts of the automation modes;
 - Different from Pi, in `docs/automation-rpc.md`:
   - A notice of a command (`ctx.ui.notify`, the `/mcp` status) goes to
     stderr in print and JSON mode, where pipy has always written an
-    extension's notices; Pi drops it there (SLH-11).
+    extension's notices; Pi drops it there (SLH-11). For RPC mode see the
+    next block.
   - A failed command is `pipy: extension command /<name> failed (<error>)`
     on stderr in all three modes; RPC has no `extension_error` object.
   - Not built (SLH-13): `steer`, `follow_up` and a `prompt` sent during a
@@ -2120,6 +2122,56 @@ Decided in X1 (prompts of the automation modes;
   without `--print` (all typed lines), the product API (`submit()` still
   sends its text to the model, see "Decided in S38"), and `get_commands`,
   which still answers an empty list.
+
+Decided in X1 (RPC UI requests; `automation/rpc_ui.py`,
+`automation/events.py`, `mcp/commands.py`, `repl/wiring.py`):
+
+- pipy's RPC server had no `extension_ui_request` at all: it ignored
+  `extension_ui_response` lines, and every notice went to stderr, although
+  `docs/automation-rpc.md` described the whole channel. X1 builds what
+  `/mcp` needs (SLH-11, SLH-12), not the channel for extensions.
+- `RpcUi(writer)` writes the requests and waits for the answers: `notify`
+  (no answer), `select` and `input` (block the caller until a response with
+  the request's `id`, a set cancel event, or `close()` at the end of the
+  input; a wait polls every 50 ms). `NativeRpcServer.ui` is one; the reader
+  thread passes `extension_ui_response` lines to `respond`. The session
+  finds it with `automation_ui(observer)` (`AutomationUi` protocol), read
+  off the automation observer like the control bridge is read off the abort
+  carrier, so no session field was added.
+- Notices. The session's one notice sink (`_extension_notify` in the
+  wiring) sends to the transport's UI when there is one. That covers an
+  extension's `ctx.ui.notify` and every notice of MCP (the `/mcp` status
+  and messages, the startup report, registered-server changes), all of
+  which are `ctx.ui.notify` calls in Pi. The text is sent as it is; the
+  terminal's label sanitizing does not apply to a JSON value. pipy's own
+  diagnostics stay on stderr in every mode: the `pipy:` lines and the tool
+  warnings of the capability value (`_local_notify`), whose one warning for
+  an unavailable `codemode` is pinned on stderr for all three modes.
+- `/mcp` with an RPC client: `select` is the client's (`_mcp_select`),
+  `open_url` is the browser as in a terminal (Pi's `openUrl` runs in RPC
+  mode too), and `McpCommand(ask_input=)` asks for the pasted redirect URL.
+  The sign-in without the manager view (S31's `_RunningSignIn`) is thereby
+  the RPC path: its prompt asks only after the session thread has sent the
+  URL notice and asked for the browser (`url_announced`), so the client
+  sees notice, then `input`, as in Pi. The answer `None` cancels the
+  sign-in, as the sign-in function already had it.
+- This closes what S31 left for a UI mode without the TUI: the pasted
+  redirect URL in a session (SLH-04 second sentence, OAU-26 and OAU-27
+  there). S34 had closed the terminal side with the sign-in screen.
+- Different from Pi, in `docs/automation-rpc.md`:
+  - `ctx.has_ui` stays false for extensions in RPC mode, and an
+    extension's own `select`, `confirm`, `input` and `editor` return their
+    defaults without a request. Building that means an `ExtensionUiDriver`
+    over `RpcUi` and deciding which thread may block; nothing in the MCP
+    rows needs it.
+  - No `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle`,
+    `set_editor_text` requests and no `timeout` option.
+  - A `select` or `input` that the client never answers holds the session
+    until the input ends; an RPC `abort` ends the waits of `/mcp` that go
+    through `run_step` (the startup wait, a reconnect, a sign-in), but not
+    a `select`. Pi's dialog also waits without a limit.
+  - A waiting request is polled, so it ends up to 50 ms after its cancel
+    event.
 
 Open after the merge, owned by later slices:
 
