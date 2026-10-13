@@ -520,11 +520,17 @@ class _Loads:
         self.opened: list[tuple[int, str]] = []
         self.notices: list[tuple[str, str]] = []
 
-    def __call__(self, registered: Any = None) -> McpServers:
+    def __call__(
+        self, registered: Any = None, replaced_by: str | None = None
+    ) -> McpServers:
+        """As the session wiring loads: for an extension that replaced MCP
+        there is no server and MCP is off."""
+
         index = len(self.loaded)
+        configured = {} if replaced_by is not None else self.configured
         servers = {
             name: _Server(tools=[_tool(tool) for tool in tools])
-            for name, tools in self.configured.items()
+            for name, tools in configured.items()
         }
         self.servers.append(servers)
 
@@ -543,7 +549,7 @@ class _Loads:
             create_transport=create,
             update_config=lambda entry, patch: None,
             deactivate_tools=self.tools.deactivate_indirect_mcp_tools,
-            registered=registered,
+            registered=registered if replaced_by is None else None,
         )
         loaded = McpServers(
             manager=manager,
@@ -554,8 +560,9 @@ class _Loads:
                 notify=manager.post_notice,
             ),
             readiness=McpReadiness(manager, self.tools.all_tools),
-            enabled=True,
+            enabled=replaced_by is None,
             actions=McpBackgroundActions(manager),
+            replaced_by=replaced_by,
         )
         self.loaded.append(loaded)
         return loaded

@@ -815,6 +815,15 @@ def test_reload_takes_the_registrations_of_the_extensions_it_loads(
     assert "stdin-closed" in _events(new_record)
 
 
+class _Extensions:
+    """The loaded extensions as ``McpSession`` reads them: their registry
+    of MCP servers and no commands."""
+
+    def __init__(self, mcp_servers: McpServerRegistry) -> None:
+        self.mcp_servers = mcp_servers
+        self.commands: dict[str, Any] = {}
+
+
 def test_a_reload_closes_the_registry_of_the_extensions_it_replaced(
     tmp_path: Path,
 ) -> None:
@@ -825,7 +834,7 @@ def test_a_reload_closes_the_registry_of_the_extensions_it_replaced(
     old, new = McpServerRegistry(), McpServerRegistry()
     current = [old]
     session = McpSession(loads, tools=loads.tools, notify=loads.notify)
-    session.follow_extensions(lambda: current[0])
+    session.follow_extensions(lambda: _Extensions(current[0]))
     off = {"command": sys.executable, "enabled": False}
 
     def names() -> list[str]:
@@ -1039,14 +1048,14 @@ def test_the_session_fires_the_events_and_reports_on_its_own_thread(
 
     loads = _Loads(tmp_path)
 
-    def load_off(registered: Any) -> Any:
+    def load_off(registered: Any, replaced_by: str | None) -> Any:
         return replace(loads(registered), enabled=False)
 
     old, new = McpServerRegistry(), McpServerRegistry()
     current = [old]
     events = _Events()
     session = McpSession(load_off, tools=loads.tools, notify=loads.notify)
-    session.follow_extensions(lambda: current[0])
+    session.follow_extensions(lambda: _Extensions(current[0]))
     session.announce_through(events)
     off = {"command": sys.executable, "enabled": False}
 

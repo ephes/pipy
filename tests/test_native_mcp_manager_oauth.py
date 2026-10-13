@@ -518,7 +518,9 @@ def _session(oauth: Servers) -> tuple[McpSession, _Discovery]:
         actions=McpBackgroundActions(oauth.manager),
     )
     session = McpSession(
-        lambda registered: loaded, tools=_Tools(), notify=lambda level, message: None
+        lambda registered, replaced_by: loaded,
+        tools=_Tools(),
+        notify=lambda level, message: None,
     )
     oauth.start()
     return session, discovery

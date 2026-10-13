@@ -1210,6 +1210,33 @@ Different from Pi:
   warns once per session, tool and error type, naming the tool and the type
   but not the error's text.
 
+### Replacing built-in tools
+
+The names of the seven built-in file and shell tools are reserved. The
+names `codemode` and `tool_search` are not: an extension that registers a
+tool of one of these names replaces the built-in tool of that name for the
+session (Pi: its built-in `codemode` and `tool-search` extensions are
+replaceable).
+
+- The extension's tool is the one that is registered, declared and called.
+  The built-in `codemode` is then never registered, so its runtime is not
+  probed, and the built-in presenter of the loadout does not run; a
+  replacement presents the tools with its own
+  [`prepare_loadout`](#presenting-the-loadout) and runs them with
+  [`ctx.execute_tool`](#running-other-tools).
+- [MCP](mcp.md#control-tool-exposure) activates `codemode` for servers with
+  `codemode` tools and `tool_search` for servers with `deferred` tools.
+  It activates a replacement only when that tool declares `reaches_tools`;
+  a tool of the name without it is left as it is, and when nothing else
+  reaches the servers' tools pipy warns that they cannot be called. A
+  replacement that should stay undeclared until MCP needs it registers with
+  `default_active=False`.
+- Before a call of a tool that declares `reaches_tools`, pipy waits for the
+  servers the call may reach; a replacement without it is called at once.
+
+An extension that registers the `/mcp` command replaces the built-in MCP
+support; see [MCP](mcp.md#replace-the-built-in-mcp-support).
+
 ### Tool rendering
 
 An `ExtensionTool`'s `render_call` and `render_result` draw the rows of its
@@ -1357,8 +1384,10 @@ def changed(event, ctx):
   or unregisters a server causes another event, which is fired at the next
   of those points.
 - pipy connects registered servers itself, so the event is for an extension
-  that connects them in pipy's place. With MCP
-  [turned off](mcp.md#turning-mcp-off) and no hook for the event, nothing
+  that connects them in pipy's place: one that
+  [replaces the built-in MCP support](mcp.md#replace-the-built-in-mcp-support)
+  with its own `/mcp` command, or one that runs while MCP is turned off. With MCP
+  [turned off](mcp.md#turning-mcp-off) or replaced, and no hook for the event, nothing
   connects a registered server; pipy then reports each registration once
   per load of the extensions, also one that was unregistered again right
   away:

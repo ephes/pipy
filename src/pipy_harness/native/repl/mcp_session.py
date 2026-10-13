@@ -47,6 +47,17 @@ as an error of its extension (Pi ``reportUnhandledMcpServers``): after
 ``session_start`` and after every change, also a registration that was
 taken back before the session thread got to it.
 
+An extension that replaces the built-in MCP support. An extension that
+registers the ``/mcp`` command takes MCP over for the session (Pi leaves its
+built-in MCP extension out when another extension has one of its names).
+The servers are then loaded as with MCP turned off: ``mcp.json`` is not
+read, nothing connects, and the session has no ``/mcp`` command of its own,
+so the name reaches the extension. ``start`` warns that this happened, at
+the start of the session and after every reload that keeps it so. Which
+extension has the command is known when ``start`` runs, so a reload that
+adds or removes such an extension loads the servers once more there, for
+the extensions as they are then.
+
 A reload has two parts. Before the session decides whether the reload is
 accepted, the configuration is read again and a manager is built for it that
 connects nothing. Once the reload was accepted, the running manager is
@@ -71,6 +82,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolInterruptWaiter,
 )
+from pipy_harness.native.mcp.commands import MCP_COMMAND_NAME
 from pipy_harness.native.mcp.discovery import McpDiscovery
 from pipy_harness.native.mcp.manager import McpManager, RegisteredServers
 from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
@@ -93,6 +105,49 @@ class McpServers:
     enabled: bool
     # The changes the ``/mcp`` manager view started and did not wait for.
     actions: McpBackgroundActions
+    # The extension whose ``/mcp`` command replaced MCP, when that is why
+    # it is off; ``None`` also when it would be off anyway.
+    replaced_by: str | None = None
+
+
+# Loads the servers: with what returns the registrations of the extensions,
+# and with the extension that replaced MCP, if one did.
+McpServersLoader = Callable[[RegisteredServers, str | None], McpServers]
+
+
+class _OwnedCommand(Protocol):
+    @property
+    def extension(self) -> str: ...
+
+
+class LoadedExtensions(Protocol):
+    """What ``McpSession`` reads of the extensions that are loaded now
+    (``_ExtensionRuntime``)."""
+
+    @property
+    def mcp_servers(self) -> McpServerRegistry: ...
+
+    @property
+    def commands(self) -> Mapping[str, _OwnedCommand]: ...
+
+
+def mcp_command_owner(commands: Mapping[str, _OwnedCommand]) -> str | None:
+    """The extension that registered the ``/mcp`` command, if one did."""
+
+    command = commands.get(MCP_COMMAND_NAME)
+    return None if command is None else command.extension
+
+
+def replaced_mcp_warning(extension: str) -> str:
+    """Pi's warning for a built-in extension another extension replaced."""
+
+    return (
+        f"Extension {extension} registers command `/{MCP_COMMAND_NAME}`, so "
+        "built-in extension `mcp` was not loaded. To use `mcp`, run "
+        "`pipy config list` and make sure it is enabled under built-in, then "
+        "disable or remove the existing extension. We recommend only having "
+        "one or the other loaded at a time."
+    )
 
 
 class RestartableMcpTools(Protocol):
@@ -148,15 +203,18 @@ class McpSession:
 
     def __init__(
         self,
-        load: Callable[[RegisteredServers], McpServers],
+        load: McpServersLoader,
         *,
         tools: RestartableMcpTools,
         notify: Callable[[str, str], None],
+        extensions: LoadedExtensions | None = None,
     ) -> None:
         """``load`` reads the configuration as it is now and returns a
         manager that was not started. It is called here and by every
         reload, with the function that returns what the extensions have
-        registered, for the manager."""
+        registered, for the manager, and with the extension that replaced
+        MCP. ``extensions`` are those loaded at the start of the session;
+        ``follow_extensions`` says where they are found afterwards."""
 
         self._load = load
         self._tools = tools
@@ -164,13 +222,18 @@ class McpSession:
         self._lock = threading.Lock()
         # Where the registry of the loaded extensions is found, and the one
         # that is followed since the last start. Guarded by the lock.
-        self._extensions: Callable[[], McpServerRegistry] | None = None
+        self._extensions: Callable[[], LoadedExtensions] | None = None
         self._registry: McpServerRegistry | None = None
         self._events: McpServersChangeEvents | None = None
         # The servers of the followed registry that were reported because
         # nothing connects them. Used by the session thread.
         self._reported_unhandled: set[str] = set()
-        self._servers = load(self._registered)
+        # The extension the servers in use were loaded for (``replaced_by``
+        # of ``load``). Used by the session thread.
+        self._loaded_for = (
+            None if extensions is None else mcp_command_owner(extensions.commands)
+        )
+        self._servers = load(self._registered, self._loaded_for)
         # A view; it follows a reload that turns MCP on or off.
         self.commands: Mapping[str, str] = _SessionCommands(self)
 
@@ -181,12 +244,13 @@ class McpSession:
         with self._lock:
             return self._servers
 
-    def follow_extensions(self, registry: Callable[[], McpServerRegistry]) -> None:
-        """``registry`` returns the registry of the extensions that are
-        loaded now. It is asked by every ``start``."""
+    def follow_extensions(self, extensions: Callable[[], LoadedExtensions]) -> None:
+        """``extensions`` returns the extensions that are loaded now: their
+        registry of MCP servers and their commands. It is asked by every
+        ``start``."""
 
         with self._lock:
-            self._extensions = registry
+            self._extensions = extensions
 
     def announce_through(self, events: McpServersChangeEvents) -> None:
         """``events`` fires ``mcp_servers_change`` for the loaded extensions
@@ -207,7 +271,7 @@ class McpSession:
 
         with self._lock:
             source = self._extensions
-        registry = None if source is None else source()
+        registry = None if source is None else source().mcp_servers
         with self._lock:
             previous, self._registry = self._registry, registry
         if previous is not registry:
@@ -218,6 +282,27 @@ class McpSession:
                 previous.close()
         if registry is not None:
             registry.set_change_listener(self._on_registrations_changed)
+
+    def _load_for_extensions(self) -> McpServers:
+        """The servers for the extensions that are loaded now. They are
+        loaded again when another extension, or none, has the ``/mcp``
+        command than the servers in use were loaded for; those were not
+        started and are dropped."""
+
+        with self._lock:
+            source = self._extensions
+        owner = (
+            self._loaded_for if source is None else mcp_command_owner(source().commands)
+        )
+        if owner != self._loaded_for:
+            servers = self._load(self._registered, owner)
+            self._loaded_for = owner
+            with self._lock:
+                self._servers = servers
+        servers = self.servers
+        if servers.replaced_by is not None:
+            self._notify("warning", replaced_mcp_warning(servers.replaced_by))
+        return servers
 
     def _on_registrations_changed(self) -> None:
         """The registry's listener: any thread, so it only has the manager
@@ -278,7 +363,7 @@ class McpSession:
         declares it.
         """
 
-        servers = self.servers
+        servers = self._load_for_extensions()
         self._follow_registry()
         self._report_unhandled(servers)
         try:
@@ -365,7 +450,9 @@ class McpSession:
         changes.
         """
 
-        candidate = self._load(self._registered)
+        # For the extensions before the reload; ``start`` loads once more
+        # when the reload changed which extension has ``/mcp``.
+        candidate = self._load(self._registered, self._loaded_for)
         accepted = False
 
         def accept() -> None:

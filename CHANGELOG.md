@@ -135,6 +135,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   that requests leave out (`ToolLoadoutChanges`). `default_active=False`
   registers a tool without activating it. See
   [presenting the loadout](docs/extension-api.md#presenting-the-loadout).
+- An extension that registers the `/mcp` command replaces the built-in MCP
+  support for the session: `mcp.json` is not read, no server connects and
+  `/mcp` is the extension's. pipy says so at startup and after `/reload`.
+  An extension tool named `codemode` or `tool_search` replaces the built-in
+  tool of that name; MCP activates it, and waits for servers before its
+  calls, only when it declares `reaches_tools`. The `pipy mcp` commands
+  keep using the built-in implementation. See
+  [replace the built-in MCP support](docs/mcp.md#replace-the-built-in-mcp-support).
 - Extension API: `api.register_tool_renderer(resolver)` chooses how the
   calls to any tool are drawn, also of a tool that is not registered and of
   a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`

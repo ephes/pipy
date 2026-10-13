@@ -930,6 +930,7 @@ def _compose_extension_phase(
         ),
         tools=tool_capabilities,
         notify=_extension_notify,
+        extensions=extension_bundle,
     )
 
     def _prepare_before_publish(
@@ -982,7 +983,7 @@ def _compose_extension_phase(
     assert isinstance(attached, StartupGenerationAttachment)
     startup_projection = attached.projection
     generation_ref = attached.generation_ref
-    mcp.follow_extensions(lambda: generation_ref.current.runtime.mcp_servers)
+    mcp.follow_extensions(lambda: generation_ref.current.runtime)
     startup_commands = startup_projection.commands
     try:
         execution_projections = SessionExecutionProjections(
@@ -1020,19 +1021,22 @@ def _mcp_servers(
     tool_capabilities: NativeToolCapabilities,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
     registered: RegisteredServers,
+    replaced_by: str | None,
 ) -> McpServers:
     """The session's MCP servers as ``mcp.json`` and the settings say now,
     not started yet. Called at the start of the session and by every reload.
 
     The user-level file is the one next to the user-level settings file; the
     project file is read only for a trusted project. With MCP turned off
-    (``--no-mcp``, ``-builtin:mcp``) no file is read and the manager has no
-    server, so it starts nothing and reports nothing.
+    (``--no-mcp``, ``-builtin:mcp``, or ``replaced_by``, an extension that
+    has the ``/mcp`` command) no file is read and the manager has no server,
+    so it starts nothing and reports nothing.
     """
 
-    enabled = resource_options.mcp_enabled(
+    wanted = resource_options.mcp_enabled(
         configured=settings.builtin_extension_enabled("mcp")
     )
+    enabled = wanted and replaced_by is None
     config_home = settings.global_path.parent
     manager = McpManager(
         config=load_mcp_config(
@@ -1062,6 +1066,7 @@ def _mcp_servers(
         readiness=McpReadiness(manager, tool_capabilities.all_tools),
         enabled=enabled,
         actions=McpBackgroundActions(manager),
+        replaced_by=replaced_by if wanted else None,
     )
 
 

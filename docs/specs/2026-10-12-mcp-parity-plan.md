@@ -1943,6 +1943,48 @@ Decided in S37 (the loadout hook; `tools/loadout.py`, `tools/base.py`,
   active tools; a failure is a warning that names the tool, not an error of
   the extension's path.
 
+Decided in S37 (replaceable built-ins; `repl/mcp_session.py`,
+`repl/wiring.py`):
+
+- EXT-13 needed no new mechanism. Extension tools already go over the
+  built-in registry (`_merged_registry`), `codemode` and `tool_search` are
+  not reserved names, `register_codemode` leaves an extension's `codemode`
+  alone, `McpDiscovery` activates only a tool that declares
+  `reaches_tools`, and `McpReadiness.call_wait` waits by the declared
+  reach. The slice added `default_active` (previous block) and the session
+  tests that mirror Pi's two cases, for both names, plus the wait.
+- EXT-14: Pi leaves a replaceable built-in extension out when another
+  extension has one of its tool, command or flag names
+  (`omitReplacedExtensions`). pipy's MCP support is not an extension, so
+  the rule is applied where the session loads its servers: the loader got a
+  second argument, `replaced_by`, the name of the extension that registered
+  the command `mcp`, and loads as with MCP off when it is set
+  (`McpServers.replaced_by` is set only when MCP would have been on).
+  `McpServersLoader` is the type; S38 (SDK) passes it.
+- Which extension has the command is read from the loaded extensions:
+  `McpSession(extensions=)` for those of the start, and
+  `follow_extensions`, which now takes the function that returns the
+  loaded extensions (`LoadedExtensions`: `mcp_servers` and `commands`; the
+  `_ExtensionRuntime` of the published generation) instead of the one that
+  returns their registry. `start()` calls `_load_for_extensions`: when the
+  owner differs from the one the servers in use were loaded for, they are
+  loaded again and the others, which were never started, are dropped. That
+  is how a reload that adds or removes such an extension is handled: the
+  reload's candidate is loaded before the new extensions exist, for the
+  owner of the old ones. The price is one read of `mcp.json` that is
+  thrown away in that case.
+- The warning is Pi's text with `pipy config list` and the extension's
+  name (`RegisteredCommand.extension`; a command does not keep the path
+  label). It is a `warning` notice from `start()`, so it comes at startup
+  and after every reload that leaves MCP replaced.
+- With MCP replaced the S36 report of unhandled registrations applies as
+  written: it keys on "MCP is off and no hook for `mcp_servers_change`".
+- Not built: a notice for a replaced `codemode` or `tool_search` (pipy's
+  built-in `codemode` is registered on demand, so "was not loaded" would be
+  shown to users who never asked for it), and replacement through a flag
+  name (pipy's MCP flags are not extension flags).
+- `repl/wiring.py` is at 2447 of 2452 lines.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

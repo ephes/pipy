@@ -508,7 +508,8 @@ Different from Pi:
   command there too.
 - A prompt template or custom command named `mcp` takes the place of the
   command, as does an extension command of that name. In Pi only an
-  extension command does.
+  extension command does. An extension command also
+  [replaces the built-in MCP support](#replace-the-built-in-mcp-support).
 - Pi's command cannot be interrupted; the Escape rules above are pipy's.
 - With MCP [turned off](#turning-mcp-off) there is no `/mcp` command.
 
@@ -665,6 +666,54 @@ registers it later. `api.unregister_mcp_server(name)` closes it.
   connects them itself, each one is reported once: `Extension "<path>"
   error: MCP server "<name>" is registered, but no loaded extension connects
   MCP servers; ...`.
+
+### Replace the built-in MCP support
+
+An extension that registers the `/mcp` command replaces the built-in MCP
+support for sessions, as an MCP extension written for Pi does. pipy then
+loads the session as with MCP [turned off](#turning-mcp-off): it does not
+read `mcp.json`, connects no server, turns on neither `codemode` nor
+`tool_search` for servers, and `/mcp` belongs to the extension. It says so
+when the session starts and after a `/reload`:
+
+```text
+Extension my_mcp registers command `/mcp`, so built-in extension `mcp` was not loaded. To use `mcp`, run `pipy config list` and make sure it is enabled under built-in, then disable or remove the existing extension. We recommend only having one or the other loaded at a time.
+```
+
+Remove the extension, or turn it off, to get the built-in behaviour back;
+`/reload` decides again, so this works in a running session. With MCP
+turned off anyway (`--no-mcp`, `-builtin:mcp`) there is nothing to replace
+and no notice.
+
+Servers that extensions register with `api.register_mcp_server` are then
+for the replacing extension: it receives them with the
+`mcp_servers_change` event and `api.get_mcp_servers()`. If no extension
+handles that event, each registration is reported once as described under
+[servers from extensions](#servers-from-extensions).
+
+An extension that registers a tool named `codemode` or `tool_search`
+replaces the built-in tool of that name in the same way; see
+[replacing built-in tools](extension-api.md#replacing-built-in-tools). pipy
+activates the replacement for MCP servers, and waits for the servers its
+calls need, only when the tool declares `reaches_tools`.
+
+The [`pipy mcp` commands](#the-pipy-mcp-commands) load no extensions and
+always use the built-in implementation.
+
+Different from Pi:
+
+- Only an extension's `/mcp` command replaces MCP. A prompt template or
+  custom command named `mcp` takes the place of the command (see
+  [the `/mcp` command](#the-mcp-command)) while the servers keep running.
+- The notice names the extension by its name, where Pi shows its path, and
+  points to `pipy config list`.
+- pipy shows no notice when an extension replaces `codemode` or
+  `tool_search`. In Pi both are built-in extensions that are loaded unless
+  they are replaced; in pipy the built-in `codemode` is registered only when
+  something asks for it.
+- A `/reload` reads `mcp.json` once before it knows the extensions it will
+  load. When the reload brings an extension with `/mcp`, what was read is
+  dropped: nothing connects and nothing is reported.
 
 ### What is missing
 
