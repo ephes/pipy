@@ -1,4 +1,5 @@
-"""``pipy mcp``: add, remove and check MCP servers outside a session.
+"""``pipy mcp``: add, remove and check MCP servers and sign in to them,
+outside a session.
 
 Agents run these commands through bash to configure servers and to verify an
 ``mcp.json`` they wrote. Nothing here starts a session or loads extensions,
@@ -11,14 +12,26 @@ signs in with OAuth is sent the token stored in ``mcp-auth.json`` of the
 config home, refreshed when needed; one that wants a sign-in is listed as
 ``needs sign-in``.
 
+``login`` signs in to such a server (``sign_in.py``): it connects once to
+learn whether a sign-in is needed, prints the authorization URL, opens it in
+the browser and waits for the browser to come back to a loopback port. On a
+terminal it also reads the redirect URL from standard input, for a browser
+that cannot reach this machine. ``--timeout`` limits the whole sign-in.
+``logout`` deletes the server's stored credentials.
+
 The project file is read only when a trust decision for the project is
 already saved; the commands never ask.
 
 Where this differs from Pi:
 
-- ``login`` and ``logout`` are not built yet and say so.
-- ``--oauth-callback-port`` is read as a decimal number; JavaScript's other
-  number spellings (``0x50``) are not ports here.
+- ``--oauth-callback-port`` and ``--timeout`` are read as decimal numbers;
+  JavaScript's other number spellings (``0x50``) are not numbers here.
+- The credentials are always the file ``mcp-auth.json`` of the config home;
+  there is no option for another store.
+- ``logout`` reports a credentials file or a server URL it cannot use as an
+  error line and exit code 1.
+- After the prompt for the redirect URL ended without an answer, a line
+  break is written, so what follows starts on a line of its own.
 - The usage text is plain, without bold or dim characters.
 - A trust store that cannot be read is an error line and exit code 1.
 """
@@ -26,9 +39,13 @@ Where this differs from Pi:
 from __future__ import annotations
 
 import json
+import math
+import os
 import re
+import select
 import sys
 import threading
+import webbrowser
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,6 +70,7 @@ from pipy_harness.native.mcp.connection import (
     McpServerConnectionError,
     McpTransportFactory,
     create_default_transport,
+    uses_oauth,
 )
 from pipy_harness.native.mcp.credentials import (
     McpOAuthCredentialStore,
@@ -60,6 +78,11 @@ from pipy_harness.native.mcp.credentials import (
 )
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.protocol import McpAbortError
+from pipy_harness.native.mcp.sign_in import (
+    McpSignInCancelledError,
+    sign_in_mcp_server,
+    wait_for_cancel,
+)
 from pipy_harness.native.project_trust import (
     TRUST_FILENAME,
     ProjectTrustError,
@@ -73,14 +96,18 @@ HELP: Final = f"""Usage:
   {APP_NAME} mcp add <server> [options] --url <url>
   {APP_NAME} mcp remove <server> [-l]
   {APP_NAME} mcp list [--json]
+  {APP_NAME} mcp login <server> [--timeout <seconds>]
+  {APP_NAME} mcp logout <server>
 
-Configure and check MCP servers without starting a session.
+Configure and check MCP servers and sign in to OAuth servers without starting a session.
 Reads mcp.json in the {APP_NAME} config home and, in trusted projects, .pipy/mcp.json.
 
 Commands:
   add <server>            Add or replace a server in mcp.json
   remove <server>         Remove a server from mcp.json
   list                    Show state, tools, and errors (exits 1 on failure)
+  login <server>          Sign in through the browser
+  logout <server>         Delete the stored OAuth credentials
 
 Options for add and remove:
   -l, --local             Use .pipy/mcp.json in the current project instead of the global file
@@ -103,12 +130,17 @@ Options for add:
   --description <text>    What the server offers, shown in the system prompt
 
 Other options:
-  --json                  Print the list as JSON"""
+  --json                  Print the list as JSON
+  --timeout <seconds>     How long login waits for the browser (default: 300)"""
 
 HELP_HINT: Final = f'Use "{APP_NAME} mcp --help" for usage.'
 
-# Commands of Pi that need OAuth, which is not built yet.
-_NOT_BUILT: Final = ("login", "logout")
+DEFAULT_LOGIN_TIMEOUT_SECONDS: Final = 300
+REDIRECT_URL_PROMPT: Final = (
+    "If the browser cannot reach this machine, paste the URL it was redirected to: "
+)
+# How often the prompt for the redirect URL looks at its cancel event.
+_PROMPT_POLL_SECONDS: Final = 0.05
 
 Sink = Callable[[str], None]
 _OptionKind = Literal["flag", "value", "list"]
@@ -158,6 +190,9 @@ class McpCommandOptions:
     ``client_version`` is the version sent to servers. ``log`` gets the
     command's output and ``error`` its error lines; they default to stdout and
     stderr. ``trust_store`` defaults to the store in ``config_home``.
+    ``open_url`` opens the authorization URL of ``login``; the default is the
+    system's browser. With an ``open_url`` the redirect URL is never asked
+    for on standard input.
     """
 
     cwd: Path
@@ -167,6 +202,7 @@ class McpCommandOptions:
     error: Sink | None = None
     trust_store: ProjectTrustStore | None = None
     create_transport: McpTransportFactory = create_default_transport
+    open_url: Callable[[str], object] | None = None
 
 
 def _printable(text: str) -> str:
@@ -176,7 +212,9 @@ def _printable(text: str) -> str:
 
 
 def _to_stdout(line: str) -> None:
-    print(_printable(line))
+    # Flushed: `login` prints the authorization URL and then waits, and the
+    # reader of a pipe, an agent for example, has to see it meanwhile.
+    print(_printable(line), flush=True)
 
 
 def _to_stderr(line: str) -> None:
@@ -259,7 +297,8 @@ def _parse_pairs(
 
 
 def _port_number(text: str) -> int | float:
-    """The number a port option names, or NaN, which no port check accepts."""
+    """The number an option names, or NaN, which no check of a port or a
+    timeout accepts."""
 
     trimmed = js_trim(text)
     if not _DECIMAL.fullmatch(trimmed):
@@ -293,11 +332,10 @@ def run_mcp_command(args: list[str], options: McpCommandOptions) -> int:
             return _remove(rest, options, log, error)
         if command == "list":
             return _list_command(rest, options, log, error)
+        if command in ("login", "logout"):
+            return _login_or_logout(command, rest, options, log, error)
     except ProjectTrustError as exc:
         error(str(exc))
-        return 1
-    if command in _NOT_BUILT:
-        error(f"{APP_NAME} mcp {command} is not available yet.")
         return 1
     error(f'Unknown mcp command "{command}".\n{HELP_HINT}')
     return 1
@@ -465,15 +503,10 @@ def _remove(args: list[str], options: McpCommandOptions, log: Sink, error: Sink)
     return 1
 
 
-def _list_command(
-    args: list[str], options: McpCommandOptions, log: Sink, error: Sink
-) -> int:
-    parsed = _parse_options(args, {"json": "flag"}, error)
-    if parsed is None:
-        return 1
-    if parsed.positional:
-        error(f"Usage: {APP_NAME} mcp list [--json]\n{HELP_HINT}")
-        return 1
+def _load_config(options: McpCommandOptions) -> tuple[LoadedMcpConfig, str | None]:
+    """The servers ``list``, ``login`` and ``logout`` see, and the note
+    about a project file that is ignored because nobody trusted the project."""
+
     trusted = _is_trusted(options)
     loaded = load_mcp_config(
         config_home=options.config_home, cwd=options.cwd, project_trusted=trusted
@@ -485,6 +518,19 @@ def _list_command(
         if not trusted and project_config.exists()
         else None
     )
+    return loaded, note
+
+
+def _list_command(
+    args: list[str], options: McpCommandOptions, log: Sink, error: Sink
+) -> int:
+    parsed = _parse_options(args, {"json": "flag"}, error)
+    if parsed is None:
+        return 1
+    if parsed.positional:
+        error(f"Usage: {APP_NAME} mcp list [--json]\n{HELP_HINT}")
+        return 1
+    loaded, note = _load_config(options)
     reports = _probe_servers(loaded, options)
     failed = bool(loaded.errors) or any(
         report["enabled"] and report["state"] != "connected" for report in reports
@@ -642,3 +688,197 @@ def _report_lines(report: Mapping[str, Any]) -> list[str]:
     if report.get("error"):
         lines.append("  " + "\n  ".join(report["error"].split("\n")))
     return lines
+
+
+# -- login and logout ----------------------------------------------------------
+
+
+def _login_or_logout(
+    command: str, args: list[str], options: McpCommandOptions, log: Sink, error: Sink
+) -> int:
+    known: Mapping[str, _OptionKind] = (
+        {"timeout": "value"} if command == "login" else {}
+    )
+    parsed = _parse_options(args, known, error)
+    if parsed is None:
+        return 1
+    if len(parsed.positional) != 1 or not parsed.positional[0]:
+        error(f"Usage: {APP_NAME} mcp {command} <server>\n{HELP_HINT}")
+        return 1
+    name = parsed.positional[0]
+    loaded, note = _load_config(options)
+    entry = next((server for server in loaded.servers if server.name == name), None)
+    if entry is None:
+        configured = ", ".join(server.name for server in loaded.servers) or "none"
+        ignored = "" if note is None else f" {note}"
+        error(f'No MCP server named "{name}".{ignored} Configured: {configured}.')
+        return 1
+    if not uses_oauth(entry):
+        error(
+            f'MCP server "{name}" does not use OAuth. '
+            "Only HTTP servers without an Authorization header do."
+        )
+        return 1
+    url = str(entry.config["url"])
+    path = mcp_auth_path(options.config_home)
+    credentials = McpOAuthCredentialStore(path)
+    if command == "logout":
+        try:
+            removed = credentials.remove(name, url)
+        except (ValueError, OSError) as exc:
+            error(f"Could not update {path}: {exc}")
+            return 1
+        log(
+            f'Signed out of MCP server "{name}".'
+            if removed
+            else f'No stored credentials for MCP server "{name}".'
+        )
+        return 0
+    seconds = parsed.text("timeout")
+    timeout = (
+        DEFAULT_LOGIN_TIMEOUT_SECONDS if seconds is None else _port_number(seconds)
+    )
+    if not math.isfinite(timeout) or timeout <= 0:
+        error("--timeout must be a positive number of seconds.")
+        return 1
+    connection = McpServerConnection(
+        entry=entry,
+        cwd=options.cwd,
+        client_version=options.client_version,
+        on_tools=lambda _connection: None,
+        create_transport=options.create_transport,
+        log=McpServerLog(mcp_log_path(options.config_home)),
+        credentials=credentials,
+    )
+    try:
+        return _login(connection, url, timeout, options, credentials, log, error)
+    finally:
+        connection.close()
+
+
+def _login(
+    connection: McpServerConnection,
+    url: str,
+    timeout_seconds: float,
+    options: McpCommandOptions,
+    credentials: McpOAuthCredentialStore,
+    log: Sink,
+    error: Sink,
+) -> int:
+    name = connection.name
+    # Connecting first answers whether a sign-in is needed and records the
+    # server's challenge.
+    try:
+        connection.get_client()
+    except (McpServerConnectionError, McpAbortError):
+        if connection.state != "needs-auth":
+            reason = connection.error or "unknown error"
+            error(f'MCP server "{name}" failed to connect: {reason}')
+            return 1
+    else:
+        log(
+            f'Already signed in to MCP server "{name}" ({len(connection.tools)} tools).'
+        )
+        return 0
+    cancel = threading.Event()
+    timer = threading.Timer(min(timeout_seconds, threading.TIMEOUT_MAX), cancel.set)
+    timer.name = "mcp-login-timeout"
+    timer.daemon = True
+    timer.start()
+    try:
+        sign_in_mcp_server(
+            server_url=url,
+            store=credentials.for_server(name, url),
+            settings=connection.oauth_settings(),
+            challenge=connection.challenge,
+            prompt=_LoginPrompt(name, options, log),
+            cancel_event=cancel,
+        )
+    except McpSignInCancelledError:
+        # As JavaScript's Math.round: a half second counts as a whole one.
+        seconds = math.floor(timeout_seconds + 0.5)
+        error(
+            f'Sign-in to MCP server "{name}" was cancelled or not completed '
+            f"within {seconds} seconds."
+        )
+        return 1
+    except Exception as exc:  # noqa: BLE001 - the message is the command's error line
+        error(
+            f'Sign-in to MCP server "{name}" failed: {str(exc) or type(exc).__name__}'
+        )
+        return 1
+    finally:
+        timer.cancel()
+    connection.clear_challenge()
+    try:
+        connection.reconnect()
+    except (McpServerConnectionError, McpAbortError) as exc:
+        error(f"Signed in, but {exc}")
+        return 1
+    log(f'Signed in to MCP server "{name}" ({len(connection.tools)} tools).')
+    return 0
+
+
+def _open_browser(url: str) -> None:
+    """Open ``url`` in the system's browser. The URL was printed as well,
+    so a browser that cannot be started is not an error."""
+
+    try:
+        webbrowser.open(url)
+    except Exception:  # noqa: BLE001 - best effort: the user has the printed URL
+        pass
+
+
+def read_redirect_url(
+    fd: int, cancel_event: threading.Event, write: Callable[[str], object]
+) -> str | None:
+    """Ask on a terminal for the redirect URL and read one line from the
+    file descriptor ``fd``.
+
+    Returns the line without its end, ``None`` when ``cancel_event`` is set
+    first, and what was typed so far (``None`` for nothing) at the end of
+    the input. ``write`` shows text without a line break. The descriptor is
+    read only when it has something to give, so a line that was begun never
+    holds the cancellation up.
+    """
+
+    write(REDIRECT_URL_PROMPT)
+    typed = b""
+    while not cancel_event.is_set():
+        readable, _, _ = select.select([fd], [], [], _PROMPT_POLL_SECONDS)
+        if not readable:
+            continue
+        chunk = os.read(fd, 4096)
+        line, end, _rest = (typed + chunk).partition(b"\n")
+        if end or not chunk:
+            return line.decode("utf-8", "replace") or None
+        typed = line
+    write("\n")
+    return None
+
+
+def _write_to_stderr(text: str) -> None:
+    sys.stderr.write(text)
+    sys.stderr.flush()
+
+
+class _LoginPrompt:
+    """How ``login`` reaches the user (``McpSignInPrompt``)."""
+
+    def __init__(self, name: str, options: McpCommandOptions, log: Sink) -> None:
+        self._name = name
+        self._open_url = options.open_url or _open_browser
+        self._log = log
+        # In a terminal the redirect URL can be pasted; elsewhere only the
+        # browser's callback can finish the sign-in.
+        self._interactive = options.open_url is None and sys.stdin.isatty()
+
+    def show_authorization_url(self, url: str) -> None:
+        self._log(f'Sign in to MCP server "{self._name}" in your browser:\n{url}')
+        self._open_url(url)
+
+    def prompt_for_redirect_url(self, cancel_event: threading.Event) -> str | None:
+        if not self._interactive:
+            wait_for_cancel(cancel_event)
+            return None
+        return read_redirect_url(sys.stdin.fileno(), cancel_event, _write_to_stderr)

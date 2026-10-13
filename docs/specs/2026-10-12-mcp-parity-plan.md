@@ -1363,6 +1363,40 @@ in three commits:
   has to rewrite that section, "What is missing" and the `/mcp login`
   paragraph.
 
+Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
+`shell_cli.py`; the session's part follows in its own commit):
+
+- `sign_in_mcp_server(server_url=, store=, settings=, prompt=, challenge=,
+  cancel_event=, fetch=)` is Pi's `signInMcpServer`, with
+  `callback_settings` (the whole of Pi's `callbackSettings`),
+  `merge_scopes`, `step_up_scope` (Pi has it in `mcp/oauth/flow.ts`),
+  `response_from_redirect_url` and `McpSignInCancelledError`. It blocks its
+  caller; cancelling is a `threading.Event`.
+- `McpSignInPrompt` has `show_authorization_url(url)`, called on the
+  caller's thread, and `prompt_for_redirect_url(cancel_event)`, called on a
+  daemon thread `mcp-sign-in-prompt`; it must return once the event is set
+  (`wait_for_cancel` for a prompt that cannot ask). The sign-in gives it one
+  second to return and goes on without it.
+- The wait for the browser is registered before the URL is shown. In Pi
+  both happen in one turn of the event loop; with threads a browser could
+  answer before the wait existed.
+- As in Pi, the refresh a sign-in tries first (OAU-24) does not take the
+  store's refresh lock, and the sign-in's changes of the stored state are
+  not serialized against a connection's provider.
+- `oauth.clientRegistration: "cimd"` is still not acted on. S32 adds to
+  the sign-in: the extra callback path of a server-specific document, and
+  the rule that a stored client is replaced when the document is used.
+- `McpServerConnection.clear_challenge()` is Pi's `connection.challenge =
+  undefined` after a sign-in.
+- `pipy mcp`: `McpCommandOptions.open_url` is Pi's `openUrl` (default
+  `webbrowser.open`, failures ignored); with one, standard input is never
+  asked. There is no `credentials` option: the store is always the file in
+  `config_home`. `login` needs no connection for a server without OAuth and
+  `logout` creates none at all. `--timeout` is parsed like
+  `--oauth-callback-port`, as a decimal number.
+- Fixture: `FakeOAuthMcpServer` logs `register` and has `response_iss` (the
+  `iss` option of Pi's `startOAuthMcpServer`).
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.

@@ -55,8 +55,11 @@ that is running, so its new tokens are saved before the process may end.
 Without a credential store
 nothing of this happens: a 401 is a failed connect.
 
-Not built yet: the sign-in itself, and the ``auth`` setting, whose server is
-connected without a token.
+The sign-in itself is ``sign_in.py``; whoever ran it calls
+``clear_challenge()`` and ``reconnect()``.
+
+Not built yet: the ``auth`` setting, whose server is connected without a
+token.
 """
 
 from __future__ import annotations
@@ -479,6 +482,12 @@ class McpServerConnection:
 
         with self._lock:
             return self._challenge
+
+    def clear_challenge(self) -> None:
+        """Forget the challenge: the sign-in it asked for was made."""
+
+        with self._lock:
+            self._challenge = None
 
     def oauth_settings(self) -> McpOAuthSettings:
         """The entry's ``oauth`` settings. The client secret is resolved

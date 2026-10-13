@@ -1,13 +1,19 @@
 """Tests for the ``pipy mcp`` shell commands.
 
-Mirrors the cases of Pi's ``mcp-command.test.ts`` except the ones about
-``login`` and ``logout``, against the scripted fake stdio server.
+Mirrors the cases of Pi's ``mcp-command.test.ts`` against the scripted fake
+stdio server, and the ``pi mcp login`` case of
+``suite/agent-session-mcp-oauth.test.ts`` against the fake OAuth server.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import select
+import subprocess
 import sys
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +29,9 @@ from pipy_harness.native.mcp.credentials import (
 from pipy_harness.native.mcp.shell_cli import (
     HELP,
     HELP_HINT,
+    REDIRECT_URL_PROMPT,
     McpCommandOptions,
+    read_redirect_url,
     run_mcp_command,
 )
 from pipy_harness.native.project_trust import ProjectTrustStore
@@ -31,7 +39,12 @@ from pipy_harness.native.project_trust import ProjectTrustStore
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 
 from mcp_fake_http_server import FakeMcpHttpServer  # noqa: E402
-from mcp_fake_oauth import FakeOAuthMcpServer  # noqa: E402
+from mcp_fake_oauth import (  # noqa: E402
+    FakeBrowser,
+    FakeOAuthMcpServer,
+    FakeOAuthServer,
+    Reply,
+)
 
 _FAKE_SERVER = Path(__file__).parent / "fixtures" / "mcp_fake_server.py"
 _MISSING = "pipy-test-missing-mcp-server"
@@ -47,6 +60,9 @@ class _Home:
         self.trust = ProjectTrustStore(path / "trust.json")
         self.output: list[str] = []
         self.errors: list[str] = []
+        # The browser of `login`. A test that gets as far as the
+        # authorization URL sets one, so no real browser is ever opened.
+        self.open_url: Callable[[str], object] = _no_browser
 
     def write(self, servers: dict[str, Any], *, project: bool = False) -> None:
         path = self.project_config if project else self.global_config
@@ -65,6 +81,7 @@ class _Home:
                 log=self.output.append,
                 error=self.errors.append,
                 trust_store=self.trust,
+                open_url=self.open_url,
             ),
         )
 
@@ -75,6 +92,10 @@ class _Home:
     def read(self, *, project: bool = False) -> Any:
         path = self.project_config if project else self.global_config
         return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _no_browser(url: str) -> None:
+    raise AssertionError(f"this test opens no browser, but was asked for {url}")
 
 
 @pytest.fixture
@@ -541,18 +562,355 @@ def test_prints_the_usage_text(home: _Home, args: tuple[str, ...]) -> None:
     assert not home.global_config.exists()
 
 
-def test_rejects_unknown_commands_and_the_commands_that_are_not_built(
-    home: _Home,
-) -> None:
+def test_rejects_unknown_commands(home: _Home) -> None:
     assert home.run("frobnicate") == 1
     assert home.errors == [f'Unknown mcp command "frobnicate".\n{HELP_HINT}']
     assert HELP_HINT == 'Use "pipy mcp --help" for usage.'
 
+
+# -- login and logout -----------------------------------------------------------
+
+
+def test_rejects_unknown_servers_and_servers_without_oauth_for_login_and_logout(
+    home: _Home, tmp_path: Path
+) -> None:
+    # Pi: "rejects unknown servers and servers without OAuth for login and
+    # logout". CMDL-12.
+    home.write(
+        {
+            "fixture": _fixture(tmp_path),
+            "keyed": {
+                "url": "http://127.0.0.1:9/mcp",
+                "headers": {"authorization": "Bearer key"},
+            },
+            "parked": {**_fixture(tmp_path), "enabled": False},
+        }
+    )
+
+    assert home.run("login", "nope") == 1
+    assert home.errors == [
+        'No MCP server named "nope". Configured: fixture, keyed, parked.'
+    ]
+    assert home.run("logout", "nope") == 1
+    assert home.errors == [
+        'No MCP server named "nope". Configured: fixture, keyed, parked.'
+    ]
+    no_oauth = "Only HTTP servers without an Authorization header do."
+    for command, name in (
+        ("logout", "fixture"),
+        ("login", "fixture"),
+        ("login", "keyed"),
+    ):
+        assert home.run(command, name) == 1
+        assert home.errors == [f'MCP server "{name}" does not use OAuth. {no_oauth}']
+    assert home.output == []
+    assert not (home.path / "mcp-auth.json").exists()
+
+
+def test_login_and_logout_name_the_ignored_project_file_and_no_servers(
+    home: _Home,
+) -> None:
+    # CMDL-11.
+    home.write({"docs": {"url": "http://127.0.0.1:9/mcp"}}, project=True)
+
     assert home.run("login", "docs") == 1
-    assert home.errors == ["pipy mcp login is not available yet."]
-    assert home.run("logout", "docs") == 1
-    assert home.errors == ["pipy mcp logout is not available yet."]
-    assert "login" not in HELP and "logout" not in HELP
+
+    assert home.errors == [
+        f'No MCP server named "docs". {home.project_config} is ignored because '
+        "the project is not trusted. Start pipy in the project to trust it. "
+        "Configured: none."
+    ]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("login",),
+        ("login", ""),
+        ("login", "a", "b"),
+        ("logout",),
+        ("logout", "a", "b"),
+    ],
+)
+def test_login_and_logout_take_one_server(home: _Home, args: tuple[str, ...]) -> None:
+    assert home.run(*args) == 1
+    assert home.errors == [f"Usage: pipy mcp {args[0]} <server>\n{HELP_HINT}"]
+
+
+def test_rejects_options_login_and_logout_do_not_have(home: _Home) -> None:
+    assert home.run("logout", "docs", "--timeout", "3") == 1
+    assert home.errors == [f"Unknown option --timeout.\n{HELP_HINT}"]
+    assert home.run("login", "docs", "--timeout") == 1
+    assert home.errors == ["--timeout needs a value."]
+    assert home.run("login", "docs", "--json") == 1
+    assert home.errors == [f"Unknown option --json.\n{HELP_HINT}"]
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1", "soon", "", "Infinity", "0x10"])
+def test_the_login_timeout_must_be_a_positive_number(home: _Home, timeout: str) -> None:
+    # CMDL-13. Checked before anything is connected.
+    with FakeOAuthMcpServer() as server:
+        home.write({"issues": {"url": server.url}})
+
+        assert home.run("login", "issues", "--timeout", timeout) == 1
+
+        assert home.errors == ["--timeout must be a positive number of seconds."]
+        assert server.requests == []
+
+
+def _browser(url: str) -> None:
+    """The user approves in a browser that reaches the loopback port."""
+
+    FakeBrowser().open(url)
+
+
+def test_signs_in_through_the_browser_and_out_again(home: _Home) -> None:
+    # CMDL-12 to CMDL-14.
+    opened: list[str] = []
+
+    def browser(url: str) -> None:
+        opened.append(url)
+        _browser(url)
+
+    home.open_url = browser
+    with FakeOAuthMcpServer() as server:
+        home.write({"issues": {"url": server.url}})
+
+        assert home.run("login", "issues") == 0
+
+        assert home.errors == []
+        assert home.output == [
+            f'Sign in to MCP server "issues" in your browser:\n{opened[0]}',
+            'Signed in to MCP server "issues" (1 tools).',
+        ]
+        assert server.log == ["401 none", "register", "token code"]
+        tokens = McpOAuthCredentialStore(mcp_auth_path(home.path)).tokens(
+            "issues", server.url
+        )
+        assert tokens is not None
+        # The connection of the command was closed with the new token.
+        assert server.deletes == [tokens["access_token"]]
+
+        # Nothing to do for a server that connects.
+        home.open_url = _no_browser
+        assert home.run("login", "issues") == 0
+        assert home.output == ['Already signed in to MCP server "issues" (1 tools).']
+        assert len(opened) == 1
+
+        assert home.run("logout", "issues") == 0
+        assert home.output == ['Signed out of MCP server "issues".']
+        assert home.run("logout", "issues") == 0
+        assert home.output == ['No stored credentials for MCP server "issues".']
+        assert home.run("list") == 1
+        assert home.output[0] == "issues: needs sign-in (codemode, global)"
+
+
+def test_gives_up_on_login_after_the_timeout_also_while_the_server_hangs(
+    home: _Home,
+) -> None:
+    # Pi: "gives up on pi mcp login after --timeout, also while the
+    # authorization server hangs". CMDL-13.
+    # The user never approves in the browser.
+    home.open_url = lambda url: None
+    with FakeOAuthMcpServer() as server:
+        home.write({"issues": {"url": server.url}})
+
+        assert home.run("login", "issues", "--timeout", "0.5") == 1
+        assert home.errors == [
+            'Sign-in to MCP server "issues" was cancelled or not completed '
+            "within 1 seconds."
+        ]
+        assert len(home.output) == 1  # the authorization URL
+
+        # Without what the first sign-in stored, the metadata is asked for
+        # again.
+        (home.path / "mcp-auth.json").unlink()
+        server.route("/.well-known/oauth-authorization-server", Reply(hang=True))
+        assert home.run("login", "issues", "--timeout", "0.4") == 1
+        assert home.errors == [
+            'Sign-in to MCP server "issues" was cancelled or not completed '
+            "within 0 seconds."
+        ]
+        assert home.output == []
+        assert "token code" not in server.log
+
+
+def test_login_reports_a_sign_in_that_failed(home: _Home) -> None:
+    home.open_url = _browser
+    with FakeOAuthMcpServer() as server:
+        server.response_iss = "https://attacker.example"
+        home.write({"issues": {"url": server.url}})
+
+        assert home.run("login", "issues") == 1
+
+        assert home.errors == [
+            'Sign-in to MCP server "issues" failed: OAuth issuer mismatch: '
+            f'expected "{server.origin}", received "https://attacker.example"'
+        ]
+
+
+def test_login_reports_a_server_that_fails_for_another_reason(home: _Home) -> None:
+    # CMDL-12: not a sign-in problem, so no sign-in is tried.
+    with FakeOAuthServer() as server:
+        home.write({"issues": {"url": f"{server.origin}/mcp"}})
+
+        assert home.run("login", "issues") == 1
+
+        (line,) = home.errors
+        assert line.startswith('MCP server "issues" failed to connect: ')
+        assert "404" in line
+        assert server.paths == ["/mcp"]
+
+
+def test_login_reports_a_reconnect_that_fails_after_the_sign_in(home: _Home) -> None:
+    with FakeOAuthMcpServer() as server:
+
+        def browser(url: str) -> None:
+            _browser(url)
+            # The MCP server is gone when the sign-in is done.
+            server.route("/mcp", Reply(404))
+
+        home.open_url = browser
+        home.write({"issues": {"url": server.url}})
+
+        assert home.run("login", "issues") == 1
+
+        (line,) = home.errors
+        assert line.startswith("Signed in, but ")
+        assert "token code" in server.log
+
+
+def test_logout_reports_a_credentials_file_it_cannot_read(home: _Home) -> None:
+    home.write({"issues": {"url": "http://127.0.0.1:9/mcp"}})
+    path = home.path / "mcp-auth.json"
+    path.write_text("{not json", encoding="utf-8")
+
+    assert home.run("logout", "issues") == 1
+
+    (line,) = home.errors
+    assert line.startswith(f"Could not update {path}: ")
+    assert path.read_text(encoding="utf-8") == "{not json"
+
+
+def test_reads_the_pasted_redirect_url_from_a_terminal() -> None:
+    # CMDL-13: one line of input is the answer.
+    read_end, write_end = os.pipe()
+    written: list[str] = []
+    try:
+        os.write(write_end, b"http://127.0.0.1:1/callback?code=c\nmore\n")
+
+        answer = read_redirect_url(read_end, threading.Event(), written.append)
+
+        assert answer == "http://127.0.0.1:1/callback?code=c"
+        assert written == [REDIRECT_URL_PROMPT]
+        assert REDIRECT_URL_PROMPT == (
+            "If the browser cannot reach this machine, "
+            "paste the URL it was redirected to: "
+        )
+    finally:
+        os.close(read_end)
+        os.close(write_end)
+
+
+def test_the_prompt_for_the_redirect_url_ends_when_it_is_cancelled() -> None:
+    read_end, write_end = os.pipe()
+    cancel = threading.Event()
+    written: list[str] = []
+    answers: list[str | None] = []
+    try:
+        # A line that was begun and not ended does not hold the prompt up.
+        os.write(write_end, b"http://127.0.0.1:1/call")
+        reader = threading.Thread(
+            target=lambda: answers.append(
+                read_redirect_url(read_end, cancel, written.append)
+            )
+        )
+        reader.start()
+        reader.join(0.3)
+        assert reader.is_alive()
+        cancel.set()
+        reader.join(10)
+
+        assert answers == [None]
+        # What is printed next starts on a line of its own.
+        assert written == [REDIRECT_URL_PROMPT, "\n"]
+    finally:
+        os.close(read_end)
+        os.close(write_end)
+
+
+def test_the_prompt_for_the_redirect_url_reads_a_line_that_arrives_in_parts() -> None:
+    read_end, write_end = os.pipe()
+    answers: list[str | None] = []
+    try:
+        reader = threading.Thread(
+            target=lambda: answers.append(
+                read_redirect_url(read_end, threading.Event(), lambda text: None)
+            )
+        )
+        os.write(write_end, b"http://127.0.0.1:1/call")
+        reader.start()
+        reader.join(0.2)
+        assert reader.is_alive()
+        os.write(write_end, b"back?code=c\n")
+        reader.join(10)
+
+        assert answers == ["http://127.0.0.1:1/callback?code=c"]
+    finally:
+        os.close(read_end)
+        os.close(write_end)
+
+
+@pytest.mark.parametrize(
+    ("typed", "answer"),
+    [(b"", None), (b"http://127.0.0.1:1/cb?code=c", "http://127.0.0.1:1/cb?code=c")],
+)
+def test_the_end_of_the_input_ends_the_prompt_for_the_redirect_url(
+    typed: bytes, answer: str | None
+) -> None:
+    # Ctrl-D: what was typed is the answer, and nothing typed is none.
+    read_end, write_end = os.pipe()
+    try:
+        os.write(write_end, typed)
+        os.close(write_end)
+
+        found = read_redirect_url(read_end, threading.Event(), lambda text: None)
+
+        assert found == answer
+    finally:
+        os.close(read_end)
+
+
+def test_output_reaches_a_pipe_while_the_command_goes_on() -> None:
+    # `login` prints the authorization URL and then waits: whoever reads the
+    # command's output through a pipe has to see the URL meanwhile.
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys\n"
+            "from pipy_harness.native.mcp.shell_cli import _to_stdout\n"
+            "_to_stdout('the authorization URL')\n"
+            "sys.stdin.read()\n",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout is not None
+        # Without the flush nothing arrives while the child waits for its
+        # input to end; the wait here has a limit, so that fails the test.
+        readable, _, _ = select.select([child.stdout], [], [], 30)
+        assert readable, "the line was not written while the command went on"
+        assert child.stdout.readline() == "the authorization URL\n"
+        assert child.poll() is None
+        child.communicate("", timeout=30)
+        assert child.returncode == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate()
 
 
 def test_adds_stdio_servers_and_passes_options_after_the_command_through(

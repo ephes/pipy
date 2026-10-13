@@ -27,7 +27,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
-- More of the OAuth library for MCP servers; pipy has no sign-in yet.
+- More of the OAuth library for MCP servers.
   `pipy_harness.native.mcp.oauth` now holds the authorization code flow (stored or dynamically registered
   client or a Client ID Metadata Document, PKCE, the `resource` parameter,
   the issuer check of RFC 9207, token exchange and refresh with recovery
@@ -53,11 +53,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   A server that wants a sign-in pipy cannot answer from what is stored is in
   the new state `needs-auth`: calls fail with `MCP server "<name>" requires
   sign-in. Run /mcp to sign in.`, and the startup report, `/mcp` and `pipy
-  mcp list` show `needs sign-in`. The sign-in itself (`/mcp login`, `pipy
-  mcp login`) is not built yet, so nothing in pipy stores credentials and
-  such a server cannot be used; it showed as `failed` with `MCP server
-  requires authentication` before. See
+  mcp list` show `needs sign-in`. Such a server showed as `failed` with
+  `MCP server requires authentication` before. See
   [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- `pipy mcp login <server> [--timeout <seconds>]` signs in to an HTTP MCP
+  server that uses OAuth: it prints the authorization URL, opens it in the
+  browser and waits for the browser to come back to a port on this machine,
+  or, in a terminal, for the redirect URL pasted from a browser that cannot
+  reach it. A stored refresh token is tried before the browser, a server
+  that asked for more scope gets the scopes granted so far as well, and the
+  whole sign-in ends after the timeout (300 seconds by default). `pipy mcp
+  logout <server>` deletes the stored credentials. `/mcp login` in a session
+  is not built yet. See [log in and out](docs/mcp.md#log-in-and-out).
 - HTTP MCP servers. A server configured with a `url` is connected over
   streamable HTTP with its `headers`, whose values may use `${NAME}` and
   `!command`, in a session and by `pipy mcp list`. A connect that fails with

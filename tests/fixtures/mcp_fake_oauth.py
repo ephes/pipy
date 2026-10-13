@@ -235,6 +235,7 @@ class FakeAuthorizationServer(FakeOAuthServer):
     - ``rotate_refresh_tokens``: a refresh answers with a new refresh token
       and the old one stops working (the default); else it answers with none.
     - ``send_iss``: the authorization response carries ``iss``.
+    - ``response_iss``: the ``iss`` it carries instead of the server's own.
     - ``granted_scope``: the ``scope`` of token answers; ``None`` for none.
     - ``expires_in``: the ``expires_in`` of token answers; ``None`` for none.
     - ``token_replies``: answers to the next token requests, used up in order
@@ -250,6 +251,7 @@ class FakeAuthorizationServer(FakeOAuthServer):
         super().__init__()
         self.rotate_refresh_tokens = True
         self.send_iss = False
+        self.response_iss: str | None = None
         self.granted_scope: str | None = None
         self.expires_in: int | None = 3600
         self.token_replies: list[Reply] = []
@@ -328,7 +330,9 @@ class FakeAuthorizationServer(FakeOAuthServer):
             answer = {"code": code}
             if "state" in query:
                 answer["state"] = query["state"]
-            if self.send_iss:
+            if self.response_iss is not None:
+                answer["iss"] = self.response_iss
+            elif self.send_iss:
                 answer["iss"] = self.origin
         location = f"{query['redirect_uri']}?{urllib.parse.urlencode(answer)}"
         return Reply(302, {"Location": location})
@@ -401,7 +405,7 @@ class FakeOAuthMcpServer(FakeAuthorizationServer):
     is answered 405.
 
     ``log`` lists what happened, in order: ``401 <token or none>``,
-    ``token code``, ``token refresh``, ``call <token>``. ``deletes`` lists
+    ``register``, ``token code``, ``token refresh``, ``call <token>``. ``deletes`` lists
     the access tokens of the DELETE requests.
 
     A test may set ``insufficient_scope`` to a scope: a tool call is then
@@ -428,6 +432,11 @@ class FakeOAuthMcpServer(FakeAuthorizationServer):
 
         with self.lock:
             self._valid_tokens.clear()
+
+    def _register(self, request: OAuthRequest) -> Reply:
+        with self.lock:
+            self.log.append("register")
+        return super()._register(request)
 
     def _token(self, request: OAuthRequest) -> Reply:
         reply = super()._token(request)

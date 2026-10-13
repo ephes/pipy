@@ -386,7 +386,9 @@ def fixed_redirect_url(settings: McpOAuthSettings) -> str | None:
     return replace(url, port=None if port == _DEFAULT_PORTS[url.scheme] else port).href
 
 
-def _registered_redirect_urls(state: McpOAuthState | None) -> list[str]:
+def registered_redirect_urls(state: McpOAuthState | None) -> list[str]:
+    """The redirect URIs the stored client was registered with."""
+
     client = None if state is None else state.get("clientInformation")
     uris = client.get("redirect_uris") if is_object(client) else None
     if not isinstance(uris, list):
@@ -569,7 +571,7 @@ class McpServerAuthProvider:
         settings = self._settings()
         redirect_url = (
             fixed_redirect_url(settings)
-            or next(iter(_registered_redirect_urls(state)), None)
+            or next(iter(registered_redirect_urls(state)), None)
             or FALLBACK_REDIRECT_URL
         )
         provider = create_oauth_provider(
