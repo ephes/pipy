@@ -5,8 +5,8 @@ stdio servers and servers reached over streamable HTTP, and makes their tools
 and resources available to the model and to codemode scripts.
 The work follows the
 [MCP parity plan](specs/2026-10-12-mcp-parity-plan.md) and lands in slices;
-this page grows with them. [Quick setup](#quick-setup) shows what works today
-and [what is missing](#what-is-missing) lists what does not yet. An HTTP
+this page grows with them. [Quick setup](#quick-setup) shows what works
+today. An HTTP
 server that wants an OAuth sign-in is signed in to with
 [`/mcp login`](#the-mcp-command) in a session or
 [`pipy mcp login`](#log-in-and-out) in a shell.
@@ -344,10 +344,11 @@ state of a connected server in the `/mcp reconnect` completion reads
 `connected · 2 tools · 3 resources`. A server whose listing fails still
 connects, with a count of 0.
 
+An image resource (a `blob` with an `image/` type) reaches the model as an
+image; see [images](#images-in-results). A script gets the `blob`.
+
 Different from Pi:
 
-- An image resource is shown to the model as `[image <mime> omitted]`,
-  because a pipy tool result carries text only. A script gets the `blob`.
 - A number in a listed item is printed as Python prints it (`2048.0` stays
   `2048.0`).
 - An HTTP server's resource request that failed with a transient status is
@@ -758,11 +759,6 @@ such a session; `RuntimeResourceOptions(no_mcp=True)` does.
 [Codemode, tool search and MCP](sdk.md#codemode-tool-search-and-mcp) in the
 SDK page has the fields, what activates the two tools, the differences from
 Pi and a runnable example.
-
-### What is missing
-
-Not built yet, in the order the plan builds it: images in tool results and
-resources.
 
 ## Tool search
 
@@ -1640,9 +1636,31 @@ A script gets the whole result as the server sent it, without `_meta`:
 is never shortened, and a result with `isError` is returned, not raised. A
 call that fails before there is a result raises `ToolError`.
 
-Known gap: pipy tool results carry text only, so an image in a result is
-shown to the model as `[image <mime> omitted]`. A script still gets the image
-block.
+### Images in results
+
+An image block of a result (`{"type": "image", "data", "mimeType"}`) and an
+embedded resource whose `blob` has an `image/` type reach the model as
+images, between the text blocks where the server put them. The same holds
+for an image resource read with `read_mcp_resource`. pipy passes the data
+and the type on as the server sent them and does not look into the image; a
+block without data or without a type is named in a text line,
+`[image <mime> without data omitted]`. Images do not count toward the 20 KB
+limit of the text and follow the shortened text when it is cut.
+
+How a provider is sent the image, and what a model without image input gets
+instead, is described under
+[providers](providers.md#thinking-images-and-current-limits). In the
+transcript the row shows a line `[Image: [image/png] 640x480]` after the
+text. The session file stores the image, so a resumed session sends it
+again, and the file grows by the size of every image.
+
+A script that calls the tool gets the image block in `content` (or the
+`blob` of a resource); what the model sees of it is up to the script.
+
+Different from Pi: a provider that rejects an image (a type it does not
+take, data that is not an image) rejects the request, and because the result
+is stored, every later request of the session. Pi behaves the same; neither
+checks a server's image.
 
 Differences from Pi in tools:
 
@@ -1697,8 +1715,6 @@ below.
 | `oauth` | The parts of an OAuth sign-in, described under [the OAuth library](#the-oauth-library). A connection uses the flow to refresh tokens, and the sign-in runs it. |
 | `credentials` | `McpOAuthCredentialStore`: the file that keeps the OAuth state of servers, and `McpServerAuthProvider`: the auth provider that sends a server's stored token and refreshes it. Both are described under [the credentials file](#the-credentials-file). Sessions and the `pipy mcp` commands create them for the config home. |
 | `sign_in` | `sign_in_mcp_server`: [the sign-in](#sign-in-with-oauth) to one server, with the loopback callback server, a prompt object that shows the authorization URL and asks for a pasted redirect URL, and a cancel event. `/mcp login` (through the manager) and `pipy mcp login` run it. |
-
-Not built yet: images in tool results and resources.
 
 ### The OAuth library
 

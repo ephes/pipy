@@ -35,7 +35,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   omitted: model does not support images)` instead. A tool row shows an
   image as `[Image: [image/png] 640x480]` after the result's text, live,
   after a resume and in an HTML export, and the export page shows the
-  images themselves after the result.
+  images themselves after the result. An image an MCP tool returns and an
+  image resource read with `read_mcp_resource` now reach the model as
+  images, where they were the text `[image <mime> omitted]`; see
+  [images in results](docs/mcp.md#images-in-results).
 
 - More of the OAuth library for MCP servers.
   `pipy_harness.native.mcp.oauth` now holds the authorization code flow (stored or dynamically registered

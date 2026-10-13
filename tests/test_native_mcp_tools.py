@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from pipy_harness.native.agent import AgentToolCall, ProductContent
+from pipy_harness.native.agent.content import ImageContent, TextContent
 from pipy_harness.native.agent.tools import ToolExecutor
 from pipy_harness.native.codemode.declarations import (
     render_tool_output_type,
@@ -44,7 +45,7 @@ from pipy_harness.native.mcp.tools import (
     create_mcp_tool_name,
     limit_mcp_content,
     mcp_tool_namespace,
-    render_model_text,
+    model_content,
     save_to_temp_file,
     to_tool_exposure,
 )
@@ -530,17 +531,35 @@ def test_is_error_follows_javascript_truthiness(value: object, is_error: bool) -
     assert converted.structured_content == {"content": [], "isError": value}
 
 
-def test_images_are_placeholders_in_the_text_of_a_result() -> None:
+def test_images_are_image_blocks_of_a_result_in_the_servers_order() -> None:
+    # TLS-11: text blocks as text, image blocks as images.
     content = [
         {"type": "text", "text": "before"},
         {"type": "image", "data": "AAAA", "mimeType": "image/png"},
         {"type": "text", "text": "after"},
     ]
-    assert render_model_text(content) == "before\n[image image/png omitted]\nafter"
+    text, blocks = model_content(content)
+    assert text == "before\nafter"
+    assert blocks == (
+        TextContent("before"),
+        ImageContent("AAAA", "image/png"),
+        TextContent("after"),
+    )
+    assert model_content(content[:1]) == ("before", (TextContent("before"),))
+    # A block that cannot be an image is named instead.
+    for broken in (
+        {"type": "image", "data": "", "mimeType": "image/png"},
+        {"type": "image", "data": "AAAA", "mimeType": ""},
+    ):
+        text, blocks = model_content([broken])
+        assert text.startswith("[image ") and text.endswith(" without data omitted]")
+        assert blocks == (TextContent(text),)
     many = [{"type": "image", "data": "", "mimeType": "image/png"}] * 5000
-    text = render_model_text(many)
+    image = {"type": "image", "data": "AAAA", "mimeType": "image/png"}
+    text, blocks = model_content([*many, image])
     assert len(text) <= ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
     assert text.endswith("\n[pipy: MCP tool output truncated]")
+    assert blocks == (TextContent(text), ImageContent("AAAA", "image/png"))
 
 
 # --- names across tool lists ------------------------------------------------
@@ -932,8 +951,12 @@ def test_a_long_result_is_cut_for_the_model_and_whole_for_scripts() -> None:
     result = _invoke(port, {"id": 1})
     assert result.output_text.startswith("Warning: truncated output")
     assert result.output_text.endswith(
-        "[Full output: /tmp/saved.txt (read it with offset/limit)]\n"
-        "[image image/png omitted]"
+        "[Full output: /tmp/saved.txt (read it with offset/limit)]"
+    )
+    # TLS-15: images follow the one text block.
+    assert result.blocks == (
+        TextContent(result.output_text),
+        ImageContent("AAAA", "image/png"),
     )
     assert result.details == {
         "server": "docs",

@@ -11,8 +11,7 @@ structured content, and every MCP tool declares a ``CallToolResult`` output
 schema. An MCP error (``isError``) is an error result for the model, but a
 script still resolves to the result.
 
-A pipy tool result carries text only, so an image is shown to the model as
-``[image <mime> omitted]`` for now.
+An image block reaches the model as an image (``model_content``).
 """
 
 from __future__ import annotations
@@ -32,6 +31,13 @@ from dataclasses import dataclass
 from typing import Any, Final, Protocol
 from urllib.parse import urlsplit
 
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    ToolResultBlock,
+    tool_result_images,
+    tool_result_text,
+)
 from pipy_harness.native.fuzzy import js_trim
 from pipy_harness.native.mcp.client import McpRequestOptions
 from pipy_harness.native.mcp.config import mcp_namespace
@@ -648,23 +654,34 @@ def _progress_text(progress: Mapping[str, object]) -> str:
     return f"Progress {shown}{of}"
 
 
-def render_model_text(content: Sequence[LlmContent]) -> str:
-    """The text of a tool result: text blocks, and a placeholder per image."""
+def model_content(
+    content: Sequence[LlmContent],
+) -> tuple[str, tuple[ToolResultBlock, ...]]:
+    """The text and the ordered blocks of a tool result (Pi's ``content``).
 
-    text = "\n".join(
-        block["text"]
-        if block["type"] == "text"
-        else f"[image {block.get('mimeType', 'unknown type')} omitted]"
-        for block in content
-    )
-    return _bounded(node_encodable_text(text))
+    Text and image blocks reach the model as they are. Like Pi, pipy does
+    not look into an image: the server says what it is. An image block
+    without data or without a type cannot be an image block and is named in
+    a text block instead.
+    """
 
-
-def _bounded(text: str) -> str:
+    blocks: list[ToolResultBlock] = []
+    for block in content:
+        if block["type"] == "text":
+            blocks.append(TextContent(node_encodable_text(block["text"])))
+        elif block.get("data") and block.get("mimeType"):
+            blocks.append(ImageContent(block["data"], block["mimeType"]))
+        else:
+            shown = block.get("mimeType") or "unknown type"
+            blocks.append(TextContent(f"[image {shown} without data omitted]"))
+    text = tool_result_text(blocks)
     cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
-    if len(text) <= cap:
-        return text
-    return text[: cap - 64] + "\n[pipy: MCP tool output truncated]"
+    if len(text) > cap:
+        # The 20 KB limit keeps text far below this; a result of thousands of
+        # blocks without text could still pass it.
+        text = text[: cap - 64] + "\n[pipy: MCP tool output truncated]"
+        blocks = [TextContent(text), *tool_result_images(blocks)]
+    return text, tuple(blocks)
 
 
 class McpToolPort:
@@ -723,9 +740,11 @@ class McpToolPort:
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         try:
             converted = self._call(dict(request.arguments), context)
+            text, blocks = model_content(converted.content)
             return ToolExecutionResult(
                 tool_request_id=request.tool_request_id,
-                output_text=render_model_text(converted.content),
+                output_text=text,
+                blocks=blocks,
                 is_error=converted.is_error,
                 provider_correlation_id=request.provider_correlation_id,
                 details=converted.details,

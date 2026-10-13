@@ -10,11 +10,8 @@ Listings are JSON, as in Codex: ``{server?, resources: [{server,
 ``cursor`` continues it; without, every page of every server. MCP App
 resources (``ui://`` URIs and ``profile=mcp-app`` HTML) are left out, since
 they are user interfaces for hosts that render them, and so are icons. Read
-resources become text for the model; binary resources are saved to temp
-files. Scripts get the JSON payloads.
-
-A pipy tool result carries text only, so an image resource is shown to the
-model as ``[image <mime> omitted]`` for now.
+resources become text for the model, image resources images; other binary
+resources are saved to temp files. Scripts get the JSON payloads.
 """
 
 from __future__ import annotations
@@ -34,7 +31,7 @@ from pipy_harness.native.mcp.tools import (
     READ_MCP_RESOURCE_TOOL,
     McpOutputSaver,
     limit_mcp_content,
-    render_model_text,
+    model_content,
     save_to_temp_file,
     to_model_content,
     to_tool_exposure,
@@ -350,9 +347,11 @@ class McpResourceToolPort:
             content, details, payload = self._run(
                 request.arguments, context.cancel_event
             )
+            text, blocks = model_content(content)
             return ToolExecutionResult(
                 tool_request_id=request.tool_request_id,
-                output_text=render_model_text(content),
+                output_text=text,
+                blocks=blocks,
                 provider_correlation_id=request.provider_correlation_id,
                 details=details,
                 structured_content=payload,

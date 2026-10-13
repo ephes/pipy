@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from test_native_mcp_tools import _failing_saver, _saver
 
+from pipy_harness.native.agent.content import ImageContent, TextContent
 from pipy_harness.native.codemode.declarations import render_tool_signature
 from pipy_harness.native.mcp.client import McpRequestOptions
 from pipy_harness.native.mcp.protocol import McpAbortError
@@ -535,7 +536,7 @@ def test_several_contents_are_each_preceded_by_their_uri() -> None:
                     "mimeType": "application/pdf",
                     "blob": "JVBERg==",
                 },
-                # An image is a placeholder until tool results carry images.
+                # An image is an image (RES-09).
                 {
                     "uri": "file:///dir/logo.png",
                     "mimeType": "image/png",
@@ -557,8 +558,12 @@ def test_several_contents_are_each_preceded_by_their_uri() -> None:
         "[Binary resource file:///dir/report.pdf (application/pdf, 4B) "
         "saved to /tmp/saved.pdf]",
         "file:///dir/logo.png:",
-        "[image image/png omitted]",
     ]
+    assert result.blocks[-2:] == (
+        TextContent("file:///dir/logo.png:"),
+        ImageContent("AAAA", "image/png"),
+    )
+    assert [type(block) for block in result.blocks[:-1]] == [TextContent] * 7
     assert saved == [(b"%PDF", ".pdf")]
     assert isinstance(result.structured_content, dict)
     assert [entry["uri"] for entry in result.structured_content["contents"]] == [

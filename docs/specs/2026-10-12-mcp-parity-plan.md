@@ -2257,6 +2257,23 @@ Decided in S39 (images, part 3: rows and export;
 - Not built: inline images in the terminal (Pi's `Image` component with the
   Kitty and iTerm2 protocols, `terminal.showImages`, `imageWidthCells`).
 
+Decided in S39 (images, part 4: MCP image blocks and image resources;
+`mcp/tools.py`, `mcp/resources.py`):
+
+- `model_content(content)` replaces `render_model_text`: the converted
+  blocks of a result become the tool result's text and `blocks`, in the
+  server's order (TLS-11, RES-09). `convert_mcp_result`, `to_model_content`
+  and `limit_mcp_content` already produced the image blocks and put them
+  after a shortened text (TLS-15); nothing there changed.
+- Like Pi, pipy does not check a server's image (type, base64, size). An
+  image block with empty `data` or `mimeType` cannot be an `ImageContent`
+  and becomes the text `[image <mime> without data omitted]`; Pi passes it
+  on and the provider rejects it.
+- Tests: `test_native_mcp_session_images.py` runs a session against the
+  fake stdio server (a tool with an image block, an image resource), checks
+  the request in all four adapter families and a resumed session's request.
+- Codemode `image()` (CMD-28 to CMD-30) is the next commit of the slice.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
