@@ -8,6 +8,7 @@ owned by ``RunControlState`` and the collaborators assembled here.
 from __future__ import annotations
 
 import io
+import os
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -121,6 +122,7 @@ from pipy_harness.native.extensions.flag_tokens import parse_extension_flag_toke
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.mcp.commands import McpCommand, run_step_inline
 from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
+from pipy_harness.native.mcp.connection import ProviderToken
 from pipy_harness.native.mcp.credentials import (
     McpOAuthCredentialStore,
     mcp_auth_path,
@@ -130,6 +132,7 @@ from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.readiness import McpReadiness
 from pipy_harness.native.mcp.sign_in import open_browser
+from pipy_harness.native.oauth_providers import PER_REQUEST_OAUTH_PROVIDERS
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.package_runtime import (
     compose_package_runtime,
@@ -138,6 +141,7 @@ from pipy_harness.native.project_trust import (
     has_trust_requiring_project_resources,
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.provider_login_token import provider_login_token
 from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.command_menu import (
     published_command_surface,
@@ -915,7 +919,12 @@ def _compose_extension_phase(
 
     mcp = McpSession(
         partial(
-            _mcp_servers, cwd, settings, startup.resource_options, tool_capabilities
+            _mcp_servers,
+            cwd,
+            settings,
+            startup.resource_options,
+            tool_capabilities,
+            inputs.provider_state,
         ),
         tools=tool_capabilities,
         notify=_extension_notify,
@@ -1006,6 +1015,7 @@ def _mcp_servers(
     settings: SettingsManager,
     resource_options: RuntimeResourceOptions,
     tool_capabilities: NativeToolCapabilities,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
 ) -> McpServers:
     """The session's MCP servers as ``mcp.json`` and the settings say now,
     not started yet. Called at the start of the session and by every reload.
@@ -1034,6 +1044,7 @@ def _mcp_servers(
         deactivate_tools=tool_capabilities.deactivate_indirect_mcp_tools,
         log=McpServerLog(mcp_log_path(config_home)),
         credentials=McpOAuthCredentialStore(mcp_auth_path(config_home)),
+        provider_token=_provider_token(provider_state),
     )
     return McpServers(
         manager=manager,
@@ -1045,6 +1056,46 @@ def _mcp_servers(
         ),
         readiness=McpReadiness(manager, tool_capabilities.all_tools),
         enabled=enabled,
+    )
+
+
+def _provider_token(
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
+) -> ProviderToken | None:
+    """What answers an MCP server's ``auth.provider`` with that provider's
+    current token, or ``None`` for a session without provider logins: one
+    with an injected provider, or one whose auth store is unavailable.
+
+    The function it returns runs on MCP request threads. It is given the
+    path of ``auth.json``, the environment and the lock-protected OAuth
+    cache, and not the catalog's auth store, which belongs to the session
+    thread. Of the catalog it reads one thing there: whether an extension
+    registered the provider now (an immutable map that a reload replaces by
+    assignment). A snapshot taken here would be the one before a reload's
+    new extensions, because the servers are loaded first.
+    """
+
+    if not isinstance(provider_state, NativeReplProviderState):
+        return None
+    catalog = provider_state.model_runtime.catalog
+    auth_store = catalog.auth_store
+    if auth_store is None:
+        return None
+
+    def refreshes(provider: str) -> bool:
+        # As ``per_request_oauth_credential``: a login of a provider that an
+        # extension replaced is not one the built-in refresh understands.
+        return (
+            provider in PER_REQUEST_OAUTH_PROVIDERS
+            and catalog.extension_provider_for(provider) is None
+        )
+
+    return partial(
+        provider_login_token,
+        auth_path=auth_store.path,
+        env=catalog.env if catalog.env is not None else os.environ,
+        oauth_credentials=catalog.oauth_credentials,
+        refreshes=refreshes,
     )
 
 

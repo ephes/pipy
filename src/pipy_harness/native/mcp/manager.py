@@ -70,6 +70,10 @@ sign-in is in the state ``needs-auth``; the startup report names it.
 ``sign_in`` runs the sign-in of a server on its caller's thread and then
 connects the server again; ``sign_out`` deletes its credentials. ``close``
 cancels the sign-ins that are running and returns when they have ended.
+A server with ``auth.provider`` is sent the token ``provider_token`` returns
+for that provider instead; it has no MCP sign-in, and nothing watches for
+one: after ``/login <provider>`` the next call to the server, or a
+reconnect, connects it.
 
 A sign-in made elsewhere, by ``pipy mcp login`` in a shell for example, is
 noticed through the credentials file. When a connection enters
@@ -113,6 +117,7 @@ from pipy_harness.native.mcp.connection import (
     ConnectionView,
     McpServerConnection,
     McpTransportFactory,
+    ProviderToken,
     create_default_transport,
 )
 from pipy_harness.native.mcp.credentials import McpOAuthCredentialStore
@@ -314,11 +319,14 @@ class McpManager:
         update_config: UpdateMcpConfig = update_config_file,
         deactivate_tools: DeactivateTools | None = None,
         credentials: McpOAuthCredentialStore | None = None,
+        provider_token: ProviderToken | None = None,
     ) -> None:
         """``publish_tools`` receives the tools of all servers after every
         change. ``config`` is read once; ``cwd`` is the session directory.
         ``credentials`` holds the OAuth credentials of the servers; without
-        it no server is sent a token.
+        it no server is sent an OAuth token. ``provider_token`` returns the
+        current token of a provider, for servers with ``auth.provider``; it
+        is called on the threads that send requests.
         ``update_config`` saves a change made in the session and
         ``deactivate_tools`` takes a server's tools that are no longer
         ``direct`` out of the session's selection."""
@@ -341,6 +349,7 @@ class McpManager:
         self._log = log
         self._create_transport = create_transport
         self._credentials = credentials
+        self._provider_token = provider_token
         self._publication = threading.Lock()
         self._lock = threading.Lock()
         self._servers = [_Server(entry) for entry in config.servers]
@@ -1031,6 +1040,7 @@ class McpManager:
             create_transport=self._create_transport,
             log=self._log,
             credentials=self._credentials,
+            provider_token=self._provider_token,
         )
 
     def _connect(

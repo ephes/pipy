@@ -132,7 +132,8 @@ def test_an_http_server_uses_oauth_unless_it_has_an_authorization_header_or_auth
 
     (provider,) = harness.auth_providers
     assert isinstance(provider, McpServerAuthProvider) is expected
-    assert expected or provider is None
+    # A server with ``auth`` has the provider's token instead (S33).
+    assert expected or (provider is None) is ("auth" not in config)
     connection.close()
 
 
@@ -191,16 +192,10 @@ def test_asks_oauth_servers_that_keep_rejecting_requests_for_a_new_sign_in(
     assert connection.state == "closed"
 
 
-@pytest.mark.parametrize(
-    "config",
-    [
-        {"url": "http://unused.invalid/mcp", "headers": {"authorization": "x"}},
-        {"url": "https://unused.invalid/mcp", "auth": {"provider": "radius"}},
-    ],
-)
-def test_a_server_that_does_not_use_oauth_and_answers_401_has_failed(
-    config: dict[str, Any], credentials: McpOAuthCredentialStore
+def test_a_server_with_an_authorization_header_that_answers_401_has_failed(
+    credentials: McpOAuthCredentialStore,
 ) -> None:
+    config = {"url": "http://unused.invalid/mcp", "headers": {"authorization": "x"}}
     harness = _Harness([_rejecting()], config=config, credentials=credentials)
 
     with pytest.raises(McpServerConnectionError, match="failed to connect"):

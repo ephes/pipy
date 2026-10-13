@@ -453,6 +453,12 @@ class FakeOAuthMcpServer(FakeAuthorizationServer):
         )
         self.route("/mcp", self._mcp)
 
+    def accept(self, token: str) -> None:
+        """Accept ``token`` although this server did not issue it."""
+
+        with self.lock:
+            self._valid_tokens.add(token)
+
     def expire_access_tokens(self) -> None:
         """Stop accepting every access token issued so far."""
 

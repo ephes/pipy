@@ -1345,9 +1345,8 @@ in three commits:
   it (`_enter_needs_auth`, `_Link.attempt`): a late 401
   of a request on a replaced client must not hide a working connection.
   Pi marks without that check. `sign_out` follows the same rule. The text for
-  `auth.provider` (`Run /login <provider>`) is S33's, with the provider
-  token: until then an `auth` server has no auth provider and a 401 is a
-  failed connect.
+  `auth.provider` (`Run /login <provider>`) came with S33 and the provider
+  token.
 - `sign_out()` is Pi's `signOut`, built for S31's logout: nothing calls it
   yet.
 - OAU-23: `close()` first calls the provider's `close()`, after which
@@ -1490,6 +1489,57 @@ Decided in S32 (the `oauth` options; `credentials.py`, `sign_in.py`,
   `https` URL; `redirect_path` is the `redirectPath` option of Pi's
   `startOAuthMcpServer`, and `authorizations` lists the authorization
   requests.
+
+Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
+`native/provider_login_token.py`, `repl/wiring.py`):
+
+- `McpServerConnection` and `McpManager` take `provider_token`, a function
+  from a provider name to its current token or `None` (Pi `providerToken`).
+  A server with `auth.provider` gets an auth provider that asks it before
+  every request and has no `on_unauthorized`, so a 401 is not retried and
+  the connection enters `needs-auth` (CON-14 with
+  `Run /login <provider> to sign in.`). This does not depend on
+  `credentials`: without a credential store the server still gets it.
+  Without `provider_token` no token is sent, which is what `pipy mcp` does,
+  as Pi's command passes none.
+- Pi's function is `modelRegistry.getApiKeyForProvider`. pipy has no single
+  place that resolves a provider's auth, and what it has (the catalog, its
+  `AuthStore`) belongs to the session thread, while the token is asked for
+  on request threads. `provider_login_token` therefore reads `auth.json`
+  itself at every call: a stored API key (resolved with
+  `resolve_config_value`), a stored OAuth login's `access` (refreshed through
+  the session's `OAuthCredentialCache` for `PER_REQUEST_OAUTH_PROVIDERS`,
+  sent as stored otherwise), and with nothing stored the provider's API-key
+  environment variable. A stored entry owns the provider, as in Pi's
+  `resolveProviderAuth`. Any failure is no token, as Pi's function catches.
+  It reads the file with its own few lines and not with `AuthStore`, which
+  reads a damaged file as empty: the environment's key would then be sent
+  in place of a stored login.
+- Whether a login is refreshed is asked at each call (`refreshes`): a
+  per-request provider that no extension registered, the rule of
+  `ProviderCatalogState.per_request_oauth_credential`. This is the one
+  thing a request thread reads from the catalog: `extension_provider_for`,
+  one lookup in an immutable map that a reload replaces by assignment. A
+  snapshot on the session thread would be stale, because a reload loads the
+  MCP servers before it activates the new extensions.
+- The auth provider follows OAU-23: after `close()` it asks for no token
+  (`McpConnectionClosedError`), and `settled()`, which `close()` calls
+  last, waits for the calls that are running, since one may be refreshing
+  a login whose rotated credentials still have to be saved.
+- Narrower than Pi, documented in `docs/mcp.md`: a `models.json` key,
+  `--api-key`, the `openai-codex` login (its own file), ambient cloud
+  credentials, and the refresh of an OAuth login pipy does not refresh for
+  its own requests (extension providers: pipy never calls their
+  `refresh_token`/`get_api_key`). A stored `!command` key runs for every
+  MCP request; Pi caches command results per process, pipy's
+  `resolve_config_value` does not.
+- A function `provider_token` that raises fails the request with that
+  error, as a rejected `providerToken` promise does in Pi.
+- No reconnect is triggered by `/login <provider>`: as in Pi, the server
+  connects at the next call or with `/mcp reconnect`. The manager's sign-in
+  watch never fires for such a server (it has no stored MCP tokens).
+- Fixture: `FakeOAuthMcpServer.accept(token)` makes the protected MCP
+  server accept a token it did not issue.
 
 Open after the merge, owned by later slices:
 

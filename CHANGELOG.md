@@ -56,6 +56,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   mcp list` show `needs sign-in`. Such a server showed as `failed` with
   `MCP server requires authentication` before. See
   [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- `auth` in an MCP server entry: `"auth": {"provider": "<provider>"}` sends
+  an HTTP MCP server the token that `/login <provider>` stored for that
+  model provider, or the provider's API-key environment variable. The token
+  is read for every request and never stored for the server, and the server
+  never signs in with OAuth. When the server rejects it, the server shows as
+  `needs sign-in` and calls fail with `MCP server "<name>" requires
+  sign-in. Run /login <provider> to sign in.` The setting was accepted and
+  unused before; such a server that answered 401 showed as `failed`. See
+  [a provider's token](docs/mcp.md#a-providers-token).
 - `pipy mcp login <server> [--timeout <seconds>]` signs in to an HTTP MCP
   server that uses OAuth: it prints the authorization URL, opens it in the
   browser and waits for the browser to come back to a port on this machine,

@@ -58,8 +58,14 @@ nothing of this happens: a 401 is a failed connect.
 The sign-in itself is ``sign_in.py``; whoever ran it calls
 ``clear_challenge()`` and ``reconnect()``.
 
-Not built yet: the ``auth`` setting, whose server is connected without a
-token.
+Provider tokens. A server whose entry has ``auth.provider`` is sent the
+token of that provider instead: ``provider_token`` is asked for it before
+every request, and nothing of it is kept here. MCP OAuth never runs for such
+a server. ``close()`` treats it like a token refresh: it is not asked after
+``close()`` was called, and a call that is running is waited for, because it
+may be refreshing the provider's login. When it answers 401 the state becomes ``needs-auth`` as above and
+the text ends ``Run /login <provider> to sign in.`` Without
+``provider_token``, or when it returns ``None``, no token is sent.
 """
 
 from __future__ import annotations
@@ -105,6 +111,7 @@ from pipy_harness.native.mcp.protocol import (
     JsonObject,
     JsonRpcMessage,
     McpAbortError,
+    McpConnectionClosedError,
     McpError,
     is_number,
 )
@@ -185,10 +192,73 @@ def uses_oauth(entry: McpServerEntry) -> bool:
     )
 
 
+def _auth_provider_name(entry: McpServerEntry) -> str | None:
+    """The provider whose token the server is sent (``auth.provider``)."""
+
+    config = entry.config
+    auth = config.get("auth") if "url" in config else None
+    return auth["provider"] if auth else None
+
+
 def sign_in_required_message(entry: McpServerEntry) -> str:
     """What a call to a server that needs a sign-in fails with."""
 
-    return f'MCP server "{entry.name}" requires sign-in. Run /mcp to sign in.'
+    provider = _auth_provider_name(entry)
+    command = f"/login {provider}" if provider else "/mcp"
+    return f'MCP server "{entry.name}" requires sign-in. Run {command} to sign in.'
+
+
+# The current token of a provider, or ``None`` when there is none. It is
+# called on the thread that sends a request.
+ProviderToken = Callable[[str], str | None]
+
+
+class _ProviderTokenAuth:
+    """The auth provider of a server with ``auth.provider``: the provider's
+    token as it is at each request, so the provider's refreshes apply. It
+    keeps no copy and has no ``on_unauthorized``, so a 401 is not retried.
+
+    Asking for the token may refresh the provider's login and save the
+    rotated credentials, so it follows the rule of the OAuth auth provider:
+    after ``close`` nothing is asked any more, and ``settled`` waits for
+    the calls that are running.
+    """
+
+    def __init__(self, provider: str, provider_token: ProviderToken | None) -> None:
+        self._provider = provider
+        self._provider_token = provider_token
+        # Guards `_closed` and `_asking`. Never held during a call.
+        self._idle = threading.Condition()
+        self._closed = False
+        self._asking = 0
+
+    def token(self) -> str | None:
+        if self._provider_token is None:
+            return None
+        with self._idle:
+            if self._closed:
+                raise McpConnectionClosedError()
+            self._asking += 1
+        try:
+            return self._provider_token(self._provider)
+        finally:
+            with self._idle:
+                self._asking -= 1
+                self._idle.notify_all()
+
+    def close(self) -> None:
+        """Ask for no token from now on. A call that is running goes on;
+        ``settled`` waits for it."""
+
+        with self._idle:
+            self._closed = True
+
+    def settled(self) -> None:
+        """Return when no call for a token is running."""
+
+        with self._idle:
+            while self._asking:
+                self._idle.wait()
 
 
 def expand_home(value: str) -> str:
@@ -416,13 +486,15 @@ class McpServerConnection:
         create_transport: McpTransportFactory = create_default_transport,
         log: McpServerLog | None = None,
         credentials: McpOAuthCredentialStore | None = None,
+        provider_token: ProviderToken | None = None,
     ) -> None:
         """``on_tools`` is called when the tool list or the resources were
         read, ``on_change`` when the state, the error, the tools or the
         resources changed. ``log`` receives the
         server's log messages. ``cwd`` is the session directory.
         ``credentials`` holds the OAuth credentials of servers; without it
-        no server is sent a token."""
+        no server is sent an OAuth token. ``provider_token`` returns the
+        current token of a provider, for a server with ``auth.provider``."""
 
         self.entry = entry
         self._cwd = os.path.abspath(cwd)
@@ -454,7 +526,7 @@ class McpServerConnection:
         self._shutdown = threading.Event()
         # The last OAuth challenge of the server.
         self._challenge: OAuthChallenge | None = None
-        self._auth_provider = self._new_auth_provider(credentials)
+        self._auth_provider = self._new_auth_provider(credentials, provider_token)
 
     @property
     def name(self) -> str:
@@ -516,10 +588,17 @@ class McpServerConnection:
         )
 
     def _new_auth_provider(
-        self, credentials: McpOAuthCredentialStore | None
-    ) -> McpServerAuthProvider | None:
+        self,
+        credentials: McpOAuthCredentialStore | None,
+        provider_token: ProviderToken | None,
+    ) -> McpServerAuthProvider | _ProviderTokenAuth | None:
         url = self.oauth_url
-        if url is None or credentials is None:
+        if url is None:
+            provider = _auth_provider_name(self.entry)
+            if provider is None:
+                return None
+            return _ProviderTokenAuth(provider, provider_token)
+        if credentials is None:
             return None
         try:
             store = credentials.for_server(self.entry.name, url)
@@ -756,8 +835,8 @@ class McpServerConnection:
 
     def _needs_sign_in(self, error: BaseException) -> bool:
         """Whether ``error`` says that the user has to sign in: the auth
-        provider said so, or an OAuth server still answers 401 after the
-        provider had its turn (Pi ``needsSignIn``)."""
+        provider said so, or a server with an auth provider still answers
+        401 after the provider had its turn (Pi ``needsSignIn``)."""
 
         return isinstance(error, McpOAuthAuthorizationRequiredError) or (
             self._auth_provider is not None and isinstance(error, McpAuthRequiredError)

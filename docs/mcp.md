@@ -514,8 +514,8 @@ Different from Pi:
 
 Not built yet, in the order the plan builds it: enabling and disabling a
 server and changing its exposure in a session (the `/mcp` manager, which
-also has the sign-in screen that takes a pasted redirect URL), the `auth`
-setting, servers registered by extensions, and images in tool results and resources.
+also has the sign-in screen that takes a pasted redirect URL), servers
+registered by extensions, and images in tool results and resources.
 
 ## Tool search
 
@@ -672,7 +672,8 @@ when a server is connected is described under
   `/callback`. What the settings do is described under
   [OAuth settings](#oauth-settings).
 - `auth` needs a non-empty `provider` and a server URL that is `https`, or
-  `http` on a loopback host.
+  `http` on a loopback host. What it does is described under
+  [a provider's token](#a-providers-token).
 - An invalid entry is reported as `<path>: <reason>` and skipped. The other
   entries, and the other file, still load. A file that is not JSON, or whose
   top level or `mcpServers` is not an object, is reported as a whole.
@@ -931,7 +932,8 @@ A server with a `url` is reached over
 [streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
 Every request carries the configured `headers`. A server without an
 `Authorization` header is also sent the OAuth token stored for it, see
-[sign-in with OAuth](#sign-in-with-oauth).
+[sign-in with OAuth](#sign-in-with-oauth), or with `auth` the token of a
+provider, see [a provider's token](#a-providers-token).
 
 - A connect that fails because the server cannot be reached, or because it
   answers with status 408, 429 or 5xx other than 501, is made again after
@@ -1000,10 +1002,11 @@ Nothing else opens a browser; connections use what is stored:
   works when the agent runs it through `bash`: the model's next turn can
   use the server. Escape while such a server connects cancels the run; the
   server goes on connecting.
-- A server with an `Authorization` header or `auth` that answers 401 is a
-  failed server with the error `MCP server requires authentication`, as is
-  any server asked by code that was given no credential store. A server
-  with `auth` is connected without a token for now.
+- A server with an `Authorization` header that answers 401 is a failed
+  server with the error `MCP server requires authentication`, as is any
+  server without `auth` asked by code that was given no credential store.
+  A server with `auth` never signs in with OAuth; see
+  [a provider's token](#a-providers-token).
 
 What a sign-in does:
 
@@ -1124,11 +1127,69 @@ no `clientMetadataBaseUrl`. The `<id>` is computed over the URL as pipy's
 URL parser reads it, which for a URL with unusual characters may not be the
 text Pi's parser produces.
 
+### A provider's token
+
+Some MCP servers accept the token of a model provider you are logged in to.
+For such a server, name the provider in the user-level `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "radius": {
+      "url": "https://mcp.radius.example/mcp",
+      "auth": { "provider": "radius" }
+    }
+  }
+}
+```
+
+- Every request to the server carries `Authorization: Bearer <token>` with
+  the token the provider has at that moment. pipy asks for it before each
+  request and keeps no copy, so a login, a logout or a refreshed token
+  applies to the next request. Nothing is written to `mcp-auth.json`.
+- The token is what is stored for the provider in
+  [the auth store](providers.md#credentials-and-auth-sources), `auth.json`,
+  where `/login <provider>` puts a login: an API key entry (the name of a set
+  environment variable is that variable's value, `!command` is the output
+  of the command, which then runs for every request), or the access token
+  of a stored OAuth login. A `github-copilot` or `openai` login is
+  refreshed first when it expires within five minutes, as before a model
+  request (not when an extension registered a provider of that name). When nothing is stored for the provider, its API-key environment
+  variable is used. A provider without any of these has no token, and the
+  request carries none. The same holds when `auth.json` exists and cannot
+  be read: the environment variable is not used in its place.
+- The server never signs in with OAuth: `/mcp login` and `pipy mcp login`
+  answer that it does not use OAuth, and a 401 is not answered with a
+  refresh.
+- When the server answers 401, it is in the state `needs-auth`, and the
+  connect or the call fails with `MCP server "<name>" requires sign-in. Run
+  /login <provider> to sign in.` The startup report and `/mcp` list it as
+  `needs sign-in`. After `/login <provider>`, the next call to the server
+  connects it again; `/mcp reconnect <name>` does so at once.
+- `auth` is refused in a project file, and needs an `https` URL or a
+  loopback host, so a project cannot send your token anywhere
+  ([configuration rules](#configuration-rules)).
+
+Differences from Pi:
+
+- Pi answers with whatever its model registry resolves for the provider.
+  pipy reads `auth.json` and the environment only: a key that `models.json`
+  configures for the provider, `--api-key`, the `openai-codex` login (kept
+  in its own file) and ambient cloud credentials are no token for an MCP
+  server.
+- An OAuth login that pipy does not refresh before its own model requests
+  (a provider an extension registered, for example) is sent as stored.
+- `pipy mcp list` knows no provider logins, as `pi mcp list` does not: it
+  sends such a server no token, reports `needs sign-in` when the server
+  wants one, and then prints `sign in with: pipy mcp login <name>`, which
+  does not apply to this server. Log in to the provider in a session.
+
 ### States
 
 A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
 `failed` or `closed`. `needs-auth` is described under
-[sign-in with OAuth](#sign-in-with-oauth).
+[sign-in with OAuth](#sign-in-with-oauth) and
+[a provider's token](#a-providers-token).
 
 - The first call connects. Calls that arrive while a connect is in progress
   wait for that one attempt. A stdio connect is not retried; an
@@ -1159,6 +1220,7 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
   process is gone, or the HTTP session ended. Calls then fail with `MCP server "<name>" is shut down`.
   From the moment a server is closed no token refresh starts for it, and
   closing waits for one that is running, so that its new tokens are saved.
+  The same holds for asking for [a provider's token](#a-providers-token).
 
 pipy tells the server its name (`pipy`) and version, and announces one root:
 the session directory as a `file://` URI, named by its last path component.
@@ -1323,7 +1385,7 @@ standard library. It is not part of the SDK surface.
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). |
 | `config` | Validation, loading and editing of `mcp.json`, as described above. |
 | `config_values` | `${NAME}` and `!command` in config values. |
-| `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
+| `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), its `provider_token` function for a server with [`auth`](#a-providers-token), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
 | `log` | The `mcp.log` writer. |
 | `tools` | Names, definitions and tool ports for a server's tools, and the conversion of results, as described under [server tools](#server-tools). |
 | `resources` | `create_mcp_resource_tools`: the three [resource tools](#use-resources) over the servers a function returns at call time; `is_mcp_app_resource`. |
@@ -1344,10 +1406,9 @@ manager.
 `pipy_harness.native.mcp.oauth` holds the parts of a sign-in to an HTTP MCP
 server. A connection uses the flow to refresh a stored token
 ([sign-in with OAuth](#sign-in-with-oauth)), and `/mcp login` and
-[`pipy mcp login`](#log-in-and-out) sign in with it. The `auth` setting of a
-server entry is checked when the file is read and otherwise unused. This
-section describes what the
-modules do for those who read or build on the code.
+[`pipy mcp login`](#log-in-and-out) sign in with it. A server with `auth`
+uses none of it ([a provider's token](#a-providers-token)). This section
+describes what the modules do for those who read or build on the code.
 
 | Module | What it does |
 | --- | --- |
