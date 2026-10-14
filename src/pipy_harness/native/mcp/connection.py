@@ -19,10 +19,12 @@ is not, since it may have run.
 Threads. An attempt runs on a daemon thread of its own (``mcp-connect``), so
 the callers that wait for it can give up when their cancel event is set. A
 ``notifications/tools/list_changed`` or ``notifications/resources/list_changed``
-is handled on a second daemon thread (``mcp-refresh``) that lives only while
-a refresh is wanted, because a notification listener runs on the client's
-reading thread and must not send a request. That thread lists one kind after
-the other, so a slow resource listing delays a tool refresh. While a server
+is handled on a daemon thread that lives only while a refresh of its kind is
+wanted, because a notification listener runs on the client's reading thread
+and must not send a request. The tools (``mcp-refresh``) and the resources
+(``mcp-refresh-resources``) have a thread each, so neither listing waits for
+the other (Pi ``refreshTools``, ``refreshResources``). One kind is listed by
+one thread at a time, and again when it changed meanwhile. While a server
 connects, its resources are listed on a thread ``mcp-resources`` next to the
 tool listing. One lock guards the connection's state; it is never held while the
 connection calls a client, a transport or a callback. The connection takes a
@@ -425,6 +427,17 @@ class _StartReporting:
         self._transport.set_protocol_version(version)
 
 
+class _Refresh:
+    """One list of a link that the server may say has changed: whether it
+    is to be listed again, and whether a thread is doing that."""
+
+    __slots__ = ("running", "wanted")
+
+    def __init__(self) -> None:
+        self.wanted = False
+        self.running = False
+
+
 class _Link:
     """One client and what belongs to it. Fields are guarded by the connection lock."""
 
@@ -433,10 +446,9 @@ class _Link:
         "calls",
         "client",
         "expired",
-        "refresh_wanted",
-        "refreshing",
-        "resources_wanted",
+        "resource_refresh",
         "stdio",
+        "tool_refresh",
         "transport_closed",
     )
 
@@ -445,11 +457,10 @@ class _Link:
         self.stdio: StdioTransport | None = None
         # Set by the transport when it has finished closing.
         self.transport_closed = threading.Event()
-        # Which lists the server said have changed, and whether a thread is
-        # listing them again.
-        self.refresh_wanted = False
-        self.resources_wanted = False
-        self.refreshing = False
+        # The two lists the server may say have changed. Each is listed
+        # again on a thread of its own.
+        self.tool_refresh = _Refresh()
+        self.resource_refresh = _Refresh()
         # How many requests of the connection's callers are in flight on the
         # client, and whether the server said that its session expired. An
         # expired client is closed when the count is back at zero.
@@ -1091,7 +1102,7 @@ class McpServerConnection:
             # Registered before the client starts the transport, so the close
             # of a transport that started is always heard.
             transport.on_close(lambda: self._transport_closed(link))
-            refresh = self._set_up(link, transport)
+            refreshes = self._set_up(link, transport)
         except BaseException:
             with self._lock:
                 if self._pending_link is link:
@@ -1105,8 +1116,8 @@ class McpServerConnection:
                     self._failed_stderr = _stderr_tail(transport) or None
             raise
         self._changed(tools=True)
-        if refresh:
-            self._start_refresher(link)
+        for resources in refreshes:
+            self._start_refresher(link, resources=resources)
         return client
 
     def _new_client(self) -> McpClient:
@@ -1131,12 +1142,13 @@ class McpServerConnection:
             )
         return client
 
-    def _set_up(self, link: _Link, transport: McpTransport) -> bool:
+    def _set_up(self, link: _Link, transport: McpTransport) -> list[bool]:
         """Connect ``link``'s client, list the tools and the resources and
         publish the link.
 
-        Returns whether the tools or the resources changed while they were
-        being listed, in which case the caller starts a refresh.
+        Returns the refreshes the caller starts, each as the ``resources``
+        argument of ``_start_refresher``: one for the tools and one for the
+        resources, when they changed while they were being listed.
         """
 
         client = link.client
@@ -1192,8 +1204,16 @@ class McpServerConnection:
             self._instructions = instructions
             self._state = "connected"
             self._error = None
-            link.refreshing = link.refresh_wanted or link.resources_wanted
-            return link.refreshing
+            link.tool_refresh.running = link.tool_refresh.wanted
+            link.resource_refresh.running = link.resource_refresh.wanted
+            return [
+                resources
+                for resources, refresh in (
+                    (False, link.tool_refresh),
+                    (True, link.resource_refresh),
+                )
+                if refresh.running
+            ]
 
     def _connect_failed(self, error: Exception) -> str:
         """Record a failed connect; return the text its callers are given."""
@@ -1255,58 +1275,59 @@ class McpServerConnection:
         with self._lock:
             if self._closed or link not in (self._link, self._pending_link):
                 return
-            if resources:
-                link.resources_wanted = True
-            else:
-                link.refresh_wanted = True
-            if link is not self._link or link.refreshing:
+            refresh = link.resource_refresh if resources else link.tool_refresh
+            refresh.wanted = True
+            if link is not self._link or refresh.running:
                 # A link that is still connecting is refreshed once it is
                 # published; a running refresher lists again.
                 return
-            link.refreshing = True
-        self._start_refresher(link)
+            refresh.running = True
+        self._start_refresher(link, resources=resources)
 
-    def _start_refresher(self, link: _Link) -> None:
+    def _start_refresher(self, link: _Link, *, resources: bool) -> None:
+        """Start the thread that lists ``link``'s tools, or its resources,
+        again. The caller has set ``running`` of that refresh."""
+
         try:
             threading.Thread(
                 target=self._refresh,
-                args=(link,),
-                name="mcp-refresh",
+                args=(link, resources),
+                name="mcp-refresh-resources" if resources else "mcp-refresh",
                 daemon=True,
             ).start()
         except RuntimeError as error:
             with self._lock:
-                link.refreshing = False
+                refresh = link.resource_refresh if resources else link.tool_refresh
+                refresh.running = False
             self._refresh_failed(link, error)
 
-    def _refresh(self, link: _Link) -> None:
-        """List again what the server said has changed, one list per round,
-        until nothing is wanted."""
+    def _refresh(self, link: _Link, resources: bool) -> None:
+        """List the tools, or the resources, again until the server has not
+        said meanwhile that they changed once more."""
 
+        refresh = link.resource_refresh if resources else link.tool_refresh
         while True:
             with self._lock:
-                wanted = link.refresh_wanted or link.resources_wanted
-                if self._link is not link or self._closed or not wanted:
-                    link.refreshing = False
+                if self._link is not link or self._closed or not refresh.wanted:
+                    refresh.running = False
                     return
-                tools_wanted = link.refresh_wanted
-                if tools_wanted:
-                    link.refresh_wanted = False
-                else:
-                    link.resources_wanted = False
-            if not tools_wanted:
+                refresh.wanted = False
+            if resources:
                 self._refresh_resources(link)
-                continue
-            try:
-                tools = link.client.list_tools()
-            except Exception as error:  # noqa: BLE001 - recorded as the connection's error
-                self._refresh_failed(link, error)
-                continue
-            with self._lock:
-                if self._link is not link or self._closed:
-                    continue
-                self._tools = tuple(tools)
-            self._changed(tools=True)
+            else:
+                self._refresh_tools(link)
+
+    def _refresh_tools(self, link: _Link) -> None:
+        try:
+            tools = link.client.list_tools()
+        except Exception as error:  # noqa: BLE001 - recorded as the connection's error
+            self._refresh_failed(link, error)
+            return
+        with self._lock:
+            if self._link is not link or self._closed:
+                return
+            self._tools = tuple(tools)
+        self._changed(tools=True)
 
     def _refresh_resources(self, link: _Link) -> None:
         resources, templates = _fetch_resources(link.client)

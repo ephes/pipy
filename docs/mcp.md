@@ -1621,7 +1621,9 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
   the earlier tools stay.
 - The resources and URI templates are listed, next to the tools, only when
   the server declares the `resources` capability, and again when it sends
-  `notifications/resources/list_changed`. They are only counted: by
+  `notifications/resources/list_changed`. A change of the tools and a change
+  of the resources are read independently, so a slow listing of one does
+  not hold up the other. The resources are only counted: by
   `pipy mcp list`, and in the state of a connected server that the
   `/mcp reconnect` completion shows (`connected · 2 tools · 3 resources`). A
   listing that fails counts as empty and is no error of the server. What is

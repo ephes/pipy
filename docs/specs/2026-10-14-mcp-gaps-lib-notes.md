@@ -129,3 +129,48 @@ Plan rows and texts:
   transport's strict URL split, not a WHATWG URL parser; a name lookup
   cannot be interrupted (in Pi the fetch rejects at once and the lookup ends
   on a libuv thread).
+
+## L1, commit 3: C5 (tool and resource refreshes run independently)
+
+Pi source read again:
+`packages/coding-agent/src/extensions/mcp/runtime.ts`, `connectOnce` (lines
+399 to 404: each of the two notification listeners starts
+`void this.refreshTools(client)` or `void this.refreshResources(client)`)
+and the two functions (lines 458 to 477). The finding holds: in pipy one
+thread listed one kind after the other, so `tools/list` waited for a
+resource listing that the server was slow to answer, for up to the request
+timeout.
+
+What changed, in `src/pipy_harness/native/mcp/connection.py`:
+
+- A link keeps one refresh state per kind (`tool_refresh`,
+  `resource_refresh`), and each kind is listed again on a thread of its own:
+  `mcp-refresh` for the tools as before, `mcp-refresh-resources` for the
+  resources. A change of one kind never waits for a listing of the other.
+- Unchanged: one listing of a kind runs at a time, and a change that arrives
+  during it is read by one more listing; changes announced while the server
+  connects are read after the connection is published, now by up to two
+  threads.
+
+Changelog line (section Unreleased):
+
+- A server's changed tool list is read again at once, also while the server
+  is slow to answer a listing of its resources (and the other way round).
+  Before, the two were read one after the other.
+
+Plan rows and texts:
+
+- CON-05 and RES-10 stay closed.
+- Section 4.1, in the S15 block: "A tool list change is handled by a thread
+  (`mcp-refresh`) that lives only while a refresh is wanted" still holds for
+  the tools; add that resource changes have a thread of their own,
+  `mcp-refresh-resources`.
+- Section 4.1, in the S23 block: remove "`notifications/resources/list_changed`
+  uses the refresh thread of the tool list; it lists one kind per round, so a
+  slow resource listing delays a tool refresh (Pi runs them independently)".
+  New text: `notifications/resources/list_changed` is handled like a tool
+  list change, on a thread of its own, as Pi runs the two independently.
+- A difference from Pi that stays, as before this change: Pi starts one
+  listing per notification, so several of one kind may overlap and the last
+  answer wins; pipy runs one listing of a kind at a time and lists once more
+  when a change arrived meanwhile.
