@@ -73,7 +73,8 @@ Recognized command names do not imply implemented behavior:
   history/usage; thinking-only refreshes retain them. `enabledModels` scopes
   model cycling when effective, and model/thinking no-ops emit no event. An
   injected provider remains a static singleton with `off` thinking.
-- `get_commands` returns an empty command list. `get_session_stats` counts
+- `get_commands` lists the extension commands, prompt templates and skills a
+  `prompt` can run. `get_session_stats` counts
   messages and tool calls/results and reports the live session's Pi-shaped
   `tokens` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `total`) and
   catalog-priced `cost`. Those totals restart at a model switch and are not

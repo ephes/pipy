@@ -171,6 +171,10 @@ from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
 )
 from pipy_harness.native.repl.selector_actions import slash_argument_completer
+from pipy_harness.native.repl.session_command_port import (
+    SessionCommandPort,
+    bind_session_command_port,
+)
 from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseRegistry,
     CanonicalSessionLeaseSlot,
@@ -1898,6 +1902,16 @@ def _compose_collaborators(
         ),
         session_commands=extension.mcp.commands,
         mcp=extension.mcp,
+    )
+    bind_session_command_port(
+        inputs.automation_observer,
+        SessionCommandPort(
+            extension_commands=extension_operations.commands,
+            session_commands=extension.mcp.commands,
+            resources=lambda: ctl.workspace_resources,
+            run_command=collaborators.dispatch_extension_effect,
+            report_error=extension.extension_error,
+        ),
     )
     transition = SessionTransitionCoordinator(
         workspace=cwd,

@@ -259,3 +259,56 @@ in, one section per item.
   answer, widget filtering and the terminal-only no-ops, a terminal driver
   that gets no timeout); `tests/test_native_automation_rpc.py::test_prepare_failure_publishes_startup_failure_before_command_intake`
   now pins that a command read before a failed startup never runs.
+
+## N2-d: commands in queued RPC input, and get_commands (goal-check E17, SLH-13)
+
+### Changelog (Unreleased)
+
+- Changed: RPC `steer` and `follow_up` whose text names an extension
+  command (also `/mcp`) fail with Pi's `Extension command "/<name>" cannot
+  be queued. Use prompt() or execute the command when not streaming.`; a
+  skill command or prompt template in them, and in a `prompt` queued behind
+  a run, is expanded when it is queued. A `prompt` that names an extension
+  command during a run runs it at once and is answered `handled` (a failure
+  is an `extension_error`).
+- Changed: RPC `get_commands` lists the extension commands (with `/mcp`),
+  prompt templates (with pipy's custom commands) and skills
+  (`skill:<name>`); it answered an empty list before.
+
+### Plan / backlog updates
+
+- Row SLH-13 is closed except the `input` hooks at queue time (below). The
+  plan's 3.2 audit "Open: SLH-13" and the status paragraph change to
+  "closed with a limit"; DEV-42 (`get_commands` empty) is closed.
+- "Decided in X1 (prompts of the automation modes)", "Not built (SLH-13)":
+  replace with: `repl/session_command_port.py` `SessionCommandPort`
+  (`command_name`, `run`, `expand`, `commands`), handed to the transport by
+  `bind_session_command_port(observer, port)` (the RPC server's
+  `bind_session_commands`) while the session is composed; it reads only
+  published state (the extension generation through
+  `SessionExtensionOperations.commands()`, `ctl.workspace_resources`, the MCP
+  command view) and runs a command through
+  `SessionCollaborators.dispatch_extension_effect`. The RPC server checks
+  `steer`/`follow_up` on the command thread; a `prompt` that names a command
+  while the bridge has a reservation runs on a thread of its own (so the
+  command thread keeps reading and dialogs get answers), concurrently with
+  the run, as Pi's does; a queued prompt is expanded before admission.
+- Still different (new 3.1 difference, "narrower"): the `input` hooks do not
+  run when a message is queued (Pi runs them in `_queueUserInput` and
+  `prompt`); a queued message that later runs while idle meets them before
+  its run, after expansion; one taken by the run in flight does not. The
+  expansion of queued input records no resource invocation. A `prompt`
+  admitted just as the run ends may be expanded twice when its expansion
+  starts with `/` and names another template (race between the busy check
+  and the admission). `get_commands`' `sourceInfo` has only `path`.
+- docs/backlog.md (not edited on this track): the "Missing RPC commands"
+  entry's "`get_commands` answers an empty list" and the "Commands in queued
+  input" entry are done.
+
+### Acceptance note / audit test
+
+- SLH-13: tests `tests/test_native_automation_rpc_queued_commands.py`
+  (refused steer/follow_up for an extension command, `/mcp` and a failing
+  one; a command prompt run during a held run; its failure as
+  `extension_error`; expansion of queued steer, follow-up and prompt;
+  `get_commands`).

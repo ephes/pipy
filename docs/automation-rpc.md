@@ -659,10 +659,15 @@ The ID is `null` only for an explicitly non-persistent native session; a
 persistent session requires the exact retained durable entry ID.
 
 `RpcSlashCommand` (`get_commands`): `name: string`, `description?: string`,
-`source: "extension" | "prompt" | "skill"`, `sourceInfo: object`. Pi lists
-its extension commands, prompt templates, and skills (`skill:<name>`); pipy
-answers an empty list today, although a prompt
-[runs them](#commands-in-a-prompt).
+`source: "extension" | "prompt" | "skill"`, `sourceInfo?: object`. As in Pi
+the list holds the extension commands (with `/mcp` while MCP is on), then
+the prompt templates, then the skills (`skill:<name>`): what a `prompt`
+[runs or expands](#commands-in-a-prompt). pipy's custom commands
+(`.pipy/commands`) are listed with the templates, as `prompt`, since they
+expand the same way. Different from Pi: `sourceInfo` has only `path`, the
+file's path as pipy shows it (relative to the workspace, or
+`<global>/...`), or the extension that registered the command; `/mcp` has
+none.
 
 ### Mid-turn steering, follow-up, and abort
 
@@ -1059,7 +1064,9 @@ that raises, a tool that fails) are reported as before, on stderr.
 - On shutdown pipy unsubscribes event listeners, disposes the runtime, flushes
   stdout (except on SIGTERM), and exits. It joins tracked direct-bash workers;
   explicit abort and timeout terminate their child process groups before the
-  terminal response is written.
+  terminal response is written. At the end of input it first waits, without
+  a limit, for an extension command that a `prompt` started during a run
+  (its dialogs end with their default) and writes that prompt's response.
 - The end of input lets the run in flight and the queued messages finish
   first. SIGTERM and SIGHUP do not: the run and the running direct-bash
   commands are aborted and queued steering and follow-up messages are
@@ -1088,6 +1095,17 @@ not lines typed into a session.
 
 The text is not trimmed: ` /mcp` with a leading space is a prompt.
 
+Input queued while a run is in flight follows the same rules, as in Pi:
+
+- `steer` and `follow_up` whose text names an extension command (also
+  `/mcp`, and also while the session is idle) fail with
+  `Extension command "/<name>" cannot be queued. Use prompt() or execute the command when not streaming.`
+- A `prompt` that names an extension command runs it at once, while the run
+  goes on, and is answered `handled` when the command returned; a failure
+  is an [`extension_error`](#extension-errors) before that response.
+- Otherwise a skill command or prompt template is expanded when the message
+  is queued, so `queue_update` and the run see the expanded text.
+
 What a handled prompt (case 1, or a hook that handled it) looks like:
 
 | Mode | Result |
@@ -1113,17 +1131,12 @@ A line typed into a session keeps pipy's report
 
 Different from Pi:
 
-- `steer`, `follow_up` and a `prompt` sent while a run is in flight are
-  queued as they are. A queued text that names an extension command reaches
-  the model as text, and a queued skill or template name is not expanded.
-  Pi refuses `steer` and `follow_up` for an extension command (`Extension
-  command "/<name>" cannot be queued. ...`), runs such a `prompt` at once,
-  and expands skills and templates when it queues a message.
+- The `input` hooks do not see a `steer`, `follow_up` or `prompt` that is
+  queued behind a run when it is queued; Pi runs them then. One that runs
+  when the session is idle meets them before its run, after its expansion.
 - A skill that is unknown or cannot be read, and a template that expands to
   nothing, say so on stderr; the text then goes to the model unchanged.
   Custom commands (`.pipy/commands`) expand like templates.
-- `get_commands` answers an empty list; Pi lists the extension commands,
-  prompt templates and skills.
 
 The interactive session is not affected: a line typed into the terminal UI
 or the plain REPL, also one piped to `pipy` without `--print`, runs the

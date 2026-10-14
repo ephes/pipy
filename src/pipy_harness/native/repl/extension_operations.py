@@ -45,6 +45,7 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
+    RegisteredCommand,
 )
 from pipy_harness.native.extensions.dispatch import (
     ExtensionCommandDispatch,
@@ -134,6 +135,12 @@ class SessionExtensionOperations:
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
         )
+
+    def commands(self) -> Mapping[str, RegisteredCommand]:
+        """The extension commands of the published generation."""
+
+        projection, _driver, _generation_id = self._projection()
+        return projection.commands.commands
 
     def dispatch_shortcut(
         self,
